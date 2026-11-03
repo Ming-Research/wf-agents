@@ -38,8 +38,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub use compiled::{
-    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse, Stats,
-    ToolUse, found_at, misfits, valid, without_null_options,
+    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, Misfit, NotTaken,
+    RuleUse, Stats, ToolUse, found_at, misfit_places, misfits, valid, without_null_options,
 };
 pub use run::Position;
 pub use texts::cells_named;

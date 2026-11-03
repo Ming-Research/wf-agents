@@ -312,19 +312,41 @@ impl CompiledGraph {
     /// field it sits in, and the first row whose conditions hold. `given` holds the values the engine knows and
     /// rows recorded, and each input read by id under `@<id>`. A return that does not fit the schema is refused
     /// with every place it does not fit ([`misfits`]), each on a line of its own when there are several.
+    /// [`CompiledGraph::take_or_places`] gives each place besides this text.
     pub fn take(&self, cell: &str, ret: &Value, given: &Map<String, Value>) -> Result<&CompiledRow, String> {
-        let c = self.cell(cell).ok_or_else(|| format!("no such cell: {cell}"))?;
+        self.take_or_places(cell, ret, given).map_err(|n| n.text)
+    }
+
+    /// [`CompiledGraph::take`], and for a return that is refused, each place it does not fit besides the text it is
+    /// refused with. The one implementation of taking a return.
+    pub fn take_or_places(
+        &self,
+        cell: &str,
+        ret: &Value,
+        given: &Map<String, Value>,
+    ) -> Result<&CompiledRow, NotTaken> {
+        // A refusal that is not about a place of the return: the sentence is its one place.
+        let whole = |text: String| NotTaken {
+            places: vec![Misfit {
+                field: None,
+                text: text.clone(),
+            }],
+            text,
+        };
+        let c = self.cell(cell).ok_or_else(|| whole(format!("no such cell: {cell}")))?;
         if let Some(s) = &c.schema {
-            match misfits(s, ret, "").as_slice() {
-                [] => {}
-                [one] => return Err(format!("the return does not fit the schema of {cell}: {one}")),
-                many => {
-                    return Err(format!(
-                        "the return does not fit the schema of {cell} in {} places:\n{}",
-                        many.len(),
-                        many.join("\n")
-                    ));
-                }
+            let places = misfit_places(s, ret, "");
+            let text = match places.as_slice() {
+                [] => None,
+                [only] => Some(format!("the return does not fit the schema of {cell}: {}", only.text)),
+                many => Some(format!(
+                    "the return does not fit the schema of {cell} in {} places:\n{}",
+                    many.len(),
+                    many.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n")
+                )),
+            };
+            if let Some(text) = text {
+                return Err(NotTaken { text, places });
             }
         }
         let x = if c.kind == CellKind::Agent.name() {
@@ -336,7 +358,7 @@ impl CompiledGraph {
         c.rows
             .iter()
             .find(|r| r.conditions.iter().all(|a| holds(a, &x, given, &forms)))
-            .ok_or_else(|| format!("no row of {cell} takes the return"))
+            .ok_or_else(|| whole(format!("no row of {cell} takes the return")))
     }
 
     /// What the rows read of an agent's return: the form taken out of its field, beside the fields of every return.
@@ -424,6 +446,26 @@ fn holds(a: &Atom, x: &Value, given: &Map<String, Value>, forms: &[&str]) -> boo
     }
 }
 
+/// One place where a return does not fit its schema.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Misfit {
+    /// The path of the field that is wrong or missing, a list's items written `[]` (`columns[].evidence`) so that the
+    /// same fault in any item is the same path; none for the return as a whole. The sentence keeps the item's index.
+    pub field: Option<String>,
+    /// The sentence that says it and how to put it right.
+    pub text: String,
+}
+
+/// Why a cell took no row for a return: the text the agent is told, and each place it is about.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NotTaken {
+    /// The refusal as the agent reads it: [`CompiledGraph::take`] gives this and nothing else.
+    pub text: String,
+    /// The places of a return that does not fit the schema, in order; for a refusal that is about no place of the
+    /// return (no such cell, no row that takes it), its sentence as the one place, with no field.
+    pub places: Vec<Misfit>,
+}
+
 /// Every place where `x` does not fit `s`, and why, in words that say how to put it right, in the order they are found;
 /// none when it fits. An object lists each field it requires that is missing and, when it takes no other, each field the
 /// value holds that is not one of its own, and then goes down into each field the value holds; a list into each of its
@@ -431,20 +473,59 @@ fn holds(a: &Atom, x: &Value, given: &Map<String, Value>, forms: &[&str]) -> boo
 /// the one the value picks by a field whose fixed value tells them apart, or else the only one that has every field the
 /// value has, is followed, and all that does not fit it is listed; a place is listed once.
 pub fn misfits(s: &Value, x: &Value, at: &str) -> Vec<String> {
+    misfit_places(s, x, at).into_iter().map(|m| m.text).collect()
+}
+
+/// [`misfits`], each place with the path of the field it is about: of a field that is missing or not one of the
+/// schema's, that field's own path; of a value of the wrong kind or not one of the allowed values, its own.
+pub fn misfit_places(s: &Value, x: &Value, at: &str) -> Vec<Misfit> {
     let mut out = Vec::new();
-    collect(s, x, at, &mut out);
+    collect(s, x, at, &generic(at).unwrap_or_default(), &mut out);
     out
 }
 
-/// Adds a place to a list of them unless it is there already.
-fn note(out: &mut Vec<String>, place: String) {
-    if !out.contains(&place) {
-        out.push(place);
+/// Adds a place about the field `field` (its path with a list's items written `[]`, empty for the whole return) to a
+/// list of them unless it is there already, word for word.
+fn note(out: &mut Vec<Misfit>, field: &str, text: String) {
+    if !out.iter().any(|m| m.text == text) {
+        out.push(Misfit {
+            field: (!field.is_empty()).then(|| field.to_string()),
+            text,
+        });
     }
 }
 
-/// The places of `misfits`, added to `out`. A value that does not fit is always told by at least one.
-fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<String>) {
+/// The path a caller gives to `misfit_places` (`outcome.rows[2]`) with each index of a list written `[]`; none for the
+/// whole return, whose path is empty. Only a path the caller built is read so: a name the agent wrote in the return
+/// is added to the field as it is, by [`field`].
+fn generic(path: &str) -> Option<String> {
+    if path.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(path.len());
+    let mut rest = path;
+    while let Some(i) = rest.find('[') {
+        let (head, tail) = rest.split_at(i);
+        out.push_str(head);
+        match tail.find(']') {
+            Some(j) if j > 1 && tail[1..j].bytes().all(|b| b.is_ascii_digit()) => {
+                out.push_str("[]");
+                rest = &tail[j + 1..];
+            }
+            _ => {
+                out.push('[');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    Some(out)
+}
+
+/// The places of `misfits`, added to `out`. A value that does not fit is always told by at least one. `at` is the path
+/// of the value as the sentences write it (`columns[0].evidence`); `g` is the same path as the field of a place writes
+/// it (`columns[].evidence`), made alongside, since a name the agent wrote that looks like an index is a name.
+fn collect(s: &Value, x: &Value, at: &str, g: &str, out: &mut Vec<Misfit>) {
     if valid(s, x) {
         return;
     }
@@ -452,38 +533,46 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<String>) {
     let before = out.len();
     let here = if at.is_empty() { "the return" } else { at };
     if let Some(c) = o.get("const") {
-        note(out, format!("{here} is {x}, and must be {c}"));
+        note(out, g, format!("{here} is {x}, and must be {c}"));
         return;
     }
     if let Some(Value::Array(e)) = o.get("enum") {
-        note(out, format!("{here} is {x}, and must be one of {}", joined(e.iter())));
+        note(
+            out,
+            g,
+            format!("{here} is {x}, and must be one of {}", joined(e.iter())),
+        );
         return;
     }
     match (o.get("oneOf"), o.get("anyOf")) {
-        (Some(Value::Array(bs)), _) => return alternatives(bs, x, at, here, out),
-        (_, Some(Value::Array(bs))) if !o.contains_key("type") => return alternatives(bs, x, at, here, out),
+        (Some(Value::Array(bs)), _) => return alternatives(bs, x, at, g, here, out),
+        (_, Some(Value::Array(bs))) if !o.contains_key("type") => return alternatives(bs, x, at, g, here, out),
         _ => {}
     }
     let kind = kind_of(x);
     match o.get("type").and_then(Value::as_str).unwrap_or_default() {
         "array" => {
             let Some(xs) = x.as_array() else {
-                note(out, format!("{here} must be a list, and is {kind}"));
+                note(out, g, format!("{here} must be a list, and is {kind}"));
                 return;
             };
             let min = o.get("minItems").and_then(Value::as_u64).unwrap_or(0);
             if (xs.len() as u64) < min {
-                note(out, format!("{here} must hold at least {min}, and holds {}", xs.len()));
+                note(
+                    out,
+                    g,
+                    format!("{here} must hold at least {min}, and holds {}", xs.len()),
+                );
             }
             if let Some(it) = o.get("items") {
                 for (i, v) in xs.iter().enumerate() {
-                    collect(it, v, &format!("{at}[{i}]"), out);
+                    collect(it, v, &format!("{at}[{i}]"), &format!("{g}[]"), out);
                 }
             }
         }
         "object" => {
             let Some(xo) = x.as_object() else {
-                note(out, format!("{here} must be an object, and is {kind}"));
+                note(out, g, format!("{here} must be an object, and is {kind}"));
                 return;
             };
             let empty = Map::new();
@@ -494,12 +583,13 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<String>) {
                 .filter_map(Value::as_str)
                 .filter(|r| !xo.contains_key(*r))
             {
-                note(out, format!("{here} has no {r}"));
+                note(out, &field(g, r), format!("{here} has no {r}"));
             }
             if o.get("additionalProperties") == Some(&Value::Bool(false)) {
                 for k in xo.keys().filter(|k| !props.contains_key(*k)) {
                     note(
                         out,
+                        &field(g, k),
                         format!(
                             "{here} has {k}, which is not one of its fields: {}",
                             props.keys().cloned().collect::<Vec<_>>().join(", ")
@@ -509,35 +599,36 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<String>) {
             }
             for (k, v) in xo {
                 if let Some(p) = props.get(k) {
-                    collect(p, v, &field(at, k), out);
+                    collect(p, v, &field(at, k), &field(g, k), out);
                 }
             }
             if out.len() == before
                 && let Some(Value::Array(bs)) = o.get("anyOf")
             {
-                alternatives(bs, x, at, here, out);
+                alternatives(bs, x, at, g, here, out);
             }
         }
-        t => note(out, format!("{here} must be {}, and is {kind}", a_kind(t))),
+        t => note(out, g, format!("{here} must be {}, and is {kind}", a_kind(t))),
     }
     if out.len() == before {
-        note(out, format!("{here} does not fit"));
+        note(out, g, format!("{here} does not fit"));
     }
 }
 
 /// The places where `x` fits none of the alternatives `bs`, added to `out`: of those that are not told apart, the one
 /// followed.
-fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<String>) {
+fn alternatives(bs: &[Value], x: &Value, at: &str, g: &str, here: &str, out: &mut Vec<Misfit>) {
     if bs.iter().filter(|b| valid(b, x)).count() > 1 {
-        note(out, format!("{here} fits more than one of its alternatives"));
+        note(out, g, format!("{here} fits more than one of its alternatives"));
         return;
     }
     let Some(xo) = x.as_object() else {
         if bs.iter().all(|b| b["type"] == "object") {
-            note(out, format!("{here} must be an object, and is {}", kind_of(x)));
+            note(out, g, format!("{here} must be an object, and is {}", kind_of(x)));
         } else {
             note(
                 out,
+                g,
                 format!("{here} is {}, and fits none of its alternatives", kind_of(x)),
             );
         }
@@ -557,6 +648,7 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Str
             [] => {
                 note(
                     out,
+                    &field(g, k),
                     format!(
                         "{} is {v}, and must be one of {}",
                         field(at, k),
@@ -567,9 +659,9 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Str
             }
             [b] => {
                 let before = out.len();
-                collect(b, x, at, out);
+                collect(b, x, at, g, out);
                 if out.len() == before {
-                    note(out, format!("{here} does not fit"));
+                    note(out, g, format!("{here} does not fit"));
                 }
                 return;
             }
@@ -584,7 +676,7 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Str
     let named: Vec<&Value> = bs.iter().filter(has_all).collect();
     if let [b] = named.as_slice() {
         let before = out.len();
-        collect(b, x, at, out);
+        collect(b, x, at, g, out);
         if out.len() > before {
             return;
         }
@@ -598,6 +690,7 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Str
         .collect();
     note(
         out,
+        g,
         format!(
             "{here} holds {}, and fits none of its alternatives, which hold: {}",
             xo.keys().cloned().collect::<Vec<_>>().join(", "),

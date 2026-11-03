@@ -116,6 +116,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0074.sql"),
     include_str!("../../../db/migrations/0075.sql"),
     include_str!("../../../db/migrations/0076.sql"),
+    include_str!("../../../db/migrations/0077.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -158,6 +159,23 @@ pub fn interjection_words(speaker: &str, text: &str, card: Option<i64>, key: Opt
 /// The text a ruling on a design card of a flow version before decision cards was interjected with; a disagreement
 /// said so after it.
 pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
+
+/// The text a return was sent back with, as `rounds.rejected` holds it: under `check` for a return that failed the
+/// engine's checks, under `format` for one that does not fit its cell's schema. Read by name, not as the first key:
+/// `problems` follows it. None for a round that failed, was cut off or ended with an error.
+pub fn sent_back_text(rejected: &Value) -> Option<&str> {
+    ["check", "format"].iter().find_map(|k| rejected.get(k)?.as_str())
+}
+
+/// `rounds.rejected` without `problems`, the same reason in the form for counting by check and by field. A text that
+/// quotes what a round was sent back with quotes this, so that it says the reason once.
+pub fn without_problems(rejected: &Value) -> Value {
+    let mut quoted = rejected.clone();
+    if let Some(o) = quoted.as_object_mut() {
+        o.shift_remove("problems");
+    }
+    quoted
+}
 
 /// The verdicts of a ruling as `design_cards.rulings` holds it. A ruling on a decision card is one verdict on the card,
 /// with decision 0: confirm, choose (another option) or disagree, with the option chosen. A ruling on a design card of a
@@ -1058,6 +1076,46 @@ mod tests {
         for name in rels.keys() {
             db.prepare(&format!("SELECT * FROM {name} LIMIT 0")).unwrap();
         }
+    }
+
+    // The text a return was sent back with is read by the name of its key, `check` or `format`, whatever else the column
+    // holds and in whatever order, and quoted without `problems`; a column of a run that failed, was cut off or ended in
+    // an error has no such text, and is quoted as it is.
+    #[test]
+    fn a_return_sent_back_is_read_by_the_key_of_its_text_and_quoted_without_its_problems() {
+        let problems = serde_json::json!([{ "check": "c", "field": "f", "text": "t" }]);
+        let check = serde_json::json!({ "check": "c (f): t", "problems": problems });
+        let format = serde_json::json!({ "format": "x", "problems": problems });
+        let before = serde_json::json!({ "problems": problems, "check": "c (f): t" });
+        assert_eq!(sent_back_text(&check), Some("c (f): t"));
+        assert_eq!(sent_back_text(&format), Some("x"));
+        assert_eq!(sent_back_text(&before), Some("c (f): t"));
+        assert_eq!(
+            sent_back_text(&serde_json::json!({ "check": "c (f): t" })),
+            Some("c (f): t")
+        );
+        for other in [
+            serde_json::json!({ "failed": { "kind": "k", "what": "w" } }),
+            serde_json::json!({ "interrupted": "i" }),
+            serde_json::json!({ "error": "e" }),
+            serde_json::json!({ "problems": problems }),
+            serde_json::json!({ "check": 3 }),
+            serde_json::json!("text"),
+        ] {
+            assert_eq!(sent_back_text(&other), None, "{other}");
+            assert_eq!(without_problems(&other).get("problems"), None, "{other}");
+        }
+        // The same text and the same order of keys as a column recorded without problems.
+        assert_eq!(
+            without_problems(&check).to_string(),
+            serde_json::json!({ "check": "c (f): t" }).to_string()
+        );
+        assert_eq!(
+            without_problems(&format).to_string(),
+            serde_json::json!({ "format": "x" }).to_string()
+        );
+        let failed = serde_json::json!({ "failed": { "kind": "k", "what": "w" } });
+        assert_eq!(without_problems(&failed), failed);
     }
 
     // A new database is at the schema's version, with the triggers of every state table and of no history table.
@@ -2199,7 +2257,13 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         // A table made afresh for its description has the description the schema writes, which agents read.
-        for table in ["items", "architect_matters", "dispatch_queue", "interjections"] {
+        for table in [
+            "items",
+            "architect_matters",
+            "dispatch_queue",
+            "interjections",
+            "rounds",
+        ] {
             let definition = |db: &Db| -> String {
                 db.conn()
                     .query_row("SELECT sql FROM sqlite_schema WHERE name = ?1", [table], |r| r.get(0))
