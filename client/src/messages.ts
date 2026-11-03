@@ -88,6 +88,7 @@ const messages = {
   settings_save: 'Save',
   settings_saved: 'Saved and committed; the engine uses it from its next round.',
   settings_commit: 'Read from configuration commit {commit}.',
+  settings_draft_dropped: 'The settings changed on disk since you began editing; your unsaved changes were dropped.',
   tier_changed: 'Tier {from} → {to}, by the {by}, {at}',
   sys_now: 'Now',
   sys_now_for: 'whether you need to step in',

@@ -18,9 +18,8 @@ import {
   IconButton,
   PageHeader,
   Select,
-  TextInput,
 } from '@primer/react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import type {
   Account,
@@ -33,10 +32,11 @@ import type {
   Tag,
 } from '../api';
 import { Loaded, StateChip } from '../components';
+import { clearDraft, useDraft } from '../drafts';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { HeadingLevel, Section, SubHeading } from '../parts';
+import { DraftInput, FieldInput, HeadingLevel, Section, SubHeading } from '../parts';
 import { tokens } from '../round';
 import { t, tn } from '../text';
 import { Code, FoldPart, Name, Overview, Sheet } from '../voices';
@@ -211,7 +211,7 @@ function Install({ s, d, set }: { s: SettingsData; d: Draft; set: (d: Draft) => 
     <>
       <FormControl>
         <FormControl.Label>{t('settings_language')}</FormControl.Label>
-        <TextInput value={d.language} onChange={(e) => set({ ...d, language: e.target.value })} />
+        <FieldInput value={d.language} onChange={(e) => set({ ...d, language: e.target.value })} />
       </FormControl>
       <Part title={t('settings_tiers')}>
         <p className="settings-note">{t('settings_advisor_note')}</p>
@@ -228,7 +228,7 @@ function Install({ s, d, set }: { s: SettingsData; d: Draft; set: (d: Draft) => 
               <tr key={x.name}>
                 <td className="nowrap">{x.name}</td>
                 <td>
-                  <TextInput
+                  <FieldInput
                     block
                     size="small"
                     value={d.models[x.name] ?? ''}
@@ -270,7 +270,7 @@ function Install({ s, d, set }: { s: SettingsData; d: Draft; set: (d: Draft) => 
         <div className="settings-fields">
           <FormControl>
             <FormControl.Label>{t('settings_limit')}</FormControl.Label>
-            <TextInput
+            <FieldInput
               value={d.limit}
               onChange={(e) => set({ ...d, limit: e.target.value })}
               inputMode="numeric"
@@ -298,7 +298,7 @@ function Install({ s, d, set }: { s: SettingsData; d: Draft; set: (d: Draft) => 
           {s.hosts.map((h) => (
             <FormControl key={h.name}>
               <FormControl.Label>{t('settings_slots', { host: h.name })}</FormControl.Label>
-              <TextInput
+              <FieldInput
                 value={d.slots[h.name] ?? ''}
                 onChange={(e) => set({ ...d, slots: { ...d.slots, [h.name]: e.target.value } })}
                 inputMode="numeric"
@@ -362,7 +362,7 @@ function Project({
                     <Name>{l.counter}</Name>
                   </td>
                   <td>
-                    <TextInput
+                    <FieldInput
                       size="small"
                       value={d.limits[l.counter] ?? ''}
                       onChange={(e) => set({ ...d, limits: { ...d.limits, [l.counter]: e.target.value } })}
@@ -395,7 +395,7 @@ function Project({
               {d.tags.map((tag, i) => (
                 <tr key={i}>
                   <td>
-                    <TextInput
+                    <FieldInput
                       block
                       size="small"
                       value={tag.name}
@@ -404,7 +404,7 @@ function Project({
                     />
                   </td>
                   <td>
-                    <TextInput
+                    <FieldInput
                       block
                       size="small"
                       value={tag.desc}
@@ -476,9 +476,10 @@ export function signInCommand(c: CliAccounts, name: string): string {
 }
 
 /// Where the owner signs a new account in, by hand: the name its directory takes, and the command to run with it.
-function AddAccount({ c, onDone }: { c: CliAccounts; onDone: () => void }) {
-  const [name, setName] = useState('');
-  const n = name.trim();
+export function AddAccount({ c, onDone }: { c: CliAccounts; onDone: () => void }) {
+  // The name typed is this CLI's draft: kept while the owner leaves the page to sign in, and comes back to it.
+  const name = useDraft(`account:${c.cli}`);
+  const n = name.text.trim();
   // A directory there already that is not signed in may be signed in; one signed in is taken.
   const ok = /^[a-z0-9][a-z0-9-]*$/.test(n) && !c.accounts.some((a) => a.name === `${c.cli}-${n}` && a.email !== null);
   const command = signInCommand(c, n);
@@ -486,10 +487,9 @@ function AddAccount({ c, onDone }: { c: CliAccounts; onDone: () => void }) {
     <div className="settings-add">
       <FormControl>
         <FormControl.Label>{t('settings_add_name')}</FormControl.Label>
-        <TextInput
+        <DraftInput
+          draft={name}
           leadingVisual={`${c.cli}-`}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
           validationStatus={n !== '' && !ok ? 'error' : undefined}
         />
         {n !== '' && !ok ? (
@@ -530,6 +530,10 @@ function CliAccountList({ c }: { c: CliAccounts }) {
   const signedIn = c.accounts.filter((a) => a.email !== null).map((a) => a.name);
   // Adding is done once another account is signed in: it shows in the list.
   const adding = addingFrom !== null && signedIn.every((n) => addingFrom.includes(n));
+  // Once adding is over because another account is signed in, the name typed for it is no longer wanted.
+  useEffect(() => {
+    if (addingFrom !== null && !adding) clearDraft(`account:${c.cli}`);
+  }, [addingFrom, adding, c.cli]);
   // While the owner signs a new account in, the accounts are read again every few seconds, so that it shows once
   // signed in.
   useEffect(() => {
@@ -567,7 +571,13 @@ function CliAccountList({ c }: { c: CliAccounts }) {
         ))}
       </div>
       {adding ? (
-        <AddAccount c={c} onDone={() => setAddingFrom(null)} />
+        <AddAccount
+          c={c}
+          onDone={() => {
+            clearDraft(`account:${c.cli}`);
+            setAddingFrom(null);
+          }}
+        />
       ) : (
         <div>
           <Button size="small" leadingVisual={PlusIcon} onClick={() => setAddingFrom(signedIn)}>
@@ -609,14 +619,72 @@ function Accounts() {
   );
 }
 
-function Form({ s, said, onSaid }: { s: SettingsData; said: Said; onSaid: (said: Said) => void }) {
-  const [d, setD] = useState<Draft>(() => draftOf(s));
+/// The form `text` holds, which is what the page wrote of a form filled from settings like `fresh`: none when it is
+/// anything else (words of another version of the page, or of other settings), since a form read wrongly would be saved.
+export function formKept(text: string, fresh: Draft): Draft | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (!isStrings(o.models) || !sameKeys(o.models, fresh.models)) return null;
+  if (!isStrings(o.slots) || !sameKeys(o.slots, fresh.slots)) return null;
+  for (const one of [o.highest, o.architect, o.limit, o.language]) {
+    if (typeof one !== 'string') return null;
+  }
+  if (typeof o.projects !== 'object' || o.projects === null || !sameKeys(o.projects, fresh.projects)) return null;
+  for (const [name, p] of Object.entries(o.projects as Record<string, unknown>)) {
+    if (typeof p !== 'object' || p === null) return null;
+    const q = p as Record<string, unknown>;
+    if (!isStrings(q.limits) || !sameKeys(q.limits, fresh.projects[name].limits) || typeof q.feedback !== 'boolean') return null;
+    if (!Array.isArray(q.tags)) return null;
+    for (const tag of q.tags as unknown[]) {
+      if (typeof tag !== 'object' || tag === null) return null;
+      const x = tag as Record<string, unknown>;
+      if (typeof x.name !== 'string' || typeof x.desc !== 'string') return null;
+    }
+  }
+  return v as Draft;
+}
+
+const isStrings = (x: unknown): x is Record<string, string> =>
+  typeof x === 'object' && x !== null && !Array.isArray(x) && Object.values(x).every((v) => typeof v === 'string');
+
+const sameKeys = (a: object, b: object): boolean => {
+  const ka = Object.keys(a).sort();
+  const kb = Object.keys(b).sort();
+  return ka.length === kb.length && ka.every((k, i) => k === kb[i]);
+};
+
+export function Form({ s, said, onSaid }: { s: SettingsData; said: Said; onSaid: (said: Said) => void }) {
+  // The unsaved changes are a draft (`useDraft`), written against the configuration commit they were made on: they come
+  // back where that is still the commit, and are dropped, with a word on the form, where the files changed since, since
+  // writing them back would put old values over the new ones.
+  const draft = useDraft('settings');
+  const fresh = useMemo(() => draftOf(s), [s]);
+  const [dropped] = useState(() => draft.text !== '' && draft.base !== s.commit);
+  useEffect(() => {
+    if (dropped) clearDraft('settings');
+  }, [dropped]);
+  // What was just saved, shown until the form starts again from the commit the save made.
+  const [saved, setSaved] = useState<Draft | null>(null);
+  const d = (draft.base === s.commit ? formKept(draft.text, fresh) : null) ?? saved ?? fresh;
+  const setD = (next: Draft) => {
+    const text = JSON.stringify(next);
+    if (text === JSON.stringify(fresh)) draft.clear();
+    else draft.write({ text, base: s.commit });
+  };
   const problems = settingsProblems(d);
   const change = settingsChange(s, d);
   const save = () => {
     onSaid(null);
     postJson('/api/v1/settings', change).then(
       () => {
+        setSaved(d);
+        clearDraft('settings');
         onSaid({ ok: true, text: t('settings_saved') });
         reread('settings');
       },
@@ -625,6 +693,7 @@ function Form({ s, said, onSaid }: { s: SettingsData; said: Said; onSaid: (said:
   };
   return (
     <div className="settings-form">
+      {dropped ? <Flash variant="warning">{t('settings_draft_dropped')}</Flash> : null}
       <Section title={t('settings_install')} open>
         <Install s={s} d={d} set={setD} />
       </Section>
