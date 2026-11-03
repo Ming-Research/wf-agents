@@ -2212,19 +2212,20 @@ fn returned(outcome: Value) -> Value {
     json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none", "tell_owner": [] })
 }
 
-/// The input of a round of the review that was given the change as the blind review was: what the review is given
-/// again while no commit follows, as when a fix changes only the PR description.
+/// The input of a round of the review that looked at the change as the blind review left it: the head the work stood
+/// at when the blind review ended, as a review that sees it again while no commit follows would record, as when a fix
+/// changes only the PR description.
 fn input_of_the_change_reviewed(e: &Engine, work: i64) -> Value {
-    let change: Option<String> =
+    let head: String =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(input, '$.engine.change') FROM rounds WHERE work = ?1 AND cell = 'T3'
+                "SELECT json_extract(input, '$.engine.head_after') FROM rounds WHERE work = ?1 AND cell = 'T3'
              ORDER BY n DESC LIMIT 1",
                 [work],
                 |r| r.get(0),
             )
             .unwrap();
-    json!({ "engine": { "change": change } })
+    json!({ "engine": { "head": head, "head_after": head } })
 }
 
 /// What the latest round of choosing what runs next planned for the review, and for adversarial testing.
@@ -2237,6 +2238,20 @@ fn planned(e: &Engine, work: i64) -> (String, String) {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .unwrap()
+}
+
+/// What the latest round of choosing what runs next compared for each side that had answered, as its input records it.
+fn compared(e: &Engine, work: i64) -> Value {
+    let text: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine.compared') FROM rounds
+                 WHERE work = ?1 AND cell = 'T7' ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    serde_json::from_str(&text.expect("the choice recorded nothing it compared")).unwrap()
 }
 
 /// The row the latest round of the merge judgment took.
@@ -2360,6 +2375,227 @@ fn a_fix_that_answered_a_row_of_another_cell_without_a_commit_is_not_reviewed_ag
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(planned(&e, work), ("none".to_string(), "skipped".to_string()), "{log}");
+    // Only the side that has answered has anything recorded to compare.
+    let kept = compared(&e, work);
+    assert_eq!(
+        kept.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["review"],
+        "{kept}"
+    );
+    assert_eq!(kept["review"]["own_lines"], "same", "{kept}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Records adversarial testing and the review as having answered at the head the work stands at in `wt`, as sides that
+/// have looked at it, and gives that head.
+fn both_sides_looked(e: &mut Engine, work: i64, wt: &Path) -> String {
+    let head = git(wt, &["rev-parse", "HEAD"]);
+    let left = json!({ "engine": { "head": head, "head_after": head } });
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    seed_round(e, work, "T1", &left, &json!({ "outcome": {} }), "done", "T4");
+    seed_round(
+        e,
+        work,
+        "T4",
+        &left,
+        &returned(json!({ "columns": [pass] })),
+        "done",
+        "T7",
+    );
+    head
+}
+
+/// Chooses what runs next for the work, and gives the plan for the review and for adversarial testing.
+fn choose_next(e: &mut Engine, work: i64) -> (String, String) {
+    move_to(e, work, "T7");
+    e.step_work(work).unwrap();
+    planned(e, work)
+}
+
+/// The plan for the review and for adversarial testing, as [`planned`] gives it.
+fn plan_of(review: &str, adversarial: &str) -> (String, String) {
+    (review.to_string(), adversarial.to_string())
+}
+
+// After both sides have looked, a merge of main is no reason for either to look again when the lines the work itself
+// adds and removes are as they were, though main changed the file the work changed too; it is when the conflict was
+// resolved by writing another line of the work's own. The round records what it compared, for each side.
+#[test]
+fn a_merge_of_main_sends_the_checks_back_only_if_it_changed_the_works_own_lines() {
+    let s = setup("merge-own-lines");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    let head = both_sides_looked(&mut e, work, &wt);
+    // Main adds a line above the file the work wrote, which merges without a conflict.
+    main_moves_on(&s.root, &[("src/lib.txt", "first\nold\n")], "Main adds a line above");
+    merge_main(&wt);
+    let merged = git(&wt, &["rev-parse", "HEAD"]);
+    assert_ne!(merged, head);
+    assert_eq!(
+        choose_next(&mut e, work),
+        plan_of("none", "skipped"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let same = json!({ "since": head, "now": merged, "own_lines": "same" });
+    assert_eq!(compared(&e, work), json!({ "adversarial": same, "review": same }));
+
+    // Main writes the line after the work's own; the conflict is resolved by writing a third.
+    main_moves_on(
+        &s.root,
+        &[("src/lib.txt", "first\nold\nmain's feature\n")],
+        "Main writes the line too",
+    );
+    git(&wt, &["fetch", "-q", "origin", "main"]);
+    let merging = Command::new("git")
+        .arg("-C")
+        .arg(&wt)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "merge",
+            "-q",
+            "--no-edit",
+            "origin/main",
+        ])
+        .output()
+        .unwrap();
+    assert!(!merging.status.success(), "the merge was expected to conflict");
+    write(&wt, "src/lib.txt", "first\nold\nresolved\n");
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "Merge main"]);
+    let resolved = git(&wt, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        choose_next(&mut e, work),
+        plan_of("changed", "changed"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let differs = json!({ "since": head, "now": resolved, "own_lines": "differs" });
+    assert_eq!(compared(&e, work), json!({ "adversarial": differs, "review": differs }));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Adversarial testing commits the tests it writes, so the head its round ended at holds them: a fix that adds no commit
+// and brings in no main changes nothing since it looked. It is not sent back as changed; it is sent back to the rows it
+// raised that the fix answered.
+#[test]
+fn what_adversarial_testing_committed_itself_is_not_a_change_since_it_looked() {
+    let s = setup("own-commit");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    let began = git(&wt, &["rev-parse", "HEAD"]);
+    write(&wt, "tests/adversarial.txt", "A test.\n");
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "Add a test of adversarial testing"]);
+    let ended = git(&wt, &["rev-parse", "HEAD"]);
+    // The round of adversarial testing began at one head and ended at the next; the review looked at the second.
+    let adversarial = json!({ "engine": { "head": began, "head_after": ended } });
+    seed_round(
+        &mut e,
+        work,
+        "T1",
+        &adversarial,
+        &json!({ "outcome": {} }),
+        "done",
+        "T4",
+    );
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    let review = json!({ "engine": { "head": ended, "head_after": ended } });
+    seed_round(
+        &mut e,
+        work,
+        "T4",
+        &review,
+        &returned(json!({ "columns": [pass] })),
+        "done",
+        "T7",
+    );
+    let log = || said.lock().unwrap().join("\n");
+    assert_eq!(choose_next(&mut e, work), plan_of("none", "skipped"), "{}", log());
+    let same = json!({ "since": ended, "now": ended, "own_lines": "same" });
+    assert_eq!(compared(&e, work), json!({ "adversarial": same, "review": same }));
+
+    // The fix answers a row of a test adversarial testing wrote, in no commit.
+    let row = json!({ "row": "F1", "from": "T1·new_tests", "name": "t" });
+    let input = json!({ "engine": { "table": [row] } });
+    let rows = json!([{ "id": "F1", "answer": "fixed_outside_commit", "where": "The PR description." }]);
+    seed_round(
+        &mut e,
+        work,
+        "T6",
+        &input,
+        &returned(json!({ "rows": rows, "head": ended })),
+        "done",
+        "T7",
+    );
+    assert_eq!(choose_next(&mut e, work), plan_of("changed", "disputes"), "{}", log());
+    // The review is sent back because adversarial testing runs again, not because the work's own lines changed: the
+    // record says what was compared, which is the same for both sides.
+    assert_eq!(compared(&e, work), json!({ "adversarial": same, "review": same }));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A side whose head cannot be compared with the work as it is, because the repository has no such commit, the commit
+// shares no history with main, or the round recorded none, is not taken to have seen the work as it is: both sides look
+// again, and the round records why they could not be compared.
+#[test]
+fn a_side_whose_head_cannot_be_compared_looks_again() {
+    let s = setup("cannot-compare");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    let head = both_sides_looked(&mut e, work, &wt);
+    assert_eq!(
+        choose_next(&mut e, work),
+        plan_of("none", "skipped"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let tree = git(&wt, &["rev-parse", "HEAD^{tree}"]);
+    let unrelated = git(&wt, &["commit-tree", &tree, "-m", "Shares no history with main"]);
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    for (case, since) in [
+        ("a commit the repository does not have", Some(missing.to_string())),
+        ("a commit that shares no history with main", Some(unrelated)),
+        ("a round that recorded no head", None),
+    ] {
+        let left = match &since {
+            Some(h) => json!({ "engine": { "head": h, "head_after": h } }),
+            None => json!({ "engine": {} }),
+        };
+        seed_round(&mut e, work, "T1", &left, &json!({ "outcome": {} }), "done", "T4");
+        seed_round(
+            &mut e,
+            work,
+            "T4",
+            &left,
+            &returned(json!({ "columns": [pass.clone()] })),
+            "done",
+            "T7",
+        );
+        assert_eq!(
+            choose_next(&mut e, work),
+            plan_of("changed", "changed"),
+            "{case}\n{}",
+            said.lock().unwrap().join("\n")
+        );
+        let kept = compared(&e, work);
+        for side in ["adversarial", "review"] {
+            assert_eq!(kept[side]["since"], json!(since), "{case}: {kept}");
+            assert_eq!(kept[side]["now"], head, "{case}: {kept}");
+            let verdict = kept[side]["own_lines"].as_str().unwrap();
+            assert!(verdict.starts_with("cannot_compare: "), "{case}: {kept}");
+        }
+    }
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -5891,6 +6127,245 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The cell that handed in the round of a work that words said to it were handed in with; none while they wait. The
+/// words are found by their text.
+fn delivered_at(e: &Engine, work: i64, text: &str) -> Option<String> {
+    e.db.conn()
+        .query_row(
+            "SELECT r.cell FROM interjections j JOIN rounds r ON r.work = j.work AND r.n = j.delivered_round
+             WHERE j.work = ?1 AND j.text = ?2",
+            params![work, text],
+            |r| r.get(0),
+        )
+        .ok()
+}
+
+/// The matters that are an engineer's question, each with whether it is in the architect's queue and whether it was
+/// handled.
+fn questions_of_engineers(e: &Engine) -> Vec<(bool, bool)> {
+    matters(e)
+        .into_iter()
+        .filter(|m| m.0 == "engineer_question")
+        .map(|m| (m.1, m.2))
+        .collect()
+}
+
+/// The engine of a test whose item's work asks its architect from adversarial testing (`T1`), a cell of the adversarial
+/// line, while words wait for the engineer's line: the design chooses adversarial testing, so the work goes on to it
+/// after its implementation; when it stands at `T1`, `words` says the words to it, and the engine takes steps until the
+/// question's cell (`A2`) has had its first turn. Gives the engine, what it said and the work.
+fn t1_asks_with_words_waiting(
+    s: &Setup,
+    words: impl FnOnce(&mut Engine, i64),
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
+    let mut agents = scripts();
+    agents.insert(
+        "D11",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "needed")], Vec::new())),
+    );
+    agents.insert("T1", asks_about_a_gap("The test paths do not name the page's tests."));
+    let reply = json!({ "text": "Leave the page's tests out.", "why": "They are another work's." });
+    agents.insert(
+        "H3",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.reply", reply.clone())])),
+    );
+    let (mut e, said, item) = start(s, agents);
+    step_to(&mut e, item, "T1");
+    let (work, _, _) = state(&e, item).unwrap();
+    words(&mut e, work);
+    step_until(&mut e, item, &said, "the question to the architect", |e| {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'A2'",
+                [work],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0
+    });
+    (e, said, work)
+}
+
+// A question asked from a line other than the engineer's is not withdrawn for words that wait for the engineer's line:
+// the cell the work goes back to when it is withdrawn, adversarial testing here, hears only its own line's words, so
+// withdrawing it would leave the words where they were and the question unanswered. The question stays with the
+// architect, who replies, the work goes back to the cell that asked, and the words are still waiting, which the
+// engineer's line hears at its next round. Both kinds of words wait here, a word and the notice that an item the work
+// depended on was cancelled, which the question is withdrawn for by a row of its own, so that one wrong count of either
+// withdraws it.
+#[test]
+fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the_engineer() {
+    let s = setup("ask-off-line");
+    let text = "The design's open question is answered: keep the page's tests out.";
+    let notice = "An item it depended on was cancelled.";
+    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
+        e.db.write(Actor::Engine, |tx| {
+            // The architect's answer to an open question of the design, as it reaches the engineer's line: not the
+            // owner's word, which would be a matter of its own for the architect.
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
+                params![work, text],
+            )?;
+            // The item the notice names as cancelled, on which no work starts.
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level, cancelled)
+                 VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l', 'Not needed.')",
+                [],
+            )?;
+            let cancelled = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text, cancelled_item)
+                 VALUES (?1, 'engineer', 'architect', ?2, ?3)",
+                params![work, notice, cancelled],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(question_took(&e, work), None, "{log}");
+    assert_eq!(questions_of_engineers(&e), [(true, false)], "{log}");
+    let replied = steps_until(&mut e, 80, |e| question_took(e, work).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert!(replied, "{log}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    let path = path_of(&e, work);
+    let at = path.iter().rposition(|c| c == "A2").unwrap();
+    assert!(path[at + 1..].iter().all(|c| c == "T1"), "{path:?}\n{log}");
+    for words in [text, notice] {
+        assert_eq!(delivered_at(&e, work, words), None, "{words}\n{log}");
+    }
+    // The work goes on at the engineer's line, whose next round is given the words.
+    move_to(&mut e, work, "A4");
+    e.step_work(work).unwrap();
+    for words in [text, notice] {
+        assert_eq!(delivered_at(&e, work, words).as_deref(), Some("A4"), "{words}\n{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A question asked from another line, kept for words that wait for the engineer's line, is still withdrawn by the rows
+// that come after the words in `held`: here its architect is gone, which says nothing of the line. The work goes back to
+// the cell that asked, and the words are not taken by it.
+#[test]
+fn a_question_asked_from_another_line_is_withdrawn_when_its_architect_is_gone_though_words_wait() {
+    let s = setup("ask-off-line-gone");
+    let text = "Keep the page's tests out of this change.";
+    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
+                params![work, text],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    });
+    assert_eq!(question_took(&e, work), None);
+    // The architect of a project the engine does not know, the cell's own work alone going on.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE blockers SET project = 'gone' WHERE work = ?1 AND ended IS NULL",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    advance_until(&mut e, work, |e| question_took(e, work).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(question_took(&e, work).as_deref(), Some("holder_gone"), "{log}");
+    assert_eq!(questions_of_engineers(&e), [(false, false)], "{log}");
+    assert_eq!(e.work(work).unwrap().pos.at, "T1", "{log}");
+    assert_eq!(delivered_at(&e, work, text), None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A question asked from the engineer's line is still withdrawn for words that come while it waits: the cell the work
+// goes back to is on the engineer's line, hears them, and chooses the way on.
+#[test]
+fn a_question_asked_from_the_engineer_s_line_is_withdrawn_for_words_that_come_while_it_waits() {
+    let s = setup("ask-on-line");
+    let mut agents = scripts();
+    agents.insert("R1", asks_about_a_gap("The work holds two separate changes."));
+    let (mut e, said, item) = start(&s, agents);
+    let asked = |e: &mut Engine| -> bool {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.item = ?1 AND r.cell = 'A2'",
+                [item],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0
+    };
+    assert!(steps_until(&mut e, 10, asked), "{}", said.lock().unwrap().join("\n"));
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(question_took(&e, work), None);
+    let text = "Halt every work on a red check.";
+    owner_says(&mut e, work, text);
+    let withdrawn = steps_until(&mut e, 10, |e| question_took(e, work).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert!(withdrawn, "{log}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("interjection"), "{log}");
+    assert_eq!(questions_of_engineers(&e), [(false, false)], "{log}");
+    let heard = steps_until(&mut e, 10, |e| delivered_at(e, work, text).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert!(heard, "{log}");
+    assert_eq!(delivered_at(&e, work, text).as_deref(), Some("A4"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A question asked by a tool cell (the full CI, the merge queue, the watch on main) with no agent below it is not
+// withdrawn for words that wait for the engineer's line either: the cell it would go back to is the tool itself, which
+// runs again and hears no words, so withdrawing it would leave the words where they were, the question unanswered and
+// the tool, failing again, asking again. The work is placed at the question's cell (`A2`) with the full CI (`T2`) as
+// its asker, as the tool's `not_run` row leaves it, and a word waiting for the engineer's line.
+#[test]
+fn a_question_asked_by_a_tool_cell_is_not_withdrawn_for_words_waiting_for_the_engineer() {
+    let s = setup("ask-from-tool");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let text = "Halt every work on a red check.";
+    let project: String =
+        e.db.conn()
+            .query_row("SELECT project FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET at = 'A2', waiting = '[\"T2\"]' WHERE id = ?1", [work])?;
+        tx.execute(
+            "INSERT INTO blockers (work, cell, kind, what, holder, project, at, since)
+             VALUES (?1, 'T2', 'question', 'The full CI did not run.', 'architect', ?2, ?3, ?3)",
+            params![work, project, db::now()],
+        )?;
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
+            params![work, text],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    // Several steps, and a round of the question's cell among them: a question that no step looked at would be kept
+    // whatever the words, and this test would pass before the change too.
+    for _ in 0..6 {
+        e.step_work(work).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let turns: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'A2'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(turns > 0, "{log}");
+    assert_eq!(question_took(&e, work), None, "{log}");
+    assert_eq!(e.work(work).unwrap().pos.at, "A2", "{log}");
+    assert_eq!(delivered_at(&e, work, text), None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Capability reports: an agent says the system lacks what its work needs, a defect of the system and not of the agent.
 
 /// A first round of the item's work that asks the architect about a capability gap, saying what, with no kind.
@@ -7860,6 +8335,969 @@ fn a_search_that_found_nothing_comes_back_as_none() {
     let (asked, back) = (message_at(&e, arch, "H5", false), message_at(&e, arch, "H5", true));
     assert_eq!(listed(&asked), None, "{asked}");
     assert_eq!(listed(&back), Some(format!("{number}. none")), "{back}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A side report of one of project p's engineers, as the engine queues one: the engineer's work on an item of its own,
+/// held so that nothing runs it, handed the report in at its round 1. Gives the work and the matter.
+fn side_report(e: &mut Engine, text: &str) -> (i64, i64) {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level)
+             VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l')",
+            [],
+        )?;
+        let item = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, paused, paused_by)
+             VALUES (?1, ?2, 'engineer', 'I1', 'held for the test', 'owner')",
+            params![item, v],
+        )?;
+        let work = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             VALUES (?1, 1, 'I1', '{}', '{}', 'done', 'c', 1, 1)",
+            [work],
+        )?;
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "report".into(),
+            detail: Some("other".into()),
+            what: format!("A side report: {text}"),
+            body: json!({ "report": { "kind": "other", "what": text, "urgent": false } }),
+            item: Some(item),
+            raised: Some((work, 1)),
+        };
+        Ok((work, db::queue_matter(tx, &m)?))
+    })
+    .unwrap()
+}
+
+/// The scripts of an architect's work over three side reports (`ids` are their matters, once they are queued): `Q1`
+/// picks the first with the other two, `H4` finds what each is in its one round, and `H5` is `take_in`, the architect's
+/// first rounds only: later rounds, on matters alone, hand in what the engine fills in.
+fn grouping(ids: &Arc<Mutex<Vec<i64>>>, take_in: Script) -> BTreeMap<&'static str, Script> {
+    let mut agents = scripts();
+    let given = ids.clone();
+    agents.insert(
+        "Q1",
+        Box::new(move |_: &Request, n: usize| {
+            let ids = given.lock().unwrap();
+            if n > 1 {
+                return (Vec::new(), vec![("outcome.pick.matter", json!(ids[1]))]);
+            }
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.pick.matter", json!(ids[0])),
+                    ("outcome.pick.with", json!(&ids[1..])),
+                ],
+            )
+        }),
+    );
+    let given = ids.clone();
+    agents.insert(
+        "H4",
+        Box::new(move |_: &Request, n: usize| {
+            let ids = given.lock().unwrap();
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let others: Vec<Value> = ids[1..]
+                .iter()
+                .map(|m| json!({ "matter": m, "what": format!("What {m} is."), "grounds": "Read it.", "sure": "checked" }))
+                .collect();
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.finding.what", json!(format!("What {} is.", ids[0]))),
+                    ("outcome.with", json!(others)),
+                ],
+            )
+        }),
+    );
+    agents.insert("H5", take_in);
+    agents
+}
+
+/// What [`reported`] gives: the engine, what it said, and the work and the matter of each side report.
+type Reported = (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>);
+
+/// What a matter stands as: the ask that holds it, the cell it goes back to with the answer, the matter that leads its
+/// group, the cell it goes on at and the round that handled it.
+type MatterState = (Option<i64>, Option<String>, Option<i64>, Option<String>, Option<i64>);
+
+/// Project p's architect over three side reports of three works, held so that nothing runs them, with an observation
+/// to merge into: the engine, what it said and the works of the reports with their matters. The scripts are those of
+/// [`grouping`] with `take_in` and the changes `on` makes to them; the numbers of the matters are put in `ids` for them.
+fn reported(
+    s: &Setup,
+    ids: &Arc<Mutex<Vec<i64>>>,
+    take_in: Script,
+    on: impl FnOnce(&mut BTreeMap<&'static str, Script>),
+) -> Reported {
+    let mut agents = grouping(ids, take_in);
+    on(&mut agents);
+    let (mut e, said) = engine(s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, what, source) VALUES ('p', 'Parsing large files is slow.', 'A report.')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let reports: Vec<(i64, i64)> = [
+        "The parser is slow on large files.",
+        "The lexer is slow on large files.",
+        "The parser lacks a link to its documentation.",
+    ]
+    .iter()
+    .map(|text| side_report(&mut e, text))
+    .collect();
+    *ids.lock().unwrap() = reports.iter().map(|r| r.1).collect();
+    (e, said, reports)
+}
+
+/// Whether any round of a work was sent a message with `text` in it.
+fn was_sent(e: &Engine, work: i64, text: &str) -> bool {
+    let mut st = e.db.conn().prepare("SELECT input FROM rounds WHERE work = ?1").unwrap();
+    let inputs: Vec<String> = st
+        .query_map([work], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    inputs.iter().any(|i| {
+        db::put_back(e.db.conn(), &serde_json::from_str(i).unwrap())["message"]
+            .as_str()
+            .is_some_and(|m| m.contains(text))
+    })
+}
+
+/// What the round of a cell that handed in its return closed: the matters it handled, by their numbers.
+fn closed_by(e: &Engine, work: i64, cell: &str) -> Vec<i64> {
+    let mut st = e
+        .db
+        .conn()
+        .prepare(
+            "SELECT m.id FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+                 WHERE m.handled_work = ?1 AND r.cell = ?2 ORDER BY m.id",
+        )
+        .unwrap();
+    st.query_map(params![work, cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// Item #228: side reports about one thing are picked together and taken in by one round of each cell. The architect
+// picks one and names two more with it, finds what each is in one round and takes each in in one round, which closes
+// the three; each one's engineer is told what became of its own report, the one recorded as an observation, the one
+// reported once more on another, the one nothing came of, and an observation is recorded under the name of the matter
+// it came of. The queue the pick is made from gives each report an excerpt of its text.
+#[test]
+fn side_reports_picked_together_are_found_and_taken_in_by_one_round_each() {
+    let s = setup("group");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let record = json!({ "kind": "new", "title": "Slow parse", "what": "The parser is slow.", "tags": [],
+                             "source": "Side reports.", "refs": [], "reason": "Recorded." });
+        let again = json!({ "kind": "merge", "into": 1, "matter": ids[1], "seen": "Seen in the lexer.", "refs": [],
+                            "reason": "The same slowness." });
+        let others = json!([
+            { "matter": ids[1], "way": "merged", "why": "Seen already." },
+            { "matter": ids[2], "way": "nothing", "why": "Nothing to do." }
+        ]);
+        (
+            vec![("outcome.take.way", "new_observation")],
+            vec![
+                ("outcome.take.why", json!("Not recorded yet.")),
+                ("outcome.with", others),
+                ("outcome.effects", json!({ "observation_changes": [record, again] })),
+            ],
+        )
+    });
+    let (mut e, said, reports) = reported(&s, &ids, take_in, |_| ());
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 120, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let path = path_of(&e, arch);
+    let count = |cell: &str| path.iter().filter(|c| *c == cell).count();
+    assert_eq!((count("Q1"), count("H4"), count("H5")), (1, 1, 1), "{path:?}\n{log}");
+    let at = path.iter().position(|c| c == "Q1").expect(&log);
+    assert_eq!(
+        &path[at..at + 7],
+        ["Q1", "Q2", "H4", "Q0", "Q2", "H5", "B1"],
+        "{path:?}\n{log}"
+    );
+    // The queue was given with an excerpt of each report's text, to the cell that plans and the one that picks.
+    assert!(was_sent(&e, arch, "\"excerpt\""), "{log}");
+    assert!(was_sent(&e, arch, "The lexer is slow on large files."), "{log}");
+    // One round closed the three, the two named with the first showing it: each matter is a row of the work's handled
+    // matters, and the batch counts each.
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    let led: Vec<Option<i64>> =
+        e.db.conn()
+            .prepare("SELECT group_lead FROM architect_matters WHERE kind = 'report' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+    assert_eq!(led, [None, Some(matters[0]), Some(matters[0])], "{log}");
+    let in_view: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM work_handled WHERE work = ?1 AND cell = 'H5' AND kind = 'report'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(in_view, 3, "{log}");
+    // The first is recorded as the observation 2 under its own name, the second reported once more on observation 1
+    // under its own, and the third is nothing.
+    let source: String =
+        e.db.conn()
+            .query_row("SELECT source FROM observations WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+    assert!(source.ends_with(&format!("(matter {})", matters[0])), "{source}");
+    let (times, refs): (i64, String) =
+        e.db.conn()
+            .query_row("SELECT times_reported, refs FROM observations WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(times, 2, "{log}");
+    assert!(
+        refs.contains(&format!("Reported again (matter {}): Seen in the lexer.", matters[1])),
+        "{refs}"
+    );
+    // Each engineer is told one line, of its own report only.
+    let told = |work: i64| -> Vec<String> {
+        e.db.conn()
+            .prepare("SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect'")
+            .unwrap()
+            .query_map([work], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let (first, second, third) = (told(reports[0].0), told(reports[1].0), told(reports[2].0));
+    assert_eq!(
+        (first.len(), second.len(), third.len()),
+        (1, 1, 1),
+        "{first:?} {second:?} {third:?}"
+    );
+    assert!(first[0].contains("recorded as observation O2"), "{}", first[0]);
+    assert!(!first[0].contains("once more"), "{}", first[0]);
+    assert!(
+        second[0].contains("reported once more on observation O1") && !second[0].contains("recorded as"),
+        "{}",
+        second[0]
+    );
+    assert!(third[0].contains("nothing to take in: Nothing to do"), "{}", third[0]);
+    // The cell that takes the group in was given what the cell before found for each of the three.
+    let back = message_at(&e, arch, "H5", false);
+    let listed = work_from(&back).into_iter().next().unwrap_or_default();
+    assert!(
+        listed.contains("·H4·finding") && listed.contains("·H4·with"),
+        "{listed}\n{back}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A group falls apart when the cell that takes it in asks the owner: only the matter picked waits for the answer, out
+// of the queue, and the others are matters of the queue on their own again, in no group and going on at no cell.
+#[test]
+fn a_group_falls_apart_when_the_owner_is_asked_about_its_first_matter() {
+    let s = setup("group-asks");
+    let ask: Script = Box::new(|_: &Request, n: usize| {
+        if n == 1 {
+            return asks_the_owner("Should these reports wait for the parser?");
+        }
+        (Vec::new(), Vec::new())
+    });
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let (mut e, said, reports) = reported(&s, &ids, ask, |_| ());
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 120, |e| path_of(e, arch).iter().any(|c| c == "A3")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let state = |m: i64| -> MatterState {
+        e.db.conn()
+            .query_row(
+                "SELECT asked, resume_cell, group_lead, goes_on_at, handled_round FROM architect_matters WHERE id = ?1",
+                [m],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap()
+    };
+    let lead = state(matters[0]);
+    assert!(lead.0.is_some(), "{lead:?}\n{log}");
+    assert_eq!(
+        (lead.1.as_deref(), lead.3.as_deref(), lead.4),
+        (Some("H5"), None, None),
+        "{lead:?}\n{log}"
+    );
+    for m in &matters[1..] {
+        assert_eq!(state(*m), (None, None, None, None, None), "matter {m}\n{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A member of a group that needs the owner is sent back by the cell that takes the group in, which answers for the rest:
+// the matter picked and the other member are closed by the round and their engineers told their ways; the one sent back
+// is not closed and its engineer is told nothing, and it is a matter of the queue on its own, in no group and going on
+// at no cell. It is then taken alone through both cells, and what the cell that takes it in asks the owner holds it only.
+#[test]
+fn a_member_that_needs_the_owner_goes_back_to_the_queue_while_the_rest_of_its_group_is_taken_in() {
+    let s = setup("group-back");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return asks_the_owner("Should the documentation link wait for the parser?");
+        }
+        let ids = given.lock().unwrap();
+        let others = json!([
+            { "matter": ids[1], "way": "nothing", "why": "Nothing to do." },
+            { "matter": ids[2], "way": "back_for_owner", "why": "The owner decides about the link." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Seen already.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports) = reported(&s, &ids, take_in, |_| ());
+    let arch = e.step(None).unwrap().work.unwrap();
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let state = |e: &Engine, m: i64| -> MatterState {
+        e.db.conn()
+            .query_row(
+                "SELECT asked, resume_cell, group_lead, goes_on_at, handled_round FROM architect_matters WHERE id = ?1",
+                [m],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap()
+    };
+    let told = |e: &Engine, work: i64| -> Vec<String> {
+        e.db.conn()
+            .prepare("SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect'")
+            .unwrap()
+            .query_map([work], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    // The first round of the cell that takes the group in has handed in its return.
+    let taken = |e: &mut Engine| cells_of(e, arch).iter().any(|c| c.0 == "H5" && c.1.is_some());
+    assert!(steps_until(&mut e, 120, taken), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    // The matter picked and the other member are closed by that round, each with its engineer told its own way.
+    assert_eq!(closed_by(&e, arch, "H5"), matters[..2], "{log}");
+    let in_view: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM work_handled WHERE work = ?1 AND cell = 'H5' AND kind = 'report'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(in_view, 2, "{log}");
+    let (first, second, third) = (told(&e, reports[0].0), told(&e, reports[1].0), told(&e, reports[2].0));
+    assert_eq!((first.len(), second.len()), (1, 1), "{first:?} {second:?}");
+    assert!(first[0].contains("nothing to take in: Seen already"), "{}", first[0]);
+    assert!(second[0].contains("nothing to take in: Nothing to do"), "{}", second[0]);
+    // The one sent back is not closed, told nothing, nor in a group nor going on at a cell: a matter of the queue.
+    assert!(third.is_empty(), "{third:?}\n{log}");
+    assert_eq!(state(&e, matters[2]), (None, None, None, None, None), "{log}");
+    // Taken alone it goes through both cells, and the owner is asked about it only.
+    assert!(
+        steps_until(&mut e, 160, |e| path_of(e, arch).iter().any(|c| c == "A3")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    let count = |cell: &str| path.iter().filter(|c| *c == cell).count();
+    assert_eq!((count("H4"), count("H5")), (2, 2), "{path:?}\n{log}");
+    let held: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(body, '$.holds') FROM owner_asks WHERE work = ?1",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(held, format!("[{}]", matters[2]), "{log}");
+    let asked = state(&e, matters[2]);
+    assert!(asked.0.is_some() && asked.4.is_none(), "{asked:?}\n{log}");
+    assert!(told(&e, reports[2].0).is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. A cell that answers for one matter alone (here the answer to the owner's words)
+// is sent back when an item change names another matter, with the reason, and the change is not kept under the matter
+// it named: the round that follows hands it in without the name, and it is made and kept under the matter in hand.
+// Reference: the schema of `architect_item_changes.matter`, which holds a matter of the table (a number out of it fails
+// the key), and the design's rule that in a cell of a single matter `matter` can only be that one.
+#[test]
+fn a_change_that_names_another_matter_at_a_cell_of_one_matter_is_sent_back_and_not_kept() {
+    let s = setup("stray-matter");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            let mut change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+                                     "reason": "An action." });
+            if n == 1 {
+                change["matter"] = json!(9999);
+            }
+            let effects = if n > 2 {
+                json!({})
+            } else {
+                json!({ "item_changes": [change] })
+            };
+            (Vec::new(), vec![("outcome.effects", effects)])
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = json!({ "change": 1, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Name the parser's item.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL ORDER BY n",
+        &[&arch],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    assert!(
+        rejected[0].contains("item change 1 comes of matter 9999, which is not the matter in hand"),
+        "{}",
+        rejected[0]
+    );
+    let kept: Vec<(i64, String, String)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT matter, state, change FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(kept.len(), 1, "{kept:?}\n{log}");
+    assert_ne!(kept[0].0, 9999, "{kept:?}");
+    assert_eq!(kept[0].1, "made", "{kept:?}");
+    assert!(!kept[0].2.contains("matter"), "{kept:?}");
+    let title: String =
+        e.db.conn()
+            .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(title, "Write the parser", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. Two members of a group sent back for the owner in one round: the matter picked
+// is closed alone by that round and its engineer told, and each of the two is taken later on its own, by a round of its
+// own, closed there and its engineer told once. Reference: acceptance condition A11 (a member sent back is not closed or
+// answered by the round, and is taken from the queue as any matter) and the design's one rule that a matter outside the
+// group is neither closed nor answered.
+#[test]
+fn two_members_sent_back_for_the_owner_are_each_taken_later_on_their_own() {
+    let s = setup("group-back-two");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let others = json!([
+            { "matter": ids[1], "way": "back_for_owner", "why": "The owner decides." },
+            { "matter": ids[2], "way": "back_for_owner", "why": "The owner decides too." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Lead why.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    // The three are one group before the round that takes it in sends two back.
+    let led = |e: &Engine| -> Vec<Option<i64>> {
+        e.db.conn()
+            .prepare("SELECT group_lead FROM architect_matters WHERE kind = 'report' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let first = reports[0].1;
+    assert_eq!(led(&e), [None, Some(first), Some(first)]);
+    assert!(
+        steps_until(&mut e, 200, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let round_of = |m: i64| -> i64 {
+        e.db.conn()
+            .query_row("SELECT handled_round FROM architect_matters WHERE id = ?1", [m], |r| {
+                r.get::<_, Option<i64>>(0)
+            })
+            .unwrap()
+            .unwrap_or_else(|| panic!("matter {m} is not handled\n{log}"))
+    };
+    let rounds = (round_of(matters[0]), round_of(matters[1]), round_of(matters[2]));
+    assert!(
+        rounds.0 < rounds.1 && rounds.0 < rounds.2 && rounds.1 != rounds.2,
+        "{rounds:?}\n{log}"
+    );
+    // The two sent back left the group, and none is left in one.
+    assert_eq!(led(&e), [None, None, None], "{log}");
+    // The matter picked is closed alone by the round that took the group in.
+    assert_eq!(
+        closed_by(&e, arch, "H5")
+            .into_iter()
+            .filter(|m| round_of(*m) == rounds.0)
+            .collect::<Vec<_>>(),
+        &matters[..1],
+        "{log}"
+    );
+    // Each engineer is told once, and the matter picked its own way.
+    for (i, (work, _)) in reports.iter().enumerate() {
+        assert_eq!(lines_told(&e, *work).len(), 1, "report {i}\n{log}");
+    }
+    assert!(
+        lines_told(&e, reports[0].0)[0].contains("nothing to take in: Lead why"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. The one return of the cell that takes a group in is sent back with every
+// problem of the new way at once, together with a miss of A2: the matter in hand given the way `back_for_owner`, a member
+// left out, and an item change that comes of a member sent back; the round sent back releases no member, so the sound
+// round that follows takes the whole group in. Reference: acceptance condition A12 (one send-back lists them all with
+// the A2 misses), and the rule of #216 that a check reports every problem it can find at once.
+#[test]
+fn a_return_that_misuses_back_for_the_owner_is_sent_back_with_all_its_problems_and_releases_no_member() {
+    let s = setup("group-back-bad");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        let ids = given.lock().unwrap();
+        if n == 1 {
+            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+                                 "reason": "r", "matter": ids[1] });
+            let others = json!([{ "matter": ids[1], "way": "back_for_owner", "why": "The owner decides." }]);
+            return (
+                vec![("outcome.take.way", "back_for_owner")],
+                vec![
+                    ("outcome.take.why", json!("Lead why.")),
+                    ("outcome.with", others),
+                    ("outcome.effects", json!({ "item_changes": [change] })),
+                ],
+            );
+        }
+        if n > 2 {
+            return (Vec::new(), Vec::new());
+        }
+        let others = json!([
+            { "matter": ids[1], "way": "nothing", "why": "Second why." },
+            { "matter": ids[2], "way": "nothing", "why": "Third why." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Lead why.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H5' AND rejected IS NOT NULL ORDER BY n",
+        &[&arch],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    for part in [
+        "take has the way back_for_owner",
+        &format!("with has no entry for matter {}", matters[2]),
+        &format!("item change 1 comes of matter {}", matters[1]),
+    ] {
+        assert!(rejected[0].contains(part), "{part}\n{}", rejected[0]);
+    }
+    // The sound round took the whole group in at once.
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    for (i, (work, _)) in reports.iter().enumerate() {
+        assert_eq!(lines_told(&e, *work).len(), 1, "report {i}\n{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The group does not fall apart between the cell that finds what its matters are and the cell that takes them in,
+// though the owner speaks in between and the architect's session starts anew: the owner's words are answered first,
+// then the same group is taken in, by the cell given what was found for each matter of it.
+#[test]
+fn a_group_goes_on_to_its_second_cell_after_the_owner_s_words_and_a_new_session() {
+    let s = setup("group-between");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let others: Vec<Value> = ids[1..]
+            .iter()
+            .map(|m| json!({ "matter": m, "way": "nothing", "why": "Nothing to do." }))
+            .collect();
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.with", json!(others))],
+        )
+    });
+    let (mut e, said, reports) = reported(&s, &ids, take_in, |agents| {
+        agents.insert(
+            "H8",
+            Box::new(|_: &Request, _: usize| {
+                (
+                    vec![("outcome.answer", "done")],
+                    vec![
+                        ("outcome.answer.reply", json!("I see.")),
+                        ("outcome.answer.why", json!("Nothing to change.")),
+                    ],
+                )
+            }),
+        );
+    });
+    let arch = e.step(None).unwrap().work.unwrap();
+    let found = |e: &mut Engine| path_of(e, arch).last().map(String::as_str) == Some("H4");
+    assert!(steps_until(&mut e, 120, found), "{}", said.lock().unwrap().join("\n"));
+    // The matter picked goes on at its second cell; the others wait for it, picked with it.
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let on: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT goes_on_at FROM architect_matters WHERE id = ?1",
+                [matters[0]],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(on.as_deref(), Some("H5"));
+    age_architect(&mut e, 90 * 60_000);
+    say(&mut e, "Carry on.");
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    let count = |cell: &str| path.iter().filter(|c| *c == cell).count();
+    assert_eq!((count("H4"), count("H5")), (1, 1), "{path:?}\n{log}");
+    // The first round at the owner's words is the one that finds the session would start anew, which sends the work back
+    // to understand the project; the second answers the words. The group is taken in after both.
+    assert_eq!(rows_at(&e, arch, "H8"), ["session_anew", "done"], "{path:?}\n{log}");
+    let at = |cell: &str| path.iter().rposition(|c| c == cell).expect(&log);
+    assert!(
+        at("H4") < at("S1") && at("S1") < at("H8") && at("H8") < at("H5"),
+        "{path:?}\n{log}"
+    );
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    let back = message_at(&e, arch, "H5", false);
+    let listed = work_from(&back).into_iter().next().unwrap_or_default();
+    assert!(
+        listed.contains("·H4·finding") && listed.contains("·H4·with"),
+        "{listed}\n{back}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// What [`group_found`] gives: the engine, what it said, the work and the matter of each side report, and the work of
+/// the architect.
+type GroupFound = (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>, i64);
+
+/// The architect's work over a group of three side reports, run until the cell that finds what they are has handed in
+/// its return and the group goes on to the cell that takes it in: the engine, what it said, the matters of the three
+/// reports with the works that handed them in, and the architect's work.
+fn group_found(s: &Setup, ids: &Arc<Mutex<Vec<i64>>>, take_in: Script, on: impl FnOnce(&mut Engine)) -> GroupFound {
+    let (mut e, said, reports) = reported(s, ids, take_in, |agents| {
+        agents.insert(
+            "B2",
+            Box::new(|_: &Request, _: usize| {
+                let ok = json!({ "change": 1, "verdict": "ok", "why": "Sound." });
+                (Vec::new(), vec![("outcome.review", json!([ok]))])
+            }),
+        );
+    });
+    on(&mut e);
+    let arch = e.step(None).unwrap().work.unwrap();
+    let found = |e: &mut Engine| path_of(e, arch).last().map(String::as_str) == Some("H4");
+    assert!(steps_until(&mut e, 120, found), "{}", said.lock().unwrap().join("\n"));
+    (e, said, reports, arch)
+}
+
+// Item #228, from the adversarial tests. An item change in the return that takes a group in names the matter of the
+// group it comes of: it is told to the engineer of that matter once the batch is made, the engineers of the matters that
+// made no item change are told at once, each its own way, and no engineer is told twice. Reference: the change is the
+// architect's own statement of which matter it comes of (acceptance condition A3: each reporter is told its own way,
+// also after the batch).
+#[test]
+fn an_item_change_that_names_a_matter_of_the_group_is_told_to_the_engineer_of_that_matter_after_the_batch() {
+    let s = setup("group-batch");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+                             "reason": "The second report asks for it.", "matter": ids[1] });
+        let others = json!([
+            { "matter": ids[1], "way": "nothing", "why": "Second why." },
+            { "matter": ids[2], "way": "nothing", "why": "Third why." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![
+                ("outcome.take.why", json!("Lead why.")),
+                ("outcome.with", others),
+                ("outcome.effects", json!({ "item_changes": [change] })),
+            ],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    // The change is the second matter's own, and was made.
+    let (of, state): (i64, String) =
+        e.db.conn()
+            .query_row("SELECT matter, state FROM architect_item_changes", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!((of, state.as_str()), (matters[1], "made"), "{log}");
+    let title: String =
+        e.db.conn()
+            .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(title, "Write the parser", "{log}");
+    // One line to each engineer, of its own matter only.
+    let (first, second, third) = (
+        lines_told(&e, reports[0].0),
+        lines_told(&e, reports[1].0),
+        lines_told(&e, reports[2].0),
+    );
+    assert_eq!(
+        (first.len(), second.len(), third.len()),
+        (1, 1, 1),
+        "{first:?} {second:?} {third:?}\n{log}"
+    );
+    assert!(
+        first[0].contains("nothing to take in: Lead why") && !first[0].contains("item #1"),
+        "{}",
+        first[0]
+    );
+    assert!(
+        second[0].contains("taken into item #1 \"Write the parser\"") && !second[0].contains("nothing to take in"),
+        "{}",
+        second[0]
+    );
+    assert!(
+        third[0].contains("nothing to take in: Third why") && !third[0].contains("item #1"),
+        "{}",
+        third[0]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. A matter of a group withdrawn after the cell that finds what the matters are
+// and before the cell that takes them in is not asked of that cell and is not closed by it: the cell is accepted with
+// an entry for each matter left, and the withdrawn one stays unhandled with its engineer told nothing. Reference:
+// acceptance condition A2 (the entries asked for are those of the matters in the group) and the queue's own rule that a
+// withdrawn matter is no longer a matter.
+#[test]
+fn a_matter_withdrawn_between_the_cells_is_left_out_of_the_group_and_not_closed() {
+    let s = setup("group-withdrawn");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let others = json!([{ "matter": ids[1], "way": "nothing", "why": "Second why." }]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Lead why.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    // The other two were picked with the first, and are its group, before one is withdrawn.
+    let led: Vec<Option<i64>> =
+        e.db.conn()
+            .prepare("SELECT group_lead FROM architect_matters WHERE kind = 'report' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+    assert_eq!(led, [None, Some(matters[0]), Some(matters[0])]);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET withdrawn = 'Handed back.' WHERE id = ?1",
+            [matters[2]],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'H5' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(sent_back, 0, "{log}");
+    assert_eq!(closed_by(&e, arch, "H5"), &matters[..2], "{log}");
+    let handled: Option<i64> =
+        e.db.conn()
+            .query_row(
+                "SELECT handled_round FROM architect_matters WHERE id = ?1",
+                [matters[2]],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(handled, None, "{log}");
+    assert_eq!(lines_told(&e, reports[2].0), Vec::<String>::new(), "{log}");
+    assert_eq!(lines_told(&e, reports[0].0).len(), 1, "{log}");
+    assert_eq!(lines_told(&e, reports[1].0).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. The pick clears a group a work that ended left unhandled, so that its matters
+// do not join the group picked now, even one that names the matter picked as its lead; the matters picked with it
+// become its group. Reference: acceptance condition A1 (the pick writes the group's lead and clears the groups left)
+// and the schema's definition of a group as the lead and the matters not handled that name it.
+#[test]
+fn the_pick_clears_a_group_left_unhandled_and_leaves_it_out_of_the_group_picked() {
+    let s = setup("group-stale");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let stale = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let left = stale.clone();
+    let named = ids.clone();
+    let nothing: Script = Box::new(|_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let (e, said, reports, arch) = group_found(&s, &ids, nothing, move |e| {
+        // Two more side reports, left in a group by a work that ended: the one led by the matter the next pick makes
+        // its lead, the other led by the first.
+        let first = side_report(e, "The parser lacks a test.").1;
+        let second = side_report(e, "The parser lacks another test.").1;
+        let lead = named.lock().unwrap()[0];
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET group_lead = ?2 WHERE id = ?1",
+                [first, lead],
+            )?;
+            tx.execute(
+                "UPDATE architect_matters SET group_lead = ?2 WHERE id = ?1",
+                [second, first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        *left.lock().unwrap() = vec![first, second];
+    });
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let led = |m: i64| -> Option<i64> {
+        e.db.conn()
+            .query_row("SELECT group_lead FROM architect_matters WHERE id = ?1", [m], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    let stale = stale.lock().unwrap().clone();
+    assert_eq!((led(stale[0]), led(stale[1])), (None, None), "{log}");
+    assert_eq!(
+        (led(matters[1]), led(matters[2])),
+        (Some(matters[0]), Some(matters[0])),
+        "{log}"
+    );
+    // The cell that found what the matters are was asked about the three picked, and no more: it was not sent back.
+    let sent_back: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'H4' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(sent_back, 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -12064,6 +13502,413 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The dependencies between items, each as the item and the item it depends on, in order.
+fn links_of(e: &Engine) -> Vec<(i64, i64)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// An architect's change removes a dependency, and the review of the batch lets it be made: the item no longer depends
+// on the other, the dependency it keeps stands, and the changes are made. A dependency the batch makes and removes again
+// is not there once the batch is made: each change is checked against what the earlier ones leave.
+#[test]
+fn a_batch_removes_a_dependency_and_the_review_makes_it() {
+    let s = setup("remove-dependency");
+    let mut agents = scripts();
+    // The items are made below, numbered 1 to 4 in order: the parser, the lexer, the tokens and one to do later. The
+    // parser depends on the lexer and on the tokens; the batch removes the first, and makes and removes one on item 4.
+    let changes = json!([
+        { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "The parser needs nothing the lexer hands in." },
+        { "kind": "add_dependency", "item": "1", "on": "4", "dependency": "blocking", "reason": "It seemed to need it." },
+        { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "It does not, on a second look." },
+    ]);
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes.clone() }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let later = a_ready_item(&mut e, "Do it later");
+    assert_eq!((parser, lexer, tokens, later), (1, 2, 3, 4));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "The parser needs nothing the lexer hands in.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(links_of(&e), [(parser, tokens)], "{log}");
+    let states: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT state FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(states, ["made", "made", "made"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A change that removes a dependency the items do not have then is sent back, with every other reason, and nothing is
+// made: one removed twice, one never made, one a cancel of the batch took away, and one of an item another project's
+// architect changes, which is the project's own business to remove. A dependency made after a cancel still closes a
+// cycle with a dependency the cancel took away, since the write may leave it.
+#[test]
+fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
+    let s = setup("remove-dependency-refused");
+    let mut agents = scripts();
+    // The items are numbered 1 to 5 in order: the parser, the lexer, the tokens, one to do later and one of project q.
+    // The parser depends on the lexer and the tokens, and the item of q on the lexer.
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "r" },
+                { "kind": "cancel", "item": "3", "goes": "Not needed.", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "3", "reason": "r" },
+                { "kind": "remove_dependency", "item": "5", "on": "2", "reason": "r" },
+                // The tokens depend on item 4, and the cancel of the tokens takes that away only when no work goes on
+                // them: the write may leave it, so this closes a cycle all the same.
+                { "kind": "add_dependency", "item": "4", "on": "3", "dependency": "blocking", "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let later = a_ready_item(&mut e, "Do it later");
+    let other =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('q', 'Lex too', 'Missing.', 'Needed.', 'change', 'l')",
+                [],
+            )?;
+            let other = tx.last_insert_rowid();
+            db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+            db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+            db::add_dependency(tx, other, lexer, "its lexer", "parallel")?;
+            db::add_dependency(tx, tokens, later, "its later part", "parallel")?;
+            Ok(other)
+        })
+        .unwrap();
+    assert_eq!((parser, lexer, tokens, other), (1, 2, 3, 5));
+    say(&mut e, "Take away what the parser does not need.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rejected = why_sent_back(&e, arch, "H8");
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    for reason in [
+        "item change 2 (remove_dependency): item 1 does not depend on item 2",
+        "item change 3 (remove_dependency): item 1 does not depend on item 4",
+        "item change 5 (remove_dependency): item 1 does not depend on item 3",
+        "item change 6 (remove_dependency): item 5 is not of p",
+    ] {
+        assert!(rejected[0].contains(reason), "{reason}\n{rejected:?}");
+    }
+    assert!(
+        rejected[0].contains("the items' dependencies close a cycle"),
+        "{rejected:?}"
+    );
+    // The first change is sound, and the cancel is: neither is named.
+    assert!(!rejected[0].contains("item change 1 "), "{rejected:?}");
+    assert!(!rejected[0].contains("item change 4 "), "{rejected:?}");
+    // Nothing was made: the dependencies stand and the item is not cancelled.
+    assert_eq!(links_of(&e), [(1, 2), (1, 3), (3, 4), (5, 2)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 3", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review drops the removal of a dependency and keeps the change that reverses it. Each was valid in the state the
+// batch gave, but with the removal left out the reversal closes a cycle: the reversal alone is left out, saying why, the
+// batch is made, and the work of the architect does not fail.
+#[test]
+fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("remove-dependency-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2); the batch turns that around.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "add_dependency", "item": "2", "on": "1", "dependency": "blocking", "reason": "r" },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The parser needs the lexer." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")
+    })
+    .unwrap();
+    say(&mut e, "Turn the parser and the lexer around.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("item 2 cannot depend on 1"), "{why}");
+    // The dependency stands, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer)], "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review drops the removal of a dependency and keeps a merge that the removal made room for. With the removal left
+// out, the merge would make an item depend on the item that depends on it: the merge alone is left out, saying why, and
+// nothing of it stays (the absorbed item keeps its dependency and is not cancelled), the change after it is made, and
+// the work of the architect does not fail.
+#[test]
+fn a_merge_is_left_out_whole_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("merge-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2), and the tokens (3) on the parser.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "3", "on": "1", "reason": "r" },
+                { "kind": "merge", "keep": "3", "absorbed": ["2"], "reason": "The lexer is the tokens." },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The tokens need the parser." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Make the tokens");
+    assert_eq!((parser, lexer, tokens), (1, 2, 3));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, tokens, parser, "its parser", "parallel")
+    })
+    .unwrap();
+    say(&mut e, "Merge the lexer into the tokens.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("cannot depend on"), "{why}");
+    // Both dependencies stand, the lexer is not cancelled, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer), (tokens, parser)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
+// nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
+// its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes
+// the row that clears, towards the merge (`M2`), its blocker resolved.
+#[test]
+fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_is_free() {
+    let s = setup("remove-dependency-slot");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let lexer = a_ready_item(&mut e, "Make the lexer");
+    let parser = a_ready_item(&mut e, "Parse with it");
+    let other = a_ready_item(&mut e, "Keep the slot");
+    let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            db::add_dependency(tx, parser, lexer, "its tokens", "blocking")?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'M1')",
+                params![parser, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    // Only this work goes on, so that no other starts or takes the slot.
+    let go = Go {
+        pause: held_but(&[work], &[]),
+        ..Go::default()
+    };
+    let blockers = |e: &Engine| -> Vec<(String, Option<String>)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT holder, ended FROM blockers WHERE work = ?1 ORDER BY id")
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let log = || said.lock().unwrap().join("\n");
+    // It waits for the item, and its blocker is held by the items it waits for.
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // A slot is free, and the dependency stands: it stays as it is.
+    assert_eq!(e.free_slots().unwrap(), 1);
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // Another work takes the machine's one slot, and the dependency is removed.
+    let holder =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'I1')",
+                params![other, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    assert_eq!(e.free_slots().unwrap(), 0);
+    api::remove_dependency(&mut e.db, parser, lexer).unwrap();
+    // With no slot free it does not go on, though nothing holds it back: it waits for a slot, its blocker open.
+    for _ in 0..2 {
+        e.pass(&go).unwrap();
+        assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+        assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+        assert_eq!(state(&e, parser).unwrap().1, "M1", "{}", log());
+        assert_eq!(e.waiting_for_slot().unwrap(), [work], "{}", log());
+    }
+    // The slot is free: it goes on, the row that clears, and its blocker is resolved. No one said anything to it.
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [holder])?;
+        Ok(())
+    })
+    .unwrap();
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait", "clear"], "{}", log());
+    assert_eq!(
+        blockers(&e),
+        [("items".to_string(), Some("resolved".to_string()))],
+        "{}",
+        log()
+    );
+    assert_eq!(state(&e, parser).unwrap().1, "M2", "{}", log());
+    let told: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM interjections WHERE work = ?1", [work], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(told, 0, "{}", log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A cancel of an item the batch creates, named by its key, cancels the create out: the item is never made, and the
 // create, the changes that name its key and the cancel are dropped as they are collected, saying so, so that the review
 // is not given them; in the sixth trial a batch held a create, a move and a cancel of one item, which the review could
@@ -13942,9 +15787,12 @@ fn a_work_goes_on_while_another_waits_for_its_ci() {
 }
 
 // Two works that run side by side each merge into main through the flow, in the order they came into the project's
-// merge queue. Every change to their state is one transaction recorded in `changes`, the rows of a transaction written
-// at one time by one writer, one after the other; each work's rounds are numbered from one, none twice or missing,
-// and none is left open.
+// merge queue, the work with the larger number coming first: while its merge runs, held at its CI, the other comes,
+// reads that it is behind and records a round saying so, and merges only after the first's merge round ended. The order
+// they came in is read from the times their rounds before the queue ended, the merges' order from main's log and the
+// rounds' times; the `merge_queue` view, whose order is what is tested, is read nowhere here. Every change to their
+// state is one transaction recorded in `changes`, the rows of a transaction written at one time by one writer, one
+// after the other; each work's rounds are numbered from one, none twice or missing, and none is left open.
 #[test]
 fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     let mut agents = scripts();
@@ -13974,33 +15822,102 @@ fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     );
     let (s, mut e, said, first, second) = two_works_with("both-merge", agents, Hooks::default());
     let over = |e: &Engine, item: i64| state(e, item).is_some_and(|w| w.1 == "E1");
-    // The works in the order they came into the merge queue.
-    let mut queued: Vec<i64> = Vec::new();
-    for _ in 0..300 {
-        e.tick().unwrap();
-        let log = said.lock().unwrap().join("\n");
-        let mut st =
-            e.db.conn()
-                .prepare("SELECT work FROM merge_queue WHERE project = 'p'")
-                .unwrap();
-        let queue: Vec<i64> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
-        drop(st);
-        for w in queue {
-            if !queued.contains(&w) {
-                queued.push(w);
+    let said_so_far = || said.lock().unwrap().join("\n");
+    let cell = |e: &Engine, work: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    // The rounds of a work's merge cell, oldest first: the row each took, when it started and when it ended.
+    let merge_rounds = |e: &Engine, work: i64| -> Vec<(Option<String>, i64, Option<i64>)> {
+        let sql = "SELECT transition, started_at, ended_at FROM rounds WHERE work = ?1 AND cell = 'M2' ORDER BY n";
+        let mut st = e.db.conn().prepare(sql).unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    // A work goes on alone until it stands at `until`, not having taken that cell's step.
+    let goes_on_to = |e: &mut Engine, work: i64, until: &str| {
+        for _ in 0..300 {
+            if cell(&*e, work) == until {
+                return;
             }
+            e.advance(work).unwrap();
         }
-        for item in [first, second] {
-            let paused = state(&e, item).and_then(|w| w.2);
-            assert!(paused.is_none(), "{paused:?}\n{log}");
-        }
-        if over(&e, first) && over(&e, second) {
-            break;
-        }
-    }
-    let log = said.lock().unwrap().join("\n");
-    assert!(over(&e, first) && over(&e, second), "{log}");
+    };
+    // The first pass starts both works; `a` began first and has the smaller number.
+    e.tick().unwrap();
     let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    assert!(a < b);
+    // `a` stops short of the merge queue; `b`, which began after it, comes into the queue first.
+    goes_on_to(&mut e, a, "M1");
+    goes_on_to(&mut e, b, "M2");
+    let (at_a, at_b) = (cell(&e, a), cell(&e, b));
+    assert_eq!((at_a.as_str(), at_b.as_str()), ("M1", "M2"), "{}", said_so_far());
+    // `b` merges with its CI held, its merge round open. `a` comes into the queue meanwhile.
+    s.ci.shut();
+    let held = s.ci.came();
+    let only_b = Go {
+        pause: held_but(&[b], &[]),
+        ..Go::default()
+    };
+    let merging = turns_until(&mut e, &only_b, |_| s.ci.came() > held);
+    assert!(merging, "{}", said_so_far());
+    let in_the_queue = turns_until(&mut e, &Go::default(), |e| !merge_rounds(&*e, a).is_empty());
+    let (a_rounds, b_rounds) = (merge_rounds(&e, a), merge_rounds(&e, b));
+    s.ci.open();
+    assert!(in_the_queue, "{}", said_so_far());
+    // `a` read that it is behind and recorded a round saying so, while `b`'s merge round is open still.
+    assert_eq!(
+        a_rounds.iter().map(|r| r.0.as_deref()).collect::<Vec<_>>(),
+        [Some("behind")],
+        "{}",
+        said_so_far()
+    );
+    assert!(
+        b_rounds.len() == 1 && b_rounds[0].0.is_none() && b_rounds[0].2.is_none(),
+        "{b_rounds:?}\n{}",
+        said_so_far()
+    );
+    let finished = turns_until(&mut e, &Go::default(), |e| over(&*e, first) && over(&*e, second));
+    let log = said_so_far();
+    assert!(finished, "{log}");
+    for item in [first, second] {
+        let paused = state(&e, item).and_then(|w| w.2);
+        assert!(paused.is_none(), "{paused:?}\n{log}");
+    }
+    // The order they came into the queue in: when each one's round before it ended, `b`'s the earlier.
+    let entered = |work: i64| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT max(ended_at) FROM rounds WHERE work = ?1 AND cell = 'M1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert!(entered(b) < entered(a), "{} {}\n{log}", entered(b), entered(a));
+    let queued = vec![b, a];
+    // Each merged once, `a` after `b`'s merge round ended; the round in which `a` said it was behind lay within it.
+    let merged_round = |work: i64| -> Vec<(i64, i64)> {
+        merge_rounds(&e, work)
+            .into_iter()
+            .filter(|r| r.0.as_deref() == Some("merged"))
+            .map(|r| (r.1, r.2.unwrap()))
+            .collect()
+    };
+    let (a_merged, b_merged) = (merged_round(a), merged_round(b));
+    assert!(
+        a_merged.len() == 1 && b_merged.len() == 1,
+        "{a_merged:?} {b_merged:?}\n{log}"
+    );
+    let (a_merged, b_merged) = (a_merged[0], b_merged[0]);
+    assert!(a_merged.0 >= b_merged.1, "{a_merged:?} {b_merged:?}\n{log}");
+    assert!(
+        a_rounds[0].1 >= b_merged.0 && a_rounds[0].2.is_some_and(|ended| ended <= b_merged.1),
+        "{a_rounds:?} {b_merged:?}\n{log}"
+    );
     // Merged onto main in the queue's order: the merges, oldest first, by the works whose pull requests they merged.
     let subjects = git(
         &s.root,

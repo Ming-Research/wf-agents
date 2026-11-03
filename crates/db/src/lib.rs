@@ -111,6 +111,9 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0069.sql"),
     include_str!("../../../db/migrations/0070.sql"),
     include_str!("../../../db/migrations/0071.sql"),
+    include_str!("../../../db/migrations/0072.sql"),
+    include_str!("../../../db/migrations/0073.sql"),
+    include_str!("../../../db/migrations/0074.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1315,6 +1318,144 @@ mod tests {
         );
     }
 
+    /// Three works of project `p`, each of an item of its own, in the order of their numbers, all at `T6`; the
+    /// database they are in has the one flow version they run on.
+    fn three_works() -> (Db, [i64; 3]) {
+        let mut db = Db::in_memory().unwrap();
+        let works = db
+            .write(Actor::Engine, |tx| {
+                tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+                let mut works = [0; 3];
+                for w in &mut works {
+                    let item = item(tx, "an item")?;
+                    tx.execute(
+                        "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'T6')",
+                        [item],
+                    )?;
+                    *w = tx.last_insert_rowid();
+                }
+                Ok(works)
+            })
+            .unwrap();
+        (db, works)
+    }
+
+    /// The work goes to the cell, in a write of its own.
+    fn goes_to(db: &mut Db, work: i64, cell: &str) {
+        db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET at = ?2 WHERE id = ?1", params![work, cell])?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// The works in project `p`'s merge queue, in its order.
+    fn merge_queue(db: &Db) -> Vec<i64> {
+        let mut st = db
+            .conn()
+            .prepare("SELECT work FROM merge_queue WHERE project = 'p'")
+            .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    }
+
+    // The merge queue is in the order the works came to the merge cell, whatever their numbers: the last begun that
+    // came first is first; a work that left the cell to be fixed, or to ask the architect, and came back is last.
+    // The expected orders here are the orders of the writes below, not what the view says.
+    #[test]
+    fn the_merge_queue_is_in_the_order_the_works_came_to_the_cell() {
+        let (mut db, [a, b, c]) = three_works();
+        goes_to(&mut db, c, "M2");
+        goes_to(&mut db, a, "M2");
+        goes_to(&mut db, b, "M2");
+        assert_eq!(merge_queue(&db), [c, a, b]);
+        // The head leaves to be fixed and comes back after the fix: behind the others, though its number is largest.
+        goes_to(&mut db, c, "T6");
+        assert_eq!(merge_queue(&db), [a, b]);
+        goes_to(&mut db, c, "M1");
+        goes_to(&mut db, c, "M2");
+        assert_eq!(merge_queue(&db), [a, b, c]);
+        // The head leaves to ask the architect and comes back: last again, though its number is the smallest.
+        goes_to(&mut db, a, "A2");
+        goes_to(&mut db, a, "M2");
+        assert_eq!(merge_queue(&db), [b, c, a]);
+        // One that ended is no longer in the queue.
+        db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET ended = 'cancelled' WHERE id = ?1", [b])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(merge_queue(&db), [c, a]);
+    }
+
+    // A change to a work in the merge queue that leaves it at the merge cell (what it waits for, the values it
+    // recorded, its pull request, the head it pushed) does not move it: the head of the queue stays the head, as a
+    // work that waits its turn goes round the cell again and again.
+    #[test]
+    fn a_change_that_leaves_a_work_at_the_merge_cell_keeps_its_place_in_the_queue() {
+        let (mut db, [a, b, _]) = three_works();
+        goes_to(&mut db, b, "M2");
+        goes_to(&mut db, a, "M2");
+        assert_eq!(merge_queue(&db), [b, a]);
+        for change in [
+            "waiting = '[\"M2\"]'",
+            "recorded = '{\"turn\":\"first\"}'",
+            "pr = 7",
+            "pushed_head = 'abc'",
+            "at = 'M2'",
+        ] {
+            db.write(Actor::Engine, |tx| {
+                tx.execute(&format!("UPDATE works SET {change} WHERE id = ?1"), [b])?;
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(merge_queue(&db), [b, a], "{change}");
+        }
+    }
+
+    // The order of the merge queue finds when each work came to the cell by the index of the changes of its row,
+    // scanned from the newest back with no sort of them, so that it costs the few changes since the work came to the
+    // cell and not all it has had: the plan of that subquery uses the index and has no temporary sort.
+    #[test]
+    fn the_merge_queue_finds_when_a_work_came_to_the_cell_by_the_index_of_its_changes() {
+        let db = Db::in_memory().unwrap();
+        let mut st = db
+            .conn()
+            .prepare("EXPLAIN QUERY PLAN SELECT work FROM merge_queue WHERE project = 'p'")
+            .unwrap();
+        // Each step of the plan: its number, the number of the step it is part of, and what it does.
+        let plan: Vec<(i64, i64, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(3)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let sub = plan
+            .iter()
+            .find(|(_, _, detail)| detail.contains("SUBQUERY"))
+            .unwrap_or_else(|| panic!("no subquery in the plan: {plan:#?}"));
+        let mut inside = BTreeSet::from([sub.0]);
+        loop {
+            let before = inside.len();
+            for (id, parent, _) in &plan {
+                if inside.contains(parent) {
+                    inside.insert(*id);
+                }
+            }
+            if inside.len() == before {
+                break;
+            }
+        }
+        let steps: Vec<&str> = plan
+            .iter()
+            .filter(|(id, _, _)| *id != sub.0 && inside.contains(id))
+            .map(|(_, _, detail)| detail.as_str())
+            .collect();
+        assert!(
+            steps.iter().any(|d| d.contains("USING INDEX changes_by_row")),
+            "{plan:#?}"
+        );
+        assert!(!steps.iter().any(|d| d.contains("TEMP B-TREE")), "{plan:#?}");
+    }
+
     // A work of a flow version before cells had names keeps the numbers its cells had then: the merge it recorded at the
     // merge cell, then 9, lets the items that depend on it start, and it is done at the end of its graph, then 20.
     #[test]
@@ -1742,6 +1883,59 @@ mod tests {
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
     }
 
+    // Taken to version 72, a database keeps each matter of the architects as it was, none of them in a group, with the
+    // views over them, takes a matter into a group and refuses a group led by a matter that is not there; the table made
+    // afresh is tracked again, and comes out as a new one.
+    #[test]
+    fn a_database_taken_to_version_72_keeps_its_matters_and_takes_groups() {
+        let mut old = at_version(71);
+        old.write(Actor::Engine, |tx| {
+            for (what, goes_on_at) in [("first", None), ("second", Some("H5"))] {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, detail, what, body, at, goes_on_at)
+                     VALUES ('p', 'report', 'other', ?1, '{}', 7, ?2)",
+                    params![what, goes_on_at],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let one = |db: &Db, q: &str| -> String { db.conn().query_row(q, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            one(
+                &old,
+                "SELECT group_concat(id || what || coalesce(goes_on_at, '-') || coalesce(group_lead, '-'), ' ')
+                 FROM architect_matters"
+            ),
+            "1first-- 2secondH5-"
+        );
+        // The view over the matters still reads them.
+        assert_eq!(one(&old, "SELECT count(*) || '' FROM architect_queue"), "2");
+        // A matter is put in the group the other leads, the change recorded by the triggers made afresh; a lead that is no
+        // matter is refused.
+        old.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE architect_matters SET group_lead = 1 WHERE id = 2", [])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            one(
+                &old,
+                "SELECT count(*) || '' FROM changes
+                 WHERE table_name = 'architect_matters' AND json_extract(new_row, '$.group_lead') = 1"
+            ),
+            "1"
+        );
+        let refused = old.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE architect_matters SET group_lead = 99 WHERE id = 1", [])?;
+            Ok(())
+        });
+        assert!(refused.is_err());
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+    }
+
     // Taken to version 61, a database keeps each observation as it was, and one recorded before observations had titles
     // has none, rather than one made up for it; the table made afresh is tracked again.
     #[test]
@@ -1960,7 +2154,7 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         // A table made afresh for its description has the description the schema writes, which agents read.
-        for table in ["items", "architect_matters", "dispatch_queue"] {
+        for table in ["items", "architect_matters", "dispatch_queue", "interjections"] {
             let definition = |db: &Db| -> String {
                 db.conn()
                     .query_row("SELECT sql FROM sqlite_schema WHERE name = ?1", [table], |r| r.get(0))
