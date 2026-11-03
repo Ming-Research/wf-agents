@@ -1195,7 +1195,7 @@ fn quoted_in(passage: &str, sections: &[String]) -> bool {
 /// verdict of its row (`follows`, `departs` or `not_concerned`). A line is the key, since the numbers are the round's own
 /// and a decision recorded since moves those after it.
 fn plan_answers(plan: &Value, given: &[Value]) -> Vec<(String, String)> {
-    items(plan.get("decisions"))
+    items(plan.get("item_decisions"))
         .iter()
         .filter_map(|row| {
             let id = row["decision"].as_str()?.trim();
@@ -1966,7 +1966,7 @@ mod tests {
                 { "article": "Article 1", "verdict": "keeps", "claim": "A project not configured goes on as before." },
                 { "article": "Article 2", "verdict": "untouched", "why": "It changes no input." },
             ],
-            "decisions": [],
+            "item_decisions": [],
         });
         let claims = Claims {
             sections: plan_sections("D2", &plan),
@@ -2033,7 +2033,7 @@ mod tests {
         let plan = json!({
             "design": { "solution": "Do A.", "where": "x", "excluded": "x", "pitfalls": "x" },
             "acceptance": [],
-            "decisions": [{ "decision": "L1", "verdict": "follows", "passage": "Do A." }],
+            "item_decisions": [{ "decision": "L1", "verdict": "follows", "passage": "Do A." }],
         });
         let given = crate::decisions::listed(&format!("Decisions:\n{a}"));
         let claims = Claims {

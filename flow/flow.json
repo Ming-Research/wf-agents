@@ -6236,7 +6236,7 @@
           ],
           "prompt": [
             "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no other file. Choose one of the approaches compared; if an open question was answered otherwise, follow the answer, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured with measure, say how the results shaped the choice; if you decided by reading the engine's records (with query, gh or the database), say what you read and how it decided the choice; if neither, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls.",
-            "Write the alternatives you set aside and why into the design. What you are not sure of, and cannot settle by measuring or reading, is an open question of the design: each says what is uncertain, the options and the one you recommend. Go on by what you recommend; an open question does not stop the work, but the merge waits for its answer. Answer each decision of the item you were given, by its number, in `decisions`: the design follows it, quoting the passage of its sections that carries it out; departs from it, quoting the passage that goes otherwise and saying what it does instead and why that is better; or is not concerned by it, saying why. A departure is put to whoever made the decision once the design is done, and the work implements nothing until they have ruled. Answer each article of the constitution, in its order, in `articles`: how the design keeps it, or why it does not touch it.",
+            "Write the alternatives you set aside and why into the design. What you are not sure of, and cannot settle by measuring or reading, is an open question of the design: each says what is uncertain, the options and the one you recommend. Go on by what you recommend; an open question does not stop the work, but the merge waits for its answer. Answer each decision of the item you were given, by its number, in `item_decisions`: the design follows it, quoting the passage of its sections that carries it out; departs from it, quoting the passage that goes otherwise and saying what it does instead and why that is better; or is not concerned by it, saying why. A departure is put to whoever made the decision once the design is done, and the work implements nothing until they have ruled. Answer each article of the constitution, in its order, in `articles`: how the design keeps it, or why it does not touch it.",
             "Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor and write them as the reply says. If you cannot choose, ask, saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design still covers the whole work, and each part says who carries it, this work itself or which sub-item. When this work was split off, take what the parent's design gives it as it stands."
           ],
           "promptBy": {
@@ -6366,7 +6366,7 @@
               }
             },
             {
-              "name": "decisions",
+              "name": "item_decisions",
               "title": "Against the item's decisions",
               "type": "list",
               "desc": "One row for each decision of the item you were given, by its number; an empty list when the item holds none",
@@ -6433,7 +6433,7 @@
               "check": "constitution_covered"
             },
             {
-              "at": "decisions",
+              "at": "item_decisions",
               "check": "decisions_answered"
             }
           ],
@@ -6446,7 +6446,7 @@
             "measure",
             "design",
             "articles",
-            "decisions",
+            "item_decisions",
             "acceptance",
             "open_questions"
           ],
@@ -6497,7 +6497,7 @@
                 ],
                 [
                   "D2",
-                  "decisions"
+                  "item_decisions"
                 ]
               ]
             },

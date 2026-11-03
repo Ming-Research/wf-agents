@@ -1905,7 +1905,7 @@ mod tests {
                     "pitfalls": "The row limit must not cut the total",
                 },
                 "articles": [{ "article": "Article 1", "verdict": "untouched", "why": "It touches no project's settings" }],
-                "decisions": [],
+                "item_decisions": [],
                 "open_questions": [],
                 "acceptance": [{ "by": "test", "id": "A1", "condition": "The total row is shown past the limit" }],
                 "estimate": "One test file and one query",

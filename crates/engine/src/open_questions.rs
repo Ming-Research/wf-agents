@@ -76,14 +76,14 @@ impl Departure {
 }
 
 /// The departures of the work's latest design from the decisions of its item, with the round that wrote it: each row of
-/// its `decisions` that departs, with the line of the decision and who made it as that round was given them. None
+/// its `item_decisions` that departs, with the line of the decision and who made it as that round was given them. None
 /// before any design. `within` is the field an agent's forms sit in.
 pub fn departures(conn: &Connection, work: i64, within: &str) -> Result<Option<(RoundId, Vec<Departure>)>, String> {
     type Row = (i64, Option<String>, Option<String>);
     let row: Option<Row> = conn
         .query_row(
             &format!(
-                "SELECT n, json_extract(output, '$.{within}.decisions'), json_extract(input, '$.engine.decisions')
+                "SELECT n, json_extract(output, '$.{within}.item_decisions'), json_extract(input, '$.engine.decisions')
                  FROM rounds WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL
                    AND json_extract(output, '$.{within}.design') IS NOT NULL
                  ORDER BY n DESC LIMIT 1",

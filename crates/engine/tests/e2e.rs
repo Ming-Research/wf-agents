@@ -10534,7 +10534,7 @@ fn designs_answering(rows: Value) -> Script {
                     "outcome.design",
                     json!({ "solution": ON_THE_MAIN_PATH, "where": "The flow.", "excluded": "Nothing.", "pitfalls": "None." }),
                 ),
-                ("outcome.decisions", rows.clone()),
+                ("outcome.item_decisions", rows.clone()),
             ],
         )
     })

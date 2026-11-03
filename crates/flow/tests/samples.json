@@ -238,11 +238,11 @@
        "claim": "outcome.articles.claim"
       }
      ],
-     "decisions": [
+     "item_decisions": [
       {
-       "decision": "outcome.decisions.decision",
+       "decision": "outcome.item_decisions.decision",
        "verdict": "follows",
-       "passage": "outcome.decisions.passage"
+       "passage": "outcome.item_decisions.passage"
       }
      ],
      "open_questions": [
