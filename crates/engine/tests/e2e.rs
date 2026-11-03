@@ -637,7 +637,9 @@ type ByHands = Arc<Mutex<Vec<ByHand>>>;
 
 /// Whether the inputs of a run by hand give `command` as `c`, on a line of its own.
 fn commanded(inputs: &[(String, String)], c: &str) -> bool {
-    inputs.iter().any(|(k, v)| k == "command" && v.lines().any(|l| l.trim() == c))
+    inputs
+        .iter()
+        .any(|(k, v)| k == "command" && v.lines().any(|l| l.trim() == c))
 }
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
@@ -716,10 +718,7 @@ impl GitHub for FakeHub {
 
     fn checks(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
         self.ci.pass();
-        let command = |c: &str| {
-            self.run_by_hand(sha)
-                .is_some_and(|d| commanded(&d.inputs, c))
-        };
+        let command = |c: &str| self.run_by_hand(sha).is_some_and(|d| commanded(&d.inputs, c));
         if command("timeout") {
             return Err(Failure {
                 kind: "timed_out",
@@ -767,8 +766,8 @@ impl GitHub for FakeHub {
         let down = commanded(&inputs, "down");
         let reject = commanded(&inputs, "reject");
         // A dispatch that fails to reach GitHub the first time it is made for a branch, and not the second.
-        let flaky = commanded(&inputs, "flaky_dispatch")
-            && !self.by_hand.lock().unwrap().iter().any(|d| d.branch == branch);
+        let flaky =
+            commanded(&inputs, "flaky_dispatch") && !self.by_hand.lock().unwrap().iter().any(|d| d.branch == branch);
         self.by_hand.lock().unwrap().push(ByHand {
             workflow: workflow.to_string(),
             branch: branch.to_string(),
