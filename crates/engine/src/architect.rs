@@ -2065,6 +2065,9 @@ fn numbered(reply: &Value, keys: &BTreeMap<String, i64>) -> Value {
     r
 }
 
+/// Rows of a batch that are left out, each with what was found of it: the review's row, or why the write refused it.
+type LeftOut = Vec<(Change, Value)>;
+
 /// Makes the given rows of an architect work's batch, as the architect, each in order; a key a change made the item
 /// under is given its number. Gives the keys and the numbers they were given, and the rows the write refused, each with
 /// why, to be left out as the review's drops are: the review judged the batch whole, and a dependency one of its drops
@@ -2073,7 +2076,7 @@ fn make(
     tx: &Transaction<'_>,
     rows: &[Change],
     projects: &BTreeMap<String, config::Project>,
-) -> Result<(BTreeMap<String, i64>, Vec<(Change, Value)>), String> {
+) -> Result<(BTreeMap<String, i64>, LeftOut), String> {
     let changes: Vec<Value> = rows.iter().map(|r| r.3.clone()).collect();
     let written = crate::arch_changes::write_all(tx, &changes, projects)?;
     let keys: BTreeMap<String, i64> = written
