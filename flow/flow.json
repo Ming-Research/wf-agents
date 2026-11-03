@@ -4281,6 +4281,15 @@
           ]
         },
         {
+          "name": "handover",
+          "nodes": [
+            "X6"
+          ],
+          "entries": [
+            "X6"
+          ]
+        },
+        {
           "name": "end",
           "nodes": [
             "E1",
@@ -12088,6 +12097,15 @@
           ],
           "entries": [
             "X3"
+          ]
+        },
+        {
+          "name": "handover",
+          "nodes": [
+            "X6"
+          ],
+          "entries": [
+            "X6"
           ]
         },
         {

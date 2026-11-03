@@ -21,10 +21,11 @@ prices(model, above, read, w5, w1, output) AS (VALUES
   ('claude-sonnet-5-5', 0, 0.1, 2.5, 4.0, 10.0),
   ('claude-haiku-5-5', 0, 0.01, 0.125, 0.2, 0.5),
   ('claude-haiku-5-5', 100000, 0.05, 0.625, 1.0, 2.5)),
--- Each agent's round that ran in a CLI session, as its usage record has it; a model named with its context window, as
--- `[1m]`, is priced as the model.
+-- Each agent's round that ran in a session, as its usage record has it; a model named with its context window, as
+-- `[1m]`, is priced as the model. A session is a row of the sessions table, which agents cannot read: an architect's
+-- CLI session, which goes on across its works with a row for each, is replayed work by work.
 told AS MATERIALIZED (
-  SELECT s.cli_session AS s, r.work, r.n, r.cell, r.started_at,
+  SELECT r.session AS s, r.work, r.n, r.cell, r.started_at,
     CASE WHEN instr(r.model, '[') > 0 THEN substr(r.model, 1, instr(r.model, '[') - 1) ELSE r.model END AS model,
     max(coalesce(json_extract(r.usage, '$.turns'), 1), 1) AS calls,
     coalesce(json_extract(r.usage, '$.first_call.input_tokens'), 0)
@@ -38,8 +39,8 @@ told AS MATERIALIZED (
       + coalesce(json_extract(r.usage, '$.usage.cache_creation_input_tokens'), 0) AS total,
     coalesce(json_extract(r.usage, '$.usage.cache_creation.ephemeral_1h_input_tokens'), 0) > 0 AS hour,
     coalesce(json_extract(r.usage, '$.cost_usd'), 0) AS cost
-  FROM rounds r JOIN sessions s ON s.id = r.session
-  WHERE r.cell IS NOT NULL AND r.usage IS NOT NULL
+  FROM rounds r
+  WHERE r.cell IS NOT NULL AND r.session IS NOT NULL AND r.usage IS NOT NULL
 ),
 -- The sessions replayed: those whose every round that used tokens keeps its first and last prompt, on a model with
 -- prices. A session with a round that does not is left out whole, since its rent cannot be told.
@@ -78,10 +79,10 @@ calls AS MATERIALIZED (
 -- d how many tokens less each call holds than it did, by the hand-overs so far; o what the replayed session opened
 -- with; e what call i holds once replayed, and rd, wr and outp its prices; rent what the replayed session has paid
 -- since it opened; saved the reads saved; paid what the hand-overs cost; handed how many there were, and at where each
--- came: R<work>-<n>#<the call of the round>.
-step(s, i, work, n, j, o0, d, o, e, rd, wr, outp, rent, saved, paid, handed, at) AS (
+-- came: R<work>-<n>#<the call of the round>; due1 the call of the session the first came after.
+step(s, i, work, n, j, o0, d, o, e, rd, wr, outp, rent, saved, paid, handed, at, due1) AS (
   SELECT c.s, c.i, c.work, c.n, c.j, c.p, 0.0, c.p, c.p, pr.read, CASE WHEN c.hour THEN pr.w1 ELSE pr.w5 END,
-    pr.output, 0.0, 0.0, 0.0, 0, ''
+    pr.output, 0.0, 0.0, 0.0, 0, '', NULL
   FROM calls c
   JOIN prices pr ON pr.model = c.model
     AND pr.above = CASE WHEN c.model = 'claude-haiku-5-5' AND c.p > 100000 THEN 100000 ELSE 0 END
@@ -111,7 +112,8 @@ step(s, i, work, n, j, o0, d, o, e, rd, wr, outp, rent, saved, paid, handed, at)
     st.paid + (st.rent > 0 AND st.rent >= st.e * st.wr / 1e6) * (st.e * (st.wr + st.rd) + g.handover * st.outp) / 1e6,
     st.handed + (st.rent > 0 AND st.rent >= st.e * st.wr / 1e6),
     st.at || CASE WHEN st.rent > 0 AND st.rent >= st.e * st.wr / 1e6
-                  THEN ' R' || st.work || '-' || st.n || '#' || st.j ELSE '' END
+                  THEN ' R' || st.work || '-' || st.n || '#' || st.j ELSE '' END,
+    coalesce(st.due1, CASE WHEN st.rent > 0 AND st.rent >= st.e * st.wr / 1e6 THEN st.i END)
   FROM step st
   JOIN calls c ON c.s = st.s AND c.i = st.i + 1
   JOIN given g
@@ -122,7 +124,7 @@ step(s, i, work, n, j, o0, d, o, e, rd, wr, outp, rent, saved, paid, handed, at)
 ),
 -- Each session replayed, as it stands after its last call, with its rounds as recorded.
 per AS (
-  SELECT st.s, st.handed, trim(st.at) AS at, st.saved, st.paid,
+  SELECT st.s, st.handed, trim(st.at) AS at, st.due1, st.saved, st.paid,
     (SELECT 'R' || r.work || '-' || r.n || ' ' || r.cell FROM ran r WHERE r.s = st.s
      ORDER BY r.started_at, r.work, r.n LIMIT 1) AS first,
     (SELECT count(*) FROM ran r WHERE r.s = st.s) AS rounds,
@@ -132,7 +134,7 @@ per AS (
   JOIN (SELECT s, max(i) AS last FROM calls GROUP BY s) l ON l.s = st.s AND l.last = st.i
 )
 SELECT * FROM (
-  SELECT 'session' AS kind, first, rounds, calls, round(cost, 2) AS cost, handed, at,
+  SELECT 'session' AS kind, first, rounds, calls, round(cost, 2) AS cost, handed, 'call ' || due1 || ': ' || at AS at,
     round(saved, 2) AS saved, round(paid, 2) AS paid, round(saved - paid, 2) AS net
   FROM per WHERE handed > 0
   UNION ALL
@@ -140,6 +142,13 @@ SELECT * FROM (
     round(sum(cost), 2), sum(handed), sum(saved - paid < 0) || ' with a net loss',
     round(sum(saved), 2), round(sum(paid), 2), round(sum(saved - paid), 2)
   FROM per
+  UNION ALL
+  -- The call of its session each first hand-over came after: the least, the median and the most.
+  SELECT 'first_handover', count(*) || ' sessions', min(due1),
+    (SELECT due1 FROM per WHERE handed > 0 ORDER BY due1 LIMIT 1 OFFSET (SELECT (count(*) - 1) / 2 FROM per
+                                                                         WHERE handed > 0)),
+    NULL, max(due1), 'least, median and most of the session call the first hand-over came after', NULL, NULL, NULL
+  FROM per WHERE handed > 0
   UNION ALL
   SELECT 'left_out', count(DISTINCT s) || ' sessions', count(*), sum(calls), round(sum(cost), 2), NULL,
     'a round that used tokens has no first or last prompt, or a model with no prices', NULL, NULL, NULL
