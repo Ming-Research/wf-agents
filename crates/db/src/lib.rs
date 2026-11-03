@@ -21,6 +21,7 @@ mod cells;
 mod holds;
 mod matters;
 mod questions;
+mod slots;
 mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
@@ -30,6 +31,7 @@ pub use matters::{
     one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
+pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
 pub use start_over::{
     CANCEL_ITEM, RESUME_WORK, START_OVER, ask_cancel, ask_resume, cancel_asked_too, cannot_start_over, merge_stands,
     resume_asked, resume_asker, start_over, stop_asked, stopping, withdraw_resume,
@@ -120,13 +122,14 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0076.sql"),
     include_str!("../../../db/migrations/0077.sql"),
     include_str!("../../../db/migrations/0078.sql"),
+    include_str!("../../../db/migrations/0079.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 11] = [
+const UNTRACKED: [&str; 12] = [
     "rounds",
     "tool_runs",
     "pings",
@@ -138,6 +141,7 @@ const UNTRACKED: [&str; 11] = [
     "outbox",
     "contents",
     "attachments",
+    "slot_waits",
 ];
 
 /// The line a table's description has when agents may not read it.

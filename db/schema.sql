@@ -1049,6 +1049,28 @@ CREATE TABLE dispatch_holds (
   PRIMARY KEY (project, reason)
 ) STRICT;
 
+CREATE TABLE slot_waits (
+  -- Each stretch of time a work waited for a free slot: what it waited for had come (the owner's or the architect's
+  -- answer, or what the row it took waited for), and it waited on, holding no slot, until its machine had one free.
+  -- The engine's loop opens a row as it reaps a step of the work that found its wait over and was granted no slot, and
+  -- closes it as it grants the work a slot or finds the work ended, paused or gone on.
+  -- Read by: the engine's loop, which grants the works with an open row a free slot before any new work starts; the
+  -- owner's interface, through the engine's status, which names such a work as waiting for a free slot; whoever looks
+  -- at why works stood still.
+  id INTEGER PRIMARY KEY,
+  -- The work that waited.
+  work INTEGER NOT NULL REFERENCES works(id),
+  -- When its wait for a slot began: when the step that found its wait over ended.
+  since INTEGER NOT NULL,
+  -- When its wait for a slot ended; NULL while it lasts.
+  until INTEGER,
+  -- How it ended: granted, the loop granted the work a free slot; ended, the work ended; paused, the work was paused;
+  -- gone_on, the work went on without a slot, as by a round the owner asked for, or no longer waited where it had, as
+  -- when it was brought to a newer flow version. NULL while it lasts.
+  ended TEXT CHECK (ended IN ('granted', 'ended', 'paused', 'gone_on')),
+  CHECK ((until IS NULL) = (ended IS NULL))
+) STRICT;
+
 CREATE TABLE notebook_edits (
   -- Each version of a section of a project's architect's notebook, as a round of its architect's line wrote it whole:
   -- what the project is now (project_now), the plan (plan), what is unclear (unclear), and anything else (other), in
@@ -1154,6 +1176,8 @@ CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, pr
 CREATE INDEX talk_entries_by_talk ON talk_entries (matter);
 -- The open blocker of each task: one at most.
 CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
+-- The open wait for a free slot of each work: one at most.
+CREATE UNIQUE INDEX slot_waits_open ON slot_waits (work) WHERE until IS NULL;
 -- The item changes of a batch still waiting for its review.
 CREATE INDEX architect_item_changes_collected ON architect_item_changes (work) WHERE state = 'collected';
 -- A project's observations.

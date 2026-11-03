@@ -19629,12 +19629,56 @@ fn of_two_works_back_from_waiting_one_takes_the_one_free_slot() {
     assert_eq!(at(&e, second).as_deref(), Some("A2"), "{log}");
     assert_eq!(e.waiting_for_slot().unwrap(), vec![b], "{log}");
     assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    // The wait is the database's, not this engine's memory: an engine started afresh on it names it too.
+    let (mut afresh, _) = engine(&s, scripts());
+    assert_eq!(afresh.waiting_for_slot().unwrap(), vec![b], "{log}");
+    drop(afresh);
     // The owner pauses the third, which frees its slot: the second goes on in it.
     api::pause(&mut e.db, c, None).unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_ne!(at(&e, second).as_deref(), Some("A2"), "{log}");
     assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
+    // Each work's wait for a slot is kept, from when its step found the reply come until the loop granted it a slot.
+    let a = state(&e, first).unwrap().0;
+    let waits = engine::query_json(
+        e.db.conn(),
+        "SELECT work, ended, until >= since AS ordered FROM slot_waits ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    assert_eq!(
+        waits,
+        [
+            json!({ "work": a, "ended": "granted", "ordered": 1 }),
+            json!({ "work": b, "ended": "granted", "ordered": 1 }),
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A wait for a free slot left open, as by an engine that stopped while the work waited so, ends once the work is
+// paused: the work waits for its owner then, and the engine names it as waiting for a slot no longer.
+#[test]
+fn a_wait_for_a_slot_ends_as_its_work_is_paused() {
+    let s = setup("slot-wait-paused");
+    let (mut e, said, item) = start(&s, scripts());
+    e.tick().unwrap();
+    let log = || said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap_or_else(|| panic!("no work started:\n{}", log()));
+    e.db.write(Actor::Engine, |tx| db::open_slot_wait(tx, work, 1)).unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    e.tick().unwrap();
+    let waits = engine::query_json(e.db.conn(), "SELECT work, since, ended FROM slot_waits", &[], 10).unwrap();
+    assert_eq!(
+        waits,
+        [json!({ "work": work, "since": 1, "ended": "paused" })],
+        "{}",
+        log()
+    );
+    assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{}", log());
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

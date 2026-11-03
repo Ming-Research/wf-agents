@@ -112,7 +112,7 @@ pub enum Advance {
     /// there, or the page shows the work as running while it only waits.
     Waits(String),
     /// What the work waited for came, and it waits on, holding no slot, since the loop granted its step none: its
-    /// machine had no slot free.
+    /// machine had no slot free. The loop records the wait for a slot as it reaps the step (`slot_waits`).
     Held(String),
     /// The work is done, was ended or taken over, or is paused.
     Stopped,
@@ -196,10 +196,6 @@ struct Shared {
     /// The works taken over, each with the new work that took its item over, until the engine's loop has read them
     /// ([`Engine::replaced`]): the owner's Start of a work goes on in the work that replaced it.
     replaced: Mutex<Vec<(i64, i64)>>,
-    /// The works whose last step found what they waited for come and waited on, holding no slot, since the loop granted
-    /// it none ([`Advance::Held`]); a work leaves it when the loop grants its step a slot or reaps its next step. Only
-    /// the loop changes it.
-    held_for_slot: Mutex<BTreeSet<i64>>,
     /// The jobs the loop dispatched and has not reaped yet, by their works: one at most for each work. Only the loop
     /// adds and removes them; a job's thread only marks its own as over ([`schedule`]).
     jobs: Mutex<BTreeMap<i64, schedule::Job>>,
@@ -231,7 +227,6 @@ impl Shared {
             looked: Mutex::default(),
             global_pause: Mutex::default(),
             replaced: Mutex::default(),
-            held_for_slot: Mutex::default(),
             jobs: Mutex::default(),
             job_over: Condvar::new(),
             idle: Mutex::default(),
@@ -1318,10 +1313,10 @@ impl Engine {
     /// which the loop grants its next step, is not among them. With them, the paused works whose pause is asked to be
     /// lifted while their machine has none free. The owner's page shows them so, since a work whose answer came and
     /// that does not move, or whose resume was asked and that stays paused, would otherwise look stuck. It only reads:
-    /// which works wait on for a slot changes only as the loop reaps their steps and grants them slots.
+    /// which works wait on for a slot (`slot_waits`) changes only as the loop reaps their steps and grants them slots.
     pub fn waiting_for_slot(&mut self) -> Result<Vec<i64>, String> {
         let mut out = BTreeSet::new();
-        let held = lock(&self.shared.held_for_slot).clone();
+        let held = db::slot_waiting(self.db.conn()).map_err(|e| e.to_string())?;
         for id in held {
             let w = self.work(id)?;
             if w.ended.is_none() && w.paused.is_none() && self.waiting(&w)? && !self.room_for(&w)? {
