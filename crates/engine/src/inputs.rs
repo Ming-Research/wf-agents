@@ -24,6 +24,28 @@ const DESIGN: &str = "D2";
 /// The input that gives a check after design what the design changed since it last answered.
 const DESIGN_CHANGE: &str = "design_change";
 
+/// The input that gives a design's cells the decisions the item holds, each numbered for the design to answer it.
+pub const ITEM_DECISIONS: &str = "item_decisions";
+
+/// The decisions of the item a round was given, as its record keeps them ([`decisions_given`]): each with its number,
+/// the line and who decided. Empty for a round given none.
+pub fn decisions_of(r: &work::Round) -> Vec<Value> {
+    r.input["engine"]["decisions"].as_array().cloned().unwrap_or_default()
+}
+
+/// The decisions of the item a cell's round is given, as gathered for it: none for a cell that reads none, and an empty
+/// list for one that does when the item holds none. The round's record keeps them, so that a later check of another
+/// cell reads which line a number stood for in that round.
+pub fn decisions_given(gathered: &[Gathered]) -> Option<Value> {
+    let x = gathered.iter().find(|x| {
+        x.input
+            .from
+            .iter()
+            .any(|s| matches!(s, Src::Engine(n) if n == ITEM_DECISIONS))
+    })?;
+    Some(x.value.clone().unwrap_or_else(|| Value::Array(Vec::new())))
+}
+
 /// The design fields a check after design judges, outside the design's own: the way chosen, why, and the estimate.
 const DESIGN_FIELDS: [&str; 3] = ["chosen", "why", "estimate"];
 
@@ -785,6 +807,11 @@ pub fn engine_input(
             git::git(wt, &["log", "--format=%H %s", &range]).ok().map(Value::String)
         }),
         "existing_work" => existing_work(e, w, g, item, &main)?.map(Value::String),
+        // The decisions the item holds, numbered for a design to answer each; none for an item with none.
+        ITEM_DECISIONS => {
+            let listed = crate::decisions::listed(item.approach.as_deref().unwrap_or_default());
+            (!listed.is_empty()).then_some(Value::Array(listed))
+        }
         // The table the latest fix answered, as its round was given it; its answers are the fix's own return.
         "fix_table" => answered(e, w, g, FIX)?
             .into_iter()

@@ -97,6 +97,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             Some(_) => "questions",
         }),
         "held" => crate::blockers::held(e, w, g),
+        // Whose ruling the work waits for on where its latest design departs from the decisions of its item.
+        "departures" => s(crate::open_questions::ruling_due(e.db.conn(), w.id, &g.within)?),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
         "cancelled" => {

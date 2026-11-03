@@ -1,11 +1,14 @@
 //! Open questions: what a design could not settle by measuring or reading, each with its options and the one it
 //! recommends. Once the checks after design passed each goes to the project's architect as a matter of its own, which
 //! takes the path an engineer's question takes ([`post`]); the work does not wait, and goes on by what the design
-//! recommends. The answer is kept in the matter's body, and reaches the engineer as an interjection, which turns the
-//! work ([`answer`]). The merge waits until every open question of the work has its answer ([`unanswered`]). The
-//! architect answers one itself, or, for what only the owner can decide, pins it in the owner's one-to-one with an ask
-//! and replies once the owner answered: the matter holds no answer meanwhile, so the merge keeps waiting, and the
-//! owner's words are kept in the answer as they were said.
+//! recommends. A place the design departs from a decision of its item goes the same way, as an open question of its
+//! own, and that one the work waits on before it implements, at cell [`RULING`], for the ruling of whoever made the
+//! decision ([`ruling_due`]). The answer is kept in the matter's body, and reaches the engineer as an interjection,
+//! which turns the work ([`answer`]). The merge waits until every open question of the work has its answer
+//! ([`unanswered`]). The architect answers one itself, or, for what only the owner can decide, pins it in the owner's
+//! one-to-one with an ask and replies once the owner answered: the matter holds no answer meanwhile, so the merge keeps
+//! waiting, and the owner's words are kept in the answer as they were said. A departure from a decision someone other
+//! than the architect made is only the owner's to rule on.
 
 use db::attachments::{self, Words};
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -13,6 +16,7 @@ use db::{Matter, queue_matter};
 use serde_json::{Value, json};
 
 use crate::actions::Ctx;
+use crate::work::RoundId;
 use crate::{ENGINEER, cards, decisions};
 
 /// The kind of matter an open question is.
@@ -40,45 +44,194 @@ fn round_link(work: i64, n: i64) -> String {
     format!("/works/{work}?round=R{work}-{n}")
 }
 
-/// `post_open_questions`: each open question of the work's latest design becomes a matter of its project's architect,
-/// raised by the round that wrote it. A question the work put before, word for word, as a design written again hands
-/// it in, is not put again; one it no longer hands in stays, and is answered as it was asked.
-pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
-    let path = format!("{}.open_questions", ctx.within);
-    let Some((round, questions)) = ctx.last(tx, DESIGN, &path)? else {
-        return Ok(());
+/// The engine's cell of the engineer's graph where a work whose design departs from a decision of its item waits, once
+/// the checks after design passed, for the ruling of whoever made the decision.
+pub const RULING: &str = "D12";
+
+/// What the open question that says a design departs from a decision of its item says before the decision's line.
+pub const DEPARTS: &str = "The design departs from this decision of the item: ";
+
+/// Where a design departs from a decision of its item: the decision's number, its line and who made it, as the design's
+/// round was given them, the passage of the design that goes otherwise, and what the design does instead and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Departure {
+    pub decision: String,
+    pub line: String,
+    pub by: String,
+    pub passage: String,
+    pub instead: String,
+}
+
+impl Departure {
+    /// The open question it is put as, whose answer is the ruling: by its words, so that a design written again that
+    /// departs from the same decision puts it once.
+    pub fn question(&self) -> String {
+        format!("{DEPARTS}{}", self.line)
+    }
+
+    /// Whether the architect made the decision, and so rules on the departure itself.
+    pub fn architect_s(&self) -> bool {
+        self.by == decisions::Source::Architect.as_str()
+    }
+}
+
+/// The departures of the work's latest design from the decisions of its item, with the round that wrote it: each row of
+/// its `decisions` that departs, with the line of the decision and who made it as that round was given them. None
+/// before any design. `within` is the field an agent's forms sit in.
+pub fn departures(conn: &Connection, work: i64, within: &str) -> Result<Option<(RoundId, Vec<Departure>)>, String> {
+    type Row = (i64, Option<String>, Option<String>);
+    let row: Option<Row> = conn
+        .query_row(
+            &format!(
+                "SELECT n, json_extract(output, '$.{within}.decisions'), json_extract(input, '$.engine.decisions')
+                 FROM rounds WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL
+                   AND json_extract(output, '$.{within}.design') IS NOT NULL
+                 ORDER BY n DESC LIMIT 1",
+                db::cells_sql(ENGINEER, &[DESIGN])
+            ),
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((n, rows, given)) = row else {
+        return Ok(None);
     };
+    let list = |t: Option<String>| -> Vec<Value> {
+        t.and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default()
+    };
+    let given = list(given);
+    let departs = list(rows)
+        .iter()
+        .filter(|r| r["verdict"] == "departs")
+        .filter_map(|r| {
+            let id = text(r, "decision");
+            let listed = given.iter().find(|g| g["decision"] == id)?;
+            Some(Departure {
+                decision: id.to_string(),
+                line: text(listed, "line").to_string(),
+                by: text(listed, "by").to_string(),
+                passage: text(r, "passage").to_string(),
+                instead: text(r, "instead").to_string(),
+            })
+        })
+        .filter(|d| !d.line.is_empty())
+        .collect();
+    Ok(Some((RoundId::new(work, n), departs)))
+}
+
+/// Whose ruling the work waits for on where its latest design departs from the decisions of its item, as the engine's
+/// value `departures` says it: `none` when the open question of each departure is answered or withdrawn, `owner` while
+/// one that departs from a decision anyone but the architect made has no answer, and `architect` while those left are
+/// all from the architect's own. A departure whose question was never put waits as one put and unanswered: the work
+/// goes on past none that was not ruled on. Only the latest design counts: a question an earlier one put, which it no
+/// longer departs by, still holds the merge as any open question does, and not this.
+pub fn ruling_due(conn: &Connection, work: i64, within: &str) -> Result<&'static str, String> {
+    let Some((_, departs)) = departures(conn, work, within)? else {
+        return Ok("none");
+    };
+    let (mut owner, mut architect) = (false, false);
+    for d in departs {
+        let matter: Option<(Option<String>, Option<String>)> = conn
+            .query_row(
+                "SELECT json_extract(body, '$.answer'), withdrawn FROM architect_matters
+                 WHERE work = ?1 AND kind = ?2 AND trim(what) = ?3 ORDER BY id DESC LIMIT 1",
+                params![work, KIND, d.question()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(sql)?;
+        if matches!(matter, Some((Some(_), _) | (_, Some(_)))) {
+            continue;
+        }
+        if d.architect_s() {
+            architect = true;
+        } else {
+            owner = true;
+        }
+    }
+    Ok(if owner {
+        "owner"
+    } else if architect {
+        "architect"
+    } else {
+        "none"
+    })
+}
+
+/// Whether a work's question was put already, word for word: a design written again that hands it in does not put it
+/// again.
+fn put_before(tx: &Transaction<'_>, work: i64, question: &str) -> Result<bool, String> {
+    let before: i64 = tx
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE work = ?1 AND kind = ?2 AND trim(what) = ?3",
+            params![work, KIND, question],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    Ok(before > 0)
+}
+
+/// `post_open_questions`: each open question of the work's latest design becomes a matter of its project's architect,
+/// raised by the round that wrote it, and so does each place the design departs from a decision of its item, which the
+/// work waits on at cell [`RULING`] for the ruling of whoever made the decision. A question the work put before, word
+/// for word, as a design written again hands it in, is not put again; one it no longer hands in stays, and is answered
+/// as it was asked.
+pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let Some(item) = &ctx.item else {
         return Ok(());
     };
+    let path = format!("{}.open_questions", ctx.within);
     let mut new = Vec::new();
-    for q in questions.as_array().into_iter().flatten() {
-        let question = text(q, "question");
-        let before: i64 = tx
-            .query_row(
-                "SELECT count(*) FROM architect_matters WHERE work = ?1 AND kind = ?2 AND trim(what) = ?3",
-                params![ctx.work.id, KIND, question],
-                |r| r.get(0),
-            )
-            .map_err(sql)?;
-        if question.is_empty() || before > 0 {
-            continue;
+    if let Some((round, questions)) = ctx.last(tx, DESIGN, &path)? {
+        for q in questions.as_array().into_iter().flatten() {
+            let question = text(q, "question");
+            if question.is_empty() || put_before(tx, ctx.work.id, question)? {
+                continue;
+            }
+            let m = Matter {
+                project: item.project.clone(),
+                kind: KIND.into(),
+                detail: None,
+                what: question.to_string(),
+                body: json!({
+                    "question": question,
+                    "options": text(q, "options"),
+                    "recommended": text(q, "recommended"),
+                    "design_link": round_link(round.work, round.n),
+                }),
+                item: Some(item.id),
+                raised: Some((round.work, round.n)),
+            };
+            new.push(queue_matter(tx, &m).map_err(sql)?.to_string());
         }
-        let m = Matter {
-            project: item.project.clone(),
-            kind: KIND.into(),
-            detail: None,
-            what: question.to_string(),
-            body: json!({
-                "question": question,
-                "options": text(q, "options"),
-                "recommended": text(q, "recommended"),
-                "design_link": round_link(round.work, round.n),
-            }),
-            item: Some(item.id),
-            raised: Some((round.work, round.n)),
-        };
-        new.push(queue_matter(tx, &m).map_err(sql)?.to_string());
+    }
+    let mut departed = Vec::new();
+    if let Some((round, departs)) = departures(tx, ctx.work.id, &ctx.within)? {
+        for d in departs {
+            let question = d.question();
+            if put_before(tx, ctx.work.id, &question)? {
+                continue;
+            }
+            let m = Matter {
+                project: item.project.clone(),
+                kind: KIND.into(),
+                detail: None,
+                what: question.clone(),
+                body: json!({
+                    "question": question,
+                    "departs": { "decision": d.decision, "line": d.line, "by": d.by },
+                    "passage": d.passage,
+                    "instead": d.instead,
+                    "design_link": round_link(round.work, round.n),
+                }),
+                item: Some(item.id),
+                raised: Some((round.work, round.n)),
+            };
+            departed.push(queue_matter(tx, &m).map_err(sql)?.to_string());
+        }
     }
     if !new.is_empty() {
         crate::actions::log_only(
@@ -88,6 +241,18 @@ pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
                 "Open questions {} of {} wait for an answer. They block nothing until the merge.",
                 cards::and_list(&new),
                 ctx.about()
+            ),
+        )?;
+    }
+    if !departed.is_empty() {
+        crate::actions::log_only(
+            tx,
+            ctx.work.id,
+            &format!(
+                "The design of {} departs from decisions of its item: open questions {} wait for the ruling of whoever \
+                 made each, and the work implements nothing until then.",
+                ctx.about(),
+                cards::and_list(&departed)
             ),
         )?;
     }

@@ -272,6 +272,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         mut interjections,
         columns,
         table,
+        decisions,
         number,
         msg,
         whole,
@@ -432,6 +433,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         },
     });
     pin.record(&mut input["engine"]);
+    // The item's decisions as numbered for this round, which a later cell's check reads a number of it by.
+    if let Some(d) = &decisions {
+        input["engine"]["decisions"] = d.clone();
+    }
     // Where the owner's images were given, by their attachments, and those only referred to.
     if !msg.images.is_empty() {
         input["images"] = msg.record_images();
@@ -864,6 +869,9 @@ struct Composed {
     columns: Vec<(String, String)>,
     /// The rows of the cell's numbered table, each with its number.
     table: Vec<Value>,
+    /// The item's decisions the round is given, each with its number, for a cell that reads them
+    /// ([`inputs::decisions_given`]).
+    decisions: Option<Value>,
     /// The round it will be.
     number: RoundId,
     msg: message::Message,
@@ -942,6 +950,7 @@ fn compose(
     };
     let columns = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
+    let decisions = inputs::decisions_given(&gathered);
     let context = message::Context {
         e,
         w,
@@ -983,6 +992,7 @@ fn compose(
         interjections,
         columns,
         table,
+        decisions,
         number,
         msg,
         whole,
