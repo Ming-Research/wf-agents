@@ -14120,7 +14120,9 @@ fn the_engine_records_its_revert_of_a_merge_that_broke_main() {
     e.tick().unwrap();
     let left: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM outbox WHERE kind = 'revert_merge'", [], |r| r.get(0))
+            .query_row("SELECT count(*) FROM outbox WHERE kind = 'revert_merge'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
     assert_eq!(left, 0, "{}", said.lock().unwrap().join("\n"));
     let on_main = git(&s.origin, &["rev-parse", "main"]);
@@ -14143,7 +14145,10 @@ fn the_engine_records_its_revert_of_a_merge_that_broke_main() {
     let (from, to) = (db::now() - 3_600_000, db::now() + 60_000);
     let whole = |name: &str| {
         let m = health::measure(name).unwrap();
-        health::series(e.db.conn(), m, &scope, from, to, to - from).unwrap().points[0].value
+        health::series(e.db.conn(), m, &scope, from, to, to - from)
+            .unwrap()
+            .points[0]
+            .value
     };
     assert_eq!(whole("main.direct_pushes"), Some(1.0));
     assert_eq!(whole("merge.not_on_main"), Some(0.0));

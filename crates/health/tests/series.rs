@@ -623,7 +623,14 @@ fn git(dir: &Path, args: &[&str], at: i64) -> String {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
-        .args(["-c", "user.name=t", "-c", "user.email=t@localhost", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@localhost",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .env("GIT_AUTHOR_DATE", &when)
         .env("GIT_COMMITTER_DATE", &when)

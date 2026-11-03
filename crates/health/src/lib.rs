@@ -164,9 +164,8 @@ impl Measure {
 
     /// Why it has no values for the scope read, when nothing records them or what it needs was not given.
     fn unmeasured_in(&self, scope: &Scope<'_>) -> Option<&'static str> {
-        self.not_measured(scope.subject).or_else(|| {
-            (matches!(self.source, Source::Main(_)) && scope.main.is_none()).then_some(MAIN_UNREAD)
-        })
+        self.not_measured(scope.subject)
+            .or_else(|| (matches!(self.source, Source::Main(_)) && scope.main.is_none()).then_some(MAIN_UNREAD))
     }
 }
 
@@ -493,7 +492,9 @@ impl MainLog {
                 .split_once(' ')
                 .and_then(|(id, s)| Some((id, s.trim().parse::<i64>().ok()?)));
             let Some((id, seconds)) = made else {
-                return Err(format!("main's log has a line that is no commit with its time: {line:?}"));
+                return Err(format!(
+                    "main's log has a line that is no commit with its time: {line:?}"
+                ));
             };
             let ms = seconds.saturating_mul(1000);
             tip_at.get_or_insert(ms);
