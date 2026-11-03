@@ -2062,7 +2062,10 @@ fn results_vs_runs(
     let mut unreported_names: Vec<String> = Vec::new();
     for t in rows {
         let name = t["name"].as_str().unwrap_or_default();
-        match (t["on_head"].as_str(), on_head.iter().find_map(|run| reported(run, name, seps))) {
+        match (
+            t["on_head"].as_str(),
+            on_head.iter().find_map(|run| reported(run, name, seps)),
+        ) {
             (_, None) => {
                 if !unreported_names.iter().any(|n| n == name) {
                     unreported_names.push(name.to_string());
@@ -2071,11 +2074,19 @@ fn results_vs_runs(
             (Some("green"), Some(result @ ("failed" | "not_run"))) => problems.push(format!(
                 "{name} is said to be green on the head, and the latest run of ci there that reported it reports it \
                  {}",
-                if result == "failed" { "failed" } else { "skipped, so that nothing measured it" }
+                if result == "failed" {
+                    "failed"
+                } else {
+                    "skipped, so that nothing measured it"
+                }
             )),
             (Some("red"), Some(result @ ("passed" | "not_run"))) => problems.push(format!(
                 "{name} is said to be red on the head, and the latest run of ci there that reported it reports it {}",
-                if result == "passed" { "passed" } else { "skipped, so that nothing measured it" }
+                if result == "passed" {
+                    "passed"
+                } else {
+                    "skipped, so that nothing measured it"
+                }
             )),
             _ => {}
         }
@@ -2124,7 +2135,10 @@ fn base_matches_run(name: &str, said: Option<&str>, ran: &Value, seps: &[String]
     let (fits, say) = match result.as_str() {
         "passed" => (said == "green", "say green"),
         "failed" => (said == "red", "say red"),
-        "not_built" => (said == "cannot_run", "say cannot_run, since what it tests cannot be built there"),
+        "not_built" => (
+            said == "cannot_run",
+            "say cannot_run, since what it tests cannot be built there",
+        ),
         "not_run" => (
             matches!(said, "not_run" | "cannot_run"),
             "say not_run, or cannot_run when what it tests does not exist before the change",
@@ -2485,11 +2499,23 @@ mod tests {
         assert!(said("unnamed", "not_run").is_ok());
         assert!(said("unnamed", "red").is_ok());
         let green = json!({ "checks": [{ "name": "test", "result": "green" }] });
-        assert!(base_matches_run("old", Some("red"), &green, &seps()).into_result().is_err());
-        assert!(base_matches_run("old", Some("not_run"), &green, &seps()).into_result().is_ok());
+        assert!(
+            base_matches_run("old", Some("red"), &green, &seps())
+                .into_result()
+                .is_err()
+        );
+        assert!(
+            base_matches_run("old", Some("not_run"), &green, &seps())
+                .into_result()
+                .is_ok()
+        );
         // A row of an engine before the results were read from JUnit lists no test: it reports nothing.
         let old = json!({ "checks": [{ "name": "test", "result": "green" }], "tests": [{ "test": "a", "result": "failed" }] });
-        assert!(base_matches_run("a", Some("green"), &old, &seps()).into_result().is_ok());
+        assert!(
+            base_matches_run("a", Some("green"), &old, &seps())
+                .into_result()
+                .is_ok()
+        );
     }
 
     // Item #11: a test whose unit was not built before the change cannot run there, and is said so; green or red is
@@ -3390,7 +3416,10 @@ mod tests {
         // Said red, and the run reports it passed: said, when no file changed after it.
         let runs = vec![before_run(green.clone(), "aaaaaaaaaaaa", &["t/one.rs"])];
         let passed = "one is said to be red before the change, and ci_before reports it passed: say green";
-        assert_eq!(said(results_vs_runs(&rows, &head, &runs, &seps(), none_changed)), [passed]);
+        assert_eq!(
+            said(results_vs_runs(&rows, &head, &runs, &seps(), none_changed)),
+            [passed]
+        );
         // A file changed after the run: the test is to be run again, and what the run says of it is not said.
         let changed = |run: &BeforeRun| run.files.clone();
         assert_eq!(
@@ -3435,7 +3464,9 @@ mod tests {
             ..runs[1].clone()
         };
         assert!(
-            said(results_vs_runs(&rows[..1], &head, &[lost], &seps(), |r| r.files.clone()))[0]
+            said(results_vs_runs(&rows[..1], &head, &[lost], &seps(), |r| r
+                .files
+                .clone()))[0]
                 .contains("a commit the worktree lacks")
         );
         // With no run of ci_before, nothing is said of before the change.

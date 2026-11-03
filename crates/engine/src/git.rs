@@ -414,7 +414,11 @@ mod tests {
     fn a_star_in_a_segment_and_a_double_star_select_files_by_their_names() {
         let ps = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let page = ps(&["client/src/*.test.ts"]);
-        for path in ["client/src/flow.test.ts", "client/src/a.b.test.ts", "client/src/.test.ts"] {
+        for path in [
+            "client/src/flow.test.ts",
+            "client/src/a.b.test.ts",
+            "client/src/.test.ts",
+        ] {
             assert!(under(path, &page), "{path}");
         }
         for path in [

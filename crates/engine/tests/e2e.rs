@@ -631,8 +631,14 @@ struct ByHand {
 /// is `reject` is refused as GitHub refuses a request that lacks an input the workflow requires, one whose `command` is
 /// `timeout` does not finish in time, one whose `command` is `nostart` never gets a run, one whose `command` is `nojobs`
 /// has a run with no job, one whose `command` is `flaky_dispatch` fails to reach GitHub the first time it is asked for,
-/// and one whose `command` is `flaky` is run, but the first wait for it fails to reach GitHub.
+/// and one whose `command` is `flaky` is run, but the first wait for it fails to reach GitHub. The input is read one line
+/// at a time, as a workflow reads the tests the engine names, each followed by a line break.
 type ByHands = Arc<Mutex<Vec<ByHand>>>;
+
+/// Whether the inputs of a run by hand give `command` as `c`, on a line of its own.
+fn commanded(inputs: &[(String, String)], c: &str) -> bool {
+    inputs.iter().any(|(k, v)| k == "command" && v.lines().any(|l| l.trim() == c))
+}
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
 /// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
@@ -712,7 +718,7 @@ impl GitHub for FakeHub {
         self.ci.pass();
         let command = |c: &str| {
             self.run_by_hand(sha)
-                .is_some_and(|d| d.inputs.contains(&("command".to_string(), c.to_string())))
+                .is_some_and(|d| commanded(&d.inputs, c))
         };
         if command("timeout") {
             return Err(Failure {
@@ -758,10 +764,10 @@ impl GitHub for FakeHub {
             .output()
             .unwrap();
         let inputs: Vec<(String, String)> = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        let down = inputs.contains(&("command".to_string(), "down".to_string()));
-        let reject = inputs.contains(&("command".to_string(), "reject".to_string()));
+        let down = commanded(&inputs, "down");
+        let reject = commanded(&inputs, "reject");
         // A dispatch that fails to reach GitHub the first time it is made for a branch, and not the second.
-        let flaky = inputs.contains(&("command".to_string(), "flaky_dispatch".to_string()))
+        let flaky = commanded(&inputs, "flaky_dispatch")
             && !self.by_hand.lock().unwrap().iter().any(|d| d.branch == branch);
         self.by_hand.lock().unwrap().push(ByHand {
             workflow: workflow.to_string(),

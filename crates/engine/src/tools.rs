@@ -484,11 +484,21 @@ fn record_push(e: &mut Engine, w: &Work, head: Option<&str>, pr: Option<i64>) ->
 /// reported in the artifact the project's configuration names (`ci.results`), downloaded from the run any of its
 /// checks is of; unread, with why, when the project names no results, the run has no job or uploaded no such artifact,
 /// or it could not be fetched or read. Nothing is fetched when no test is named.
-fn named_results(github: &dyn hub::GitHub, project: &config::Project, checks: &[CheckRun], tests: &[String]) -> Vec<Value> {
+fn named_results(
+    github: &dyn hub::GitHub,
+    project: &config::Project,
+    checks: &[CheckRun],
+    tests: &[String],
+) -> Vec<Value> {
     if tests.is_empty() {
         return Vec::new();
     }
-    let seps = project.ci.results.as_ref().map(|r| r.separators.as_slice()).unwrap_or_default();
+    let seps = project
+        .ci
+        .results
+        .as_ref()
+        .map(|r| r.separators.as_slice())
+        .unwrap_or_default();
     let read = match (&project.ci.results, checks.first()) {
         (None, _) => Err("the project's configuration names no results of its fast CI (ci.results)".to_string()),
         (Some(_), None) => Err("the run has no job".to_string()),
@@ -523,7 +533,11 @@ fn tests_input(tests: &[String]) -> String {
 /// Why the tests named cannot be given to the fast workflow, which takes each name followed by a line break: a name
 /// that holds a line break would be taken for two. None when each is one line.
 fn tests_refusal(tests: &[String]) -> Option<String> {
-    let broken: Vec<String> = tests.iter().filter(|t| t.contains(['\n', '\r'])).map(|t| format!("{t:?}")).collect();
+    let broken: Vec<String> = tests
+        .iter()
+        .filter(|t| t.contains(['\n', '\r']))
+        .map(|t| format!("{t:?}"))
+        .collect();
     (!broken.is_empty()).then(|| {
         format!(
             "A test's name is one line, and these hold a line break: {}; nothing was pushed",
@@ -1603,7 +1617,10 @@ mod tests {
         let tests = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let named = tests(&["a page > shows the list", " a_test ", "", "engine::e2e b"]);
         assert_eq!(tests_input(&named), "a page > shows the list\na_test\nengine::e2e b\n");
-        assert_eq!(tests_input(&tests(&["a page > shows the list"])), "a page > shows the list\n");
+        assert_eq!(
+            tests_input(&tests(&["a page > shows the list"])),
+            "a page > shows the list\n"
+        );
         assert_eq!(tests_input(&[]), "");
         assert_eq!(tests_refusal(&named), None);
         let why = tests_refusal(&tests(&["a_test", "two\nnames", "and\r"])).unwrap();
@@ -2843,11 +2860,21 @@ timeout_ms = 1000
              <testcase name=\"a page &gt; fails\" time=\"0.002\"><failure message=\"expected 1\"/></testcase>\
              </testsuite></testsuites>",
         );
-        let named = ["a page > shows the list", "fails", "src/a.test.ts > a page > shows the list", "list"];
+        let named = [
+            "a page > shows the list",
+            "fails",
+            "src/a.test.ts > a page > shows the list",
+            "list",
+        ];
         let read = |tests: &Value| -> Vec<(String, String)> {
             let rows = tests.as_array().unwrap();
             rows.iter()
-                .map(|t| (t["test"].as_str().unwrap().to_string(), t["result"].as_str().unwrap().to_string()))
+                .map(|t| {
+                    (
+                        t["test"].as_str().unwrap().to_string(),
+                        t["result"].as_str().unwrap().to_string(),
+                    )
+                })
                 .collect()
         };
         let want: Vec<(String, String)> = [

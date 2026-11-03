@@ -75,7 +75,13 @@ mod tests {
         // A project whose runner joins the parts of a name by `.` names a test by what follows one.
         let dotted = test("tests", "suite.module.a_row");
         let dot = seps(&["."]);
-        for named in ["a_row", "module.a_row", "suite.module.a_row", "tests suite.module.a_row", "tests.suite.module.a_row"] {
+        for named in [
+            "a_row",
+            "module.a_row",
+            "suite.module.a_row",
+            "tests suite.module.a_row",
+            "tests.suite.module.a_row",
+        ] {
             assert!(names(named, &dotted, &dot), "{named}");
         }
         for named in ["row", "ule.a_row", "a_ro", "tests a_row"] {
@@ -92,11 +98,22 @@ mod tests {
     fn each_way_a_name_was_written_names_its_test_by_the_project_s_separators() {
         let s = seps(&["::", " > "]);
         let rust = test("engine::e2e", "a_test");
-        for named in ["a_test", "engine::e2e a_test", "engine::e2e::a_test", "e2e::a_test", " a_test "] {
+        for named in [
+            "a_test",
+            "engine::e2e a_test",
+            "engine::e2e::a_test",
+            "e2e::a_test",
+            " a_test ",
+        ] {
             assert!(names(named, &rust, &s), "{named}");
         }
         let unit_test = test("engine", "tools::tests::a_test");
-        for named in ["a_test", "tests::a_test", "tools::tests::a_test", "engine tools::tests::a_test"] {
+        for named in [
+            "a_test",
+            "tests::a_test",
+            "tools::tests::a_test",
+            "engine tools::tests::a_test",
+        ] {
             assert!(names(named, &unit_test, &s), "{named}");
         }
         let page = test("src/page.test.ts", "a page > shows the owner's list");
@@ -109,10 +126,25 @@ mod tests {
             assert!(names(named, &page, &s), "{named}");
         }
         // A word of the title, a cut inside a part, and a title of another test name nothing.
-        for named in ["list", "owner's list", "page > shows the owner's list", "a page", "shows the list", "", "  "] {
+        for named in [
+            "list",
+            "owner's list",
+            "page > shows the owner's list",
+            "a page",
+            "shows the list",
+            "",
+            "  ",
+        ] {
             assert!(!names(named, &page, &s), "{named:?}");
         }
-        for named in ["a_tes", "test", "e2e a_tes", "other::a_test", "engine::e2e  a_test", "engine::e2e::"] {
+        for named in [
+            "a_tes",
+            "test",
+            "e2e a_tes",
+            "other::a_test",
+            "engine::e2e  a_test",
+            "engine::e2e::",
+        ] {
             assert!(!names(named, &rust, &s), "{named:?}");
         }
     }

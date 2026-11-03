@@ -2197,7 +2197,10 @@ asks = 9
             [ci.results]\nartifact = \" \"\nseparators = [\"::\", \"\"]\n";
         let e = read(&files(&[("projects/q.toml", bad)])).unwrap_err().to_string();
         assert!(e.contains("projects/q.toml: ci.results.artifact is empty"), "{e}");
-        assert!(e.contains("projects/q.toml: ci.results.separators holds an empty separator"), "{e}");
+        assert!(
+            e.contains("projects/q.toml: ci.results.separators holds an empty separator"),
+            "{e}"
+        );
         let unknown = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
             [ci.results]\nartifact = \"a\"\nformat = \"junit\"\n";
         let e = read(&files(&[("projects/q.toml", unknown)])).unwrap_err().to_string();

@@ -110,7 +110,11 @@ pub fn read(files: &[(String, Vec<u8>)]) -> Result<Run, String> {
             let Some(error) = suite.children().find(|c| c.has_tag_name("error")) else {
                 continue;
             };
-            let text: String = error.descendants().filter(|n| n.is_text()).filter_map(|n| n.text()).collect();
+            let text: String = error
+                .descendants()
+                .filter(|n| n.is_text())
+                .filter_map(|n| n.text())
+                .collect();
             let why = first_line(&text)
                 .or_else(|| error.attribute("message").and_then(first_line))
                 .unwrap_or_default();
@@ -173,7 +177,11 @@ pub fn rows(tests: &[String], run: Result<&Run, &str>, seps: &[String]) -> Vec<V
                     });
                 }
             };
-            let matched: Vec<&Case> = run.cases.iter().filter(|c| test_name::names(named, &c.test, seps)).collect();
+            let matched: Vec<&Case> = run
+                .cases
+                .iter()
+                .filter(|c| test_name::names(named, &c.test, seps))
+                .collect();
             let mut row = json!({ "test": named, "matched": matched.iter().copied().map(entry).collect::<Vec<_>>() });
             match combined(matched.iter().map(|c| c.outcome)) {
                 Some(result) => {
@@ -191,7 +199,13 @@ pub fn rows(tests: &[String], run: Result<&Run, &str>, seps: &[String]) -> Vec<V
                     let units: Vec<String> = run
                         .unbuilt
                         .iter()
-                        .map(|u| if u.why.is_empty() { u.unit.clone() } else { format!("{}: {}", u.unit, u.why) })
+                        .map(|u| {
+                            if u.why.is_empty() {
+                                u.unit.clone()
+                            } else {
+                                format!("{}: {}", u.unit, u.why)
+                            }
+                        })
                         .collect();
                     row["result"] = json!("not_built");
                     row["why"] = json!(format!(
@@ -292,17 +306,39 @@ error[E0599]: no method named `rounds_mark` found
         let got: Vec<(String, &str, Option<&str>, Option<&str>)> = run
             .cases
             .iter()
-            .map(|c| (c.test.whole(), c.outcome.as_str(), c.ended.as_deref(), c.time.as_deref()))
+            .map(|c| {
+                (
+                    c.test.whole(),
+                    c.outcome.as_str(),
+                    c.ended.as_deref(),
+                    c.time.as_deref(),
+                )
+            })
             .collect();
         assert_eq!(
             got,
             [
                 ("engine::e2e a_row".to_string(), "passed", None, Some("0.731")),
-                ("engine::e2e a_row_into_the_asking_part".to_string(), "failed", Some("failure"), Some("0.734")),
+                (
+                    "engine::e2e a_row_into_the_asking_part".to_string(),
+                    "failed",
+                    Some("failure"),
+                    Some("0.734")
+                ),
                 ("engine::e2e flaky_one".to_string(), "passed", None, Some("1.5")),
-                ("engine tools::tests::a_row".to_string(), "failed", Some("error"), Some("0.002")),
+                (
+                    "engine tools::tests::a_row".to_string(),
+                    "failed",
+                    Some("error"),
+                    Some("0.002")
+                ),
                 ("engine tools::tests::later".to_string(), "skipped", None, None),
-                ("src/page.test.ts a page > shows the owner's list".to_string(), "passed", None, Some("0.01")),
+                (
+                    "src/page.test.ts a page > shows the owner's list".to_string(),
+                    "passed",
+                    None,
+                    Some("0.01")
+                ),
             ]
         );
         assert_eq!(
@@ -339,11 +375,20 @@ error[E0599]: no method named `rounds_mark` found
     // JUnit file is unread too, so that a test of a file that cannot be read is never taken for passed.
     #[test]
     fn a_file_that_cannot_be_read_leaves_the_run_unread() {
-        let good = file("a.xml", "<testsuites><testsuite name=\"u\"><testcase name=\"t\"/></testsuite></testsuites>");
+        let good = file(
+            "a.xml",
+            "<testsuites><testsuite name=\"u\"><testcase name=\"t\"/></testsuite></testsuites>",
+        );
         for (bad, says) in [
-            (file("b.xml", "<testsuites><testsuite>"), "b.xml is not XML the engine reads"),
+            (
+                file("b.xml", "<testsuites><testsuite>"),
+                "b.xml is not XML the engine reads",
+            ),
             (("c.xml".to_string(), vec![0xff, 0xfe]), "c.xml is not UTF-8"),
-            (file("d.xml", "<report><testcase name=\"t\"/></report>"), "d.xml is not JUnit"),
+            (
+                file("d.xml", "<report><testcase name=\"t\"/></report>"),
+                "d.xml is not JUnit",
+            ),
             (
                 file("e.xml", "<!DOCTYPE x [<!ENTITY a \"b\">]><testsuites/>"),
                 "e.xml is not XML the engine reads",
@@ -397,7 +442,10 @@ error[E0599]: no method named `rounds_mark` found
             unbuilt: Vec::new(),
             ..run
         };
-        assert_eq!(rows(&named[4..], Ok(&built), &seps())[0], json!({ "test": "missing", "matched": [], "result": "not_run" }));
+        assert_eq!(
+            rows(&named[4..], Ok(&built), &seps())[0],
+            json!({ "test": "missing", "matched": [], "result": "not_run" })
+        );
         // A run whose results could not be read gives each name unread, with why.
         let unread = rows(&named[..1], Err("the run uploaded no artifact test-results"), &seps());
         assert_eq!(
