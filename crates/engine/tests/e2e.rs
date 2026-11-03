@@ -16018,3 +16018,147 @@ fn a_decision_is_not_left_only_in_an_item_the_batch_merged_away_and_one_on_a_cre
     assert!(wrong.is_empty(), "{}\n{log}", wrong.join("\n"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// A delegate that marks parts of its message as the owner's own words, and a decision that quotes them, go through the
+// whole path: the cell that records decisions is given the marked parts with the words, and the lines are written as the
+// engine tells who said each quotation. A decision that quotes only a marked part is the owner's, relayed by the delegate
+// and not checked; one that quotes a marked part and an unmarked part of the same message is the delegate's, and says
+// of the marked quotation that it is relayed; one that quotes the owner's own words and a marked part is told by the
+// less certain of the two, the marked part, and says of the owner's own quotation that it is the owner's. Oracle:
+// acceptance A3 and A6 (the order owner, relayed, delegate, unrecorded, architect; the head is the least certain
+// source; a quotation of another source says its own in its brackets; `batch_words` carries `relayed`).
+#[test]
+fn a_decision_quoting_what_a_delegate_marked_as_the_owner_s_is_told_as_relayed_and_not_checked() {
+    let s = setup("decisions-relayed");
+    let path = config::database(&s.data);
+    let relayed = "owner relayed by the delegate, not checked";
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let edit = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse it first",
+                               "reason": "Say it first." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": [edit] })),
+                ],
+            )
+        }),
+    );
+    let given: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (at, seen) = (path.clone(), given.clone());
+    agents.insert(
+        "B5",
+        Box::new(move |r: &Request, _: usize| {
+            let (a, b) = (matter_with(&at, "No browser"), matter_with(&at, "old name"));
+            if let Some(words) = given_value(&r.prompt, "·engine·batch_words") {
+                seen.lock().unwrap().push(words.to_string());
+            }
+            let looked: Vec<Value> = [a, b]
+                .iter()
+                .map(|m| json!({ "matter": m, "verdict": "decision", "why": "It settles a choice." }))
+                .collect();
+            let decisions = json!([
+                decision_of(Some("1"), "The old name stays", &[(b, "Keep the old name.")]),
+                decision_of(
+                    Some("1"),
+                    "Integers are shipped",
+                    &[(b, "Use integers."), (b, "Ship it.")]
+                ),
+                decision_of(
+                    None,
+                    "No browser check, old name",
+                    &[(a, "No browser check."), (b, "Keep the old name.")]
+                ),
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.looked", json!(looked)), ("outcome.decisions", decisions)],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "No browser check.");
+    let marked = db::Declared {
+        speaker: db::Speaker::Delegate,
+        relayed: vec!["Keep the old name.".into(), "Use integers.".into()],
+    };
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Fine. Keep the old name. Use integers. Ship it.",
+        &[],
+        marked,
+    )
+    .unwrap();
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 100, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let (a, b) = (matter_with(&path, "No browser"), matter_with(&path, "old name"));
+    let (da, db_) = (day_of(&e, a), day_of(&e, b));
+    let latest = std::cmp::max(da.clone(), db_.clone());
+    let first = decision_line(
+        &db_,
+        relayed,
+        "The old name stays",
+        &format!("\"Keep the old name.\" (matter {b}, {db_})"),
+    );
+    let second = decision_line(
+        &db_,
+        "delegate",
+        "Integers are shipped",
+        &format!("\"Use integers.\" (matter {b}, {db_}, {relayed}); \"Ship it.\" (matter {b}, {db_})"),
+    );
+    let third = decision_line(
+        &latest,
+        relayed,
+        "No browser check, old name",
+        &format!("\"No browser check.\" (matter {a}, {da}, owner); \"Keep the old name.\" (matter {b}, {db_})"),
+    );
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    let what: String =
+        e.db.conn()
+            .query_row("SELECT what FROM observations", [], |r| r.get(0))
+            .unwrap();
+    let mut wrong: Vec<String> = Vec::new();
+    if approach != format!("Approach:\n- Parse it.\nDecisions:\n{first}\n{second}") {
+        wrong.push(format!(
+            "the item's text is\n{approach}\nwith the lines\n{first}\n{second}"
+        ));
+    }
+    if what != third {
+        wrong.push(format!("the observation is\n{what}\nand should be\n{third}"));
+    }
+    // The cell that records decisions was given the marked parts with the words.
+    let marks = r#""relayed":["Keep the old name.","Use integers."]"#;
+    if !given.lock().unwrap().iter().any(|g| g.contains(marks)) {
+        wrong.push(format!(
+            "the words given to B5 do not carry {marks}: {:?}",
+            given.lock().unwrap()
+        ));
+    }
+    assert!(wrong.is_empty(), "{}\n{log}", wrong.join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
