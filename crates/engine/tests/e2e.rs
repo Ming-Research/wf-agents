@@ -3575,7 +3575,10 @@ fn notices(e: &Engine, work: i64) -> Vec<String> {
         e.db.conn()
             .prepare("SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id")
             .unwrap();
-    st.query_map([work], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    st.query_map([work], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
 }
 
 /// The version a work is on and the one it moved from, if it moved.
@@ -3638,12 +3641,15 @@ fn a_work_whose_earlier_answer_no_longer_fits_goes_back_to_that_cell_and_on_to_t
     );
     let why = output["why"].as_str().unwrap_or_default();
     assert!(
-        why.starts_with(&format!("the return of cell R1 in round R{work}-{n} no longer fits it (")),
+        why.starts_with(&format!(
+            "the return of cell R1 in round R{work}-{n} no longer fits it ("
+        )),
         "{why}"
     );
     let told = notices(&e, work);
     assert!(
-        told.iter().any(|t| t.contains(&format!("goes back to cell R1 ")) && t.contains(why)),
+        told.iter()
+            .any(|t| t.contains(&format!("goes back to cell R1 ")) && t.contains(why)),
         "{told:?}"
     );
     assert_eq!(transitions(&e, item, "R1").len(), 2, "{log}");
@@ -3654,10 +3660,7 @@ fn a_work_whose_earlier_answer_no_longer_fits_goes_back_to_that_cell_and_on_to_t
         e.advance(work).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
-    assert!(
-        transitions(&e, item, "M2").iter().any(|t| t == "merged"),
-        "{log}"
-    );
+    assert!(transitions(&e, item, "M2").iter().any(|t| t == "merged"), "{log}");
     assert_eq!(works_of(&e, item).len(), 1, "{log}");
     assert_eq!(open_questions(&e, work).len(), 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -3761,7 +3764,11 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
         }),
     ];
     for (what, change) in changes {
-        let s = setup(if what.ends_with("line") { "begun-line" } else { "begun-inputs" });
+        let s = setup(if what.ends_with("line") {
+            "begun-line"
+        } else {
+            "begun-inputs"
+        });
         let (mut e, said, item) = start(&s, scripts());
         step_to(&mut e, item, "I1");
         let (work, _, _) = state(&e, item).unwrap();
@@ -3946,13 +3953,17 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
         })
         .unwrap();
     let asked = |e: &Engine| -> Vec<i64> {
-        let mut st =
-            e.db.conn()
-                .prepare(
-                    "SELECT id FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
-                )
-                .unwrap();
-        st.query_map([work], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        let mut st = e
+            .db
+            .conn()
+            .prepare(
+                "SELECT id FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
+            )
+            .unwrap();
+        st.query_map([work], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
     };
     for time in 1..=2 {
         e.step(None).unwrap();
@@ -3961,9 +3972,10 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
         assert_eq!(at, "V1", "{log}");
         assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
         assert!(
-            paused
-                .as_deref()
-                .is_some_and(|p| p.starts_with(&format!("it cannot go on in flow version {}: cell Z1 is gone", e.flow_now))),
+            paused.as_deref().is_some_and(|p| p.starts_with(&format!(
+                "it cannot go on in flow version {}: cell Z1 is gone",
+                e.flow_now
+            ))),
             "{paused:?}"
         );
         let v1 = brought(&e, work);
@@ -4022,14 +4034,15 @@ fn a_work_whose_graph_the_version_lacks_is_paused_where_it_stands() {
         Some(format!("it cannot go on in flow version {now}: the version has no graph policy").as_str()),
         "{log}"
     );
-    let asked: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
-                [work],
-                |r| r.get(0),
-            )
-            .unwrap();
+    let asked: i64 = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(asked, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

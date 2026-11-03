@@ -51,7 +51,10 @@ pub fn plan(
     match decide(old, new, pos, rounds) {
         Plan::GoBack { to, why } => {
             let from = redone_from(old, rounds, &to);
-            match rounds[from..].iter().find_map(|r| in_effect(r).map(|what| (r.id, what))) {
+            match rounds[from..]
+                .iter()
+                .find_map(|r| in_effect(r).map(|what| (r.id, what)))
+            {
                 Some((round, what)) => Plan::Stuck {
                     why: format!("{why}; going back to cell {to} would do round {round} again, which {what}"),
                     back_to: Some(to),
@@ -75,11 +78,7 @@ fn decide(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, rounds: &[Ro
         return back(old, new, std::iter::once(main).chain(walked(old, &rounds[..i])), why);
     }
     // Where the work stands, then the cell it serves, then the cells it walked, the latest first.
-    let here = || {
-        [pos.at.as_str(), serving]
-            .into_iter()
-            .chain(walked(old, rounds))
-    };
+    let here = || [pos.at.as_str(), serving].into_iter().chain(walked(old, rounds));
     if new.cell(&pos.at).is_none() {
         return back(old, new, here(), format!("cell {} is gone", pos.at));
     }
@@ -91,9 +90,16 @@ fn decide(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, rounds: &[Ro
     }
     // A cell under way whose session the version would take on in another kind, line or inputs is done again: the
     // cell it serves, and an agent's cell of a detour it stands at, as the advisor answering.
-    let detour_at = (pos.at != serving && old.cell(&pos.at).is_some_and(|c| c.kind == "agent")).then_some(pos.at.as_str());
+    let detour_at =
+        (pos.at != serving && old.cell(&pos.at).is_some_and(|c| c.kind == "agent")).then_some(pos.at.as_str());
     for cell in std::iter::once(serving).chain(detour_at) {
-        let inner = |c: &str| if cell == serving { detour(old, c) } else { shared(old, c) };
+        let inner = |c: &str| {
+            if cell == serving {
+                detour(old, c)
+            } else {
+                shared(old, c)
+            }
+        };
         if begun(old, rounds, cell, inner)
             && let Some(what) = changed(old, new, cell)
         {
@@ -178,7 +184,10 @@ fn back<'c>(old: &CompiledGraph, new: &CompiledGraph, mut cells: impl Iterator<I
             && c != new.end
     };
     match cells.find(|c| fits(c)) {
-        Some(to) => Plan::GoBack { to: to.to_string(), why },
+        Some(to) => Plan::GoBack {
+            to: to.to_string(),
+            why,
+        },
         None => Plan::Stuck {
             why: format!("{why}, and the version has none of the cells the work walked"),
             back_to: None,
@@ -413,10 +422,20 @@ mod tests {
         vec![
             ("just come", at("I1"), vec![d11.clone()], false),
             ("asked for tools", at_x1, vec![d11.clone(), tools.clone()], true),
-            ("tools ran", at("I1"), vec![d11.clone(), tools.clone(), results.clone()], true),
+            (
+                "tools ran",
+                at("I1"),
+                vec![d11.clone(), tools.clone(), results.clone()],
+                true,
+            ),
             ("sent back", at("I1"), vec![d11.clone(), took_none(2, "I1")], true),
             ("asking", asking, vec![d11.clone(), asked, took_none(3, "A2")], true),
-            ("at an engine's cell not run", at("T7"), vec![d11, tools, results, done], false),
+            (
+                "at an engine's cell not run",
+                at("T7"),
+                vec![d11, tools, results, done],
+                false,
+            ),
         ]
     }
 
@@ -636,7 +655,10 @@ mod tests {
         ];
         assert_eq!(plan(&old_too, &new, &at("I1"), &again), Plan::Move);
         // The tools' results as the last return: the cell they answered is done again.
-        let last = [ran(1, "I1", "tools", sample("I1", "tools")), ran(2, "X1", "ran", results)];
+        let last = [
+            ran(1, "I1", "tools", sample("I1", "tools")),
+            ran(2, "X1", "ran", results),
+        ];
         match plan(&old, &new, &at("I1"), &last) {
             Plan::GoBack { to, .. } => assert_eq!(to, "I1"),
             other => panic!("{other:?}"),
@@ -667,7 +689,10 @@ mod tests {
         let old = engineer();
         let mut new = old.clone();
         new.cells.retain(|c| c.id != "A2");
-        assert!(!flow::valid(old.cell("A2").unwrap().schema.as_ref().unwrap(), &json!({})));
+        assert!(!flow::valid(
+            old.cell("A2").unwrap().schema.as_ref().unwrap(),
+            &json!({})
+        ));
         let rounds = [
             ran(1, "R1", "done", sample("R1", "done")),
             ran(2, "A2", "holder_gone", json!({})),
@@ -722,7 +747,10 @@ mod tests {
         let stuck = [rounds[0].clone(), ran(2, "V1", "stuck", json!({}))];
         assert_eq!(
             plan(&now, &now, &at("V1"), &stuck),
-            back_to("R1", "it could go on from none of the cells it walked in the version before")
+            back_to(
+                "R1",
+                "it could go on from none of the cells it walked in the version before"
+            )
         );
     }
 
@@ -767,7 +795,12 @@ mod tests {
     /// A return of an architect's cell that answers an engineer's question, as a round stores it, with `effects`.
     fn answered(n: i64, effects: Value) -> Round {
         let outcome = json!({ "reply": { "text": "Keep it." }, "effects": effects });
-        ran(n, "H3", "done", json!({ "outcome": outcome, "progress": "p", "flow_feedback": "none", "tell_owner": [] }))
+        ran(
+            n,
+            "H3",
+            "done",
+            json!({ "outcome": outcome, "progress": "p", "flow_feedback": "none", "tell_owner": [] }),
+        )
     }
 
     // An architect's work never goes back past a round that did something at once: an interjection, a reply that went
@@ -778,13 +811,17 @@ mod tests {
         let mut new = old.clone();
         // The version asks the pick for a field the round's return lacks.
         needs_after(&mut new, "Q1", "pick");
-        let pick = json!({ "outcome": { "pick": { "matter": 4, "why": "w" } }, "progress": "p", "flow_feedback": "none" });
+        let pick =
+            json!({ "outcome": { "pick": { "matter": 4, "why": "w" } }, "progress": "p", "flow_feedback": "none" });
         assert!(flow::valid(old.cell("Q1").unwrap().schema.as_ref().unwrap(), &pick));
         assert!(!flow::valid(new.cell("Q1").unwrap().schema.as_ref().unwrap(), &pick));
         let interjected = json!({ "actions": [{ "kind": "interject", "work": 7, "text": "Stop." }] });
         let held = json!({ "item_changes": [{ "kind": "edit_item", "item": "1", "part": "title", "text": "T" }] });
         let cases = [
-            (answered(2, interjected), Some("acted at once on a work or on new starts")),
+            (
+                answered(2, interjected),
+                Some("acted at once on a work or on new starts"),
+            ),
             (answered(2, json!({})), Some("replied to the engineer")),
             (answered(2, held), None),
         ];
@@ -793,7 +830,10 @@ mod tests {
             let got = plan(&old, &new, &at("Q0"), &rounds);
             match (done, got) {
                 (Some(what), Plan::Stuck { why, back_to }) => {
-                    assert!(why.ends_with(&format!("would do round R1-2 again, which {what}")), "{why}");
+                    assert!(
+                        why.ends_with(&format!("would do round R1-2 again, which {what}")),
+                        "{why}"
+                    );
                     assert_eq!(back_to.as_deref(), Some("Q1"));
                 }
                 (None, Plan::GoBack { to, .. }) => assert_eq!(to, "Q1"),

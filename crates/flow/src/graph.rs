@@ -1024,7 +1024,12 @@ impl<'s> Graph<'s> {
             );
             let into: Vec<String> = cells
                 .iter()
-                .flat_map(|m| m.rows.iter().filter(|r| r.to == c.id).map(move |r| format!("{} {}", m.id, r.name)))
+                .flat_map(|m| {
+                    m.rows
+                        .iter()
+                        .filter(|r| r.to == c.id)
+                        .map(move |r| format!("{} {}", m.id, r.name))
+                })
                 .collect();
             ensure!(
                 into.is_empty(),

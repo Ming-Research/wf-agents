@@ -3567,7 +3567,10 @@ fn told_at_once(outcome: &Value, changes: &[Value]) -> bool {
     let picked_told = !changes.iter().any(|c| c["matter"].as_i64().is_none());
     let named: BTreeSet<i64> = changes.iter().filter_map(|c| c["matter"].as_i64()).collect();
     let others = items(outcome.get("with"));
-    picked_told || others.iter().any(|x| x["matter"].as_i64().is_some_and(|m| !named.contains(&m)))
+    picked_told
+        || others
+            .iter()
+            .any(|x| x["matter"].as_i64().is_some_and(|m| !named.contains(&m)))
 }
 
 // The architect's checks.

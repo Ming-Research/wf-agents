@@ -491,6 +491,7 @@ impl Engine {
         if self.flow(self.flow_now)?.graph(&w.graph).is_none() {
             return Ok(versions::Plan::Stuck {
                 why: format!("the version has no graph {}", w.graph),
+                back_to: None,
             });
         }
         let old = self.graph_of(w)?;
