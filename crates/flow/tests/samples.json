@@ -656,6 +656,16 @@
    "given": {}
   }
  ],
+ "D12": [
+  {
+   "row": "clear",
+   "json": {},
+   "given": {
+    "departures": "none",
+    "interjection": "no"
+   }
+  }
+ ],
  "I1": [
   {
    "row": "tools",

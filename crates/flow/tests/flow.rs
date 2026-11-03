@@ -1881,6 +1881,7 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
             sampled("D9", "on_its_own", &[]),
             sampled("D10", "implementation", &[]),
             not_needed,
+            sampled("D12", "clear", &[]),
             sampled("I1", "done", &[]),
             full_ci_next("blind"),
             full_ci_green("blind"),
@@ -1892,8 +1893,8 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
     assert_eq!(
         normal,
         [
-            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "I1", "T7",
-            "T2", "T3", "G3", "T4", "M1"
+            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "I1",
+            "T7", "T2", "T3", "G3", "T4", "M1"
         ]
     );
     // The plan the review found sound is locked as the design's acceptance is, with the implementer's new session.
