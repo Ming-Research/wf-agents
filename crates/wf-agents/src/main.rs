@@ -142,6 +142,29 @@ enum Command {
         #[arg(long)]
         speaker: Option<String>,
     },
+    /// Holds a project's new starts, as the owner: the running engine starts no new work on the project from its next
+    /// look (within its idle interval), and works already running go on to their merge, those waiting for a result
+    /// after it. It is kept in the database, so it stands across a restart of the engine, and Pause all, which stops
+    /// every work and is another thing, neither sets nor lifts it. Lift it with `release`.
+    Hold {
+        /// The project; it may be left out when the configuration has one project.
+        #[arg(long)]
+        project: Option<String>,
+        /// Why, in your words; the page shows it and the project's architect reads it.
+        #[arg(long)]
+        why: String,
+    },
+    /// Releases a hold on a project's new starts, as the owner, who may release any of the three: their own, the
+    /// architect's, and the architect's to set the project straight. It fails saying so when the project has none of
+    /// that reason.
+    Release {
+        /// The project; it may be left out when the configuration has one project.
+        #[arg(long)]
+        project: Option<String>,
+        /// Whose hold: `owner`, `architect` or `set_straight`.
+        #[arg(long, default_value = "owner", value_parser = ["owner", "architect", "set_straight"])]
+        reason: String,
+    },
     /// Where each work stands.
     Status,
     /// A work's rounds.
@@ -573,6 +596,8 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         } => print(owner::say(d, work, &to, &text, &speaker, &relayed)),
         Command::Pause { work, why } => print(owner::pause(d, work, &why)),
         Command::Resume { work, note, speaker } => print(owner::resume(d, work, note.as_deref(), speaker.as_deref())),
+        Command::Hold { project, why } => print(owner::hold_starts(d, project.as_deref(), &why)),
+        Command::Release { project, reason } => print(owner::release_hold(d, project.as_deref(), &reason)),
         Command::Status => print(owner::status(d)),
         Command::History { work, full } => print(owner::history(d, work, full)),
         Command::Message { work, json } => message(d, work, json),

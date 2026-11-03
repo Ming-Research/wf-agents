@@ -18,11 +18,13 @@ pub use rusqlite;
 pub mod attachments;
 pub mod backup;
 mod cells;
+mod holds;
 mod matters;
 mod questions;
 mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
+pub use holds::{HoldReason, hold_starts, holds_of, release_starts};
 pub use matters::{
     Declared, FAULT, Forwarder, Matter, Speaker, StartNote, fault_forwarding, forward_fault, forward_new_fault,
     lift_pause, one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding,
@@ -118,6 +120,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0075.sql"),
     include_str!("../../../db/migrations/0076.sql"),
     include_str!("../../../db/migrations/0077.sql"),
+    include_str!("../../../db/migrations/0078.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1654,6 +1657,97 @@ mod tests {
             .unwrap();
         assert_eq!(index, 1);
         assert_eq!(sql(&old), sql(&Db::in_memory().unwrap()));
+    }
+
+    // Item #239: taken from version 77 to 78, the holds on new starts keep their rows as they were (time and words
+    // included), the table is the new one letter for letter and takes the reason owner, and no change of its rows is
+    // recorded by the migration; the triggers that record changes are made afresh, so that a hold written after it is.
+    #[test]
+    fn holds_from_version_77_keep_their_rows_and_take_the_owners_reason() {
+        let mut old = at_version(77);
+        let rejected = old.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since, why) VALUES ('p', 'owner', 5, 'w')",
+                [],
+            )?;
+            Ok(())
+        });
+        assert!(rejected.is_err(), "version 77 does not know the owner's hold");
+        old.write(Actor::Architect, |tx| {
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since, why) VALUES
+                   ('p', 'architect', 1000, 'Wait for the review'), ('p', 'set_straight', 2000, NULL),
+                   ('q', 'architect', 3000, NULL)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let changes = |db: &Db| -> i64 {
+            db.conn()
+                .query_row(
+                    "SELECT count(*) FROM changes WHERE table_name = 'dispatch_holds'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(changes(&old), 3);
+        old.migrate(MIGRATIONS).unwrap();
+        let held: Vec<(String, String, i64, Option<String>)> = {
+            let mut st = old
+                .conn()
+                .prepare("SELECT project, reason, since, why FROM dispatch_holds ORDER BY project, reason")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        let row = |p: &str, r: &str, since: i64, why: Option<&str>| {
+            (p.to_string(), r.to_string(), since, why.map(str::to_string))
+        };
+        assert_eq!(
+            held,
+            [
+                row("p", "architect", 1000, Some("Wait for the review")),
+                row("p", "set_straight", 2000, None),
+                row("q", "architect", 3000, None),
+            ]
+        );
+        assert_eq!(changes(&old), 3, "the migration records no change of its own");
+        let sql = |db: &Db| -> String {
+            db.conn()
+                .query_row("SELECT sql FROM sqlite_master WHERE name = 'dispatch_holds'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        let new = Db::in_memory().unwrap();
+        assert_eq!(sql(&old), sql(&new));
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+        old.write(Actor::Owner, |tx| {
+            hold_starts(tx, "p", HoldReason::Owner, Some("Leaving"))
+        })
+        .unwrap();
+        assert_eq!(changes(&old), 4);
+        let actor: String = old
+            .conn()
+            .query_row(
+                "SELECT actor FROM changes WHERE table_name = 'dispatch_holds' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(actor, "owner");
+        let other = old.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'policy', 1)",
+                [],
+            )?;
+            Ok(())
+        });
+        assert!(other.is_err(), "a reason that is not one of the three is still refused");
     }
 
     // A database at version 50 that holds what the migrations after it change (an open setting of a policy with its

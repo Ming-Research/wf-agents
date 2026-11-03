@@ -85,6 +85,8 @@ pub(crate) struct Row {
     pub common: bool,
     pub counts: Option<String>,
     pub waits: bool,
+    /// The row pauses the work and tells the owner.
+    pub pauses: bool,
     /// A row that waits no longer than an installation's setting says, the cell taking another row once it ran out.
     pub bounded: bool,
     pub interject: bool,
@@ -155,6 +157,9 @@ pub(crate) struct Graph<'s> {
     pub end: usize,
     /// The end a work cancelled or taken over ends at, which no row leads to.
     pub cancel: Option<usize>,
+    /// The cell a work on an older flow version comes to when this version cannot take it on where it stands, which
+    /// no row leads to.
+    pub version: Option<usize>,
     pub region: BTreeSet<usize>,
     pub receive: Option<usize>,
     /// The cells with a row back to the caller or the asker.
@@ -608,6 +613,7 @@ impl<'s> Graph<'s> {
                             actions: Some(h.actions.clone()),
                             counts: Some(h.counts.clone()),
                             waits: None,
+                            pauses: None,
                             until: None,
                             interject: None,
                             main: None,
@@ -623,6 +629,7 @@ impl<'s> Graph<'s> {
                             actions: r.actions.clone(),
                             counts: Some(flow.asking.counts.clone()),
                             waits: None,
+                            pauses: None,
                             until: None,
                             interject: None,
                             main: None,
@@ -754,6 +761,12 @@ impl<'s> Graph<'s> {
                     "only a row that waits has a setting that bounds the wait: {nid} {}",
                     r.name
                 );
+                let pauses = r.pauses.unwrap_or(false);
+                ensure!(
+                    !pauses || n.kind == NodeKind::Engine,
+                    "only an engine's cell has a row that pauses the work: {nid} {}",
+                    r.name
+                );
                 let interject = r.interject.unwrap_or(false);
                 // Or, from a cell that answers the cell that asked, back to it: through choosing the way on for an
                 // agent of its line.
@@ -781,6 +794,7 @@ impl<'s> Graph<'s> {
                     common: is_common,
                     counts: r.counts,
                     waits,
+                    pauses,
                     bounded: r.until.is_some(),
                     interject,
                     actions: r.actions.unwrap_or_default(),
@@ -986,6 +1000,42 @@ impl<'s> Graph<'s> {
             cancel.is_none_or(|x| x != end && cells[x].kind == CellKind::Engine && cells[x].step.is_some()),
             "the end for a work cancelled is an engine's step of its own"
         );
+        let version = flow
+            .version
+            .as_deref()
+            .map(idx)
+            .transpose()
+            .map_err(|e| format!("no such cell for a work on an older flow version: {e}"))?;
+        // The engine brings a work there from wherever it stands, and the rows take it back to the cell it goes back to
+        // or keep it where it is: no row leads in, so the walk never reaches it, and these are all its rows say.
+        if let Some(v) = version {
+            let c = &cells[v];
+            ensure!(
+                v != start
+                    && v != end
+                    && Some(v) != cancel
+                    && c.kind == CellKind::Engine
+                    && c.step.is_some()
+                    && !c.rows.is_empty()
+                    && c.rows.iter().all(|r| r.to == "@stopped" || r.to == "@self"),
+                "the cell for a work on an older flow version is an engine's step of its own, whose rows go back to \
+                 where the work stopped or keep it there: {}",
+                c.id
+            );
+            let into: Vec<String> = cells
+                .iter()
+                .flat_map(|m| {
+                    m.rows
+                        .iter()
+                        .filter(|r| r.to == c.id)
+                        .map(move |r| format!("{} {}", m.id, r.name))
+                })
+                .collect();
+            ensure!(
+                into.is_empty(),
+                "no row leads to the cell for a work on an older flow version: {into:?}"
+            );
+        }
         for (i, c) in cells.iter_mut().enumerate() {
             ensure!(
                 c.rows.is_empty() == (i == end || Some(i) == cancel),
@@ -1235,6 +1285,7 @@ impl<'s> Graph<'s> {
             start,
             end,
             cancel,
+            version,
             region,
             receive,
             called,
@@ -1589,6 +1640,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate) -> Result<Node, String> {
             actions: None,
             counts: None,
             waits: None,
+            pauses: None,
             until: None,
             interject: None,
             main: Some(true),

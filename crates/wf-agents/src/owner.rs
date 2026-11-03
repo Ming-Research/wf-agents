@@ -1,6 +1,6 @@
 //! The owner's commands: creating items and ordering the queue, answering asks of the owner and ruling on design
-//! cards, interjecting, pausing, and the views of where everything stands. Every write is made as the owner, so
-//! `changes` records it as theirs.
+//! cards, interjecting, pausing, holding a project's new starts, and the views of where everything stands. Every write
+//! is made as the owner, so `changes` records it as theirs.
 
 use std::path::Path;
 
@@ -286,6 +286,21 @@ pub fn resume(data: &Path, work: i64, note: Option<&str>, speaker: Option<&str>)
 pub fn pause(data: &Path, work: i64, why: &str) -> Result<String, String> {
     let mut db = open(data)?;
     api::pause(&mut db, work, Some(why))
+}
+
+/// Holds a project's new starts, as the page does: the project named, or the configuration's one project. The running
+/// engine reads the hold at its next look, which the idle interval bounds.
+pub fn hold_starts(data: &Path, project: Option<&str>, why: &str) -> Result<String, String> {
+    let committed = config::committed(data).map_err(sql)?;
+    let mut db = open(data)?;
+    api::hold_starts(&mut db, &committed.config, project, why)
+}
+
+/// Releases a hold on a project's new starts, as the page does, whoever held it.
+pub fn release_hold(data: &Path, project: Option<&str>, reason: &str) -> Result<String, String> {
+    let committed = config::committed(data).map_err(sql)?;
+    let mut db = open(data)?;
+    api::release_hold(&mut db, &committed.config, project, reason)
 }
 
 /// Prints rows as a table, one line per row, each value cut to `width`, and, when the query had more rows than were

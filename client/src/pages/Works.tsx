@@ -15,7 +15,7 @@ import type { ArchitectStanding, Status, WorkState, WorkSummary } from '../api';
 import { architectMark, architectTotals } from '../architect';
 import { course, liveState, Loaded, StateChip, WORK_TONE, WorkStateFilter } from '../components';
 import { sortedProjects } from '../conversation';
-import { held, takeoverWords } from '../course';
+import { bringUpWords, held } from '../course';
 import { cost, duration, time } from '../format';
 import { useResource, useShared, useStatus } from '../live';
 import { ItemRef, PrLink, ProjectHead } from '../parts';
@@ -65,7 +65,7 @@ function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
       <td className="control-cell" onClick={(e) => e.stopPropagation()}>
         <ConversationLink w={w} />
       </td>
-      <td title={a.c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}>
+      <td title={a.c.outdated ? `${at}\n${bringUpWords(w, status)}` : at}>
         <Where w={w} c={a.c} />
       </td>
       <td title={stage}>{stage}</td>
@@ -378,7 +378,7 @@ function WorkLine({ w }: { w: WorkSummary }) {
       state={<State w={w} c={c} />}
       stateHint={held(c, w) ?? w.ended ?? undefined}
       where={<Where w={w} c={c} stage />}
-      whereHint={c.outdated ? `${at}\n${takeoverWords(w, status)}` : at}
+      whereHint={c.outdated ? `${at}\n${bringUpWords(w, status)}` : at}
       facts={[
         tn('work_rounds_n', w.rounds),
         cost(w.cost_usd),

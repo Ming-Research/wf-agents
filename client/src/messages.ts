@@ -512,10 +512,10 @@ const messages = {
     'Every work goes on but those paused by themselves, and new works start on ready items as slots free. A work you or the architect paused, or the engine halted, stays so until you start it.',
   confirm_start_all:
     'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items.',
-  confirm_start_all_takeover:
-    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. {n} works are on an older flow version: each whose cell and returns are unchanged in version {version} moves to it and goes on at its cell; each other ends, and a new work on version {version} takes its item over from the first cell.',
-  confirm_start_all_takeover_one:
-    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. 1 work is on an older flow version: if its cell and returns are unchanged in version {version}, it moves to it and goes on at its cell; else it ends, and a new work on version {version} takes its item over from the first cell.',
+  confirm_start_all_outdated:
+    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. {n} works are on an older flow version: each moves to version {version}, the same work, at its cell when that version can take it on there, else back to an earlier cell through cell V1, or paused at V1 when it can go back to none.',
+  confirm_start_all_outdated_one:
+    'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. 1 work is on an older flow version: it moves to version {version}, the same work, at its cell when that version can take it on there, else back to an earlier cell through cell V1, or paused at V1 when it can go back to none.',
   slots: 'Slots {used}/{total}',
   slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
   engine_more: "More of the engine: what the bar has no room for of the engine's state, Keep warm and the slots",
@@ -604,10 +604,10 @@ const messages = {
   course_stopping_why: 'A cancel or a start over was asked: it ends once the step it is in has ended.',
   course_outdated: 'old flow',
   course_outdated_hint:
-    'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it moves to version {now} and goes on at its cell in its sessions if that cell and every return it handed in are unchanged there; else it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',
+    'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it moves to version {now}, the same work: at its cell in its sessions when that version can take it on there; else back through cell V1 to an earlier cell, which it does again; or, with no cell to go back to, it waits at V1, paused.',
   course_moved: 'moved to version {version}',
   course_moved_hint:
-    'It was on flow version {from} and moved to version {version} when it went on, since its cell and every return it had handed in were unchanged there: it went on at its cell in its sessions.',
+    'It was on flow version {from} and moved to version {version} when it went on: at its cell, or back to an earlier cell through cell V1, as its rounds show.',
   waits_answer: 'waiting for your answer to ask {id}',
   waits_ruling: 'waiting for your ruling on decision card {id}',
   waits_architect: "waiting for the architect's reply to matter {id}",
@@ -646,10 +646,10 @@ const messages = {
   work_step_later: 'The round you asked for is under way, or something stops every work: Step waits until it ends.',
   work_step_goes_on: 'It goes on: Step runs a round of it only while it is paused.',
   confirm_step: 'Run one round of W{id} at cell {cell} now? It is a real round on your account.',
-  confirm_takeover:
-    'W{id} is on flow version {version}; the engine runs version {now}. Going on, it moves to version {now} at its cell if that cell and its returns are unchanged there; else it ends, and a new work on version {now} takes item {item} over from the first cell. Go on?',
-  step_takeover_note:
-    'This work is on an older flow version: Step moves it to version {now} and runs its next round if its cell and its returns are unchanged there; else Step ends it, and runs the first round of the new work on version {now}, which stays in your hands.',
+  confirm_bring_up:
+    'W{id} is on flow version {version}; the engine runs version {now}. Going on, it moves to version {now}: at its cell when that version can take it on there, else back to an earlier cell through cell V1, or paused at V1 when it can go back to none. Go on?',
+  step_bring_up_note:
+    'This work is on an older flow version: Step moves it to version {now} and runs its next round, at its cell or at the cell it goes back to through cell V1; one that version can take on at no cell stays at V1, paused, and that is the step.',
   branch: 'Branch',
   resume_confirm: 'Let W{id} go on? Cell {cell} runs again.',
   design_cards: 'Decision cards',
@@ -1447,10 +1447,26 @@ const messages = {
     'The architect goes on whatever the global state: it works when a matter comes to its queue, round after round, until you pause it or pause every work.',
   arch_pause_hint:
     'The architect stops at the end of the round it is in and stays paused, whatever the global state, until you start it.',
+  hold_owner: 'You stopped new works from starting',
   hold_architect: 'No new works start: the architect holds them',
   hold_set_straight: 'No new works start until the plan fixes are done',
   hold_other: 'No new works start: {reason}',
   hold_since: 'Since {at}; works already running go on.',
+  hold_start: 'Hold new starts',
+  hold_start_hint: 'Stop this project from starting new works; works already running go on.',
+  hold_start_asks:
+    'No new work of {project} will start. Works already running go on and merge, and a work waiting for a result goes on once it comes. To stop the running works too, use Pause all in the top bar: it is another thing, and it does not release this hold.',
+  hold_why: 'Why do you hold new starts?',
+  hold_needs_why: 'Say why first.',
+  hold_release: 'Release',
+  hold_release_hint: 'Let new works of this project start again.',
+  hold_release_owner: 'New works of {project} start again, unless the architect holds them too.',
+  hold_release_architect:
+    "This is the architect's own hold. Releasing it lets new works of {project} start again, unless another hold remains; the architect reads the hold in its board.",
+  hold_release_set_straight:
+    'The architect holds new works of {project} while it sets the project straight. Releasing it lets them start before that is done; the architect may hold them again in its next plan.',
+  hold_release_other: 'Releasing this hold lets new works of {project} start again, unless another hold remains.',
+  hold_cancel: 'Cancel',
   arch_tabs: "The architect's tabs",
   handled_pause_work: 'paused the work on #{item}',
   handled_resume_work: 'let the work on #{item} go on',

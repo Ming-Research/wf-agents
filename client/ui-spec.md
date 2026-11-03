@@ -329,7 +329,7 @@ flow's chart fills the window under the bar, and a second row would take its hei
 The bar holds the views, the engine's state in words (running; paused, saying which works the owner started run
 meanwhile; pausing while the last round finishes, with how many; or waiting for what stops every work, until when),
 beside it the switch of every work plainly as a button, "Pause all" while works go on and "Start all" while they are
-paused, which asks first, saying what goes on and how many works on an older flow version are taken over, the switch
+paused, which asks first, saying what goes on and how many works on an older flow version are brought up, the switch
 "Keep warm", as tall as the button beside it, that one click turns over, the slots in use and the unread messages, and
 nothing of a view: a work's facts are its row in the list of works and its line above its chart, and its own controls
 are in the head of its group (below), and the flow page's choice of version and comparison floats over the chart's top
@@ -1364,8 +1364,8 @@ on it; a work picked from the table takes the whole window under the bar in the 
 that goes back to the table,
 says which work it is (its number, its item, and its project while there is more than one), how it goes on in the list's
 words, where it is (its cell and stage, and while it is on an older flow version a chip saying so, or once it moved to
-the version the engine runs a chip saying to which, since the owner wants to see a work that went on at its cell after
-an upgrade apart from one taken over), its rounds, cost and pull request, linked, and leads to its group, with no links
+the version the engine runs a chip saying to which, since the owner wants to see a work an upgrade moved apart from one
+that started on the version it runs), its rounds, cost and pull request, linked, and leads to its group, with no links
 to the other works, which the owner found of no use; the address names the work, and going back in the browser returns
 to the table as it was. The view has no heading above its table (the bar's tab says it) and the table fills the width, and
 holds no control of a work, which is in its group's head. Where the window is narrower than the table's columns, the
@@ -1390,7 +1390,7 @@ engine for a problem, a work held only because every work is paused reading as w
 since the bar already says that nothing runs until Start all and "paused by you" there made the owner take a work for
 paused that was not; what it waits for, linked to where the owner gives it; the decision cards and asks the owner has to
 do as small chips; the engine's reason after them), beside the cell it is at that it is on an older flow version, saying
-on hovering that it is taken over when it goes on, with the link to its group beside the state, where the owner acts on
+on hovering how it moves when it goes on, with the link to its group beside the state, where the owner acts on
 it (below), because the groups are read as one table, a reason prefixed with the state its badge already shows says it
 twice, and a row that wraps makes the table slow to scan. A work's item is not followed by its project, which the group
 it is in says, instead of the project after each title, since it would say it twice.
@@ -1423,7 +1423,7 @@ ticking each second from the one clock every view shares; what holds it back, sa
 a chip that links to where the owner gives it; once what it waited for came, while it waits for a free slot, that
 state's chip in its place), the owner's asks and decision cards to do as such links, and only for a stop of the engine's
 or the architect's, why in muted words after them; that it is on an older flow version is a tag's chip "old flow" beside
-its cell (`TagChip`), saying in full on hovering what taking it over does, and a work moved to the version it is on says
+its cell (`TagChip`), saying in full on hovering how it moves, and a work moved to the version it is on says
 so ("moved to version N") as a tag's chip too; and what Start, Pause, Step and Start all do in the state the work is in
 is said on hovering each of them.
 
@@ -1764,11 +1764,34 @@ round of such a work hands in is of no use.
 
 ### What stops new works
 
-What stops a project's new works from starting (a new policy being set, the project being set straight, the architect's
+What stops a project's new works from starting (the owner's own hold, the project being set straight, the architect's
 own hold) stands at the right end of the architect's title row, in the conversation's head and on the architect's page
 alike, as a sign and its words in the attention colour with no box, instead of a Label under the title like the
 architect's own state, because it is not what the architect does but a rule on the project's works, and the title row
 had the room.
+
+The owner's controls of it stand in the same row, since the sign is the one place that says what holds the project, and
+the owner acts where a thing is said: while the owner has no hold of their own on the project, a small `Button`, "Hold
+new starts", at the row's end; and on each sign, whoever's hold it is, a small invisible `Button`, "Release", since the
+owner may release any of the three. Each asks first, in a form of its own in a row under the title row, never in a
+dialog that covers the conversation: holding says in plain words what follows (no new work of the project starts, the
+works already running go on and merge, a work waiting for a result goes on once it comes, and Pause all in the bar is
+another thing), asks why in a box of words whose button is greyed with the reason while it is empty, and is sent only
+on that button; releasing says what it lets happen (for the architect's own hold and the one to set the project
+straight, that the architect may hold again in its next plan) and is sent on its "Release". The sign says "You stopped
+new works from starting" with the owner's words for an owner's hold.
+
+Pause all and the hold are two things and look two ways: the hold is one project's rule on its new works, kept in the
+database, so it stands across a restart of the engine and for every work that is waiting or running; Pause all is every
+work's stop, is not kept, and the engine starts with it on. Neither sets or lifts the other; Start all leaves a hold in
+place.
+
+Instead of one control in the bar that holds every project's new starts, because the stop wanted is one project's and
+the bar's two switches already say that every work goes on or stops; instead of a dialog over the page for the words,
+because the owner reads the row and the architect's state beside it to decide whether to hold, and a dialog hides
+them; and instead of a Release only on the owner's own sign, because an architect's hold that the architect does not
+release would leave the project stopped, the owner's only way being to ask the architect, one round later, to let it
+go.
 
 ### A conversation reads as a chat
 

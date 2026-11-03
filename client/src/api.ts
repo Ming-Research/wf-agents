@@ -34,8 +34,8 @@ export type StepTaken = {
  */
 at: number,
 /**
- * The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
- * item over, when the asked work was on an older flow version.
+ * The work the owner asked a round of, and the work the round was of, which a new flow version leaves the same
+ * work.
  */
 asked: number, work: number,
 /**
@@ -1017,6 +1017,17 @@ export type ForwardFault = { project: string, };
 export type ForwardNew = { project: string | null, };
 
 /**
+ * What the owner sends to hold a project's new starts: why, in the owner's words.
+ */
+export type HoldStarts = { why: string, };
+
+/**
+ * What the owner sends to release a hold on a project's new starts: whose it is, `owner`, `architect` or
+ * `set_straight`.
+ */
+export type ReleaseHold = { reason: string, };
+
+/**
  * The owner's answer to an ask of the owner, as the page and the command line hand it in.
  */
 export type Answer = { text: string,
@@ -1827,9 +1838,9 @@ card: MatterCard | null, };
 export type MatterCard = { id: number, status: string, rulings: JsonValue, replaced_by: number | null, };
 
 /**
- * What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
- * architect sets it straight (`policy`, while a new policy was set, a flow version before); since when; and for the
- * architect's own hold, why, as it said it.
+ * What stops a project's new works from starting: `owner`, the owner's own hold; `architect`, its architect's own
+ * hold; `set_straight`, while its architect sets it straight (`policy`, while a new policy was set, a flow version
+ * before); since when; and for the owner's and the architect's own hold, why, as they said it.
  */
 export type DispatchHold = { reason: string, since: number, why: string | null, };
 
@@ -2684,6 +2695,11 @@ export type CompiledGraph = { name: string, start: string, end: string,
  * The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
  */
 cancel?: string | null,
+/**
+ * The cell a work on an older flow version comes to when this version cannot take it on where it stands, from
+ * wherever it stands; none in a graph without one, or in a flow version stored before there was one.
+ */
+version?: string | null,
 /**
  * The field an agent's return holds its one form in.
  */

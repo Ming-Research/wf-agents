@@ -145,7 +145,8 @@ pub struct Ping {
 /// dispatches a work's pings as its job, one job at most for each work). While the owner's global pause holds
 /// (`pause`), a work it holds waits on it; none is due then if the owner switched keeping warm off, and none while a
 /// failed run's cause stops every work. A work whose next round starts the new session the owner asked for has nothing
-/// to keep warm, nor has a work on an older flow version that a new work will take over.
+/// to keep warm, nor has a work on an older flow version that the version the engine runs cannot take on where it
+/// stands, until the loop has brought it up.
 pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<(i64, Vec<Ping>)>, String> {
     let mut out = Vec::new();
     if e.halted() || pause.is_some_and(|p| !p.warm) {
@@ -166,8 +167,9 @@ pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<
             continue;
         }
         let w = e.work(id)?;
-        // A work on an older flow version goes on in its sessions only when it can move to the version the engine runs.
-        if e.done(&w)? || (w.flow_version != e.flow_now && e.cannot_move(&w)?.is_some()) {
+        // A work on an older flow version goes on in its sessions where it stands only when it moves to the version the
+        // engine runs.
+        if e.done(&w)? || (w.flow_version != e.flow_now && e.plan(&w)? != crate::versions::Plan::Move) {
             continue;
         }
         let architect = w.project.as_deref().filter(|_| w.graph == ARCHITECT);

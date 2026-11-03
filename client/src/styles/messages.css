@@ -831,3 +831,27 @@ button.talk-pinbar-line:hover .talk-pinbar-words {
   gap: var(--base-size-4);
   color: var(--fgColor-attention);
 }
+
+/* What asks before a project's new works are held or a hold is released, in a row of its own under the architect's
+   title row: what follows, the owner's words saying why when holding, and the buttons. */
+.talk-head-ask {
+  display: grid;
+  gap: var(--base-size-8);
+  justify-items: start;
+}
+
+.talk-head-ask .send-form {
+  justify-self: stretch;
+}
+
+.talk-head-ask-words {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.talk-head-ask-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}

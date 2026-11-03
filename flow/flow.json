@@ -2600,7 +2600,7 @@
         },
         {
           "value": "release_starts",
-          "desc": "New works of this project start again, if you held them",
+          "desc": "New works of this project start again, if you held them: the owner's hold, listed in your board as `starts_held`, stays until the owner releases it, however you ask",
           "fields": []
         },
         {
@@ -3846,7 +3846,8 @@
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply (a question that pins an open question of an engineer's design is not waited for: that engineer's work goes on without its answer); then, when the architect answered the owner's words less than that wait ago and the owner said nothing since, it waits for the owner's next words; then a matter of two cells waiting for its second cell; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round. Before a matter taken afresh (the owner's words, a matter at the head of the queue, the one matter or the pick among many), the session the architect would take it in ends when its context is past the architect's limit (`agents.architect_context_limit`), so that the matter is taken in a new session, which goes on from the notebook; a matter going on at its second cell or back with the owner's reply keeps its session.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. This pause withdraws a resume that still waits for a free slot, as `resume_work` says. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
-      "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request."
+      "bring_up": "A work on an older flow version, when it next goes on with no step under way, is brought to the version the engine runs by what it carries now: where it stands, what rows recorded, the returns later cells will read and, in the middle of a cell, the session that cell has open. A new version ends a work only when it has no graph for it (below). The cell it serves is the one it is doing: where it stopped, else the first of the cells that wait for an answer, else the cell it stands at; it has begun that cell once a round ran there since the work last took a row of a cell that is not one of those every agent's cell shares (the tools, the search, the owner's Start, the answers to who interjected) or of the asking part: a round that asked for tools and got their results, or a return sent back, has begun it, and coming to a cell, or standing at an engine's cell that has not run, has not. The returns later cells will read are the newest own answer of each cell the version reads from where the work stands, and the work's last return, which the cell after it reads by where it came from: the cells the work can still come to by the version's rows, from the cell it stands at and the cells it goes back to; each cell those cells read by its id, through an input's place or a database view that names it; and each cell the engine's own code reads by its id. An answer that no cell the work can still come to reads takes no part. An engineer's work whose merge stands (its merge cell took `merged`, and watching main has not taken `broken_by_merge` since) is judged by the rounds after its merge alone: only their returns count, only the cells they walked are gone back to, and only they are done again; its answers from before the merge take no part, later cells reading them as they are, so that neither the engine nor the owner's Start ever takes it back before its merge. Earlier returns of the cells every agent's cell shares and of the asking part are read only so, and are not counted. Each is compared by what its cell takes now, its outcome alone for an agent's. It moves where it stands, in the same sessions, its version changed and no round recorded, when the version has the graph, every return counted still fits its cell, the cell it stands at is there, the cell it serves (and the agent's cell of the asking part whose session is open: the one it stands at, or the one whose tools are running) has not changed since it began it its kind, its line or the inputs of its own (their names and sources; those every agent's cell has come with what every return shares), and the cells it goes back to are there as cells of the same kind; a session in the middle of a cell is given what the version changed of its format, task and rows, and a return that does not fit them is sent back. Otherwise it comes here, its version changed, with where it goes back to as where it stopped: the first cell of the work's main way whose return does not fit, or the cell it serves when that changed or a cell it goes back to did not hold, or, when the cell it stands at or serves is gone, the latest cell it walked that the version has. It does that cell again from its start: the round it was in is cut off, the question it had out is withdrawn, as the cell that asked does it again, and what it answered, asked and was told stays. A work never goes back past a round that did what cannot be undone: an engineer's merge, once watching main took it back; and what an architect's round does at once: an action on a work or on new starts (a pause, a resume, a start over, new starts held or let go, an interjection), a word to the owner, a message to another project's architect, a change to observations, a reply that went out to an engineer or to the work that reported, and the batch's item changes made after its review. What has not taken effect is done again: the batch's item changes still collected are revised, a reply that waits for the review is dropped, the matters closed whose reply has not gone out go back to the queue, and the notebook is written again. A work that would go back past such a round stays here instead, paused, with the cell as where it stopped, for the owner to decide: the owner's Start takes it there all the same. When the version has none of the cells it walked, it stays here, paused, with nowhere to go back to: once a later flow version that has one is installed, the owner's Start looks again, a paused work not being brought to a new version until it goes on; an engineer's work whose merge does not stand may be started over, or its item cancelled, meanwhile. An engineer's work that stays here asks its project's architect to set it straight, once for each version; an architect's tells the owner alone, by its pause, since the architect it would ask is that work. A work whose graph the version lacks ends, as no cell of the version can run it, and the owner is told why: an architect's work, or a policy setting's of a version before, leaves no hold of its project's new starts for setting it straight, and a policy setting's worktree is removed; an engineer's item gets a new work on the version, at once when a slot is free, else at the head of the queue.",
+      "stop_work": "A work cancelled, or started over by the owner or its project's architect, which a new work on the version the engine runs takes over, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request."
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
@@ -3873,7 +3874,7 @@
       "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It starts no work of an architect; a work of the architect takes such a matter only when it came before that work started.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
       "queue_for_architect": "Queues each side report for the architect once, due at once, which starts a work of the architect when none runs; one marked urgent that comes while a work of the architect runs is also given to that work at the top of its next round.",
-      "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, with how many slots are free and which items are ready, unless one waits already, new starts of the project are held, the last was handled within the wait the configuration sets (`agents.slots_free_wait`), or the free slots and the items ready are those the last handled held.",
+      "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, with how many slots are free and which items are ready, unless one waits already, new starts of the project are held (by the owner, by the architect, or to set the project straight), the owner has paused every work (none is queued then for any project, whether the owner started its architect or steps it, since no new work can start), the last was handled within the wait the configuration sets (`agents.slots_free_wait`), or the free slots and the items ready are those the last handled held.",
       "raise_blocker": "Raises the task's blocker at the cell where its problem arose: an engineer's question, an engine tool's failure, an ask of the owner, a wait for items to deliver or for the owner's ruling, held by the holder of the cell the row leads to. A cell where the work waits raises it with its row that waits, for what it waits for.",
       "record_place": "Records where the work runs, and the PR it keeps: every later round runs there, and each push is checked against the last pushed head.",
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
@@ -3889,6 +3890,9 @@
       "revise_batch": "Puts the revised changes in place of the batch's changes, for the review to look at again; a cancel of an item they create cancels that create out, as an answer's effects do.",
       "settle_straight_hold": "Releases the hold to set the project straight once every matter that sets it straight is handled and the batch's item changes are made.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
+      "tell_went_back": "Tells the owner that the work went back to a cell of the new flow version, naming the round, the versions, the cell and why.",
+      "report_stuck": "Asks the project's architect, as a place to set straight, about the work that cannot go on in the new flow version, and why: once for each work and version, the same work found stuck again on that version asking nothing more, whether or not the architect handled the matter, and offering a work whose merge stands only the owner's Start once a version with a cell it walked is installed, as its merge refuses a start over and a cancel.",
+      "redo_batch": "Undoes what the rounds the architect's work goes back to do again did that has not taken effect: the batch's item changes they collected are revised, to be collected again, and the matters they closed whose reply has not gone out go back to the queue, a reply held for the batch's review dropped, to be written again.",
       "wait_on_blocker": "Counts the architect's time to act on the task's blocker again from now: the work chose to wait longer.",
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
@@ -3973,7 +3977,7 @@
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
       "cited_nodes": "The files of the records the matter at hand names, in full, as the project's main has them.",
       "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and decision cards ruled, reports that came in; at the architect's first work, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters. The works that ended or stopped show their card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now).",
-      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items. Each running work shows its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now), and each item with no work running says what keeps it from starting, by the judgment the engine makes when it starts a work (starts: held, blocked, project_held, in_batch, no_slot or ready).",
+      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items; and, when there are any, the holds on the project's new starts (`starts_held`), each with its reason (owner, architect or set_straight), since when and why, so that the architect sees the owner's hold and does not plan as if new works could start. Each running work shows its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now), and each item with no work running says what keeps it from starting, by the judgment the engine makes when it starts a work (starts: held, blocked, project_held, in_batch, no_slot or ready).",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
@@ -4014,6 +4018,7 @@
       "design_asked": "The design that the open question of the picked engineer comes of, whole: the same text for every open question of one design, so that it is given with the first and only referred to for the others. None for a matter that is no open question."
     },
     "values": {
+      "brought_up": "Whether the work brought to the new flow version has a cell there to go back to.",
       "came_by": "How the work came to choose the way on.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the line the work stands on has not taken it up yet.",
       "collected_changes": "Whether the batch collected item changes before the round that records its decisions.",
@@ -4103,11 +4108,14 @@
       "holds": {
         "title": "Holds on new starts",
         "layer": "project",
-        "desc": "Why no new work of the project starts for now",
+        "desc": "Why no new work of the project starts for now: the owner's hold, the architect's own, or the architect setting the project straight; works already running go on",
         "relations": [
           "dispatch_holds"
         ],
-        "inputs": []
+        "inputs": [
+          "board"
+        ],
+        "owner": "holds a project's new starts, saying why, and releases any hold, the architect's too"
       },
       "known_red_checks": {
         "title": "Known red checks",
@@ -4510,6 +4518,16 @@
       "tell_owner": [
         "owner_messages"
       ],
+      "tell_went_back": [
+        "owner_notices"
+      ],
+      "report_stuck": [
+        "architect_queue"
+      ],
+      "redo_batch": [
+        "batch",
+        "architect_queue"
+      ],
       "wait_for_start": [
         "owner_notices",
         "architect_queue"
@@ -4581,6 +4599,12 @@
       "ask_architect": {
         "stores": [
           "architect_queue"
+        ]
+      },
+      "brought_up": {
+        "says": "the cell the work goes back to",
+        "stores": [
+          "place"
         ]
       },
       "came_by": {
@@ -4950,6 +4974,15 @@
           "entries": [
             "E1"
           ]
+        },
+        {
+          "name": "version",
+          "nodes": [
+            "V1"
+          ],
+          "entries": [
+            "V1"
+          ]
         }
       ],
       "sessions": {
@@ -5058,7 +5091,7 @@
           "The owner's interface shows two things for each work: its stage, and what it is doing or waiting for right now, such as \"running the full CI\" or \"waiting for an answer to an open question\".",
           "The stage is not stored: it follows from the cell the work is at. The engine records that cell anyway, and the table below gives its stage.",
           "While a question waits (at the advisor, the architect or the owner it was handed to), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
-          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or taken over by a work on a newer flow when it cannot move to that flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
+          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or started over and taken over by a new work, at any cell: it ends at cell `C1`, and keeps the cell it stopped at. A work on an older flow version that the new one cannot take on where it stands comes to cell `V1`, at no stage of its own: it shows at the stage of the cell it goes back to, or of the last cell it had a round at."
         ],
         "list": [
           {
@@ -5145,7 +5178,7 @@
           },
           {
             "name": "cancelled",
-            "desc": "The owner or the architect cancelled it, or a work on a newer flow took it over: from any cell, once the step it is in has ended",
+            "desc": "The owner or the architect cancelled it, or started it over and a new work took it over: from any cell, once the step it is in has ended",
             "nodes": [
               "C1"
             ]
@@ -5771,7 +5804,7 @@
               ],
               "to": "S0",
               "waits": true,
-              "note": "Until the architect releases the hold."
+              "note": "Until the hold is released: the owner's, by the owner; the architect's own, by the architect or the owner; the one to set the project straight, when the architect has done or the owner releases it."
             },
             {
               "name": "in_batch",
@@ -5830,7 +5863,7 @@
               ],
               [
                 "project_held",
-                "New starts of its project are held: the architect sets the project straight or sets a policy"
+                "New starts of its project are held: by the owner, by the architect, or while the architect sets the project straight"
               ],
               [
                 "in_batch",
@@ -13314,6 +13347,74 @@
             "close_pr"
           ],
           "inputs": []
+        },
+        {
+          "id": "V1",
+          "kind": "engine",
+          "title": "Bring the work to the new version",
+          "step": "bring_up",
+          "inputs": [
+            {
+              "name": "Cell it goes back to",
+              "what": "Recorded by the engine as it brought the work here: the cell of the new flow version the work goes back to, as where it stopped; none when the new version has no cell the work can go on from",
+              "from": [
+                {
+                  "db": "work_state",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "went_back",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "went_back"
+                  ]
+                ]
+              ],
+              "to": "@stopped",
+              "do": [
+                "tell_went_back"
+              ],
+              "note": "The same work does that cell again from its start, by the new version: in the session it had when the cell's line is the same, in a session of the new line when it is not."
+            },
+            {
+              "name": "stuck",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "stuck"
+                  ]
+                ]
+              ],
+              "to": "@self",
+              "pauses": true,
+              "do": [
+                "report_stuck"
+              ],
+              "note": "The work waits here, paused, and the owner is told why; the project's architect is asked to set it straight, as by starting it over. With a cell to go back to, the owner's Start takes it there all the same; with none, it stays here until the owner starts it once a flow version that has a cell it walked is installed, which looks again."
+            }
+          ],
+          "inenums": {
+            "brought_up": [
+              [
+                "went_back",
+                "The new version has a cell the work goes back to"
+              ],
+              [
+                "stuck",
+                "It has none the work can go on from"
+              ]
+            ]
+          }
         }
       ],
       "designCard": [
@@ -13510,12 +13611,14 @@
           }
         ]
       },
-      "cancel": "C1"
+      "cancel": "C1",
+      "version": "V1"
     },
     {
       "name": "architect",
       "start": "S0",
       "end": "E2",
+      "version": "V1",
       "blocks": [
         {
           "name": "start",
@@ -13642,6 +13745,15 @@
           ],
           "entries": [
             "E2"
+          ]
+        },
+        {
+          "name": "version",
+          "nodes": [
+            "V1"
+          ],
+          "entries": [
+            "V1"
           ]
         }
       ],
@@ -14312,7 +14424,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts)",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts); the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -14767,7 +14879,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts)",
+              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts); the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -16188,7 +16300,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -16731,7 +16843,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -17190,7 +17302,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -17504,7 +17616,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -17741,7 +17853,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -18064,7 +18176,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -18267,7 +18379,7 @@
             },
             {
               "name": "Items queued",
-              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts)",
+              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts); the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -18512,7 +18624,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -19937,6 +20049,72 @@
           "step": "end_architect_work",
           "inputs": [],
           "out": []
+        },
+        {
+          "id": "V1",
+          "kind": "engine",
+          "title": "Bring the work to the new version",
+          "step": "bring_up",
+          "inputs": [
+            {
+              "name": "Cell it goes back to",
+              "what": "Recorded by the engine as it brought the work here: the cell of the new flow version the work goes back to, as where it stopped; none when the new version has no cell the work can go on from",
+              "from": [
+                {
+                  "db": "work_state",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "went_back",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "went_back"
+                  ]
+                ]
+              ],
+              "to": "@stopped",
+              "do": [
+                "redo_batch",
+                "tell_went_back"
+              ],
+              "note": "The same work does that cell again from its start, by the new version, in the architect's session."
+            },
+            {
+              "name": "stuck",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "stuck"
+                  ]
+                ]
+              ],
+              "to": "@self",
+              "pauses": true,
+              "note": "The work waits here, paused, and the owner is told why, by the pause: the architect it would ask is this work. With a cell to go back to, the owner's Start takes it there all the same; with none, it stays here until the owner starts it once a flow version that has a cell it walked is installed, which looks again."
+            }
+          ],
+          "inenums": {
+            "brought_up": [
+              [
+                "went_back",
+                "The new version has a cell the work goes back to"
+              ],
+              [
+                "stuck",
+                "It has none the work can go on from"
+              ]
+            ]
+          }
         },
         {
           "id": "A3",
