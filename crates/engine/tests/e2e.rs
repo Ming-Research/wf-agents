@@ -15797,3 +15797,209 @@ fn a_works_graph_is_made_once_and_shared() {
     assert!(std::sync::Arc::ptr_eq(&first, &again));
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// A review that finds every change collected so far sound, a row for each, whatever their number.
+fn review_all_sound(path: PathBuf) -> Script {
+    Box::new(move |_: &Request, _: usize| {
+        let c = db::open_read(&path).unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT count(*) FROM architect_item_changes WHERE state = 'collected'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let rows: Vec<Value> = (1..=n)
+            .map(|i| json!({ "change": i, "verdict": "ok", "why": "Judged against the item." }))
+            .collect();
+        (Vec::new(), vec![("outcome.review", json!(rows))])
+    })
+}
+
+// The decisions of an item that a batch merges into another are the kept item's from then on, whatever else the batch
+// does to the kept item's `approach`. A batch that merges item 2 into item 1 and then writes item 1's approach whole,
+// from the text item 1 had before the merge, must not lose the lines the merge carried: either the return is sent back
+// or the line stands in item 1. Oracle: the acceptance rule (A4) that a recorded line is never lost or changed but by
+// the engine's own writes, and the merge's rule that the absorbed item's lines go to the kept item.
+#[test]
+fn a_text_that_replaces_the_approach_of_the_item_kept_in_a_merge_keeps_the_decisions_the_merge_carried() {
+    let s = setup("merge-then-edit");
+    let path = config::database(&s.data);
+    let old = "Decision (2026-10-01, owner): Old one. Situation: s. Reason: r. Replaces: none. \
+               Words: \"x\" (matter 99, 2026-10-01)";
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            let merge = json!({ "kind": "merge", "keep": "1", "absorbed": ["2"], "reason": "The same work." });
+            let edit = json!({ "kind": "edit_item", "item": "1", "part": "approach", "reason": "Say it first.",
+                               "text": "Approach:\n- Parse it first." });
+            let changes = match n {
+                1 => json!([merge, edit]),
+                2 => json!([merge]),
+                _ => return (Vec::new(), Vec::new()),
+            };
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": changes })),
+                ],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+             VALUES ('p', 'Parse more', 'x', 'y', ?1, 'change', 'l')",
+            [format!("Approach:\n- Other.\nDecisions:\n{old}")],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Merge the second item into the first, and write the first again.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    // The line is in the kept item, whether the batch was sent back or not.
+    assert!(
+        approach.lines().any(|l| l == old),
+        "the merge carried the line, and the text written over it lost it:\n{approach}\n{log}"
+    );
+    let cancelled: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM items WHERE id = 2 AND cancelled IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(cancelled, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A decision the owner's words make is not left only in an item the same batch merges away: the batch merges item 2
+// into item 1 and a decision is recorded in item 2 after it. The decision's line must be where a later agent reads it,
+// in the item kept, or the return that records it is sent back. In the same batch a decision that names the key of an
+// item the batch creates is written into that item, under its head and before `Learned:`. Oracle: the acceptance rule
+// (A4) that the line is added under `Decisions:` of the item it is recorded for, which a cancelled item's reader never
+// reads.
+#[test]
+fn a_decision_is_not_left_only_in_an_item_the_batch_merged_away_and_one_on_a_created_key_is_written() {
+    let s = setup("decision-merged-away");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let create = json!({ "kind": "create_item", "key": "lex", "project": "p", "title": "Lex it",
+                "problem": "No lexer.", "why": "Needed.", "acceptance": ["It lexes."], "level": "l",
+                "deliver": "change", "reason": "Split the lexer off.",
+                "approach": "Approach:\n- Lex it.\nLearned:\nFact: f" });
+            let merge = json!({ "kind": "merge", "keep": "1", "absorbed": ["2"], "reason": "The same work." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": [create, merge] })),
+                ],
+            )
+        }),
+    );
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "lexer simple"));
+            let looked: Vec<Value> = [a, b]
+                .iter()
+                .map(|m| json!({ "matter": m, "verdict": "decision", "why": "It settles a choice." }))
+                .collect();
+            let mut decisions = Vec::new();
+            // The first time, one in the item the batch merges away; sent back, only the other.
+            if n == 1 {
+                decisions.push(decision_of(
+                    Some("2"),
+                    "Integers come first",
+                    &[(a, "the parser takes integers first")],
+                ));
+            }
+            decisions.push(decision_of(
+                Some("lex"),
+                "The lexer stays simple",
+                &[(b, "Keep the lexer simple")],
+            ));
+            (
+                Vec::new(),
+                vec![("outcome.looked", json!(looked)), ("outcome.decisions", json!(decisions))],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+             VALUES ('p', 'Parse more', 'x', 'y', 'Approach:\n- Other.', 'change', 'l')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Keep the lexer simple.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 100, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let approach_of = |id: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT coalesce(approach, '') FROM items WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    let (kept, gone) = (approach_of(1), approach_of(2));
+    let has = |t: &str| t.lines().any(|l| l.contains("\"the parser takes integers first\""));
+    assert!(
+        !has(&gone) || has(&kept),
+        "the decision stands only in the item merged away:\nkept: {kept}\nmerged away: {gone}\n{log}"
+    );
+    // The created item is item 3: its decision is under the head, before `Learned:`, and nothing else moved.
+    let b = matter_with(&path, "lexer simple");
+    let day = day_of(&e, b);
+    let line = decision_line(
+        &day,
+        "owner",
+        "The lexer stays simple",
+        &format!("\"Keep the lexer simple\" (matter {b}, {day})"),
+    );
+    assert_eq!(
+        approach_of(3),
+        format!("Approach:\n- Lex it.\nDecisions:\n{line}\nLearned:\nFact: f"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
