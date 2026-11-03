@@ -1252,6 +1252,69 @@ fn a_return_that_does_not_fit_says_where() {
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
 }
 
+// A return that does not fit in several places says every place at once, each on a line of its own after a first line
+// that counts them, where a return with one place says it as ever, on the one line: four `surprise` rows with `why`,
+// a missing field the answer requires and a value its field may not take are six places. Each of them is reached through
+// the alternative the return picks (the answer of `I1`, the kind of a row, the change of a test).
+#[test]
+fn a_return_that_does_not_fit_in_several_places_says_every_place() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let done = samples["I1"][2]["json"].clone();
+    assert_eq!(g.take("I1", &done, &Map::new()).unwrap().name, "done");
+    let mut ret = done.clone();
+    ret["outcome"].as_object_mut().unwrap().shift_remove("head");
+    ret["outcome"]["test_changes"][0]["change"] = "bogus".into();
+    ret["outcome"]["deviations"] = Value::Array(
+        (0..4)
+            .map(|i| serde_json::json!({ "kind": "surprise", "what": format!("W{i}"), "why": "Y" }))
+            .collect(),
+    );
+    let e = g.take("I1", &ret, &Map::new()).unwrap_err();
+    let expected = [
+        "the return does not fit the schema of I1 in 6 places:",
+        "outcome has no head",
+        r#"outcome.test_changes[0].change is "bogus", and must be one of "added", "removed", "skipped", "relaxed""#,
+        "outcome.deviations[0] has why, which is not one of its fields: kind, what",
+        "outcome.deviations[1] has why, which is not one of its fields: kind, what",
+        "outcome.deviations[2] has why, which is not one of its fields: kind, what",
+        "outcome.deviations[3] has why, which is not one of its fields: kind, what",
+    ];
+    assert_eq!(e.lines().collect::<Vec<_>>(), expected, "{e}");
+    // One place is told on one line, as before.
+    let mut one = done.clone();
+    one["outcome"]["deviations"] = serde_json::json!([{ "kind": "surprise", "what": "W", "why": "Y" }]);
+    assert_eq!(
+        g.take("I1", &one, &Map::new()).unwrap_err(),
+        "the return does not fit the schema of I1: outcome.deviations[0] has why, which is not one of its fields: \
+         kind, what"
+    );
+    // A return that fits has no place.
+    let schema = g.cell("I1").unwrap().schema.clone().unwrap();
+    assert_eq!(flow::misfits(&schema, &done, ""), Vec::<String>::new());
+}
+
+// A null a return holds in a field of another form than its own is taken as left out, and the path of each is told; the
+// return then takes its row. A null the return's own form requires still does not fit, and nor does a return of nothing
+// but nulls.
+#[test]
+fn a_null_in_a_field_of_another_form_is_left_out_and_told() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut brief = samples["G1"][0]["json"].clone();
+    brief["outcome"]["ask"] = Value::Null;
+    assert!(g.take("G1", &brief, &Map::new()).is_err());
+    let schema = g.cell("G1").unwrap().schema.clone().unwrap();
+    assert_eq!(flow::without_null_options(&schema, &mut brief), ["outcome.ask"]);
+    assert_eq!(g.take("G1", &brief, &Map::new()).unwrap().name, "done");
+    let mut only = samples["G1"][0]["json"].clone();
+    only["outcome"] = serde_json::json!({ "ask": null });
+    assert_eq!(flow::without_null_options(&schema, &mut only), Vec::<String>::new());
+    assert!(g.take("G1", &only, &Map::new()).is_err());
+}
+
 // The fix has an answer for a row it fixed in no commit, which gives where the fix is and no commit; the ci tool takes a
 // pull request's title and description with no tests, and ci_before, which runs the tests it lists, still needs them.
 #[test]

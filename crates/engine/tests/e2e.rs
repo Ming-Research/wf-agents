@@ -369,6 +369,15 @@ impl Agents for Scripted {
             .or_insert(json!(format!("round {n} at {}", r.cell)));
         let fault = set.remove("@unparsed");
         let as_text = set.remove("@outcome_text").is_some();
+        // Where the return was read from, as the command line tells it: `@from` is `tool` or `text`; with none the
+        // reply tells none, as the replies of most tests do not.
+        let from = match set.remove("@from").as_ref().and_then(Value::as_str) {
+            Some("tool") => Some(engine::agent::Source::Tool),
+            Some("text") => Some(engine::agent::Source::Text),
+            _ => None,
+        };
+        // A field of another form than the return's, written as null beside the form: the field's name.
+        let foreign_null = set.remove("@foreign_null");
         // Attempts the command line refused before it took the return, each by why.
         let refused: Vec<engine::agent::Refused> = set
             .remove("@refused")
@@ -414,8 +423,12 @@ impl Agents for Scripted {
         if as_text {
             output["outcome"] = json!(output["outcome"].to_string());
         }
+        if let Some(field) = foreign_null.as_ref().and_then(Value::as_str) {
+            output["outcome"][field] = Value::Null;
+        }
         Reply {
             output: Some(output),
+            output_from: from,
             session,
             model: Some(r.model.clone()),
             usage,
@@ -4190,6 +4203,58 @@ fn an_outcome_handed_in_as_its_json_text_is_taken_as_the_object() {
     assert_eq!(sent_back(&e), 0, "{log}");
     assert_eq!(taken_from_text(&e, work).as_deref(), Some("outcome"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// What the first round of a work at `R1` keeps under `engine` in its record.
+fn engine_record(e: &Engine, work: i64) -> Value {
+    let text: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine') FROM rounds WHERE work = ?1 AND cell = 'R1'
+                 ORDER BY n LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+// A round records where its return was read from: the tool's input, which the command line checked, or the text of the
+// run's result, which no check of it saw. A null a return holds in a field of another form than its own (`ask` beside
+// the understanding) is taken as left out, the round takes its row with nothing sent back, and the round records the
+// path of the null; a return with no such null records none.
+#[test]
+fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out() {
+    for (from, nulls) in [("text", true), ("tool", false)] {
+        let s = setup(&format!("return-from-{from}"));
+        let mut agents = scripts();
+        agents.insert(
+            "R1",
+            Box::new(move |_: &Request, n: usize| match n {
+                1 if nulls => (
+                    Vec::new(),
+                    vec![("@from", json!(from)), ("@foreign_null", json!("ask"))],
+                ),
+                1 => (Vec::new(), vec![("@from", json!(from))]),
+                _ => (Vec::new(), Vec::new()),
+            }),
+        );
+        let (mut e, said, item) = start(&s, agents);
+        past_r1(&mut e, item);
+        let log = said.lock().unwrap().join("\n");
+        let (work, at, paused) = state(&e, item).unwrap();
+        assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+        assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+        assert_eq!(sent_back(&e), 0, "{log}");
+        let record = engine_record(&e, work);
+        assert_eq!(record["return_from"], from, "{record}");
+        assert_eq!(
+            record.get("foreign_nulls").cloned(),
+            nulls.then(|| json!(["outcome.ask"])),
+            "{record}"
+        );
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
 }
 
 // A run the command line gave up on because its last attempt held the outcome as a string of its JSON is taken from

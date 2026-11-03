@@ -20,6 +20,7 @@ pub mod held;
 pub mod interject;
 pub mod miss;
 pub mod round;
+pub mod shape;
 pub mod system;
 pub mod warm;
 pub mod worktree;

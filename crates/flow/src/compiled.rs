@@ -310,13 +310,22 @@ impl CompiledGraph {
 
     /// The row a return takes: the return checked against the cell's schema, an agent's form taken out of the
     /// field it sits in, and the first row whose conditions hold. `given` holds the values the engine knows and
-    /// rows recorded, and each input read by id under `@<id>`.
+    /// rows recorded, and each input read by id under `@<id>`. A return that does not fit the schema is refused
+    /// with every place it does not fit ([`misfits`]), each on a line of its own when there are several.
     pub fn take(&self, cell: &str, ret: &Value, given: &Map<String, Value>) -> Result<&CompiledRow, String> {
         let c = self.cell(cell).ok_or_else(|| format!("no such cell: {cell}"))?;
-        if let Some(s) = &c.schema
-            && let Some(why) = misfit(s, ret, "")
-        {
-            return Err(format!("the return does not fit the schema of {cell}: {why}"));
+        if let Some(s) = &c.schema {
+            match misfits(s, ret, "").as_slice() {
+                [] => {}
+                [one] => return Err(format!("the return does not fit the schema of {cell}: {one}")),
+                many => {
+                    return Err(format!(
+                        "the return does not fit the schema of {cell} in {} places:\n{}",
+                        many.len(),
+                        many.join("\n")
+                    ));
+                }
+            }
         }
         let x = if c.kind == CellKind::Agent.name() {
             self.unwrap(ret)
@@ -415,83 +424,117 @@ fn holds(a: &Atom, x: &Value, given: &Map<String, Value>, forms: &[&str]) -> boo
     }
 }
 
-/// Where `x` does not fit `s`, and why, in words that say how to put it right; none when it fits. Of alternatives,
-/// the one the value picks by a field whose fixed value tells them apart, or else the only one that has every field
-/// the value has, is followed.
-pub fn misfit(s: &Value, x: &Value, at: &str) -> Option<String> {
-    if valid(s, x) {
-        return None;
+/// Every place where `x` does not fit `s`, and why, in words that say how to put it right, in the order they are found;
+/// none when it fits. An object lists each field it requires that is missing and, when it takes no other, each field the
+/// value holds that is not one of its own, and then goes down into each field the value holds; a list into each of its
+/// items. Of alternatives,
+/// the one the value picks by a field whose fixed value tells them apart, or else the only one that has every field the
+/// value has, is followed, and all that does not fit it is listed; a place is listed once.
+pub fn misfits(s: &Value, x: &Value, at: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    collect(s, x, at, &mut out);
+    out
+}
+
+/// Adds a place to a list of them unless it is there already.
+fn note(out: &mut Vec<String>, place: String) {
+    if !out.contains(&place) {
+        out.push(place);
     }
-    let o = s.as_object()?;
+}
+
+/// The places of `misfits`, added to `out`. A value that does not fit is always told by at least one.
+fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<String>) {
+    if valid(s, x) {
+        return;
+    }
+    let Some(o) = s.as_object() else { return };
+    let before = out.len();
     let here = if at.is_empty() { "the return" } else { at };
     if let Some(c) = o.get("const") {
-        return Some(format!("{here} is {x}, and must be {c}"));
+        note(out, format!("{here} is {x}, and must be {c}"));
+        return;
     }
     if let Some(Value::Array(e)) = o.get("enum") {
-        return Some(format!("{here} is {x}, and must be one of {}", joined(e.iter())));
+        note(out, format!("{here} is {x}, and must be one of {}", joined(e.iter())));
+        return;
     }
     match (o.get("oneOf"), o.get("anyOf")) {
-        (Some(Value::Array(bs)), _) => return Some(alternatives(bs, x, at, here)),
-        (_, Some(Value::Array(bs))) if !o.contains_key("type") => return Some(alternatives(bs, x, at, here)),
+        (Some(Value::Array(bs)), _) => return alternatives(bs, x, at, here, out),
+        (_, Some(Value::Array(bs))) if !o.contains_key("type") => return alternatives(bs, x, at, here, out),
         _ => {}
     }
     let kind = kind_of(x);
     match o.get("type").and_then(Value::as_str).unwrap_or_default() {
         "array" => {
             let Some(xs) = x.as_array() else {
-                return Some(format!("{here} must be a list, and is {kind}"));
+                note(out, format!("{here} must be a list, and is {kind}"));
+                return;
             };
             let min = o.get("minItems").and_then(Value::as_u64).unwrap_or(0);
             if (xs.len() as u64) < min {
-                return Some(format!("{here} must hold at least {min}, and holds {}", xs.len()));
+                note(out, format!("{here} must hold at least {min}, and holds {}", xs.len()));
             }
-            let it = o.get("items")?;
-            xs.iter()
-                .enumerate()
-                .find_map(|(i, v)| misfit(it, v, &format!("{at}[{i}]")))
+            if let Some(it) = o.get("items") {
+                for (i, v) in xs.iter().enumerate() {
+                    collect(it, v, &format!("{at}[{i}]"), out);
+                }
+            }
         }
         "object" => {
             let Some(xo) = x.as_object() else {
-                return Some(format!("{here} must be an object, and is {kind}"));
+                note(out, format!("{here} must be an object, and is {kind}"));
+                return;
             };
             let empty = Map::new();
             let props = o.get("properties").and_then(Value::as_object).unwrap_or(&empty);
             let required = o.get("required").and_then(Value::as_array).cloned().unwrap_or_default();
-            if let Some(r) = required.iter().filter_map(Value::as_str).find(|r| !xo.contains_key(*r)) {
-                return Some(format!("{here} has no {r}"));
+            for r in required.iter().filter_map(Value::as_str).filter(|r| !xo.contains_key(*r)) {
+                note(out, format!("{here} has no {r}"));
             }
-            if o.get("additionalProperties") == Some(&Value::Bool(false))
-                && let Some(k) = xo.keys().find(|k| !props.contains_key(*k))
+            if o.get("additionalProperties") == Some(&Value::Bool(false)) {
+                for k in xo.keys().filter(|k| !props.contains_key(*k)) {
+                    note(
+                        out,
+                        format!(
+                            "{here} has {k}, which is not one of its fields: {}",
+                            props.keys().cloned().collect::<Vec<_>>().join(", ")
+                        ),
+                    );
+                }
+            }
+            for (k, v) in xo {
+                if let Some(p) = props.get(k) {
+                    collect(p, v, &field(at, k), out);
+                }
+            }
+            if out.len() == before
+                && let Some(Value::Array(bs)) = o.get("anyOf")
             {
-                return Some(format!(
-                    "{here} has {k}, which is not one of its fields: {}",
-                    props.keys().cloned().collect::<Vec<_>>().join(", ")
-                ));
-            }
-            if let Some(m) = xo
-                .iter()
-                .find_map(|(k, v)| props.get(k).and_then(|p| misfit(p, v, &field(at, k))))
-            {
-                return Some(m);
-            }
-            match o.get("anyOf") {
-                Some(Value::Array(bs)) => Some(alternatives(bs, x, at, here)),
-                _ => Some(format!("{here} does not fit")),
+                alternatives(bs, x, at, here, out);
             }
         }
-        t => Some(format!("{here} must be {}, and is {kind}", a_kind(t))),
+        t => note(out, format!("{here} must be {}, and is {kind}", a_kind(t))),
+    }
+    if out.len() == before {
+        note(out, format!("{here} does not fit"));
     }
 }
 
-fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str) -> String {
+/// The places where `x` fits none of the alternatives `bs`, added to `out`: of those that are not told apart, the one
+/// followed.
+fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<String>) {
     if bs.iter().filter(|b| valid(b, x)).count() > 1 {
-        return format!("{here} fits more than one of its alternatives");
+        note(out, format!("{here} fits more than one of its alternatives"));
+        return;
     }
     let Some(xo) = x.as_object() else {
         if bs.iter().all(|b| b["type"] == "object") {
-            return format!("{here} must be an object, and is {}", kind_of(x));
+            note(out, format!("{here} must be an object, and is {}", kind_of(x)));
+        } else {
+            note(out, format!("{here} is {}, and fits none of its alternatives", kind_of(x)));
         }
-        return format!("{here} is {}, and fits none of its alternatives", kind_of(x));
+        return;
     };
     // A field every alternative fixes, which tells them apart.
     for (k, v) in xo {
@@ -505,13 +548,24 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str) -> String {
         let picked: Vec<&Value> = bs.iter().filter(|b| b["properties"][k]["const"] == *v).collect();
         match picked.as_slice() {
             [] => {
-                return format!(
-                    "{} is {v}, and must be one of {}",
-                    field(at, k),
-                    joined(fixed.into_iter())
+                note(
+                    out,
+                    format!(
+                        "{} is {v}, and must be one of {}",
+                        field(at, k),
+                        joined(fixed.into_iter())
+                    ),
                 );
+                return;
             }
-            [b] => return misfit(b, x, at).unwrap_or_else(|| format!("{here} does not fit")),
+            [b] => {
+                let before = out.len();
+                collect(b, x, at, out);
+                if out.len() == before {
+                    note(out, format!("{here} does not fit"));
+                }
+                return;
+            }
             _ => {}
         }
     }
@@ -521,10 +575,12 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str) -> String {
             .is_some_and(|p| !xo.is_empty() && xo.keys().all(|k| p.contains_key(k)))
     };
     let named: Vec<&Value> = bs.iter().filter(has_all).collect();
-    if let [b] = named.as_slice()
-        && let Some(m) = misfit(b, x, at)
-    {
-        return m;
+    if let [b] = named.as_slice() {
+        let before = out.len();
+        collect(b, x, at, out);
+        if out.len() > before {
+            return;
+        }
     }
     let shapes: Vec<String> = bs
         .iter()
@@ -533,11 +589,14 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str) -> String {
             _ => "nothing".to_string(),
         })
         .collect();
-    format!(
-        "{here} holds {}, and fits none of its alternatives, which hold: {}",
-        xo.keys().cloned().collect::<Vec<_>>().join(", "),
-        shapes.join("; or ")
-    )
+    note(
+        out,
+        format!(
+            "{here} holds {}, and fits none of its alternatives, which hold: {}",
+            xo.keys().cloned().collect::<Vec<_>>().join(", "),
+            shapes.join("; or ")
+        ),
+    );
 }
 
 fn field(at: &str, k: &str) -> String {
@@ -574,21 +633,54 @@ fn a_kind(t: &str) -> String {
 
 /// A value with each field `s` lets it leave out that it holds as null left out, at every depth, as an agent may write
 /// null for a field it has nothing for. Of alternatives, each the value may be is followed: one whose fixed values the
-/// value's agree with, and whose fields hold every field the value has.
-pub fn without_null_options(s: &Value, x: &mut Value) {
+/// value's agree with, and whose fields hold every field the value has. A field that is null and that none of those
+/// alternatives has, but another alternative of the same union does, is left out too, when the value holds a field
+/// that is not null (a value whose fields are all null is no alternative's, whichever has them): the agent wrote
+/// null for a field of a form it did not hand in, as `ask: null` beside `brief`. A null in a field the alternative the
+/// value is requires stays. Returns the paths of the fields left out for being another alternative's, as
+/// `outcome.deviations[3].why`, which the round records; a field left out for being one the schema lets the value
+/// leave out is not among them.
+pub fn without_null_options(s: &Value, x: &mut Value) -> Vec<String> {
+    let mut foreign = Vec::new();
+    strip(s, x, "", &mut foreign);
+    foreign
+}
+
+fn strip(s: &Value, x: &mut Value, at: &str, foreign: &mut Vec<String>) {
     let Some(o) = s.as_object() else { return };
-    for key in ["oneOf", "anyOf"] {
-        for b in o.get(key).and_then(Value::as_array).into_iter().flatten() {
-            if may_be(b, x) {
-                without_null_options(b, x);
+    let alts: Vec<&Value> = ["oneOf", "anyOf"]
+        .iter()
+        .filter_map(|k| o.get(*k)?.as_array())
+        .flatten()
+        .collect();
+    let candidates: Vec<&Value> = alts.iter().copied().filter(|b| may_be(b, x)).collect();
+    if !candidates.is_empty()
+        && let Some(xo) = x.as_object_mut()
+        && xo.values().any(|v| !v.is_null())
+    {
+        let other: Vec<String> = xo
+            .iter()
+            .filter(|(k, v)| {
+                v.is_null() && !candidates.iter().any(|b| lists(b, k)) && alts.iter().any(|b| lists(b, k))
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in other {
+            xo.shift_remove(&k);
+            let path = field(at, &k);
+            if !foreign.contains(&path) {
+                foreign.push(path);
             }
         }
+    }
+    for b in candidates {
+        strip(b, x, at, foreign);
     }
     match x {
         Value::Array(xs) => {
             if let Some(it) = o.get("items") {
-                for v in xs {
-                    without_null_options(it, v);
+                for (i, v) in xs.iter_mut().enumerate() {
+                    strip(it, v, &format!("{at}[{i}]"), foreign);
                 }
             }
         }
@@ -604,12 +696,17 @@ pub fn without_null_options(s: &Value, x: &mut Value) {
             xo.retain(|k, v| !(v.is_null() && props.contains_key(k) && !required(k)));
             for (k, v) in xo.iter_mut() {
                 if let Some(p) = props.get(k) {
-                    without_null_options(p, v);
+                    strip(p, v, &field(at, k), foreign);
                 }
             }
         }
         _ => {}
     }
+}
+
+/// Whether an alternative lists a field.
+fn lists(b: &Value, k: &str) -> bool {
+    b.get("properties").is_some_and(|p| p.get(k).is_some())
 }
 
 /// Whether a value may be of an alternative: its fixed values agree, and every field the value holds, other than a
