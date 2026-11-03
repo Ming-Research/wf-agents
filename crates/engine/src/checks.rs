@@ -791,22 +791,16 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 "guard_tests"
             };
             let rows = items(c.unwrapped.get(table));
-            let mut kinds: Vec<(String, String)> = Vec::new();
+            // The kind each test has in the test changes of all the engineer's rounds, oldest round first, so that a
+            // test written again has the kind of its later row, as the tables the engine derives have it.
+            let mut returns = Vec::new();
             for cell in test_tables::CELLS {
+                returns.extend(crate::inputs::returns_holding(c.e, c.w, c.g, cell, "test_changes")?);
                 // A return of a flow version before the answer was flat holds the test changes under end.
-                let changes = match c.last(cell, "test_changes")? {
-                    Some(x) => Some(x),
-                    None => c.last(cell, "end.test_changes")?,
-                };
-                for x in items(changes.as_ref()) {
-                    if matches!(x["change"].as_str(), Some("added" | "extended")) {
-                        kinds.push((
-                            x["test"].as_str().unwrap_or_default().into(),
-                            x["kind"].as_str().unwrap_or_default().into(),
-                        ));
-                    }
-                }
+                returns.extend(crate::inputs::returns_holding(c.e, c.w, c.g, cell, "end.test_changes")?);
             }
+            returns.sort_by_key(|(round, _)| *round);
+            let kinds = test_tables::accumulated(returns.iter().map(|(_, ret)| ret)).kinds();
             kind_problems(&rows, &kinds, table == "new_tests").into_result()
         }
         "tests_only" => {

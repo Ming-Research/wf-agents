@@ -26,6 +26,18 @@ impl Tables {
         if name == "new_tests" { &self.new } else { &self.guard }
     }
 
+    /// The kind of each test in the tables, its name and `new_behaviour` or `old_behaviour`.
+    pub fn kinds(&self) -> Vec<(String, String)> {
+        let of = |rows: &[Value], kind: &str| -> Vec<(String, String)> {
+            rows.iter()
+                .map(|r| (r["name"].as_str().unwrap_or_default().to_string(), kind.to_string()))
+                .collect()
+        };
+        let mut all = of(&self.new, "new_behaviour");
+        all.extend(of(&self.guard, "old_behaviour"));
+        all
+    }
+
     fn put(&mut self, kind: &str, row: Value) {
         let name = row["name"].clone();
         // A test written again takes its later row, in the table of the kind that row gives.
@@ -177,5 +189,21 @@ mod tests {
         let t = accumulated([&fix, &first]);
         assert_eq!(names(&t.new), ["a", "b"]);
         assert!(t.guard.is_empty());
+    }
+
+    // R267-85: the kind the table review holds a test to is the kind of its latest row in any round, as the tables
+    // have it, not that of the first round that wrote it (a fix that re-recorded a guard test as new behaviour).
+    #[test]
+    fn the_kind_of_a_test_is_that_of_its_latest_row() {
+        let first = json!({ "test_changes": [added("a", "old_behaviour", "green", "cannot_run")] });
+        let fix = json!({ "test_changes": [added("a", "new_behaviour", "green", "cannot_run")] });
+        assert_eq!(
+            accumulated([&first, &fix]).kinds(),
+            [("a".to_string(), "new_behaviour".to_string())]
+        );
+        assert_eq!(
+            accumulated([&first]).kinds(),
+            [("a".to_string(), "old_behaviour".to_string())]
+        );
     }
 }
