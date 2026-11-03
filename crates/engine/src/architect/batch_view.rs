@@ -408,7 +408,7 @@ fn after_state(tx: &Transaction<'_>, project: &str, changes: &[Value], trials: &
     for id in named {
         let now = query_json(
             tx,
-            "SELECT project, title, rank, held, cancelled, level, route FROM items WHERE id = ?1",
+            "SELECT * FROM items WHERE id = ?1",
             &[&id],
             1,
         )?;
