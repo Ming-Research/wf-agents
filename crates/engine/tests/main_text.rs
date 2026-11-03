@@ -238,7 +238,6 @@ fn fetches_of_main_that_overlap_in_one_checkout_all_succeed() {
 // the commit is an error and one that is is read. Reference: `std::fs::read_to_string` on the same file in the
 // checkout, which takes a name literally.
 #[cfg(unix)]
-#[ignore = "held out of one CI run to see the tests after it"]
 #[test]
 fn a_path_is_a_name_and_never_a_pattern() {
     let r = Repos::new("literal");
@@ -334,7 +333,6 @@ fn a_link_is_read_as_the_checkout_reads_it_in_every_form_of_its_target() {
 // inside a records directory. They are in the index, or reading them is an error that names the path; they are never
 // left out without a word, which gives an agent a project guide that looks complete.
 #[cfg(unix)]
-#[ignore = "held out of one CI run to see the tests after it"]
 #[test]
 fn a_link_to_a_directory_of_records_is_not_left_out_without_a_word() {
     let r = Repos::new("record-links");
@@ -390,7 +388,6 @@ fn a_link_to_a_directory_of_records_is_not_left_out_without_a_word() {
 
 // The checkout's `origin/<main>` is the remote's branch after a fetch even when the remote also has a tag of the same
 // name at another commit: the commit read is the branch's. Reference: `git rev-parse refs/heads/main` in the origin.
-#[ignore = "held out of one CI run to see the tests after it"]
 #[test]
 fn a_tag_named_like_main_does_not_hold_back_the_fetch_of_main() {
     let r = Repos::new("tag-main");
