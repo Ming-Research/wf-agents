@@ -10,6 +10,10 @@ use std::process::Command;
 /// clean.
 pub use sessions::worktree::{create_worktree, git, head, is_clean, remove_worktree, resolve, take_over_worktree};
 
+/// Git's setting that prints a path beyond ASCII as it is, not as the quoted, escaped form (`"caf\303\251.txt"`) that
+/// no agent could open or compare with a path. Every listing of file names goes through it.
+const NAMES_AS_THEY_ARE: &str = "core.quotepath=false";
+
 fn lines(s: &str) -> Vec<String> {
     s.lines()
         .map(str::trim)
@@ -38,7 +42,10 @@ fn main_merged_into(dir: &Path, rev: &str, main: &str) -> Result<String, String>
 
 /// The files changed from one commit to another.
 pub fn changed(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
-    Ok(lines(&git(dir, &["diff", "--name-only", &format!("{from}..{to}")])?))
+    Ok(lines(&git(
+        dir,
+        &["-c", NAMES_AS_THEY_ARE, "diff", "--name-only", &format!("{from}..{to}")],
+    )?))
 }
 
 /// The files the work itself changed from one commit to another: those changed between them that `to` also changes
@@ -121,8 +128,11 @@ pub fn changes_since(dir: &Path, main: &str, base: &str, head: &str) -> Result<C
 
 /// The files changed in the worktree against a commit, committed or not, untracked files included.
 pub fn changed_since(dir: &Path, from: &str) -> Result<Vec<String>, String> {
-    let mut out = lines(&git(dir, &["diff", "--name-only", from])?);
-    out.extend(lines(&git(dir, &["ls-files", "--others", "--exclude-standard"])?));
+    let mut out = lines(&git(dir, &["-c", NAMES_AS_THEY_ARE, "diff", "--name-only", from])?);
+    out.extend(lines(&git(
+        dir,
+        &["-c", NAMES_AS_THEY_ARE, "ls-files", "--others", "--exclude-standard"],
+    )?));
     out.sort();
     out.dedup();
     Ok(out)
@@ -178,7 +188,9 @@ pub fn catch_up(dir: &Path, main: &str) -> Result<Result<String, Vec<String>>, S
     ) {
         Ok(_) => Ok(Ok(head(dir)?)),
         Err(_) => {
-            let files = lines(&git(dir, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default());
+            let files = lines(
+                &git(dir, &["-c", NAMES_AS_THEY_ARE, "diff", "--name-only", "--diff-filter=U"]).unwrap_or_default(),
+            );
             let _ = git(dir, &["merge", "--abort"]);
             Ok(Err(files))
         }
