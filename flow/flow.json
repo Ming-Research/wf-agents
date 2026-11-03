@@ -2966,8 +2966,8 @@
   "tools": [
     {
       "name": "ci",
-      "desc": "Pushes your local commits and runs the repository's fast CI on the commit; when it is done, gives you the result of each check, and puts in your worktree, uncommitted, the files a red run generated that differ from yours",
-      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. The push runs the fast CI workflow the project's configuration names, the whole of it, which stops a job at its first red test; the engine waits for it to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), it writes those that differ from the worktree's into it",
+      "desc": "Pushes your local commits and runs the repository's fast CI on the commit (where the project runs its CI on demand: the tests you list and the lint); when it is done, gives you the result of each check, and puts in your worktree, uncommitted, the files a red run generated that differ from yours, such as the files as the formatter makes them",
+      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the lint, or the lint only when none is listed, and it takes only the run it made, never one made before. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. The engine waits for the run to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
       "in": [
         {
           "name": "head",
@@ -2979,7 +2979,7 @@
           "name": "tests",
           "title": "Tests to run",
           "type": "list",
-          "desc": "Which tests to read the results and times of, by their names; leave it out when you hand in only the PR title and description",
+          "desc": "The tests to read the results and times of, by their names. Where the project runs its CI on demand, these are also the only tests that run, beside the lint: naming none runs the lint only. Leave it out only when you hand in just the PR title and description, which still runs the lint and waits for it",
           "optional": true,
           "item": {
             "type": "text",
@@ -3025,6 +3025,27 @@
                   "title": "Commit pushed",
                   "type": "text",
                   "desc": "The head pushed"
+                },
+                {
+                  "name": "run",
+                  "title": "What ran",
+                  "type": "enum",
+                  "desc": "What the run of the fast CI was, so that a green check is read for what it covers",
+                  "optional": true,
+                  "values": [
+                    [
+                      "named_and_lint",
+                      "The tests you named, each to its end, and the lint"
+                    ],
+                    [
+                      "lint",
+                      "The lint only, since you named no test"
+                    ],
+                    [
+                      "whole",
+                      "The whole fast CI the push ran, since the project's CI does not run on demand: a job stops at its first red test, and a test it did not reach is not run"
+                    ]
+                  ]
                 },
                 {
                   "$ref": "checks"
@@ -3126,7 +3147,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed: the head is not the one handed in, it does not follow the last push, or it carries another branch"
+                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI where the project's CI runs on demand: the head is not the one handed in, it does not follow the last push, or it carries another branch"
                 }
               ]
             }
@@ -3137,7 +3158,7 @@
     {
       "name": "ci_before",
       "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch",
-      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end; otherwise the push runs the whole fast CI, which stops a job at its first red test. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
+      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end. Otherwise the push runs the whole fast CI, which stops a job at its first red test, where the project's configuration says its CI runs on those branches (runs_on_before_branches, true unless set); where it says it does not, nothing is pushed, and the tool refuses, saying so. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
       "in": [
         {
           "name": "head",
@@ -3192,7 +3213,7 @@
                     ],
                     [
                       "whole",
-                      "The whole fast CI, since the project's CI takes no tests to run: a job stops at its first red test, and a test it did not reach is not run"
+                      "The whole fast CI the push to the temporary branch ran, since the project's CI takes no tests to run: a job stops at its first red test, and a test it did not reach is not run"
                     ]
                   ]
                 },
@@ -3271,7 +3292,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, or a file is outside the test paths"
+                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, a file is outside the test paths, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
                 }
               ]
             }
@@ -3533,9 +3554,9 @@
     "steps": {
       "start_work": "Has the session manager set up where the work runs and the engineer's session, on a machine with a free slot. An item worked on here before takes over its latest earlier work's branch, its worktree (reused when it is there, made afresh from the branch otherwise) and its PR; an item imported with a branch takes that branch and the PR imported with it; any other item gets a new branch from main.",
       "run_tools": "Runs the tools the calling cell asked for, from the commits the session manager bundled. When the work comes back from the architect, it runs again only the tools that failed. A tool that fails is retried twice before it counts as failed.",
-      "full_ci_on_draft": "Catches the draft PR up with main and runs the full CI the project's configuration names on it, running a red check once more on the same commit; checks in the table of known red checks do not count.",
+      "full_ci_on_draft": "Catches the draft PR up with main and runs the full CI the project's configuration names on it, running a red check once more on the same commit; checks in the table of known red checks do not count. Where the project's CI runs on demand, a commit that has a run of the full CI is read, waiting for it if it is still going, and one that has none is run by hand; a run of the fast CI is never taken for it, and a run without a check merging needs is red.",
       "choose_checks": "Decides what runs next, from whether the design chose adversarial testing, whether the review accepted none, the change reviewed last, each side's last results, and the rows the fix cell answered.",
-      "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI and merges it. On a conflict or a red check, the PR leaves the queue; after its fix it joins the queue again at the end. A cancel or a start over asked before the merge call stops it: nothing merges. One asked after that call has begun comes too late: the merge stands.",
+      "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI and merges it. Where the project's CI runs on demand, the full CI on the head is the run the full CI on the draft made if the head is the same, else a run made by hand now; the merge waits for a green run of the full CI, never for one of the fast CI, and a run without a check merging needs is red. On a conflict or a red check, the PR leaves the queue; after its fix it joins the queue again at the end. A cancel or a start over asked before the merge call stops it: nothing merges. One asked after that call has begun comes too late: the merge stands.",
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what the architect asks before the owner, as an ask of the owner in the owner's interface, and notifies the owner; the ask holds only the matter of the path that asked, and the architect's work goes on. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked. A matter that leads a group is held alone: the others fall apart from it as the cell asks (`dissolve_group`) and wait in the queue as any other.",
@@ -3609,7 +3630,7 @@
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
       "measure_matches_runs": "An answer of measured has a run of this work's measure tool among the engine's records, a request that was refused not counting; any other answer (not_measured, from_records) has none. Reading the records, with query or otherwise, needs no run of measure.",
       "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first (ask to the advisor), whose reply with new_acceptance replaces all of them and is locked by the engine then, or, after the owner disagreed with a decision of the design or chose another option since they were locked, the design hands in the acceptance the ruling needs. A work that delivers a change has no report_answer condition.",
-      "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it is green.",
+      "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it that ci made is green; so is the latest that ran tests, when a later run ran the lint only, which does not stand for them.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a report changes nothing outside `research/`.",
       "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition); the tests named are on the branch, and the report sections named are in the report.",
       "new_test_results": "When the design chose no adversarial testing: each new-behaviour test this round's test changes add or extend (kind new_behaviour) has two results that match the ci run on the head and the latest ci_before run that reported the test, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red after the change or green before it is fixed in this round.",
@@ -4630,7 +4651,7 @@
           {
             "name": "librarian",
             "desc": "The reader of a work's history: its first gathering starts a new session, and later gathering and every look-up continue it",
-            "colour": "olive"
+            "colour": "green"
           }
         ],
         "rules": [
@@ -5594,7 +5615,7 @@
           "id": "G1",
           "kind": "agent",
           "title": "Gather the problem's history",
-          "effort": "low",
+          "effort": "high",
           "line": "librarian",
           "inputs": [
             {
@@ -5856,7 +5877,7 @@
           "id": "G2",
           "kind": "agent",
           "title": "Gather the code's history",
-          "effort": "low",
+          "effort": "high",
           "line": "librarian",
           "inputs": [
             {
@@ -7195,7 +7216,7 @@
           "id": "X5",
           "kind": "agent",
           "title": "Look up the history",
-          "effort": "low",
+          "effort": "high",
           "line": "librarian",
           "inputs": [
             {
@@ -8370,7 +8391,7 @@
           "id": "G3",
           "kind": "agent",
           "title": "Gather the history of the changed files",
-          "effort": "low",
+          "effort": "high",
           "line": "librarian",
           "inputs": [
             {
@@ -12382,7 +12403,7 @@
           {
             "name": "observer",
             "desc": "The search of the project's observations and the look-up of its history: the first of a work of the architect starts a new session, and later ones continue it",
-            "colour": "lime"
+            "colour": "brown"
           }
         ],
         "rules": [
@@ -18467,7 +18488,7 @@
           "id": "X2",
           "kind": "agent",
           "title": "Search observations",
-          "effort": "low",
+          "effort": "medium",
           "line": "observer",
           "inputs": [
             {
@@ -18573,7 +18594,7 @@
           "id": "X5",
           "kind": "agent",
           "title": "Look up the history",
-          "effort": "low",
+          "effort": "high",
           "line": "observer",
           "inputs": [
             {

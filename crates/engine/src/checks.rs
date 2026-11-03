@@ -741,14 +741,9 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 return fail("the head was not pushed with ci");
             }
             let runs = c.ci_runs("ci")?;
-            let Some(run) = runs.iter().find(|r| r["push"]["head"] == sha.as_str()) else {
+            let Some(red) = red_checks_of_head(&runs, &sha) else {
                 return fail("no fast CI run on the head");
             };
-            let red: Vec<String> = items(run["push"].get("checks"))
-                .iter()
-                .filter(|x| x["result"] != "green")
-                .map(|x| x["name"].as_str().unwrap_or_default().to_string())
-                .collect();
             if red.is_empty() {
                 Ok(())
             } else {
@@ -1356,6 +1351,27 @@ fn measure_problems(verdict: &str, ran: bool) -> Problems {
     problems
 }
 
+/// The checks that are not green in the runs of the tool `ci` on `sha` that decide whether the head is green, from the
+/// results of the tool, the newest first: the latest run on the head and, beside it, the latest that ran tests. Where
+/// the CI runs on demand a run that only ran the lint (`push.run` is `lint`, as when the call only hands in the PR's
+/// text) is made after the run that ran the tests and must not hide it, as a red test run would be on the same head.
+/// A run that does not say what it ran is one of the whole of the fast CI. None when no run is on the head.
+fn red_checks_of_head(runs: &[Value], sha: &str) -> Option<Vec<String>> {
+    let mut on_head = runs.iter().filter(|r| r["push"]["head"] == sha);
+    let latest = on_head.clone().next()?;
+    let tests = on_head.find(|r| r["push"]["run"] != "lint");
+    let mut red: Vec<String> = Vec::new();
+    for run in [Some(latest), tests].into_iter().flatten() {
+        for check in items(run["push"].get("checks")) {
+            let name = check["name"].as_str().unwrap_or_default().to_string();
+            if check["result"] != "green" && !red.contains(&name) {
+                red.push(name);
+            }
+        }
+    }
+    Some(red)
+}
+
 /// What is wrong with the acceptance conditions a return gives back: a work that delivers a change hands in a
 /// `report_answer` condition (`report_answer`), and the conditions are locked and differ from the locked ones with no
 /// ruling of the owner since (`unlocked`); the two are independent.
@@ -1640,6 +1656,45 @@ fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Problems {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A result of the tool `ci`: the head it pushed, what it ran and its checks.
+    fn pushed(head: &str, run: Option<&str>, checks: &[(&str, &str)]) -> Value {
+        let checks: Vec<Value> = checks.iter().map(|(n, r)| json!({ "name": n, "result": r })).collect();
+        let mut push = json!({ "verdict": "pushed", "head": head, "checks": checks });
+        if let Some(run) = run {
+            push["run"] = json!(run);
+        }
+        json!({ "push": push })
+    }
+
+    // The head is green only if the latest run that ran tests is: a run of the lint alone, made later to hand in the
+    // PR's text, does not stand for them. Runs of another head, and a lint-only run that is itself red, are as ever.
+    #[test]
+    fn a_lint_only_run_does_not_hide_a_red_test_run_on_the_same_head() {
+        let red_tests = pushed("h", Some("named_and_lint"), &[("lint", "green"), ("fast", "red")]);
+        let lint_green = pushed("h", Some("lint"), &[("lint", "green"), ("fast", "green")]);
+        // The newest run is first.
+        let runs = [lint_green.clone(), red_tests.clone()];
+        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec!["fast".to_string()]));
+        // A later run that ran the tests and passed covers the red one.
+        let green_tests = pushed("h", Some("named_and_lint"), &[("lint", "green"), ("fast", "green")]);
+        let runs = [lint_green.clone(), green_tests.clone(), red_tests.clone()];
+        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec![]));
+        // A head that only the lint has run is green on it; red on it, it is not.
+        assert_eq!(red_checks_of_head(std::slice::from_ref(&lint_green), "h"), Some(vec![]));
+        let lint_red = pushed("h", Some("lint"), &[("lint", "red")]);
+        let runs = [lint_red, green_tests.clone()];
+        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec!["lint".to_string()]));
+        // A run that does not say what it ran is the whole of the fast CI; the red run of another head is not the head's.
+        let old = pushed("h", None, &[("test 1 of 3", "red")]);
+        assert_eq!(
+            red_checks_of_head(&[lint_green.clone(), old], "h"),
+            Some(vec!["test 1 of 3".to_string()])
+        );
+        let elsewhere = pushed("g", Some("named_and_lint"), &[("fast", "red")]);
+        assert_eq!(red_checks_of_head(&[lint_green, elsewhere], "h"), Some(vec![]));
+        assert_eq!(red_checks_of_head(&[], "h"), None);
+    }
 
     #[test]
     fn a_log_names_a_test_failing_only_on_a_line_that_says_so() {
