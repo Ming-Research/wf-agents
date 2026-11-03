@@ -1448,6 +1448,64 @@ fn a_plan_sent_back_a_third_time_turns_the_work_to_the_normal_route() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A work past its research keeps the route it took, as the design and the items' table say: an item that went the
+// normal route and is marked a bug fix once its research answered still has its work judged whether it stands, designed
+// and checked, and its first review is the blind review; nothing of the light route runs, and no turn is counted.
+#[test]
+fn an_item_marked_a_bug_fix_after_its_research_keeps_its_work_on_the_normal_route() {
+    let s = setup("marked-late");
+    let (mut e, said, item) = start(&s, scripts());
+    let mut researched = None;
+    for _ in 0..100 {
+        e.tick().unwrap();
+        if let Some((id, _, paused)) = &state(&e, item) {
+            assert!(paused.is_none(), "the work paused: {paused:?}");
+            if rows_said(&e, *id).iter().any(|r| r == "R1:done") {
+                researched = Some(*id);
+                break;
+            }
+            e.advance(*id).unwrap();
+        }
+    }
+    let work = researched.expect("the research did not answer");
+    // The item is marked while the work is still well before its review.
+    let before = path_of(&e, work);
+    assert!(!before.iter().any(|c| c == "T7"), "{before:?}");
+    marked(&mut e, item, "bugfix");
+    let ended = ran_to_its_end(&mut e, item, &said);
+    assert_eq!(ended, work);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:done",
+        "R2:stands",
+        "D2:first",
+        "D11:not_needed",
+        "I1:done",
+        "T2:review_first",
+        "T3:done",
+        "G3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    let ran = path_of(&e, work);
+    for light in ["G4", "F1", "F2"] {
+        assert!(!ran.iter().any(|c| c == light), "{light} ran: {ran:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 0, "{rows:?}");
+    // The table review is asked of the judgment that the work stands, and not of a plan.
+    let review = message_at(&e, work, "T4", false);
+    assert!(
+        review.contains("The research's judgment that the work stands"),
+        "{review}"
+    );
+    assert!(!review.contains("The plan the review found sound"), "{review}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Building a work's next message is a dry run beside an engine that may be running: with the built-in flow newer than
 // the work's, it records no flow version, stops no work, starts none, and writes nothing at all.
 #[test]
