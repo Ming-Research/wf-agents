@@ -2884,8 +2884,8 @@ fn a_re_review_with_no_fix_before_it_answers_what_still_holds_and_the_fix_answer
     let why = why_sent_back(&e, work, "T4");
     assert_eq!(why.len(), 1, "{why:?}\n{}", log());
     for want in [
-        "previous_matches_columns (previous): R1 is answered not_fixed or insist, and no column holds it",
-        "previous_matches_columns (previous): R3 is answered closed or withdraw, and a column still holds it",
+        "previous_matches_columns (previous.verdict): R1 is answered not_fixed or insist, and no column holds it",
+        "previous_matches_columns (previous.verdict): R3 is answered closed or withdraw, and a column still holds it",
     ] {
         assert!(why[0].contains(want), "{want}\n{}", why[0]);
     }

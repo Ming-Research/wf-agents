@@ -1067,7 +1067,9 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             previous_problems(&due, &strs(v)).into_result()
         }
         "previous_matches_columns" => {
-            let previous: Vec<(String, String)> = items(v)
+            // The check is at each row's verdict, which is all it reads of the row beside the number that
+            // `previous_findings_answered` is at: a row's reason is left to the cells that read it.
+            let previous: Vec<(String, String)> = items(c.unwrapped.get("previous"))
                 .iter()
                 .filter_map(|p| Some((p["fid"].as_str()?.to_string(), p["verdict"].as_str()?.to_string())))
                 .collect();

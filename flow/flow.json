@@ -10119,7 +10119,7 @@
               "check": "previous_findings_answered"
             },
             {
-              "at": "previous",
+              "at": "previous.verdict",
               "check": "previous_matches_columns"
             },
             {
