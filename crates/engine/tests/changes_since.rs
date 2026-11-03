@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use engine::git::changes_since;
+use engine::git::{changes_since, main_merges_since};
 
 /// A new repository whose first branch is `main`, in a directory of its own to the test.
 fn fresh(name: &str) -> PathBuf {
@@ -211,5 +211,60 @@ fn a_base_that_is_empty_or_names_nothing_is_an_error_and_a_tag_or_a_branch_is_a_
     }
     let from_start = changes_since(&dir, "main", &start, "HEAD").unwrap();
     assert_eq!(from_start.commits.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// Only a merge that took a commit of main in is a merge of main: one of a branch of the work's own, however it was
+// made, is not, and an octopus merge of main and another branch is. A base the branch was rewritten away from is
+// said so. (The reference is git's own: the parents of a commit, and whether a parent is reachable from main.)
+#[test]
+fn only_the_merges_that_took_a_commit_of_main_in_are_merges_of_main() {
+    let dir = fresh("main-merges");
+    let start = commit(&dir, &[("a.txt", "a\n")], "Start");
+    fetched_main(&dir);
+    git(&dir, &["checkout", "-q", "-b", "side"]);
+    commit(&dir, &[("side.txt", "s\n")], "Side");
+    git(&dir, &["checkout", "-q", "-b", "side2", &start]);
+    commit(&dir, &[("side2.txt", "s\n")], "Side again");
+    git(&dir, &["checkout", "-q", "-b", "work", &start]);
+    let w1 = commit(&dir, &[("own.txt", "o\n")], "First");
+    git(&dir, &["checkout", "-q", "main"]);
+    commit(&dir, &[("m1.txt", "m\n")], "Main goes on");
+    git(&dir, &["checkout", "-q", "work"]);
+    git(&dir, &["merge", "-q", "--no-ff", "-m", "Take the side", "side"]);
+    git(&dir, &["merge", "-q", "--no-ff", "-m", "Take main", "main"]);
+    let took_main = git(&dir, &["rev-parse", "HEAD"]);
+    git(&dir, &["checkout", "-q", "main"]);
+    commit(&dir, &[("m2.txt", "m\n")], "Main goes on again");
+    fetched_main(&dir);
+    git(&dir, &["checkout", "-q", "work"]);
+    git(
+        &dir,
+        &["merge", "-q", "-m", "Take main and the other side", "main", "side2"],
+    );
+    let octopus = git(&dir, &["rev-parse", "HEAD"]);
+    let parents = git(&dir, &["rev-list", "--parents", "-n", "1", "HEAD"]);
+    assert_eq!(parents.split_whitespace().count(), 4, "{parents}");
+    commit(&dir, &[("last.txt", "l\n")], "Last");
+
+    // From the commit before them all, and from the fetched main: the two that took main in, newest first.
+    for base in [w1.as_str(), "origin/main"] {
+        let (merges, diverged) = main_merges_since(&dir, "main", base, "HEAD").unwrap();
+        let ids: Vec<&str> = merges.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, [octopus.as_str(), took_main.as_str()], "from {base}");
+        assert!(!diverged, "from {base}");
+    }
+    // After the first of them, only the octopus merge.
+    let (later, _) = main_merges_since(&dir, "main", &took_main, "HEAD").unwrap();
+    let later: Vec<&str> = later.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(later, [octopus.as_str()]);
+    // A base the head does not contain: said, and the merges are among the commits the head has that it lacked.
+    git(&dir, &["checkout", "-q", "-b", "other", &start]);
+    let other = commit(&dir, &[("other.txt", "x\n")], "Other");
+    let (rebuilt, diverged) = main_merges_since(&dir, "main", &other, &octopus).unwrap();
+    assert!(diverged);
+    assert_eq!(rebuilt.len(), 2, "{rebuilt:?}");
+    // A base that names nothing is an error, not an empty list that reads as "no merges".
+    assert!(main_merges_since(&dir, "main", "nothing", "HEAD").is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
