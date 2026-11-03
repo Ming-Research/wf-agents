@@ -9868,9 +9868,10 @@ fn setup_titled(name: &str) -> Setup {
     s
 }
 
-/// A title of `n` Chinese characters, made from an escape so that the repository holds none.
+/// A title of `n` Chinese characters, made from a number: the repository holds no letter of another language, not even
+/// as an escape.
 fn chinese(n: usize) -> String {
-    "\u{4e2d}".repeat(n)
+    char::from_u32(0x4e2d).unwrap().to_string().repeat(n)
 }
 
 fn line_sessions(e: &Engine, work: i64, line: &str) -> Vec<(String, bool, String)> {

@@ -807,7 +807,8 @@ mod tests {
             title_fits(title, max, &mut |p: String| said.push(p));
             said
         };
-        let chinese = |n: usize| "\u{4e2d}".repeat(n);
+        // Made from its number: the repository holds no letter of another language, not even as an escape.
+        let chinese = |n: usize| char::from_u32(0x4e2d).unwrap().to_string().repeat(n);
         assert!(refused(&chinese(12), 24).is_empty());
         assert!(refused(&"a".repeat(24), 24).is_empty());
         let wide = refused(&chinese(13), 24);

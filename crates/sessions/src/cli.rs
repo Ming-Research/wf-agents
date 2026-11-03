@@ -2244,7 +2244,13 @@ mod tests {
                                 for v in vs.iter().filter(|v| v.at == u.at && v.by == u.by) {
                                     for (w, b) in &v.branches {
                                         if w == value {
-                                            has.extend(b["properties"].as_object().into_iter().flatten().map(|(k, _)| k.as_str()));
+                                            has.extend(
+                                                b["properties"]
+                                                    .as_object()
+                                                    .into_iter()
+                                                    .flatten()
+                                                    .map(|(k, _)| k.as_str()),
+                                            );
                                         }
                                     }
                                 }
