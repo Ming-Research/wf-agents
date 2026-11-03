@@ -1,7 +1,7 @@
 // Breaks one thing at a time in a copy of the engineer's graph and checks the compiler refuses it with the expected
 // finding.
 
-use serde_json::{Value, json};
+use serde_json::{Value,  json};
 
 const FLOW: &str = include_str!("../../../flow/flow.json");
 
