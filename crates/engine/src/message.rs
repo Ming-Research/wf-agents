@@ -1360,19 +1360,22 @@ mod tests {
         assert_eq!(fixed_columns(&oldest, true), report);
     }
 
-    // The words that say how a re-review lists the columns are the same in the rule and in the field of the table
-    // review's answer: all the columns after a change, each answered whether or not the change touches it; neither
-    // says the engine lists only the columns a change concerns.
+    // What the flow's texts promise the review and the design check to do, read from the compiled flow once:
+    // - the rule and the field of the table review's answer say alike that a re-review after a change lists all the
+    //   columns, each answered whether or not the change touches it, and neither says the engine lists only the columns
+    //   a change concerns;
+    // - the column of cost under load asks how the cost grows when the number of runs and the data they touch double,
+    //   reaches the hot paths outside the diff, asks for no measurement and names no project, and the design check
+    //   asks the same question;
+    // - the column of an acceptance condition and the rule tell the review how to judge the rows the engine can only
+    //   look up by text: for a CI job, its result, and whether each command runs in the job named, not merely is
+    //   written in a file of the branch; for a reading of the diff, to read it; and for either, whether a test could
+    //   have proved the condition.
     #[test]
-    fn the_rule_and_the_field_say_a_re_review_after_a_change_answers_every_column() {
+    fn the_flows_texts_say_what_the_review_and_the_design_check_do() {
         let g = graph();
-        let rule = g
-            .rules
-            .iter()
-            .find(|r| r.name == "review_table")
-            .unwrap()
-            .text
-            .join("\n");
+        let table = g.rules.iter().find(|r| r.name == "review_table").unwrap().text.clone();
+        let rule = table.join("\n");
         let field = g.cell("T4").unwrap().schema.as_ref().unwrap().to_string();
         for (place, text) in [("the review_table rule", &rule), ("the field", &field)] {
             assert!(
@@ -1388,15 +1391,21 @@ mod tests {
                 "{place}: {text}"
             );
         }
-    }
-
-    // The column of cost under load asks how the cost grows when the number of runs and the data they touch double,
-    // reaches the hot paths outside the diff, asks for no measurement and names no project; the design review's
-    // question is the same one.
-    #[test]
-    fn the_review_and_the_design_check_ask_how_the_cost_grows_with_the_load() {
-        let g = graph();
-        let table = g.rules.iter().find(|r| r.name == "review_table").unwrap().text.clone();
+        for want in [
+            "(`ci_job`), read that job's result on this head",
+            "each command in its `steps` runs in the job it names, not only that the command is written in a file of the branch; one that does not is a finding",
+            "(`read_diff`), read the diff at its `where` yourself",
+            "For either, if a test could prove the condition instead, that is a finding.",
+        ] {
+            assert!(ACCEPTANCE_PROOFS.contains(want), "{want}: {ACCEPTANCE_PROOFS}");
+        }
+        for want in [
+            "that job's result on the head to be merged",
+            "each command in its steps runs in the job it names",
+            "for either, if a test could prove the condition instead, that is a finding",
+        ] {
+            assert!(rule.contains(want), "{want}: {rule}");
+        }
         let column = fixed_columns(&table, false)
             .into_iter()
             .find(|c| c.starts_with("Cost under load"))
@@ -1538,36 +1547,6 @@ mod tests {
             columns_line(&columns, &held(true, false), true).as_deref(),
             Some(COLUMNS_CHANGED)
         );
-    }
-
-    // The column of an acceptance condition and the rule tell the review how to judge the rows the engine can only look
-    // up by text: for a CI job, its result, and whether each command runs in the job named, not merely is written in a
-    // file of the branch; for a reading of the diff, to read it; and for either, whether a test could have proved it.
-    #[test]
-    fn the_acceptance_column_tells_the_review_how_to_judge_a_ci_job_and_a_reading_of_the_diff() {
-        for want in [
-            "(`ci_job`), read that job's result on this head",
-            "each command in its `steps` runs in the job it names, not only that the command is written in a file of the branch; one that does not is a finding",
-            "(`read_diff`), read the diff at its `where` yourself",
-            "For either, if a test could prove the condition instead, that is a finding.",
-        ] {
-            assert!(ACCEPTANCE_PROOFS.contains(want), "{want}: {ACCEPTANCE_PROOFS}");
-        }
-        let g = graph();
-        let rule = g
-            .rules
-            .iter()
-            .find(|r| r.name == "review_table")
-            .unwrap()
-            .text
-            .join("\n");
-        for want in [
-            "that job's result on the head to be merged",
-            "each command in its steps runs in the job it names",
-            "for either, if a test could prove the condition instead, that is a finding",
-        ] {
-            assert!(rule.contains(want), "{want}: {rule}");
-        }
     }
 
     fn pairs(xs: &[(&str, &str)]) -> Vec<(String, String)> {
