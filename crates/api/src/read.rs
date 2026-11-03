@@ -17,9 +17,9 @@ use crate::view;
 use crate::{
     Architect, ArchitectPanel, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold,
     FlowSnapshot, FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail,
-    ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, NamedText,
-    NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy, Ping,
-    PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
+    ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, MainText, Matter, MatterCard,
+    NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy,
+    Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
     RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
     ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
@@ -1451,9 +1451,72 @@ pub fn flow_view(conn: &Connection, flows: &Flows, version: i64) -> Result<FlowV
     Ok(view::view(&c))
 }
 
+/// The commit of a project's main the page reads at, and when it was committed.
+type MainAt = (String, Option<i64>);
+
+/// What the page reads of a project's files: the text, or in a sentence why it could not be read.
+type Reading<T> = std::result::Result<T, String>;
+
+/// The commit of a project's main its files are read at on the page: `origin/<main>` in its checkout as the engine last
+/// fetched it (the page fetches nothing), with when it was committed, which shows how new the text read there is; none
+/// of either when main has no commit there, with why.
+fn main_now(p: &config::Project) -> Reading<MainAt> {
+    let commit = config::main_commit(p)?;
+    let at = config::committed_at(p, &commit).ok();
+    Ok((commit, at))
+}
+
+/// A project's guide on the page: the commit of its main it is read at, when that was committed, and the guide as that
+/// commit has it. The reason, in a sentence, when it cannot be had; the commit is then still given when main has one.
+fn guide_now(p: &config::Project) -> (Option<MainAt>, Reading<Value>) {
+    match main_now(p) {
+        Ok((commit, at)) => {
+            let guide = config::project_guide_at(&p.checkout, &commit, &p.design_paths(), "")
+                .map_err(|x| format!("the guide cannot be read at {commit}: {x}"));
+            (Some((commit, at)), guide)
+        }
+        Err(why) => (None, Err(why)),
+    }
+}
+
+/// A project's constitution as its main has it, on the page: the file its configuration names, with its text and the
+/// commit of `origin/<main>` it was read at in its checkout as the engine last fetched it (the page fetches nothing),
+/// or the reason it could not be read, in a sentence naming the file and the commit; none when the project names none.
+pub fn constitution_now(p: &config::Project) -> Option<MainText> {
+    let path = p.constitution.as_ref()?;
+    let name = path.display().to_string();
+    let (at, read) = match main_now(p) {
+        Ok((commit, committed)) => {
+            let read = config::read_at(p, &commit, path);
+            (Some((commit, committed)), read)
+        }
+        Err(why) => (None, Err(why)),
+    };
+    let (commit, committed_at) = match at {
+        Some((commit, committed)) => (Some(commit), committed),
+        None => (None, None),
+    };
+    Some(match read {
+        Ok(text) => MainText {
+            name,
+            commit,
+            committed_at,
+            text,
+            error: None,
+        },
+        Err(why) => MainText {
+            name,
+            commit,
+            committed_at,
+            text: String::new(),
+            error: Some(why),
+        },
+    })
+}
+
 /// What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
-/// project's settings, project guide and rules, as the configuration and the project's checkout have them, and what
-/// each table and view of the database holds.
+/// project's settings and rules, as the configuration has them, its project guide, as its main has it in its checkout
+/// as the engine last fetched it, and what each table and view of the database holds.
 pub fn inputs_now(conn: &Connection, config: &config::Config) -> Result<InputsNow> {
     let text = |v: Value| match v {
         Value::String(s) => s,
@@ -1463,9 +1526,18 @@ pub fn inputs_now(conn: &Connection, config: &config::Config) -> Result<InputsNo
         .projects
         .iter()
         .map(|(name, p)| {
-            let guide = config::project_guide(&p.checkout, &p.design_paths(), "");
+            let (at, guide) = guide_now(p);
+            let error = guide.as_ref().err().cloned();
+            let guide = guide.unwrap_or(Value::Null);
+            let (commit, committed_at) = match at {
+                Some((commit, committed)) => (Some(commit), committed),
+                None => (None, None),
+            };
             ProjectNow {
                 project: name.clone(),
+                commit,
+                committed_at,
+                error,
                 settings: config::SETTINGS
                     .iter()
                     .filter_map(|s| {
@@ -1823,9 +1895,9 @@ pub fn architect(conn: &Connection, flows: &Flows, project: &str, projects: Vec<
 }
 
 /// What a project's architect has besides `architect`, for the panel beside its one-to-one and its page's tab of item
-/// changes: `constitution` is the project's constitution as its checkout has it. Its cells are named as the views over
-/// its rounds name them.
-pub fn architect_panel(conn: &Connection, project: &str, constitution: Option<NamedText>) -> Result<ArchitectPanel> {
+/// changes: `constitution` is the project's constitution as its main has it ([`constitution_now`]). Its cells are named
+/// as the views over its rounds name them.
+pub fn architect_panel(conn: &Connection, project: &str, constitution: Option<MainText>) -> Result<ArchitectPanel> {
     Ok(ArchitectPanel {
         handled: matters_handled(conn, project)?,
         changes: item_changes(conn, project)?,

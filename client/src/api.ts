@@ -1479,7 +1479,7 @@ records: string | null,
  */
 ci_fast: string, ci_full: Array<string>, merge_checks: Array<string>,
 /**
- * Its constitution, a path in its checkout; none when it has none.
+ * Its constitution, a path in its repository as its main has it; none when it has none.
  */
 constitution: string | null,
 /**
@@ -1643,11 +1643,11 @@ policy: PolicyInForce | null,
  */
 notebook: Array<NotebookSection>,
 /**
- * The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
- * as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
- * none.
+ * The project's constitution, which the architect judges by with the policy, as the project's main has it: its
+ * path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
+ * why it could not be read; none when the project names none.
  */
-constitution: NamedText | null, };
+constitution: MainText | null, };
 
 /**
  * One work of an architect.
@@ -2253,8 +2253,8 @@ export type CellInputOf = { "kind": "input", input: number, source: number, } | 
 
 /**
  * What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
- * project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
- * of the database holds.
+ * project's settings and rules, as its configuration has them, its guide, as its main has it in its checkout as the
+ * engine last fetched it, and what each table and view of the database holds.
  */
 export type InputsNow = { projects: Array<ProjectNow>,
 /**
@@ -2271,11 +2271,24 @@ export type ProjectNow = { project: string,
  */
 settings: Array<NamedText>,
 /**
- * The project's AGENTS.md as its checkout has it now.
+ * The commit of the project's main its AGENTS.md and the index of its records were read at: `origin/<main>` in its
+ * checkout as the engine last fetched it. None when main has no commit there.
+ */
+commit: string | null,
+/**
+ * When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+ */
+committed_at: number | null,
+/**
+ * Why they could not be read, in a sentence; none when they were. Then `agents_md` and `records` are empty.
+ */
+error: string | null,
+/**
+ * The project's AGENTS.md as its main has it at `commit`.
  */
 agents_md: string,
 /**
- * The index of its records as its checkout has it now: each file's path with its first line. The full text of
+ * The index of its records as its main has it at `commit`: each file's path with its first line. The full text of
  * the files an item cites is added for each item.
  */
 records: Array<NamedText>,
@@ -2288,6 +2301,32 @@ rules: Array<NamedText>, };
  * A name with a text.
  */
 export type NamedText = { name: string, text: string, };
+
+/**
+ * A file of a project as its main has it: read at a commit of `origin/<main>` in its checkout, as the engine last
+ * fetched it, never from the checkout's files.
+ */
+export type MainText = {
+/**
+ * Its path in the project's repository.
+ */
+name: string,
+/**
+ * The commit it was read at; none when main has no commit in the checkout.
+ */
+commit: string | null,
+/**
+ * When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+ */
+committed_at: number | null,
+/**
+ * Its text; empty when `error` is set.
+ */
+text: string,
+/**
+ * Why it could not be read, in a sentence that names the file and the commit; none when it was.
+ */
+error: string | null, };
 
 /**
  * What a cell hands back, as a tree of fields.

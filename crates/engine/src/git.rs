@@ -93,7 +93,7 @@ pub fn under(path: &str, paths: &[String]) -> bool {
 /// Merges the fetched main into the worktree's branch. On a conflict the merge is undone and the files in conflict
 /// are given.
 pub fn catch_up(dir: &Path, main: &str) -> Result<Result<String, Vec<String>>, String> {
-    git(dir, &["fetch", "-q", "origin", main])?;
+    git(dir, &["fetch", "-q", "origin", &config::main_refspec(main)])?;
     let theirs = format!("origin/{main}");
     if is_ancestor(dir, &theirs, "HEAD") {
         return Ok(Ok(head(dir)?));

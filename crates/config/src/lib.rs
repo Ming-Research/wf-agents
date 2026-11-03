@@ -22,6 +22,8 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+pub mod shared_git;
+
 /// Everything wrong with a configuration.
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -483,8 +485,9 @@ pub struct Project {
     /// flow's own rules; how agents work in every project is the flow's, and is not repeated here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
-    /// The project's constitution, the lasting values its decisions come from: a path in its checkout, such as
-    /// `constitution.md`; none when the project has none. The architect is given its text.
+    /// The project's constitution, the lasting values its decisions come from: a path in its repository, such as
+    /// `constitution.md`, spelled as the project's main has it; none when the project has none. Agents are given its
+    /// text as main has it, never as the checkout's files have it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution: Option<PathBuf>,
     /// The tags the project's observations may carry, each with what it covers: the architect tags an observation with
@@ -565,6 +568,12 @@ pub const SETTINGS: [&str; 7] = [
 ];
 
 impl Project {
+    /// The ref of the project's main in its checkout: the remote's, `origin/<main>`, which a fetch moves. The
+    /// checkout's own `<main>` branch and its files are never read for the project's text: nothing updates them.
+    pub fn main_ref(&self) -> String {
+        format!("origin/{}", self.main)
+    }
+
     /// The project's design paths: the directory of its records, with its trailing slash; none for a project that keeps
     /// no records.
     pub fn design_paths(&self) -> Vec<String> {
@@ -664,6 +673,12 @@ struct Commit<'a> {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let out = git_bytes(dir, args)?;
+    String::from_utf8(out).map_err(|e| format!("git {}: {e}", args.join(" ")))
+}
+
+/// What git writes to its standard output, as bytes; on failure, its command and what it says.
+fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -677,7 +692,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    String::from_utf8(out.stdout).map_err(|e| format!("git {}: {e}", args.join(" ")))
+    Ok(out.stdout)
 }
 
 impl Files for Commit<'_> {
@@ -1017,12 +1032,15 @@ impl Config {
                     problems.push(format!("projects/{name}.toml: no such rule: {r} (rules/{r}.md)"));
                 }
             }
-            // The constitution is a file in the project's checkout, named by its path from there.
+            // The constitution is a file of the project's repository, named by its path from the repository's root: a
+            // path that goes up (`..`) or names no file (empty, `.`) is never read ([`read_at`]), so it is refused here.
             if let Some(c) = &p.constitution
-                && (c.as_os_str().is_empty() || !c.is_relative())
+                && (!c.is_relative()
+                    || c.components().any(|x| matches!(x, std::path::Component::ParentDir))
+                    || !c.components().any(|x| matches!(x, std::path::Component::Normal(_))))
             {
                 problems.push(format!(
-                    "projects/{name}.toml: constitution is not a path in the project's checkout: {}",
+                    "projects/{name}.toml: constitution is not a path in the project's repository: {}",
                     c.display()
                 ));
             }
@@ -1233,18 +1251,199 @@ pub fn worktrees(dir: &Path) -> PathBuf {
     dir.join("worktrees")
 }
 
-/// What a project says of itself as the files of a checkout at `root` are now, which the owner's page shows: the
-/// project guide as [`project_guide_at`] gives it, read from the files on disk.
-pub fn project_guide(root: &Path, design: &[String], cites: &str) -> serde_json::Value {
-    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
-    let mut nodes = Vec::new();
-    for d in design.iter().filter(|d| d.ends_with('/')) {
-        for f in files_under(&root.join(d)) {
-            let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy().into_owned();
-            nodes.push((rel, std::fs::read_to_string(&f).unwrap_or_default()));
+/// The commit the project's main is at in its checkout, as the last fetch left it (`origin/<main>`); an error saying
+/// why when there is none: the checkout is missing, or main was never fetched into it. The checkout's own branch of
+/// that name is not a fallback: no step updates it.
+pub fn main_commit(p: &Project) -> Result<String, String> {
+    let main = p.main_ref();
+    // By the ref's full name, which a tag or branch of the checkout named like it does not shadow.
+    let out = git_bytes(
+        &p.checkout,
+        &["rev-parse", "--verify", &format!("refs/remotes/{main}^{{commit}}")],
+    )
+    .map_err(|x| format!("{main} is not in the checkout {}: {x}", p.checkout.display()))?;
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
+/// When a commit of the project's checkout was committed, in milliseconds since the epoch, which tells how old the text
+/// read at it is.
+pub fn committed_at(p: &Project, commit: &str) -> Result<i64, String> {
+    let out = git(&p.checkout, &["show", "-s", "--format=%ct", commit])?;
+    out.trim()
+        .parse::<i64>()
+        .map(|seconds| seconds * 1000)
+        .map_err(|_| format!("git show {commit}: no commit time in {:?}", out.trim()))
+}
+
+/// What `git fetch origin` is given to bring the remote's branch `main` to `origin/<main>`: the full names of both
+/// ends. The bare name would be looked up among the remote's tags as well, and a tag of that name would be fetched in
+/// the branch's place, leaving `origin/<main>` where it was.
+pub fn main_refspec(main: &str) -> String {
+    format!("+refs/heads/{main}:refs/remotes/origin/{main}")
+}
+
+/// Brings the project's `origin/<main>` in its checkout to the remote's main now (`git fetch`). It moves that ref only:
+/// no file of the checkout changes. Fetches in one checkout take turns ([`shared_git::git`]), so that works taking
+/// their steps at the same time all succeed, as git turns a fetch down that moves a ref another has just moved.
+pub fn fetch_main(p: &Project) -> Result<(), String> {
+    shared_git::git(&p.checkout, &["fetch", "-q", "origin", &main_refspec(&p.main)])
+        .map(|_| ())
+        .map_err(|x| {
+            format!(
+                "main of {} could not be fetched in {}: {x}",
+                p.repo,
+                p.checkout.display()
+            )
+        })
+}
+
+/// The text of a file of the project as one commit of its checkout has it, which `path` names from the repository's
+/// root. An error is one sentence that names the path and the commit and says why: the path is not in that commit, it
+/// is not a file, it is not UTF-8 text, git failed.
+pub fn read_at(p: &Project, commit: &str, path: &Path) -> Result<String, String> {
+    use std::path::Component;
+    let shown = path.display();
+    let mut parts = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::Normal(x) => parts.push(x.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            _ => return Err(format!("{shown} at {commit} is not a path inside the repository")),
         }
     }
-    guide(agents, nodes, cites)
+    let bytes = blob_object(&p.checkout, commit, &parts.join("/"))
+        .and_then(|object| git_bytes(&p.checkout, &["cat-file", "blob", &object]))
+        .map_err(|x| format!("{shown} cannot be read at {commit} in {}: {x}", p.checkout.display()))?;
+    String::from_utf8(bytes).map_err(|_| format!("{shown} at {commit} is not UTF-8 text"))
+}
+
+/// The most links one path is followed through: a loop of links ends in an error, not a hang.
+const MAX_LINKS: usize = 16;
+
+/// What a path names at a commit.
+enum Found {
+    /// Nothing: this path, as far as it was walked, is not in the directory that should hold it.
+    Missing(String),
+    /// A file, as the git object that holds its text.
+    File(String),
+    /// A directory, as its git tree object, and the path it was reached at (empty for the repository's root).
+    Dir { tree: String, at: String },
+}
+
+/// An entry of a directory at a commit.
+struct Entry {
+    mode: String,
+    kind: String,
+    object: String,
+    name: String,
+}
+
+/// The entries of a git tree object, by their names exactly: no name is read as a pattern.
+fn list_tree(repo: &Path, tree: &str) -> Result<Vec<Entry>, String> {
+    let listed = git(repo, &["ls-tree", "-z", tree])?;
+    let mut out = Vec::new();
+    // Each entry is `<mode> <type> <object>\t<name>`.
+    for entry in listed.split('\0').filter(|e| !e.is_empty()) {
+        let (meta, name) = entry
+            .split_once('\t')
+            .ok_or_else(|| format!("git ls-tree gave {entry:?}"))?;
+        let mut m = meta.split(' ');
+        let mut next = || m.next().unwrap_or_default().to_string();
+        out.push(Entry {
+            mode: next(),
+            kind: next(),
+            object: next(),
+            name: name.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// What `path` names at `commit` of the repository at `repo`. Git stores a link as a file that holds the path it points
+/// to, and a read of the checkout's files followed it, at the end of the path and in the middle of it alike, so links
+/// are followed here too: the path is walked one name at a time from the root, each name looked up in its directory's
+/// entries by that name exactly (git's pathspecs, which give `*`, `[` and `:` a meaning, are not used), and a name that
+/// is a link is replaced by the path it points to, however many links lead to the file. A target outside the
+/// repository, a loop, a name in the middle that is no directory and an entry that is neither a file, a link nor a
+/// directory are errors that say which.
+fn resolve(repo: &Path, commit: &str, path: &str) -> Result<Found, String> {
+    use std::collections::VecDeque;
+    let root = git(repo, &["rev-parse", "--verify", &format!("{commit}^{{tree}}")])?;
+    // The directories walked so far, real ones at the commit: their names, and their trees after the root's.
+    let mut names: Vec<String> = Vec::new();
+    let mut trees = vec![root.trim().to_string()];
+    let mut ahead: VecDeque<String> = path.split('/').map(str::to_string).collect();
+    // The last link followed and the path it points to, which a name that leaves the repository after it is blamed on.
+    let mut via: Option<(String, String)> = None;
+    let mut followed = 0;
+    while let Some(name) = ahead.pop_front() {
+        match name.as_str() {
+            "" | "." => continue,
+            ".." => {
+                if names.pop().is_some() {
+                    trees.pop();
+                    continue;
+                }
+                return Err(match via {
+                    Some((link, target)) => format!("the link {link} points outside the repository, to {target}"),
+                    None => format!("{path} leads outside the repository at {commit}"),
+                });
+            }
+            _ => {}
+        }
+        let at = if names.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{name}", names.join("/"))
+        };
+        let here = trees.last().map(String::as_str).unwrap_or_default();
+        let Some(entry) = list_tree(repo, here)?.into_iter().find(|e| e.name == name) else {
+            return Ok(Found::Missing(at));
+        };
+        if entry.mode == "120000" {
+            followed += 1;
+            if followed > MAX_LINKS {
+                return Err(format!(
+                    "{path} is a link that leads through more than {MAX_LINKS} links at {commit}"
+                ));
+            }
+            let target = String::from_utf8(git_bytes(repo, &["cat-file", "blob", &entry.object])?)
+                .map_err(|_| format!("the link {at} does not hold a path"))?;
+            if target.starts_with('/') {
+                return Err(format!("the link {at} points outside the repository, to {target}"));
+            }
+            // The link stands where its name stood: its target is read from the directory that held it.
+            for part in target.split('/').rev() {
+                ahead.push_front(part.to_string());
+            }
+            via = Some((at, target));
+        } else if entry.kind == "tree" {
+            names.push(name);
+            trees.push(entry.object);
+        } else if entry.kind != "blob" {
+            return Err(format!("{at} is not a file at {commit}"));
+        } else if ahead.is_empty() {
+            return Ok(Found::File(entry.object));
+        } else {
+            return Err(format!("{at} is a file, not a directory, at {commit}"));
+        }
+    }
+    Ok(Found::Dir {
+        tree: trees.pop().unwrap_or_default(),
+        at: names.join("/"),
+    })
+}
+
+/// The git object of the file `path` names at `commit`; an error that says why when it names none.
+fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> {
+    match resolve(repo, commit, path)? {
+        Found::File(object) => Ok(object),
+        Found::Missing(at) => Err(format!("path '{at}' does not exist in '{commit}'")),
+        Found::Dir { at, .. } if at.is_empty() => Err(format!(
+            "{path} leads to the repository's root, which is not a file at {commit}"
+        )),
+        Found::Dir { at, .. } => Err(format!("{at} is not a file at {commit}")),
+    }
 }
 
 /// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
@@ -1257,33 +1456,94 @@ pub fn project_guide_at(
     design: &[String],
     cites: &str,
 ) -> Result<serde_json::Value, String> {
-    let dirs: Vec<&str> = design.iter().filter(|d| d.ends_with('/')).map(String::as_str).collect();
-    let mut args = vec!["ls-tree", "-r", "-z", commit, "--", "AGENTS.md"];
-    args.extend(dirs.iter().copied());
-    let listed = git(repo, &args)?;
-    // Each entry is `<mode> <type> <object>\t<path>`.
-    let blobs: Vec<(&str, &str)> = listed
-        .split('\0')
-        .filter_map(|entry| {
-            let (meta, path) = entry.split_once('\t')?;
-            let mut m = meta.split(' ').skip(1);
-            let (kind, object) = (m.next()?, m.next()?);
-            let node = path.ends_with(".md") && dirs.iter().any(|d| path.starts_with(d));
-            (kind == "blob" && (path == "AGENTS.md" || node)).then_some((path, object))
-        })
-        .collect();
-    let mut texts = blob_texts(repo, &blobs.iter().map(|b| b.1).collect::<Vec<_>>())?.into_iter();
-    let mut agents = String::new();
-    let mut nodes = Vec::new();
-    for (path, _) in &blobs {
-        let text = texts.next().unwrap_or_default();
-        if *path == "AGENTS.md" {
-            agents = text;
+    let agents = match resolve(repo, commit, "AGENTS.md")
+        .map_err(|x| format!("AGENTS.md cannot be read at {commit} in {}: {x}", repo.display()))?
+    {
+        Found::File(object) => blob_texts(repo, &[object.as_str()])?.pop().unwrap_or_default(),
+        Found::Missing(_) => String::new(),
+        Found::Dir { .. } => return Err(format!("AGENTS.md is not a file at {commit} in {}", repo.display())),
+    };
+    let mut found = BTreeMap::new();
+    for dir in design.iter().filter(|d| d.ends_with('/')) {
+        records_under(repo, commit, dir, &mut found)?;
+    }
+    let objects: Vec<&str> = found.values().map(String::as_str).collect();
+    let texts = blob_texts(repo, &objects)?;
+    Ok(guide(agents, found.keys().cloned().zip(texts).collect(), cites))
+}
+
+/// Adds to `found` the Markdown files under the directory `dir` of a commit, each as its path and the git object that
+/// holds its text; a directory that is not there adds none. The files are those a walk of the checkout found, so a
+/// link is followed as that walk followed it: a link to a file is a file at the link's path, a link to a directory is
+/// that directory at the link's path, and a link that cannot be followed is an error that names it, never left out
+/// without a word.
+fn records_under(repo: &Path, commit: &str, dir: &str, found: &mut BTreeMap<String, String>) -> Result<(), String> {
+    let dir = dir.trim_end_matches('/');
+    let at = resolve(repo, commit, dir)
+        .map_err(|x| format!("{dir} cannot be read at {commit} in {}: {x}", repo.display()))?;
+    if let Found::Dir { tree, .. } = at {
+        let prefix = if dir.is_empty() {
+            String::new()
         } else {
-            nodes.push((path.to_string(), text));
+            format!("{dir}/")
+        };
+        walk_records(repo, commit, &prefix, &tree, &mut vec![tree.clone()], found)?;
+    }
+    Ok(())
+}
+
+/// The Markdown files of the directory `tree` stands for at the path `prefix`, added to `found`
+/// ([`records_under`]); `on_path` holds the trees of the directories this walk is in, the one it started from and each
+/// that a link led into, so that a link that leads back into one of them ends the walk in an error at once: it would
+/// otherwise be followed again from the same place, once for every link there is, however many levels deep.
+fn walk_records(
+    repo: &Path,
+    commit: &str,
+    prefix: &str,
+    tree: &str,
+    on_path: &mut Vec<String>,
+    found: &mut BTreeMap<String, String>,
+) -> Result<(), String> {
+    let listed = git(repo, &["ls-tree", "-r", "-z", tree])?;
+    // Each entry is `<mode> <type> <object>\t<path>`, the path from `tree`.
+    for entry in listed.split('\0') {
+        let Some((meta, rel)) = entry.split_once('\t') else {
+            continue;
+        };
+        let mut m = meta.split(' ');
+        let (mode, kind, object) = (m.next(), m.next(), m.next().unwrap_or_default());
+        let path = format!("{prefix}{rel}");
+        if kind != Some("blob") {
+            continue;
+        }
+        if mode != Some("120000") {
+            if path.ends_with(".md") {
+                found.insert(path, object.to_string());
+            }
+            continue;
+        }
+        let fail = |x: String| format!("{path} cannot be read at {commit} in {}: {x}", repo.display());
+        match resolve(repo, commit, &path).map_err(fail)? {
+            Found::File(object) if path.ends_with(".md") => {
+                found.insert(path, object);
+            }
+            Found::Dir { tree, .. } => {
+                if on_path.contains(&tree) {
+                    return Err(fail(
+                        "it leads back into a directory it is read through, a loop of links".into(),
+                    ));
+                }
+                on_path.push(tree.clone());
+                walk_records(repo, commit, &format!("{path}/"), &tree, on_path, found)?;
+                on_path.pop();
+            }
+            Found::Missing(at) if path.ends_with(".md") => {
+                return Err(fail(format!("path '{at}' does not exist in '{commit}'")));
+            }
+            Found::File(_) | Found::Missing(_) => {}
         }
     }
-    Ok(guide(agents, nodes, cites))
+    Ok(())
 }
 
 /// The project guide of an AGENTS.md and the files of the records, each by its path: the index in the order of the
@@ -1309,20 +1569,13 @@ fn guide(agents: String, mut nodes: Vec<(String, String)>, cites: &str) -> serde
 
 /// The Markdown files under a directory of a repository as one commit has them, each by its path, in the order of the
 /// paths: read with git, so that neither the worktree's files nor what it committed beyond that commit change them.
+/// Links are followed as [`records_under`] says.
 pub fn files_at(repo: &Path, commit: &str, dir: &str) -> Result<Vec<(String, String)>, String> {
-    let dir = format!("{}/", dir.trim_end_matches('/'));
-    let listed = git(repo, &["ls-tree", "-r", "-z", commit, "--", &dir])?;
-    let blobs: Vec<(&str, &str)> = listed
-        .split('\0')
-        .filter_map(|entry| {
-            let (meta, path) = entry.split_once('\t')?;
-            let mut m = meta.split(' ').skip(1);
-            let (kind, object) = (m.next()?, m.next()?);
-            (kind == "blob" && path.ends_with(".md")).then_some((path, object))
-        })
-        .collect();
-    let texts = blob_texts(repo, &blobs.iter().map(|b| b.1).collect::<Vec<_>>())?;
-    Ok(blobs.iter().map(|b| b.0.to_string()).zip(texts).collect())
+    let mut found = BTreeMap::new();
+    records_under(repo, commit, dir, &mut found)?;
+    let objects: Vec<&str> = found.values().map(String::as_str).collect();
+    let texts = blob_texts(repo, &objects)?;
+    Ok(found.into_keys().zip(texts).collect())
 }
 
 /// The texts of git objects of a repository, in the order of their names, read by one run of git.
@@ -1371,22 +1624,6 @@ fn blob_texts(repo: &Path, objects: &[&str]) -> Result<Vec<String>, String> {
         rest = rest.get(size + 1..).unwrap_or_default();
     }
     Ok(texts)
-}
-
-/// The Markdown files under a directory, in the order of their paths.
-fn files_under(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(dir) else { return out };
-    let mut entries: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
-    entries.sort();
-    for p in entries {
-        if p.is_dir() {
-            out.extend(files_under(&p));
-        } else if p.extension().is_some_and(|x| x == "md") {
-            out.push(p);
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1717,7 +1954,7 @@ asks = 9
         assert!(read(&m).is_err());
     }
 
-    // The architect's level is one of the levels, and a project's constitution a path in its checkout; anything else
+    // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else
     // is refused.
     #[test]
     fn the_architect_s_level_and_a_constitution_point_somewhere() {
@@ -1733,19 +1970,37 @@ asks = 9
             c.projects["q"].constitution.as_deref(),
             Some(Path::new("CONSTITUTION.md"))
         );
-        let mut m = files(&[(
-            "projects/q.toml",
-            "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nconstitution = \"/q/CONSTITUTION.md\"",
-        )]);
+        let mut m = files(&[
+            (
+                "projects/q.toml",
+                "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nconstitution = \"/q/CONSTITUTION.md\"",
+            ),
+            // Paths no read of the repository can follow: one that goes up, and one that is the root itself.
+            (
+                "projects/up.toml",
+                "extends = [\"common\"]\nrepo = \"o/up\"\ncheckout = \"/up\"\nconstitution = \"../CONSTITUTION.md\"",
+            ),
+            (
+                "projects/root.toml",
+                "extends = [\"common\"]\nrepo = \"o/root\"\ncheckout = \"/root\"\nconstitution = \".\"",
+            ),
+        ]);
         let unnamed = format!("{INSTALL}\n[agents]\narchitect = \"9\"\n");
         m.0.insert("install.toml", Box::leak(unnamed.into_boxed_str()));
         let e = read(&m).unwrap_err();
         assert!(e.to_string().contains("agents.architect names no level: 9"), "{e}");
         assert!(
-            e.to_string()
-                .contains("projects/q.toml: constitution is not a path in the project's checkout: /q/CONSTITUTION.md"),
+            e.to_string().contains(
+                "projects/q.toml: constitution is not a path in the project's repository: /q/CONSTITUTION.md"
+            ),
             "{e}"
         );
+        for bad in [
+            "projects/up.toml: constitution is not a path in the project's repository: ../CONSTITUTION.md",
+            "projects/root.toml: constitution is not a path in the project's repository: .",
+        ] {
+            assert!(e.to_string().contains(bad), "{bad}: {e}");
+        }
     }
 
     // A project's tags for observations each have a name of their own, and the observer's level is one of the levels.
@@ -1835,7 +2090,6 @@ asks = 9
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"]);
         let first = run(&["rev-parse", "HEAD"]).trim().to_string();
         let design = ["design/".to_string()];
-        let on_disk = project_guide(&dir, &design, "it cites design/a/b.md");
         put("design/a/new.md", "Decision: new.\n");
         put("AGENTS.md", "Changed, not committed.\n");
         let g = project_guide_at(&dir, &first, &design, "it cites design/a/b.md").unwrap();
@@ -1845,8 +2099,6 @@ asks = 9
             serde_json::json!({ "design/a.md": "Decision: a.", "design/a/b.md": "Decision: b." })
         );
         assert_eq!(g["cited"], serde_json::json!({ "design/a/b.md": "Decision: b.\n" }));
-        // The files on disk gave the same guide for the same files, in the same order.
-        assert_eq!(on_disk.to_string(), g.to_string());
         run(&["rm", "-q", "design/a/b.md"]);
         run(&["add", "-A"]);
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "second"]);
@@ -1860,5 +2112,253 @@ asks = 9
         assert_eq!(later["cited"], serde_json::json!({}));
         assert!(project_guide_at(&dir, "0000000", &design, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Links to directories that lead back into the directory read end the read in an error that names the link, at once:
+    // with two such links (`a -> .`, `b -> .`) a read that followed each again at every level would make about
+    // 2^17 walks before it gave up, which no test waits for, so this test ends only if the loop is seen on the first.
+    #[cfg(unix)]
+    #[test]
+    fn links_that_lead_back_into_the_directory_read_end_in_an_error_at_once() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-link-rings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("design/sub")).unwrap();
+        let run = |args: &[&str]| git(&dir, args).unwrap();
+        run(&["init", "-q"]);
+        std::fs::write(dir.join("design/one.md"), "# One\n").unwrap();
+        std::fs::write(dir.join("design/sub/two.md"), "# Two\n").unwrap();
+        for (link, target) in [("design/a", "."), ("design/b", "."), ("design/sub/up", "..")] {
+            std::os::unix::fs::symlink(target, dir.join(link)).unwrap();
+        }
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rings"]);
+        let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let why = files_at(&dir, &commit, "design").unwrap_err();
+        assert!(
+            why.contains("design/a") && why.contains("loop of links") && why.contains(&commit),
+            "{why}"
+        );
+        let why = project_guide_at(&dir, &commit, &["design/".to_string()], "").unwrap_err();
+        assert!(why.contains("design/a") && why.contains("loop of links"), "{why}");
+        // A link to a directory that is no ancestor of the walk is followed, and its files are found where it stands.
+        std::fs::remove_file(dir.join("design/a")).unwrap();
+        std::fs::remove_file(dir.join("design/b")).unwrap();
+        std::fs::remove_file(dir.join("design/sub/up")).unwrap();
+        std::os::unix::fs::symlink("sub", dir.join("design/deeper")).unwrap();
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "no rings"]);
+        let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let found: Vec<String> = files_at(&dir, &commit, "design")
+            .unwrap()
+            .into_iter()
+            .map(|f| f.0)
+            .collect();
+        assert_eq!(found, ["design/deeper/two.md", "design/one.md", "design/sub/two.md"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A link is followed to the file it points to, through any number of links inside the repository, at the end of the
+    // path and in the middle of it alike (a directory that is a link, as `docs -> reasoning`); a link that leaves the
+    // repository, one in a loop, one to a directory, a file taken for a directory and a name that is not there are errors
+    // that name the path and the commit.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_followed_inside_the_repository_and_only_there() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::create_dir_all(dir.join("reasoning")).unwrap();
+        std::fs::create_dir_all(dir.join("deep")).unwrap();
+        let run = |args: &[&str]| git(&dir, args).unwrap();
+        run(&["init", "-q"]);
+        std::fs::write(dir.join("real.md"), "real\n").unwrap();
+        std::fs::write(dir.join("reasoning/constitution.md"), "# Articles\n").unwrap();
+        for (link, target) in [
+            ("sub/up.md", "../real.md"),
+            ("chain.md", "sub/up.md"),
+            ("out.md", "../outside.md"),
+            ("abs.md", "/etc/hostname"),
+            ("loop-a.md", "loop-b.md"),
+            ("loop-b.md", "loop-a.md"),
+            ("dirlink.md", "sub"),
+            // Directories that are links: at the root, through another link, one level down, and back up with `..`.
+            ("docs", "reasoning"),
+            ("docs2", "docs"),
+            ("deep/inner", "../reasoning"),
+            ("sub/root", ".."),
+            // A directory link that leaves the repository, and two that lead into each other.
+            ("escape", "../elsewhere"),
+            ("ring-a", "ring-b"),
+            ("ring-b", "ring-a"),
+        ] {
+            std::os::unix::fs::symlink(target, dir.join(link)).unwrap();
+        }
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "links"]);
+        let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let mut c = read(&files(&[])).unwrap();
+        let mut p = c.projects.remove("p").unwrap();
+        p.checkout = dir.clone();
+        assert_eq!(read_at(&p, &commit, Path::new("chain.md")).unwrap(), "real\n");
+        for path in [
+            "docs/constitution.md",
+            "docs2/constitution.md",
+            "deep/inner/constitution.md",
+            "./docs/./constitution.md",
+        ] {
+            assert_eq!(read_at(&p, &commit, Path::new(path)).unwrap(), "# Articles\n", "{path}");
+        }
+        assert_eq!(read_at(&p, &commit, Path::new("sub/root/real.md")).unwrap(), "real\n");
+        for (path, why) in [
+            ("out.md", "outside the repository"),
+            ("abs.md", "outside the repository"),
+            ("loop-a.md", "links"),
+            ("dirlink.md", "not a file"),
+            ("docs", "not a file"),
+            ("escape/x.md", "outside the repository"),
+            ("ring-a/x.md", "links"),
+            ("docs/missing.md", "does not exist"),
+            ("missing/constitution.md", "does not exist"),
+            ("real.md/x.md", "not a directory"),
+        ] {
+            let e = read_at(&p, &commit, Path::new(path)).unwrap_err();
+            assert!(
+                e.contains(path) && e.contains(&commit) && e.contains(why),
+                "{path}: {e}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A project's text is read from the commit its `origin/<main>` is at in its checkout, never from the checkout's
+    // files or its own branch; a fetch moves that commit and no file; and a failure is an error that says what and where.
+    #[test]
+    fn a_project_s_text_is_read_from_its_fetched_main_and_a_failure_says_why() {
+        let root = std::env::temp_dir().join(format!("wf-agents-main-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let origin = root.join("origin.git");
+        let (checkout, other) = (root.join("checkout"), root.join("other"));
+        let run = |dir: &Path, args: &[&str]| git(dir, args).unwrap();
+        let commit = |dir: &Path, message: &str| {
+            run(dir, &["add", "-A"]);
+            run(
+                dir,
+                &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message],
+            );
+            run(dir, &["rev-parse", "HEAD"]).trim().to_string()
+        };
+        let put = |dir: &Path, path: &str, text: &[u8]| {
+            let p = dir.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        run(
+            &root,
+            &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()],
+        );
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
+        );
+        let project = |checkout: &Path| {
+            let mut c = read(&files(&[])).unwrap();
+            let mut p = c.projects.remove("p").unwrap();
+            p.checkout = checkout.to_path_buf();
+            p
+        };
+        let p = project(&checkout);
+        // A checkout that holds no main yet has no commit of it, and says which ref it looked for.
+        let none = main_commit(&p).unwrap_err();
+        assert!(none.contains("origin/main"), "{none}");
+        // A checkout that is not there is an error too.
+        assert!(main_commit(&project(&root.join("missing"))).is_err());
+
+        put(&checkout, "constitution.md", b"# Old\n");
+        let first = commit(&checkout, "first");
+        run(&checkout, &["push", "-q", "origin", "HEAD:main"]);
+        assert_eq!(main_commit(&p).unwrap(), first);
+        assert_eq!(read_at(&p, &first, Path::new("constitution.md")).unwrap(), "# Old\n");
+        // When a commit was committed, in milliseconds; a commit the checkout lacks has none.
+        let seconds: i64 = run(&checkout, &["show", "-s", "--format=%ct", &first])
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(committed_at(&p, &first).unwrap(), seconds * 1000);
+        assert!(committed_at(&p, "0000000000000000000000000000000000000000").is_err());
+        // A path may be written with a leading `./`; the same file.
+        assert_eq!(read_at(&p, &first, Path::new("./constitution.md")).unwrap(), "# Old\n");
+
+        // Main moves on the remote: nothing in the checkout moves until a fetch, and the fetch changes no file.
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &other.to_string_lossy()],
+        );
+        put(&other, "constitution.md", b"# New\n");
+        let second = commit(&other, "second");
+        run(&other, &["push", "-q", "origin", "HEAD:main"]);
+        assert_eq!(main_commit(&p).unwrap(), first);
+        fetch_main(&p).unwrap();
+        assert_eq!(main_commit(&p).unwrap(), second);
+        assert_eq!(read_at(&p, &second, Path::new("constitution.md")).unwrap(), "# New\n");
+        assert_eq!(
+            std::fs::read_to_string(checkout.join("constitution.md")).unwrap(),
+            "# Old\n"
+        );
+        // The commit read is the one asked for, whatever main is now.
+        assert_eq!(read_at(&p, &first, Path::new("constitution.md")).unwrap(), "# Old\n");
+
+        // What the checkout's files or its own branch hold is never read: the file there is changed, not committed,
+        // and its branch is a commit main does not have.
+        put(&checkout, "constitution.md", b"# Changed on disk\n");
+        put(&checkout, "only-here.md", b"here\n");
+        assert_eq!(read_at(&p, &second, Path::new("constitution.md")).unwrap(), "# New\n");
+        let e = read_at(&p, &second, Path::new("only-here.md")).unwrap_err();
+        assert!(e.contains("only-here.md") && e.contains(&second), "{e}");
+
+        // Each failure is an error that names the path and the commit.
+        put(&other, "bytes.md", &[0xff, 0xfe, 0x00]);
+        put(&other, "dir/file.md", b"x\n");
+        let third = commit(&other, "third");
+        run(&other, &["push", "-q", "origin", "HEAD:main"]);
+        fetch_main(&p).unwrap();
+        let e = read_at(&p, &third, Path::new("bytes.md")).unwrap_err();
+        assert!(
+            e.contains("bytes.md") && e.contains(&third) && e.contains("UTF-8"),
+            "{e}"
+        );
+        let e = read_at(&p, &third, Path::new("dir")).unwrap_err();
+        assert!(e.contains("dir") && e.contains(&third), "{e}");
+        let e = read_at(&p, &third, Path::new("../constitution.md")).unwrap_err();
+        assert!(
+            e.contains("../constitution.md") && e.contains("inside the repository"),
+            "{e}"
+        );
+        let e = read_at(&p, &third, Path::new("/etc/hosts")).unwrap_err();
+        assert!(e.contains("/etc/hosts"), "{e}");
+        let e = read_at(
+            &p,
+            "0000000000000000000000000000000000000000",
+            Path::new("constitution.md"),
+        )
+        .unwrap_err();
+        assert!(
+            e.contains("constitution.md") && e.contains("0000000000000000000000000000000000000000"),
+            "{e}"
+        );
+        // A fetch that cannot reach the remote is an error, and leaves main where it was.
+        let mut gone = project(&checkout);
+        std::fs::rename(&origin, root.join("moved.git")).unwrap();
+        let e = fetch_main(&gone).unwrap_err();
+        assert!(e.contains("could not be fetched"), "{e}");
+        assert_eq!(main_commit(&gone).unwrap(), third);
+        // The checkout's own branch is no fallback: with no `origin/main`, main has no commit, though a branch `main`
+        // is there.
+        run(&checkout, &["update-ref", "refs/heads/main", &first]);
+        run(&checkout, &["update-ref", "-d", "refs/remotes/origin/main"]);
+        assert!(main_commit(&gone).is_err());
+        gone.main = "master".into();
+        assert!(main_commit(&gone).unwrap_err().contains("origin/master"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
