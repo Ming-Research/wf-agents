@@ -94,9 +94,15 @@ fn decide(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, rounds: &[Ro
         return back(old, new, walked(old, rounds), why);
     }
     // A cell under way whose session the version would take on in another kind, line or inputs is done again: the
-    // cell it serves, and an agent's cell of a detour it stands at, as the advisor answering.
-    let detour_at =
-        (pos.at != serving && old.cell(&pos.at).is_some_and(|c| c.kind == "agent")).then_some(pos.at.as_str());
+    // cell it serves, and the agent's cell of a detour whose session is open, as the advisor answering: the one it
+    // stands at, or the one the cell it stands at answers, as the tools the advisor asked for.
+    let is_agent = |c: &str| old.cell(c).is_some_and(|c| c.kind == "agent");
+    let open = if is_agent(&pos.at) {
+        Some(pos.at.as_str())
+    } else {
+        pos.callers.last().map(String::as_str).filter(|c| is_agent(c))
+    };
+    let detour_at = open.filter(|c| *c != serving);
     for cell in std::iter::once(serving).chain(detour_at) {
         let inner = |c: &str| {
             if cell == serving {
