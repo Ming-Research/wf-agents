@@ -1918,7 +1918,10 @@ fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
     assert_eq!(g.take("F2", &ret, &two).unwrap().name, "revised_out");
     // A work redesigned after a reply or an interjection goes to design either way, and is counted only when it was on
     // the light route.
-    let redesign = serde_json::json!({ "outcome": { "next": { "way": "redesign" } } });
+    let redesign = serde_json::json!({
+        "outcome": { "next": { "way": "redesign" } },
+        "tell_owner": [], "side_reports": [], "progress": "progress", "flow_feedback": "none",
+    });
     for (route, row, counts) in [
         ("light", "redesign_from_light", Some("route_to_normal")),
         ("normal", "redesign", None),
