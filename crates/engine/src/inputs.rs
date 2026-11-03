@@ -1297,7 +1297,7 @@ mod tests {
         };
 
         let v = review_base_json(&dir, "main", "fork", &head, Some(&first)).unwrap();
-        assert_eq!(commits(&v["main_merges"]), [took_main.clone()], "{v}");
+        assert_eq!(commits(&v["main_merges"]), std::slice::from_ref(&took_main), "{v}");
         assert_eq!(commits(&v["merges_since_last_review"]), [took_main], "{v}");
         assert_eq!(v["last_reviewed"], json!(first));
         assert!(v.get("merges_since_last_review_note").is_none(), "{v}");
