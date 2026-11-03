@@ -3053,7 +3053,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed: the head is not the one handed in, it does not follow the last push, or it carries another branch"
+                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI where the project's CI runs on demand: the head is not the one handed in, it does not follow the last push, or it carries another branch"
                 }
               ]
             }

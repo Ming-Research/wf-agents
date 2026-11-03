@@ -81,8 +81,9 @@ fn attempts(
             Ok(v) => return Ok(v),
             Err(x) => {
                 tried.push(format!("attempt {n}: {}", x.what));
-                // While the network is down no attempt can do better: the step waits for the network instead.
-                if n == ATTEMPTS || (x.kind == "network_or_api" && e.network_down()) {
+                // While the network is down no attempt can do better: the step waits for the network instead. A request
+                // GitHub refused itself is refused the same way again.
+                if n == ATTEMPTS || x.kind == "rejected" || (x.kind == "network_or_api" && e.network_down()) {
                     return Err((x, format!("Tried {n} times. {}", tried.join("; "))));
                 }
                 std::thread::sleep(Duration::from_secs(5 * n as u64));
@@ -448,7 +449,14 @@ fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRu
 }
 
 fn not_run(field: &str, (f, tried): (Failure, String)) -> Value {
-    json!({ field: { "kind": "not_run", "failure": f.kind, "what": f.what, "tried": tried } })
+    // A request GitHub refused is not one of the kinds the flow lists for a tool that did not run: it is told as `other`,
+    // with GitHub's words.
+    let (kind, what) = if f.kind == "rejected" {
+        ("other", format!("GitHub refused the request: {}", f.what))
+    } else {
+        (f.kind, f.what)
+    };
+    json!({ field: { "kind": "not_run", "failure": kind, "what": what, "tried": tried } })
 }
 
 fn checks_json(cs: &[CheckRun]) -> Value {
@@ -752,7 +760,17 @@ fn ci(
             push["generated"] = g;
         }
         Ok(json!({ "push": push, "pr": n }))
-    })?;
+    });
+    // GitHub refused the request to run the fast CI itself, such as an input the workflow does not take: trying again
+    // cannot help, and the engineer, who can change the request, is told what GitHub said.
+    let got = match got {
+        Err((f, _)) if f.kind == "rejected" => {
+            return Ok(json!({ "push": { "verdict": "refused", "why": format!(
+                "GitHub refused to run {}: {}", project.ci.fast, f.what
+            ) } }));
+        }
+        other => other?,
+    };
     *pushed = Some(sha.clone());
     let mut v = got;
     if let Some(o) = v.as_object_mut() {
@@ -2053,6 +2071,8 @@ mod ci_on_demand {
         on_push: BTreeMap<String, Made>,
         /// The log of every job, where the tests ended are read from.
         log: Option<String>,
+        /// What GitHub says in refusing every request to run a workflow by hand, when it does.
+        rejects: Option<String>,
         /// The head of a branch, where no repository tells.
         heads: BTreeMap<String, String>,
         dispatched: Vec<Dispatch>,
@@ -2127,6 +2147,11 @@ mod ci_on_demand {
         /// The log every job of a run has.
         fn logs(&self, log: &str) {
             self.state().log = Some(log.to_string());
+        }
+
+        /// From now on GitHub refuses every request to run a workflow by hand with these words; none, it accepts them.
+        fn rejects(&self, why: Option<&str>) {
+            self.state().rejects = why.map(str::to_string);
         }
 
         fn at(&self, branch: &str, sha: &str) {
@@ -2237,6 +2262,12 @@ mod ci_on_demand {
         fn dispatch(&self, _repo: &str, workflow: &str, branch: &str, inputs: &[(&str, &str)]) -> Result<(), Failure> {
             let sha = self.head_of(branch);
             let mut s = self.state();
+            if let Some(why) = s.rejects.clone() {
+                // The request was made, and refused.
+                let inputs = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+                s.dispatched.push((workflow.to_string(), branch.to_string(), inputs));
+                return Err(Failure::rejected(why));
+            }
             let Some(holds) = s.makes.get(workflow).cloned() else {
                 return Err(Failure::network(format!(
                     "could not find any workflows named {workflow}"
@@ -2363,6 +2394,9 @@ mod ci_on_demand {
         assert_eq!(f.kind, "network_or_api");
         assert!(f.what.contains("could not find any workflows named fast"), "{}", f.what);
         assert!(f.what.contains("merge origin/main into the branch"), "{}", f.what);
+        // A request GitHub refused is told as it is: the workflow is there, and the hint would mislead.
+        let refused = dispatch_failed(Failure::rejected("Unexpected inputs provided: [\"tests\"]"));
+        assert_eq!(refused, Failure::rejected("Unexpected inputs provided: [\"tests\"]"));
     }
 
     // A head that only the fast CI has run is not run in full by it: the full CI is run by hand, and its checks are what
@@ -2820,6 +2854,36 @@ timeout_ms = 1000
         }
     }
 
+    // A request GitHub refuses itself, such as an input the workflow does not take, is asked once, never again: `ci`
+    // tells the engineer what GitHub said as a refusal; the full CI on the draft and the merge, which have no refusal
+    // of their own, as a tool that did not run, of the kind `other` the flow lists, and nothing is merged.
+    fn a_request_github_refuses_is_asked_once_and_told(r: &mut Rig) {
+        let why = "HTTP 422: Unexpected inputs provided: [\"tests\"]";
+        r.runs.clear();
+        r.runs.rejects(Some(why));
+        let v = r.ci(&["a_test"]);
+        assert_eq!(v["push"]["verdict"], "refused", "{v}");
+        let said = v["push"]["why"].as_str().unwrap();
+        assert!(
+            said.contains("GitHub refused to run fast") && said.contains(why),
+            "{said}"
+        );
+        assert_eq!(r.runs.dispatched().len(), 1, "asked again");
+        type Tool = fn(&mut Engine, &Work, &Item, RoundId) -> Result<Value, String>;
+        let tools: [(Tool, &str); 2] = [(full_ci, "full_ci"), (merge, "merge")];
+        for (tool, name) in tools {
+            r.runs.clear();
+            r.runs.has_run(&r.head, "fast", &[("lint", "green"), ("fast", "green")]);
+            let v = r.run(tool);
+            assert_eq!(v["result"]["kind"], "not_run", "{name}: {v}");
+            assert_eq!(v["result"]["failure"], "other", "{name}: {v}");
+            assert!(v["result"]["what"].as_str().unwrap().contains(why), "{name}: {v}");
+            assert_eq!(r.runs.dispatched().len(), 1, "{name} asked again");
+            assert_eq!(r.runs.merges(), 0, "{name}");
+        }
+        r.runs.rejects(None);
+    }
+
     // The tools that make and read the runs of the fast and the full CI, each against the GitHub in memory that the
     // case before it left cleared, on one engine: its start (compiling the flow) is most of what each costs, and the
     // cases share nothing else. Each case is a function of its own above, that says what it shows. The case where
@@ -2831,5 +2895,6 @@ timeout_ms = 1000
         the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one(&mut r);
         a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
         a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
+        a_request_github_refuses_is_asked_once_and_told(&mut r);
     }
 }
