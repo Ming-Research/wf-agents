@@ -8672,6 +8672,7 @@ fn the_history_of_the_changed_files_is_gathered_once_and_the_table_review_is_giv
     let first = message_at(&e, work, "T4", false);
     assert!(first.contains(brief), "{first}");
     assert!(first.contains("records as dropped"), "{first}");
+    assert!(first.contains("`history`"), "{first}");
     let blind = message_at(&e, work, "T3", false);
     assert!(
         !blind.contains(brief) && !blind.contains("records as dropped"),

@@ -945,6 +945,10 @@ fn the_history_of_the_changed_files_is_gathered_between_the_two_reviews() {
         (gather.line.as_deref(), gather.stage.as_deref()),
         (Some("librarian"), Some("test"))
     );
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let blocks = v["flows"][0]["blocks"].as_array().unwrap();
+    let develop = blocks.iter().find(|b| b["name"] == "develop").unwrap();
+    assert!(develop["nodes"].as_array().unwrap().iter().any(|n| *n == "G3"));
     let brief = flow::format::Src::Place("G3".into(), "brief".into());
     let table = g.cell("T4").unwrap();
     let input = table.inputs.iter().find(|i| i.from == [brief.clone()]).unwrap();
