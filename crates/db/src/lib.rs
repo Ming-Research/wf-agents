@@ -3246,11 +3246,27 @@ mod tests {
     // The counters of one work are read from the index on its counted rounds alone: the plans of the two views for
     // one work search `rounds_counts`, which holds the counter without the round's inputs and outputs, and parse no
     // JSON and scan no table of rounds. The total time in `work_counters` is its other part, found by the work's
-    // primary key. The views before version 70 parsed the compiled flow for every round with `json_each`, and
-    // `work_asking` scanned every round of every work.
+    // primary key. The same judgment fails on the views of version 69, which parsed the compiled flow for every
+    // round with `json_each` and scanned the rounds: without that, a plan whose words SQLite changes would pass this
+    // test for want of anything to find.
     #[test]
     fn the_counters_of_a_work_are_read_from_the_index_of_its_counted_rounds() {
-        let db = Db::in_memory().unwrap();
+        let faults = counter_plan_faults(&Db::in_memory().unwrap());
+        assert!(faults.is_empty(), "{}", faults.join("\n\n"));
+        let old = counter_plan_faults(&at_version(69));
+        assert!(
+            old.iter().any(|f| f.contains("parses JSON")),
+            "the views of version 69 are not found to parse JSON: {old:?}"
+        );
+        assert!(
+            old.iter().any(|f| f.contains("scans a table of rounds")),
+            "the views of version 69 are not found to scan the rounds: {old:?}"
+        );
+    }
+
+    /// What is wrong with how the two counters views are read for one work in `db`, as their query plans show: each
+    /// fault names the view and what it does. Nothing is wrong when the list is empty.
+    fn counter_plan_faults(db: &Db) -> Vec<String> {
         let plan = |sql: &str| -> Vec<String> {
             let mut st = db.conn().prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
             st.query_map([], |r| r.get::<_, String>(3))
@@ -3258,41 +3274,43 @@ mod tests {
                 .map(|x| x.unwrap())
                 .collect()
         };
+        let mut faults = Vec::new();
         for view in ["work_asking", "work_counters"] {
             let steps = plan(&format!("SELECT * FROM {view} WHERE work = 1"));
             let text = steps.join("\n");
-            assert!(
-                steps.iter().any(|s| s.contains("COVERING INDEX rounds_counts")),
-                "{view} does not read rounds_counts alone:\n{text}"
-            );
-            assert!(
-                !text.contains("json_each") && !text.contains("VIRTUAL TABLE"),
-                "{view} parses JSON:\n{text}"
-            );
-            assert!(
-                !steps.iter().any(|s| s.starts_with("SCAN r")),
-                "{view} scans a table of rounds:\n{text}"
-            );
+            if !steps.iter().any(|s| s.contains("COVERING INDEX rounds_counts")) {
+                faults.push(format!("{view} does not read rounds_counts alone:\n{text}"));
+            }
+            if text.contains("json_each") || text.contains("VIRTUAL TABLE") {
+                faults.push(format!("{view} parses JSON:\n{text}"));
+            }
+            if steps.iter().any(|s| s.starts_with("SCAN r")) {
+                faults.push(format!("{view} scans a table of rounds:\n{text}"));
+            }
         }
         // How asks are counted reads rounds in that one way and no other.
         let steps = plan("SELECT * FROM work_asking WHERE work = 1");
         let rounds: Vec<&String> = steps.iter().filter(|s| s.contains(" r ")).collect();
-        assert!(
-            rounds.len() == 1 && rounds[0].contains("COVERING INDEX rounds_counts (work=? AND counts=?)"),
-            "work_asking reads rounds other than by rounds_counts:\n{}",
-            steps.join("\n")
-        );
+        if !(rounds.len() == 1 && rounds[0].contains("COVERING INDEX rounds_counts (work=? AND counts=?)")) {
+            faults.push(format!(
+                "work_asking reads rounds other than by rounds_counts:\n{}",
+                steps.join("\n")
+            ));
+        }
         // The counters read rounds by the work only: the counted rounds through their index, and the total time
         // through the primary key.
         let steps = plan("SELECT * FROM work_counters WHERE work = 1");
         for s in steps.iter().filter(|s| s.contains(" r ")) {
-            assert!(
-                s.starts_with("SEARCH r USING")
-                    && (s.contains("COVERING INDEX rounds_counts (work=?")
-                        || s.contains("INDEX sqlite_autoindex_rounds_1 (work=?)")),
-                "work_counters reads rounds other than by the work:\n{}",
-                steps.join("\n")
-            );
+            let by_work = s.starts_with("SEARCH r USING")
+                && (s.contains("COVERING INDEX rounds_counts (work=?")
+                    || s.contains("INDEX sqlite_autoindex_rounds_1 (work=?)"));
+            if !by_work {
+                faults.push(format!(
+                    "work_counters reads rounds other than by the work:\n{}",
+                    steps.join("\n")
+                ));
+            }
         }
+        faults
     }
 }
