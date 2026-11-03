@@ -66,13 +66,13 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         // The light route has no blind review: its first review goes straight to the table.
         "review_round" => {
             let reviewed = !answered(e, w, g, "T3")?.is_empty() || !answered(e, w, g, "T4")?.is_empty();
-            s(if reviewed || light_route(e, w, g, item)? {
+            s(if reviewed || light_route(e, w)? {
                 "table"
             } else {
                 "blind"
             })
         }
-        "route_taken" => s(if light_route(e, w, g, item)? { "light" } else { "normal" }),
+        "route_taken" => s(if light_route(e, w)? { "light" } else { "normal" }),
         // The reviews of the plan that sent it back since the work last researched the problem, which a plan made
         // afresh after the item changed counts from.
         "revisions_before" => {
@@ -205,35 +205,18 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
     }
 }
 
-/// The row of the research (cell `R1`) that takes a work to the light route.
-const TO_LIGHT: &str = "light";
-
 /// The row of the review of the plan (cell `F2`) that sends the plan back to be planned again.
 const PLAN_SENT_BACK: &str = "revise";
 
-/// The counter of the rows that turn a work on the light route to the normal route.
-const TO_NORMAL: &str = "route_to_normal";
-
-/// Whether the work goes the light route. Before the research (cell `R1`) answers, its item says: marked a bug fix or a
-/// feature. After, the research's latest answer says, by the row it took, so that a change of the item's route no
-/// longer turns a work under way. A work that took a row counting `route_to_normal`, or that wrote a design (cell
-/// `D2`), as a redesign from the light route does, goes the normal route for good.
-pub fn light_route(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item) -> Result<bool, String> {
-    let turned: i64 =
+/// Whether the work goes the light route, as the database's view `work_routes` defines it: by its item's mark before
+/// its research answers, by the research's latest row after, and never again once it turned to the normal route.
+pub fn light_route(e: &Engine, w: &Work) -> Result<bool, String> {
+    let route: Option<String> =
         e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND counts = ?2",
-                db::rusqlite::params![w.id, TO_NORMAL],
-                |r| r.get(0),
-            )
+            .query_row("SELECT route FROM work_routes WHERE work = ?1", [w.id], |r| r.get(0))
+            .optional()
             .map_err(|e| e.to_string())?;
-    if turned > 0 || !answered(e, w, g, "D2")?.is_empty() {
-        return Ok(false);
-    }
-    Ok(match answered(e, w, g, "R1")?.first() {
-        Some(r) => r.transition.as_deref() == Some(TO_LIGHT),
-        None => item.route != "normal",
-    })
+    Ok(route.as_deref() == Some("light"))
 }
 
 /// How many words said to a work are waiting for the line it stands on, which turn its way on.

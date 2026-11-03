@@ -585,7 +585,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             research_problems(clean, &outside).into_result()
         }
-        "route_given" => route_problems(values::light_route(c.e, c.w, c.g, c.item()?)?, v).into_result(),
+        "route_given" => route_problems(values::light_route(c.e, c.w)?, v).into_result(),
         "design_paths_unchanged" => {
             let wt = c.wt()?;
             let Some(start) = &c.head_start else { return Ok(()) };
@@ -993,7 +993,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let ran = !c.accepted("T1")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
             // The light route has no design to choose adversarial testing or not, and no judgment of that choice.
-            let light = values::light_route(c.e, c.w, c.g, c.item()?)?;
+            let light = values::light_route(c.e, c.w)?;
             let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran && !light;
             let verdict = v.and_then(|x| x["verdict"].as_str());
             match (due, first, verdict) {
@@ -1386,16 +1386,16 @@ fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
     problems
 }
 
-/// What is wrong with a research round's changes: the worktree holds changes that are not committed, and the round
-/// changed files outside `research/` (`changed`, the files it changed); the two are independent.
 /// What is wrong with the route the research said, `given`, for a work that goes the light route (`light`) or not:
-/// only the item's route lightens a work, and its engineer only turns it heavier.
+/// only the item's route lightens a work, and its engineer only turns it heavier. A work goes the light route by its
+/// item's mark before its research first answers, and by its research's answer after, so the words name the work's
+/// route, not the item's mark, which may have changed since.
 fn route_problems(light: bool, given: Option<&Value>) -> Problems {
     let mut problems = Problems::default();
     match (light, given) {
         (true, None) => problems.push(
-            "the item is marked a bug fix or a feature: say in route whether the work goes the light route (light) or \
-             turns to the normal route (to_normal)",
+            "the work goes the light route: say in route whether it goes on the light route (light) or turns to the \
+             normal route (to_normal)",
         ),
         (false, Some(_)) => {
             problems.push("the work goes the normal route, and only the item's route lightens a work: leave route out")
@@ -1405,6 +1405,8 @@ fn route_problems(light: bool, given: Option<&Value>) -> Problems {
     problems
 }
 
+/// What is wrong with a research round's changes: the worktree holds changes that are not committed, and the round
+/// changed files outside `research/` (`changed`, the files it changed); the two are independent.
 fn research_problems(clean: bool, changed: &[String]) -> Problems {
     let mut problems = Problems::default();
     if !clean {
@@ -2825,8 +2827,8 @@ mod tests {
         assert_eq!(
             said(route_problems(true, None)),
             [
-                "the item is marked a bug fix or a feature: say in route whether the work goes the light route (light) \
-                 or turns to the normal route (to_normal)"
+                "the work goes the light route: say in route whether it goes on the light route (light) or turns to \
+                 the normal route (to_normal)"
             ]
         );
         assert_eq!(

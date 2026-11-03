@@ -10,6 +10,7 @@ import { byStage, mainPath, progress, type Step } from './item/checklist';
 import { Acceptance, type Met } from './item/Shapes';
 import { depsDone, firstShown, stageAt, tree, type TreeRow } from './item/tree';
 import { inline, Markdown, parse } from './markdown';
+import { routeFact } from './pages/Item';
 
 function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummary> = {}): ItemSummary {
   return {
@@ -19,6 +20,7 @@ function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummar
     deliver: 'change',
     level: '1',
     route: 'normal',
+    route_taken: null,
     cancelled: null,
     state,
     queued: null,
@@ -421,5 +423,29 @@ describe('the acceptance of an item', () => {
     expect(html).toContain('Met: green in the CI: lint, which run npm run check:ui');
     expect(html).toContain('Met: green in the CI: check, test 1 of 3<');
     expect(html).toContain('Met: read in flow/flow.json: the rule lists all columns');
+  });
+});
+
+// An item's head names the route its work goes, not only how its creator marked it: a work keeps the route its
+// research took, and one that turned to the normal route says so.
+describe("the route on an item's head", () => {
+  const said = (route: string, route_taken: string | null) => {
+    const fact = routeFact({ route, route_taken });
+    return fact === null ? null : renderToStaticMarkup(createElement('div', null, fact));
+  };
+
+  it('gives the route the mark gives a work before one starts, and the route its work goes after', () => {
+    expect(said('bugfix', null)).toContain('Bug fix, light route');
+    expect(said('normal', null)).toBeNull();
+    expect(said('feature', 'light')).toContain('Feature, light route');
+    // Marked normal again after its research took the light route: the work goes light all the same.
+    expect(said('normal', 'light')).toContain('>Light route<');
+  });
+
+  it('says a work turned to the normal route, and nothing for a work that went it from its research', () => {
+    expect(said('bugfix', 'turned')).toContain('Bug fix, turned to the normal route');
+    expect(said('normal', 'turned')).toContain('>Turned to the normal route<');
+    // Marked a bug fix after its research took the normal route: the work goes on that way.
+    expect(said('bugfix', 'normal')).toBeNull();
   });
 });

@@ -1,7 +1,8 @@
 -- Takes a version 75 database to version 76: an item says the route its works go, normal or the light route of a bug
 -- fix or a feature, which only an item that delivers a change goes; every item there is goes the normal route. The
 -- items' description says who reads it, and that a plan on the light route locks the acceptance as a design does, so
--- their table is made afresh with its rows; the view of the item as its creator wrote it gives the route too. Each
+-- their table is made afresh with its rows; the view of the item as its creator wrote it gives the route too, and a new
+-- view gives the route each work goes. Each
 -- statement below that defines something is written exactly as db/schema.sql writes it.
 
 CREATE TABLE items_version_75 AS SELECT * FROM items;
@@ -93,3 +94,22 @@ CREATE VIEW item_body AS
   -- The item as its creator wrote it, the acceptance it wanted and the route its works go included. Read by: cells
   -- `R1`, `G4`, `F1`, `F2`, `I1` and `T4`.
   SELECT id AS item, project, title, problem, why, approach, deliver, route, wanted FROM items;
+
+CREATE VIEW work_routes AS
+  -- The route each work of the engineer goes: light; normal; or turned, a work on the light route that took a row
+  -- counting `route_to_normal`, which goes the normal route for good. Before its research (cell `R1`) answers, a work
+  -- goes as its item is marked, the light route for a bug fix or a feature; after, as the research's latest answer took
+  -- its row (`light`, or `done` or `to_normal`), so that a change of the item's mark does not turn a work under way.
+  -- Read by: the engine's value `route_taken`; the owner's interface and the architect's board, beside the item's mark.
+  SELECT w.id AS work, w.item,
+    CASE
+      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.counts = 'route_to_normal') THEN 'turned'
+      WHEN coalesce(
+        (SELECT r.transition FROM rounds r
+         WHERE r.work = w.id AND r.cell = 'R1' AND r.transition IN ('done', 'light', 'to_normal')
+         ORDER BY r.n DESC LIMIT 1),
+        CASE WHEN i.route = 'normal' THEN 'done' ELSE 'light' END) = 'light' THEN 'light'
+      ELSE 'normal'
+    END AS route
+  FROM works w JOIN items i ON i.id = w.item
+  WHERE w.graph = 'engineer';

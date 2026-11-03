@@ -1208,11 +1208,11 @@
       "values": [
         [
           "light",
-          "The work goes the light route: its item is marked a bug fix or a feature, and the work has not turned to the normal route"
+          "The work goes the light route: its item was marked a bug fix or a feature when the work first researched it, and the work has not turned to the normal route"
         ],
         [
           "normal",
-          "The work goes the normal route: its item is marked neither, or the work turned to the normal route"
+          "The work goes the normal route: its item was marked neither when the work first researched it, or the work turned to the normal route"
         ]
       ]
     },
@@ -3708,7 +3708,7 @@
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
       "cited_nodes": "The files of the records the matter at hand names, in full, as the project's main has them.",
       "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and decision cards ruled, reports that came in; at the architect's first work, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items.",
+      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
@@ -3760,7 +3760,7 @@
       "next_in_batch": "Whether the batch goes on, waits while the owner talks, has the decisions in the owner's words it handled recorded, goes to review, is done, or is done with nothing to rethink: no matter handled and no item changed since the last rethink.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
       "review_round": "Whether the review starts with a blind review or goes straight to the table: the table once a review answered, and from the start on the light route, which has no blind review.",
-      "route_taken": "Whether the work goes the light route: before cell `R1` answers, whether its item is marked a bug fix or a feature; after, whether `R1` last took its row to the light route, a change of the item's route no longer counting. Once a row that counts `route_to_normal` is taken (a redesign from the light route takes one), or a design written (cell `D2`), the work goes the normal route for good.",
+      "route_taken": "Whether the work goes the light route: before cell `R1` answers, whether its item is marked a bug fix or a feature; after, whether `R1` last took its row to the light route, a change of the item's route no longer counting. Once a row that counts `route_to_normal` is taken, as every way from the light route into the research's judgment or the design does, the work goes the normal route for good. The database's view `work_routes` defines it.",
       "revisions_before": "How many times the review of the plan sent it back since the work last researched the problem (cell `R1`).",
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's reply, or its second cell when a matter of two cells goes on, the cell of the owner's words when the flow no longer has that cell; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
@@ -4415,10 +4415,11 @@
         "says": "the review of the plan's returns since the research"
       },
       "route_taken": {
-        "says": "the item's route; the research's row; a row to the normal route; a design written",
+        "says": "the item's route; the research's row; a row to the normal route",
         "stores": [
           "items",
-          "counters"
+          "counters",
+          "work_routes"
         ]
       },
       "route": {
@@ -5787,7 +5788,7 @@
             "by": "route_taken",
             "cases": {
               "light": [
-                "The item is marked a bug fix or a feature, which goes the light route: in place of the judgment whether the work stands, the design and its checks, the engineer plans the fix, a reviewer reviews the plan before anything is implemented, and there is no blind review and no dedicated adversarial testing. Say in route whether this work can go that way: light when the root is found or within reach, and the change stays inside the code it touches; to_normal when the root lies deep or is unknown, or the change would touch an interface, the architecture or a decision of the owner's, saying which. A bug fix goes light only once its problem is reproduced or shown."
+                "This work goes the light route, as its item was marked a bug fix or a feature when the work first researched it: in place of the judgment whether the work stands, the design and its checks, the engineer plans the fix, a reviewer reviews the plan before anything is implemented, and there is no blind review and no dedicated adversarial testing. Say in route whether this work can go that way: light when the root is found or within reach, and the change stays inside the code it touches; to_normal when the root lies deep or is unknown, or the change would touch an interface, the architecture or a decision of the owner's, saying which. A bug fix goes light only once its problem is reproduced or shown."
               ],
               "normal": []
             }
@@ -5886,7 +5887,7 @@
               "type": "union",
               "by": "verdict",
               "optional": true,
-              "desc": "Only when the item is marked a bug fix or a feature: whether this work goes the light route; for any other item, leave it out",
+              "desc": "Only when this work goes the light route, as its item was marked a bug fix or a feature when the work first researched it: whether it goes on that way; on the normal route, leave it out",
               "branches": [
                 {
                   "value": "light",

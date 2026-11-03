@@ -1315,6 +1315,25 @@ CREATE VIEW work_counters AS
   WHERE r.ended_at IS NOT NULL AND (r.session IS NOT NULL OR r.cell IN ('X1', '13', 'tools', 'TOOLS'))
   GROUP BY r.work;
 
+CREATE VIEW work_routes AS
+  -- The route each work of the engineer goes: light; normal; or turned, a work on the light route that took a row
+  -- counting `route_to_normal`, which goes the normal route for good. Before its research (cell `R1`) answers, a work
+  -- goes as its item is marked, the light route for a bug fix or a feature; after, as the research's latest answer took
+  -- its row (`light`, or `done` or `to_normal`), so that a change of the item's mark does not turn a work under way.
+  -- Read by: the engine's value `route_taken`; the owner's interface and the architect's board, beside the item's mark.
+  SELECT w.id AS work, w.item,
+    CASE
+      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.counts = 'route_to_normal') THEN 'turned'
+      WHEN coalesce(
+        (SELECT r.transition FROM rounds r
+         WHERE r.work = w.id AND r.cell = 'R1' AND r.transition IN ('done', 'light', 'to_normal')
+         ORDER BY r.n DESC LIMIT 1),
+        CASE WHEN i.route = 'normal' THEN 'done' ELSE 'light' END) = 'light' THEN 'light'
+      ELSE 'normal'
+    END AS route
+  FROM works w JOIN items i ON i.id = w.item
+  WHERE w.graph = 'engineer';
+
 CREATE VIEW work_asking AS
   -- The cell that asked, or that took up an interjection, and how many times each work has asked: what choosing the
   -- way on needs of where the work stands. Read by: cell `A4`.

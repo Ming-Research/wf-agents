@@ -1488,11 +1488,12 @@ fn a_bug_fix_goes_the_light_route_from_its_start_to_main() {
         assert!(!ran.iter().any(|c| c == skipped), "{skipped} ran: {ran:?}");
     }
     assert_eq!(counted(&e, work, "route_to_normal"), 0, "{rows:?}");
+    assert_eq!(route_of(&e, work), "light");
     // The research that said nothing of the route was sent back for it, once.
     let back = why_sent_back(&e, work, "R1");
     assert_eq!(back.len(), 1, "{back:?}");
     assert!(
-        back[0].contains("say in route whether the work goes the light route"),
+        back[0].contains("the work goes the light route: say in route whether"),
         "{back:?}"
     );
     // The plan found sound locked its acceptance, from the plan's round.
@@ -1598,6 +1599,78 @@ fn a_plan_sent_back_a_third_time_turns_the_work_to_the_normal_route() {
     );
     assert_ne!(plan, blind);
     assert_eq!(blind, table);
+    assert_eq!(route_of(&e, work), "turned");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The route the work goes, as the view the engine, the owner's page and the architect's board read it.
+fn route_of(e: &Engine, work: i64) -> String {
+    e.db.conn()
+        .query_row("SELECT route FROM work_routes WHERE work = ?1", [work], |r| r.get(0))
+        .unwrap()
+}
+
+// A bug fix on the light route that the owner's word sends back to design after it was implemented turns to the normal
+// route by the way on's own row, counted as any turn is, and is designed, checked and blind reviewed. Its table review
+// has the columns of what ran: the plan its review found sound and the plan's tests, and no judgment that the work
+// stands, which never ran.
+#[test]
+fn a_bug_fix_redesigned_from_the_light_route_turns_to_the_normal_route() {
+    let s = setup("light-redesign");
+    let mut agents = light_scripts();
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    // The design hands in the acceptance the plan locked, word for word.
+    agents.insert(
+        "D2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.measure", "not_measured")],
+                vec![(
+                    "outcome.acceptance",
+                    json!([{ "by": "test", "id": "A1", "condition": "The last line is kept." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    marked(&mut e, item, "bugfix");
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(route_of(&e, work), "light");
+    owner_says(&mut e, work, "Design it after all: the parser's interface changes.");
+    let ended = ran_to_its_end(&mut e, item, &said);
+    assert_eq!(ended, work);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:light",
+        "F2:sound",
+        "I1:done",
+        "A4:redesign_from_light",
+        "D2:first",
+        "T2:review_first",
+        "T3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 1, "{rows:?}");
+    assert_eq!(route_of(&e, work), "turned");
+    let review = message_at(&e, work, "T4", false);
+    assert!(review.contains("The plan the review found sound"), "{review}");
+    assert!(review.contains("The plan's tests"), "{review}");
+    assert!(
+        !review.contains("The research's judgment that the work stands"),
+        "{review}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -1649,6 +1722,8 @@ fn an_item_marked_a_bug_fix_after_its_research_keeps_its_work_on_the_normal_rout
         assert!(!ran.iter().any(|c| c == light), "{light} ran: {ran:?}");
     }
     assert_eq!(counted(&e, work, "route_to_normal"), 0, "{rows:?}");
+    // The work goes the normal route as its page and the board show it, whatever the item's mark says now.
+    assert_eq!(route_of(&e, work), "normal");
     // The table review is asked of the judgment that the work stands, and not of a plan.
     let review = message_at(&e, work, "T4", false);
     assert!(
