@@ -16,7 +16,7 @@ use sessions::guard::{self, Action, Crossing, Lines, Run};
 
 use crate::agent::{Call, Next, Seen};
 use crate::work::{Round, RoundId};
-use crate::{Activity, Engine, Measured, database, failed};
+use crate::{Activity, Engine, Measured, database, failed, handover};
 
 /// What a round starting is judged from.
 pub struct Start<'a> {
@@ -83,6 +83,8 @@ enum Note {
 pub struct Watch {
     round: RoundId,
     run: RefCell<Run>,
+    /// Its session as the hand-over rule sees it, for a round the engine may ask to hand over.
+    hand: RefCell<Option<handover::Watched>>,
     notes: Option<Sender<(Note, i64)>>,
     writer: Option<JoinHandle<()>>,
     activity: Arc<Activity>,
@@ -90,8 +92,9 @@ pub struct Watch {
 }
 
 impl Watch {
-    /// Starts watching a round, with a thread that keeps what it does.
-    pub fn begin(e: &Engine, round: RoundId, run: Run) -> Watch {
+    /// Starts watching a round, with a thread that keeps what it does; `hand` is its session as the hand-over rule sees
+    /// it, for a round the engine may ask to hand over.
+    pub fn begin(e: &Engine, round: RoundId, run: Run, hand: Option<handover::Watched>) -> Watch {
         let hooks = &e.shared.hooks;
         let (notes, taken) = mpsc::channel();
         let (data, say, commit) = (e.data.clone(), Arc::clone(&hooks.say), hooks.commit.clone());
@@ -99,6 +102,7 @@ impl Watch {
         Watch {
             round,
             run: RefCell::new(run),
+            hand: RefCell::new(hand),
             notes: Some(notes),
             writer: Some(writer),
             activity: Arc::clone(&hooks.activity),
@@ -120,6 +124,9 @@ impl Watch {
             (self.activity)(work, n, what.as_str());
             return Next::Go;
         }
+        if let Some(h) = self.hand.borrow_mut().as_mut() {
+            h.see(&seen);
+        }
         let (past, live) = {
             let mut run = self.run.borrow_mut();
             let past = run.see(&seen);
@@ -140,13 +147,13 @@ impl Watch {
         next
     }
 
-    /// Stops watching, once all it noted is kept; what the round came to.
-    pub fn end(mut self) -> Run {
+    /// Stops watching, once all it noted is kept; what the round came to, to the guard and to the hand-over rule.
+    pub fn end(mut self) -> (Run, Option<handover::Watched>) {
         drop(self.notes.take());
         if let Some(t) = self.writer.take() {
             let _ = t.join();
         }
-        self.run.into_inner()
+        (self.run.into_inner(), self.hand.into_inner())
     }
 }
 

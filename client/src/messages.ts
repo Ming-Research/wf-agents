@@ -833,6 +833,7 @@ const messages = {
   us_started_account: "the agents' login account changed",
   us_started_expired: 'cache expired',
   us_started_owner: 'you asked for it',
+  us_started_handover: 'the one before handed its progress over',
   us_with_pings: 'with {n} keep-warm pings',
   us_with_pings_one: 'with 1 keep-warm ping',
   us_pings: '{n} keep-warm pings',

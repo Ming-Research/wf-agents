@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use db::Actor;
-use db::rusqlite::params;
+use db::rusqlite::{Transaction, params};
 use flow::format::{Atom, Failure, GUARDED, Handle, Rounds, STEP_NETWORK};
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
@@ -200,6 +200,26 @@ fn failed_as(r: &Round) -> Option<&str> {
 fn cut_short(r: &Round, kind: &str) -> bool {
     let cut = |x: &serde_json::Value| x.get("interrupted").is_some() || x.get("error").is_some();
     r.rejected.as_ref().is_some_and(cut) || failed_as(r).is_some_and(|k| k != kind)
+}
+
+/// Puts back what was said to a round's line that is recorded as delivered in it, which went with the round's session
+/// and which the round will never answer: it waits again, for the whole message of the line's new session, and the
+/// round's record no longer counts it as given. A run the guard stopped or the service refused runs again in a new
+/// session; a round that handed its progress over carries on in one.
+pub fn put_back_said(tx: &Transaction<'_>, round: RoundId) -> db::rusqlite::Result<()> {
+    tx.execute(
+        "UPDATE rounds SET input = json_set(input, '$.engine.interjections', json((
+           SELECT json_group_array(value) FROM json_each(input, '$.engine.interjections')
+           WHERE value NOT IN (
+             SELECT id FROM interjections WHERE work = ?1 AND delivered_round = ?2))))
+         WHERE work = ?1 AND n = ?2",
+        params![round.work, round.n],
+    )?;
+    tx.execute(
+        "UPDATE interjections SET delivered_round = NULL WHERE work = ?1 AND delivered_round = ?2",
+        params![round.work, round.n],
+    )?;
+    Ok(())
 }
 
 /// How many times the work took a row in the rounds [`since_outside`] gave.
@@ -516,20 +536,7 @@ impl Failed<'_> {
                            AND id = (SELECT session FROM rounds WHERE work = ?1 AND n = ?2)",
                         params![round.work, round.n, db::now()],
                     )?;
-                    // What the hook handed in during the round went with its session, and the round will never answer
-                    // it: it waits again, for the whole message of the new session.
-                    tx.execute(
-                        "UPDATE rounds SET input = json_set(input, '$.engine.interjections', json((
-                           SELECT json_group_array(value) FROM json_each(input, '$.engine.interjections')
-                           WHERE value NOT IN (
-                             SELECT id FROM interjections WHERE work = ?1 AND delivered_round = ?2))))
-                         WHERE work = ?1 AND n = ?2",
-                        params![round.work, round.n],
-                    )?;
-                    tx.execute(
-                        "UPDATE interjections SET delivered_round = NULL WHERE work = ?1 AND delivered_round = ?2",
-                        params![round.work, round.n],
-                    )?;
+                    put_back_said(tx, round)?;
                     Ok(())
                 })
                 .map_err(sql)?;

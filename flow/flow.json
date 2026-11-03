@@ -1129,6 +1129,32 @@
       "desc": "Only when the engine asks you to pause an unfinished round: an empty object, progress saying how far you got, none of the cell's conclusions; after the owner's Start you go on here, the inputs not given again",
       "fields": []
     },
+    "handover_form": {
+      "name": "handover",
+      "title": "Hand-over",
+      "type": "obj",
+      "desc": "Only when the engine asks you to hand over: keeping this session costs as much as a new one would. A new session carries on at this cell from this alone, with the cell's whole input, the tools' results and the history you were given, and the worktree; it knows nothing else of this session, so write all it needs to go on without redoing your work, and what still holds from a hand-over you were given. None of the cell's conclusions",
+      "fields": [
+        {
+          "name": "done",
+          "title": "Done",
+          "type": "text",
+          "desc": "What you did, and where it is: the commits, the files, what ran and what it showed"
+        },
+        {
+          "name": "left",
+          "title": "Left to do",
+          "type": "text",
+          "desc": "What is left to do, in order, down to the return this cell hands in"
+        },
+        {
+          "name": "notes",
+          "title": "Notes",
+          "type": "text",
+          "desc": "What the next session must know that the worktree does not show: the approach settled and why, what was tried and did not work, what a tool's results taught you"
+        }
+      ]
+    },
     "progress_form": {
       "name": "progress",
       "title": "Progress note",
@@ -3212,6 +3238,7 @@
       "end_architect_work": "Ends the architect's work.",
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply (a question that pins an open question of an engineer's design is not waited for: that engineer's work goes on without its answer); then, when the architect answered the owner's words less than that wait ago and the owner said nothing since, it waits for the owner's next words; then a matter of two cells waiting for its second cell; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
+      "hand_over_session": "The agent handed its progress over when the engine asked it to, its session due to hand over. The step ends the line's session and opens a new one, which the cell that handed over carries on in; puts back what was said to that round, which it never answered, for the new session's message to give; and records what was handed over, word for word, with what the session came to: the rent its calls paid to read again what it added past its first prompt, the buy, its first and last prompts, and the model.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. This pause withdraws a resume that still waits for a free slot, as `resume_work` says. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
       "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request."
     },
@@ -3233,6 +3260,7 @@
       "lock_new_acceptance": "Writes the advisor's new acceptance conditions onto the item and locks them.",
       "notify_pending_approvers": "Tells the owner which open questions, not yet answered, hold up the merge.",
       "open_session": "The line of the cell the row goes to starts a new session there, at the cell's first round in the work: the session manager ends the one the line had going on.",
+      "fresh_session": "The line of the cell the row goes to starts a new session there each time the work takes the row, in no session earlier rounds shaped: the one the line had going on ends. On the way back from the hand-over to the cell that handed its progress over, the hand-over's step opened the new session, which the cell carries on in.",
       "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan of what to do next found as a matter of the kind set_straight, picked before others; a running work to pause now is paused at once, as the architect's pause; one that names a matter the queue holds already is not queued again.",
       "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It starts no work of an architect; a work of the architect takes such a matter only when it came before that work started.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
@@ -3785,6 +3813,13 @@
       "open_session": [
         "sessions"
       ],
+      "fresh_session": [
+        "sessions"
+      ],
+      "hand_over_session": [
+        "sessions",
+        "interjections"
+      ],
       "queue_fixes": [
         "architect_queue"
       ],
@@ -4286,6 +4321,7 @@
         ],
         "rules": [
           "Before each round the session manager looks at the line's session: when its context is past the configuration's limit, or the round is the work's first at a cell the line starts a session at, the line starts a new session, which holds nothing yet, so it is given everything this cell's round needs. The worktree stays; the agent rereads the code it needs.",
+          "A session hands its progress over to a new one once keeping it has cost as much as starting anew would. At each call of its own a session reads again all it added past its first prompt; the rent is what those reads cost, added up at each call's model's price for its prompt, and the buy is what writing its whole context to the cache again would cost now, kept as long as the session kept its own. Once the rent comes to the buy, the session is due: the rule of the rent-or-buy problem, which spends at most twice what the best choice in hindsight would, however much work is left. Only the session's own calls are read, not a subagent's nor another session's, and no number is set by hand; a call of a model with no prices leaves the session unjudged, which the engine says. A round of a due session is asked after each tool use to hand in handover, now or once the step in hand is done; the work goes to cell `X6`, which ends the session, opens a new one and goes back to the cell, given its whole input with what was handed over, the tools' results and the history looked up that its round before was given, and what was said to that round. Between rounds, a round at the cell of the session's last goes on in it and is asked at the top of its message; a round at another cell, or the first of an architect's work that would take the session up, starts the new session at once, since it has no progress to hand over. A return sent back is rewritten in its session, not asked. The hand-over comes before the configuration's limit, which does not replace a session due to hand over, so that the new one gets what it handed over; a new session the cache, the model or the login account starts gets no hand-over, since the old session would have to be written to the cache again to write one. When the budget of the work's stretch is used up too, the round is asked only to pause.",
           "Compaction still happens, for instance when a session fills up within a round. The session's record marks the compaction, and the session manager sees it: right after the compaction, the session manager gives the rules and inputs this cell got in this round again, then has the agent carry on. From then on the engine treats it as a new session and gives later cells what they need as usual.",
           "A cell on no line starts a session of its own every round, and the engine gives it every input.",
           "When an agent hands in pause, the work waits at cell `X3` for the owner's Start, then the same cell runs again in the same session: it gives the cell's always inputs again, saying to carry on, and refers to what the session already holds instead of giving it again. If the session was replaced or compacted, the two rules above say what is given again."
@@ -4564,6 +4600,10 @@
             "desc": "The times a cell had the history looked up"
           },
           {
+            "name": "handovers",
+            "desc": "The times a line's session handed its progress over to a new one, the engine having asked once keeping the session cost as much as starting anew; not the blocker's hand-overs, which `hand_overs` counts"
+          },
+          {
             "name": "retries",
             "desc": "The times the engine ran a round or one of its own steps again after it failed in passing: a run of the agent's command line that ended without a return and would be given again, and a step before the round that reached the network and failed the way a passing failure does"
           },
@@ -4631,6 +4671,10 @@
             {
               "field": "pause",
               "say": "`pause`"
+            },
+            {
+              "field": "handover",
+              "say": "`handover`"
             },
             {
               "field": "answers",
@@ -4701,6 +4745,17 @@
               ]
             ],
             "to": "X3"
+          },
+          {
+            "name": "handover",
+            "if": [
+              [
+                "has",
+                "handover"
+              ]
+            ],
+            "to": "X6",
+            "counts": "handovers"
           },
           {
             "name": "answers",
@@ -4790,6 +4845,18 @@
             ],
             "maybe": true,
             "with": "history"
+          },
+          {
+            "name": "Handed over",
+            "what": "What the session before handed over when the engine asked it to: what it did and where, what is left in order, and what it knew that the worktree does not show; given only in the round right after the hand-over, which runs in a new session",
+            "from": [
+              [
+                "@from",
+                "handover"
+              ]
+            ],
+            "maybe": true,
+            "with": "handover"
           }
         ],
         "out": [
@@ -4804,6 +4871,9 @@
           },
           {
             "$ref": "pause_form"
+          },
+          {
+            "$ref": "handover_form"
           },
           {
             "name": "answers",
@@ -6880,6 +6950,45 @@
               ],
               "to": "@caller",
               "main": true
+            }
+          ]
+        },
+        {
+          "id": "X6",
+          "kind": "engine",
+          "title": "Hand the session over",
+          "step": "hand_over_session",
+          "inputs": [
+            {
+              "name": "Handed over",
+              "what": "What the cell that called handed over: what it did and where, what is left in order, and what the next session must know that the worktree does not show",
+              "from": [
+                [
+                  "@caller",
+                  "handover"
+                ]
+              ]
+            }
+          ],
+          "out": [
+            {
+              "$ref": "handover_form"
+            }
+          ],
+          "cases": [
+            {
+              "name": "handed_over",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "main": true,
+              "do": [
+                "fresh_session"
+              ],
+              "note": "The cell that handed over carries on in the new session the step opened: it is given its whole input with what was handed over, and what its round before was given that the new session lacks, the tools' results and the history looked up among it, and what was said to that round."
             }
           ]
         },
@@ -11768,7 +11877,8 @@
         "record": [
           "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
           "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes.",
-          "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost."
+          "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost.",
+          "A round the engine may ask to hand over records, once its session came due, the call it came due at (0 for due when the round started), the rent and the buy then, whether its message asked, and how many tool uses came after, after each of which the hook asked; its row says whether it handed over."
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",
@@ -12018,7 +12128,8 @@
           }
         ],
         "rules": [
-          "A work of the architect goes on in the session the project's previous architect work left. A new session starts at the project's first architect work, when the owner asks for one, past the context limit, when the model or the login account changes and when the session's prompt cache expired (its last call, a round's or a keep-warm ping's, a cache lifetime or more ago); a new session understands the project first, and is told what was said in the one-to-one with the owner since the previous session began, and a session that goes on never understands it again.",
+          "A work of the architect goes on in the session the project's previous architect work left. A new session starts at the project's first architect work, when the owner asks for one, when the session is due to hand over and the round is at another cell than its last or the first of a work, past the context limit, when the model or the login account changes and when the session's prompt cache expired (its last call, a round's or a keep-warm ping's, a cache lifetime or more ago); a new session understands the project first, and is told what was said in the one-to-one with the owner since the previous session began, and a session that goes on never understands it again.",
+          "The architect's session hands its progress over as the engineer's does, by the same rule of rent and buy: a round of a due session is asked to hand in handover, and the work goes to cell `X6`, which opens a new session the cell carries on in from what was handed over, without understanding the project again.",
           "The setting of a new policy is a matter of the architect's work, in its session: none starts for it, and a new policy that takes effect leaves the session going on.",
           "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
           "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
@@ -12227,6 +12338,10 @@
             "desc": "The times a cell had the history looked up"
           },
           {
+            "name": "handovers",
+            "desc": "The times the architect's session handed its progress over to a new one, the engine having asked once keeping the session cost as much as starting anew"
+          },
+          {
             "name": "retries",
             "desc": "The times the engine ran a round or one of its own steps again after it failed in passing: a run of the agent's command line that ended without a return and would be given again, and a step before the round that reached the network and failed the way a passing failure does"
           },
@@ -12291,6 +12406,10 @@
             {
               "field": "pause",
               "say": "`pause`"
+            },
+            {
+              "field": "handover",
+              "say": "`handover`"
             }
           ],
           "every": [
@@ -12367,6 +12486,17 @@
               ]
             ],
             "to": "X3"
+          },
+          {
+            "name": "handover",
+            "if": [
+              [
+                "has",
+                "handover"
+              ]
+            ],
+            "to": "X6",
+            "counts": "handovers"
           }
         ],
         "inputs": [
@@ -12430,6 +12560,18 @@
             ],
             "maybe": true,
             "with": "history"
+          },
+          {
+            "name": "Handed over",
+            "what": "What the session before handed over when the engine asked it to: what it did and where, what is left in order, and what it knew that the worktree and the notebook do not show; given only in the round right after the hand-over, which runs in a new session",
+            "from": [
+              [
+                "@from",
+                "handover"
+              ]
+            ],
+            "maybe": true,
+            "with": "handover"
           }
         ],
         "out": [
@@ -12447,6 +12589,9 @@
           },
           {
             "$ref": "pause_form"
+          },
+          {
+            "$ref": "handover_form"
           },
           {
             "name": "tell_owner",
@@ -18216,6 +18361,45 @@
               "main": true
             }
           ]
+        },
+        {
+          "id": "X6",
+          "kind": "engine",
+          "title": "Hand the session over",
+          "step": "hand_over_session",
+          "inputs": [
+            {
+              "name": "Handed over",
+              "what": "What the cell that called handed over: what it did and where, what is left in order, and what the next session must know that the worktree does not show",
+              "from": [
+                [
+                  "@caller",
+                  "handover"
+                ]
+              ]
+            }
+          ],
+          "out": [
+            {
+              "$ref": "handover_form"
+            }
+          ],
+          "cases": [
+            {
+              "name": "handed_over",
+              "if": [
+                [
+                  "all"
+                ]
+              ],
+              "to": "@caller",
+              "main": true,
+              "do": [
+                "fresh_session"
+              ],
+              "note": "The cell that handed over carries on in the new session the step opened: it is given its whole input with what was handed over, and what its round before was given that the new session lacks, the tools' results and the history looked up among it."
+            }
+          ]
         }
       ],
       "rounds": {
@@ -18289,7 +18473,8 @@
         "record": [
           "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
           "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes.",
-          "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost."
+          "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost.",
+          "A round the engine may ask to hand over records, once its session came due, the call it came due at (0 for due when the round started), the rent and the buy then, whether its message asked, and how many tool uses came after, after each of which the hook asked; its row says whether it handed over."
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",

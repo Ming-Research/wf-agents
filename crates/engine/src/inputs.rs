@@ -9,7 +9,7 @@ use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledInput};
 use serde_json::{Map, Value, json};
 
-use crate::work::{self, Item, RoundId, Work};
+use crate::work::{self, Item, Round, RoundId, Work};
 use crate::{Engine, form_of, git};
 
 /// The most rows an input read from the database gives.
@@ -452,24 +452,69 @@ pub fn gather(
 /// agent's cell shares that answer the cell that went to them (the tools, the search, the owner asked, the wait for the
 /// owner's Start) and its returns hold nothing at the path, when it is the cell before them, as the work's rounds have
 /// it, which the row that brought the work to its cell came from: a round after the tools still reads what that cell
-/// handed in, and the tools' results are still read from the tools.
+/// handed in, and the tools' results are still read from the tools. The hand-over cell is passed through for what it
+/// holds nothing at: the round after it reads what the round that handed over was brought by, as that round read it,
+/// so that the new session gets the tools' results and the history looked up the session before had.
 fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Option<String>, String> {
     let shared = |id: &str| g.cells.iter().any(|c| c.rows.iter().any(|r| r.common && r.to == id)) && g.is_called(id);
-    let Some(from) = w.pos.from.as_deref() else {
+    let holds = |from: &str| -> Result<bool, String> {
+        Ok(returns_holding(e, w, g, from, path)?
+            .iter()
+            .any(|(_, ret)| at_path(ret, path).is_some()))
+    };
+    let Some(mut from) = w.pos.from.clone() else {
         return Ok(None);
     };
-    let holds = returns_holding(e, w, g, from, path)?
-        .iter()
-        .any(|(_, ret)| at_path(ret, path).is_some());
-    let at = w.pos.at.as_str();
-    if !shared(from) || holds {
-        return Ok(Some(from.to_string()));
+    if !shared(&from) || holds(&from)? {
+        return Ok(Some(from));
     }
-    let cells: Vec<String> = work::rounds(e.db.conn(), w.id)?
-        .into_iter()
-        .filter_map(|r| r.cell)
-        .collect();
-    Ok(cells.into_iter().rev().find(|c| c != at && !shared(c)))
+    let rounds = work::rounds(e.db.conn(), w.id)?;
+    // The rounds before the one that brought the work to the cell that handed over, through each hand-over passed.
+    let mut before = rounds.len();
+    while hands_over(g, &from) {
+        let Some((cell, at)) = brought(g, &rounds[..before], &from) else {
+            return Ok(None);
+        };
+        from = cell;
+        before = at;
+        if !shared(&from) || holds(&from)? {
+            return Ok(Some(from));
+        }
+    }
+    let at = w.pos.at.as_str();
+    Ok(rounds[..before]
+        .iter()
+        .rev()
+        .filter_map(|r| r.cell.clone())
+        .find(|c| c != at && !shared(c)))
+}
+
+/// Whether a cell is the hand-over's, which the input of the round after it passes through.
+fn hands_over(g: &CompiledGraph, id: &str) -> bool {
+    g.cell(id)
+        .is_some_and(|c| c.step.as_deref() == Some("hand_over_session"))
+}
+
+/// The cell whose row brought the work to the cell that went to the hand-over cell `cell`, as the work's rounds before
+/// the hand-over's latest round have it, with how many rounds came before that row's: the cell of the latest round
+/// before the one that went to the hand-over that took a row out of its cell, as [`Work::load`] reads where a work came
+/// from. None when the rounds have no such row.
+fn brought(g: &CompiledGraph, rounds: &[Round], cell: &str) -> Option<(String, usize)> {
+    let taken = |r: &Round| r.transition.is_some();
+    let handed = rounds
+        .iter()
+        .rposition(|r| r.cell.as_deref() == Some(cell) && taken(r))?;
+    let went = rounds[..handed].iter().rposition(taken)?;
+    let stays = |r: &Round| {
+        let (Some(c), Some(t)) = (r.cell.as_deref(), r.transition.as_deref()) else {
+            return false;
+        };
+        g.cell(c)
+            .and_then(|x| x.rows.iter().find(|y| y.name == t))
+            .is_some_and(|y| y.to == "@self")
+    };
+    let at = rounds[..went].iter().rposition(|r| taken(r) && !stays(r))?;
+    Some((rounds[at].cell.clone()?, at))
 }
 
 /// What one source of an input gives: none when it has nothing. A place is read only from the returns handed in

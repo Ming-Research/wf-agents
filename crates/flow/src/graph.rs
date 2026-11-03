@@ -1021,15 +1021,23 @@ impl<'s> Graph<'s> {
                 l.name
             );
         }
-        // A row opens a new session only into an agent's cell, whose line's session it is.
+        // A row opens a new session only into an agent's cell, whose line's session it is: the cell it names, or, for a
+        // row back to the cell that called that starts one each time, as the hand-over's, every cell that calls.
         for c in &cells {
             for r in c.rows.iter().filter(|r| {
                 r.actions
                     .iter()
                     .any(|d| d.name() == OPEN_SESSION || d.name() == FRESH_SESSION)
             }) {
+                let into = cells.iter().any(|m| m.id == r.to && m.kind == CellKind::Agent);
+                let fresh = r.actions.iter().all(|d| d.name() != OPEN_SESSION);
+                let mut callers = cells.iter().filter(|m| m.rows.iter().any(|y| y.to == c.id)).peekable();
+                let back = r.to == "@caller"
+                    && fresh
+                    && callers.peek().is_some()
+                    && callers.all(|m| m.kind == CellKind::Agent);
                 ensure!(
-                    cells.iter().any(|m| m.id == r.to && m.kind == CellKind::Agent),
+                    into || back,
                     "a row opens a new session into a cell that is not an agent's: {} {}",
                     c.id,
                     r.name

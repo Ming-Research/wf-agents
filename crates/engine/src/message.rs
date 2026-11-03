@@ -255,6 +255,9 @@ pub struct Context<'a> {
     pub table: &'a [Value],
     pub held: &'a Held,
     pub registry: &'a HashMap<String, Vec<String>>,
+    /// The round's session is due to hand over and goes on at its cell: the message asks it to hand over first, but
+    /// when the budget of the work's stretch is used up, which asks it to pause.
+    pub hand_over: bool,
 }
 
 impl Context<'_> {
@@ -490,6 +493,16 @@ impl Context<'_> {
                 let paused = here(&r) && c.rows.iter().any(|x| x.name == row && x.to == "@self");
                 if paused {
                     out.push(format!("You paused in {}: carry on.", r.id));
+                } else if let (Some(_), Some(p)) = (
+                    helper.filter(|h| h.step.as_deref() == Some("hand_over_session")),
+                    before,
+                ) {
+                    out.push(format!(
+                        "The session before handed its progress over in {}, and this round carries on in a new \
+                         session from what it handed over (the input Handed over), with the cell's whole input. First \
+                         look at the worktree as it is now (files changed, commits made).",
+                        p.id
+                    ));
                 } else if let (Some(_), Some(p)) =
                     (helper.filter(|h| h.step.as_deref() == Some("wait_for_start")), before)
                 {
@@ -552,12 +565,15 @@ impl Context<'_> {
                 interjections.join(", ")
             ));
         }
-        // The budget of the work's stretch used up while no tool use could ask the agent to pause: this round asks.
+        // The budget of the work's stretch used up while no tool use could ask the agent to pause: this round asks. Else a
+        // session due to hand over while no tool use could ask it: this round asks it to hand over first.
         let pauses = c.forms.iter().any(|f| f.field.as_deref() == Some("pause"));
         if pauses
             && let Ok(Some(minutes)) = crate::limits::used_up(&self.e.config.config, self.e.db.conn(), self.w.id, None)
         {
             out.push(crate::limits::ask_to_pause(minutes));
+        } else if self.hand_over {
+            out.push(crate::handover::ask());
         }
         out
     }

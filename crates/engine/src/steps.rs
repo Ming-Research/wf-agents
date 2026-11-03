@@ -80,6 +80,9 @@ pub fn new_session_why(
         ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
+        sessions::Start::Handover => {
+            "the session before was due to hand over: keeping it had cost as much as starting anew".into()
+        }
     }
 }
 
@@ -355,8 +358,11 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         ),
     )
     .map_err(|x| format!("{}: {x}", given_again.display()))?;
+    // A round of a cell that may hand its progress over is asked to once its session is due, but one that only rewrites
+    // a return sent back, which finishes the round before it.
+    let hands_over = crate::handover::takes(cell) && !sessions::choose::rewrites(&line_rounds, &cell.id);
     // After each tool use the command line's hook has this program hand in the interjections waiting for the line, to a
-    // cell that takes them.
+    // cell that takes them, and ask the round to pause or to hand over ([`crate::hook`]).
     let deliver = std::env::current_exe().ok().map(|exe| {
         let n = number.n.to_string();
         let work = w.id.to_string();
@@ -374,6 +380,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         ];
         if crate::takes_interjections(cell) {
             words.extend(["--line", line_of_cell.as_str()]);
+        }
+        if hands_over {
+            words.push("--handover");
         }
         words.iter().map(|x| agent::quote(x)).collect::<Vec<_>>().join(" ")
     });
@@ -459,9 +468,21 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
-    let watching = watch::Watch::begin(e, round, started);
+    // How the hand-over rule sees the round's session as it starts, for a round that may be asked to hand over: what
+    // the session paid before it, and whether its message asked.
+    let hand = if hands_over {
+        let paid = sessions::handover::rent_of(e.db.conn(), &new_session, &level.model).unwrap_or_else(|x| {
+            e.say(&format!("{round}: the hand-over rule has not the session's calls: {x}"));
+            sessions::handover::Rent::default()
+        });
+        let at_top = msg.text.contains(&crate::handover::ask());
+        Some(crate::handover::Watched::new(paid, &level.model, at_top))
+    } else {
+        None
+    };
+    let watching = watch::Watch::begin(e, round, started, hand);
     let reply = e.sessions().run(&req, &|seen| watching.see(seen));
-    let watched = watching.end();
+    let (watched, handing) = watching.end();
     let _ = std::fs::remove_file(&given_again);
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
@@ -492,6 +513,27 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             Ok(())
         })
         .map_err(sql)?;
+    }
+    // Once its session came due, the round's record keeps where and what it came to, and how often it was asked after;
+    // what it handed in, its row tells. A model with no prices is never judged, which is said.
+    if let Some(h) = &handing {
+        if let Some(model) = h.unpriced() {
+            e.say(&format!(
+                "{round}: the model {model} has no prices, so its session is never judged for a hand-over"
+            ));
+        }
+        if let Some(record) = h.record() {
+            let record = record.to_string();
+            e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE rounds SET input = json_set(input, '$.engine.handover', json(?3))
+                     WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                    params![round.work, round.n, record],
+                )?;
+                Ok(())
+            })
+            .map_err(sql)?;
+        }
     }
     // What the session had cost before, its keep-warm pings included, so that the round's own cost is what it grew by.
     let before = sessions::cost::spent(e.db.conn(), &new_session, &line_rounds)?;
@@ -909,6 +951,8 @@ fn compose(
         .filter(|r| !failed::was_step(r))
         .collect();
     let number = work::next_round(e.db.conn(), w.id)?;
+    // A session due to hand over that goes on at its cell: the round's message asks it to hand over first.
+    let hand_over = matches!(plan, Plan::Going { hand_over: true, .. }) && crate::handover::takes(cell);
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
         Plan::New(_) => (Vec::new(), Held::default()),
@@ -961,6 +1005,7 @@ fn compose(
         table: &table,
         held: &held,
         registry: &registry,
+        hand_over,
     };
     let msg = context.build();
     let nothing = Held::with_system(&held.system);
@@ -1361,6 +1406,7 @@ pub fn engine(
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
+        Some("hand_over_session") => crate::handover::hand_over(e, w, &gathered)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };

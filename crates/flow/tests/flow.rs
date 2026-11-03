@@ -67,6 +67,38 @@ fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
     }
 }
 
+// Acceptance A7: every agent's cell of both graphs hands its progress over by the shared row `handover`, counted, to the
+// hand-over cell `X6`, the engine's step, whose row `handed_over` goes back to the cell that called in a new session each
+// time: a path of rows, which the chart draws. No cell's own list of rows that start its session afresh names the way
+// back, which every agent's cell has.
+#[test]
+fn every_agent_s_cell_hands_over_through_x6_and_back_in_a_new_session() {
+    let c = compiled();
+    for name in ["engineer", "architect"] {
+        let g = c.graph(name).unwrap();
+        let x6 = g.cell("X6").unwrap();
+        assert_eq!(
+            (x6.kind.as_str(), x6.step.as_deref()),
+            ("engine", Some("hand_over_session")),
+            "{name}"
+        );
+        let back = x6.rows.iter().find(|r| r.name == "handed_over").unwrap();
+        assert_eq!(back.to, "@caller", "{name}");
+        assert!(back.actions.iter().any(|d| d.name() == "fresh_session"), "{name}");
+        let agents: Vec<&flow::CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
+        assert!(!agents.is_empty(), "{name}");
+        for cell in agents {
+            let row = cell.rows.iter().find(|r| r.name == "handover");
+            assert!(
+                row.is_some_and(|r| r.to == "X6" && r.common && r.counts.as_deref() == Some("handovers")),
+                "{name} {}",
+                cell.id
+            );
+            assert!(cell.fresh_session.is_empty(), "{name} {}", cell.id);
+        }
+    }
+}
+
 // The answers of a cell's list of forms are read from the flow built into the program: the fix has the answer made for
 // a fix in no commit, a field that is no list of forms and a cell the flow lacks give none.
 #[test]

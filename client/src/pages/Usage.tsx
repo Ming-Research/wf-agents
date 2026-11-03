@@ -155,6 +155,8 @@ export function startedText(s: SessionRow): string {
       return t('us_started_expired');
     case 'owner':
       return t('us_started_owner');
+    case 'handover':
+      return t('us_started_handover');
     case 'line':
       return s.cell !== null && s.line === s.cell ? t('us_started_own') : t('us_started_line');
     default:

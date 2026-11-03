@@ -263,8 +263,9 @@ fn example(s: &Value, path: &str, pick: &BTreeMap<String, String>, set: &BTreeMa
 /// What the scripted agent hands in at a cell, and does in the worktree before. Under `@error` it hands in nothing,
 /// as a run that failed with that report; under `@compactions`, the session was compacted that many times; under
 /// `@usage`, what the CLI reports the round used; under `@stream`, what the run's stream tells on the way ([`seen`]),
-/// each thing told to the round's watcher, which may stop the run there. The script `@ping` answers a keep-warm ping,
-/// its `@usage` what the ping used.
+/// each thing told to the round's watcher, which may stop the run there, and where an entry says `hook`, the hook the
+/// command line runs after a tool use ([`run_hook`]): `obey` hands over or pauses when it asks, `ignore` goes on. The
+/// script `@ping` answers a keep-warm ping, its `@usage` what the ping used.
 type Script =
     Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>) + Send + Sync>;
 
@@ -294,6 +295,50 @@ fn seen(entry: &Value, model: &str) -> Seen {
         },
         None => Seen::Compacted,
     }
+}
+
+/// What the hook the round's command line runs after a tool use gives the session, run as the request's hook command
+/// names it, once the ledger holds the `told` calls the stream told so far, which the round's watch keeps on a thread of
+/// its own.
+fn run_hook(r: &Request, told: usize) -> String {
+    let command = r.deliver.as_deref().unwrap_or_default();
+    let words: Vec<&str> = command.trim_matches('\'').split("' '").collect();
+    let after = |flag: &str| {
+        words
+            .iter()
+            .position(|w| *w == flag)
+            .and_then(|i| words.get(i + 1).copied())
+    };
+    let data = PathBuf::from(after("--data").unwrap());
+    let work: i64 = after("--work").unwrap().parse().unwrap();
+    let round: i64 = after("--round").unwrap().parse().unwrap();
+    let db = engine::database::open(&data).unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    let kept = |db: &db::Db| -> i64 {
+        db.conn()
+            .query_row(
+                "SELECT count(*) FROM round_calls WHERE work = ?1 AND round = ?2",
+                [work, round],
+                |x| x.get(0),
+            )
+            .unwrap()
+    };
+    while kept(&db) < told as i64 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let hands_over = words.contains(&"--handover");
+    engine::hook::after_tool(&data, work, round, after("--line"), hands_over)
+        .unwrap()
+        .unwrap_or_default()
+}
+
+/// What an agent hands over in its `n`th round at a cell.
+fn handed(n: usize) -> Value {
+    json!({
+        "done": format!("Wrote the first half in round {n} at this cell, committed as part one."),
+        "left": "Write the second half, then hand in this cell's answer.",
+        "notes": "The second half goes after the first in src/lib.txt.",
+    })
 }
 
 impl Agents for Scripted {
@@ -341,7 +386,22 @@ impl Agents for Scripted {
             .remove("@stream")
             .and_then(|s| s.as_array().cloned())
             .unwrap_or_default();
+        let mut told = BTreeSet::new();
         for entry in &stream {
+            // The hook the command line runs after a tool use: an agent that obeys hands over or pauses when asked.
+            if let Some(how) = entry["hook"].as_str() {
+                let asked = run_hook(r, told.len());
+                if how == "obey" && asked.contains(&engine::handover::ask()) {
+                    pick.insert("outcome".into(), "handover".into());
+                    set.insert("outcome.handover".into(), handed(n));
+                } else if how == "obey" && asked.contains("hand in pause now") {
+                    pick.insert("outcome".into(), "pause".into());
+                }
+                continue;
+            }
+            if let Some(id) = entry["call"].as_str() {
+                told.insert(id.to_string());
+            }
             if let Next::Stop(why) = watch(seen(entry, &r.model)) {
                 return Reply {
                     session,
@@ -19236,5 +19296,392 @@ fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
     assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
     assert_eq!(paused_by(&e, arch), None, "{log}");
     assert_eq!(told(&s, phrase), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A stream that makes a new session due on Sonnet 5.5, then `then`: the session opens at 10,000 tokens, and 28 calls
+/// past its opening at 110,000 tokens, each followed by a tool use, pay $0.28 of rent against a buy of $0.275, so that
+/// the 29th call told is the one it comes due at.
+fn due_stream(round: usize, then: &[Value]) -> Value {
+    let mut s = vec![
+        json!({ "call": format!("r{round}-a"), "prompt": 10_000 }),
+        json!({ "tool": "Read", "digest": 0 }),
+    ];
+    for i in 1..=28 {
+        s.push(json!({ "call": format!("r{round}-c{i}"), "prompt": 110_000 }));
+        s.push(json!({ "tool": "Bash", "digest": i }));
+    }
+    s.extend(then.iter().cloned());
+    Value::Array(s)
+}
+
+/// A work's rounds at a cell, oldest first: each one's number, the row it took, and what its record keeps of the
+/// hand-over, null for none.
+fn handover_rounds(e: &Engine, work: i64, cell: &str) -> Vec<(i64, Option<String>, Value)> {
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT n, transition, json_extract(input, '$.engine.handover') FROM rounds
+                 WHERE work = ?1 AND cell = ?2 ORDER BY n",
+            )
+            .unwrap();
+    st.query_map(params![work, cell], |r| {
+        let record: Option<String> = r.get(2)?;
+        Ok((
+            r.get(0)?,
+            r.get(1)?,
+            record.map_or(Value::Null, |x| serde_json::from_str(&x).unwrap()),
+        ))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
+}
+
+/// A round's record, by its number in the work.
+fn input_of(e: &Engine, work: i64, n: i64) -> Value {
+    let input: String =
+        e.db.conn()
+            .query_row("SELECT input FROM rounds WHERE work = ?1 AND n = ?2", [work, n], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
+}
+
+/// Takes the engine's passes until `done` holds, at most `most` of them.
+fn tick_until(e: &mut Engine, most: usize, done: impl Fn(&Engine) -> bool) {
+    for _ in 0..most {
+        if done(e) {
+            return;
+        }
+        e.tick().unwrap();
+    }
+}
+
+/// A return that asks for one query, for a round that goes on at its cell after the tools.
+fn a_query() -> (&'static str, Value) {
+    ("outcome.tools", json!([{ "tool": "query", "sql": "SELECT 1" }]))
+}
+
+// Acceptance A4: a round whose session comes due in its middle is asked by the hook after its next tool use, and hands
+// its progress over: the work goes through the hand-over cell back to the same cell, whose next round runs in a new
+// session started for the hand-over and is given what was handed over, word for word. The session before ended, the
+// hand-over cell's record keeps the rent and the buy, and the hand-over is counted once.
+#[test]
+fn a_round_due_in_its_middle_hands_its_progress_over_to_a_new_session() {
+    let s = setup_priced("handover-mid");
+    let mut scripts = scripts();
+    let sent: Sent = Arc::default();
+    let seen = sent.clone();
+    scripts.insert(
+        "R1",
+        Box::new(move |r: &Request, n: usize| {
+            keep_sent(&seen, r);
+            let stream = if n == 1 {
+                due_stream(1, &[json!({ "hook": "obey" })])
+            } else {
+                json!([])
+            };
+            (Vec::new(), vec![("@stream", stream)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    tick_until(&mut e, 12, |e| {
+        state(e, item).is_some_and(|(w, _, _)| handover_rounds(e, w, "R1").len() >= 2)
+    });
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    let taken: Vec<(String, Option<String>)> = rows_taken(&e, work)
+        .into_iter()
+        .filter(|(c, _)| c == "R1" || c == "X6")
+        .collect();
+    assert!(taken.len() >= 3, "{taken:?}\n{log}");
+    assert_eq!(taken[0], ("R1".to_string(), Some("handover".to_string())), "{log}");
+    assert_eq!(taken[1], ("X6".to_string(), Some("handed_over".to_string())), "{log}");
+    assert_eq!(taken[2].0, "R1", "{log}");
+    // The session before ended; the next round at the cell ran in a new one, started for the hand-over.
+    let lines = line_sessions(&e, work, "engineer");
+    assert!(lines.len() >= 2, "{lines:?}");
+    assert_eq!(
+        (lines[0].0.as_str(), lines[0].1, lines[0].2.as_str()),
+        ("line", true, "R1"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[1].0, "handover", "{lines:?}");
+    assert!(lines[1].2.starts_with("R1"), "{lines:?}");
+    // It was given what was handed over, word for word, and told that it carries on from it.
+    let prompt = sent.lock().unwrap()[1].1.clone();
+    let done = handed(1)["done"].as_str().unwrap().to_string();
+    assert!(prompt.contains(&done), "{prompt}");
+    assert!(prompt.contains("handed its progress over"), "{prompt}");
+    // The hand-over cell keeps what was handed over, with the rent paid and the buy.
+    let out: String =
+        e.db.conn()
+            .query_row(
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'X6'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let out: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(out["handover"], handed(1), "{out}");
+    let (rent, buy) = (out["rent"].as_f64().unwrap(), out["buy"].as_f64().unwrap());
+    assert!((rent - 0.28).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9, "{out}");
+    assert_eq!(counted(&e, work, "handovers"), 1, "{log}");
+    // The round came due at the 29th call it told, and the hook asked after the one tool use that followed.
+    let first = &handover_rounds(&e, work, "R1")[0].2;
+    assert_eq!(
+        (&first["due_at"], &first["tools_after"], &first["at_top"]),
+        (&json!(29), &json!(1), &json!(false)),
+        "{first}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance A10: a round given the tools' results, that an interjection the hook handed in reaches, and that hands its
+// progress over: the new session's first round is given what was handed over, the tools' results and the interjection,
+// which is recorded as delivered in that round, the one that answers it, and no longer in the round before.
+#[test]
+fn a_hand_over_gives_the_new_session_the_tools_results_and_what_was_said() {
+    let s = setup_priced("handover-given");
+    let mut scripts = scripts();
+    let data = s.data.clone();
+    scripts.insert(
+        "R1",
+        Box::new(move |r: &Request, n: usize| match n {
+            1 => (vec![("outcome", "tools")], vec![a_query()]),
+            2 => {
+                // The owner speaks while the round runs: the hook hands it in with its ask.
+                let mut db = engine::database::open(&data).unwrap();
+                db.write(Actor::Owner, |tx| {
+                    tx.execute(
+                        "INSERT INTO interjections (work, line, speaker, text)
+                         VALUES (?1, 'engineer', 'owner', 'Mind the second half.')",
+                        [r.work],
+                    )?;
+                    Ok(())
+                })
+                .unwrap();
+                let stream = due_stream(2, &[json!({ "hook": "obey" })]);
+                (Vec::new(), vec![("@stream", stream)])
+            }
+            3 => (
+                vec![("outcome", "answers")],
+                vec![("outcome.answers", json!([{ "to": "owner", "text": "I will." }]))],
+            ),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    tick_until(&mut e, 16, |e| {
+        state(e, item).is_some_and(|(w, _, _)| handover_rounds(e, w, "R1").get(2).is_some_and(|r| r.1.is_some()))
+    });
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let rounds = handover_rounds(&e, work, "R1");
+    assert!(rounds.len() >= 3, "{rounds:?}\n{log}");
+    assert_eq!(rounds[1].1.as_deref(), Some("handover"), "{log}");
+    let (handed_in, new) = (rounds[1].0, rounds[2].0);
+    let given_new = input_of(&e, work, new);
+    assert_eq!(given_ending(&given_new, "·X6·handover"), Some(true), "{given_new}");
+    assert_eq!(given_ending(&given_new, "·X1·results"), Some(true), "{given_new}");
+    let said_id = number(&e, "SELECT id FROM interjections WHERE text = 'Mind the second half.'");
+    assert_eq!(given(&given_new, &format!("ij:{said_id}")), Some(true), "{given_new}");
+    assert_eq!(given_new["engine"]["interjections"], json!([said_id]), "{given_new}");
+    let delivered = number(
+        &e,
+        &format!("SELECT delivered_round FROM interjections WHERE id = {said_id}"),
+    );
+    assert_eq!(delivered, new, "{log}");
+    assert_eq!(
+        input_of(&e, work, handed_in)["engine"]["interjections"],
+        json!([]),
+        "{log}"
+    );
+    assert_eq!(rounds[2].1.as_deref(), Some("answers"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance A5: a session due between rounds goes on at the cell of its last round, whose next round is asked at the
+// top of its message to hand over, though the session's context is past the configuration's limit; the line's next
+// round at another cell starts a new session for the hand-over at once, asked nothing, and not one for the limit.
+#[test]
+fn a_session_due_between_rounds_is_asked_at_its_cell_and_replaced_at_another() {
+    let s = setup_priced("handover-between");
+    let mut scripts = scripts();
+    let sent: Sent = Arc::default();
+    let seen = sent.clone();
+    scripts.insert(
+        "R1",
+        Box::new(move |r: &Request, n: usize| {
+            keep_sent(&seen, r);
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let past_the_limit = ("@usage", used(1.0, 600_000));
+            (
+                vec![("outcome", "tools")],
+                vec![a_query(), ("@stream", due_stream(1, &[])), past_the_limit],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    tick_until(&mut e, 16, |e| {
+        state(e, item).is_some_and(|(w, _, _)| line_sessions(e, w, "engineer").get(1).is_some_and(|l| !l.2.is_empty()))
+    });
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let lines = line_sessions(&e, work, "engineer");
+    assert!(lines.len() >= 2, "{lines:?}\n{log}");
+    // Both rounds at the cell ran in the session, which ended for the hand-over at the next cell's round.
+    assert_eq!(
+        (lines[0].0.as_str(), lines[0].1, lines[0].2.as_str()),
+        ("line", true, "R1,R1"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[1].0, "handover", "{lines:?}");
+    assert!(!lines[1].2.starts_with("R1"), "{lines:?}");
+    let ask = engine::handover::ask();
+    let again = sent.lock().unwrap()[1].1.clone();
+    assert!(again.contains(&ask), "{again}");
+    let rounds = handover_rounds(&e, work, "R1");
+    assert_eq!(
+        (&rounds[1].2["due_at"], &rounds[1].2["at_top"]),
+        (&json!(0), &json!(true)),
+        "{rounds:?}"
+    );
+    // The next cell's round, in the new session, is asked nothing.
+    let next = lines[1].2.split(',').next().unwrap().to_string();
+    let first = input_at(&e, work, &next, false);
+    assert!(!first.to_string().contains(&ask), "{first}");
+    assert_eq!(first["engine"]["handover"], Value::Null, "{first}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance A6: once the budget of the work's stretch is used up, a round of a session due to hand over is asked only
+// to pause, at the top of its message and by the hook after a tool use, and pauses.
+#[test]
+fn a_used_up_budget_asks_only_to_pause_though_the_session_is_due() {
+    let s = setup_priced("handover-budget");
+    limit_on(&s, &[("total_time", 1)]);
+    let mut scripts = scripts();
+    let data = s.data.clone();
+    let sent: Sent = Arc::default();
+    let seen = sent.clone();
+    scripts.insert(
+        "R1",
+        Box::new(move |r: &Request, n: usize| {
+            keep_sent(&seen, r);
+            if n > 1 {
+                let stream = json!([
+                    { "call": "late", "prompt": 110_000 },
+                    { "tool": "Bash", "digest": 99 },
+                    { "hook": "obey" },
+                ]);
+                return (Vec::new(), vec![("@stream", stream)]);
+            }
+            // The round has run two minutes, past the stretch's budget of one.
+            let mut db = engine::database::open(&data).unwrap();
+            db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE rounds SET started_at = started_at - 120000 WHERE work = ?1 AND ended_at IS NULL",
+                    [r.work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            (
+                vec![("outcome", "tools")],
+                vec![a_query(), ("@stream", due_stream(1, &[]))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    tick_until(&mut e, 16, |e| {
+        state(e, item).is_some_and(|(w, _, _)| handover_rounds(e, w, "R1").get(1).is_some_and(|r| r.1.is_some()))
+    });
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let again = sent.lock().unwrap()[1].1.clone();
+    assert!(again.contains("hand in pause now"), "{again}");
+    assert!(!again.contains(&engine::handover::ask()), "{again}");
+    let rounds = handover_rounds(&e, work, "R1");
+    assert_eq!(rounds[1].1.as_deref(), Some("pause"), "{log}");
+    assert_eq!(rounds[1].2["at_top"], json!(false), "{rounds:?}");
+    assert_eq!(counted(&e, work, "handovers"), 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance A11: a round whose session came due in its middle and that went on after the hook asked, its next two tool
+// uses each asked, records the call it came due at, the rent and the buy then, that its message did not ask, and the
+// two tool uses. The rounds asked that did not hand over are found by their record and their row; the one that handed
+// over is not, and the round after it, never due, records nothing.
+#[test]
+fn a_round_asked_to_hand_over_records_where_it_came_due() {
+    let s = setup_priced("handover-record");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| match n {
+            1 => {
+                let after = [
+                    json!({ "hook": "ignore" }),
+                    json!({ "call": "r1-d", "prompt": 110_000 }),
+                    json!({ "tool": "Bash", "digest": 100 }),
+                    json!({ "hook": "ignore" }),
+                ];
+                (
+                    vec![("outcome", "tools")],
+                    vec![a_query(), ("@stream", due_stream(1, &after))],
+                )
+            }
+            2 => {
+                let stream = json!([
+                    { "call": "r2-a", "prompt": 120_000 },
+                    { "tool": "Bash", "digest": 1 },
+                    { "hook": "obey" },
+                ]);
+                (Vec::new(), vec![("@stream", stream)])
+            }
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    tick_until(&mut e, 16, |e| {
+        state(e, item).is_some_and(|(w, _, _)| handover_rounds(e, w, "R1").get(2).is_some_and(|r| r.1.is_some()))
+    });
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let rounds = handover_rounds(&e, work, "R1");
+    assert!(rounds.len() >= 3, "{rounds:?}\n{log}");
+    let first = &rounds[0].2;
+    assert_eq!(
+        (&first["due_at"], &first["at_top"], &first["tools_after"]),
+        (&json!(29), &json!(false), &json!(2)),
+        "{first}"
+    );
+    let (rent, buy) = (first["rent"].as_f64().unwrap(), first["buy"].as_f64().unwrap());
+    assert!((rent - 0.28).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9, "{first}");
+    assert_eq!(rounds[0].1.as_deref(), Some("tools"), "{log}");
+    assert_eq!(rounds[1].1.as_deref(), Some("handover"), "{log}");
+    assert_eq!(rounds[1].2["at_top"], json!(true), "{rounds:?}");
+    assert_eq!(rounds[2].2, Value::Null, "{rounds:?}");
+    let asked: Vec<i64> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT n FROM rounds WHERE work = ?1
+                       AND json_extract(input, '$.engine.handover.due_at') IS NOT NULL
+                       AND transition IS NOT 'handover' ORDER BY n",
+                )
+                .unwrap();
+        st.query_map([work], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(asked, [rounds[0].0], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

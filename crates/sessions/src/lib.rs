@@ -3,8 +3,9 @@
 //! session a round runs ([`choose`]), what the round's message gives and what it only refers to ([`held`], [`give`],
 //! [`diff`]), what a session's system prompt gives every session of its line alike ([`system`]), whether a round starts the new session the owner asked for, how the command line starts and runs
 //! ([`cli`]), what each call cost ([`cost`]), keeps a waiting session's cache warm and tells when it last was
-//! read ([`warm`]), tells a round that missed it ([`miss`]) and judges a running round against the rounds before it
-//! ([`guard`]); it sets up a work's worktree on a machine with a free slot, says whether a head
+//! read ([`warm`]), tells a round that missed it ([`miss`]), judges a running round against the rounds before it
+//! ([`guard`]) and judges when a session is due to hand its progress over to a new one ([`handover`]); it sets up a
+//! work's worktree on a machine with a free slot, says whether a head
 //! handed in is the clean worktree's, removes the worktree once the work ended, and brings a project's architect's
 //! worktree to the latest main before each of its rounds ([`worktree`]). It reads and writes
 //! only the sessions, their keep-warm pings, the rounds' records and where works run, so that it can move out of the
@@ -16,6 +17,7 @@ pub mod cost;
 pub mod diff;
 pub mod give;
 pub mod guard;
+pub mod handover;
 pub mod held;
 pub mod interject;
 pub mod miss;
