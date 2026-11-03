@@ -3765,27 +3765,42 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         "words_all_looked" => {
             let batch = words_of_batch(conn, c.w.id)?;
             let rows = items(v);
-            let mut seen: Vec<i64> = rows.iter().filter_map(|r| r["matter"].as_i64()).collect();
-            seen.sort_unstable();
-            if seen != batch {
-                return checks::fail(format!(
-                    "there is one row for each of the owner's words this batch handled, by their matters {batch:?}, and \
-                     the rows name {seen:?}"
-                ));
-            }
-            // A suggestion is made as a new observation, which the same return holds.
+            let want: Vec<String> = batch.iter().map(i64::to_string).collect();
+            let given: Vec<String> = rows
+                .iter()
+                .filter_map(|r| r["matter"].as_i64())
+                .map(|m| m.to_string())
+                .collect();
+            let misses = checks::id_misses(&want, &given);
+            let mut problems = Problems::default();
+            problems.about(
+                &misses.unknown,
+                |x| format!("matter {x} is none of the owner's words this batch handled"),
+                |xs| format!("matters {xs} are none of the owner's words this batch handled"),
+            );
+            problems.about(
+                &misses.twice,
+                |x| format!("matter {x} has more than one row: one row for each"),
+                |xs| format!("matters {xs} have more than one row: one row for each"),
+            );
+            problems.about(
+                &misses.missing,
+                |x| format!("matter {x}, which this batch handled, has no row"),
+                |xs| format!("matters {xs}, which this batch handled, have no row"),
+            );
+            // A suggestion is made as a new observation, which the same return holds. This does not rest on the
+            // rows covering the batch, so it is said with the misses.
             let suggested = rows.iter().any(|r| r["verdict"] == "suggestion");
             let observed = items(c.unwrapped.get("observation_changes"))
                 .iter()
                 .any(|o| o["kind"] == "new");
             if suggested && !observed {
-                return Err(
+                problems.push(
                     "a row says it makes a suggestion, and observation_changes holds no new observation: record the \
-                     suggestion there, or say nothing is to be recorded"
-                        .into(),
+                     suggestion there, or say nothing is to be recorded",
                 );
             }
-            Ok(())
+            problems.into_result()
         }
         "changes_valid" => {
             let list = items(v);

@@ -14769,11 +14769,14 @@ fn a_decision_the_records_do_not_bear_out_is_sent_back_and_a_revised_one_is_writ
     let log = said.lock().unwrap().join("\n");
     let sent_back = why_sent_back(&e, arch, "B5");
     assert_eq!(sent_back.len(), 2, "{sent_back:?}\n{log}");
-    assert!(
-        sent_back[0].contains("there is one row for each of the owner's words this batch handled"),
-        "{sent_back:?}"
-    );
     let (a, b) = (matter_with(&path, "integers"), matter_with(&path, "old name"));
+    // A row twice and a row missing are both said, by their matters.
+    for part in [
+        format!("matter {a} has more than one row"),
+        format!("matter {b}, which this batch handled, has no row"),
+    ] {
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
+    }
     for part in [
         "is not found as it is in the words of matter".to_string(),
         "Yes, the parser takes integers first. No browser check.".to_string(),
@@ -14877,17 +14880,67 @@ fn a_return_that_is_wrong_in_looked_and_in_decisions_is_sent_back_once_saying_bo
     let log = said.lock().unwrap().join("\n");
     let sent_back = why_sent_back(&e, arch, "B5");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    let b = matter_with(&path, "old name");
     for part in [
-        "there is one row for each of the owner's words this batch handled",
-        "is not found as it is in the words of matter",
+        format!("matter {b}, which this batch handled, has no row"),
+        "is not found as it is in the words of matter".to_string(),
     ] {
-        assert!(sent_back[0].contains(part), "{part}\n{sent_back:?}");
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
     }
     let approach: String =
         e.db.conn()
             .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
             .unwrap();
     assert!(approach.contains("Decisions:\nDecision ("), "{approach}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The check that the rows of `looked` cover the owner's words of the batch says all of its problems at once: a matter
+// that is none of them, one that has no row, and a row that says it makes a suggestion when the return holds no new
+// observation to record it. Oracle: the project guide's rule that a check of a return reports every problem it can
+// find in it at once.
+#[test]
+fn rows_that_do_not_cover_the_words_and_a_suggestion_nothing_records_are_sent_back_together() {
+    let s = setup("looked-three-problems");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let row = |m: i64, v: &str| json!({ "matter": m, "verdict": v, "why": "It is read." });
+            let rows = if n == 1 {
+                // A matter of no words of the batch, none for `b`, and a suggestion with no observation.
+                json!([row(a, "suggestion"), row(987_654, "nothing")])
+            } else {
+                json!([row(a, "nothing"), row(b, "nothing")])
+            };
+            (Vec::new(), vec![("outcome.looked", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Fine, keep the old name.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "B5");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    let b = matter_with(&path, "old name");
+    for part in [
+        "matter 987654 is none of the owner's words this batch handled".to_string(),
+        format!("matter {b}, which this batch handled, has no row"),
+        "a row says it makes a suggestion, and observation_changes holds no new observation".to_string(),
+    ] {
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
+    }
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
