@@ -708,7 +708,9 @@ CREATE TABLE changes (
   -- Every change to a row of a state table: who made it, when, the row before and after. Written by triggers that the
   -- engine generates from this file, in the same transaction as the change, so no write can skip it. rounds and
   -- tool_runs are history themselves and are not tracked; neither are changes and outbox.
-  -- Read by: people and agents looking at how something got where it is; views that need when a row was created.
+  -- Read by: people and agents looking at how something got where it is; views that need when a row was created or
+  -- in what order rows came to a state (observations_all; merge_queue). Nothing deletes from it: a view that reads it
+  -- would order differently if rows were cut away, so cutting it first means changing those views.
   id INTEGER PRIMARY KEY,
   -- The transaction; the rows one write changed share it.
   tx INTEGER NOT NULL,
@@ -1344,11 +1346,17 @@ CREATE VIEW waiting_interjections AS
   WHERE j.delivered_round IS NULL;
 
 CREATE VIEW merge_queue AS
-  -- Each project's merge queue: the works at the merge cell, oldest first. Read by: cell `M2`.
+  -- Each project's merge queue: the works at the merge cell, in the order they came to it; a work that left it and
+  -- came back is last. Read by: cell `M2`.
   SELECT i.project, w.id AS work, w.pr, w.pushed_head
   FROM works w JOIN items i ON i.id = w.item
   WHERE w.at IN ('M2', '9', 'merge_queue', 'merge.queue') AND w.ended IS NULL
-  ORDER BY w.id;
+  -- The newest change of the row that changed `at` brought it to this cell. Scanned from the newest change back, so
+  -- it stops after the few since then.
+  ORDER BY (SELECT c.id FROM changes c
+            WHERE c.table_name = 'works' AND c.row_key = json_object('id', w.id)
+              AND json_extract(c.old_row, '$.at') IS NOT json_extract(c.new_row, '$.at')
+            ORDER BY c.id DESC LIMIT 1), w.id;
 
 CREATE VIEW side_reports AS
   -- Every side report a round handed in. Read by: the engine, which queues each for the architect; the owner's
