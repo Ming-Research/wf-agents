@@ -529,10 +529,45 @@ pub fn resolve(
     })
 }
 
-/// Whether a line of a text is a line of a decision: it starts with [`LINE`], leading blanks aside. One rule for every
-/// check, so that a line indented by hand is neither written nor missed by one of them.
+/// Whether a line of a text is a line of a decision: it starts with [`LINE`], leading blanks and one list mark `- `
+/// aside. One rule for every check, so that a line indented or listed by hand is neither written nor missed by one of
+/// them.
 pub fn is_line(line: &str) -> bool {
-    line.trim_start().starts_with(LINE)
+    let l = line.trim_start();
+    l.strip_prefix("- ").unwrap_or(l).starts_with(LINE)
+}
+
+/// Who decided, as the head of a line of a decision says it: the words between its date and the parenthesis that
+/// closes the head, such as `owner` or `architect`; empty for a line whose head says none.
+pub fn decided_by(line: &str) -> String {
+    let l = line.trim_start();
+    let l = l.strip_prefix("- ").unwrap_or(l);
+    l.strip_prefix(LINE)
+        .and_then(|rest| rest.split_once(')'))
+        .and_then(|(head, _)| head.split_once(", "))
+        .map(|(_, by)| by.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// The prefix of the numbers the decisions of an item are listed by, for a design to answer each: L1, L2, …
+pub const LISTED: &str = "L";
+
+/// The decisions an item's `approach` holds, in their order, as a design is given them to answer each: the number it
+/// answers it by (`decision`, L1 on), the line as it stands (`line`) and who decided as its head says (`by`). Empty for
+/// an item with none.
+pub fn listed(approach: &str) -> Vec<Value> {
+    approach
+        .lines()
+        .filter(|l| is_line(l))
+        .enumerate()
+        .map(|(i, l)| {
+            json!({
+                "decision": format!("{LISTED}{}", i + 1),
+                "line": l.trim(),
+                "by": decided_by(l),
+            })
+        })
+        .collect()
 }
 
 /// Whether a line of an item's text is a head: it ends in a colon, which a line of a decision never does.
@@ -1179,10 +1214,40 @@ mod tests {
         );
         assert!(is_line("\t Decision (2026-11-03, owner): B."));
         assert!(!is_line("Note: Decision (x)"));
+        // A line listed by hand, as the items written with a list mark under their head have it, is one too; a mark of
+        // another kind, or two, is not.
+        assert!(is_line("- Decision (2026-11-03, owner): B."));
+        assert!(is_line("  - Decision (2026-11-03, owner): B."));
+        assert!(!is_line("* Decision (2026-11-03, owner): B."));
+        assert!(!is_line("- - Decision (2026-11-03, owner): B."));
+        assert!(!is_line("-Decision (2026-11-03, owner): B."));
         assert_eq!(
             unkept("Decisions:\n  Decision (2026-11-03, owner): B.", "Decisions:").len(),
             1
         );
+    }
+
+    // A design is given the item's decisions in their order, numbered from L1, each line as it stands with who decided as
+    // its head says, a line listed by hand among them; the rest of the text is not one. An item with none lists none.
+    #[test]
+    fn an_item_s_decisions_are_listed_by_number_with_who_decided() {
+        let approach = "Approach:\n- Do it.\nDecisions:\n- Decision (2026-11-03, owner): One path. Situation: s.\n\
+                        Decision (2026-11-04, owner relayed by the delegate, not checked): Two. Words: \"x (y)\"\n\
+                        Decision (2026-11-05, architect): Three.\nLearned:\nFact (2026-11-05): Decision (x) is not one";
+        assert_eq!(
+            listed(approach),
+            [
+                json!({ "decision": "L1", "line": "- Decision (2026-11-03, owner): One path. Situation: s.", "by": "owner" }),
+                json!({
+                    "decision": "L2",
+                    "line": "Decision (2026-11-04, owner relayed by the delegate, not checked): Two. Words: \"x (y)\"",
+                    "by": "owner relayed by the delegate, not checked",
+                }),
+                json!({ "decision": "L3", "line": "Decision (2026-11-05, architect): Three.", "by": "architect" }),
+            ]
+        );
+        assert!(listed("Approach:\n- Do it.").is_empty());
+        assert_eq!(decided_by("Decision (no head"), "");
     }
 
     // A merge carries the lines of the absorbed item's decisions into the kept one, in their order, under its head, and

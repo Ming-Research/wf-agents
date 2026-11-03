@@ -759,8 +759,10 @@ fn holder_cell<'c>(ctx: &'c crate::actions::Ctx, cell: &str) -> Option<&'c flow:
     ctx.blockers.as_ref()?.cells.iter().find(|c| c.cell == cell)
 }
 
-/// Who holds a blocker at a cell where it is held: its one holder, or at a cell where the work waits for the items it
-/// depends on or the answers to its open questions, the items while one is not merged and the owner once every one is.
+/// Who holds a blocker at a cell where it is held: its one holder; at a cell where the work waits for the items it
+/// depends on or the answers to its open questions, the items while one is not merged and the owner once every one is;
+/// and where it waits for the ruling on where its design departs from the decisions of its item, the owner while one it
+/// departs from is anyone's but the architect's, and the architect once those left are all its own.
 fn holder_now(
     ctx: &crate::actions::Ctx,
     tx: &Transaction<'_>,
@@ -771,7 +773,12 @@ fn holder_now(
         Some(i) => unmerged(tx, i.id)?,
         None => Vec::new(),
     };
-    let name = if h.holders.len() == 1 {
+    let name = if h.cell == crate::open_questions::RULING {
+        match crate::open_questions::ruling_due(tx, ctx.work.id, &ctx.within)? {
+            "architect" => "architect".to_string(),
+            _ => "owner".to_string(),
+        }
+    } else if h.holders.len() == 1 {
         h.holders[0].clone()
     } else if h.holders.iter().any(|x| x == "items") && !waited.is_empty() {
         "items".to_string()
@@ -811,7 +818,8 @@ fn speaker(ctx: &crate::actions::Ctx, b: &Blocker) -> String {
 
 /// `raise_blocker`: the task's blocker, raised at the cell where its problem arose and held by the holder of the cell
 /// the row leads to. A cell where the work waits for what it depends on raises it with its row that waits, and when
-/// what it waits for changed since it raised it, from the items to the answers to its open questions, the blocker is
+/// what it waits for changed since it raised it, from the items to the answers to its open questions, or between the
+/// owner's ruling and the architect's on where its design departs from the decisions of its item, the blocker is
 /// handed on.
 fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let target = ctx.to.at.clone();
@@ -819,11 +827,16 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
         holder_cell(ctx, &target).ok_or_else(|| format!("a row raises a blocker into {target}, where none is held"))?;
     let holder = holder_now(ctx, tx, h)?;
     let w = ctx.work.id;
+    let rules = h.cell == crate::open_questions::RULING;
     if let Some(b) = open(tx, w)? {
         if h.waits && b.cell == h.cell {
             if b.holder != holder.holder {
                 let why = match holder.holder.as_str() {
                     "items" => "an item it depends on is not merged",
+                    "architect" if rules => {
+                        "the departures of its design left to rule on are all from the architect's own decisions"
+                    }
+                    _ if rules => "its design departs from a decision someone other than the architect made",
                     _ => "every item it depends on is merged, and the answers to its open questions are still needed",
                 };
                 hand_over(tx, b.id, &holder, why, "")?;
@@ -841,6 +854,7 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
     }
     let kind = match holder.holder.as_str() {
         "items" => "items",
+        _ if rules => "ruling",
         "owner" if h.waits => "ruling",
         "owner" => "owner_ask",
         "advisor" => "question",
@@ -858,6 +872,10 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
             let items: Vec<String> = holder.items.iter().map(|(i, _)| format!("item {i}")).collect();
             format!("{about} waits for {} to deliver", items.join(", "))
         }
+        "ruling" if rules => format!(
+            "{about} waits, before it implements, for the ruling on where its design departs from decisions of its \
+             item, by whoever made each"
+        ),
         "ruling" => format!("{about} waits for the answers to its open questions to merge"),
         "tool_failure" => {
             let tools: Vec<String> = ctx.unwrapped["failed"]
@@ -939,6 +957,9 @@ fn resolve_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Str
         (None, "items") => json!({
             "text": "Every item it waited for is merged",
             "items": b.items.iter().map(|(i, p)| json!({ "item": i, "project": p })).collect::<Vec<_>>(),
+        }),
+        (None, _) if b.cell == crate::open_questions::RULING => json!({
+            "text": "Each place its design departs from a decision of its item is ruled on"
         }),
         (None, _) if b.kind == "ruling" => json!({
             "text": "Every open question of it has its answer, and every item it depends on is merged"

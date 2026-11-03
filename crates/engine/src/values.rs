@@ -113,6 +113,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             Some(_) => "questions",
         }),
         "held" => crate::blockers::held(e, w, g),
+        // Whose ruling the work waits for on where its latest design departs from the decisions of its item.
+        "departures" => s(crate::open_questions::ruling_due(e.db.conn(), w.id, &g.within)?),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
         "cancelled" => {
@@ -157,7 +159,13 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             })
         }
         // A flow version stored before this value was named so calls it `card`.
-        "design_card_disputed" | "card" => s(if design_card_disputed(e, w)? { "yes" } else { "no" }),
+        "design_card_disputed" | "card" => s(
+            if design_card_disputed(e, w)? || crate::open_questions::turned_down(e.db.conn(), w.id, &g.within)? {
+                "yes"
+            } else {
+                "no"
+            },
+        ),
         "came_by" => {
             let from = arrived_from(e, w, g)?.unwrap_or_default();
             let fc = g.cell(&from);
@@ -296,7 +304,8 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 /// Whether the owner chose another option on a current decision card of the work, or disagreed with one: a work that
 /// holds such a card from a flow version before open questions designs again. An answer to an open question is free
 /// text, which only the engineer can judge against the design: it turns the work as an interjection, and a redirect
-/// takes it back to design by the rows of cell `A4`.
+/// takes it back to design by the rows of cell `A4`. The one answer the engine reads is the ruling on a departure from a
+/// decision of the item ([`crate::open_questions::turned_down`]), which the value `design_card_disputed` adds to this.
 fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
     Ok(crate::cards::current(e.db.conn(), w.id)?
         .iter()
