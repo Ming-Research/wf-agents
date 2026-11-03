@@ -750,6 +750,15 @@ fn ci_before(
             None => Ok(()),
         };
         let ran = dispatched.and_then(|()| e.github().checks(&repo(project), &commit, &project.ci.fast));
+        // GitHub refused the request itself: trying again cannot help, and the engineer is told what GitHub said.
+        if let Err(f) = &ran
+            && f.kind == "rejected"
+        {
+            let _ = hub::delete_ref(&wt, &refname);
+            return Ok(json!({ "ran": { "verdict": "refused", "why": format!(
+                "GitHub refused to run {}: {}", project.ci.fast, f.what
+            ) } }));
+        }
         let logs: Vec<Result<String, String>> = ran
             .iter()
             .flatten()
@@ -968,7 +977,15 @@ fn measure(
             "ok": if whole { "ran" } else { "not_run" },
             "files": files,
         });
-        if !missed.is_empty() {
+        if checks.is_empty() {
+            // GitHub gives a run no job when it cannot read the workflow file (a syntax error, say): there is no link
+            // and no log, and this is all the engineer has to go on.
+            push["note"] = Value::String(format!(
+                "The run of {} had no job, so it left no log and no artifact; GitHub does this for a workflow file it \
+                 cannot read, so look at the workflow file on the head measured",
+                wf.workflow
+            ));
+        } else if !missed.is_empty() {
             push["note"] = Value::String(format!(
                 "Not everything the run left could be kept: {}",
                 missed.join("; ")

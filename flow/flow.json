@@ -3177,7 +3177,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed: the head is not pushed, a file is not on this head, or a file is outside the test paths"
+                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, or a file is outside the test paths"
                 }
               ]
             }

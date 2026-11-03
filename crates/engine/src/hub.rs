@@ -155,16 +155,19 @@ impl Gh {
     }
 
     fn run(&self, args: &[&str]) -> Result<String, Failure> {
+        self.run_said(args).map_err(|(failure, _)| failure)
+    }
+
+    /// Runs gh; when it fails, gives the failure and, apart from the command line the failure's text begins with, what
+    /// gh said, which is all that tells why: the command line holds the inputs an engineer gave.
+    fn run_said(&self, args: &[&str]) -> Result<String, (Failure, String)> {
         let out = Command::new("gh")
             .args(args)
             .output()
-            .map_err(|e| Failure::other(format!("gh: {e}")))?;
+            .map_err(|e| (Failure::other(format!("gh: {e}")), String::new()))?;
         if !out.status.success() {
-            return Err(Failure::network(format!(
-                "gh {}: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&out.stderr).trim()
-            )));
+            let said = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err((Failure::network(format!("gh {}: {said}", args.join(" "))), said));
         }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
@@ -630,11 +633,11 @@ impl GitHub for Gh {
         for f in &fields {
             args.extend(["-f", f.as_str()]);
         }
-        self.run(&args).map(|_| ()).map_err(|f| {
-            if dispatch_rejected(&f.what) {
-                Failure::rejected(f.what)
+        self.run_said(&args).map(|_| ()).map_err(|(failure, said)| {
+            if dispatch_rejected(&said) {
+                Failure::rejected(failure.what)
             } else {
-                f
+                failure
             }
         })
     }
@@ -736,7 +739,7 @@ impl GitHub for Gh {
     }
 }
 
-/// Whether what `gh workflow run` said is GitHub refusing the request itself (HTTP 422: an input the workflow requires
+/// Whether what `gh workflow run` said (its stderr, not the command line) is GitHub refusing the request itself (HTTP 422: an input the workflow requires
 /// is missing, one it does not take is given, a value is not allowed, the workflow cannot run by hand), which running
 /// it again cannot change; not a failure to reach GitHub, nor a ref GitHub has not seen yet after the push, which a
 /// later try gets through.
@@ -767,16 +770,15 @@ mod tests {
     // ref GitHub has not seen yet: only the first is a request no later try can fix.
     #[test]
     fn a_refused_dispatch_is_told_from_one_that_could_not_be_made() {
-        let said = |s: &str| format!("gh workflow run measure.yml -R o/r --ref b -f x=1: {s}");
-        assert!(dispatch_rejected(&said(
+        assert!(dispatch_rejected(
             "could not create workflow dispatch event: HTTP 422: Required input 'base' not provided"
-        )));
-        assert!(dispatch_rejected(&said(
+        ));
+        assert!(dispatch_rejected(
             "could not create workflow dispatch event: HTTP 422: Unexpected inputs provided: [\"x\"]"
-        )));
-        assert!(!dispatch_rejected(&said("HTTP 422: No ref found for: b")));
-        assert!(!dispatch_rejected(&said("error connecting to api.github.com")));
-        assert!(!dispatch_rejected(&said("HTTP 502: Bad Gateway")));
+        ));
+        assert!(!dispatch_rejected("HTTP 422: No ref found for: b"));
+        assert!(!dispatch_rejected("error connecting to api.github.com"));
+        assert!(!dispatch_rejected("HTTP 502: Bad Gateway"));
     }
 
     #[test]
