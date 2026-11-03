@@ -17,7 +17,7 @@
           "title": "Observation title",
           "type": "text",
           "optional": true,
-          "desc": "Only for a decision no item holds: the title of the observation it is kept as, in English, in at most 20 characters, spaces not counted, with no internal name the reader does not know"
+          "desc": "Only for a decision no item holds: the title of the observation it is kept as, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, with no internal name the reader does not know"
         },
         {
           "name": "tags",
@@ -266,6 +266,48 @@
                 ]
               },
               {
+                "name": "on_head",
+                "title": "With the change",
+                "type": "enum",
+                "optional": true,
+                "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. The result of running it once on the commit with the change, as ci reports it",
+                "values": [
+                  [
+                    "green",
+                    "Passed"
+                  ],
+                  [
+                    "red",
+                    "Failed"
+                  ]
+                ]
+              },
+              {
+                "name": "on_base",
+                "title": "Before the change",
+                "type": "enum",
+                "optional": true,
+                "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. The result of running it once on the code before the change, as the latest run of ci_before that reported this test says; when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those)",
+                "values": [
+                  [
+                    "red",
+                    "It fails before the change: right for a new-behaviour test, wrong for a guard"
+                  ],
+                  [
+                    "cannot_run",
+                    "What it tests does not exist before the change: right for a new-behaviour test, wrong for a guard"
+                  ],
+                  [
+                    "not_run",
+                    "Not run: ci_before reports it not run, as when its job stopped at an earlier red test, so nothing measured it; the table review judges whether its result before the change is shown some other way"
+                  ],
+                  [
+                    "green",
+                    "It passes before the change: right for a guard, wrong for a new-behaviour test"
+                  ]
+                ]
+              },
+              {
                 "name": "time",
                 "title": "Time on its own",
                 "type": "text",
@@ -276,6 +318,94 @@
                 "title": "Why it is worth the time",
                 "type": "text",
                 "desc": "Why it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test"
+              }
+            ]
+          },
+          {
+            "value": "extended",
+            "desc": "A test or check that was there before and now tests more; it is written here once, as an added one is, and nowhere else",
+            "fields": [
+              {
+                "name": "test",
+                "title": "Test",
+                "type": "text",
+                "desc": "The test's name"
+              },
+              {
+                "name": "catches",
+                "title": "What it catches now",
+                "type": "text",
+                "desc": "What kind of error it catches that it did not before"
+              },
+              {
+                "name": "kind",
+                "title": "Kind of test",
+                "type": "enum",
+                "desc": "Whether what it tests more is new behaviour this change brings, or old behaviour this change must not alter",
+                "values": [
+                  [
+                    "new_behaviour",
+                    "Tests more of the new behaviour this change brings: it should fail before the change, or what it tests does not exist before it"
+                  ],
+                  [
+                    "old_behaviour",
+                    "Guards more of the old behaviour this change must not alter: it should pass both before and after the change"
+                  ]
+                ]
+              },
+              {
+                "name": "on_head",
+                "title": "With the change",
+                "type": "enum",
+                "optional": true,
+                "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. The result of running it once on the commit with the change, as ci reports it",
+                "values": [
+                  [
+                    "green",
+                    "Passed"
+                  ],
+                  [
+                    "red",
+                    "Failed"
+                  ]
+                ]
+              },
+              {
+                "name": "on_base",
+                "title": "Before the change",
+                "type": "enum",
+                "optional": true,
+                "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. The result of running it once on the code before the change, as the latest run of ci_before that reported this test says; when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those)",
+                "values": [
+                  [
+                    "red",
+                    "It fails before the change: right for a new-behaviour test, wrong for a guard"
+                  ],
+                  [
+                    "cannot_run",
+                    "What it tests does not exist before the change: right for a new-behaviour test, wrong for a guard"
+                  ],
+                  [
+                    "not_run",
+                    "Not run: ci_before reports it not run, as when its job stopped at an earlier red test, so nothing measured it; the table review judges whether its result before the change is shown some other way"
+                  ],
+                  [
+                    "green",
+                    "It passes before the change: right for a guard, wrong for a new-behaviour test"
+                  ]
+                ]
+              },
+              {
+                "name": "time",
+                "title": "Time on its own",
+                "type": "text",
+                "desc": "How long it takes on its own now, as ci reports it"
+              },
+              {
+                "name": "worth",
+                "title": "Why it is worth the time",
+                "type": "text",
+                "desc": "Why the time it takes now is worth it: what it catches that no other test catches, and why it cannot be made smaller or faster or folded into another test"
               }
             ]
           },
@@ -347,16 +477,6 @@
       "$ref": "conditions",
       "optional": true,
       "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. When the implementation is done, one row per acceptance condition, naming the test or measurement that meets it, none left out; after a fix, only the rows that changed: the engine merges them into the previous ones"
-    },
-    "done_new_tests": {
-      "$ref": "new_tests",
-      "optional": true,
-      "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. The results of running each test once after the change with ci and once before it with ci_before, as those tools report them. When the implementation is done, every new-behaviour test you added; after a fix, only those added or changed in this round"
-    },
-    "done_guard_tests": {
-      "$ref": "guard_tests",
-      "optional": true,
-      "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. The results of running each test once after the change with ci and once before it with ci_before, as those tools report them. When the implementation is done, every old-behaviour test you added; after a fix, only those added or changed in this round"
     },
     "deviations": {
       "name": "deviations",
@@ -1495,7 +1615,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What to do, as an action, in English, in at most 20 characters, spaces not counted"
+              "desc": "What to do, as an action, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2"
             },
             {
               "name": "under",
@@ -1909,7 +2029,7 @@
           ]
         }
       ],
-      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without. The owner reads the reason and an item's title, problem, why, approach and acceptance: write the title in English, and the rest in `owner.language`, technical terms in English, as `format:common` says a field the owner reads is written. An item is given by its number, or the key of an item an earlier change of the batch creates"
+      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without. The owner reads the reason and an item's title, problem, why, approach and acceptance: write all of it in `owner.language`, technical terms in English, as `format:common` says a field the owner reads is written, and the title at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2. An item is given by its number, or the key of an item an earlier change of the batch creates"
     },
     "observation_change": {
       "type": "union",
@@ -1939,7 +2059,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What is wrong, as a short phrase, not an action (\"Stale slot count\", not \"Fix the slot count\"), in English, in at most 20 characters, spaces not counted, with no internal name the reader does not know"
+              "desc": "What is wrong, as a short phrase, not an action (\"Stale slot count\", not \"Fix the slot count\"), in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, with no internal name the reader does not know"
             },
             {
               "name": "what",
@@ -3382,15 +3502,15 @@
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
-      "measure_matches_runs": "An answer of measured has this work's measure runs in this cell among the engine's records; an answer of not_measured has none.",
-      "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first, or, after an answer to an open question that goes against them, the design changes them as the answer needs. Those the advisor changed were locked by the engine then. A work that delivers a change has no report_answer condition.",
+      "measure_matches_runs": "An answer of measured has this work's measure runs among the engine's records; any other answer (not_measured, from_records) has none. Reading the records, with query or otherwise, needs no run of measure.",
+      "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first (ask to the advisor), whose reply with new_acceptance replaces all of them and is locked by the engine then, or, after the owner disagreed with a decision of the design or chose another option since they were locked, the design hands in the acceptance the ruling needs. A work that delivers a change has no report_answer condition.",
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it is green.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a report changes nothing outside `research/`.",
       "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition); the tests named are on the branch, and the report sections named are in the report.",
-      "new_test_results": "When the design chose no adversarial testing: each new-behaviour test's two results match the ci and ci_before runs the engine recorded, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; one red after the change or green before it is fixed in this round.",
-      "guard_test_results": "When the design chose no adversarial testing: each old-behaviour test's two results match the ci and ci_before runs the engine recorded, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; one red in either run, or unable to run before the change, is fixed in this round; one not run before the change is the table review's to judge. Each new test is in the table its kind in the test changes says.",
-      "adversarial_test_results": "Each row's two results match the ci and ci_before runs the engine recorded, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; at a re-check, those red or disputed last time were run again; when tests were written, the head was pushed with ci.",
-      "test_kinds_match": "Tests the engineer added are in the table of the kind the engineer gave in the test changes. A test the adversarial tester wrote whose result before the change does not fit its kind is fixed in this round and run again; one not run before the change is the table review's to judge.",
+      "new_test_results": "When the design chose no adversarial testing: each new-behaviour test this round's test changes add or extend (kind new_behaviour) has two results that match the ci run on the head and the latest ci_before run that reported the test, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red after the change or green before it is fixed in this round.",
+      "guard_test_results": "When the design chose no adversarial testing: each old-behaviour test this round's test changes add or extend (kind old_behaviour) has two results that match the ci run on the head and the latest ci_before run that reported the test, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red in either run, or unable to run before the change, is fixed in this round; one not run before the change is the table review's to judge.",
+      "adversarial_test_results": "Each row's two results match the ci run on the head and the latest ci_before run that reported the test, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; at a re-check, those red or disputed last time were run again; when tests were written, the head was pushed with ci.",
+      "test_kinds_match": "Tests the engineer added or extended, which adversarial testing lists as the engineer's, are in the table of the kind the engineer gave in the test changes. A test the adversarial tester wrote whose result before the change does not fit its kind is fixed in this round and run again; one not run before the change is the table review's to judge.",
       "tests_only": "The commits from the head the engineer handed over to this head touch only the test paths the project's configuration names.",
       "disputed_tests_answered": "At a re-check, there is a row for each test the engineer called test_wrong or answered advisor_ruled.",
       "no_insisting_after_ruling": "What the engineer answered advisor_ruled, ruled by the advisor or in its place, is not insisted on, nor marked not_fixed.",
@@ -3428,7 +3548,7 @@
       "plan_written": "The plan rewrites the notebook's plan.",
       "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
       "ask_only_on_open_question": "The ways for a question ask the owner only about an open question of an engineer's design, never about an engineer's question, whose engineer waits for the reply; and the question they pin links to the design it is about, as a markdown link to the link the matter holds.",
-      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title of at most 20 characters, spaces not counted, says what it is and carries the project's tags; one merged into or closed is open; one a merge makes reported three times is folded into an item moved ahead, as the revised changes say; one an item takes in is folded into it, not closed."
+      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title at most `items.title_max` wide as the owner's titles are counted (spaces not counted, a character of East Asian wide or full width counting 2), says what it is and carries the project's tags; one merged into or closed is open; one a merge makes reported three times is folded into an item moved ahead, as the revised changes say; one an item takes in is folded into it, not closed."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -3470,6 +3590,8 @@
       "batch_words": "The owner's words the batch handled, each by its matter: the words whole, where and when they were said, who the record says spoke them (owner, delegate, or unrecorded) and the parts of them a delegate declared to be the owner's own words (`relayed`), the question they reply to, what the architect said in that place before them, and how the architect handled them: its round, the way on it took and its reply.",
       "batch_items": "The items the batch's owner's words concern, each in full with the lines of the decisions it holds: the item each matter names, the item of the work it was said in, and each item the words or the reply to them name by its number, at most twelve.",
       "fix_table": "The table the work's latest fix answered, as the fix was given it: each row with its number and what it held, a red check with its run and the end of its log.",
+      "new_tests": "The engineer's tests of new behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind new_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
+      "guard_tests": "The engineer's tests of old behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind old_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for.",
       "design_change": "For a check after design: what the design changed since the check last answered, field by field as a difference of lines between the design it was given then and the design now, with its answer then and why; none at the first design, and none when the design did not change since.",
       "history_sources": "The database's read-only address and the project's checkout, for the gatherer's `sqlite3` and git."
@@ -4470,7 +4592,7 @@
             "One column per judgment in the research and design: the work stands; and for each check answered \"no\" (a gap in what is under test, unsure facts, architectural burden, cross-project dependency, splitting) that ran, its reason.",
             "One column per workaround and per design change: does its reason hold, and did the design change with it.",
             "One column per test or check removed, skipped or relaxed: compared with before, is there a technical reason; a compiler limitation, a timeout or an unimplemented feature is no reason.",
-            "One column per new test: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test? If the writer's reasons can be knocked down, it is a finding.",
+            "One column per new test, and per test extended to test more: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test? If the writer's reasons can be knocked down, it is a finding.",
             "A work that delivers a report has another table: one column per acceptance condition, for which section of the report answers it and whether the answer is right; whether the evidence supports the conclusions; whether the approaches compared ran under the same conditions (the same load, machine, versions and settings); whether a conclusion claims more than was measured; whether it can be reproduced (the measurement code and commands are in the repository and rerun as written); whether \"what to do next\" holds; and, as for a change, one column per judgment in the research and design."
           ]
         }
@@ -5835,7 +5957,7 @@
             },
             {
               "name": "Whether the acceptance is locked",
-              "what": "Whether the acceptance is locked; if locked, its text on the item, including what the advisor changed; none if not locked yet",
+              "what": "Whether the acceptance is locked; if locked, its text on the item, which you hand in word for word; none if not locked yet. Locked conditions change in two ways only: the advisor's reply carries new_acceptance, which replaces all of them (a condition it does not list is dropped), or the owner, after they were locked, disagreed with a decision of the design or chose another option, and the design that follows hands in the acceptance it needs, which the engine then locks. Editing the item's text, by the architect or the owner, does not change them, and neither does an owner's answer to an open question that does not disagree. To have them changed, use ask to the advisor, saying in what that the acceptance is to change",
               "from": [
                 {
                   "db": "item_acceptance",
@@ -5856,7 +5978,7 @@
             }
           ],
           "prompt": [
-            "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no other file. Choose one of the approaches compared; if an open question was answered otherwise, follow the answer, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured, say how the results shaped the choice, and if not, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls.",
+            "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no other file. Choose one of the approaches compared; if an open question was answered otherwise, follow the answer, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured with measure, say how the results shaped the choice; if you decided by reading the engine's records (with query, gh or the database), say what you read and how it decided the choice; if neither, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls.",
             "Write the alternatives you set aside and why into the design. What you are not sure of, and cannot settle by measuring or reading, is an open question of the design: each says what is uncertain, the options and the one you recommend. Go on by what you recommend; an open question does not stop the work, but the merge waits for its answer.",
             "Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor and write them as the reply says. If you cannot choose, ask, saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design still covers the whole work, and each part says who carries it, this work itself or which sub-item. When this work was split off, take what the parent's design gives it as it stands."
           ],
@@ -5904,8 +6026,20 @@
                   ]
                 },
                 {
+                  "value": "from_records",
+                  "desc": "Decided by reading the engine's records (its database, earlier rounds, tool results), not by a measure run",
+                  "fields": [
+                    {
+                      "name": "read",
+                      "title": "What was read and how it decided the choice",
+                      "type": "text",
+                      "desc": "What was read in the records, and how it decided the choice"
+                    }
+                  ]
+                },
+                {
                   "value": "measured",
-                  "desc": "Decided by the measurements you asked for before; no need to copy the results again",
+                  "desc": "Decided by the measurements you asked for before with measure; no need to copy the results again",
                   "fields": [
                     {
                       "name": "effect",
@@ -6633,7 +6767,7 @@
             }
           ],
           "prompt": [
-            "By your design and its acceptance conditions, does this work need a separate agent dedicated to adversarial testing, writing tests against each acceptance condition and digging for corner cases? Do it when the change could go wrong silently, such as in a compiler, a checker, a runtime, a data format, concurrency, a safety guarantee, a parser or a proof (does the theorem say what the specification says), or for new behaviour existing tests do not cover; it may be skipped for documents, the wording of rules, renames, or a pure refactoring existing tests already cover. If you skip it, give the reasons plainly: which existing tests cover which places, and why nothing can go wrong silently; and when you skip it, the round that finishes the work hands in the acceptance table itself, with the results of each new test run before and after the change; the review checks these reasons. If anything this round must be asked, ask."
+            "By your design and its acceptance conditions, does this work need a separate agent dedicated to adversarial testing, writing tests against each acceptance condition and digging for corner cases? Do it when the change could go wrong silently, such as in a compiler, a checker, a runtime, a data format, concurrency, a safety guarantee, a parser or a proof (does the theorem say what the specification says), or for new behaviour existing tests do not cover; it may be skipped for documents, the wording of rules, renames, or a pure refactoring existing tests already cover. If you skip it, give the reasons plainly: which existing tests cover which places, and why nothing can go wrong silently; and when you skip it, the round that finishes the work hands in the acceptance table itself, and the results of each new test run before and after the change, written in its row of the test changes; the review checks these reasons. If anything this round must be asked, ask."
           ],
           "out": [
             {
@@ -7029,7 +7163,7 @@
             },
             {
               "name": "Locked acceptance",
-              "what": "The acceptance conditions locked on the item, read-only, including what the advisor changed",
+              "what": "The acceptance conditions locked on the item, read-only. They change in two ways only: the advisor's reply carries new_acceptance, which replaces all of them (a condition it does not list is dropped), or the owner, after they were locked, disagreed with a decision of the design or chose another option, and the design that followed handed in the acceptance it needs, which the engine then locked. Editing the item's text, by the architect or the owner, does not change them. To have them changed, use ask to the advisor, saying in what that the acceptance is to change",
               "from": [
                 {
                   "db": "item_acceptance",
@@ -7118,7 +7252,7 @@
             }
           ],
           "prompt": [
-            "To run CI or a measurement, commit locally and use ci or measure. Before handing in done, your last commit must have run with ci and the fast CI must be green. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere. If the design chose no dedicated adversarial testing, done also hands in the acceptance table and the results of each new test you added, run once after the change with ci and once before it with ci_before. When done, write what changed in tests and checks: for each added, what errors it catches, how long it runs on its own and why it is worth that time; for each removed, skipped or relaxed, its technical reason. If the chosen approach stays, the acceptance is untouched and nothing comes up that you must ask about, you may change the design yourself and write it as design_changed; to change the approach or the acceptance, or when something comes up that you must ask about, do not work around it: ask."
+            "To run CI or a measurement, commit locally and use ci or measure. Before handing in done, your last commit must have run with ci and the fast CI must be green. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere. If the design chose no dedicated adversarial testing, done also hands in the acceptance table, and the two results of each test you added or extended, which you write in its row of the test changes, run once after the change with ci and once before it with ci_before: the latest run of ci_before that reported the test counts, and when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). When done, write what changed in tests and checks: for each added, what errors it catches, its kind, its two results, how long it runs on its own and why it is worth that time; for a test that was there and now tests more, an extended row of the same fields; for each removed, skipped or relaxed, its technical reason. If the chosen approach stays, the acceptance is untouched and nothing comes up that you must ask about, you may change the design yourself and write it as design_changed; to change the approach or the acceptance, or when something comes up that you must ask about, do not work around it: ask."
           ],
           "promptBy": {
             "by": "work",
@@ -7143,12 +7277,6 @@
             },
             {
               "$ref": "done_conditions"
-            },
-            {
-              "$ref": "done_new_tests"
-            },
-            {
-              "$ref": "done_guard_tests"
             },
             {
               "$ref": "followup"
@@ -7184,11 +7312,11 @@
               "check": "conditions_cover_acceptance"
             },
             {
-              "at": "new_tests",
+              "at": "test_changes",
               "check": "new_test_results"
             },
             {
-              "at": "guard_tests",
+              "at": "test_changes",
               "check": "guard_test_results"
             }
           ],
@@ -7268,15 +7396,23 @@
             },
             {
               "name": "Tests the engineer added",
-              "what": "The tests the engineer added, what each catches and which kind it is (the engine accumulates them over the rounds); none if the engineer added no test",
+              "what": "The tests the engineer added or extended, what each catches and which kind it is (the engine accumulates them over the rounds); none if the engineer added or extended no test",
               "from": [
                 [
                   "I1",
                   "test_changes[added]"
                 ],
                 [
+                  "I1",
+                  "test_changes[extended]"
+                ],
+                [
                   "T6",
                   "test_changes[added]"
+                ],
+                [
+                  "T6",
+                  "test_changes[extended]"
                 ]
               ],
               "maybe": true
@@ -7328,7 +7464,7 @@
             }
           ],
           "prompt": [
-            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the table review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. For an acceptance condition you cannot write a test for, ask, saying which one and why it cannot be tested. If you asked someone, carry on with this round when the reply comes.",
+            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added or extended go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. The latest run of ci_before that reported a test counts: when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the table review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. For an acceptance condition you cannot write a test for, ask, saying which one and why it cannot be tested. If you asked someone, carry on with this round when the reply comes.",
             "At a re-check, hand in only what this round did: only the rows of the condition table that changed, only the directions newly tried, only the new tests run in this round. The latest fix's table gives each row it answered with its number, what it held (a test of yours, for the rows you raised) and the engineer's answer to it. For each test the engineer called test_wrong, answer one row: withdraw or insist; to insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling. A row the engineer answered fixed_outside_commit is a fix in no commit: check what it says and run again what it concerns."
           ],
           "out": [
@@ -8424,32 +8560,22 @@
             },
             {
               "name": "Acceptance table and new test results",
-              "what": "Without adversarial testing, the acceptance table the engineer handed in and the results of the new tests (both kinds) before and after the change (the engine merges in those handed in after fixes); none if adversarial testing ran",
+              "what": "Without adversarial testing, the acceptance table the engineer handed in and the results of the engineer's tests (both kinds) before and after the change, which the engine reads from the test changes of implementing and fixing (a test written again in a later round has its later row); none if adversarial testing ran",
               "from": [
                 [
                   "I1",
                   "conditions"
                 ],
                 [
-                  "I1",
-                  "new_tests"
-                ],
-                [
                   "T6",
                   "conditions"
                 ],
-                [
-                  "T6",
-                  "new_tests"
-                ],
-                [
-                  "I1",
-                  "guard_tests"
-                ],
-                [
-                  "T6",
-                  "guard_tests"
-                ]
+                {
+                  "engine": "new_tests"
+                },
+                {
+                  "engine": "guard_tests"
+                }
               ],
               "maybe": true
             },
@@ -9236,7 +9362,7 @@
             },
             {
               "name": "Locked acceptance",
-              "what": "The locked acceptance",
+              "what": "The acceptance conditions locked on the item, read-only. They change in two ways only: the advisor's reply carries new_acceptance, which replaces all of them (a condition it does not list is dropped), or the owner, after they were locked, disagreed with a decision of the design or chose another option, and the design that followed handed in the acceptance it needs, which the engine then locked. Editing the item's text, by the architect or the owner, does not change them. If a finding needs a change of them, use ask to the advisor, saying in what that the acceptance is to change",
               "from": [
                 {
                   "db": "item_acceptance",
@@ -9486,12 +9612,6 @@
               "$ref": "done_conditions"
             },
             {
-              "$ref": "done_new_tests"
-            },
-            {
-              "$ref": "done_guard_tests"
-            },
-            {
               "$ref": "followup"
             }
           ],
@@ -9525,11 +9645,11 @@
               "check": "head_pushed_and_green"
             },
             {
-              "at": "new_tests",
+              "at": "test_changes",
               "check": "new_test_results"
             },
             {
-              "at": "guard_tests",
+              "at": "test_changes",
               "check": "guard_test_results"
             },
             {
@@ -9556,7 +9676,7 @@
             "- A change to the code an interjection asked for, as the way on chose it: make it, with the test that shows it, and answer fixed; when it turns out to need the design or the acceptance changed, ask.",
             "- A fix of any of these rows that is in no commit, such as a pull request description to correct: make it (for the description, hand in ci with pr and no tests) and answer fixed_outside_commit with where it is; do not answer fixed with the head as its commit. The side that raised the row looks at it again.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
-            "Before handing in, your last commit must have run with ci and the fast CI must be green. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; when the design chose no dedicated adversarial testing, also the rows of the acceptance table and the results of the new tests that changed in this round."
+            "Before handing in, your last commit must have run with ci and the fast CI must be green. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; when the design chose no dedicated adversarial testing, also the rows of the acceptance table and, in the row of the test changes of each test added or extended in this round, its two results; the latest run of ci_before that reported a test counts, and when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those)."
           ]
         },
         {
@@ -11337,7 +11457,7 @@
                   "name": "new_acceptance",
                   "title": "New acceptance",
                   "type": "list",
-                  "desc": "New acceptance conditions, which are locked and cannot change during implementation; leave it out if the acceptance does not change",
+                  "desc": "The acceptance conditions from now on, which are locked and cannot change during implementation. They replace all the locked conditions: list every condition that stays, as it is, as well as the changed and the new ones; a condition not listed is dropped. Leave it out if the acceptance does not change",
                   "optional": true,
                   "item": {
                     "$ref": "acceptance_item"
@@ -12151,11 +12271,11 @@
           "name": "item_writing",
           "desc": "How items and changes to them are written",
           "text": [
-            "The owner reads an item, its title first: write its title in English, and its problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, in at most 20 characters, spaces not counted: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font. Work for another project names the capability handed over, not the requester's wish.",
+            "The owner reads an item, its title first: write its title, problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font. Work for another project names the capability handed over, not the requester's wish.",
             "The problem says what cannot be done or is wrong in one sentence, then one smallest example, only one: the code you want to write and where it goes wrong now, or a command and its wrong output; for a risk never seen to fail, the condition under which it fails, with the smallest triggering example marked inferred and not run, or in words if none can be built. A cause inferred is marked as inferred. If it cannot be written clearly, find out more first. Why says only why the work is worth doing, in one or two sentences written as a conclusion: the cost of not doing it, which goal, who waits; only numbers that carry the conclusion, and no account of how things stand now. The approach is written only when one or two sentences can say how; otherwise the work's design finds it.",
             "The acceptance is checkable results, such as which test passes or which number is reached, usually one row: no method, no test plan, nothing CI checks anyway. A number in it was measured, or set by a study, a ruling on a decision card or the owner's words; otherwise the work's design sets it.",
             "An item is worth an engineer, a branch, the flow's design and reviews, a CI run and a merge: one too small, such as a few dozen lines, joins a related item of its project not started yet, or with none is an observation until one fits, unless it is urgent, as a severe bug, or another item waits on it and it cannot ride along with an item going anyway; one with parts that could each merge alone is split. An item others wait on takes only what they need: a follow-up they do not need is an item or an observation of its own. Its level fits the judgment it needs: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change; rework from a change of direction is no reason to raise it, only the same work coming back again for errors of reasoning.",
-            "Items merge when they are duplicates, or before a work started on any of them when together they still make one PR an engineer finishes in a day and a reader takes in at once; unrelated ones only when each is too small alone and all are of one project. Keep the one furthest along or most waited for, or make a new one when none fits, at the highest of their levels. An item that takes in more, by a merge, by another joining it or by observations folded in, has a title naming their common area, a problem giving each part one sentence and one example, and each part's acceptance. If no title of 20 characters fits, they are two items.",
+            "Items merge when they are duplicates, or before a work started on any of them when together they still make one PR an engineer finishes in a day and a reader takes in at once; unrelated ones only when each is too small alone and all are of one project. Keep the one furthest along or most waited for, or make a new one when none fits, at the highest of their levels. An item that takes in more, by a merge, by another joining it or by observations folded in, has a title naming their common area, a problem giving each part one sentence and one example, and each part's acceptance. If no title within `items.title_max` fits, they are two items.",
             "A split makes new items and has the item depend on them; each acceptance condition of the item goes to one new item at most, and those that go to none stay with it. An item others are under is itself a deliverable, and they are its parts: never group by topic, nor by who asks, one item per capability with each asker's case a condition of its acceptance. A dependency says what the item needs the other to deliver, and its kind: blocking when the item cannot start before the other is merged, as when it needs a module or a library the other makes; parallel when it can start and wait where it needs the other. If the item could finish with no rework were the other never done, it is no dependency. A blocking dependency added later does not stop a work already running.",
             "One decision per change, its reason saying what it is for and what follows if it is not made; where a change cannot stand without another, such as one that refers to an item these changes create, its reason says which. An item is cancelled only when its work is not to be done, saying where its work went.",
             "A decision of the owner's goes in its item's `approach`, under the head `Decisions:`, as one line, which the engine writes from a decision you hand in to the cell that records decisions: it takes who decided, the date and the words from the records they are in. A change to an item does not write one, and keeps the lines the item has letter for letter, in their order, under their head. The rest of `approach` stands under `Approach:`, and what works learned under `Learned:`, as `Fact (YYYY-MM-DD): <fact> (<source>)` and `Dropped (YYYY-MM-DD): <approach>. Why: <why> (<source>)`, with `Commits: <hashes>`. Before recording a decision, look for the earlier one on the same matter; a decision holds as of its date, and says what it replaces."

@@ -70,6 +70,7 @@ export function Measure({ value }: { value: JsonValue }) {
   if (!isObj(value) || typeof value.verdict !== 'string') return <Labelled value={value} />;
   if (value.verdict === 'not_measured') return <p className="prose muted">{t('measure_not', { why: str(value.why) })}</p>;
   if (value.verdict === 'measured') return <p className="prose muted">{t('measure_done', { effect: str(value.effect) })}</p>;
+  if (value.verdict === 'from_records') return <p className="prose muted">{t('measure_records', { read: str(value.read) })}</p>;
   return <Labelled value={value} />;
 }
 

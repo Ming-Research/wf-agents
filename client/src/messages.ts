@@ -925,6 +925,7 @@ const messages = {
   option_bad: 'Bad',
   measure_not: 'Not measured: {why}',
   measure_done: 'Measured: {effect}',
+  measure_records: 'Decided from the records: {read}',
   acceptance_locked: 'Locked at',
   acceptance_proposed: 'As the design proposes it; not locked yet.',
   acc_by_test: 'by tests',

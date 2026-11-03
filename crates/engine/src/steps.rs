@@ -581,7 +581,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     {
         // A repair is checked as the return it gives would be taken.
         let accepts = |e: &Engine, candidate: &Value| -> Result<(), String> {
-            let (out, _) = crate::unparsed::as_taken(g, cell, candidate.clone());
+            let out = crate::unparsed::as_taken(g, cell, candidate.clone()).out;
             g.take(&cell.id, &out, &given)?;
             let ctx = checks::Ctx {
                 e,
@@ -649,6 +649,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             Some(v) => {
                 e.say(&format!("{round}: its return was repaired or handed in again"));
                 reply.output = Some(v);
+                // A repair reads the text of an attempt; a hand-in again through the tool keeps its own source.
+                reply.output_from.get_or_insert(agent::Source::Text);
             }
             // The agent's hand-in again failed for another cause, which is handled as that kind of failed run.
             None if reply
@@ -690,7 +692,33 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // the form, a field every return holds that it wrote inside the field its forms are under moved up beside it, and a
     // field the flow lets it leave out that it wrote as null left out. The round records a form taken from text, so
     // that how often models still write it shows.
-    let (output, from_text) = crate::unparsed::as_taken(g, cell, output);
+    let crate::unparsed::Taken {
+        out: output,
+        from_text,
+        foreign_nulls,
+    } = crate::unparsed::as_taken(g, cell, output);
+    // Where the return was read from (the tool the command line checked it in, or the text of the run's result, which
+    // no check of the command line saw), and the nulls taken as left out for being fields of another form: what shows
+    // how a return reached the engine with a fault the command line refuses.
+    let mut kept = serde_json::Map::new();
+    if let Some(from) = reply.output_from {
+        kept.insert("return_from".into(), json!(from.name()));
+    }
+    if !foreign_nulls.is_empty() {
+        kept.insert("foreign_nulls".into(), json!(foreign_nulls));
+    }
+    if !kept.is_empty() {
+        let patch = json!({ "engine": kept }).to_string();
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET input = json_patch(input, ?3)
+                 WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                params![round.work, round.n, patch],
+            )?;
+            Ok(())
+        })
+        .map_err(sql)?;
+    }
     if from_text {
         e.say(&format!(
             "{round}: its {} was handed in as the JSON text of it, and is taken as the object",
