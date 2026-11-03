@@ -189,7 +189,11 @@ pub fn catch_up(dir: &Path, main: &str) -> Result<Result<String, Vec<String>>, S
         Ok(_) => Ok(Ok(head(dir)?)),
         Err(_) => {
             let files = lines(
-                &git(dir, &["-c", NAMES_AS_THEY_ARE, "diff", "--name-only", "--diff-filter=U"]).unwrap_or_default(),
+                &git(
+                    dir,
+                    &["-c", NAMES_AS_THEY_ARE, "diff", "--name-only", "--diff-filter=U"],
+                )
+                .unwrap_or_default(),
             );
             let _ = git(dir, &["merge", "--abort"]);
             Ok(Err(files))

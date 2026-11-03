@@ -176,9 +176,13 @@ fn a_file_with_a_name_beyond_ascii_is_named_as_it_is() {
     let dir = fresh("unicode");
     let start = commit(&dir, &[("a.txt", "a\n")], "Start");
     fetched_main(&dir);
-    commit(&dir, &[("café.txt", "1\n"), ("日本語.txt", "2\n")], "Names");
+    // The names are written as escapes, because the repository is all ASCII (AGENTS.md): a Latin letter with an
+    // accent, and three characters of Japanese.
+    let accent = "caf\u{e9}.txt";
+    let japanese = "\u{65e5}\u{672c}\u{8a9e}.txt";
+    commit(&dir, &[(accent, "1\n"), (japanese, "2\n")], "Names");
     let since = changes_since(&dir, "main", &start, "HEAD").unwrap();
-    assert_eq!(since.own_files, ["café.txt", "日本語.txt"], "{since:?}");
+    assert_eq!(since.own_files, [accent, japanese], "{since:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
