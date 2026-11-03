@@ -24,7 +24,8 @@ WITH RECURSIVE
 -- the whole context again, the most it can; 'opening', only what it opens with, the least; and the rule: 'any', the
 -- buy is the whole context at every call, wherever the session starts anew; 'boundary', the buy before a round of
 -- another cell or work is the new opening, and elsewhere the whole context; 'between', as 'boundary', but a session
--- starts anew only between rounds; and what a session started anew without a hand-over writes to the cache: 'opening',
+-- starts anew only between rounds; 'round', as 'any', but the rent counts only the calls of the round under way, so that
+-- a session comes due only in a round that has itself paid the buy; and what a session started anew without a hand-over writes to the cache: 'opening',
 -- its new opening; 'whole', the whole context, as much as a hand-over at the most.
 given(handover, counted, rebuild, rule, restart) AS (VALUES (3000, 'turns', 'whole', 'boundary', 'whole')),
 -- What a million tokens cost each model, in US dollars, as crates/sessions/src/cost.rs has it: a read from the cache,
@@ -105,7 +106,7 @@ calls AS MATERIALIZED (
           * (x.i * 1.0 / (r.calls - 1)) * (1 - x.i * 1.0 / (r.calls - 1))
     END, max(r.opening, r.closing)), min(r.opening, r.closing)) AS p,
     (g.rule != 'between' OR (x.i + 1 = r.calls AND r.next_cell IS NOT NULL)) AS may,
-    (g.rule != 'any' AND x.i + 1 = r.calls AND r.next_cell IS NOT NULL
+    (g.rule IN ('boundary', 'between') AND x.i + 1 = r.calls AND r.next_cell IS NOT NULL
       AND (r.next_cell != r.cell OR r.next_work != r.work)) AS cheap
   FROM ran r JOIN nums x ON x.i < r.calls JOIN given g
 ),
@@ -142,7 +143,7 @@ step(s, i, work, n, j, may, cheap, o0, d, o, e, rd, wr, outp, rent, saved, paid,
     pr.read, CASE WHEN c.hour THEN pr.w1 ELSE pr.w5 END, pr.output,
     -- rent: what this call reads again past the opening, after what was paid since the session opened.
     (1 - (st.rent > 0 AND st.may AND st.rent >= (CASE WHEN st.cheap THEN st.o0 ELSE st.e END) * st.wr / 1e6))
-      * st.rent
+      * (g.rule != 'round' OR c.j > 1) * st.rent
       + max(max(c.p - (st.d + (st.rent > 0 AND st.may
                                AND st.rent >= (CASE WHEN st.cheap THEN st.o0 ELSE st.e END) * st.wr / 1e6)
                          * max(st.e - st.o0 - (1 - st.cheap) * g.handover, 0)),
