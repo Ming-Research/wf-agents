@@ -801,6 +801,11 @@ impl GitHub for FakeHub {
         check: &CheckRun,
         name: &str,
     ) -> Result<Option<Vec<engine::hub::ArtifactFile>>, Failure> {
+        // Every run reports its tests' results; its check's link ends with its commit.
+        if name == RESULTS {
+            let sha = check.run.rsplit('/').next().unwrap_or_default();
+            return Ok(Some(vec![("junit.xml".to_string(), self.junit(sha).into_bytes())]));
+        }
         match self.run_of(check) {
             Some(_) => Ok((name == "measurement").then(|| vec![("pairs.tsv".to_string(), b"1\t2\t3\n".to_vec())])),
             None => Err(Failure::other("no artifacts here")),
@@ -866,7 +871,24 @@ impl GitHub for FakeHub {
 /// The regression test a bug fix of the light route adds, as a file in the test paths that names it.
 const REGRESSION: &str = "regression";
 
+/// The artifact every run of the fake GitHub's CI reports its tests' results in, as the project's configuration names it.
+const RESULTS: &str = "test-results";
+
 impl FakeHub {
+    /// The results a run of the commit reports, as JUnit: the feature's test, which passes, and the regression test,
+    /// which fails where the commit's CI is red for it.
+    fn junit(&self, sha: &str) -> String {
+        let regression = if self.regression_red(sha) {
+            "<failure message=\"the last line is dropped\"/>"
+        } else {
+            ""
+        };
+        format!(
+            "<testsuites><testsuite name=\"e2e\"><testcase name=\"feature\" time=\"0.001\"/>\
+             <testcase name=\"{REGRESSION}\" time=\"0.001\">{regression}</testcase></testsuite></testsuites>"
+        )
+    }
+
     /// Whether the commit holds the regression test and not the fix it tests, the word `fixed` in `src/lib.txt`: the
     /// CI of such a commit is red, as a regression test run on the code before its fix is. No other test makes either.
     fn regression_red(&self, sha: &str) -> bool {
@@ -1005,6 +1027,7 @@ rules = ["ground"]
 fast = "ci"
 full = ["ci"]
 merge_checks = ["check"]
+results = {{ artifact = "{RESULTS}" }}
 "#,
             checkout.display()
         ),

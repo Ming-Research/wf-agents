@@ -13,6 +13,8 @@ db = { path = "../db" }
 flow = { path = "../flow" }
 # Compresses the daily copy of the database before it is kept off the machine; pure Rust, on every platform.
 flate2 = "1.1.10"
+# Reads the JUnit XML files a project's fast CI reports its tests' results in; it only reads, and refuses a DTD.
+roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # The session manager: which session a round runs in, what it holds and costs, and the command line it runs in.

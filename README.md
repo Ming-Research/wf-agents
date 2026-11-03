@@ -48,7 +48,10 @@ the engine's tool `ci` runs it so, and runs the full CI by hand on a head that h
 CI on the draft and the merge; else a push runs the full CI and the engine only waits for it. The tool `ci_before` runs the tests it is given on the
 code before the change by hand with the same input; a project with no such input (`ci.tests_input`) has it push a
 temporary branch and wait for the whole run, unless the project's configuration sets `ci.runs_on_before_branches` to
-false, which says its CI does not run on those branches and has the tool refuse at once. One of the tests, `crates/wf-agents/tests/english.rs`, holds the repository to English: it fails on a
+false, which says its CI does not run on those branches and has the tool refuse at once. Both tools read what became
+of each test named from the JUnit results the run uploads, in the artifact the project's configuration names
+(`ci.results`, whose documentation in `crates/config/src/lib.rs` gives the conventions and how a name names a test).
+One of the tests, `crates/wf-agents/tests/english.rs`, holds the repository to English: it fails on a
 tracked file that holds a letter that is not ASCII, written as itself or as an escape, but for the files
 `.config/english-exempt.txt` names, such as a document made as a translation.
 
