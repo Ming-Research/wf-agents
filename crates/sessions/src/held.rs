@@ -134,7 +134,8 @@ pub struct Held {
     /// The latest version of each input the engine computed that a round gave it or referred to, by the input's name
     /// ([`engine_name`]), standard context or not: a content it holds under the address of the round that first had it
     /// is the latest one only when no round since gave or referred to another. The round of a version is the round
-    /// that first gave that content.
+    /// that gave or referred to it last, which is the round "since" is told by (its address names the round that
+    /// first gave the content, which can be an earlier one).
     pub engine_latest: HashMap<String, Version>,
     /// The parts of its system prompt ([`crate::system`]), each as the round that started the session recorded it: it
     /// holds them from its start to its end, compacted or not.
@@ -233,7 +234,7 @@ impl Held {
                         Version {
                             address: x.address.clone(),
                             hash: x.hash.clone(),
-                            round,
+                            round: r.id,
                             text: None,
                         },
                     );
