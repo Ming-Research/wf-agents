@@ -1398,7 +1398,7 @@ pub fn engine(
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
-        Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
+        Some("look_at_queue") => architect::look_at_queue(e, w, g, cell)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };

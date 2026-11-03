@@ -1022,8 +1022,40 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<St
 /// either; a flow version before waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
 /// of two cells come from all the work can take ([`queued`]), never held back by the hold to set the project straight,
 /// which holds back only the matters from the head of the queue on ([`pickable`]).
-pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
-    look(e.db.conn(), project_of(w)?, w.id, cell, reply_wait(e), db::now())
+pub fn look_at_queue(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Value, String> {
+    let mut out = look(e.db.conn(), project_of(w)?, w.id, cell, reply_wait(e), db::now())?;
+    if let Some(ended) = end_long_session(e, w, g, &out)? {
+        out["session_ended"] = ended;
+    }
+    Ok(out)
+}
+
+/// The verdicts of the look at the queue that take a matter afresh: its first cell, or the pick before it.
+const AFRESH: [&str; 4] = ["owner_words", "head", "one", "many"];
+
+/// Before a matter taken afresh, ends the session the architect would take it in when its context is past the
+/// architect's limit (`agents.architect_context_limit`), so that the matter is taken in a new session, which goes on
+/// from the notebook: every round of a session reads the whole session again. A matter of two cells going on at its
+/// second, or back with the owner's reply, keeps its session. Gives the context and the limit when it ended one.
+fn end_long_session(e: &mut Engine, w: &Work, g: &CompiledGraph, out: &Value) -> Result<Option<Value>, String> {
+    if !AFRESH.contains(&out["queue"]["verdict"].as_str().unwrap_or_default()) {
+        return Ok(None);
+    }
+    let sessions::Plan::Going { id, rounds, .. } = plan_at_understanding(e, w, g, db::now())? else {
+        return Ok(None);
+    };
+    let limit = e.config.config.install.agents.architect_context_limit;
+    let Some(context) = sessions::choose::context(&rounds) else {
+        return Ok(None);
+    };
+    if context <= i64::try_from(limit).unwrap_or(i64::MAX) {
+        return Ok(None);
+    }
+    e.db.write(Actor::Engine, |tx| {
+        sessions::choose::end(tx, id).map_err(db::Error::Abort)
+    })
+    .map_err(sql)?;
+    Ok(Some(json!({ "context": context, "limit": limit })))
 }
 
 /// What the look at the queue of the architect's work `work` finds at `now`, `wait_ms` being the installation's wait
@@ -1213,14 +1245,40 @@ fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph, now: i64) -> R
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)
 }
 
-/// Whether the session the architect's work goes on in is the one its previous work left: a new one, or one the next
-/// round would leave for a new one (past the limit, on another model or account, or let go by the cache), is not, and
-/// understands the project first; a session that goes on never does again, compacted or not.
+/// Whether the architect understands the project as its work goes on: the session it goes on in is the one its
+/// previous work left, or a new one that goes on from the notebook ([`from_notebook`]); a session that goes on never
+/// understands the project again, compacted or not.
 fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
-    Ok(matches!(
-        plan_at_understanding(e, w, g, db::now())?,
-        sessions::Plan::Going { .. }
-    ))
+    let now = db::now();
+    match plan_at_understanding(e, w, g, now)? {
+        sessions::Plan::Going { .. } => Ok(true),
+        sessions::Plan::New(why) => from_notebook(e, w, why, now),
+    }
+}
+
+/// Whether a new session of the architect's, started for `why` at `now`, goes on from the notebook: the project's
+/// latest understanding answered less than the understanding's life ago (`agents.understanding_life`), and the owner did
+/// not ask for the new session. One that does not understands the project first.
+fn from_notebook(e: &Engine, w: &Work, why: sessions::Start, now: i64) -> Result<bool, String> {
+    if matches!(why, sessions::Start::Owner) {
+        return Ok(false);
+    }
+    let life = i64::try_from(e.config.config.install.agents.understanding_life)
+        .unwrap_or(i64::MAX / 1000)
+        .saturating_mul(1000);
+    let at: Option<i64> =
+        e.db.conn()
+            .query_row(
+                &format!(
+                    "SELECT max(r.ended_at) FROM rounds r JOIN works x ON x.id = r.work
+                 WHERE x.graph = 'architect' AND x.project = ?1 AND {}",
+                    answered_understanding("r")
+                ),
+                [project_of(w)?],
+                |r| r.get(0),
+            )
+            .map_err(sql)?;
+    Ok(at.is_some_and(|at| now - at < life))
 }
 
 /// How the work came to the understanding question, which only a new session comes to: at the project's first
@@ -1325,8 +1383,9 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 /// Whether the architect's work goes back to understanding the project before a round of the architect's line at a
 /// cell: the round would start a new session there at `now` (the owner asked for one, the last was past the limit, the
 /// model or the login account changed, or the CLI's prompt cache let the last go), past the understanding, and a new
-/// session remembers nothing but the notebook. The matter it had in hand goes back to the queue, and is taken again as
-/// any other.
+/// session remembers nothing but the notebook, which it cannot go on from ([`from_notebook`]). The matter it had in
+/// hand goes back to the queue, and is taken again as any other; a new session that goes on from the notebook opens at
+/// the cell, with the matter in hand.
 ///
 /// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
 /// names them here. Gives why the session would start afresh, in words; none when the work goes on.
@@ -1356,6 +1415,8 @@ pub fn understand_first(
         .sessions()
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)?;
     Ok(match plan {
+        // A new session that goes on from the notebook is opened at the cell, with the matter in hand.
+        sessions::Plan::New(why) if from_notebook(e, w, why, now)? => None,
         sessions::Plan::New(why) => Some(crate::steps::new_session_why(
             why,
             cell,

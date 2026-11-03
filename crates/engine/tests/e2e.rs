@@ -6614,6 +6614,7 @@ fn architect_works_in(
     talks: &[(i64, &str)],
 ) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Vec<i64>) {
     let s = setup(name);
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -6800,6 +6801,7 @@ fn the_first_understanding_is_given_the_latest_whole_entries_of_the_talk() {
 #[test]
 fn the_cache_expiring_in_the_middle_of_an_architect_work_starts_a_new_session() {
     let s = setup("expired-midway");
+    understanding_each_session(&s);
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     let (mut e, said) = engine(&s, agents);
@@ -6845,6 +6847,97 @@ fn the_cache_expiring_in_the_middle_of_an_architect_work_starts_a_new_session() 
         ],
         "{log}"
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The cache of the architect's session expiring in the middle of a work while the project's latest understanding holds
+// opens a new session at the next round, started as expired, which goes on from the notebook: the work does not go back
+// to understanding the project, and the matter in hand stays in hand.
+#[test]
+fn a_new_session_goes_on_from_the_notebook_while_the_understanding_holds() {
+    let s = setup("expired-notebook");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "One.");
+    say(&mut e, "Two.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| e.work(arch).unwrap().pos.at == "H8"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    assert_eq!(path.iter().filter(|c| *c == "S1").count(), 1, "{path:?}\n{log}");
+    assert_eq!(path.iter().filter(|c| *c == "U1").count(), 1, "{path:?}\n{log}");
+    assert!(
+        rows_at(&e, arch, "H8").iter().all(|r| r != "session_anew"),
+        "{path:?}\n{log}"
+    );
+    let lines = line_sessions(&e, arch, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert_eq!(lines[1].0, "expired", "{lines:?}");
+    assert!(lines[1].2.starts_with("H8"), "{lines:?}");
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, true),
+            ("owner_words".to_string(), false, true)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's session past the architect's limit ends at the look at the queue before a matter taken afresh, which
+// says so: the matter is taken in a new session, which goes on from the notebook while the understanding holds.
+#[test]
+fn a_long_session_of_the_architect_s_ends_before_a_matter_taken_afresh() {
+    let s = setup("architect-limit");
+    agents_setting(&s, "architect_context_limit = 1000");
+    git(&s.data, &["commit", "-q", "-am", "a small limit for the architect"]);
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 200_000))])),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "One.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    assert_eq!(path.iter().filter(|c| *c == "U1").count(), 1, "{path:?}\n{log}");
+    let lines = line_sessions(&e, arch, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert_eq!((lines[0].1, lines[0].2.as_str()), (true, "U1"), "{lines:?}");
+    assert!(lines[1].2.starts_with("H8"), "{lines:?}");
+    let ended: Value =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.session_ended') FROM rounds WHERE work = ?1 AND cell = 'Q0'
+                 AND json_extract(output, '$.session_ended') IS NOT NULL",
+                [arch],
+                |r| r.get::<_, String>(0),
+            )
+            .map(|t| serde_json::from_str(&t).unwrap())
+            .expect(&log);
+    assert_eq!(ended, json!({ "context": 200_503, "limit": 1000 }), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7974,13 +8067,26 @@ fn asks_the_owner(question: &str) -> Hands {
 /// Sets the installation's wait for the owner's reply to none, so that a question the architect puts waits at the back
 /// of its queue at once.
 fn no_reply_wait(s: &Setup) {
-    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
-    write(
-        &s.data,
-        "install.toml",
-        &format!("{install}\n[agents]\nowner_reply_wait = 0\n"),
-    );
+    agents_setting(s, "owner_reply_wait = 0");
     git(&s.data, &["commit", "-q", "-am", "no wait for the owner's reply"]);
+}
+
+/// Sets a setting of the installation's agents, under the table `[agents]`, which it adds when there is none.
+fn agents_setting(s: &Setup, line: &str) {
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    let install = if install.contains("\n[agents]\n") {
+        install.replacen("\n[agents]\n", &format!("\n[agents]\n{line}\n"), 1)
+    } else {
+        format!("{install}\n[agents]\n{line}\n")
+    };
+    write(&s.data, "install.toml", &install);
+}
+
+/// Has every new session of the architect's understand the project first, as it did before a new session went on from
+/// the notebook: the understanding holds no time at all.
+fn understanding_each_session(s: &Setup) {
+    agents_setting(s, "understanding_life = 0");
+    git(&s.data, &["commit", "-q", "-am", "an understanding that holds no time"]);
 }
 
 // A question to the owner from a cell on a matter's path parks only that matter: once the wait for the owner's reply
@@ -9802,6 +9908,7 @@ fn a_return_that_misuses_back_for_the_owner_is_sent_back_with_all_its_problems_a
 #[test]
 fn a_group_goes_on_to_its_second_cell_after_the_owner_s_words_and_a_new_session() {
     let s = setup("group-between");
+    understanding_each_session(&s);
     let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
     let given = ids.clone();
     let take_in: Script = Box::new(move |_: &Request, n: usize| {
@@ -13637,6 +13744,7 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
 #[test]
 fn a_new_session_s_understanding_is_given_what_is_unclear_and_not_what_the_project_is_now() {
     let s = setup("notebook-new-session");
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
@@ -15187,6 +15295,7 @@ fn a_side_report_handed_in_again_is_queued_once() {
 #[test]
 fn a_new_session_in_the_middle_of_an_architect_work_understands_the_project_first() {
     let s = setup("new-session-midway");
+    understanding_each_session(&s);
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     let (mut e, said) = engine(&s, agents);

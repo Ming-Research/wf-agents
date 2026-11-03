@@ -203,6 +203,16 @@ pub struct Agents {
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
+    /// The context, in tokens, past which the architect's session ends before the next matter it takes afresh (cell
+    /// `Q0`), so that a new session takes that matter: every round of a session reads the whole session again, and the
+    /// architect's rounds each add little to a long one.
+    #[serde(default = "architect_context_limit")]
+    pub architect_context_limit: u64,
+    /// How long, in seconds, the architect's understanding of a project (cell `U1`) holds: a new session of the
+    /// architect's within it goes on from the notebook the understanding wrote, and one past it understands the project
+    /// again.
+    #[serde(default = "understanding_life")]
+    pub understanding_life: u64,
     /// The least time, in seconds, between two matters of slots free for one project's architect (cell `S0`'s
     /// `queue_slots_free`): one that found nothing to start does not come back at once.
     #[serde(default = "slots_free_wait")]
@@ -215,6 +225,14 @@ pub struct Agents {
 
 fn context_limit() -> u64 {
     500_000
+}
+
+fn architect_context_limit() -> u64 {
+    150_000
+}
+
+fn understanding_life() -> u64 {
+    21_600
 }
 
 fn slots_free_wait() -> u64 {
