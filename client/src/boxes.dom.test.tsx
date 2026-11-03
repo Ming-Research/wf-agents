@@ -300,7 +300,7 @@ describe("the ref of the flow's comparison", () => {
   ];
   const route = { page: 'flow', version: null, graph: null, cell: null, project: null, ref: null, snapshot: null, from: null } as const;
   const compare = <CompareBox r={route} versions={versions} shown={2} current={2} onClose={() => undefined} />;
-  const refBox = (h: HTMLElement): Box => must(h.querySelector('input[list="flow-refs"]'));
+  const refBox = (h: HTMLElement): Box => must(h.querySelector<HTMLInputElement>('input[list="flow-refs"]'));
   /// Chooses to compare with a ref, which enables the box for it.
   const chooseRef = async (h: HTMLElement) => click(must(h.querySelector('input[type="radio"][value="ref"]')));
 
