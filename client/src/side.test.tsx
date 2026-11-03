@@ -6,17 +6,23 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Architect, ArchitectWork, Conversation, Matter, NotebookVersion, WorkSummary } from './api';
+import type { Architect, ArchitectPanel, ArchitectWork, Conversation, Matter, NotebookVersion, WorkSummary } from './api';
 import { time } from './format';
 import { ArchitectSide, keepSide, sideKept } from './pages/ArchitectSide';
 import { ArchitectHead } from './pages/TalkHead';
 import { href, parse, sideHref } from './route';
 
-// Drawn once, outside a browser: nothing is read, and the engine's state is not known.
+// Drawn once, outside a browser: the engine's state is not known, and the only thing read is the panel's own read of
+// the architect, which is as `read` (below) has it.
+const read: { panel: ArchitectPanel | undefined } = { panel: undefined };
 vi.mock('./live', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./live')>()),
   useStatus: () => null,
-  useResource: () => ({ data: undefined, error: null }),
+  useResource: (_key: string | null, path: string | null) => ({
+    data: path === '/api/v1/architect/panel?project=p' ? read.panel : undefined,
+    error: null,
+    stale: false,
+  }),
 }));
 // The session the owner's Start and Step run in is a store the page reads in a browser, read here as it would be there.
 vi.mock('react', async (importOriginal) => {
@@ -92,6 +98,10 @@ const architect: Architect = {
   queue: [matter(11), matter(12, { what: 'The matter in hand' }), matter(13, { asked: 5, resume_cell: 'P1' })],
   holds: [],
   asks: [],
+  draft: { work: 9, round: 7, at: 70, policy: { direction: 'Ship the parser.', why: 'It blocks all.', principles: [], signals: [] } },
+};
+
+const panel: ArchitectPanel = {
   handled: [],
   changes: [],
   policy: {
@@ -101,7 +111,6 @@ const architect: Architect = {
     at: 40,
     policy: { direction: 'Keep it small.', why: 'Small is quick.', principles: [], signals: [] },
   },
-  draft: { work: 9, round: 7, at: 70, policy: { direction: 'Ship the parser.', why: 'It blocks all.', principles: [], signals: [] } },
   notebook: [
     {
       section: 'project_now',
@@ -121,8 +130,16 @@ const architect: Architect = {
   },
 };
 
-const side = (tab: 'notebook' | 'policy' | 'queue', a: Architect = architect): string =>
-  renderToStaticMarkup(<ArchitectSide a={a} tab={tab} onClose={() => undefined} />);
+/// The panel drawn on a tab, the architect it is of and what the read of the rest of the architect gave (`given`, none
+/// while it is not read yet).
+const side = (
+  tab: 'notebook' | 'policy' | 'queue',
+  a: Architect = architect,
+  given: ArchitectPanel | null = panel,
+): string => {
+  read.panel = given ?? undefined;
+  return renderToStaticMarkup(<ArchitectSide a={a} tab={tab} onClose={() => undefined} />);
+};
 
 /// The tabs drawn, each its words and its count, the one shown marked.
 const tabs = (html: string): string[] =>
@@ -190,16 +207,16 @@ describe('the panel beside the one-to-one with an architect', () => {
     expect(html).toContain(`(${time(1_700_000_000_000)})`);
     expect(html).not.toContain('0123456789abcdef');
     // A commit with no time known says so.
-    const known = architect.constitution;
+    const known = panel.constitution;
     expect(known).not.toBeNull();
-    const unknown = { ...architect, constitution: known === null ? null : { ...known, committed_at: null } };
-    expect(section(side('policy', unknown), 'Constitution')).toContain('(time unknown)');
+    const unknown = { ...panel, constitution: known === null ? null : { ...known, committed_at: null } };
+    expect(section(side('policy', architect, unknown), 'Constitution')).toContain('(time unknown)');
   });
 
   it('says why a constitution could not be read, opened, and not an empty one', () => {
     const why = 'project p: constitution: CONSTITUTION.md cannot be read at 0123456789abcdef: no such path';
     const unread = {
-      ...architect,
+      ...panel,
       constitution: {
         name: 'CONSTITUTION.md',
         commit: '0123456789abcdef0123456789abcdef01234567',
@@ -208,19 +225,19 @@ describe('the panel beside the one-to-one with an architect', () => {
         error: why,
       },
     };
-    const html = section(side('policy', unread), 'Constitution');
+    const html = section(side('policy', architect, unread), 'Constitution');
     expect(html).toMatch(/^<details[^>]* open=""/);
     expect(html).toContain(why);
     expect(html).not.toContain('is empty');
     // Without a commit of main, the path stands alone, and the reason is still given.
-    const nowhere = { ...architect, constitution: { ...unread.constitution, commit: null } };
-    const bare = section(side('policy', nowhere), 'Constitution');
+    const nowhere = { ...panel, constitution: { ...unread.constitution, commit: null } };
+    const bare = section(side('policy', architect, nowhere), 'Constitution');
     expect(bare).toMatch(/CONSTITUTION\.md on the project(&#x27;|')s main</);
     expect(bare).not.toMatch(/main, at/);
     expect(bare).toContain(why);
     // A constitution that was read and holds nothing is said to be empty.
-    const empty = { ...architect, constitution: { ...unread.constitution, text: '  ', error: null } };
-    expect(section(side('policy', empty), 'Constitution')).toMatch(/CONSTITUTION\.md on the project(&#x27;|')s main is empty\./);
+    const empty = { ...panel, constitution: { ...unread.constitution, text: '  ', error: null } };
+    expect(section(side('policy', architect, empty), 'Constitution')).toMatch(/CONSTITUTION\.md on the project(&#x27;|')s main is empty\./);
   });
 
   it('shows the queue as the head showed it: its facts, then its matters in order, the one in hand marked', () => {
@@ -236,6 +253,18 @@ describe('the panel beside the one-to-one with an architect', () => {
     expect(rows[1][1]).toBeDefined();
     expect(rows[1][2]).toContain('in hand');
     expect(rows[2][2]).toContain('held by your ask');
+  });
+
+  it('reads the notebook, the policy and the matters handled apart from the architect: until they are read it says so, and the queue it draws from the architect shows', () => {
+    for (const tab of ['notebook', 'policy'] as const) {
+      const html = side(tab, architect, null);
+      expect(html).toContain('Loading…');
+      expect(html).not.toContain('Two parsers.');
+      expect(html).not.toContain('Keep it small.');
+    }
+    const queue = side('queue', architect, null);
+    expect(queue).toContain('The matter in hand');
+    expect(queue).not.toContain('handled today');
   });
 
   it('is open unless this browser kept it closed, and keeps what the owner sets', () => {

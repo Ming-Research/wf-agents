@@ -292,6 +292,17 @@ button.talk-pinbar-line:hover .talk-pinbar-words {
   box-shadow: var(--shadow-floating-small);
 }
 
+/* Where the interface left entries of the conversation out: how many, and the button that shows the ones before. */
+.talk-gap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--base-size-8);
+  padding: var(--base-size-8);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
 .talk-stream {
   flex: 1;
   min-height: 0;

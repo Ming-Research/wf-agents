@@ -275,7 +275,8 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         post(s.port, "/api/v1/architect/start?project=q", "{}", "application/json").0,
         404
     );
-    // The architect's tab names its project and every project, and no constitution for a project that names none.
+    // The architect names its project and every project; the rest of its page is read apart, with no constitution for a
+    // project that names none.
     let here = format!("127.0.0.1:{}", s.port);
     let (status, tab) = get(s.port, "/api/v1/architect", &here, "");
     assert_eq!(status, 200, "{tab}");
@@ -283,7 +284,9 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         tab.contains(r#""project":"p""#) && tab.contains(r#""projects":["p"]"#),
         "{tab}"
     );
-    assert!(tab.contains(r#""constitution":null"#), "{tab}");
+    let (status, panel) = get(s.port, "/api/v1/architect/panel", &here, "");
+    assert_eq!(status, 200, "{panel}");
+    assert!(panel.contains(r#""constitution":null"#), "{panel}");
     // How every project's architect stands is read at once, one entry for each project of the configuration, with its
     // works, its queue and whether a question of its own waits, and none of the rest of the architect's page.
     let (status, standing) = get(s.port, "/api/v1/architects", &here, "");
@@ -292,16 +295,48 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         standing.ends_with(r#"[{"project":"p","works":[],"queue":[],"asking":false}]"#),
         "{standing}"
     );
-    for page_only in ["notebook", "policy", "handled", "changes", "constitution"] {
+    for panel_only in ["notebook", "policy", "handled", "changes", "constitution"] {
         assert!(
-            !standing.contains(page_only),
-            "{page_only} is read for the page alone: {standing}"
+            !standing.contains(panel_only),
+            "{panel_only} is read for the panel alone: {standing}"
         );
         assert!(
-            tab.contains(&format!(r#""{page_only}""#)),
-            "the page holds {page_only}: {tab}"
+            !tab.contains(&format!(r#""{panel_only}""#)),
+            "the architect read for the one-to-one leaves {panel_only} to the panel: {tab}"
+        );
+        assert!(
+            panel.contains(&format!(r#""{panel_only}""#)),
+            "the panel holds {panel_only}: {panel}"
         );
     }
+    // Together the two reads hold exactly the fields the architect had before it was split, each in one of them.
+    let object = |text: &str| -> serde_json::Map<String, serde_json::Value> {
+        let (_, body) = text.split_once("\r\n\r\n").expect("a body");
+        serde_json::from_str::<serde_json::Value>(body)
+            .expect("JSON")
+            .as_object()
+            .expect("an object")
+            .clone()
+    };
+    let mut every: Vec<String> = object(&tab).keys().chain(object(&panel).keys()).cloned().collect();
+    every.sort();
+    assert_eq!(
+        every,
+        [
+            "asks",
+            "changes",
+            "constitution",
+            "draft",
+            "handled",
+            "holds",
+            "notebook",
+            "policy",
+            "project",
+            "projects",
+            "queue",
+            "works"
+        ]
+    );
     // Its rounds are read in windows across its works: none yet; a window is named by a round's name, and a round of
     // another work is not the architect's.
     let (status, rounds) = get(s.port, "/api/v1/architect/rounds?project=p", &here, "");
@@ -521,6 +556,82 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     );
     let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
     assert!(list.contains(r#""key":"architect:p""#), "{list}");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+// The page reads a conversation in a window of its latest entries, as many as the request names: whatever the number, the
+// entries given and the runs left out (`gaps`) are all the conversation has, the latest entry is always given, a number
+// above the most is the most, none at all is at least one entry, and a number that is no count is refused.
+#[test]
+fn a_conversation_is_read_in_the_window_the_request_names() {
+    let s = serve("window");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+            [],
+        )?;
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'T4', '{}', 'c', 1)",
+            [],
+        )?;
+        for i in 0..12 {
+            tx.execute(
+                "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, ?1)",
+                [format!("m{i:02}")],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let here = format!("127.0.0.1:{}", s.port);
+    let read = |limit: &str| -> (u16, serde_json::Value) {
+        let (status, out) = get(s.port, &format!("/api/v1/conversation?key=work%3A1{limit}"), &here, "");
+        let body = out.split_once("\r\n\r\n").map_or("null", |(_, b)| b);
+        (status, serde_json::from_str(body).unwrap_or(serde_json::Value::Null))
+    };
+    let (status, full) = read("");
+    assert_eq!(status, 200, "{full}");
+    let all = full["entries"].as_array().unwrap().len();
+    assert!(all >= 12, "{all}");
+    // Fewer entries than the window: nothing is left out.
+    assert!(full["gaps"].as_array().unwrap().is_empty(), "{full}");
+    let key = |e: &serde_json::Value| (e["source"].as_str().unwrap().to_string(), e["id"].as_i64().unwrap());
+    let last = key(full["entries"].as_array().unwrap().last().unwrap());
+    for limit in ["&limit=3", "&limit=1", "&limit=0"] {
+        let (status, d) = read(limit);
+        assert_eq!(status, 200, "{limit}: {d}");
+        let given: Vec<_> = d["entries"].as_array().unwrap().iter().map(key).collect();
+        let left: i64 = d["gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g["count"].as_i64().unwrap())
+            .sum();
+        // The entries given and those left out are the conversation's, and the latest is given, whatever the number.
+        assert_eq!(given.len() as i64 + left, all as i64, "{limit}: {d}");
+        assert_eq!(given.last(), Some(&last), "{limit}");
+        assert!(!given.is_empty(), "{limit}");
+        // Each run left out is told by an entry given.
+        for g in d["gaps"].as_array().unwrap() {
+            assert!(g["count"].as_i64().unwrap() > 0, "{limit}: {d}");
+            assert!(given.contains(&key(g)), "{limit}: {d}");
+        }
+        // What the window does not touch.
+        assert_eq!(d["asks"], full["asks"], "{limit}");
+        assert_eq!(d["read_to"], full["read_to"], "{limit}");
+    }
+    // A number above the most is the most; here that is every entry.
+    let (_, big) = read("&limit=100000");
+    assert_eq!(big["entries"], full["entries"]);
+    assert!(big["gaps"].as_array().unwrap().is_empty());
+    // What is no count is refused, not read as the window.
+    for bad in ["&limit=abc", "&limit=-1"] {
+        let (status, _) = read(bad);
+        assert!((400..500).contains(&status), "{bad}: {status}");
+    }
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
@@ -834,8 +945,9 @@ fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() 
         serde_json::from_str(out.split_once("\r\n\r\n").map_or("", |x| x.1)).unwrap()
     };
 
-    // The page shows the constitution and the project guide at the commit main is at in the checkout.
-    let tab = page("/api/v1/architect");
+    // The page shows the constitution (in the panel beside the one-to-one) and the project guide at the commit main is
+    // at in the checkout.
+    let tab = page("/api/v1/architect/panel");
     let law = &tab["constitution"];
     assert_eq!(law["name"], "constitution.md");
     assert_eq!(law["commit"], first.as_str());
@@ -862,11 +974,14 @@ fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() 
     std::fs::write(other.join("AGENTS.md"), "New way of work.\n").unwrap();
     let second = commit_all(&other, "second");
     git(&other, &["push", "-q", "origin", "HEAD:main"]);
-    assert_eq!(page("/api/v1/architect")["constitution"]["commit"], first.as_str());
+    assert_eq!(
+        page("/api/v1/architect/panel")["constitution"]["commit"],
+        first.as_str()
+    );
     // Once the engine has fetched, both show the new text and the commit it is at, though no file of the checkout
     // changed.
     git(&checkout, &["fetch", "-q", "origin", "main"]);
-    let tab = page("/api/v1/architect");
+    let tab = page("/api/v1/architect/panel");
     assert_eq!(tab["constitution"]["commit"], second.as_str());
     assert_eq!(tab["constitution"]["text"], "## Article 1. New.\n");
     let now = page("/api/v1/inputs-now");
@@ -883,13 +998,14 @@ fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() 
     let third = commit_all(&other, "third");
     git(&other, &["push", "-q", "origin", "HEAD:main"]);
     git(&checkout, &["fetch", "-q", "origin", "main"]);
-    let tab = page("/api/v1/architect");
+    let tab = page("/api/v1/architect/panel");
     let law = &tab["constitution"];
     let error = law["error"].as_str().unwrap_or_default();
     assert!(error.contains("constitution.md") && error.contains(&third), "{law}");
     assert_eq!(law["name"], "constitution.md");
     assert_eq!(law["commit"], third.as_str());
     assert_eq!(law["text"], "");
+    let tab = page("/api/v1/architect");
     assert_eq!(tab["project"], "p");
     assert_eq!(tab["projects"], serde_json::json!(["p"]));
     assert_eq!(tab["works"], serde_json::json!([]));
@@ -901,7 +1017,7 @@ fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() 
 
     // A checkout that is gone: the commit is none, both pages say why in the place of the text, and nothing else fails.
     std::fs::remove_dir_all(&checkout).unwrap();
-    let tab = page("/api/v1/architect");
+    let tab = page("/api/v1/architect/panel");
     assert_eq!(tab["constitution"]["commit"], serde_json::Value::Null);
     assert!(
         tab["constitution"]["error"]
@@ -909,7 +1025,7 @@ fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() 
             .is_some_and(|e| e.contains("origin/main")),
         "{tab}"
     );
-    assert_eq!(tab["project"], "p");
+    assert_eq!(page("/api/v1/architect")["project"], "p");
     let now = page("/api/v1/inputs-now");
     let project = &now["projects"][0];
     assert!(

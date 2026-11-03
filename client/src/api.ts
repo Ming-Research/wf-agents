@@ -852,7 +852,26 @@ read_to: number | null,
 /**
  * For wf-agents' own conversation: where its faults can go; none for another.
  */
-forwarding: Forwarding | null, };
+forwarding: Forwarding | null,
+/**
+ * What `entries` leaves out: the runs of entries not given, each by the entry it comes before; empty when every
+ * entry is given.
+ */
+gaps: Array<Gap>, };
+
+/**
+ * A run of a conversation's entries that were not given, because they are older than the latest ones asked for and
+ * nothing in them waits for the owner: how many, and the entry, given, that they come before.
+ */
+export type Gap = {
+/**
+ * The entry the run comes before, by its source and its row.
+ */
+source: string, id: number,
+/**
+ * How many entries it leaves out.
+ */
+count: number, };
 
 /**
  * What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
@@ -1563,9 +1582,11 @@ export type AccountChoice = { cli: string, name: string, };
 export type NewLevel = { level: string, };
 
 /**
- * A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
- * the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
- * one, and its notebook. Its works are works of the architect's graph for the project, on no item.
+ * A project's architect, as the head of its one-to-one and its page show it: its works, its queue, what stops the
+ * project's new works, what its works asked the owner, and the draft of a new policy that waits for the owner's
+ * approval. What only the panel beside the one-to-one and the page's tab of item changes draw is `ArchitectPanel`,
+ * read apart, so that the one-to-one, which reads this on every event, does not read the notebook with it. Its works
+ * are works of the architect's graph for the project, on no item.
  */
 export type Architect = {
 /**
@@ -1593,6 +1614,18 @@ holds: Array<DispatchHold>,
  */
 asks: Array<OwnerAsk>,
 /**
+ * The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
+ * policy takes effect; none otherwise.
+ */
+draft: PolicyDraft | null, };
+
+/**
+ * What a project's architect has besides `Architect`, which the panel beside its one-to-one and its page's tab of item
+ * changes draw: the matters it handled, the item changes its batches made, the policy it works by, its notebook and
+ * the project's constitution.
+ */
+export type ArchitectPanel = {
+/**
  * The matters it handled, newest first, each with what became of it.
  */
 handled: Array<Handled>,
@@ -1604,11 +1637,6 @@ changes: Array<ItemChange>,
  * The policy in force for the project; none before the first takes effect.
  */
 policy: PolicyInForce | null,
-/**
- * The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
- * policy takes effect; none otherwise.
- */
-draft: PolicyDraft | null,
 /**
  * Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
  * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
