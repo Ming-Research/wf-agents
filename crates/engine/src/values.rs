@@ -63,9 +63,25 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
             s("implementation")
         }
+        // The light route has no blind review: its first review goes straight to the table.
         "review_round" => {
             let reviewed = !answered(e, w, g, "T3")?.is_empty() || !answered(e, w, g, "T4")?.is_empty();
-            s(if reviewed { "table" } else { "blind" })
+            s(if reviewed || light_route(e, w)? {
+                "table"
+            } else {
+                "blind"
+            })
+        }
+        "route_taken" => s(if light_route(e, w)? { "light" } else { "normal" }),
+        // The reviews of the plan that sent it back since the work last researched the problem, which a plan made
+        // afresh after the item changed counts from.
+        "revisions_before" => {
+            let since = answered(e, w, g, "R1")?.first().map(|r| r.id);
+            let sent_back = answered(e, w, g, "F2")?
+                .iter()
+                .filter(|r| since.is_none_or(|s| r.id > s) && r.transition.as_deref() == Some(PLAN_SENT_BACK))
+                .count();
+            s(if sent_back >= 2 { "two" } else { "fewer" })
         }
         // What the project's configuration says of it, which the design stage's cells choose the way by.
         "records" => s(if e.project_of(w)?.records.is_some() {
@@ -187,6 +203,20 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         }
         other => Err(format!("no such engine value: {other}")),
     }
+}
+
+/// The row of the review of the plan (cell `F2`) that sends the plan back to be planned again.
+const PLAN_SENT_BACK: &str = "revise";
+
+/// Whether the work goes the light route, as the database's view `work_routes` defines it: by its item's mark before
+/// its research answers, by the research's latest row after, and never again once it turned to the normal route.
+pub fn light_route(e: &Engine, w: &Work) -> Result<bool, String> {
+    let route: Option<String> =
+        e.db.conn()
+            .query_row("SELECT route FROM work_routes WHERE work = ?1", [w.id], |r| r.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+    Ok(route.as_deref() == Some("light"))
 }
 
 /// How many words said to a work are waiting for the line it stands on, which turn its way on.
