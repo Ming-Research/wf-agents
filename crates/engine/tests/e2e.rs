@@ -8712,7 +8712,10 @@ fn the_gathering_and_the_re_review_are_given_what_a_compacted_session_no_longer_
         Box::new(|_: &Request, _: usize| {
             (
                 Vec::new(),
-                vec![("outcome.brief", json!("The code's history.")), ("@compactions", json!(1))],
+                vec![
+                    ("outcome.brief", json!("The code's history.")),
+                    ("@compactions", json!(1)),
+                ],
             )
         }),
     );
@@ -8751,7 +8754,10 @@ fn the_gathering_and_the_re_review_are_given_what_a_compacted_session_no_longer_
     assert_eq!(given_ending(&at_g3, "·engine·history_sources"), Some(true), "{log}");
     let message = message_at(&e, work, "G3", false);
     let base = given_value(&message, "·engine·review_base").expect(&message);
-    assert!(base["change"].as_str().is_some_and(|c| c.starts_with("git diff ")), "{base}");
+    assert!(
+        base["change"].as_str().is_some_and(|c| c.starts_with("git diff ")),
+        "{base}"
+    );
     let sources = given_value(&message, "·engine·history_sources").expect(&message);
     assert_eq!(sources["database"], config::database(&s.data).display().to_string());
     assert!(sources["checkout"].is_string(), "{sources}");
