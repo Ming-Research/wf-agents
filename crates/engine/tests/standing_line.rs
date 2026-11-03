@@ -137,7 +137,8 @@ fn the_line_a_work_stands_on_at_its_question_is_the_line_its_answer_goes_back_to
         }
     }
     for expected in ["T1", "T6"] {
-        assert!(asked_by.iter().any(|a| a == expected), "{expected} not among {asked_by:?}");
+        let found = asked_by.iter().any(|a| a == expected);
+        assert!(found, "{expected} not among {asked_by:?}");
     }
     // Adversarial testing asks through its tools twice over: its own ask row and the tools cell.
     assert!(asked_by.iter().filter(|a| *a == "T1").count() >= 2, "{asked_by:?}");
@@ -189,8 +190,14 @@ fn say(db: &mut Db, work: i64, line: &str, informs: i64, cancelled: bool, delive
     .unwrap();
 }
 
-fn waiting(db: &Db, work: i64, line: &str, only_cancelled: bool) -> i64 {
-    waiting_words(db.conn(), work, line, only_cancelled).unwrap()
+/// How many words wait for the engineer's line of a work: all of them, and the notices of a cancelled item among them.
+fn both(db: &Db, work: i64) -> (i64, i64) {
+    let count = |only_cancelled| waiting_words(db.conn(), work, "engineer", only_cancelled).unwrap();
+    (count(false), count(true))
+}
+
+fn words_for(db: &Db, work: i64, line: &str) -> i64 {
+    waiting_words(db.conn(), work, line, false).unwrap()
 }
 
 // Words waiting for a line are the words said to that line of that work, not yet delivered, that need an answer; the
@@ -200,7 +207,7 @@ fn waiting(db: &Db, work: i64, line: &str, only_cancelled: bool) -> i64 {
 #[test]
 fn words_waiting_for_a_line_are_those_not_delivered_that_need_an_answer() {
     let mut db = db_with_work();
-    assert_eq!((waiting(&db, 1, "engineer", false), waiting(&db, 1, "engineer", true)), (0, 0));
+    assert_eq!(both(&db, 1), (0, 0));
     // None of these is waiting for the engineer's line of work 1.
     say(&mut db, 1, "adversarial", 0, false, false);
     say(&mut db, 1, "engineer", 1, false, false);
@@ -209,16 +216,15 @@ fn words_waiting_for_a_line_are_those_not_delivered_that_need_an_answer() {
     say(&mut db, 1, "engineer", 0, true, true);
     say(&mut db, 2, "engineer", 0, false, false);
     say(&mut db, 2, "engineer", 0, true, false);
-    assert_eq!((waiting(&db, 1, "engineer", false), waiting(&db, 1, "engineer", true)), (0, 0));
+    assert_eq!(both(&db, 1), (0, 0));
     // A word for the engineer's line: counted by every word, not by the notices.
     say(&mut db, 1, "engineer", 0, false, false);
-    assert_eq!((waiting(&db, 1, "engineer", false), waiting(&db, 1, "engineer", true)), (1, 0));
+    assert_eq!(both(&db, 1), (1, 0));
     // A notice: counted by both.
     say(&mut db, 1, "engineer", 0, true, false);
-    assert_eq!((waiting(&db, 1, "engineer", false), waiting(&db, 1, "engineer", true)), (2, 1));
+    assert_eq!(both(&db, 1), (2, 1));
     // Each line has its own words, and work 2 its own.
-    assert_eq!(waiting(&db, 1, "adversarial", false), 1);
-    assert_eq!(waiting(&db, 1, "adversarial", true), 0);
-    assert_eq!(waiting(&db, 1, "review", false), 0);
-    assert_eq!((waiting(&db, 2, "engineer", false), waiting(&db, 2, "engineer", true)), (2, 1));
+    assert_eq!(words_for(&db, 1, "adversarial"), 1);
+    assert_eq!(words_for(&db, 1, "review"), 0);
+    assert_eq!(both(&db, 2), (2, 1));
 }
