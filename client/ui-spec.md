@@ -2731,11 +2731,12 @@ context at its start and its end; and a return sent back, a run that failed or a
 engine's reason, a return sent back for several problems with each on a line of its own, since the Flash would run
 them together; the reason's text carries the `reason` class (`white-space: pre-line`), which the reason has wherever it
 is shown whole, also in the notes under a line of the item page's checklist, while a list of rounds that keeps a round
-to one line (above) lets the lines run on and says them whole on hovering. In: the inputs new this round, a row each with its name, its address, its size and the round that made
-it, leading to its place in the message; the inputs already in its session, folded under their count, each with the
-round that gave it and its size, opening to what the session held; and the message as sent, exactly, in one sheet, every
-heading and line as it is, a part over 1,000 characters and the task folded to their first lines with their size and
-their share of the message, the task saying it is the cell's, the same every round.
+to one line (above) lets the lines run on: the work page's table cuts them and says them whole on hovering, and the cell
+panel's list wraps them, so it shows them whole. In: the inputs new this round, a row each with its name, its address,
+its size and the round that made it, leading to its place in the message; the inputs already in its session, folded
+under their count, each with the round that gave it and its size, opening to what the session held; and the message as
+sent, exactly, in one sheet, every heading and line as it is, a part over 1,000 characters and the task folded to their
+first lines with their size and their share of the message, the task saying it is the cell's, the same every round.
 
 Out: the return as handed back, as JSON, in the box of what an agent handed back, every key, value and line of it,
 nothing renamed, merged or left out, a key saying on hovering what the flow says of its place; what the agent was told

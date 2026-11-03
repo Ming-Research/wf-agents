@@ -19,4 +19,5 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
   a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
   returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a
-  list the engine gave go through `id_misses`.
+  list the engine gave go through `id_misses`. The one exception is `cards::check`, which still stops at the first
+  problem; it goes with `cards.rs` in #203.

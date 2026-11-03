@@ -14,6 +14,7 @@ import { FromTable, ToTable } from './flow/Rows';
 import type { Side } from './flow/Sides';
 import { Note } from './item/Progress';
 import { RoundView } from './pages/RoundView';
+import baseCss from './styles/base.css?raw';
 
 // What the interface gives, by its path: set by each test, read synchronously as the page draws.
 const served = new Map<string, unknown>();
@@ -251,6 +252,8 @@ describe("a round's panel", () => {
     const note = renderToStaticMarkup(<Note r={{ ...rounds[1], outcome: 'sent_back', why }} work={7} />);
     expect(note).toContain(`<span class="muted reason">${why}</span>`);
     expect(renderToStaticMarkup(<Note r={{ ...rounds[1], outcome: 'took', progress: 'Done.' }} work={7} />)).not.toContain('reason');
+    // The lines stay on lines of their own only through the class's style, so the two are held together.
+    expect(baseCss).toMatch(/\.reason\s*\{[^}]*white-space:\s*pre-line\s*;/);
   });
 
   it('says where it came from and went over a table none of whose rows is the one', () => {
