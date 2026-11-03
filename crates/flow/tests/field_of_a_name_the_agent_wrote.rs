@@ -34,10 +34,7 @@ fn a_name_the_agent_wrote_is_the_field_as_it_wrote_it() {
     let schema = schema();
     let cases: Vec<(Value, Vec<Option<&str>>)> = vec![
         // A name that ends like an index.
-        (
-            json!({ "label": "l", "items": [], "x[3]": 1 }),
-            vec![Some("x[3]")],
-        ),
+        (json!({ "label": "l", "items": [], "x[3]": 1 }), vec![Some("x[3]")]),
         // A name that is an index and nothing else.
         (json!({ "label": "l", "items": [], "[7]": 1 }), vec![Some("[7]")]),
         // A name with a dot: its parent's path and its own name, not told as two fields.

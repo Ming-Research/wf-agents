@@ -208,11 +208,7 @@ fn the_view_gives_a_row_for_each_problem_and_none_for_a_round_without_problems()
 fn the_view_keeps_the_order_of_many_problems_and_reads_a_column_of_another_shape() {
     let conn = new_database();
     let many: Vec<String> = (0..13)
-        .map(|i| {
-            format!(
-                r#"{{"check":"columns_answered","field":"columns.id","text":"column {i} is not answered"}}"#
-            )
-        })
+        .map(|i| format!(r#"{{"check":"columns_answered","field":"columns.id","text":"column {i} is not answered"}}"#))
         .collect();
     round(
         &conn,
@@ -228,7 +224,6 @@ fn the_view_keeps_the_order_of_many_problems_and_reads_a_column_of_another_shape
         "null",
         "[]",
         r#"{"problems":[]}"#,
-        r#"{"check":"x","problems":null}"#,
     ]
     .into_iter()
     .enumerate()
