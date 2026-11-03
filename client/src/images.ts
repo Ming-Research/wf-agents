@@ -57,6 +57,9 @@ export function imagesSent(images: readonly PendingImage[]): ImageSent[] {
 }
 
 let added = 0;
+/// When this page was loaded, in a key of every image it reads: a draft kept by an earlier page brings back images whose
+/// keys that page numbered, which must not meet this page's.
+const loaded = Date.now().toString(36);
 
 /// Reads a file the box took into an image waiting in it.
 export function readImage(f: File): Promise<PendingImage> {
@@ -64,7 +67,7 @@ export function readImage(f: File): Promise<PendingImage> {
     const reader = new FileReader();
     reader.onload = () => {
       added += 1;
-      done({ key: `image-${added}`, name: f.name, media_type: f.type, size: f.size, data_url: String(reader.result) });
+      done({ key: `image-${loaded}-${added}`, name: f.name, media_type: f.type, size: f.size, data_url: String(reader.result) });
     };
     reader.onerror = () => failed(reader.error ?? new Error(t('image_unreadable', { name: f.name })));
     reader.readAsDataURL(f);

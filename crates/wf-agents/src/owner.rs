@@ -186,6 +186,10 @@ pub fn queue(data: &Path, item: i64, place: Place) -> Result<(), String> {
 pub struct Answer {
     pub ask: i64,
     pub text: String,
+    /// Who answers, as the caller declares: `owner` or `delegate`.
+    pub speaker: String,
+    /// The parts of the answer a delegate declares to be the owner's own words.
+    pub relayed: Vec<String>,
     /// For what the architect is asked: why it was decided this way.
     pub why: Option<String>,
     /// For what the architect is asked: the rest of the architect's reply, as JSON (children, rest, waits).
@@ -197,6 +201,8 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
     let mut db = open(data)?;
     let given = api::Answer {
         text: a.text,
+        speaker: a.speaker,
+        relayed: Some(a.relayed),
         why: a.why,
         reply: a.reply,
         to: None,
@@ -240,17 +246,29 @@ pub fn rule(data: &Path, r: Ruling) -> Result<String, String> {
 }
 
 /// Says something to a project's architect, as the page does: the project named, or the configuration's one project.
-pub fn say_to_architect(data: &Path, project: Option<&str>, item: Option<i64>, text: &str) -> Result<String, String> {
+/// `speaker` is who the caller declares to speak, `owner` or `delegate`, and `relayed` the parts of the words a
+/// delegate declares to be the owner's own.
+pub fn say_to_architect(
+    data: &Path,
+    project: Option<&str>,
+    item: Option<i64>,
+    text: &str,
+    speaker: &str,
+    relayed: &[String],
+) -> Result<String, String> {
+    let speaker = db::Declared::parse(speaker, relayed)?;
     let committed = config::committed(data).map_err(|e| e.to_string())?;
     let project = api::project_named(&committed.config, project)?;
     let mut db = open(data)?;
-    db::say_to_architect(&mut db, &project, item, None, text, &[])
+    db::say_to_architect(&mut db, &project, item, None, text, &[], speaker)
 }
 
 /// Says something in a running work's group, as the page does: to its engineer, its project's architect or both.
-pub fn say(data: &Path, work: i64, to: &str, text: &str) -> Result<String, String> {
+pub fn say(data: &Path, work: i64, to: &str, text: &str, speaker: &str, relayed: &[String]) -> Result<String, String> {
     let said = api::WorkSaid {
         text: text.to_string(),
+        speaker: speaker.to_string(),
+        relayed: Some(relayed.to_vec()),
         to: Some(to.to_string()),
         question: None,
         design_card: None,

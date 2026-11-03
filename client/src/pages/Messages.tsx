@@ -49,12 +49,10 @@ import {
   Timeline,
 } from '@primer/react';
 import {
-  type Dispatch,
   Fragment,
   memo,
   type MouseEvent,
   type ReactNode,
-  type SetStateAction,
   useCallback,
   useContext,
   useEffect,
@@ -136,9 +134,10 @@ import {
   wordsStateText,
 } from '../conversation';
 import { useActions } from '../course';
+import { type Draft, useDraft } from '../drafts';
 import { cost, time } from '../format';
-import { postJson } from '../http';
-import { imagesSent, type PendingImage, saysSomething } from '../images';
+import { postJson, SPEAKER } from '../http';
+import { imagesSent, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useShared, useStatus } from '../live';
 import { Markdown } from '../markdown';
@@ -329,28 +328,22 @@ function AskIn({ a }: { a: OwnerAsk }) {
 }
 
 /// The small box in a bubble where the owner's words, and the images sent with them, answer that bubble, beside
-/// Answer: Enter sends and Shift with Enter starts a new line; what failed is said under it.
-function AnswerBox({ placeholder, ready, busy, text, setText, images, setImages, send, error, children = null }: {
+/// Answer: Enter sends and Shift with Enter starts a new line; what failed is said under it. Its words and images are
+/// the draft `draft`, which greys the box while the answer is on its way.
+function AnswerBox({ draft, placeholder, ready, send, children = null }: {
+  draft: Draft;
   placeholder: string;
   ready: boolean;
-  busy: boolean;
-  text: string;
-  setText: (text: string) => void;
-  images: PendingImage[];
-  setImages: Dispatch<SetStateAction<PendingImage[]>>;
   send: () => void;
-  error: string | null;
   children?: ReactNode;
 }) {
+  const busy = draft.busy;
   return (
     <>
       <div className="talk-answer-box">
         <SayBox
           small
-          text={text}
-          set={setText}
-          images={images}
-          setImages={setImages}
+          draft={draft}
           disabled={busy}
           placeholder={placeholder}
           label={placeholder}
@@ -367,68 +360,41 @@ function AnswerBox({ placeholder, ready, busy, text, setText, images, setImages,
         </Button>
       </div>
       {children}
-      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
+      {draft.error !== null ? <Flash variant="danger">{t('request_failed', { error: draft.error })}</Flash> : null}
     </>
   );
 }
 
-/// What answering in a bubble needs: the words and the images that go with them, whether they are being sent, what
-/// failed, and how to send them, the images with the words.
-function useAnswer(): {
-  text: string;
-  setText: (text: string) => void;
-  images: PendingImage[];
-  setImages: Dispatch<SetStateAction<PendingImage[]>>;
-  busy: boolean;
-  error: string | null;
-  post: (url: string, body: object) => void;
-} {
-  const [text, setText] = useState('');
-  const [images, setImages] = useState<PendingImage[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const post = (url: string, body: object) => {
-    setBusy(true);
-    setError(null);
-    postJson(url, { ...body, images: imagesSent(images) }).then(
-      () => {
-        setBusy(false);
-        setText('');
-        setImages([]);
-        reread('messages', 'architect', 'works', 'work:*');
-      },
-      (e: unknown) => {
-        setBusy(false);
-        setError(e instanceof Error ? e.message : String(e));
-      },
+/// What answering in a bubble needs: the draft of its words and images, kept under `key` (made of the number of what is
+/// answered), which knows whether they are being sent and what failed, and how to send them, the images with the words.
+function useAnswer(key: string): { draft: Draft; post: (url: string, body: object) => void } {
+  const draft = useDraft(key);
+  const post = (url: string, body: object) =>
+    draft.send(
+      () => postJson(url, { ...body, images: imagesSent(draft.images) }),
+      () => reread('messages', 'architect', 'works', 'work:*'),
     );
-  };
-  return { text, setText, images, setImages, busy, error, post };
+  return { draft, post };
 }
 
 /// How an ask that waits is answered, in its bubble, under its card, whose option boxes pick what it offers (a click
 /// picking one and a second clearing it, the one picked marked): the small box of the owner's words and Answer, which
 /// sends the option picked. The words are needed for an ask in words alone and for an option ask with none picked, else
 /// they are free; an engineer's ask the owner holds can be handed back to the architect with them.
-function AskAnswer({ a }: { a: OwnerAsk }) {
+export function AskAnswer({ a }: { a: OwnerAsk }) {
   const pick = useAskPick(a.id)?.picked ?? '';
   const [back, setBack] = useState(false);
-  const { text, setText, images, setImages, busy, error, post } = useAnswer();
-  const answer = askAnswer(pick, text, handsBack(a) && back, images.length > 0);
+  const { draft, post } = useAnswer(`ask:${a.id}`);
+  const answer = askAnswer(pick, draft.text, handsBack(a) && back, draft.images.length > 0);
   return (
     <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
       <AnswerBox
+        draft={draft}
         placeholder={t(needsWords(pick) ? 'conv_answer_words' : 'conv_answer_more')}
         ready={answer !== null}
-        busy={busy}
-        text={text}
-        setText={setText}
-        images={images}
-        setImages={setImages}
         send={() => {
           if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
         }}
-        error={error}
       >
         {handsBack(a) ? (
           <FormControl>
@@ -444,23 +410,18 @@ function AskAnswer({ a }: { a: OwnerAsk }) {
 
 /// How a question of an engineer's that the architect holds is answered in the group, in its bubble: the small box of
 /// the owner's words and Answer; the answer is the reply, and the architect is told.
-function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
-  const { text, setText, images, setImages, busy, error, post } = useAnswer();
-  const ready = saysSomething(text, images);
+export function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
+  const { draft, post } = useAnswer(`question:${work}:${matter}`);
+  const ready = saysSomething(draft.text, draft.images);
   return (
     <div className="talk-answer">
       <AnswerBox
+        draft={draft}
         placeholder={t('conv_answer_words')}
         ready={ready}
-        busy={busy}
-        text={text}
-        setText={setText}
-        images={images}
-        setImages={setImages}
         send={() => {
-          if (ready) post(`/api/v1/works/${work}/say`, { text: text.trim(), question: matter });
+          if (ready) post(`/api/v1/works/${work}/say`, { text: draft.text.trim(), speaker: SPEAKER, question: matter });
         }}
-        error={error}
       />
     </div>
   );
@@ -1042,55 +1003,51 @@ export function Composer({ c, w, reply = null, onSent }: {
   onSent?: () => void;
 }) {
   const choices = sayTo(c);
-  const [text, setText] = useState('');
-  const [images, setImages] = useState<PendingImage[]>([]);
-  const [ticked, setTicked] = useState<string[]>(choices.slice(0, 1));
+  // The words, the images and whom they are for are the draft of this conversation's box, kept when another page or
+  // conversation is shown and the box comes back.
+  const draft = useDraft(`conv:${c.key}`);
+  const { text, images } = draft;
+  const ticked = draft.to !== null ? draft.to.filter((x) => choices.includes(x)) : choices.slice(0, 1);
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const closed = closedWhy(c, w);
   if (choices.length === 0) return null;
+  const busy = draft.busy;
   const ready = closed === null && saysSomething(text, images) && sendTo.length > 0;
-  const done = () => {
-    setBusy(false);
-    setText('');
-    setImages([]);
-    onSent?.();
-    reread('messages', 'architect', 'works', 'work:*');
-  };
-  const failed = (e: unknown) => {
-    setBusy(false);
-    setError(e instanceof Error ? e.message : String(e));
-  };
   const send = () => {
     if (!ready) return;
-    setBusy(true);
-    setError(null);
-    const words = text.trim();
+    const said = text.trim();
     const sentImages = imagesSent(images);
-    let sent: Promise<void>;
-    if (c.kind === 'work') {
-      sent = postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: words, to, images: sentImages });
-    } else if (c.kind === 'projects') {
-      sent = Promise.all(
-        sendTo.map((x) =>
-          postJson(
-            '/api/v1/projects/say',
-            x === 'all' ? { key: c.key, text: words, images: sentImages } : { key: c.key, text: words, to: x, images: sentImages },
-          ),
-        ),
-      ).then(() => undefined);
-    } else {
-      sent = postJson(forProject('/api/v1/architect/say', c.project), {
-        ...toArchitect(words, reply !== null ? reply.question : null),
-        images: sentImages,
-      });
-    }
-    sent.then(done, failed);
+    draft.send(
+      () => {
+        if (c.kind === 'work') {
+          return postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: said, speaker: SPEAKER, to, images: sentImages });
+        }
+        if (c.kind === 'projects') {
+          return Promise.all(
+            sendTo.map((x) =>
+              postJson(
+                '/api/v1/projects/say',
+                x === 'all'
+                  ? { key: c.key, text: said, speaker: SPEAKER, images: sentImages }
+                  : { key: c.key, text: said, speaker: SPEAKER, to: x, images: sentImages },
+              ),
+            ),
+          );
+        }
+        return postJson(forProject('/api/v1/architect/say', c.project), {
+          ...toArchitect(said, reply !== null ? reply.question : null),
+          images: sentImages,
+        });
+      },
+      () => {
+        onSent?.();
+        reread('messages', 'architect', 'works', 'work:*');
+      },
+    );
   };
   const toWords = (x: string) => (c.kind === 'projects' ? t('conv_to_architect_of', { project: x }) : `@${words(x)}`);
-  const tick = (x: string, on: boolean) => setTicked((now) => (on ? [...now, x] : now.filter((y) => y !== x)));
+  const tick = (x: string, on: boolean) => draft.setTo(on ? [...ticked, x] : ticked.filter((y) => y !== x));
   return (
     <div className="talk-say">
       {closed === null && choices.length > 1 ? (
@@ -1107,10 +1064,7 @@ export function Composer({ c, w, reply = null, onSent }: {
       {closed === null && reply !== null ? <ReplyStrip reply={reply} /> : null}
       <div className="talk-say-row">
         <SayBox
-          text={text}
-          set={setText}
-          images={images}
-          setImages={setImages}
+          draft={draft}
           disabled={busy || closed !== null}
           placeholder={
             closed !== null
@@ -1131,7 +1085,7 @@ export function Composer({ c, w, reply = null, onSent }: {
           {t('conv_send')}
         </Button>
       </div>
-      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
+      {draft.error !== null ? <Flash variant="danger">{t('request_failed', { error: draft.error })}</Flash> : null}
     </div>
   );
 }

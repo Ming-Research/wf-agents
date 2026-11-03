@@ -88,14 +88,14 @@ function Tier({ item, level }: { item: number; level: string }) {
 }
 
 /// How a work goes on, in a few words, as its state's chip, each state in the word the list's filter has for it: that
-/// it is stopping; a round running, with who is at work in it; that its pause waits for a free slot to be lifted; what
-/// holds it back (paused by you, by the architect or by Pause all, or halted by the engine for a problem); that it
-/// waits for a free slot; that it waits; or over.
-function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
+/// it is stopping; a stage working, the running mark and who is at work in the round that runs; that its pause waits
+/// for a free slot to be lifted; what holds it back (paused by you, by the architect or by Pause all, or halted by the
+/// engine for a problem); that it waits for a free slot; that it waits; or over.
+export function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
   const c = course(w, status);
   if (c.over) return <StateChip tone={WORK_TONE[w.state]}>{t(`state_${w.state}`)}</StateChip>;
   if (c.stopping) return <WorkBadge state="stopping" />;
-  if (c.running !== null) {
+  if (c.working !== null) {
     return (
       <span className="talk-head-running">
         <RunningMark />

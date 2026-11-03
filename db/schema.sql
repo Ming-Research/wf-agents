@@ -195,8 +195,9 @@ CREATE TABLE owner_asks (
   -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in. Copied from what that
   -- round was given, which never changes.
   body TEXT NOT NULL CHECK (json_valid(body)),
-  -- The owner's answer, JSON: who answered and when, and the text; for an ask of the architect, the rest of the
-  -- architect's reply too. NULL while it waits. Read by: the engine; cell `R1`.
+  -- The owner's answer, JSON: who answered and when, and the text, and who the caller declared to speak (`speaker`,
+  -- owner or delegate; none for an answer kept before it was declared); for an ask of the architect, the rest of the
+  -- architect's reply too. NULL while it waits. Read by: the engine; cells `R1` and `L2`.
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -274,7 +275,9 @@ CREATE TABLE flow_versions (
   id INTEGER PRIMARY KEY,
   -- Hash of compiled, so each version is stored once.
   digest TEXT NOT NULL UNIQUE,
-  -- The compiler's expanded flow, JSON: every graph's cells, inputs, return schemas and transition rows.
+  -- The compiler's expanded flow, JSON: every graph's cells, inputs, return schemas and transition rows. It is a
+  -- megabyte or more, so a view does not parse it for each row it reads: what a round took from it is kept on the
+  -- round (`rounds.counts`).
   compiled TEXT NOT NULL CHECK (json_valid(compiled))
 ) STRICT;
 
@@ -501,7 +504,7 @@ CREATE TABLE rounds (
   -- owner the answer. NULL while the round runs. Read by: every input that names a returned field.
   output TEXT CHECK (output IS NULL OR json_valid(output)),
   -- The transition row the return took. NULL while the round runs, and when the return was rejected.
-  -- Read by: the engine; the views of counters and anomalies.
+  -- Read by: the engine; the view of anomalies.
   transition TEXT,
   -- Why the engine sent the return back or the run failed, JSON: a check it failed or a wrong format; or a run that
   -- ended without a return, with its kind as the flow names them. NULL when the return was accepted.
@@ -520,6 +523,14 @@ CREATE TABLE rounds (
   -- When the round started and ended. Read by: the views of time.
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
+  -- The counter the row this round took counts, as the flow version the work ran on said it when the round ended; the
+  -- row is the one the return took (`transition`) or, for a round that ended in no return its cell takes, the shared
+  -- row the engine took for it (view `round_rows`). NULL when the round took no row, or the row counts nothing. A
+  -- round's row can be found again in the flow only by the version it ran on, which a round does not record and a
+  -- work leaves when it moves to a newer one, so the counter is kept with the round, written in the same step as
+  -- `transition` or `rejected`. 'total_time' is kept as the row says it, though the views count no round for it.
+  -- Read by: the views of counters and of how many times a work asked, through the index `rounds_counts`.
+  counts TEXT CHECK (counts IS NULL OR transition IS NOT NULL OR rejected IS NOT NULL),
   PRIMARY KEY (work, n),
   CHECK (transition IS NULL OR rejected IS NULL)
 ) STRICT;
@@ -666,6 +677,15 @@ CREATE TABLE interjections (
   line TEXT NOT NULL DEFAULT 'engineer',
   -- Who said it. When the owner and the architect disagree, the owner's word holds.
   speaker TEXT NOT NULL CHECK (speaker IN ('owner', 'architect')),
+  -- For what the owner said to the engineer alone: who the caller declared to speak, owner, or delegate for a session
+  -- that speaks for the owner; NULL for what the architect said, for what the engine wrote in the owner's name (a
+  -- ruling on a design card) and for words kept before it was declared. Read by: the engine, which tells who decided a
+  -- decision that quotes the words.
+  declared TEXT CHECK (declared IN ('owner', 'delegate')),
+  -- For what a delegate said to the engineer alone and declared to hold the owner's own words: those parts, a JSON array
+  -- of strings, each found letter for letter in the words (text); NULL when none was declared. Read by: the engine,
+  -- which tells a decision that quotes one of the parts as the owner's, relayed by the delegate, not checked.
+  relayed TEXT CHECK (relayed IS NULL OR (json_valid(relayed) AND declared = 'delegate')),
   -- Their words as said.
   text TEXT NOT NULL,
   -- The round of the work it was handed in, by its number in the work; NULL until then. Read by: the engine, to find
@@ -763,8 +783,8 @@ CREATE TABLE architect_matters (
   -- and the plan of what to do next, which the architect's cells queue at the head of the queue, one of each open at a
   -- time. An open question is what an engineer's design could not settle: its body holds the question, the options, the
   -- one recommended, the link to the design (design_link) and, once it has come, the answer (answer) with who gave it
-  -- (answered_by: architect, or owner when the architect pinned the question for the owner and the owner answered) and,
-  -- for the owner, the ask that holds their words (owner_ask). A
+  -- (answered_by: architect, or owner when the architect pinned the question for the owner and the owner answered), for
+  -- the owner the ask that holds their words (owner_ask), and the time it came (answered_at, in milliseconds). A
   -- matter handled before these kinds keeps the kind it had then: set_policy for the setting of a new policy, which a
   -- flow version before ran as a stage of its own, and policy for a setting that ended, when the setting was a work of
   -- its own.
@@ -781,9 +801,11 @@ CREATE TABLE architect_matters (
   -- What it is, in one sentence, as the engine wrote it.
   what TEXT NOT NULL,
   -- Its material, JSON: what the asking cell handed in, the side report, a report's what to do next with its paths and
-  -- the commit merged, the design card, the tool that failed, the owner's words, the message, the place to set
-  -- straight; for a fault forwarded, who forwarded it (by: owner, or setting for the owner's setting), the fault
-  -- itself being read from its notice when the matter is handled. Read by: the engine, for the matter's material.
+  -- the commit merged, the design card, the tool that failed, the owner's words (with where they were said, and who
+  -- the caller declared to speak: `speaker`, owner or delegate; none for words kept before it was declared), the
+  -- message, the place to set straight; for a fault forwarded, who forwarded it (by: owner, or setting for the owner's
+  -- setting), the fault itself being read from its notice when the matter is handled. Read by: the engine, for the
+  -- matter's material.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The item it concerns; NULL when it concerns none.
   item INTEGER REFERENCES items(id),
@@ -819,11 +841,12 @@ CREATE TABLE architect_matters (
   -- parked for the owner's reply (the group falls apart, each goes its own way) and for any not handled when the next
   -- pick is made (a group left by a work that ended before it was handled); it stays on a matter handled, saying with
   -- which others it was handled. Read by: the engine, which gives the lead's cells each matter of the group, closes
-  -- them together and tells each one's reporter what became of it; the owner's interface.
+  -- them together and tells each one's reporter what became of it.
   group_lead INTEGER REFERENCES architect_matters(id),
   -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
-  -- work's group to a question the architect holds is the reply too, said by the owner (by). Read by: the engine,
-  -- which takes it back unchanged to the work that asked.
+  -- work's group to a question the architect holds is the reply too, said by the owner (by), with who the caller
+  -- declared to speak (speaker, owner or delegate). Read by: the engine, which takes it back unchanged to the work that
+  -- asked.
   reply TEXT CHECK (reply IS NULL OR json_valid(reply)),
   -- A reply that waits for the item changes of its round to be made, JSON, as the round handed it in: it becomes the
   -- reply, with the numbers of the items they made, once the review of their batch lets them be made. NULL otherwise.
@@ -1080,6 +1103,9 @@ CREATE INDEX pings_by_session ON pings (session);
 CREATE INDEX cache_misses_by_notice ON cache_misses (notice);
 -- The rounds of a work in order, which every input that names a returned field and the history read, are the
 -- primary key of rounds.
+-- The rounds of a work that counted something, by the counter, held in the index alone: the views of counters read
+-- them for one work without reading the rounds' large inputs and outputs.
+CREATE INDEX rounds_counts ON rounds (work, counts) WHERE counts IS NOT NULL;
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (work, round);
 -- The rounds a cell's and a graph's lines are computed from.
@@ -1248,7 +1274,7 @@ CREATE VIEW round_rows AS
   -- transition says the cell's own return was taken: the kind of the failed run (`<kind>_too_often` for the one past
   -- the kind's bound), `cut_off` for a round the engine cut off, `sent_back` for a return sent back. None for a round
   -- still open and for one that ended with the work paused. Read by: the engine, which counts how often a work took a
-  -- row in a row; work_counters.
+  -- row in a row, and which finds the counter of the shared row a round took when that round ends (`rounds.counts`).
   SELECT work, n AS round, cell,
     CASE
       WHEN transition IS NOT NULL THEN transition
@@ -1261,19 +1287,14 @@ CREATE VIEW round_rows AS
   FROM rounds;
 
 CREATE VIEW work_counters AS
-  -- How many times each work took the rows that count each counter, by the compiled flow it runs on; and its total
-  -- time, in minutes, which no row counts: the time of its agents' rounds and of the tools they had the engine run (cell
-  -- `X1`). Read by: cell `A1`; cell `A4`, through work_asking; the engine, against the project's limits; the owner's
-  -- interface.
-  SELECT r.work, json_extract(row.value, '$.counts') AS counter, count(*) AS times
-  FROM round_rows r
-  JOIN works w ON w.id = r.work
-  JOIN flow_versions v ON v.id = w.flow_version
-  JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
-  JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = r.cell
-  JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = r.took
-  WHERE json_extract(row.value, '$.counts') IS NOT NULL AND json_extract(row.value, '$.counts') <> 'total_time'
-  GROUP BY r.work, counter
+  -- How many times each work took the rows that count each counter, by the counter each round recorded when it ended
+  -- (`rounds.counts`); and its total time, in minutes, which no row counts: the time of its agents' rounds and of the
+  -- tools they had the engine run (cell `X1`). Read by: cell `A1`; the engine, against the project's limits; the
+  -- owner's interface.
+  SELECT r.work, r.counts AS counter, count(*) AS times
+  FROM rounds r
+  WHERE r.counts IS NOT NULL AND r.counts <> 'total_time'
+  GROUP BY r.work, r.counts
   UNION ALL
   SELECT r.work, 'total_time' AS counter, sum(r.ended_at - r.started_at) / 60000 AS times
   FROM rounds r
@@ -1284,7 +1305,7 @@ CREATE VIEW work_asking AS
   -- The cell that asked, or that took up an interjection, and how many times each work has asked: what choosing the
   -- way on needs of where the work stands. Read by: cell `A4`.
   SELECT w.id AS work, w.resume_at AS asked_at,
-    coalesce((SELECT c.times FROM work_counters c WHERE c.work = w.id AND c.counter = 'asks'), 0) AS asks
+    (SELECT count(*) FROM rounds r WHERE r.work = w.id AND r.counts = 'asks') AS asks
   FROM works w;
 
 CREATE VIEW work_design_cards AS
@@ -1298,10 +1319,43 @@ CREATE VIEW work_design_cards AS
 
 CREATE VIEW work_open_questions AS
   -- Each work's open questions as its design handed them in, each a matter of the project's architect, with the answer
-  -- that came. Read by: cells `D1`, `D2` and `L2`; the engine, at cell `M1`.
+  -- that came, which is the architect's reply: its own judgment, or the owner's answer it carried. Read by: cells `D1`,
+  -- `D2` and `L2`; the engine, at cell `M1`.
   SELECT m.work, m.id AS matter, m.what AS question, json_extract(m.body, '$.answer') AS answer
   FROM architect_matters m
   WHERE m.kind = 'open_question';
+
+CREATE VIEW work_owner_words AS
+  -- What the owner said that concerns a work, one row for each record that holds it: the words said in the work's
+  -- group to its project's architect (a matter of the kind owner_words), the owner's answer in the group to a question
+  -- of its engineer's (the reply of a matter of the kind engineer_question), the words said to its engineer alone (an
+  -- interjection no matter holds) and the owner's answers to the work's asks. A decision cites a row by its source and
+  -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
+  -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
+  -- kept before it was declared. relayed is, for words a delegate said, the parts of them it declared to be the owner's
+  -- own words, a JSON array; none when it declared none. Read by: cell `L2`.
+  SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
+    json_extract(m.body, '$.speaker') AS speaker,
+    coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at,
+    json_extract(m.body, '$.relayed') AS relayed
+  FROM architect_matters m
+  WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.where') = 'work'
+  UNION ALL
+  SELECT m.work, 'matter', m.id, json_extract(m.reply, '$.speaker'), json_extract(m.reply, '$.text'),
+    coalesce(json_extract(m.reply, '$.at'), 0), json_extract(m.reply, '$.relayed')
+  FROM architect_matters m
+  WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
+  UNION ALL
+  SELECT j.work, 'interjection', j.id, j.declared, j.text,
+    coalesce((SELECT min(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0), j.relayed
+  FROM interjections j
+  WHERE j.speaker = 'owner' AND j.matter IS NULL AND j.cancelled_item IS NULL
+  UNION ALL
+  SELECT a.work, 'ask', a.id, json_extract(a.answer, '$.speaker'), json_extract(a.answer, '$.text'),
+    coalesce(json_extract(a.answer, '$.at'), 0), json_extract(a.answer, '$.relayed')
+  FROM owner_asks a
+  WHERE json_extract(a.answer, '$.by') = 'owner';
 
 CREATE VIEW work_ci AS
   -- The CI on each work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on
