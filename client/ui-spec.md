@@ -830,6 +830,57 @@ named it).
 Instead of a `Dialog` that holds the image, because a tab is the simplest way to see an image whole and at its own size,
 and the browser already zooms and saves it.
 
+### Words not yet sent
+
+What the owner has typed into a box and not sent is kept, in every box of the page that takes words: the box at the
+bottom of a conversation (its words, its images and whom it is for), the small box in a bubble that answers an ask and
+the one that answers an engineer's question, the box on a decision card, the reason for closing an observation, the
+settings form, the name of an account to add, and the ref of the flow box's comparison. The owner leaves a page for
+another, opens another conversation, reloads the page, or the browser drops a tab it kept in the background, and finds
+the words where they were left, because the owner said that losing them is a serious fault and that every box of the
+page should keep what is typed in it. Instead of keeping them while the box is shown (a `useState`), which loses them
+when the box goes away, and instead of keeping every page shown, which is what the page was made lighter to stop doing.
+
+- **One draft for each box, under a key made of the number of what the box belongs to.** A box takes its words from
+  `useDraft(key)` (`src/drafts.ts`): `conv:<conversation key>`, `ask:<id>`, `question:<work>:<matter>`, `card:<id>`,
+  `obs-close:<id>`, `settings`, `account:<cli>`, `flow-compare-ref`. A key is never made of where the box stands or
+  of a title, so that one box never shows another's words; two boxes with one key are one box. The keys are not
+  tied to a database: a draft the owner never sent goes after 30 days.
+- **Kept at each change, in this browser.** Every change is written to `localStorage` at once, with no timer and no hook
+  on leaving, because a browser that drops a tab does not promise to run one. The images of a box are kept apart, when
+  they change, so that images too big for the browser cost the words nothing; they stay in memory then. Where the
+  browser keeps nothing at all, drafts live in memory for as long as the page does. A change in another tab to a draft
+  (a send, a clear) is followed. A draft is not kept on the server and does not follow the owner to another browser,
+  because the owner asked for neither.
+- **Words come before images.** Images and words share the browser's room, so images could crowd out the words of
+  any box. When a write of words fails because the browser is full (and for no other failure), the images of drafts are
+  taken out of the browser one draft at a time, the draft changed longest ago first and the draft's own last, and the
+  write is tried again after each, until the words are in. The draft whose images were taken out keeps the time it was last
+  changed, because the order drafts give way in and their 30 days go by it. An image that does not fit when its own box
+  is written is left out the same way, and no other draft's images are taken out for it, since neither box's images are
+  clearly worth more.
+- **Images not kept are said, after the page is loaded again.** The entry of a draft records how many of its images the
+  browser did not keep (`lost`). A box says that after a reload, in the line under the images where it says what it
+  refused, "N images could not be kept when the page was left; paste them again", and not on the page where the images
+  are still in the box, since then it would be wrong. The line goes when an image is added or taken out, when the box is
+  emptied, and when what it holds is sent, as the line about what the box refused does; typing does not end it, and
+  there is no button to close it. An entry that holds only this count (a draft of images alone that lost them) goes
+  after 30 days like any other.
+- **Sending is the draft's.** A box sends with `draft.send(request, after)`. While the request is out the draft is
+  `busy`, and a box shown again meanwhile is greyed; a request that comes through empties the draft in the store, so
+  that a box that went away while it was on its way does not bring the words back; one that fails leaves the words and
+  says why (`error`), also in a box shown again.
+- **Not kept**: the option picked on an ask or a card, whom a reply answers, and the "hand it back" tick. They are not
+  words, and a box that comes back without them shows it; kept, they could turn into something else unseen.
+- **The settings form is kept against the configuration commit it was filled from.** The unsaved changes come back
+  where the commit is the same; where the files changed since, they are dropped and the form says so, because writing
+  them back would put old values over the new ones.
+- **Words put in from outside** (a quote, words taken back) go through `putDraft(key, words, 'append' | 'replace')`,
+  which works whether the box is shown or not.
+- **A new box takes a draft, and the lint holds it to that.** `SayBox`, `SendForm`, `DraftArea` and `DraftInput` (all in
+  `src/parts.tsx`) take a `Draft`, and `FieldInput` is for the fields of a form kept as one draft; Primer's `Textarea`
+  and `TextInput`, and the HTML `input` and `textarea`, are drawn nowhere else, and the page's lint refuses them.
+
 ### Asking before a command
 
 A command whose effect reaches past what it names (switching the agents' login account, after which every line starts a
