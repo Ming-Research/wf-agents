@@ -214,7 +214,8 @@ fn changed(sample: &Value, others: &BTreeSet<String>) -> Vec<Value> {
 // The four statements the engine makes of a return, which a return may not make differ: it fits (`valid`) exactly when
 // `misfits` tells no place; `take` refuses exactly the returns that do not fit, with the places `misfits` tells, counted
 // and one to a line when there are several; and `without_null_options` takes nothing but null out of a return, leaves a
-// return that fits as it is, and tells only paths that were null and are gone.
+// return that fits as it is, and tells only paths that were null and are gone. Each place `misfits` tells is also told
+// with the field it is about, and `take_or_places` refuses as `take` does, with those places.
 #[test]
 fn the_engines_four_statements_of_a_return_agree_on_every_change_of_every_sample() {
     let c = compiled();
@@ -308,6 +309,8 @@ fn the_engines_four_statements_of_a_return_agree_on_every_change_of_every_sample
     assert!(all > 5_000, "{all}");
     assert!(refused > 1_000, "{refused}");
     assert!(left_out > 0, "{left_out}");
+    // The shapes of a refusal that the changes above seldom or never make, with their exact words.
+    refusals_give_their_places(g, &samples);
 }
 
 /// A schema written here, not read from the flow: a list of objects of two forms, one of which holds a union of its own.
@@ -491,14 +494,11 @@ fn a_place_is_told_with_the_field_it_is_about_through_unions_inside_unions() {
     assert!(places[0].text.starts_with("outcome.rows[2] "), "{places:?}");
 }
 
-// A return a cell refuses is refused with the places it is about besides the text `take` gives: a return that does not
-// fit the schema with each place of it, one that no row takes with its sentence as its one place of no field (the row
-// of cell D2 that takes a return is chosen by the values the engine gives it), and a cell that is not there likewise.
-#[test]
-fn a_return_a_cell_refuses_is_refused_with_its_places_and_the_text_take_gives() {
-    let c = compiled();
-    let g = c.graph("engineer").unwrap();
-    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+/// A return a cell refuses is refused with the places it is about besides the text `take` gives: a return that does not
+/// fit the schema with each place of it, one that no row takes with its sentence as its one place of no field (the row
+/// of cell D2 that takes a return is chosen by the values the engine gives it), and a cell that is not there likewise.
+/// Part of the test of the four statements, which has the flow compiled already.
+fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String, Vec<Value>>) {
     let sample = samples["D2"]
         .iter()
         .find(|s| s["given"]["rethought"] == "no")

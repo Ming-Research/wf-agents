@@ -1,11 +1,11 @@
 //! The view `sent_back_problems`, which gives each problem of each return the engine sent back as `rounds.rejected`
-//! keeps them under `problems`, and the migration that brings it to a database whose rounds were recorded without them.
-//! Read through the database's public interface alone, as a person or an agent queries it.
+//! keeps them under `problems`. Read through the database's public interface alone, as a person or an agent queries it.
+//! That a database migrated to the version that adds it has the view and the description of `rounds` the schema writes
+//! is the test of the migrations in `src/lib.rs`; that the rounds recorded before keep every column is the test in
+//! `rounds_counts.rs`, which migrates through every migration.
 
-use std::path::{Path, PathBuf};
-
+use db::SCHEMA;
 use db::rusqlite::{Connection, params};
-use db::{Db, MIGRATIONS, SCHEMA};
 
 /// One row of the view: work, round, cell, position, check_name, field, text.
 type Problem = (i64, i64, String, i64, String, Option<String>, String);
@@ -14,16 +14,12 @@ type Problem = (i64, i64, String, i64, String, Option<String>, String);
 fn new_database() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(SCHEMA).unwrap();
-    works(&conn);
-    conn
-}
-
-fn works(conn: &Connection) {
     conn.execute_batch(
         "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
          INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'T4'), (2, 1, 'engineer', 'T4');",
     )
     .unwrap();
+    conn
 }
 
 /// A round of a work at cell `T4` that ended with the return sent back, or with `transition` when the return was taken.
@@ -202,90 +198,4 @@ fn the_view_gives_a_row_for_each_problem_and_none_for_a_round_without_problems()
             group("no_field", None, 1, 1),
         ]
     );
-}
-
-/// The schema as it was at version 75, the database before the view: the first version's schema and the migrations up
-/// to 75, with the foreign keys off as the migrations run.
-fn database_at_version_75(path: &Path) -> Connection {
-    let conn = Connection::open(path).unwrap();
-    conn.pragma_update(None, "foreign_keys", false).unwrap();
-    conn.execute_batch(include_str!("../../../db/migrations/0001.sql"))
-        .unwrap();
-    for migration in &MIGRATIONS[..74] {
-        conn.execute_batch(migration).unwrap();
-    }
-    conn.pragma_update(None, "user_version", 75).unwrap();
-    conn
-}
-
-fn temp(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("wf-agents-db-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-// A database at version 75, with returns sent back as they were recorded then, is migrated to now: its rounds are as
-// they were, in the same order, with the text they were sent back with; the table of rounds has the description the
-// schema writes now, which says what `problems` holds; the view is there and gives no row for the old returns, and
-// gives the rows of a return recorded after it. The migration makes the table of rounds afresh, and what the view
-// reads is the new table.
-#[test]
-fn a_database_at_version_75_keeps_its_returns_sent_back_and_gets_the_view_without_a_row_for_them() {
-    let dir = temp("version-75");
-    let path = dir.join("wf.db");
-    let old = r#"{"check":"evidence_holds (columns[pass].evidence): a"}"#;
-    {
-        let conn = database_at_version_75(&path);
-        works(&conn);
-        round(&conn, 1, 1, None, Some(old));
-        round(
-            &conn,
-            1,
-            2,
-            None,
-            Some(r#"{"format":"the return does not fit the schema of T4: x"}"#),
-        );
-        round(&conn, 1, 3, Some("done"), None);
-    }
-    let db = Db::open(&path).unwrap();
-    let kept = |conn: &Connection| -> Vec<(i64, Option<String>)> {
-        conn.prepare("SELECT n, rejected FROM rounds ORDER BY rowid")
-            .unwrap()
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap()
-            .map(|x| x.unwrap())
-            .collect()
-    };
-    assert_eq!(
-        kept(db.conn()),
-        [
-            (1, Some(old.to_string())),
-            (
-                2,
-                Some(r#"{"format":"the return does not fit the schema of T4: x"}"#.to_string())
-            ),
-            (3, None),
-        ]
-    );
-    assert!(problems(db.conn()).is_empty());
-    let described = |conn: &Connection| -> String {
-        conn.query_row("SELECT sql FROM sqlite_schema WHERE name = 'rounds'", [], |r| r.get(0))
-            .unwrap()
-    };
-    let new = new_database();
-    assert_eq!(described(db.conn()), described(&new));
-    assert!(described(db.conn()).contains("`problems`"));
-    drop(db);
-    // A return sent back now is in the view, read from the table the migration made.
-    let conn = Connection::open(&path).unwrap();
-    round(
-        &conn,
-        1,
-        4,
-        None,
-        Some(r#"{"check":"c (f): t","problems":[{"check":"c","field":"f","text":"t"}]}"#),
-    );
-    assert_eq!(problems(&conn), [row(1, 4, 0, "c", Some("f"), "t")]);
-    let _ = std::fs::remove_dir_all(&dir);
 }
