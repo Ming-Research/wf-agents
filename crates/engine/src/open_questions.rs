@@ -63,8 +63,9 @@ pub struct Departure {
 }
 
 impl Departure {
-    /// The open question it is put as, whose answer is the ruling: by its words, so that a design written again that
-    /// departs from the same decision puts it once.
+    /// The open question it is put as, whose answer is the ruling. Each design that departs puts its own: a ruling is on
+    /// the design it was asked about, and one that turned a departure down does not let a design written again that
+    /// still departs from the same decision go on.
     pub fn question(&self) -> String {
         format!("{DEPARTS}{}", self.line)
     }
@@ -126,10 +127,11 @@ pub fn departures(conn: &Connection, work: i64, within: &str) -> Result<Option<(
 /// value `departures` says it: `none` when the open question of each departure is answered or withdrawn, `owner` while
 /// one that departs from a decision anyone but the architect made has no answer, and `architect` while those left are
 /// all from the architect's own. A departure whose question was never put waits as one put and unanswered: the work
-/// goes on past none that was not ruled on. Only the latest design counts: a question an earlier one put, which it no
-/// longer departs by, still holds the merge as any open question does, and not this.
+/// goes on past none that was not ruled on. Only the latest design counts, and only the questions it put itself: a
+/// question an earlier design put, answered or not, rules on that design and not this one, and still holds the merge
+/// as any open question does.
 pub fn ruling_due(conn: &Connection, work: i64, within: &str) -> Result<&'static str, String> {
-    let Some((_, departs)) = departures(conn, work, within)? else {
+    let Some((design, departs)) = departures(conn, work, within)? else {
         return Ok("none");
     };
     let (mut owner, mut architect) = (false, false);
@@ -137,8 +139,8 @@ pub fn ruling_due(conn: &Connection, work: i64, within: &str) -> Result<&'static
         let matter: Option<(Option<String>, Option<String>)> = conn
             .query_row(
                 "SELECT json_extract(body, '$.answer'), withdrawn FROM architect_matters
-                 WHERE work = ?1 AND kind = ?2 AND trim(what) = ?3 ORDER BY id DESC LIMIT 1",
-                params![work, KIND, d.question()],
+                 WHERE work = ?1 AND round = ?2 AND kind = ?3 AND trim(what) = ?4 ORDER BY id DESC LIMIT 1",
+                params![work, design.n, KIND, d.question()],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
@@ -174,11 +176,25 @@ fn put_before(tx: &Transaction<'_>, work: i64, question: &str) -> Result<bool, S
     Ok(before > 0)
 }
 
+/// Whether the design written by round `design` put a departure's question already, as the checks after design pass
+/// again for the same design: each design that departs puts its own ([`Departure::question`]).
+fn departure_put(tx: &Transaction<'_>, design: RoundId, question: &str) -> Result<bool, String> {
+    let before: i64 = tx
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE work = ?1 AND round = ?2 AND kind = ?3 AND trim(what) = ?4",
+            params![design.work, design.n, KIND, question],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    Ok(before > 0)
+}
+
 /// `post_open_questions`: each open question of the work's latest design becomes a matter of its project's architect,
 /// raised by the round that wrote it, and so does each place the design departs from a decision of its item, which the
-/// work waits on at cell [`RULING`] for the ruling of whoever made the decision. A question the work put before, word
-/// for word, as a design written again hands it in, is not put again; one it no longer hands in stays, and is answered
-/// as it was asked.
+/// work waits on at cell [`RULING`] for the ruling of whoever made the decision. An open question the work put before,
+/// word for word, as a design written again hands it in, is not put again; one it no longer hands in stays, and is
+/// answered as it was asked. A departure is put again for each design that departs, since a ruling is on the design it
+/// was asked about.
 pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let Some(item) = &ctx.item else {
         return Ok(());
@@ -212,7 +228,7 @@ pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     if let Some((round, departs)) = departures(tx, ctx.work.id, &ctx.within)? {
         for d in departs {
             let question = d.question();
-            if put_before(tx, ctx.work.id, &question)? {
+            if departure_put(tx, round, &question)? {
                 continue;
             }
             let m = Matter {
