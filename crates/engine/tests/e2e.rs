@@ -4093,9 +4093,11 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
         assert_eq!(asked(&e).len(), 1, "{log}");
         let what: String =
             e.db.conn()
-                .query_row("SELECT what FROM architect_matters WHERE id = ?1", [asked(&e)[0]], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT what FROM architect_matters WHERE id = ?1",
+                    [asked(&e)[0]],
+                    |r| r.get(0),
+                )
                 .unwrap();
         assert!(
             what.ends_with("it waits, paused, for the owner's Start, a start over or a cancel of its item"),
@@ -4151,14 +4153,15 @@ fn an_architect_work_the_version_can_take_on_nowhere_stays_at_v1_and_asks_no_one
     let paused = w.paused.unwrap_or_default();
     assert!(
         paused.starts_with(&format!("it cannot go on in flow version {}: ", e.flow_now))
-            && paused.ends_with(
-                "Start it once a flow version that has a cell it walked is installed, and it looks again"
-            ),
+            && paused
+                .ends_with("Start it once a flow version that has a cell it walked is installed, and it looks again"),
         "{paused}"
     );
     let v1 = brought(&e, arch);
     assert_eq!(
-        v1.iter().map(|(row, out)| (row.as_str(), &out["back_to"])).collect::<Vec<_>>(),
+        v1.iter()
+            .map(|(row, out)| (row.as_str(), &out["back_to"]))
+            .collect::<Vec<_>>(),
         [("stuck", &Value::Null)],
         "{log}"
     );
