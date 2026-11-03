@@ -2466,13 +2466,17 @@ fn batch_over(tx: &Transaction<'_>, work: i64, project: &str) -> Result<(), Stri
 }
 
 /// The item a change names by a key an earlier change of the batch creates it under, among those it names: the item it
-/// changes, the item a dependency is on, a merge keeps or absorbs, a known red check's fix, and the item another is
-/// made or moved under.
+/// changes, the item a dependency is on, a merge keeps or absorbs, a known red check's fix, the item another is
+/// made or moved under, and the item a decision is recorded in.
 fn names_key(c: &Value, key: &str) -> bool {
     ["item", "on", "keep", "fix_item"]
         .iter()
         .map(|k| c[*k].clone())
-        .chain([c["under"]["item"].clone(), c["to"]["item"].clone()])
+        .chain([
+            c["under"]["item"].clone(),
+            c["to"]["item"].clone(),
+            c["decision"]["item"].clone(),
+        ])
         .chain(items(c.get("absorbed")))
         .any(|v| v.as_str().is_some_and(|s| s.trim() == key))
 }
@@ -2513,6 +2517,44 @@ fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(C
         ));
     }
     (sound, dropped)
+}
+
+/// The rows the review found sound, but for each text that replaces an item's `approach` and leaves out a line of the
+/// item's decisions as the item has them now. The check of the change read the text the item had then; another work
+/// that ended since, or an earlier batch, may have recorded a decision in it, which the text would write over. Such a
+/// row is left out, with why, in `left_out`.
+fn without_stale_approaches(
+    tx: &Transaction<'_>,
+    sound: Vec<Change>,
+    left_out: &mut Vec<(Change, Value)>,
+) -> Result<Vec<Change>, String> {
+    let mut kept = Vec::new();
+    for row in sound {
+        let c = &row.3;
+        let now: Option<String> = if c["kind"] == "edit_item" && c["part"] == "approach" {
+            match item_number(&c["item"]) {
+                Some(id) => tx
+                    .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
+                    .optional()
+                    .map_err(sql)?
+                    .flatten(),
+                None => None,
+            }
+        } else {
+            None
+        };
+        let lost = now.map(|n| decisions::unkept(&n, text(&c["text"]))).unwrap_or_default();
+        if lost.is_empty() {
+            kept.push(row);
+        } else {
+            let what = format!(
+                "The decisions of the item changed after this change was checked, and its text would write over them: {}",
+                lost.join("; ")
+            );
+            left_out.push((row, json!({ "verdict": "drop", "what": what })));
+        }
+    }
+    Ok(kept)
 }
 
 /// Marks rows of an architect work's batch dropped, each with why.
@@ -2604,7 +2646,8 @@ fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
 fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let (w, project) = architect_work_of(ctx)?;
     let review = items(ctx.unwrapped.get("review"));
-    let (sound, left_out) = sorted_by_review(collected(tx, w)?, &review);
+    let (sound, mut left_out) = sorted_by_review(collected(tx, w)?, &review);
+    let sound = without_stale_approaches(tx, sound, &mut left_out)?;
     let keys = make(tx, &sound, &ctx.projects)?;
     drop_rows(tx, &left_out)?;
     // What the review drops is left out, and what it still finds to fix is put to the owner.
@@ -3112,7 +3155,8 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "apply_batch" => {
             // What the review drops is left out; a flow version before named no review, and the batch was made whole.
             let (_, project) = architect_work_of(ctx)?;
-            let (rows, dropped) = sorted_by_review(collected(tx, w)?, &items(at));
+            let (rows, mut dropped) = sorted_by_review(collected(tx, w)?, &items(at));
+            let rows = without_stale_approaches(tx, rows, &mut dropped)?;
             let keys = make(tx, &rows, &ctx.projects)?;
             drop_rows(tx, &dropped)?;
             release_held_replies(tx, w, &keys, &BTreeSet::new())?;
@@ -3774,7 +3818,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             let text = v.and_then(Value::as_str).unwrap_or_default();
             let lines: Vec<&str> = text
                 .lines()
-                .filter(|l| l.trim_start().starts_with(decisions::LINE))
+                .filter(|l| decisions::is_line(l))
                 .collect();
             if lines.is_empty() {
                 return Ok(());
@@ -6142,27 +6186,78 @@ mod tests {
                 9,
                 json!({ "kind": "fold_observations", "item": "new", "observations": [2] }),
             ),
+            // A decision recorded in the item names it in its decision; a decision recorded in item 3 does not.
+            (5, 5, 9, json!({ "kind": "record_decision", "decision": { "item": "new" } })),
+            (6, 5, 9, json!({ "kind": "record_decision", "decision": { "item": 3 } })),
         ];
         let review = vec![
             json!({ "change": 1, "verdict": "fix", "what": "w", "how": "h" }),
             json!({ "change": 2, "verdict": "ok", "why": "y" }),
             json!({ "change": 3, "verdict": "ok", "why": "y" }),
             json!({ "change": 4, "verdict": "ok", "why": "y" }),
+            json!({ "change": 5, "verdict": "ok", "why": "y" }),
+            json!({ "change": 6, "verdict": "ok", "why": "y" }),
         ];
         let (sound, dropped) = sorted_by_review(rows.clone(), &review);
-        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
-        assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4]);
+        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3, 6]);
+        assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4, 5]);
         // A change the review drops is left out as one it finds to fix is, and what names its item goes with it,
         // dropped too.
         let mut review = review;
         review[0] = json!({ "change": 1, "verdict": "drop", "why": "Item 5 does it already." });
         let (sound, dropped) = sorted_by_review(rows, &review);
-        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
+        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3, 6]);
         let verdicts: Vec<(i64, &str)> = dropped
             .iter()
             .map(|r| (r.0.0, r.1["verdict"].as_str().unwrap()))
             .collect();
-        assert_eq!(verdicts, [(1, "drop"), (2, "drop"), (4, "drop")]);
+        assert_eq!(verdicts, [(1, "drop"), (2, "drop"), (4, "drop"), (5, "drop")]);
+    }
+
+    // The text that replaces an item's `approach` is checked against the decisions the item has when it is written: one
+    // recorded since it was checked is not written over, and the change is left out with why; a text that keeps every
+    // line, or a change of another part or another item, is made.
+    #[test]
+    fn a_text_written_over_a_decision_recorded_since_it_was_checked_is_left_out() {
+        let line = "Decision (2026-11-02, owner): A. Situation: s. Reason: r. Replaces: none. Words: \"w\" (matter 1)";
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+                 VALUES ('p', 'one', 'x', 'y', ?1, 'change', 'l')",
+                [format!("Approach:\n- Do it.\nDecisions:\n{line}")],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let edit = |part: &str, item: Value, text: &str| {
+            (1, 1, 1, json!({ "kind": "edit_item", "item": item, "part": part, "text": text }))
+        };
+        let rows = vec![
+            // Written whole from the text the item had before the decision: it leaves the line out.
+            edit("approach", json!(1), "Approach:\n- Do it differently."),
+            // Keeps the line.
+            edit("approach", json!("#1"), &format!("Approach:\n- Do it.\n- More.\nDecisions:\n{line}")),
+            // Another part of the same item.
+            edit("why", json!(1), "Because."),
+            // An item the batch creates, named by its key.
+            edit("approach", json!("new"), "Approach:\n- New."),
+        ];
+        let mut left_out = Vec::new();
+        let sound = db
+            .write(Actor::Engine, |tx| {
+                without_stale_approaches(tx, rows, &mut left_out).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        assert_eq!(sound.len(), 3);
+        assert!(!sound.iter().any(|r| r.3["text"] == "Approach:\n- Do it differently."));
+        assert_eq!(left_out.len(), 1);
+        assert_eq!(left_out[0].1["verdict"], "drop");
+        assert!(
+            left_out[0].1["what"].as_str().unwrap().contains("leaves out the line"),
+            "{}",
+            left_out[0].1
+        );
     }
 
     /// A database with a work of project p's architect, its rounds 1 to 4, and matter 1, an engineer's question the
@@ -6305,6 +6400,13 @@ mod tests {
                 "collected",
                 Value::Null,
             ),
+            // A decision recorded in the item that is never made goes with it.
+            (
+                2,
+                json!({ "kind": "record_decision", "decision": { "item": "cover" } }),
+                "collected",
+                Value::Null,
+            ),
             (
                 2,
                 json!({ "kind": "move", "item": 4, "to": { "place": "last" } }),
@@ -6321,7 +6423,10 @@ mod tests {
                 .unwrap();
             st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
         };
-        assert_eq!(states, ["dropped", "dropped", "dropped", "dropped", "collected"]);
+        assert_eq!(
+            states,
+            ["dropped", "dropped", "dropped", "dropped", "dropped", "collected"]
+        );
         let (handled, reply, held, not_sent) = matter_one(&db);
         assert_eq!((handled, reply, held), (None, None, None));
         let why = |k: usize| {

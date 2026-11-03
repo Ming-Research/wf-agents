@@ -7845,7 +7845,8 @@ fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
 // pass, and the work goes on by what the design recommends, once and not again; the merge waits for its answer, and the
 // owner is told which question holds it. The architect answers by the path an engineer's question takes: the answer is
 // kept in the matter, reaches the engineer as an interjection, which takes a work standing at the merge's judge to
-// choose the way on, and the merge then goes on.
+// choose the way on, and the merge then goes on. The matter keeps the time the answer came, which a decision quoting
+// the answer is dated by: none before it, and not earlier than the question after it.
 #[test]
 fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches_the_engineer() {
     let s = setup("open-question");
@@ -7869,6 +7870,12 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
     assert_eq!(asked.len(), 1, "{}", said.lock().unwrap().join("\n"));
     let matter = asked[0].0;
     assert_eq!((asked[0].1.as_str(), asked[0].2.as_deref()), ("Which table?", None));
+    // A question not answered has no answer time, which a decision quoting the answer is dated by.
+    assert_eq!(matter_body(&e, matter).get("answered_at"), None);
+    let raised: i64 =
+        e.db.conn()
+            .query_row("SELECT at FROM architect_matters WHERE id = ?1", [matter], |r| r.get(0))
+            .unwrap();
     let body: String =
         e.db.conn()
             .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| {
@@ -7912,6 +7919,9 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
     let body = matter_body(&e, matter);
     assert_eq!(body["answered_by"], "architect", "{body}");
     assert!(body.get("owner_ask").is_none(), "{body}");
+    // The time of the answer is the one it came at, set when the architect replied, not the one the question was raised.
+    let came = body["answered_at"].as_i64().expect("the answer's time is kept");
+    assert!(came >= raised, "{came} {raised}");
     let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
     let way_on = message_at(&e, work, "A4", true);
@@ -14815,50 +14825,6 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
     let learned = approach.find("Learned:\nFact (2026-11-02): One table is enough (R1-2)\nCommits: ");
     assert!(learned.is_some_and(|at| at >= lines.len()), "{approach}");
     assert!(!approach.contains("Forged"), "{approach}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The architect's answer to an open question keeps the time it came in the question's matter, which is what a decision
-// quoting the answer is dated by: the time is the answer's, set when the architect replied, not the time the question
-// was raised, and a question not answered has none.
-#[test]
-fn the_architect_s_answer_to_an_open_question_keeps_the_time_it_came() {
-    let s = setup("open-question-time");
-    let mut agents = scripts();
-    agents.insert("D2", designs_with_an_open_question());
-    agents.insert(
-        "H3",
-        Box::new(|_: &Request, _: usize| {
-            let reply = json!({ "text": "One table.", "why": "The items are few." });
-            (Vec::new(), vec![("outcome.reply", reply)])
-        }),
-    );
-    agents.insert(
-        "A4",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    step_to(&mut e, item, "I1");
-    let (work, _, _) = state(&e, item).unwrap();
-    let matter = open_questions(&e, work)[0].0;
-    let answered_at = |e: &Engine| -> Option<i64> {
-        e.db.conn()
-            .query_row(
-                "SELECT json_extract(body, '$.answered_at') FROM architect_matters WHERE id = ?1",
-                [matter],
-                |r| r.get(0),
-            )
-            .unwrap()
-    };
-    assert_eq!(answered_at(&e), None);
-    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
-    assert!(steps_until(&mut e, 60, answered), "{}", said.lock().unwrap().join("\n"));
-    let raised: i64 =
-        e.db.conn()
-            .query_row("SELECT at FROM architect_matters WHERE id = ?1", [matter], |r| r.get(0))
-            .unwrap();
-    let came = answered_at(&e).expect("the answer's time is kept");
-    assert!(came >= raised, "{came} {raised}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

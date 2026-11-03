@@ -608,6 +608,22 @@ fn write_one(
                         text(&p, "kind"),
                     )?;
                 }
+                // The decisions that bear on the absorbed item bear on the one kept: its lines go there, as they are.
+                let approach_of = |id: i64| -> Result<String, String> {
+                    let a: Option<String> = tx
+                        .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
+                        .map_err(sql)?;
+                    Ok(a.unwrap_or_default())
+                };
+                let (kept, absorbed) = (approach_of(keep)?, approach_of(a)?);
+                let carried = crate::decisions::carry(&kept, &absorbed);
+                if carried != kept {
+                    tx.execute(
+                        "UPDATE items SET approach = ?2 WHERE id = ?1",
+                        params![keep, carried],
+                    )
+                    .map_err(sql)?;
+                }
                 cancel(a, &format!("merged into item {keep}: {reason}"))?;
             }
         }
@@ -935,6 +951,50 @@ mod tests {
                 ("close_pr".to_string(), json!("Its work ended without merging.")),
             ]
         );
+    }
+
+    // A merge keeps the decisions that bear on the absorbed item: their lines go into the kept item's approach, under its
+    // head and in their order, each once, and the absorbed item keeps its own.
+    #[test]
+    fn a_merge_carries_the_decisions_of_the_absorbed_item_to_the_one_kept() {
+        let (a, b) = (
+            "Decision (2026-11-01, owner): A.",
+            "Decision (2026-11-02, owner): B.",
+        );
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Architect, |tx| {
+            for approach in [
+                Some(format!("Approach:\n- Keep.\nDecisions:\n{a}\nLearned:\nx")),
+                Some(format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}")),
+                None,
+                Some(format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}")),
+            ] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+                     VALUES ('p', 't', 'x', 'y', ?1, 'change', 'l')",
+                    [approach],
+                )?;
+            }
+            let merge = |keep: &str, gone: &str| {
+                json!({ "kind": "merge", "keep": keep, "absorbed": [gone], "reason": "the same" })
+            };
+            write_all(tx, &[merge("1", "2"), merge("3", "4")], &BTreeMap::new()).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        let approach = |id: i64| -> Option<String> {
+            db.conn()
+                .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        // The first has the first line already: the second comes after it, before `Learned:`.
+        assert_eq!(
+            approach(1).unwrap(),
+            format!("Approach:\n- Keep.\nDecisions:\n{a}\n{b}\nLearned:\nx")
+        );
+        assert_eq!(approach(2).unwrap(), format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}"));
+        // The third had no text: it has the head and both lines.
+        assert_eq!(approach(3).unwrap(), format!("Decisions:\n{a}\n{b}"));
     }
 
     // An observation folded into an item the batch creates, named by its key, is folded into that item once it is made.

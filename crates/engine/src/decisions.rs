@@ -351,7 +351,7 @@ pub fn resolve(
         .as_deref()
         .unwrap_or_default()
         .lines()
-        .filter(|l| l.starts_with(LINE))
+        .filter(|l| is_line(l))
         .map(str::to_string)
         .collect();
     let mut said: Vec<Said> = Vec::new();
@@ -425,8 +425,14 @@ pub fn resolve(
     }
     let at = said.iter().map(|s| s.at).max().unwrap_or_default();
     let date = date_of(at);
+    // Who accepted the reason is the one the records say spoke, never someone more certain than they are.
     let by = if by == "writer" {
-        format!(" ({writer}'s, accepted by the owner)")
+        let accepted = match source {
+            Source::Owner => "the owner",
+            Source::Delegate => "the delegate",
+            _ => "whoever spoke, not recorded",
+        };
+        format!(" ({writer}'s, accepted by {accepted})")
     } else {
         String::new()
     };
@@ -449,6 +455,12 @@ pub fn resolve(
         said,
         line,
     })
+}
+
+/// Whether a line of a text is a line of a decision: it starts with [`LINE`], leading blanks aside. One rule for every
+/// check, so that a line indented by hand is neither written nor missed by one of them.
+pub fn is_line(line: &str) -> bool {
+    line.trim_start().starts_with(LINE)
 }
 
 /// Whether a line of an item's text is a head: it ends in a colon, which a line of a decision never does.
@@ -487,13 +499,26 @@ pub fn insert(approach: &str, line: &str) -> String {
     lines.join("\n")
 }
 
+/// An item's `approach` with the lines of decisions another item's `approach` holds and it does not, put under its
+/// head in the order the other has them, as when the item is kept in a merge of the other into it. Every other byte
+/// stands as it was; the text itself when there is nothing to carry.
+pub fn carry(approach: &str, from: &str) -> String {
+    let mut out = approach.to_string();
+    for l in from.lines().filter(|l| is_line(l)) {
+        if !out.lines().any(|had| had == l) {
+            out = insert(&out, l);
+        }
+    }
+    out
+}
+
 /// Whether a text holds a line that starts a decision which an earlier text of the same item does not hold: such a line
 /// is written by the engine from a decision, never by hand.
 pub fn new_decision_lines(before: &str, after: &str) -> Vec<String> {
     let had: Vec<&str> = before.lines().collect();
     after
         .lines()
-        .filter(|l| l.starts_with(LINE) && !had.contains(l))
+        .filter(|l| is_line(l) && !had.contains(l))
         .map(str::to_string)
         .collect()
 }
@@ -502,7 +527,7 @@ pub fn new_decision_lines(before: &str, after: &str) -> Vec<String> {
 /// out, the head `Decisions:` when it drops it, and the order of the lines when it moves them. The lines the item has
 /// stand letter for letter, in the order they were recorded; an empty list when it keeps them all.
 pub fn unkept(before: &str, after: &str) -> Vec<String> {
-    let lines = |t: &str| -> Vec<String> { t.lines().filter(|l| l.starts_with(LINE)).map(str::to_string).collect() };
+    let lines = |t: &str| -> Vec<String> { t.lines().filter(|l| is_line(l)).map(str::to_string).collect() };
     let (had, now) = (lines(before), lines(after));
     let mut out: Vec<String> = had
         .iter()
@@ -728,17 +753,24 @@ mod tests {
         assert_eq!(
             r.line,
             "Decision (2026-11-03, unrecorded): No browser check for this item. Situation: The item adds a diagram fit. \
-             Reason (architect's, accepted by the owner): It is small. Replaces: none. \
+             Reason (architect's, accepted by whoever spoke, not recorded): It is small. Replaces: none. \
              Words: \"No browser check.\" (matter 1, 2026-11-02); \"Old words.\" (matter 3, 2026-11-03)"
         );
         assert_eq!(r.said[0].words, "No browser check.");
         // An engineer's decision names the engineer as the one who wrote the reason.
         let e = resolve(db.conn(), "p", &d, "engineer", None).unwrap();
         assert!(
-            e.line.contains("Reason (engineer's, accepted by the owner)"),
+            e.line.contains("Reason (engineer's, accepted by whoever spoke, not recorded)"),
             "{}",
             e.line
         );
+        // The one who accepted the reason is the one the record says spoke: the owner, or a delegate.
+        for (matter, quote, accepted) in [(1, "No browser check.", "the owner"), (2, "Yes, do that.", "the delegate")] {
+            let mut d = decision(&[("matter", matter, quote)]);
+            d["reason_by"] = json!("writer");
+            let line = resolve(db.conn(), "p", &d, "engineer", None).unwrap().line;
+            assert!(line.contains(&format!("(engineer's, accepted by {accepted})")), "{line}");
+        }
     }
 
     // A quote must be found as it is, in the words of a record that exists, is the project's and holds a decision's
@@ -919,6 +951,36 @@ mod tests {
             new_decision_lines("", "Decision (2026-11-03, owner): B."),
             ["Decision (2026-11-03, owner): B."]
         );
+        // A line indented by hand is a line of a decision as much as one that is not, to every check.
+        assert_eq!(
+            new_decision_lines(before, &format!("{before}  Decision (2026-11-03, owner): B.")),
+            ["  Decision (2026-11-03, owner): B."]
+        );
+        assert!(is_line("\t Decision (2026-11-03, owner): B."));
+        assert!(!is_line("Note: Decision (x)"));
+        assert_eq!(
+            unkept("Decisions:\n  Decision (2026-11-03, owner): B.", "Decisions:").len(),
+            1
+        );
+    }
+
+    // A merge carries the lines of the absorbed item's decisions into the kept one, in their order, under its head, and
+    // those the kept item has already stay as they are.
+    #[test]
+    fn the_decisions_of_an_absorbed_item_go_to_the_one_kept() {
+        let a = "Decision (2026-11-01, owner): A.";
+        let b = "Decision (2026-11-02, owner): B.";
+        let absorbed = format!("Approach:\n- Other.\nDecisions:\n{a}\n{b}\n");
+        // Nothing to carry: the text stands.
+        assert_eq!(carry("Approach:\n- Do it.", "Approach:\n- Other."), "Approach:\n- Do it.");
+        // The kept item has the first already: only the second is added, after it.
+        assert_eq!(
+            carry(&format!("Approach:\n- Do it.\nDecisions:\n{a}\nLearned:\nx"), &absorbed),
+            format!("Approach:\n- Do it.\nDecisions:\n{a}\n{b}\nLearned:\nx")
+        );
+        // The kept item has no head or text: both are made, in the order the absorbed item has them.
+        assert_eq!(carry("", &absorbed), format!("Decisions:\n{a}\n{b}"));
+        assert_eq!(carry("Approach:\n- Do it.", &absorbed), format!("Approach:\n- Do it.\nDecisions:\n{a}\n{b}"));
     }
 
     // A text that replaces an item's keeps its decisions: the lines letter for letter, in order, under their head; one
