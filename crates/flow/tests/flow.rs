@@ -77,7 +77,7 @@ fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
 }
 
 // The cells that read the histories and the observations judge what matters in a great many records, so they think:
-// the librarian's four cells and the architect's look-up at high effort, the search of observations at medium, and no
+// the librarian's five cells and the architect's look-up at high effort, the search of observations at medium, and no
 // cell of any graph at low, which does not think. A line cannot hold low cells beside others, so that the librarian's
 // cell G3 goes with its line.
 #[test]
@@ -93,6 +93,7 @@ fn the_cells_that_read_histories_and_observations_think() {
     for (graph, cell) in [
         ("engineer", "G1"),
         ("engineer", "G2"),
+        ("engineer", "G4"),
         ("engineer", "G3"),
         ("engineer", "X5"),
         ("architect", "X5"),

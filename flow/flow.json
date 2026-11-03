@@ -7167,7 +7167,7 @@
           "id": "G4",
           "kind": "agent",
           "title": "Gather like fixes",
-          "effort": "low",
+          "effort": "high",
           "line": "librarian",
           "inputs": [
             {
