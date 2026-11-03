@@ -488,7 +488,11 @@ fn hold_and_release_write_and_release_the_holds_on_a_project_s_new_starts() {
     assert!(rows().is_empty());
     // A refused release lists the holds the project does hold, since no other command does.
     let out = wf_args(&dir, &["release", "--reason", "owner"]);
-    assert!(stderr(&out).contains("p has no hold of the reason owner; it holds none"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("p has no hold of the reason owner; it holds none"),
+        "{}",
+        stderr(&out)
+    );
     let out = wf_args(&dir, &["hold", "--why", "x"]);
     assert!(out.status.success(), "{}", stderr(&out));
     let mut base = db::Db::open(&config::database(&dir)).unwrap();
@@ -500,7 +504,10 @@ fn hold_and_release_write_and_release_the_holds_on_a_project_s_new_starts() {
     let out = wf_args(&dir, &["release", "--reason", "architect"]);
     let err = stderr(&out);
     assert!(failed(&out), "{err}");
-    assert!(err.contains("p has no hold of the reason architect; it holds: owner, set_straight"), "{err}");
+    assert!(
+        err.contains("p has no hold of the reason architect; it holds: owner, set_straight"),
+        "{err}"
+    );
     assert_eq!(rows().len(), 2, "a refused release deletes nothing");
     for reason in ["owner", "set_straight"] {
         let out = wf_args(&dir, &["release", "--reason", reason]);
