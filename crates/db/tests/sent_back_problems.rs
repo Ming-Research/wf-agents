@@ -130,13 +130,7 @@ fn the_view_gives_a_row_for_each_problem_and_none_for_a_round_without_problems()
         ),
     );
     // A failed run, a cut-off run, a run that ended in an error and a return that was taken.
-    round(
-        &conn,
-        2,
-        2,
-        None,
-        Some(r#"{"failed":{"kind":"k","what":"w"}}"#),
-    );
+    round(&conn, 2, 2, None, Some(r#"{"failed":{"kind":"k","what":"w"}}"#));
     round(&conn, 2, 3, None, Some(r#"{"interrupted":"i"}"#));
     round(&conn, 2, 4, None, Some(r#"{"error":"e"}"#));
     round(&conn, 2, 5, Some("done"), None);
@@ -147,8 +141,22 @@ fn the_view_gives_a_row_for_each_problem_and_none_for_a_round_without_problems()
             row(1, 1, 0, "evidence_holds", Some("columns[pass].evidence"), "a"),
             row(1, 1, 1, "columns_answered", Some("columns.id"), "b"),
             row(1, 1, 2, "no_field", None, "c"),
-            row(1, 3, 0, "format", Some("columns[].evidence"), "columns[0] has no evidence"),
-            row(1, 3, 1, "format", Some("columns[].evidence"), "columns[1] has no evidence"),
+            row(
+                1,
+                3,
+                0,
+                "format",
+                Some("columns[].evidence"),
+                "columns[0] has no evidence"
+            ),
+            row(
+                1,
+                3,
+                1,
+                "format",
+                Some("columns[].evidence"),
+                "columns[1] has no evidence"
+            ),
             row(1, 3, 2, "format", None, "the return is 3"),
             row(2, 1, 0, "evidence_holds", Some("columns[pass].evidence"), "p"),
             row(2, 1, 1, "evidence_holds", Some("columns[pass].evidence"), "q"),
@@ -231,7 +239,13 @@ fn a_database_at_version_75_keeps_its_returns_sent_back_and_gets_the_view_withou
         let conn = database_at_version_75(&path);
         works(&conn);
         round(&conn, 1, 1, None, Some(old));
-        round(&conn, 1, 2, None, Some(r#"{"format":"the return does not fit the schema of T4: x"}"#));
+        round(
+            &conn,
+            1,
+            2,
+            None,
+            Some(r#"{"format":"the return does not fit the schema of T4: x"}"#),
+        );
         round(&conn, 1, 3, Some("done"), None);
     }
     let db = Db::open(&path).unwrap();

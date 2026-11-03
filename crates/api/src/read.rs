@@ -4655,9 +4655,18 @@ mod tests {
     fn a_return_sent_back_says_its_text_and_not_its_problems() {
         let problems = json!([{ "check": "c", "field": "f", "text": "t" }]);
         let said = |rejected: Value| why(Some(&rejected));
-        assert_eq!(said(json!({ "check": "c (f): t", "problems": problems })), Some("c (f): t".to_string()));
-        assert_eq!(said(json!({ "problems": problems, "check": "c (f): t" })), Some("c (f): t".to_string()));
-        assert_eq!(said(json!({ "format": "x", "problems": problems })), Some("x".to_string()));
+        assert_eq!(
+            said(json!({ "check": "c (f): t", "problems": problems })),
+            Some("c (f): t".to_string())
+        );
+        assert_eq!(
+            said(json!({ "problems": problems, "check": "c (f): t" })),
+            Some("c (f): t".to_string())
+        );
+        assert_eq!(
+            said(json!({ "format": "x", "problems": problems })),
+            Some("x".to_string())
+        );
         assert_eq!(said(json!({ "check": "c (f): t" })), Some("c (f): t".to_string()));
         assert_eq!(
             said(json!({ "failed": { "kind": "k", "what": "w" } })),

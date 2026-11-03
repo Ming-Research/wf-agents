@@ -1088,7 +1088,10 @@ mod tests {
         assert_eq!(sent_back_text(&check), Some("c (f): t"));
         assert_eq!(sent_back_text(&format), Some("x"));
         assert_eq!(sent_back_text(&before), Some("c (f): t"));
-        assert_eq!(sent_back_text(&serde_json::json!({ "check": "c (f): t" })), Some("c (f): t"));
+        assert_eq!(
+            sent_back_text(&serde_json::json!({ "check": "c (f): t" })),
+            Some("c (f): t")
+        );
         for other in [
             serde_json::json!({ "failed": { "kind": "k", "what": "w" } }),
             serde_json::json!({ "interrupted": "i" }),
@@ -2252,7 +2255,13 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         // A table made afresh for its description has the description the schema writes, which agents read.
-        for table in ["items", "architect_matters", "dispatch_queue", "interjections", "rounds"] {
+        for table in [
+            "items",
+            "architect_matters",
+            "dispatch_queue",
+            "interjections",
+            "rounds",
+        ] {
             let definition = |db: &Db| -> String {
                 db.conn()
                     .query_row("SELECT sql FROM sqlite_schema WHERE name = ?1", [table], |r| r.get(0))

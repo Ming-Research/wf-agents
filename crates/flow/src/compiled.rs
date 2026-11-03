@@ -333,9 +333,7 @@ impl CompiledGraph {
             }],
             text,
         };
-        let c = self
-            .cell(cell)
-            .ok_or_else(|| whole(format!("no such cell: {cell}")))?;
+        let c = self.cell(cell).ok_or_else(|| whole(format!("no such cell: {cell}")))?;
         if let Some(s) = &c.schema {
             let places = misfit_places(s, ret, "");
             let text = match places.as_slice() {
@@ -535,7 +533,11 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<Misfit>) {
         return;
     }
     if let Some(Value::Array(e)) = o.get("enum") {
-        note(out, at, format!("{here} is {x}, and must be one of {}", joined(e.iter())));
+        note(
+            out,
+            at,
+            format!("{here} is {x}, and must be one of {}", joined(e.iter())),
+        );
         return;
     }
     match (o.get("oneOf"), o.get("anyOf")) {

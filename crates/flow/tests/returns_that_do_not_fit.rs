@@ -414,7 +414,11 @@ fn a_place_is_told_with_the_field_it_is_about_through_unions_inside_unions() {
     let schema = nested_schema();
     let item = |n: usize| json!({ "kind": "y", "b": n });
     let eleven: Vec<Value> = (0..11).map(item).collect();
-    let twelve: Vec<Value> = eleven.iter().cloned().chain([json!({ "kind": "y", "b": "s" })]).collect();
+    let twelve: Vec<Value> = eleven
+        .iter()
+        .cloned()
+        .chain([json!({ "kind": "y", "b": "s" })])
+        .collect();
     let cases: Vec<(Value, Vec<Option<&str>>)> = vec![
         (json!({ "label": "l", "items": eleven }), vec![]),
         (json!(3), vec![None]),
@@ -422,12 +426,18 @@ fn a_place_is_told_with_the_field_it_is_about_through_unions_inside_unions() {
         (json!({ "label": 3, "items": [] }), vec![Some("label")]),
         (json!({ "label": "l", "items": {} }), vec![Some("items")]),
         (json!({ "label": "l", "items": ["s"] }), vec![Some("items[]")]),
-        (json!({ "label": "l", "items": [{ "kind": "x" }] }), vec![Some("items[].a")]),
+        (
+            json!({ "label": "l", "items": [{ "kind": "x" }] }),
+            vec![Some("items[].a")],
+        ),
         (
             json!({ "label": "l", "items": [{ "kind": "y", "b": 1, "a": "s" }] }),
             vec![Some("items[].a")],
         ),
-        (json!({ "label": "l", "items": [{ "kind": "z" }] }), vec![Some("items[].kind")]),
+        (
+            json!({ "label": "l", "items": [{ "kind": "z" }] }),
+            vec![Some("items[].kind")],
+        ),
         (
             json!({ "label": "l", "items": [{ "kind": "x", "a": "s", "inner": { "mode": "q" } }] }),
             vec![Some("items[].inner.m")],

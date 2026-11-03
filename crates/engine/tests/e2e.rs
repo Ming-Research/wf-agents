@@ -1903,7 +1903,11 @@ fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all
                 .iter()
                 .enumerate()
                 .map(|(i, id)| {
-                    let files = if n == 2 && i == 0 { vec!["no/such/file.rs"] } else { Vec::new() };
+                    let files = if n == 2 && i == 0 {
+                        vec!["no/such/file.rs"]
+                    } else {
+                        Vec::new()
+                    };
                     json!({ "id": id, "verdict": "pass", "evidence": { "files": files, "ran": [], "nodes": [] } })
                 })
                 .collect();
@@ -2023,7 +2027,10 @@ fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all
             "text": format!("column {} is not answered", all[n - 1])
         })
     );
-    assert_eq!((&second[1]["check"], &second[1]["field"]), (&json!("evidence_holds"), &json!("columns[pass].evidence")));
+    assert_eq!(
+        (&second[1]["check"], &second[1]["field"]),
+        (&json!("evidence_holds"), &json!("columns[pass].evidence"))
+    );
     assert!(
         second[1]["text"]
             .as_str()
@@ -4381,14 +4388,15 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     assert_eq!((counted(&e, work, "sent_back"), counted(&e, work, "retries")), (2, 0));
     // The column holds the text under `format`, then each place under `problems`, the check named `format`, no check of
     // the flow being named so; the text is the sentences of the places, each on a line, and the fields are the paths.
-    let stored: String =
-        e.db.conn()
-            .query_row(
-                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'R1' AND rejected IS NOT NULL ORDER BY n LIMIT 1",
-                [work],
-                |r| r.get(0),
-            )
-            .unwrap();
+    let stored: String = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'R1' AND rejected IS NOT NULL ORDER BY n LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap();
     let rejected: Value = serde_json::from_str(&stored).unwrap();
     assert_eq!(
         rejected.as_object().unwrap().keys().collect::<Vec<_>>(),
