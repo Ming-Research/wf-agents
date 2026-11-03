@@ -191,17 +191,13 @@ describe('a round picked beside a chart', () => {
       queue: [],
       holds: [],
       asks: [],
-      handled: [],
-      changes: [],
-      policy: null,
       draft: null,
-      notebook: [],
-      constitution: null,
     };
     const html = renderToStaticMarkup(
       <ArchitectChart
         route={{ page: 'architect', project: null, tab: 'rounds', round: { work: 7, n: 6 }, cell: null, span: '7d' }}
         a={a}
+        changes={[]}
         latest={d.work}
         rounds={{ w: { rounds: d.rounds, older: false, newer: false }, error: null, loading: null, more: () => {} }}
         compiled={compiled}

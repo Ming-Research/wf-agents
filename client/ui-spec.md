@@ -1467,8 +1467,8 @@ session began.
 ### The round that started a session
 
 A round records the session it ran in, and a session why it started (`sessions.started`: its line had none going on, a
-cell starts one, the one before was past the context limit, the model or the login account changed, the owner asked for
-one, or it goes on from the architect's work before); the first round of a session in its work is the round that started
+cell starts one, the one before was past the context limit, the model or the login account changed, the CLI's prompt
+cache let the one before go, the owner asked for one, or it goes on from the architect's work before); the first round of a session in its work is the round that started
 it, and the page marks it in the list of rounds of a work's page and the architect's, the engineer's lines and helpers
 and the architect's lines alike, saying why on hovering and in the round's panel, but not a round of a cell on no line,
 each of which starts a session of its own, as its cell's badge on the chart says. Every session the session manager
@@ -1557,7 +1557,9 @@ pick or wrap-up, what the owner says to the architect the engineer is given as a
 engineer and the architect say to each other the owner sees, and what the engineer tells the owner the architect is
 given too. The helpers (the advisor, the review, the adversarial testing) are in no group. The entries are gathered from
 the tables that hold them by one view, `conversation_entries`, hidden from agents so that the index of tables the flow
-gives them stays as it is, beside what the engine writes from the flow for the page (the bubble of each stage a work
+gives them stays as it is; the page, and the talk a new session of an architect is told, read the view built on it,
+`conversation_shown`, which leaves out what the page does not show (the engine's notices and the helpers' messages),
+beside what the engine writes from the flow for the page (the bubble of each stage a work
 entered, of each matter an architect took up and of each version of its plan, the policy as it took effect).
 
 The observations are no card in a conversation, which showed each a second time beside its place: what the owner must
@@ -1958,6 +1960,17 @@ head's Start does; while the engine halted the architect's work, its trouble, th
 with the pin in `--fgColor-danger`. Scrolled up away from the newest, a round `IconButton` with an `ArrowDownIcon` at
 the stream's bottom right, `--shadow-floating-small`, goes back to it.
 
+The stream holds the latest 100 entries of the conversation and, whatever their age, every entry something waits on (an
+ask or a question that waits, the bubble of the stage that holds a decision card to rule on, words not taken up yet), so
+that nothing the bar pins is left out; the bar, the counts and the box that replies are worked out from the whole
+conversation. Where older entries are left out, a line of `--fgColor-muted` small text in the stream says "N earlier
+entries are folded away", with a small invisible `Button`, Show earlier, that reads 100 more of the latest, the line
+closing up as the entries reach the next one that stayed; the stream stays as it is while they are read, and is not
+scrolled to the newest when they join it above. A bubble that links to an entry left out has no link. At the most the
+interface gives (1000), the line has no button. It is a line and not a scroll that reads on its own, because the owner
+goes back that far now and then, and a read that follows the scroll would make the page read as often as a long
+conversation is scrolled.
+
 Instead of a band holding the cards, asks and questions themselves, under the head and over the box, with a firm edge
 the owner dragged, a cap of 45% to 85% of the conversation and a fade where it held more, because the owner found the
 band at the top and the bottom odd in a conversation where everything else is a bubble, and what a chat app pins is a
@@ -2022,8 +2035,11 @@ to it, a strip over the box naming it ("Reply to:" and the question), the owner'
 which the interface's say to the architect takes with `reply_to`, its matter coming back to the cell that asked with the
 reply; with the strip taken off, the words are the owner's words to the architect, which H8 answers. The strip names at
 first the question the architect waits on, as its look at the queue (`Q0`'s row `waits`) works it out from the same
-reading of the database (the newest question pending, put less than the installation's wait for the owner's reply ago,
-with nothing said by the owner since), which the interface gives the page with the questions; once the owner clicks
+reading of the database (the newest question pending that does not pin an open question of an engineer's design, put
+less than the installation's wait for the owner's reply ago, with nothing said by the owner since), which the interface
+gives the page with the questions; a question that pins an open question is never the one the strip names, because the
+architect does not wait for it, and the owner answers it with the Reply under it (words typed in the box with the strip
+taken off are the owner's words to the architect, not the answer to it, and the open question stays unanswered); once the owner clicks
 Reply on a question or takes the strip off, it stays so until the words are sent. Replied to, a question holds the reply
 in its bubble; one whose matter is gone, handled or withdrawn, is pinned no longer, with no Reply.
 
@@ -2092,7 +2108,9 @@ wrote it yet, its earlier versions folded under it, newest first, each under the
 Policy, the draft that waits for the owner's approval on top while one does, headed as such, then the policy in force
 with the project's constitution folded under it; and Queue, counting the matters left, how many are left, how long the
 oldest waited and how many were handled today over the list of the matters, the one in hand marked, then those handled
-with nothing to do, which leave the one-to-one once done, each with why folded.
+with nothing to do, which leave the one-to-one once done, each with why folded. The panel reads the notebook, the policy,
+the constitution and the matters handled itself (`/api/v1/architect/panel`), while it is open, and not with the
+architect the one-to-one reads at every event; until they are read, its tabs say "Loading…" where they would show them.
 
 The question whether to approve a draft does not carry the draft: its bubble leads to the panel's Policy tab.
 
@@ -2723,11 +2741,15 @@ of two label and value rows: Ran, who did its work (the agent's line, its model,
 on in its session or started one and why; or the tools, the engine's step or the owner), how long it took and when it
 ended; Cost, what it cost and the shares read again from the cache, newly cached and output, with its steps and its
 context at its start and its end; and a return sent back, a run that failed or a round cut off said in a Flash with the
-engine's reason. In: the inputs new this round, a row each with its name, its address, its size and the round that made
-it, leading to its place in the message; the inputs already in its session, folded under their count, each with the
-round that gave it and its size, opening to what the session held; and the message as sent, exactly, in one sheet, every
-heading and line as it is, a part over 1,000 characters and the task folded to their first lines with their size and
-their share of the message, the task saying it is the cell's, the same every round.
+engine's reason, a return sent back for several problems with each on a line of its own, since the Flash would run
+them together; the reason's text carries the `reason` class (`white-space: pre-line`), which the reason has wherever it
+is shown whole, also in the notes under a line of the item page's checklist, while a list of rounds that keeps a round
+to one line (above) lets the lines run on: the work page's table cuts them and says them whole on hovering, and the cell
+panel's list wraps them, so it shows them whole. In: the inputs new this round, a row each with its name, its address,
+its size and the round that made it, leading to its place in the message; the inputs already in its session, folded
+under their count, each with the round that gave it and its size, opening to what the session held; and the message as
+sent, exactly, in one sheet, every heading and line as it is, a part over 1,000 characters and the task folded to their
+first lines with their size and their share of the message, the task saying it is the cell's, the same every round.
 
 Out: the return as handed back, as JSON, in the box of what an agent handed back, every key, value and line of it,
 nothing renamed, merged or left out, a key saying on hovering what the flow says of its place; what the agent was told
@@ -2849,17 +2871,20 @@ their arrows in sight while reading the chart.
 A view of its own, System, shows the state of the whole system in five parts, each saying on its title what the owner
 does with it: Now, whether the owner needs to step in (the asks to answer, the decision cards to rule on and the faults
 of wf-agents unread, each with how long the oldest has waited; the works by where they stand, each work in one place:
-running, ready, waiting for the owner, for the architect or for other items, paused, or halted by the engine; and each
+running, ready, waiting for the owner, for the architect or for other items, paused, or halted by the engine; each
 project's architect, working, paused or idle, never by its works, with the matters in its queue and how long the oldest
-has waited, leading to its one-to-one); Output, what got done (the items merged, made and cancelled, the pull requests
+has waited, leading to its one-to-one; and the rounds running now, each with how large its context is and what it added
+and spent, the last two against the line the run guard judges them by, the numbers kept current by the event stream, not
+read again, instead of tiles of totals, because whether a round needs a look shows only against its own line); Output, what got done (the items merged, made and cancelled, the pull requests
 open now, and how long a merged work took from its start, on average); Spend, where the money goes (the engineers' works
 and the architects' works apart, everything spent per item merged with what the merged works themselves cost beside it
 in the same tile, by line and model, by item, and the ten costliest cells); Waste and efficiency, where to save (the
 share of the agents' input read from the prompt cache and the rounds that missed it, the rounds sent back and those
 failed or cut off with what they cost, how long a usage limit, being offline or being unable to run halted every work,
 and what the keep-warm pings cost); and Anomalies, what went wrong (rows counting a flow anomaly, counters past their
-project's limit, works the engine stopped, tools that failed after the engine's retries, and checks red on main after a
-merge). Every part but Now counts over a period the owner picks, which the address keeps: the week under way, the last
+project's limit, works the engine stopped, tools that failed after the engine's retries, checks red on main after a
+merge, and each signal the run guard saw past its line, with its value, its line, how many rounds gave the line and what
+came of it, leading to its round). Every part but Now counts over a period the owner picks, which the address keeps: the week under way, the last
 four weeks, or all time, a week running from Monday at midnight in the owner's time zone. Each part sums up first, in
 tiles, and each number leads to the list it counts, folded under the tiles or on the view that holds it, a tile of
 nothing muted; over more than one week, what got done shows week by week, and the spend as columns, the engineers' and

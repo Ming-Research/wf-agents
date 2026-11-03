@@ -23,6 +23,7 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `constitution.md`: the lasting values designs are judged by, which the owner sets.
+- `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
   `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
 
@@ -73,6 +74,15 @@ signed in as, shows the command that signs a new one in, and switches the agents
 `config_dir` and committing it, after which every line starts a new session at its next round, since a session is kept
 in the directory it ran in.
 
+## The run guard
+
+While an agent's round runs, the engine reads each of its calls to the model from the command line's stream, keeps it in
+the database, and judges the round against lines computed from the rounds before it, so that no line is a setting. The
+rule is the flow's (`guard` in the rounds section of `flow/flow.json`), and a round it stops takes the row `guarded` that
+every agent's cell has. The System view shows each running round against its lines under Now, and what the guard saw and
+did under Anomalies. Only the command line's adapter (`crates/sessions/src/cli.rs`) reads the stream's format: should a
+new version of the command line stop telling its calls there, rounds run unjudged, and a running round shows no calls.
+
 ## The architect
 
 Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`
@@ -90,7 +100,8 @@ agents are then not asked for it.
 
 ## The owner's page
 
-`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with
+`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). However the engine ends,
+Ctrl-C and a closed terminal included, the agents it was running are stopped with it. The engine starts with
 every work paused, so nothing runs until the owner presses Start all in the page's bar, which is also how the page is
 looked at against a copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
 switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in the head of its

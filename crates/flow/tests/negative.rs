@@ -101,6 +101,13 @@ case!(a_colour_the_page_does_not_know, "unknown variant `green`", |v| {
 case!(a_colour_the_page_keeps_for_the_owner, "unknown variant `orange`", |v| {
     graph(v)["sessions"]["lines"][1]["colour"] = json!("orange");
 });
+// A line says whether its session expires with the cache as `cacheExpiry`, a yes or a no, and nothing else.
+case!(an_unknown_key_of_a_line, "unknown field `cache_expiry`", |v| {
+    graph(v)["sessions"]["lines"][0]["cache_expiry"] = json!(true);
+});
+case!(a_cache_expiry_that_is_not_a_yes_or_a_no, "invalid type", |v| {
+    graph(v)["sessions"]["lines"][0]["cacheExpiry"] = json!("yes");
+});
 case!(
     two_lines_of_a_graph_with_one_colour,
     "two lines share the colour blue: engineer and review",

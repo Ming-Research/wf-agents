@@ -8,13 +8,13 @@
 use std::time::Duration;
 
 use db::Actor;
-use db::rusqlite::{OptionalExtension, params};
-use flow::format::{Atom, Failure, Handle, Rounds, STEP_NETWORK};
+use db::rusqlite::params;
+use flow::format::{Atom, Failure, GUARDED, Handle, Rounds, STEP_NETWORK};
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
 
 use crate::agent::{self, Reply};
-use crate::work::{self, Ended, RoundId, Work};
+use crate::work::{self, Ended, Round, RoundId, Work};
 use crate::{Advance, Engine, actions};
 
 /// Why the engine starts no new round for any work, and until when.
@@ -175,8 +175,31 @@ pub fn since_outside(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Vec<Took
 
 /// Whether a round is the record of a step of the engine's before an agent's round that failed in passing
 /// ([`networked`]): the agent ran no round, and is told of none.
-pub fn was_step(r: &crate::work::Round) -> bool {
+pub fn was_step(r: &Round) -> bool {
     r.rejected.as_ref().is_some_and(|x| x["failed"]["kind"] == STEP_NETWORK)
+}
+
+/// Whether a cell's next round is the one the owner let go on after the run guard stopped the cell's last: the owner's
+/// Start comes first, so the guard only records that round. It holds for one round: rounds that never ran to an end
+/// are passed over, from the newest, and the first that did must be the one stopped, stopped before the owner's Start.
+pub fn waived(at_cell: &[Round], resumed: Option<i64>) -> bool {
+    match (at_cell.iter().find(|r| !cut_short(r, GUARDED)), resumed) {
+        (Some(r), Some(t)) => failed_as(r) == Some(GUARDED) && t > r.ended_at.unwrap_or(r.started_at),
+        _ => false,
+    }
+}
+
+/// The kind of failed run a round ended as, if any.
+fn failed_as(r: &Round) -> Option<&str> {
+    r.rejected.as_ref()?["failed"]["kind"].as_str()
+}
+
+/// Whether a round did not run to an end of its own: the engine cut it off, or it failed as another kind than `kind`,
+/// the one that is looked for. The record of a step before the cell's round ([`was_step`]) is one such: no run of the
+/// cell.
+fn cut_short(r: &Round, kind: &str) -> bool {
+    let cut = |x: &serde_json::Value| x.get("interrupted").is_some() || x.get("error").is_some();
+    r.rejected.as_ref().is_some_and(cut) || failed_as(r).is_some_and(|k| k != kind)
 }
 
 /// How many times the work took a row in the rounds [`since_outside`] gave.
@@ -325,12 +348,17 @@ pub fn networked(
     Ok(Some(Advance::Moved))
 }
 
+/// A work, as the owner is told of it.
+fn about(e: &Engine, w: &Work) -> Result<String, String> {
+    Ok(match e.subject(w)? {
+        Some(item) => format!("Work {} on item {} ({})", w.id, item.id, item.title),
+        None => format!("Work {} ({})", w.id, w.of_architect()),
+    })
+}
+
 /// Pauses a work and tells the owner why; once the owner lets it go on, its cell runs again.
 pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
-    let text = match e.subject(w)? {
-        Some(item) => format!("Work {} on item {} ({}) is paused: {why}", w.id, item.id, item.title),
-        None => format!("Work {} ({}) is paused: {why}", w.id, w.of_architect()),
-    };
+    let text = format!("{} is paused: {why}", about(e, w)?);
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
@@ -344,23 +372,16 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
 }
 
 /// The cell's round before `round` in its work, when its run ended as the same kind of failed run too: none when the
-/// round before at the cell did anything else. A record of a step before the cell's round ([`was_step`]) is no run of
-/// the cell, and is passed over.
+/// round before at the cell did anything else. A run that failed in passing or was cut off between the two is that same
+/// round run again, and a record of a step before the cell's round ([`was_step`]) is no run of the cell: both are
+/// passed over.
 fn refused_before(e: &Engine, round: RoundId, cell: &str, kind: &str) -> Result<Option<RoundId>, String> {
-    let before: Option<(i64, Option<String>)> =
-        e.db.conn()
-            .query_row(
-                "SELECT n, rejected FROM rounds WHERE work = ?1 AND n < ?2 AND cell = ?3
-                   AND coalesce(json_extract(rejected, '$.failed.kind'), '') <> ?4 ORDER BY n DESC LIMIT 1",
-                params![round.work, round.n, cell, STEP_NETWORK],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(sql)?;
-    Ok(before.and_then(|(n, rejected)| {
-        let v: serde_json::Value = serde_json::from_str(rejected.as_deref()?).ok()?;
-        (v["failed"]["kind"] == kind).then(|| RoundId::new(round.work, n))
-    }))
+    let at_cell = work::rounds_at(e.db.conn(), round.work, cell)?;
+    let before = at_cell
+        .iter()
+        .filter(|r| r.id.n < round.n)
+        .find(|r| !cut_short(r, kind));
+    Ok(before.filter(|r| failed_as(r) == Some(kind)).map(|r| r.id))
 }
 
 /// What a round whose run ended without a return was, and what came of it.
@@ -370,6 +391,8 @@ pub struct Failed<'a> {
     pub cell: &'a CompiledCell,
     pub round: RoundId,
     pub section: &'a Rounds,
+    /// Why the run guard stopped it, as the round after it is told; none for a run it did not stop.
+    pub guard: Option<serde_json::Value>,
 }
 
 impl Failed<'_> {
@@ -380,7 +403,11 @@ impl Failed<'_> {
             .clone()
             .unwrap_or_else(|| "the round handed in nothing".to_string());
         let now = db::now();
-        let name = agent::failure_kind(&what);
+        // A run stopped is told by that, never by the words of a report, which it does not have.
+        let name = match &reply.stopped {
+            Some(_) => GUARDED,
+            None => agent::failure_kind(&what),
+        };
         let kind = kind_of(self.section, name)
             .or_else(|| kind_of(self.section, "transient"))
             .cloned()
@@ -395,6 +422,9 @@ impl Failed<'_> {
         let mut failed = json!({ "kind": kind.name, "what": what });
         if let Some(t) = until {
             failed["until"] = json!(t);
+        }
+        if let Some(g) = &self.guard {
+            failed["guard"] = g.clone();
         }
         // A kind run again that has failed as often in a row as its bound says is not run again: the round records the
         // bound it passed, and the work pauses.
@@ -472,28 +502,63 @@ impl Failed<'_> {
                     pause(e, self.w, &why)
                 }
             },
-            // The same session would give the service the same context again: the first time, the line's session ends
-            // and the cell runs again in a new one; when the cell's round before was refused too, the work pauses.
+            // The same session would give the same context again: the line's session ends, whatever comes next, and the
+            // first time the cell runs again in a new one; when the cell's round before ended the same way, passing
+            // failures aside, the work pauses.
             Handle::Fresh => {
                 let before = refused_before(e, round, &self.cell.id, &kind.name)?;
-                if let Some(first) = before {
-                    let why = format!(
-                        "cell {}: the service refused the agent's run in {first} and again in {round}, in a new session ({}): {what}",
-                        self.cell.id, kind.name
-                    );
-                    return pause(e, self.w, &why);
-                }
                 e.db.write(Actor::Engine, |tx| {
                     tx.execute(
                         "UPDATE sessions SET ended = ?3 WHERE ended IS NULL
                            AND id = (SELECT session FROM rounds WHERE work = ?1 AND n = ?2)",
                         params![round.work, round.n, db::now()],
                     )?;
+                    // What the hook handed in during the round went with its session, and the round will never answer
+                    // it: it waits again, for the whole message of the new session.
+                    tx.execute(
+                        "UPDATE rounds SET input = json_set(input, '$.engine.interjections', json((
+                           SELECT json_group_array(value) FROM json_each(input, '$.engine.interjections')
+                           WHERE value NOT IN (
+                             SELECT id FROM interjections WHERE work = ?1 AND delivered_round = ?2))))
+                         WHERE work = ?1 AND n = ?2",
+                        params![round.work, round.n],
+                    )?;
+                    tx.execute(
+                        "UPDATE interjections SET delivered_round = NULL WHERE work = ?1 AND delivered_round = ?2",
+                        params![round.work, round.n],
+                    )?;
                     Ok(())
                 })
                 .map_err(sql)?;
+                let guarded = kind.name == GUARDED;
+                let doer = if guarded {
+                    "the run guard stopped"
+                } else {
+                    "the service refused"
+                };
+                if let Some(first) = before {
+                    let why = format!(
+                        "cell {}: {doer} the agent's run in {first} and again in {round}, in a new session ({}): {what}",
+                        self.cell.id, kind.name
+                    );
+                    return pause(e, self.w, &why);
+                }
+                // The guard's stop is the engine's own act on a run: the owner hears of it the first time too.
+                if guarded {
+                    let text = format!(
+                        "{}: {doer} the agent's run in {round} at cell {} ({what}). Its session ended, and the cell runs \
+                         again in a new one.",
+                        about(e, self.w)?,
+                        self.cell.id
+                    );
+                    let w = self.w.id;
+                    e.db.write(Actor::Engine, |tx| {
+                        actions::notify(tx, Some(w), &text).map_err(db::Error::Abort)
+                    })
+                    .map_err(sql)?;
+                }
                 e.say(&format!(
-                    "{round} was refused ({}): its line's session ends, and {} runs again in a new one",
+                    "{round}: {doer} the run ({}): its line's session ends, and {} runs again in a new one",
                     kind.name, self.cell.id
                 ));
                 Ok(Advance::Moved)
@@ -549,6 +614,43 @@ mod tests {
                 ended_at: Some(ended),
             })
             .collect()
+    }
+
+    // The owner's Start waives the guard for the round after the one stopped, and for that round alone, however many
+    // runs of it never came to an end; a Start from before the stop waives nothing.
+    #[test]
+    fn the_owners_start_waives_the_guard_for_one_round() {
+        let round = |n: i64, ended: i64, rejected: Option<serde_json::Value>| Round {
+            id: RoundId::new(1, n),
+            cell: Some("R1".into()),
+            session: None,
+            input: json!({}),
+            output: None,
+            transition: rejected.is_none().then(|| "done".to_string()),
+            rejected,
+            compactions: 0,
+            started_at: ended - 1,
+            ended_at: Some(ended),
+            usage: None,
+        };
+        let failed = |kind: &str| Some(json!({ "failed": { "kind": kind, "what": "x" } }));
+        let stopped = round(1, 10, failed(GUARDED));
+        assert!(waived(std::slice::from_ref(&stopped), Some(11)));
+        assert!(!waived(std::slice::from_ref(&stopped), Some(9)));
+        assert!(!waived(std::slice::from_ref(&stopped), None));
+        assert!(!waived(&[], Some(11)));
+        // A retry of the waived round is still that round.
+        let retried = [round(2, 12, failed("transient")), stopped.clone()];
+        assert!(waived(&retried, Some(11)));
+        let cut = [
+            round(2, 12, Some(json!({ "interrupted": "the engine stopped" }))),
+            stopped.clone(),
+        ];
+        assert!(waived(&cut, Some(11)));
+        // Once it came to an end, in a return taken or sent back, rounds are judged again.
+        assert!(!waived(&[round(2, 12, None), stopped.clone()], Some(11)));
+        let sent_back = [round(2, 12, Some(json!({ "format": "x" }))), stopped];
+        assert!(!waived(&sent_back, Some(11)));
     }
 
     // Each time a failed run runs again it waits twice as long, up to five minutes; a step that failed waits as many

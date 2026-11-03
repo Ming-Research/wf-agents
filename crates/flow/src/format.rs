@@ -317,6 +317,22 @@ pub struct Rounds {
     /// shared row of each one's name for it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub engine: Vec<EngineCase>,
+    /// How a running round is judged; none in a flow version from before the guard, whose rounds are only recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<Guard>,
+}
+
+/// The kind of failed run a round the guard stopped is.
+pub const GUARDED: &str = "guarded";
+
+/// The run guard's rule: how a running round is compared with the rounds before it. The lines themselves are not here:
+/// they are computed from those rounds.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Guard {
+    pub desc: String,
+    /// How many rounds a distribution needs before it gives a line.
+    pub samples: u32,
 }
 
 impl Rounds {
@@ -467,6 +483,12 @@ pub struct Line {
     /// shown (`crate::compile_shown`), has none.
     #[serde(default)]
     pub colour: Option<Colour>,
+    /// Whether the line's session expires with the CLI's prompt cache: a round of the line whose session's last call is
+    /// a cache lifetime or more ago starts a new session, instead of writing the whole session to the cache again. The
+    /// line's other new sessions are as they are without it. A line that does not say goes on in its session whatever
+    /// its age.
+    #[serde(default, rename = "cacheExpiry")]
+    pub cache_expiry: bool,
     /// Where the work goes when a new session of the line would start at one of its cells: a row every agent's cell
     /// of the line has, but those it names, which the engine takes itself in place of the cell's round.
     pub anew: Option<Anew>,

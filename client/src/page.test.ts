@@ -71,7 +71,7 @@ import {
   ways,
 } from './graph/flowModel';
 import { layStores, storeLinks, storeUses } from './graph/stores';
-import { connect, named, REOPEN_MS } from './live';
+import { coalesced, connect, FLUSH_MS, named, REOPEN_MS } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { anchored } from './item/Shapes';
 import { askedTo, cardOfKey, cardRuling, currentCard, firstSentence } from './pages/Decide';
@@ -97,6 +97,7 @@ import {
   waitingByKey,
 } from './conversation';
 import { addressesByNumber, atPath, modelName, RoundTold } from './pages/RoundView';
+import { startedText } from './pages/Usage';
 import { helperThread } from './pages/Work';
 import { roundsShown } from './pages/WorkChart';
 import { catalog, type Key, t, tn } from './messages';
@@ -106,7 +107,7 @@ import { type Draft, draftOf, settingsChange, settingsProblems, shellWord, signI
 import { tiersAllowed } from './pages/TalkHead';
 import { coloursOf } from './roles';
 import { spendTable } from './spend';
-import { axisTicks, gapsOf, usageOf } from './usage';
+import { axisTicks, gapsOf, type SessionRow, usageOf } from './usage';
 
 describe('the message catalog', () => {
   // That every text is in English is checked with every file of the repository (crates/wf-agents/tests/english.rs).
@@ -502,6 +503,36 @@ describe('events', () => {
       expect(opened.map((x) => x.url)).toEqual(['/api/v1/events', '/api/v1/events?after=7-3']);
     } finally {
       vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  // Read again at every event, the architect's one-to-one read 15 MB in eight seconds while six works ran, and the
+  // owner's page, the engine and the machine stopped.
+  it('are read again once for many events, and not at all while the tab is hidden', () => {
+    vi.useFakeTimers();
+    try {
+      const runs: string[][] = [];
+      let hidden = false;
+      const soon = coalesced((keys) => runs.push(keys), () => hidden);
+      soon(['works', 'items']);
+      soon(['works', 'messages']);
+      expect(runs).toEqual([]);
+      vi.advanceTimersByTime(FLUSH_MS);
+      expect(runs).toEqual([['works', 'items', 'messages']]);
+      // Nothing more came: nothing more is read.
+      vi.advanceTimersByTime(FLUSH_MS * 2);
+      expect(runs.length).toBe(1);
+      // A hidden tab gathers and reads nothing until it is looked at.
+      hidden = true;
+      soon(['works']);
+      vi.advanceTimersByTime(FLUSH_MS * 5);
+      soon(['items']);
+      expect(runs.length).toBe(1);
+      hidden = false;
+      vi.advanceTimersByTime(FLUSH_MS);
+      expect(runs[1]).toEqual(['works', 'items']);
+    } finally {
       vi.useRealTimers();
     }
   });
@@ -2359,6 +2390,7 @@ describe("the owner's conversations", () => {
       waits_on: null,
       read_to: null,
       forwarding: null,
+      gaps: [],
     };
     expect(d.entries.map((e) => voiceOf(e))).toEqual([
       'agent',
@@ -2445,5 +2477,16 @@ describe("the owner's conversations", () => {
         (c) => c.key,
       ),
     ).toEqual(['architect:p', 'work:6']);
+  });
+});
+
+describe('the usage page names why a session started', () => {
+  // A session started because the CLI's prompt cache let the one before go has a label of its own, and a reason the
+  // page does not know has none.
+  it('says a session started expired as cache expired', () => {
+    const session = (started: string | null) => ({ started, cell: 'U1', before: null }) as SessionRow;
+    expect(startedText(session('expired'))).toBe('cache expired');
+    expect(startedText(session('account'))).toBe("the agents' login account changed");
+    expect(startedText(session('made up'))).toBe('');
   });
 });

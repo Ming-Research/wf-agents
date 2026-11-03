@@ -46,6 +46,7 @@ mod unparsed;
 mod values;
 mod versions;
 mod warm;
+mod watch;
 mod work;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -106,6 +107,10 @@ pub enum Advance {
 /// what it does.
 pub type Activity = dyn Fn(i64, i64, &str) + Send + Sync;
 
+/// Where the engine tells how a running round stands: the round's work, its number in the work, and what its calls to
+/// the model come to so far.
+pub type Measured = dyn Fn(i64, i64, sessions::guard::Live) + Send + Sync;
+
 /// Where the loop tells which works it is taking a step of, in the order of their ids.
 pub type Busy = dyn Fn(&[i64]) + Send + Sync;
 
@@ -116,6 +121,8 @@ pub struct Hooks {
     pub say: Arc<dyn Fn(&str) + Send + Sync>,
     /// What the agent of a running round is doing, by its work and round, as its command line reports it.
     pub activity: Arc<Activity>,
+    /// How a running round stands, by its work and round, after each of its calls to the model.
+    pub measure: Arc<Measured>,
     /// Where the loop says which works it is taking a step of, in the order of their ids, each time it dispatches a
     /// step or reaps one: the owner's page shows those works' rounds as running, and what stops once each ends.
     pub busy: Arc<Busy>,
@@ -136,6 +143,7 @@ impl Default for Hooks {
         Hooks {
             say: Arc::new(|s: &str| eprintln!("{s}")),
             activity: Arc::new(|_: i64, _: i64, _: &str| {}),
+            measure: Arc::new(|_: i64, _: i64, _: sessions::guard::Live| {}),
             busy: Arc::new(|_: &[i64]| {}),
             ended: Arc::new(|| {}),
             commit: None,
@@ -144,11 +152,18 @@ impl Default for Hooks {
     }
 }
 
+/// What a graph as a project's agents are asked it depends on: the flow's version, the graph, the project and the
+/// configuration's commit.
+type AskedGraph = (i64, String, Option<String>, String);
+
 /// What every thread's steps share and what lasts from one step to the next: one for the engine's process. Each lock
 /// is held only while what it guards is read or changed, never across a round, a command or a write.
 struct Shared {
     /// The compiled flows read so far, by version.
     flows: RwLock<BTreeMap<i64, Arc<Compiled>>>,
+    /// The graphs as projects' agents are asked them, by flow version, graph, project and configuration's commit
+    /// ([`Engine::graph_of`]).
+    asked: RwLock<BTreeMap<AskedGraph, Arc<CompiledGraph>>>,
     /// The configuration in use: the last good one read ([`Engine::reload_config`]).
     config: RwLock<Arc<config::Committed>>,
     /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new
@@ -194,6 +209,7 @@ impl Shared {
     ) -> Shared {
         Shared {
             flows: RwLock::new(flows),
+            asked: RwLock::default(),
             config: RwLock::new(Arc::new(config)),
             halt: Mutex::default(),
             told: Mutex::default(),
@@ -222,6 +238,24 @@ impl Shared {
             .unwrap_or_else(PoisonError::into_inner)
             .get(&version)
             .cloned()
+    }
+}
+
+/// What a level's rounds run on ([`Engine::runs_on`]), which [`RunsOn::on`] lends to the session manager.
+#[derive(Debug, Clone)]
+pub struct RunsOn {
+    model: String,
+    home: Option<PathBuf>,
+    cache: Option<i64>,
+}
+
+impl RunsOn {
+    pub fn on(&self) -> sessions::On<'_> {
+        sessions::On {
+            model: &self.model,
+            home: self.home.as_deref(),
+            cache: self.cache,
+        }
     }
 }
 
@@ -646,11 +680,18 @@ impl Engine {
             .map_err(|e| e.to_string())
     }
 
-    /// The configuration directory a CLI runs agents with, as the configuration names it: the login account the
-    /// agents' calls are made under, which holds their sessions. [`Engine::cli_home`] makes it.
-    pub fn cli_dir(&self, name: &str) -> Option<PathBuf> {
-        let cli = self.config.config.install.agents.clis.get(name)?;
-        Some(cli.home(&self.data, name))
+    /// What a level's rounds run on, by which the session manager chooses their session: the level's model, the
+    /// configuration directory its CLI runs agents with, as the configuration names it (the login account the agents'
+    /// calls are made under, which holds their sessions; [`Engine::cli_home`] makes it), and how long the CLI's prompt
+    /// cache keeps a session's prompt after its last call. The one place the engine works this out, for a round, the
+    /// check before it, the keep-warm pings and the question whether a session understood the project.
+    pub fn runs_on(&self, level: &config::Level) -> RunsOn {
+        let cli = self.config.config.install.agents.clis.get(&level.cli);
+        RunsOn {
+            model: level.model.clone(),
+            home: cli.map(|c| c.home(&self.data, &level.cli)),
+            cache: cli.and_then(|c| c.kind.cache_lifetime()),
+        }
     }
 
     /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of the data
@@ -809,30 +850,48 @@ impl Engine {
     }
 
     /// The graph a work runs on, as its project's agents are asked it: without the fields of every return whose need
-    /// the project does not meet, such as flow feedback the project's configuration turned off. An owned copy, so the
-    /// engine can be borrowed while it is in use.
-    pub fn graph_of(&mut self, w: &Work) -> Result<CompiledGraph, String> {
+    /// the project does not meet, such as flow feedback the project's configuration turned off. Shared, so the engine
+    /// can be borrowed while it is in use; made once for each flow, graph, project and configuration, since the loop
+    /// asks for it for every work many times a pass and a copy of a graph is large.
+    pub fn graph_of(&mut self, w: &Work) -> Result<Arc<CompiledGraph>, String> {
+        let project = self.project_named(w)?;
+        let key = (w.flow_version, w.graph.clone(), project, self.config.commit.clone());
+        if let Some(g) = self
+            .shared
+            .asked
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&key)
+        {
+            return Ok(Arc::clone(g));
+        }
         let g = self
             .flow(w.flow_version)?
             .graph(&w.graph)
             .cloned()
             .ok_or_else(|| format!("work {}: its flow has no graph {}", w.id, w.graph))?;
-        self.as_asked(w, g)
+        let g = Arc::new(self.as_asked(w, g)?);
+        let mut asked = self.shared.asked.write().unwrap_or_else(PoisonError::into_inner);
+        Ok(Arc::clone(asked.entry(key).or_insert(g)))
     }
 
-    /// A graph as the agents of a work's project are asked it ([`CompiledGraph::as_asked`]).
-    fn as_asked(&self, w: &Work, g: CompiledGraph) -> Result<CompiledGraph, String> {
-        let named: Option<String> = match (&w.project, w.item) {
-            (Some(p), _) => Some(p.clone()),
+    /// The project a work's agents answer to: its own, or its item's; none for a work on neither.
+    fn project_named(&self, w: &Work) -> Result<Option<String>, String> {
+        match (&w.project, w.item) {
+            (Some(p), _) => Ok(Some(p.clone())),
             (None, Some(item)) => self
                 .db
                 .conn()
                 .query_row("SELECT project FROM items WHERE id = ?1", [item], |r| r.get(0))
                 .optional()
-                .map_err(|e| format!("item {item}: {e}"))?,
-            (None, None) => None,
-        };
-        let project = named.and_then(|p| self.config.config.projects.get(&p));
+                .map_err(|e| format!("item {item}: {e}")),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// A graph as the agents of a work's project are asked it ([`CompiledGraph::as_asked`]).
+    fn as_asked(&self, w: &Work, g: CompiledGraph) -> Result<CompiledGraph, String> {
+        let project = self.project_named(w)?.and_then(|p| self.config.config.projects.get(&p));
         Ok(g.as_asked(|need| project.is_some_and(|p| p.has(need).unwrap_or(false))))
     }
 

@@ -1,5 +1,8 @@
 //! The engine's checks of a return: `engine.checks` in the flow, each named by the cells that use it. A return that
-//! fails one is sent back with the reason, before it takes a row.
+//! fails one is sent back with the reason, before it takes a row. The reason says every problem of every check that
+//! applies, and a check says every problem it can find in the return ([`Problems`]), since each send-back costs a round.
+//! The one check that does not is `cards_match_records`: no cell of the flow calls it, so it sends nothing back and
+//! `crate::cards::check`, which stops at its first problem, is not converted; both go with `cards.rs` in #203.
 //!
 //! A check whose `at` lies in one of the forms every agent has (ask, answers, redirect) runs on returns of that form;
 //! any other runs on the cell's own answer, whether or not the place is there, since some checks are about a place
@@ -60,10 +63,86 @@ fn table_of(r: &Round) -> Vec<Value> {
     items(r.input.get("engine").and_then(|x| x.get("table")))
 }
 
-/// Runs every check of the cell that applies to the return; gives every reason it fails.
+/// What a check found wrong with a return: one text for each problem, in the order found.
+#[derive(Debug, Default, PartialEq)]
+pub struct Problems(Vec<String>);
+
+impl Problems {
+    /// Adds a problem; one already found, word for word, is the same problem and is not added again.
+    pub fn push(&mut self, why: impl Into<String>) {
+        let why = why.into();
+        if !self.0.contains(&why) {
+            self.0.push(why);
+        }
+    }
+
+    /// The check's result once it has looked at everything: ok when it found nothing.
+    pub fn into_result(self) -> Result<(), Problems> {
+        if self.is_empty() { Ok(()) } else { Err(self) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Adds one problem about a group of ids, all of them in it: `single` says it of one id, `several` of the ids joined
+    /// with `, `; nothing for no id.
+    pub fn about(&mut self, ids: &[String], single: impl Fn(&str) -> String, several: impl Fn(&str) -> String) {
+        match ids {
+            [] => {}
+            [x] => self.push(single(x)),
+            xs => self.push(several(&xs.join(", "))),
+        }
+    }
+
+    /// Adds the problems of another look at the same return, after those found so far.
+    pub fn extend(&mut self, other: Problems) {
+        for why in other.0 {
+            self.push(why);
+        }
+    }
+
+    pub fn texts(&self) -> &[String] {
+        &self.0
+    }
+}
+
+// A reason built as one text (a failed read, a message of a helper) is one problem: it keeps every `?` on a
+// `Result<_, String>` inside a check as it is.
+impl From<String> for Problems {
+    fn from(why: String) -> Self {
+        Problems(vec![why])
+    }
+}
+
+impl From<&str> for Problems {
+    fn from(why: &str) -> Self {
+        Problems(vec![why.to_string()])
+    }
+}
+
+impl From<Vec<String>> for Problems {
+    fn from(all: Vec<String>) -> Self {
+        Problems(all)
+    }
+}
+
+/// Adds the lines a check's problems make in the reason a return is sent back with, `check (place): problem`, one
+/// for each problem; a line already there is not added again.
+fn render(lines: &mut Vec<String>, check: &str, at: Option<&str>, found: &Problems) {
+    for why in found.texts() {
+        let line = format!("{check} ({}): {why}", at.unwrap_or("the return"));
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+}
+
+/// Runs every check of the cell that applies to the return; gives every reason it fails, every problem of every
+/// check: a return is sent back once with all that can be found, since each send-back costs a round.
 pub fn run(c: &Ctx<'_>) -> Result<(), String> {
     let form = form_of(c.g, c.cell, c.output);
-    let mut problems: Vec<String> = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
     for ch in &c.cell.checks {
         let top = ch.at.as_deref().map(|a| a.split(['.', '[']).next().unwrap_or_default());
         let form_field = top.filter(|t| c.cell.forms.iter().any(|f| f.field.as_deref() == Some(*t)));
@@ -75,22 +154,169 @@ pub fn run(c: &Ctx<'_>) -> Result<(), String> {
             continue;
         }
         let value = ch.at.as_deref().and_then(|a| at_path(&c.unwrapped, a));
-        if let Err(why) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
-            let p = format!("{} ({}): {why}", ch.check, ch.at.as_deref().unwrap_or("the return"));
-            if !problems.contains(&p) {
-                problems.push(p);
-            }
+        if let Err(found) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
+            render(&mut lines, &ch.check, ch.at.as_deref(), &found);
         }
     }
-    if problems.is_empty() {
+    if lines.is_empty() {
         Ok(())
     } else {
-        Err(problems.join("\n"))
+        Err(lines.join("\n"))
     }
 }
 
-fn fail<T>(why: impl Into<String>) -> Result<T, String> {
-    Err(why.into())
+/// For a miss that the tests after it presuppose to be absent: the check stops here, and says this one. Any other
+/// miss is pushed to a [`Problems`] and the check goes on, so that one send-back says all of them: a return sent back
+/// costs a round, and a check that stops at the first of several misses costs one for each.
+pub(crate) fn fail<T>(why: impl Into<String>) -> Result<T, Problems> {
+    Err(Problems(vec![why.into()]))
+}
+
+/// How the ids a return gave differ from the ids the engine listed.
+#[derive(Debug, PartialEq)]
+struct IdMisses {
+    /// Given, and not listed; each once, in the order given.
+    unknown: Vec<String>,
+    /// Given more than once, listed or not; each once, in the order of its first appearance.
+    twice: Vec<String>,
+    /// Listed, and not given; in the order listed.
+    missing: Vec<String>,
+}
+
+fn id_misses<S: AsRef<str>>(want: &[S], given: &[String]) -> IdMisses {
+    let mut unknown: Vec<String> = Vec::new();
+    let mut twice: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for id in given {
+        if !want.iter().any(|w| w.as_ref() == id) && !unknown.contains(id) {
+            unknown.push(id.clone());
+        }
+        if !seen.insert(id) && !twice.contains(id) {
+            twice.push(id.clone());
+        }
+    }
+    // The order of the first appearance: a text given twice is placed where it was first given.
+    twice.sort_by_key(|id| given.iter().position(|g| g == id));
+    let mut missing: Vec<String> = Vec::new();
+    for w in want.iter().map(AsRef::as_ref) {
+        if !seen.contains(w) && !missing.iter().any(|m| m == w) {
+            missing.push(w.to_string());
+        }
+    }
+    IdMisses {
+        unknown,
+        twice,
+        missing,
+    }
+}
+
+/// What is wrong with the columns a review's return answers (`given`) against the columns the engine listed (`want`):
+/// the columns that are none of them, those answered twice, and those not answered, each kind said once with all its
+/// columns.
+fn columns_problems(want: &[&str], given: &[String]) -> Problems {
+    let misses = id_misses(want, given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("there is no column {x}"),
+        |xs| format!("there are no columns {xs}"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("column {x} is answered twice"),
+        |xs| format!("columns {xs} are answered twice"),
+    );
+    problems.about(
+        &misses.missing,
+        |x| format!("column {x} is not answered"),
+        |xs| format!("columns {xs} are not answered"),
+    );
+    problems
+}
+
+/// The findings of the last review (`due`) that the table of the fix holds no row for (`given`), all of them in one
+/// problem.
+fn previous_problems(due: &[String], given: &[String]) -> Problems {
+    let mut problems = Problems::default();
+    problems.about(
+        &id_misses(due, given).missing,
+        |x| format!("no row for {x}, a finding of the last review"),
+        |xs| format!("no row for {xs}, findings of the last review"),
+    );
+    problems
+}
+
+/// What is wrong with the answers of a table of rows (`given`, the id of each answer) against the rows of the table the
+/// round was given (`rows`, when it `numbered` them): an id answered twice, whether or not it is a row; and, for a
+/// numbered table, the ids that are no row of it and the rows with no answer. A round given no numbered table is
+/// checked for answers given twice alone.
+fn table_problems(given: &[String], rows: &[&str], numbered: bool) -> Problems {
+    let misses = id_misses(rows, given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.twice,
+        |x| format!("{x} is answered twice"),
+        |xs| format!("{xs} are answered twice"),
+    );
+    if numbered {
+        problems.about(
+            &misses.unknown,
+            |x| format!("{x} is not a row of the table: answer each row by its number"),
+            |xs| format!("{xs} are not rows of the table: answer each row by its number"),
+        );
+        problems.about(
+            &misses.missing,
+            |x| format!("no answer for {x}"),
+            |xs| format!("no answer for {xs}"),
+        );
+    }
+    problems
+}
+
+/// What is wrong with how a review carries the blind review's findings (`blind`) into its columns (`carried`) and its
+/// withdrawals (`withdrawn`): findings withdrawn that the blind review did not hand in, and findings of the blind
+/// review neither carried nor withdrawn, each kind said once with all its findings.
+fn blind_problems(blind: &[String], carried: &[String], withdrawn: &[String]) -> Problems {
+    let mut problems = Problems::default();
+    problems.about(
+        &once(withdrawn.iter().filter(|w| !blind.contains(w))),
+        |x| format!("{x} is withdrawn, and the blind review handed in no such finding"),
+        |xs| format!("{xs} are withdrawn, and the blind review handed in no such findings"),
+    );
+    problems.about(
+        &once(blind.iter().filter(|b| !carried.contains(b) && !withdrawn.contains(b))),
+        |x| format!("the blind review's finding {x} is neither carried into a column nor withdrawn"),
+        |xs| format!("the blind review's findings {xs} are neither carried into a column nor withdrawn"),
+    );
+    problems
+}
+
+/// The texts of an iterator, each once, in the order they come.
+fn once<'a>(texts: impl Iterator<Item = &'a String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in texts {
+        if !out.contains(t) {
+            out.push(t.clone());
+        }
+    }
+    out
+}
+
+/// The columns of a review that the engineer could not verify either (`both`) and that the review does not decide this
+/// time, each column once.
+fn unverified_problems(both: &BTreeSet<String>, columns: &[Value]) -> Problems {
+    let mut problems = Problems::default();
+    for id in columns
+        .iter()
+        .filter_map(|col| col["id"].as_str())
+        .filter(|id| both.contains(*id))
+    {
+        problems.push(format!(
+            "column {id}: the engineer could not verify it either; decide it now, a pass on what the work \
+             shows or findings that say what evidence is needed and how to get it, not cannot_verify again"
+        ));
+    }
+    problems
 }
 
 /// The texts at a place, a list flattened.
@@ -257,27 +483,15 @@ impl Ctx<'_> {
     }
 }
 
-fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), String> {
+fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
     match check {
         "research_only" => {
-            let wt = c.wt()?;
-            if !git::is_clean(wt)? {
-                return fail("the worktree has uncommitted changes");
-            }
-            let Some(start) = &c.head_start else { return Ok(()) };
-            let outside: Vec<String> = c
-                .own(start, "HEAD")?
-                .into_iter()
-                .filter(|f| !f.starts_with("research/"))
-                .collect();
-            if outside.is_empty() {
-                Ok(())
-            } else {
-                fail(format!(
-                    "this round changed files outside research/: {}",
-                    outside.join(", ")
-                ))
-            }
+            let clean = git::is_clean(c.wt()?)?;
+            let outside: Vec<String> = match &c.head_start {
+                Some(start) => c.own(start, "HEAD")?,
+                None => Vec::new(),
+            };
+            research_problems(clean, &outside).into_result()
         }
         "design_paths_unchanged" => {
             let wt = c.wt()?;
@@ -420,9 +634,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "acceptance_matches_locked" => {
             let given = items(v);
-            if c.item()?.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer") {
-                return fail("a work that delivers a change has no report_answer condition");
-            }
+            let report_answer = c.item()?.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer");
             let locked: Option<String> =
                 c.e.db
                     .conn()
@@ -430,12 +642,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                         r.get(0)
                     })
                     .map_err(|e| e.to_string())?;
-            match work::json_col(locked) {
-                Some(l) if l != Value::Array(given) && !c.ruled_since_locked()? => fail(
-                    "the acceptance conditions are locked and must be handed in word for word; to change them, ask the advisor with the kind acceptance_change first",
-                ),
-                _ => Ok(()),
-            }
+            let differs = work::json_col(locked).is_some_and(|l| l != Value::Array(given));
+            // Whether the owner ruled since is looked up only when the conditions differ.
+            let changed = differs && !c.ruled_since_locked()?;
+            acceptance_problems(report_answer, changed).into_result()
         }
         "head_pushed_and_green" => {
             let wt = c.wt()?;
@@ -446,7 +656,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 Err(Unfit::NoCommit) => return fail(format!("there is no commit {head}")),
                 Err(Unfit::NotHead(_)) => return fail("the head is not the worktree's HEAD"),
                 Err(Unfit::Uncommitted) => return fail("the worktree has uncommitted changes"),
-                Err(Unfit::Git(e)) => return Err(e),
+                Err(Unfit::Git(e)) => return Err(e.into()),
             };
             if c.pushed_head()?.as_deref() != Some(sha.as_str()) {
                 return fail("the head was not pushed with ci");
@@ -499,81 +709,36 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         "conditions_cover_acceptance" => {
             let Some(rows) = v else { return Ok(()) };
             let rows = items(Some(rows));
-            let ids: Vec<String> = rows
-                .iter()
-                .filter_map(|r| r["id"].as_str().map(str::to_string))
-                .collect();
             let wanted: Vec<String> = c
                 .acceptance()?
                 .iter()
                 .filter_map(|a| a["id"].as_str().map(str::to_string))
                 .collect();
-            if wanted.is_empty() && !ids.is_empty() {
-                return fail(
-                    "the item has no acceptance conditions in force; ask the advisor for them with the kind acceptance_change",
-                );
-            }
-            if let Some(x) = ids.iter().find(|i| !wanted.contains(i)) {
-                return fail(format!("{x} is not an acceptance condition"));
-            }
             let recheck = c.cell.id == "T1" && !c.accepted("T1")?.is_empty();
-            if !recheck && let Some(x) = wanted.iter().find(|i| !ids.contains(i)) {
-                return fail(format!("no row for acceptance condition {x}"));
-            }
             let wt = c.wt()?;
-            for r in rows.iter().filter(|r| r["how"] == "tested") {
-                for t in strs(r.get("tests")) {
-                    test_name::on_branch(wt, &t)?;
-                }
-            }
-            Ok(())
+            conditions_problems(&wanted, &rows, recheck, |t| test_name::on_branch(wt, t)).into_result()
         }
         "new_test_results" | "guard_test_results" => {
             if c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
                 return Ok(());
             }
             let new = check == "new_test_results";
-            for t in items(v) {
-                let name = t["name"].as_str().unwrap_or_default();
-                let (head, base) = (
-                    t["on_head"].as_str().unwrap_or_default(),
-                    t["on_base"].as_str().unwrap_or_default(),
-                );
-                if head == "red" {
-                    return fail(format!("{name} is red on the head: fix it in this round"));
-                }
-                if new && base == "green" {
-                    return fail(format!(
-                        "{name} passes before the change: it does not test new behaviour; fix it in this round"
-                    ));
-                }
-                if !new && !matches!(base, "green" | "not_run") {
-                    return fail(format!(
-                        "{name} does not pass before the change: it does not guard old behaviour; fix it in this round"
-                    ));
-                }
-            }
-            test_results_match_runs(c, v)?;
-            let changes = items(c.unwrapped.get("test_changes"));
-            let listed: Vec<String> = strs(at_path(&Value::Array(items(v)), "name").as_ref());
+            let rows = items(v);
+            let mut problems = result_problems(&rows, new);
+            problems.extend(test_results_match_runs(c, v)?);
             let kind = if new { "new_behaviour" } else { "old_behaviour" };
-            for x in changes.iter().filter(|x| x["change"] == "added" && x["kind"] == kind) {
-                let name = x["test"].as_str().unwrap_or_default();
-                if !listed.iter().any(|l| l == name) {
-                    return fail(format!("{name} was added as {kind}, and is not in its table"));
-                }
-            }
-            Ok(())
+            problems.extend(unlisted_additions(&items(c.unwrapped.get("test_changes")), &rows, kind));
+            problems.into_result()
         }
         "adversarial_test_results" => {
-            test_results_match_runs(c, v)?;
+            let mut problems = test_results_match_runs(c, v)?;
             if let Some(h) = c.unwrapped.pointer("/wrote/head").and_then(Value::as_str)
                 && c.unwrapped["wrote"]["verdict"] == "wrote"
                 && c.pushed_head()?.as_deref() != git::resolve(c.wt()?, h).as_deref()
             {
-                return fail("tests were written, and the head was not pushed with ci");
+                problems.push("tests were written, and the head was not pushed with ci");
             }
-            Ok(())
+            problems.into_result()
         }
         "test_kinds_match" => {
             let table = if at.is_some_and(|a| a.starts_with("new_tests")) {
@@ -598,36 +763,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     }
                 }
             }
-            let want = if table == "new_tests" {
-                "new_behaviour"
-            } else {
-                "old_behaviour"
-            };
-            for r in rows {
-                let name = r["name"].as_str().unwrap_or_default();
-                if r["by"] == "engineer"
-                    && let Some((_, k)) = kinds.iter().find(|(n, _)| n == name)
-                    && k != want
-                {
-                    return fail(format!(
-                        "{name} was added by the engineer as {k}; it belongs in the other table"
-                    ));
-                }
-                if r["by"] == "adversarial" {
-                    let base = r["on_base"].as_str().unwrap_or_default();
-                    let wrong = if table == "new_tests" {
-                        base == "green"
-                    } else {
-                        !matches!(base, "green" | "not_run")
-                    };
-                    if wrong {
-                        return fail(format!(
-                            "{name}: its result before the change does not fit its kind; fix it in this round and run it again"
-                        ));
-                    }
-                }
-            }
-            Ok(())
+            kind_problems(&rows, &kinds, table == "new_tests").into_result()
         }
         "tests_only" => {
             let Some(from) = c.w.pushed_head.clone() else {
@@ -654,51 +790,37 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 return Ok(());
             };
             let tests = strs(v);
+            // The last review of the tests is the same for every row of every fix.
+            let review = c.accepted("T1")?.into_iter().next();
+            let mut disputes: Vec<(String, String)> = Vec::new();
             for fix in c.accepted("T6")?.into_iter().filter(|r| r.id > last6) {
                 let table = table_of(&fix);
                 for row in items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))) {
                     let id = known_as(&table, row["id"].as_str().unwrap_or_default());
                     if matches!(row["answer"].as_str(), Some("test_wrong" | "advisor_ruled"))
-                        && c.accepted("T1")?.first().is_some_and(|r| mentions(r, &id))
-                        && !tests.contains(&id)
+                        && review.as_ref().is_some_and(|r| mentions(r, &id))
                     {
-                        return fail(format!(
-                            "no row for {id}, which the engineer answered {}",
-                            row["answer"]
-                        ));
+                        disputes.push((id, row["answer"].to_string()));
                     }
                 }
             }
-            Ok(())
+            disputed_problems(&disputes, &tests).into_result()
         }
         "no_insisting_after_ruling" => {
             let ruled = ruled_ids(c)?;
-            for r in items(v) {
-                let id = r["fid"].as_str().or(r["test"].as_str()).unwrap_or_default();
-                if ruled.contains(id) {
-                    return fail(format!("{id} was ruled on; it is not insisted on"));
-                }
-            }
-            if c.cell.id == "T4" {
-                for r in items(c.unwrapped.get("previous"))
-                    .iter()
-                    .filter(|r| r["verdict"] == "not_fixed")
-                {
-                    let id = r["fid"].as_str().unwrap_or_default();
-                    if ruled.contains(id) {
-                        return fail(format!("{id} was ruled on; it is not marked not_fixed"));
-                    }
-                }
-            }
-            Ok(())
+            let previous: Vec<Value> = if c.cell.id == "T4" {
+                items(c.unwrapped.get("previous"))
+            } else {
+                Vec::new()
+            };
+            insisting_problems(&ruled, &items(v), &previous).into_result()
         }
         "fact_basis_ran" => {
             let bases: Vec<Value> = items(v)
                 .iter()
                 .map(|x| x.get("basis").cloned().unwrap_or_else(|| x.clone()))
                 .collect();
-            for b in bases.iter().filter(|b| b["kind"] == "fact") {
-                let run = b["run"].as_str().unwrap_or_default();
+            let recorded = |run: &str, check: &str| -> Result<bool, String> {
                 let linked: i64 =
                     c.e.db
                         .conn()
@@ -709,14 +831,9 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                         )
                         .map_err(|e| e.to_string())?;
                 // A gh command or a query has no link: it is cited by what was handed in.
-                let check = b["check"].as_str().unwrap_or_default();
-                if linked == 0 && !c.handed_in(check)? {
-                    return fail(format!(
-                        "the run {run:?} is not one the engine recorded for this work: give the link from the tool's result, or, for a gh command or a query, write it in check as you handed it in"
-                    ));
-                }
-            }
-            Ok(())
+                Ok(linked > 0 || c.handed_in(check)?)
+            };
+            unrecorded_facts(&bases, recorded)?.into_result()
         }
         "conclusions_cover_questions" => {
             let questions = c.acceptance()?.iter().filter(|a| a["by"] == "report_answer").count();
@@ -732,20 +849,8 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "columns_answered" => {
             let ids = strs(v);
-            let want: Vec<&String> = c.columns.iter().map(|(id, _)| id).collect();
-            let mut seen = BTreeSet::new();
-            for id in &ids {
-                if !want.contains(&id) {
-                    return fail(format!("there is no column {id}"));
-                }
-                if !seen.insert(id) {
-                    return fail(format!("column {id} is answered twice"));
-                }
-            }
-            if let Some(m) = want.iter().find(|w| !seen.contains(**w)) {
-                return fail(format!("column {m} is not answered"));
-            }
-            Ok(())
+            let want: Vec<&str> = c.columns.iter().map(|(id, _)| id.as_str()).collect();
+            columns_problems(&want, &ids).into_result()
         }
         "evidence_holds" => cited_evidence_exists(c.e.db.conn(), c.wt()?, v),
         "previous_findings_answered" => {
@@ -760,11 +865,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     .filter(|p| matches!(p["verdict"].as_str(), Some("not_fixed" | "insist")))
                     .filter_map(|p| p["fid"].as_str().map(str::to_string)),
             );
-            let given = strs(v);
-            match due.iter().find(|d| !given.contains(d)) {
-                Some(d) => fail(format!("no row for {d}, a finding of the last review")),
-                None => Ok(()),
-            }
+            previous_problems(&due, &strs(v)).into_result()
         }
         "unverified_decided" => {
             // The columns the engineer could not verify either: rows of the fix since the last review that came from
@@ -782,16 +883,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     }
                 }
             }
-            match items(v)
-                .iter()
-                .find_map(|col| col["id"].as_str().filter(|id| both.contains(*id)))
-            {
-                Some(id) => fail(format!(
-                    "column {id}: the engineer could not verify it either; decide it now, a pass on what the work \
-                     shows or findings that say what evidence is needed and how to get it, not cannot_verify again"
-                )),
-                None => Ok(()),
-            }
+            unverified_problems(&both, &items(v)).into_result()
         }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
@@ -821,42 +913,16 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let out = blind.output.map(|o| c.g.unwrap(&o)).unwrap_or(Value::Null);
             let blind_ids = strs(at_path(&out, "findings.fid").as_ref());
             let carried = strs(at_path(&c.unwrapped, "columns.findings.fid").as_ref());
-            let withdrawn = strs(v);
-            if let Some(w) = withdrawn.iter().find(|w| !blind_ids.contains(w)) {
-                return fail(format!(
-                    "{w} is withdrawn, and the blind review handed in no such finding"
-                ));
-            }
-            match blind_ids
-                .iter()
-                .find(|b| !carried.contains(b) && !withdrawn.contains(b))
-            {
-                Some(b) => fail(format!(
-                    "the blind review's finding {b} is neither carried into a column nor withdrawn"
-                )),
-                None => Ok(()),
-            }
+            blind_problems(&blind_ids, &carried, &strs(v)).into_result()
         }
         "table_answered" => {
-            let mut seen = BTreeSet::new();
-            for r in items(v) {
-                let id = r["id"].as_str().unwrap_or_default().to_string();
-                if !seen.insert(id.clone()) {
-                    return fail(format!("{id} is answered twice"));
-                }
-            }
+            let ids: Vec<String> = items(v)
+                .iter()
+                .map(|r| r["id"].as_str().unwrap_or_default().to_string())
+                .collect();
             // A round given a numbered table answers each of its rows by its number, and nothing else.
-            if !c.table.is_empty() {
-                let rows: Vec<&str> = c.table.iter().filter_map(|r| r["row"].as_str()).collect();
-                if let Some(x) = seen.iter().find(|x| !rows.contains(&x.as_str())) {
-                    return fail(format!("{x} is not a row of the table: answer each row by its number"));
-                }
-                let missing: Vec<&str> = rows.iter().copied().filter(|r| !seen.contains(*r)).collect();
-                if !missing.is_empty() {
-                    return fail(format!("no answer for {}", missing.join(", ")));
-                }
-            }
-            Ok(())
+            let rows: Vec<&str> = c.table.iter().filter_map(|r| r["row"].as_str()).collect();
+            table_problems(&ids, &rows, !c.table.is_empty()).into_result()
         }
         "no_disagreeing_after_insist" => {
             let mut insisted: BTreeSet<String> = BTreeSet::new();
@@ -869,18 +935,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 }
             }
             let rows = items(c.unwrapped.get("rows"));
-            match rows
+            let disagreed: Vec<String> = rows
                 .iter()
                 .filter(|r| matches!(r["answer"].as_str(), Some("disagree" | "test_wrong")))
-                .find_map(|r| {
-                    r["id"]
-                        .as_str()
-                        .map(|id| known_as(c.table, id))
-                        .filter(|k| insisted.contains(k))
-                }) {
-                Some(id) => fail(format!("{id} was insisted on; when neither side gives way, ask")),
-                None => Ok(()),
-            }
+                .filter_map(|r| r["id"].as_str().map(|id| known_as(c.table, id)))
+                .collect();
+            disagreeing_problems(&insisted, &disagreed).into_result()
         }
         "not_caused_by_change" => {
             let Some(wt) = c.w.worktree.as_deref() else {
@@ -939,19 +999,257 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .iter()
                 .filter_map(|i| i["speaker"].as_str().map(str::to_string))
                 .collect();
-            let mut seen = BTreeSet::new();
-            for to in strs(v) {
-                if !speakers.contains(&to) {
-                    return fail(format!("the {to} did not interject in this round"));
-                }
-                if !seen.insert(to.clone()) {
-                    return fail(format!("two answers to the {to}"));
-                }
-            }
-            Ok(())
+            let speakers: Vec<String> = speakers.into_iter().collect();
+            speaker_problems(&speakers, &strs(v)).into_result()
         }
         other => crate::architect::check(c, other, at, v),
     }
+}
+
+/// What is wrong with the kinds of the tests in a table of new tests (`new`) or of guard tests: each test the engineer
+/// added under the other kind (`kinds`, each added test's name and kind), and each adversarial test whose result before
+/// the change does not fit the table, every row once.
+fn kind_problems(rows: &[Value], kinds: &[(String, String)], new: bool) -> Problems {
+    let want = if new { "new_behaviour" } else { "old_behaviour" };
+    let mut problems = Problems::default();
+    for r in rows {
+        let name = r["name"].as_str().unwrap_or_default();
+        if r["by"] == "engineer"
+            && let Some((_, k)) = kinds.iter().find(|(n, _)| n == name)
+            && k != want
+        {
+            problems.push(format!(
+                "{name} was added by the engineer as {k}; it belongs in the other table"
+            ));
+        }
+        if r["by"] == "adversarial" {
+            let base = r["on_base"].as_str().unwrap_or_default();
+            let wrong = if new {
+                base == "green"
+            } else {
+                !matches!(base, "green" | "not_run")
+            };
+            if wrong {
+                problems.push(format!(
+                    "{name}: its result before the change does not fit its kind; fix it in this round and run it again"
+                ));
+            }
+        }
+    }
+    problems
+}
+
+/// What is wrong with the results a table of new or guard tests gives on its own: each row that is red on the head, and
+/// each that does not fit its kind before the change (a new test that passes, a guard that does not pass), the three
+/// kinds of problem independent of each other and of the other rows.
+fn result_problems(rows: &[Value], new: bool) -> Problems {
+    let mut problems = Problems::default();
+    for t in rows {
+        let name = t["name"].as_str().unwrap_or_default();
+        let (head, base) = (
+            t["on_head"].as_str().unwrap_or_default(),
+            t["on_base"].as_str().unwrap_or_default(),
+        );
+        if head == "red" {
+            problems.push(format!("{name} is red on the head: fix it in this round"));
+        }
+        if new && base == "green" {
+            problems.push(format!(
+                "{name} passes before the change: it does not test new behaviour; fix it in this round"
+            ));
+        }
+        if !new && !matches!(base, "green" | "not_run") {
+            problems.push(format!(
+                "{name} does not pass before the change: it does not guard old behaviour; fix it in this round"
+            ));
+        }
+    }
+    problems
+}
+
+/// The tests the test changes say were added as `kind` (`new_behaviour` or `old_behaviour`) that the table of that kind
+/// (`rows`) does not list, each one.
+fn unlisted_additions(changes: &[Value], rows: &[Value], kind: &str) -> Problems {
+    let listed: Vec<String> = strs(at_path(&Value::Array(rows.to_vec()), "name").as_ref());
+    let mut problems = Problems::default();
+    for x in changes.iter().filter(|x| x["change"] == "added" && x["kind"] == kind) {
+        let name = x["test"].as_str().unwrap_or_default();
+        if !listed.iter().any(|l| l == name) {
+            problems.push(format!("{name} was added as {kind}, and is not in its table"));
+        }
+    }
+    problems
+}
+
+/// The answers a fix gave that disagree (`disagreed`, each row's name) with a finding or a test the review insisted on
+/// (`insisted`), each one.
+fn disagreeing_problems(insisted: &BTreeSet<String>, disagreed: &[String]) -> Problems {
+    let mut problems = Problems::default();
+    for id in disagreed.iter().filter(|id| insisted.contains(*id)) {
+        problems.push(format!("{id} was insisted on; when neither side gives way, ask"));
+    }
+    problems
+}
+
+/// What is wrong with the answers a return gives to those who interjected in the round (`given`, who each answers)
+/// against the speakers there were: answers to someone who did not interject, and two answers to the same one, each
+/// kind said once with all its speakers.
+fn speaker_problems(speakers: &[String], given: &[String]) -> Problems {
+    let misses = id_misses(speakers, given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("the {x} did not interject in this round"),
+        |xs| format!("the {xs} did not interject in this round"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("two answers to the {x}"),
+        |xs| format!("two answers to each of: {xs}"),
+    );
+    problems
+}
+
+/// The rows a fix answered `test_wrong` or `advisor_ruled` that the table of tests holds no row for (`disputes`, each
+/// row's name and its answer as written), each one.
+fn disputed_problems(disputes: &[(String, String)], tests: &[String]) -> Problems {
+    let mut problems = Problems::default();
+    for (id, answer) in disputes.iter().filter(|(id, _)| !tests.contains(id)) {
+        problems.push(format!("no row for {id}, which the engineer answered {answer}"));
+    }
+    problems
+}
+
+/// What a review insists on or marks not fixed that the engineer answered `advisor_ruled` (`ruled`): each row of the
+/// review's table (`insisted`) that names a ruled finding or test, and, at the table review, each finding it marks
+/// `not_fixed` among the `previous` verdicts that was ruled on.
+fn insisting_problems(ruled: &BTreeSet<String>, insisted: &[Value], previous: &[Value]) -> Problems {
+    let mut problems = Problems::default();
+    for r in insisted {
+        let id = r["fid"].as_str().or(r["test"].as_str()).unwrap_or_default();
+        if ruled.contains(id) {
+            problems.push(format!("{id} was ruled on; it is not insisted on"));
+        }
+    }
+    for r in previous.iter().filter(|r| r["verdict"] == "not_fixed") {
+        let id = r["fid"].as_str().unwrap_or_default();
+        if ruled.contains(id) {
+            problems.push(format!("{id} was ruled on; it is not marked not_fixed"));
+        }
+    }
+    problems
+}
+
+/// The facts in the bases of a review's findings (`bases`) whose run the engine did not record for the work, each one;
+/// `recorded` says for a run and the check as written whether it did, or why it cannot be read.
+fn unrecorded_facts(
+    bases: &[Value],
+    recorded: impl Fn(&str, &str) -> Result<bool, String>,
+) -> Result<Problems, String> {
+    let mut problems = Problems::default();
+    for b in bases.iter().filter(|b| b["kind"] == "fact") {
+        let run = b["run"].as_str().unwrap_or_default();
+        let check = b["check"].as_str().unwrap_or_default();
+        if !recorded(run, check)? {
+            problems.push(format!(
+                "the run {run:?} is not one the engine recorded for this work: give the link from the tool's result, or, for a gh command or a query, write it in check as you handed it in"
+            ));
+        }
+    }
+    Ok(problems)
+}
+
+/// What is wrong with the rows of a table of conditions against the acceptance conditions in force (`wanted`): when
+/// there is none and rows name some, that alone, since every other miss presupposes one; otherwise the ids that are
+/// no condition, and, unless the table is a recheck of a cell that ran before (`recheck`), the conditions with no row.
+/// An id given twice is not reported.
+fn cover_problems(wanted: &[String], ids: &[String], recheck: bool) -> Problems {
+    let mut problems = Problems::default();
+    if wanted.is_empty() && !ids.is_empty() {
+        problems.push(
+            "the item has no acceptance conditions in force; ask the advisor for them with the kind acceptance_change",
+        );
+        return problems;
+    }
+    let misses = id_misses(wanted, ids);
+    problems.about(
+        &misses.unknown,
+        |x| format!("{x} is not an acceptance condition"),
+        |xs| format!("{xs} are not acceptance conditions"),
+    );
+    if !recheck {
+        problems.about(
+            &misses.missing,
+            |x| format!("no row for acceptance condition {x}"),
+            |xs| format!("no row for acceptance conditions {xs}"),
+        );
+    }
+    problems
+}
+
+/// What is wrong with a table of condition rows (`rows`) against the acceptance conditions in force (`wanted`): what
+/// [`cover_problems`] says about their ids, and each test a row of kind tested names that is not on the branch
+/// (`on_branch` says, with the reason when not). With no condition in force the rows are no rows of any condition, so
+/// their tests are not looked for.
+fn conditions_problems(
+    wanted: &[String],
+    rows: &[Value],
+    recheck: bool,
+    on_branch: impl Fn(&str) -> Result<(), String>,
+) -> Problems {
+    let ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r["id"].as_str().map(str::to_string))
+        .collect();
+    let mut problems = cover_problems(wanted, &ids, recheck);
+    if wanted.is_empty() && !ids.is_empty() {
+        return problems;
+    }
+    for r in rows.iter().filter(|r| r["how"] == "tested") {
+        for t in strs(r.get("tests")) {
+            if let Err(why) = on_branch(&t) {
+                problems.push(why);
+            }
+        }
+    }
+    problems
+}
+
+/// What is wrong with the acceptance conditions a return gives back: a work that delivers a change hands in a
+/// `report_answer` condition (`report_answer`), and the conditions are locked and differ from the locked ones with no
+/// ruling of the owner since (`unlocked`); the two are independent.
+fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
+    let mut problems = Problems::default();
+    if report_answer {
+        problems.push("a work that delivers a change has no report_answer condition");
+    }
+    if unlocked {
+        problems.push(
+            "the acceptance conditions are locked and must be handed in word for word; to change them, ask the advisor with the kind acceptance_change first",
+        );
+    }
+    problems
+}
+
+/// What is wrong with a research round's changes: the worktree holds changes that are not committed, and the round
+/// changed files outside `research/` (`changed`, the files it changed); the two are independent.
+fn research_problems(clean: bool, changed: &[String]) -> Problems {
+    let mut problems = Problems::default();
+    if !clean {
+        problems.push("the worktree has uncommitted changes");
+    }
+    let outside: Vec<&str> = changed
+        .iter()
+        .map(String::as_str)
+        .filter(|f| !f.starts_with("research/"))
+        .collect();
+    if !outside.is_empty() {
+        problems.push(format!(
+            "this round changed files outside research/: {}",
+            outside.join(", ")
+        ));
+    }
+    problems
 }
 
 /// What an entry of a review's evidence cites, read by the characters it begins with.
@@ -980,8 +1278,10 @@ fn cited(entry: &str) -> Cited<'_> {
 
 /// Whether what the evidence cites is there: a round in the database, which may be of another work, as a review
 /// reads the rounds that came before; a file named by a path from the repository's root, in the worktree. A citation
-/// that is neither (a pull request, a note on an answer) names nothing to look up and is not looked up.
-fn cited_evidence_exists(conn: &db::rusqlite::Connection, wt: &Path, evidence: Option<&Value>) -> Result<(), String> {
+/// that is neither (a pull request, a note on an answer) names nothing to look up and is not looked up. Every round
+/// and file cited that is not there is a problem of its own.
+fn cited_evidence_exists(conn: &db::rusqlite::Connection, wt: &Path, evidence: Option<&Value>) -> Result<(), Problems> {
+    let mut problems = Problems::default();
     for ev in items(evidence) {
         for entry in strs(ev.get("files")).into_iter().chain(strs(ev.get("nodes"))) {
             match cited(&entry) {
@@ -994,11 +1294,11 @@ fn cited_evidence_exists(conn: &db::rusqlite::Connection, wt: &Path, evidence: O
                         )
                         .map_err(|e| e.to_string())?;
                     if found == 0 {
-                        return fail(format!("the round {id} does not exist"));
+                        problems.push(format!("the round {id} does not exist"));
                     }
                 }
                 Cited::File(p) if !wt.join(p).exists() => {
-                    return fail(format!(
+                    problems.push(format!(
                         "{p} is not in the worktree: name a file by its path from the repository's root, or a round \
                          as R<work>-<n>"
                     ));
@@ -1007,7 +1307,7 @@ fn cited_evidence_exists(conn: &db::rusqlite::Connection, wt: &Path, evidence: O
             }
         }
     }
-    Ok(())
+    problems.into_result()
 }
 
 /// The path a cited file or round begins with, before the lines or a note that may follow it, as in
@@ -1073,7 +1373,9 @@ fn names_red(checks: Option<&Value>, name: &str) -> bool {
 
 /// A test said to be green on the head while every run on the head was red names it, or said to be red while every
 /// check on the head was green, does not match the runs; the same for the code before the change.
-fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String> {
+///
+/// Every test that does not match is a problem, with everything that is wrong with it.
+fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<Problems, String> {
     let pushed = c.pushed_head()?;
     let ci = c.ci_runs("ci")?;
     let on_head = ci.iter().find(|r| r["push"]["head"].as_str() == pushed.as_deref());
@@ -1081,58 +1383,72 @@ fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String>
         .ci_runs("ci_before")?
         .into_iter()
         .find(|r| r["ran"]["verdict"] == "ran");
-    for t in items(v) {
+    Ok(results_vs_runs(
+        &items(v),
+        on_head.map(|run| &run["push"]),
+        before.as_ref().map(|run| &run["ran"]),
+    ))
+}
+
+/// The tests of a table (`rows`) whose results do not match the run of ci on the head (`on_head`, the run's push, when
+/// there is one) and the run of ci_before that ran (`before`, when there is one), every test and every result once.
+fn results_vs_runs(rows: &[Value], on_head: Option<&Value>, before: Option<&Value>) -> Problems {
+    let mut problems = Problems::default();
+    for t in rows {
         let name = t["name"].as_str().unwrap_or_default();
         if let Some(run) = on_head {
-            let checks = run["push"].get("checks");
+            let checks = run.get("checks");
             match t["on_head"].as_str() {
-                Some("red") if all_green(checks) => {
-                    return fail(format!(
-                        "{name} is said to be red on the head, and every check there is green"
-                    ));
-                }
-                Some("green") if names_red(checks, name) => {
-                    return fail(format!(
-                        "{name} is said to be green on the head, and a red check's log names it"
-                    ));
-                }
+                Some("red") if all_green(checks) => problems.push(format!(
+                    "{name} is said to be red on the head, and every check there is green"
+                )),
+                Some("green") if names_red(checks, name) => problems.push(format!(
+                    "{name} is said to be green on the head, and a red check's log names it"
+                )),
                 _ => {}
             }
         }
-        if let Some(run) = &before {
-            base_matches_run(name, t["on_base"].as_str(), &run["ran"])?;
+        if let Some(ran) = before {
+            problems.extend(base_matches_run(name, t["on_base"].as_str(), ran));
         }
     }
-    Ok(())
+    problems
 }
 
-/// Whether what a test is said to give before the change matches the run of ci_before that ran: said red while every
-/// check there is green, or green while a red check's log names it, it does not; nor said red or green while
-/// ci_before reports it not run, which nothing measured, nor said not run while it reports it passed or failed. A test
-/// the run was named under no such name, or a run of an engine that did not report each test, is checked by the run's
-/// checks alone.
-fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Result<(), String> {
+/// Where what a test is said to give before the change does not match the run of ci_before that ran: said red while
+/// every check there is green, or green while a red check's log names it; said red or green while ci_before reports
+/// it not run, which nothing measured; said not run while it reports it passed or failed. Each that applies is a
+/// problem of its own. A test the run was named under no such name, or a run of an engine that did not report each
+/// test, is checked by the run's checks alone.
+fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Problems {
     let checks = ran.get("checks");
     let reported = items(ran.get("tests"))
         .iter()
         .find(|t| t["test"].as_str() == Some(name))
         .and_then(|t| t["result"].as_str().map(str::to_string));
-    match (said, reported.as_deref()) {
-        (Some("red"), _) if all_green(checks) => fail(format!(
+    let mut problems = Problems::default();
+    if said == Some("red") && all_green(checks) {
+        problems.push(format!(
             "{name} is said to be red before the change, and every check there is green"
-        )),
-        (Some("green"), _) if names_red(checks, name) => fail(format!(
+        ));
+    }
+    if said == Some("green") && names_red(checks, name) {
+        problems.push(format!(
             "{name} is said to be green before the change, and a red check's log names it"
-        )),
-        (Some(said @ ("red" | "green")), Some("not_run")) => fail(format!(
+        ));
+    }
+    if let (Some(said @ ("red" | "green")), Some("not_run")) = (said, reported.as_deref()) {
+        problems.push(format!(
             "{name} is said to be {said} before the change, and ci_before reports it not run, so that nothing \
              measured it: say not_run, or cannot_run when what it tests does not exist before the change"
-        )),
-        (Some("not_run"), Some(result @ ("passed" | "failed"))) => fail(format!(
-            "{name} is said not to have run before the change, and ci_before reports it {result}"
-        )),
-        _ => Ok(()),
+        ));
     }
+    if let (Some("not_run"), Some(result @ ("passed" | "failed"))) = (said, reported.as_deref()) {
+        problems.push(format!(
+            "{name} is said not to have run before the change, and ci_before reports it {result}"
+        ));
+    }
+    problems
 }
 
 #[cfg(test)]
@@ -1162,20 +1478,20 @@ mod tests {
                 { "test": "later", "result": "not_run" }
             ]
         });
-        let said = |name: &str, said: &str| base_matches_run(name, Some(said), &ran);
+        let said = |name: &str, said: &str| base_matches_run(name, Some(said), &ran).into_result();
         assert!(said("first", "red").is_ok());
-        assert!(said("first", "not_run").unwrap_err().contains("reports it failed"));
+        assert!(said("first", "not_run").unwrap_err().texts()[0].contains("reports it failed"));
         assert!(said("later", "not_run").is_ok());
         assert!(said("later", "cannot_run").is_ok());
         for wrong in ["red", "green"] {
             let e = said("later", wrong).unwrap_err();
-            assert!(e.contains("reports it not run"), "{e}");
+            assert!(e.texts()[0].contains("reports it not run"), "{e:?}");
         }
         assert!(said("unnamed", "not_run").is_ok());
         assert!(said("unnamed", "red").is_ok());
         let green = json!({ "checks": [{ "name": "test", "result": "green" }] });
-        assert!(base_matches_run("old", Some("red"), &green).is_err());
-        assert!(base_matches_run("old", Some("not_run"), &green).is_ok());
+        assert!(base_matches_run("old", Some("red"), &green).into_result().is_err());
+        assert!(base_matches_run("old", Some("not_run"), &green).into_result().is_ok());
     }
 
     // A ruling counts once the work asked its advisor, also when the advisor handed the question on and the architect
@@ -1277,7 +1593,7 @@ mod tests {
 
     /// The evidence check on what a review put in `files` and in `nodes`, with a database whose work 1 has rounds 1
     /// and 12, and a worktree with `crates/x.rs` in it.
-    fn evidence_checked(files: &[&str], nodes: &[&str]) -> Result<(), String> {
+    fn evidence_checked(files: &[&str], nodes: &[&str]) -> Result<(), Vec<String>> {
         let mut base = db::Db::in_memory().unwrap();
         let work = base
             .write(db::Actor::Engine, |tx| {
@@ -1313,7 +1629,7 @@ mod tests {
         std::fs::write(wt.join("crates/x.rs"), "fn x() {}\n").unwrap();
         let checked = cited_evidence_exists(base.conn(), &wt, Some(&json!([{ "files": files, "nodes": nodes }])));
         let _ = std::fs::remove_dir_all(&wt);
-        checked
+        checked.map_err(|found| found.texts().to_vec())
     }
 
     // A round cited in `files` or in `nodes`, of this work or another, must be in the database; the refusal names it.
@@ -1324,16 +1640,40 @@ mod tests {
         // A number of the work that has no round, in each field, and a round of a work the database does not have.
         assert_eq!(
             evidence_checked(&[], &["R1-2 measure: not_measured"]).unwrap_err(),
-            "the round R1-2 does not exist"
+            ["the round R1-2 does not exist"]
         );
         assert_eq!(
             evidence_checked(&["R1-3"], &[]).unwrap_err(),
-            "the round R1-3 does not exist"
+            ["the round R1-3 does not exist"]
         );
         assert_eq!(
             evidence_checked(&[], &["R9999-1"]).unwrap_err(),
-            "the round R9999-1 does not exist"
+            ["the round R9999-1 does not exist"]
         );
+    }
+
+    // Every citation that is not there is said at once, in `files` and in `nodes`, rounds and files together, each
+    // once: a review that cites three missing things is not sent back three times (item #216).
+    #[test]
+    fn every_citation_in_the_evidence_that_is_not_there_is_said_at_once() {
+        let found = evidence_checked(
+            &["R1-3", "crates/nope.rs:4", "crates/x.rs"],
+            &["R1-2", "R9999-1", "crates/nope.rs (a note)", "R1-12"],
+        )
+        .unwrap_err();
+        for round in ["R1-3", "R1-2", "R9999-1"] {
+            assert!(
+                found.contains(&format!("the round {round} does not exist")),
+                "{found:?}"
+            );
+        }
+        // The same file cited twice is one problem, and what is there is none.
+        let files = found
+            .iter()
+            .filter(|f| f.starts_with("crates/nope.rs is not in the worktree"))
+            .count();
+        assert_eq!(files, 1, "{found:?}");
+        assert_eq!(found.len(), 4, "{found:?}");
     }
 
     // A path-shaped entry in `files` or in `nodes` must be a file in the worktree, and the refusal says how to name
@@ -1352,7 +1692,7 @@ mod tests {
             (&["crates/nope.rs"][..], &[][..]),
             (&[][..], &["crates/nope.rs (a note)"][..]),
         ] {
-            let why = evidence_checked(files, nodes).unwrap_err();
+            let why = evidence_checked(files, nodes).unwrap_err().join("\n");
             assert!(
                 why.starts_with("crates/nope.rs is not in the worktree: name a file by its path"),
                 "{why}"
@@ -1428,5 +1768,551 @@ mod tests {
                 "{entry:?}"
             );
         }
+    }
+
+    fn ids(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|x| x.to_string()).collect()
+    }
+
+    /// The problems of a check as plain texts.
+    fn said(p: Problems) -> Vec<String> {
+        p.texts().to_vec()
+    }
+
+    // Item #216: a return sent back said only the first of its misses, so that an agent fixed one and met the next in
+    // another round (R246-46 said column 4, R246-47 column 5). The three kinds of miss of a list of ids are found
+    // together, and none hides another.
+    #[test]
+    fn the_ids_a_return_gave_are_compared_with_the_listed_ones_in_all_three_ways_at_once() {
+        let m = id_misses(&["1", "2", "3", "4", "5"], &ids(&["9", "2", "2", "8", "9", "3"]));
+        assert_eq!(m.unknown, ids(&["9", "8"]));
+        assert_eq!(m.twice, ids(&["9", "2"]));
+        assert_eq!(m.missing, ids(&["1", "4", "5"]));
+        let none = id_misses(&["1", "2"], &ids(&["2", "1"]));
+        assert_eq!((none.unknown, none.twice, none.missing), (vec![], vec![], vec![]));
+        // Nothing given: everything listed is missing; nothing listed: everything given is unknown.
+        assert_eq!(id_misses(&["1", "2"], &[]).missing, ids(&["1", "2"]));
+        assert_eq!(id_misses::<&str>(&[], &ids(&["a", "a"])).unknown, ids(&["a"]));
+        // A listed id that is listed twice is missing once.
+        assert_eq!(id_misses(&["1", "1"], &[]).missing, ids(&["1"]));
+    }
+
+    #[test]
+    fn the_columns_a_review_left_out_are_all_said_in_one_problem() {
+        let want = ["1", "2", "3", "4", "5", "6"];
+        assert_eq!(
+            said(columns_problems(&want, &ids(&["x", "2", "2", "3", "y"]))),
+            [
+                "there are no columns x, y",
+                "column 2 is answered twice",
+                "columns 1, 4, 5, 6 are not answered"
+            ]
+        );
+        // What R246-46 and R246-47 were sent back for, in one send-back.
+        assert_eq!(
+            said(columns_problems(&want, &ids(&["1", "2", "3", "6"]))),
+            ["columns 4, 5 are not answered"]
+        );
+        // One miss of a kind is said as it always was.
+        assert_eq!(
+            said(columns_problems(&want, &ids(&["1", "2", "3", "4", "5"]))),
+            ["column 6 is not answered"]
+        );
+        assert_eq!(
+            said(columns_problems(&want, &ids(&["1", "2", "3", "4", "5", "6", "7"]))),
+            ["there is no column 7"]
+        );
+        assert!(columns_problems(&want, &ids(&["6", "5", "4", "3", "2", "1"])).is_empty());
+        assert!(columns_problems(&[], &[]).is_empty());
+    }
+
+    // The reason a return is sent back with is one line for each problem, `check (place): problem`; a line already
+    // there is not added again, and a check with one problem gives the line it always gave.
+    #[test]
+    fn a_check_with_several_problems_gives_a_line_for_each_and_one_with_a_single_problem_the_line_it_gave() {
+        let mut lines = Vec::new();
+        render(
+            &mut lines,
+            "columns_answered",
+            Some("columns.id"),
+            &Problems::from("column 4 is not answered"),
+        );
+        assert_eq!(lines, ["columns_answered (columns.id): column 4 is not answered"]);
+        render(
+            &mut lines,
+            "table_answered",
+            None,
+            &Problems::from(vec!["a is answered twice".to_string(), "no answer for b".to_string()]),
+        );
+        // The same check twice, and a problem twice in one check, add nothing.
+        render(
+            &mut lines,
+            "columns_answered",
+            Some("columns.id"),
+            &Problems::from(vec![
+                "column 4 is not answered".to_string(),
+                "column 4 is not answered".to_string(),
+            ]),
+        );
+        assert_eq!(
+            lines,
+            [
+                "columns_answered (columns.id): column 4 is not answered",
+                "table_answered (the return): a is answered twice",
+                "table_answered (the return): no answer for b",
+            ]
+        );
+        let mut p = Problems::default();
+        assert!(p.is_empty());
+        p.push("a");
+        p.push("a");
+        p.push("b");
+        assert_eq!(said(p), ["a", "b"]);
+        assert!(Problems::default().into_result().is_ok());
+        assert!(Problems::from("a").into_result().is_err());
+    }
+
+    #[test]
+    fn a_table_of_answers_is_checked_for_twice_unknown_and_missing_rows_together() {
+        let rows = ["r1", "r2", "r3", "r4"];
+        assert_eq!(
+            said(table_problems(&ids(&["r1", "r1", "zz", "yy", "r2"]), &rows, true)),
+            [
+                "r1 is answered twice",
+                "zz, yy are not rows of the table: answer each row by its number",
+                "no answer for r3, r4"
+            ]
+        );
+        // One of a kind: the text it always had.
+        assert_eq!(
+            said(table_problems(&ids(&["r1", "r2", "r3", "r4", "zz"]), &rows, true)),
+            ["zz is not a row of the table: answer each row by its number"]
+        );
+        // A round given no numbered table is checked for an answer given twice alone.
+        assert_eq!(
+            said(table_problems(&ids(&["a", "b", "a"]), &[], false)),
+            ["a is answered twice"]
+        );
+        assert!(table_problems(&ids(&["a", "b"]), &[], false).is_empty());
+        assert!(table_problems(&ids(&["r4", "r3", "r2", "r1"]), &rows, true).is_empty());
+    }
+
+    #[test]
+    fn the_answers_to_those_who_interjected_are_checked_for_strangers_and_twice_together() {
+        let speakers = ids(&["owner", "architect"]);
+        assert_eq!(
+            said(speaker_problems(
+                &speakers,
+                &ids(&["owner", "owner", "advisor", "engineer"])
+            )),
+            [
+                "the advisor, engineer did not interject in this round",
+                "two answers to the owner"
+            ]
+        );
+        assert_eq!(
+            said(speaker_problems(
+                &speakers,
+                &ids(&["owner", "owner", "architect", "architect"])
+            )),
+            ["two answers to each of: owner, architect"]
+        );
+        assert_eq!(
+            said(speaker_problems(&speakers, &ids(&["architect", "owner", "advisor"]))),
+            ["the advisor did not interject in this round"]
+        );
+        assert!(speaker_problems(&speakers, &ids(&["architect"])).is_empty());
+        // Nobody interjected and nothing is answered.
+        assert!(speaker_problems(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn a_table_of_conditions_is_checked_for_unknown_and_missing_ones_together_and_not_for_twice() {
+        let wanted = ids(&["A1", "A2", "A3", "A4"]);
+        assert_eq!(
+            said(cover_problems(&wanted, &ids(&["A1", "X9", "Y8"]), false)),
+            [
+                "X9, Y8 are not acceptance conditions",
+                "no row for acceptance conditions A2, A3, A4"
+            ]
+        );
+        assert_eq!(
+            said(cover_problems(&wanted, &ids(&["A1", "A2", "A3", "A4", "X9"]), false)),
+            ["X9 is not an acceptance condition"]
+        );
+        assert_eq!(
+            said(cover_problems(&wanted, &ids(&["A1", "A2", "A3"]), false)),
+            ["no row for acceptance condition A4"]
+        );
+        // A recheck answers only the rows that changed; an id given twice was never a problem here.
+        assert_eq!(
+            said(cover_problems(&wanted, &ids(&["A1", "A1", "X9"]), true)),
+            ["X9 is not an acceptance condition"]
+        );
+        assert!(cover_problems(&wanted, &ids(&["A1", "A1", "A2", "A3", "A4"]), false).is_empty());
+        assert!(cover_problems(&[], &[], false).is_empty());
+    }
+
+    // The tests a table names that are not on the branch are each said, with the ids that are no condition and the
+    // conditions with no row, in one call; a row that is not of kind tested names no test to look for.
+    #[test]
+    fn every_test_a_table_of_conditions_names_that_is_not_on_the_branch_is_said_with_its_ids() {
+        let wanted = ids(&["A1", "A2", "A3"]);
+        let rows = [
+            json!({ "id": "A1", "how": "tested", "tests": ["on_branch", "gone_one", "gone_two"] }),
+            json!({ "id": "X9", "how": "tested", "tests": ["on_branch"] }),
+            json!({ "id": "A2", "how": "report_answer", "where": "gone_three" }),
+        ];
+        let on_branch = |t: &str| {
+            if t.starts_with("gone") {
+                Err(format!("the test {t} is not on the branch"))
+            } else {
+                Ok(())
+            }
+        };
+        assert_eq!(
+            said(conditions_problems(&wanted, &rows, false, on_branch)),
+            [
+                "X9 is not an acceptance condition",
+                "no row for acceptance condition A3",
+                "the test gone_one is not on the branch",
+                "the test gone_two is not on the branch"
+            ]
+        );
+        // With no condition in force, only that is said: their tests are not looked for.
+        assert_eq!(
+            said(conditions_problems(&[], &rows, false, on_branch)),
+            [
+                "the item has no acceptance conditions in force; ask the advisor for them with the kind acceptance_change"
+            ]
+        );
+    }
+
+    // Rows that name conditions where none is in force are no rows of any condition, so that nothing else is said of
+    // them: not that each is none, and not what they cite.
+    #[test]
+    fn with_no_condition_in_force_only_that_is_said() {
+        assert_eq!(
+            said(cover_problems(&[], &ids(&["A1", "A2", "A2"]), false)),
+            [
+                "the item has no acceptance conditions in force; ask the advisor for them with the kind acceptance_change"
+            ]
+        );
+        assert_eq!(
+            cover_problems(&[], &ids(&["A1"]), true),
+            cover_problems(&[], &ids(&["A1"]), false)
+        );
+    }
+
+    #[test]
+    fn the_findings_of_the_last_review_with_no_row_are_all_said_in_one_problem() {
+        let due = ids(&["F1", "F2", "F3", "F2"]);
+        assert_eq!(
+            said(previous_problems(&due, &ids(&["F2"]))),
+            ["no row for F1, F3, findings of the last review"]
+        );
+        assert_eq!(
+            said(previous_problems(&due, &ids(&["F1", "F2", "X"]))),
+            ["no row for F3, a finding of the last review"]
+        );
+        // Rows nobody asked for, and rows twice, are no concern of this check.
+        assert!(previous_problems(&due, &ids(&["F1", "F2", "F3", "F3", "X"])).is_empty());
+        assert!(previous_problems(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn every_row_with_a_wrong_result_is_said_not_the_first() {
+        let rows = vec![
+            json!({ "name": "a", "on_head": "red", "on_base": "green" }),
+            json!({ "name": "b", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "c", "on_head": "red", "on_base": "red" }),
+        ];
+        assert_eq!(
+            said(result_problems(&rows, true)),
+            [
+                "a is red on the head: fix it in this round",
+                "a passes before the change: it does not test new behaviour; fix it in this round",
+                "b passes before the change: it does not test new behaviour; fix it in this round",
+                "c is red on the head: fix it in this round",
+            ]
+        );
+        assert_eq!(
+            said(result_problems(&rows, false)),
+            [
+                "a is red on the head: fix it in this round",
+                "c is red on the head: fix it in this round",
+                "c does not pass before the change: it does not guard old behaviour; fix it in this round",
+            ]
+        );
+        let fine = vec![json!({ "name": "d", "on_head": "green", "on_base": "red" })];
+        assert!(result_problems(&fine, true).is_empty());
+        let fine = vec![json!({ "name": "d", "on_head": "green", "on_base": "not_run" })];
+        assert!(result_problems(&fine, false).is_empty());
+    }
+
+    #[test]
+    fn every_test_added_and_left_out_of_its_table_is_said() {
+        let changes = vec![
+            json!({ "change": "added", "kind": "new_behaviour", "test": "x" }),
+            json!({ "change": "added", "kind": "new_behaviour", "test": "y" }),
+            json!({ "change": "added", "kind": "new_behaviour", "test": "listed" }),
+            json!({ "change": "added", "kind": "old_behaviour", "test": "z" }),
+            json!({ "change": "removed", "kind": "new_behaviour", "test": "w" }),
+        ];
+        let rows = vec![json!({ "name": "listed" })];
+        assert_eq!(
+            said(unlisted_additions(&changes, &rows, "new_behaviour")),
+            [
+                "x was added as new_behaviour, and is not in its table",
+                "y was added as new_behaviour, and is not in its table"
+            ]
+        );
+        assert_eq!(
+            said(unlisted_additions(&changes, &rows, "old_behaviour")),
+            ["z was added as old_behaviour, and is not in its table"]
+        );
+        assert!(
+            unlisted_additions(
+                &changes,
+                &[
+                    json!({ "name": "x" }),
+                    json!({ "name": "y" }),
+                    json!({ "name": "listed" })
+                ],
+                "new_behaviour"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn every_test_whose_result_does_not_match_the_runs_is_said_with_everything_wrong_with_it() {
+        let green = json!({ "checks": [{ "name": "test", "result": "green" }] });
+        let red = json!({
+            "checks": [{ "name": "test", "result": "red", "log_tail": "test a::two ... FAILED\ntest a::one ... ok\n" }],
+        });
+        let rows = vec![
+            json!({ "name": "one", "on_head": "red", "on_base": "red" }),
+            json!({ "name": "two", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "three", "on_head": "green", "on_base": "cannot_run" }),
+        ];
+        // On a head where every check is green: `one` is not red there, and before the change nothing is red either.
+        assert_eq!(
+            said(results_vs_runs(&rows, Some(&green), Some(&green))),
+            [
+                "one is said to be red on the head, and every check there is green",
+                "one is said to be red before the change, and every check there is green",
+            ]
+        );
+        // On a head where a red check's log names `two`, and before the change the same.
+        assert_eq!(
+            said(results_vs_runs(&rows, Some(&red), Some(&red))),
+            [
+                "two is said to be green on the head, and a red check's log names it",
+                "two is said to be green before the change, and a red check's log names it",
+            ]
+        );
+        // With no run to look at, nothing is said.
+        assert!(results_vs_runs(&rows, None, None).is_empty());
+    }
+
+    // A test said red while every check is green, and also said so while ci_before reports it not run: two things
+    // wrong, said together.
+    #[test]
+    fn a_result_before_the_change_with_two_things_wrong_is_said_with_both() {
+        let ran = json!({
+            "checks": [{ "name": "test", "result": "green" }],
+            "tests": [{ "test": "later", "result": "not_run" }]
+        });
+        let both = said(base_matches_run("later", Some("red"), &ran));
+        assert_eq!(both.len(), 2, "{both:?}");
+        assert!(both[0].contains("every check there is green"), "{both:?}");
+        assert!(both[1].contains("reports it not run"), "{both:?}");
+        assert!(base_matches_run("later", Some("cannot_run"), &ran).is_empty());
+    }
+
+    #[test]
+    fn every_test_in_a_table_of_the_wrong_kind_is_said() {
+        let rows = vec![
+            json!({ "name": "a", "by": "engineer" }),
+            json!({ "name": "b", "by": "engineer" }),
+            json!({ "name": "fine", "by": "engineer" }),
+            json!({ "name": "c", "by": "adversarial", "on_base": "green" }),
+            json!({ "name": "d", "by": "adversarial", "on_base": "red" }),
+        ];
+        let kinds = vec![
+            ("a".to_string(), "old_behaviour".to_string()),
+            ("b".to_string(), "old_behaviour".to_string()),
+            ("fine".to_string(), "new_behaviour".to_string()),
+        ];
+        assert_eq!(
+            said(kind_problems(&rows, &kinds, true)),
+            [
+                "a was added by the engineer as old_behaviour; it belongs in the other table",
+                "b was added by the engineer as old_behaviour; it belongs in the other table",
+                "c: its result before the change does not fit its kind; fix it in this round and run it again",
+            ]
+        );
+        // In the table of guard tests: `fine` was added as new, and an adversarial test that does not pass is wrong.
+        let kinds = vec![("fine".to_string(), "new_behaviour".to_string())];
+        assert_eq!(
+            said(kind_problems(&rows, &kinds, false)),
+            [
+                "fine was added by the engineer as new_behaviour; it belongs in the other table",
+                "d: its result before the change does not fit its kind; fix it in this round and run it again",
+            ]
+        );
+    }
+
+    #[test]
+    fn every_dispute_with_no_row_is_said() {
+        let disputes = vec![
+            ("t1".to_string(), "\"test_wrong\"".to_string()),
+            ("t2".to_string(), "\"advisor_ruled\"".to_string()),
+            ("t3".to_string(), "\"test_wrong\"".to_string()),
+        ];
+        assert_eq!(
+            said(disputed_problems(&disputes, &ids(&["t2"]))),
+            [
+                "no row for t1, which the engineer answered \"test_wrong\"",
+                "no row for t3, which the engineer answered \"test_wrong\""
+            ]
+        );
+        assert!(disputed_problems(&disputes, &ids(&["t1", "t2", "t3"])).is_empty());
+        assert!(disputed_problems(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn every_finding_insisted_on_after_a_ruling_is_said() {
+        let ruled: BTreeSet<String> = ids(&["f1", "f2", "t9"]).into_iter().collect();
+        let insisted = vec![json!({ "fid": "f1" }), json!({ "test": "t9" }), json!({ "fid": "f3" })];
+        let previous = vec![
+            json!({ "fid": "f2", "verdict": "not_fixed" }),
+            json!({ "fid": "f1", "verdict": "pass" }),
+            json!({ "fid": "f9", "verdict": "not_fixed" }),
+        ];
+        assert_eq!(
+            said(insisting_problems(&ruled, &insisted, &previous)),
+            [
+                "f1 was ruled on; it is not insisted on",
+                "t9 was ruled on; it is not insisted on",
+                "f2 was ruled on; it is not marked not_fixed"
+            ]
+        );
+        assert!(insisting_problems(&ruled, &[json!({ "fid": "f3" })], &[]).is_empty());
+    }
+
+    #[test]
+    fn every_disagreement_with_something_insisted_on_is_said() {
+        let insisted: BTreeSet<String> = ids(&["f1", "t2"]).into_iter().collect();
+        assert_eq!(
+            said(disagreeing_problems(&insisted, &ids(&["f1", "other", "t2"]))),
+            [
+                "f1 was insisted on; when neither side gives way, ask",
+                "t2 was insisted on; when neither side gives way, ask"
+            ]
+        );
+        assert!(disagreeing_problems(&insisted, &ids(&["other"])).is_empty());
+    }
+
+    #[test]
+    fn every_fact_whose_run_the_engine_did_not_record_is_said_and_a_read_that_fails_is_not_a_problem() {
+        let bases = vec![
+            json!({ "kind": "fact", "run": "r1", "check": "c1" }),
+            json!({ "kind": "fact", "run": "r2", "check": "c2" }),
+            json!({ "kind": "fact", "run": "r3", "check": "c3" }),
+            json!({ "kind": "inferred", "run": "r4" }),
+        ];
+        let found = unrecorded_facts(&bases, |run, _| Ok(run == "r2")).unwrap();
+        assert_eq!(found.texts().len(), 2, "{found:?}");
+        assert!(
+            found.texts()[0].contains("\"r1\"") && found.texts()[1].contains("\"r3\""),
+            "{found:?}"
+        );
+        assert!(unrecorded_facts(&bases, |_, _| Ok(true)).unwrap().is_empty());
+        assert_eq!(
+            unrecorded_facts(&bases, |_, _| Err("no database".into())).unwrap_err(),
+            "no database"
+        );
+        // A basis the finding keeps under `basis` is read by the caller; one that is no fact is not looked up.
+        assert!(
+            unrecorded_facts(&[json!({ "kind": "inferred" })], |_, _| Ok(false))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_blind_reviews_findings_dropped_and_the_withdrawals_it_did_not_make_are_each_said_once_with_all() {
+        let blind = ids(&["b1", "b2", "b3", "b4", "b2"]);
+        assert_eq!(
+            said(blind_problems(&blind, &ids(&["b1"]), &ids(&["b2", "w9", "w8", "w9"]))),
+            [
+                "w9, w8 are withdrawn, and the blind review handed in no such findings",
+                "the blind review's findings b3, b4 are neither carried into a column nor withdrawn"
+            ]
+        );
+        assert_eq!(
+            said(blind_problems(&blind, &ids(&["b1", "b2", "b3"]), &ids(&["b4", "w9"]))),
+            ["w9 is withdrawn, and the blind review handed in no such finding"]
+        );
+        assert_eq!(
+            said(blind_problems(&blind, &ids(&["b1", "b2", "b3"]), &[])),
+            ["the blind review's finding b4 is neither carried into a column nor withdrawn"]
+        );
+        assert!(blind_problems(&blind, &ids(&["b1", "b2", "b3"]), &ids(&["b4"])).is_empty());
+    }
+
+    #[test]
+    fn every_column_the_engineer_could_not_verify_either_and_the_review_left_open_is_said() {
+        let both: BTreeSet<String> = ids(&["c2", "c4"]).into_iter().collect();
+        let columns = vec![json!({ "id": "c1" }), json!({ "id": "c2" }), json!({ "id": "c4" })];
+        let found = said(unverified_problems(&both, &columns));
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(
+            found[0].starts_with("column c2: the engineer could not verify it either; decide it now"),
+            "{found:?}"
+        );
+        assert!(found[1].starts_with("column c4: "), "{found:?}");
+        assert!(unverified_problems(&both, &[json!({ "id": "c1" })]).is_empty());
+        assert!(unverified_problems(&BTreeSet::new(), &columns).is_empty());
+    }
+
+    #[test]
+    fn a_research_round_that_left_changes_uncommitted_and_changed_outside_research_is_told_both() {
+        assert_eq!(
+            said(research_problems(false, &ids(&["research/a.md", "src/x.rs", "y.rs"]))),
+            [
+                "the worktree has uncommitted changes",
+                "this round changed files outside research/: src/x.rs, y.rs"
+            ]
+        );
+        assert_eq!(
+            said(research_problems(false, &ids(&["research/a.md"]))),
+            ["the worktree has uncommitted changes"]
+        );
+        assert_eq!(
+            said(research_problems(true, &ids(&["x.rs"]))),
+            ["this round changed files outside research/: x.rs"]
+        );
+        assert!(research_problems(true, &ids(&["research/a.md", "research/b/c.md"])).is_empty());
+        assert!(research_problems(true, &[]).is_empty());
+    }
+
+    #[test]
+    fn acceptance_conditions_with_a_report_answer_in_a_change_and_not_handed_in_word_for_word_are_both_said() {
+        assert_eq!(
+            said(acceptance_problems(true, true)),
+            [
+                "a work that delivers a change has no report_answer condition",
+                "the acceptance conditions are locked and must be handed in word for word; to change them, ask the advisor with the kind acceptance_change first"
+            ]
+        );
+        assert_eq!(
+            said(acceptance_problems(true, false)),
+            ["a work that delivers a change has no report_answer condition"]
+        );
+        assert_eq!(acceptance_problems(false, true).texts().len(), 1);
+        assert!(acceptance_problems(false, false).is_empty());
     }
 }

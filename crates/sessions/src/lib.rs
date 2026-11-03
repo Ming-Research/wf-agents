@@ -2,8 +2,9 @@
 //! run in. The engine decides when (which cell runs next, when a work waits); the session manager decides in which
 //! session a round runs ([`choose`]), what the round's message gives and what it only refers to ([`held`], [`give`],
 //! [`diff`]), what a session's system prompt gives every session of its line alike ([`system`]), whether a round starts the new session the owner asked for, how the command line starts and runs
-//! ([`cli`]), what each call cost ([`cost`]), keeps a waiting session's cache warm ([`warm`]) and tells a round that
-//! missed it ([`miss`]); it sets up a work's worktree on a machine with a free slot, says whether a head
+//! ([`cli`]), what each call cost ([`cost`]), keeps a waiting session's cache warm and tells when it last was
+//! read ([`warm`]), tells a round that missed it ([`miss`]) and judges a running round against the rounds before it
+//! ([`guard`]); it sets up a work's worktree on a machine with a free slot, says whether a head
 //! handed in is the clean worktree's, removes the worktree once the work ended, and brings a project's architect's
 //! worktree to the latest main before each of its rounds ([`worktree`]). It reads and writes
 //! only the sessions, their keep-warm pings, the rounds' records and where works run, so that it can move out of the
@@ -14,6 +15,7 @@ pub mod cli;
 pub mod cost;
 pub mod diff;
 pub mod give;
+pub mod guard;
 pub mod held;
 pub mod interject;
 pub mod miss;
@@ -89,9 +91,10 @@ impl Manager {
         asked.works.contains(&work) || architect.is_some_and(|p| asked.architects.contains(p))
     }
 
-    /// Where a work's next round at a cell runs ([`choose::plan`]), unless the owner asked for a new session, which it
-    /// then starts, recorded as the owner's; the session the line had going on ends as at any new session, and is
-    /// otherwise left as it is. `architect` names the project of a work of its architect's graph.
+    /// Where a work's next round at a cell runs at `now` ([`choose::plan`]), unless the owner asked for a new session,
+    /// which it then starts, recorded as the owner's; the session the line had going on ends as at any new session, and
+    /// is otherwise left as it is. `architect` names the project of a work of its architect's graph.
+    #[allow(clippy::too_many_arguments)]
     pub fn plan(
         &self,
         conn: &Connection,
@@ -100,11 +103,12 @@ impl Manager {
         cell: &CompiledCell,
         limit: u64,
         on: On,
+        now: i64,
     ) -> Result<Plan, String> {
         if self.asked_new(work, architect) {
             return Ok(Plan::New(Start::Owner));
         }
-        choose::plan(conn, work, cell, limit, on)
+        choose::plan(conn, work, cell, limit, on, now)
     }
 
     /// The new session the owner asked for started: the work's next rounds go on in it.
@@ -116,9 +120,9 @@ impl Manager {
         }
     }
 
-    /// Runs a round; `activity` is told what the agent is doing while it runs.
-    pub fn run(&self, r: &cli::Request, activity: &dyn Fn(&str)) -> cli::Reply {
-        self.agents.run(r, activity)
+    /// Runs a round; `watch` is told what it does while it runs, and may answer that it be stopped.
+    pub fn run(&self, r: &cli::Request, watch: &dyn Fn(cli::Seen) -> cli::Next) -> cli::Reply {
+        self.agents.run(r, watch)
     }
 
     /// The agents' command line, for what runs it besides a round.

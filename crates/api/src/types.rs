@@ -96,9 +96,9 @@ pub struct Halt {
     pub why: String,
 }
 
-/// What changed, as the event stream gives it. An event names what to read again and never carries that state,
-/// except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
-/// reconnects with the last id it saw is given what it missed.
+/// What changed, as the event stream gives it. An event names what to read again and never carries that state, except
+/// what comes too often to read again or lives only in the engine: its status, and what a running round does and has
+/// come to. The stream gives each event an id; a client that reconnects with the last id it saw is given what it missed.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
@@ -135,6 +135,15 @@ pub enum Event {
         round: i64,
         what: String,
         at: i64,
+    },
+    /// How a running round, by its work and its number in the work, stands after a call to the model: the tokens of its
+    /// last prompt, those its context grew by, and what it cost so far, estimated from its calls.
+    Measure {
+        work: i64,
+        round: i64,
+        context: i64,
+        added: i64,
+        cost_usd: f64,
     },
 }
 
@@ -312,7 +321,8 @@ pub struct RoundSummary {
     /// When it started a new session: why, as the session manager recorded it: line, the line had none going on (its
     /// first in the work, or a cell on no line, whose session is its own every round); cell, a cell the line starts a
     /// new session at; limit, the line's session before was past the context limit; model or account, the model or the
-    /// login account its rounds run under changed; owner, the owner asked for one.
+    /// login account its rounds run under changed; expired, the CLI's prompt cache let the line's session go (its last
+    /// call a cache lifetime or more before), on a line the flow says expires with it; owner, the owner asked for one.
     pub new_session: Option<String>,
 }
 
@@ -657,8 +667,10 @@ pub struct Session {
 pub struct WorkSession {
     pub id: i64,
     pub line: String,
-    /// Why it started: line, cell, limit, or carried (a work of the architect going on in the CLI session the project's
-    /// previous architect work left).
+    /// Why it started: line, the line had none going on; cell, a cell the line starts a new session at; limit, the
+    /// session before was past the context limit; model or account, the model or the login account its rounds run
+    /// under changed; expired, the CLI's prompt cache let the session before go; owner, the owner asked for one; or
+    /// carried (a work of the architect going on in the CLI session the project's previous architect work left).
     pub started: String,
     /// When it ended, so that the line's next round started a new one; none while it goes on.
     pub ended: Option<i64>,
@@ -1108,9 +1120,11 @@ pub struct Shown {
     pub value: Value,
 }
 
-/// A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
-/// the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
-/// one, and its notebook. Its works are works of the architect's graph for the project, on no item.
+/// A project's architect, as the head of its one-to-one and its page show it: its works, its queue, what stops the
+/// project's new works, what its works asked the owner, and the draft of a new policy that waits for the owner's
+/// approval. What only the panel beside the one-to-one and the page's tab of item changes draw is `ArchitectPanel`,
+/// read apart, so that the one-to-one, which reads this on every event, does not read the notebook with it. Its works
+/// are works of the architect's graph for the project, on no item.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Architect {
     /// The project whose architect it is.
@@ -1125,15 +1139,22 @@ pub struct Architect {
     pub holds: Vec<DispatchHold>,
     /// What its works asked the owner, oldest first.
     pub asks: Vec<OwnerAsk>,
+    /// The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
+    /// policy takes effect; none otherwise.
+    pub draft: Option<PolicyDraft>,
+}
+
+/// What a project's architect has besides `Architect`, which the panel beside its one-to-one and its page's tab of item
+/// changes draw: the matters it handled, the item changes its batches made, the policy it works by, its notebook and
+/// the project's constitution.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ArchitectPanel {
     /// The matters it handled, newest first, each with what became of it.
     pub handled: Vec<Handled>,
     /// The item changes its batches made or dropped, newest first.
     pub changes: Vec<ItemChange>,
     /// The policy in force for the project; none before the first takes effect.
     pub policy: Option<PolicyInForce>,
-    /// The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
-    /// policy takes effect; none otherwise.
-    pub draft: Option<PolicyDraft>,
     /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
     /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
     pub notebook: Vec<NotebookSection>,
@@ -1172,7 +1193,7 @@ pub struct Conversation {
     pub last_at: Option<i64>,
 }
 
-/// One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
+/// One entry of a conversation of the owner's: what `conversation_shown` gives, or what the engine writes from the
 /// flow (a work's stage card, an architect's matter card, the policy taking effect).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationEntry {
@@ -1402,6 +1423,20 @@ pub struct ConversationDetail {
     pub read_to: Option<i64>,
     /// For wf-agents' own conversation: where its faults can go; none for another.
     pub forwarding: Option<Forwarding>,
+    /// What `entries` leaves out: the runs of entries not given, each by the entry it comes before; empty when every
+    /// entry is given.
+    pub gaps: Vec<Gap>,
+}
+
+/// A run of a conversation's entries that were not given, because they are older than the latest ones asked for and
+/// nothing in them waits for the owner: how many, and the entry, given, that they come before.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Gap {
+    /// The entry the run comes before, by its source and its row.
+    pub source: String,
+    pub id: i64,
+    /// How many entries it leaves out.
+    pub count: i64,
 }
 
 /// What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
@@ -1744,6 +1779,29 @@ pub struct SystemNow {
     pub asks: Waiting,
     pub design_cards: Waiting,
     pub faults: Waiting,
+    /// The agents' rounds running now, the oldest first.
+    pub running: Vec<WatchedRound>,
+}
+
+/// An agent's round running now, as the run guard sees it: how large its context is, what it added and what it cost so
+/// far, and the lines it is judged by, each none while too few rounds give one.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WatchedRound {
+    pub work: i64,
+    pub round: i64,
+    pub graph: String,
+    pub cell: Option<String>,
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    pub project: Option<String>,
+    /// The tokens of its last prompt.
+    pub context: i64,
+    /// The tokens its context grew by in this round, and the line of that.
+    pub added: i64,
+    pub added_line: Option<f64>,
+    /// What it cost so far, estimated from its calls, and the line of that.
+    pub cost_usd: f64,
+    pub cost_line: Option<f64>,
 }
 
 /// A project's architect now.
@@ -1944,6 +2002,20 @@ pub enum AnomalyKind {
     /// Main went red after the work merged: how, as the watch of main tells it (`environment_changed`,
     /// `broken_by_merge` or `known_red`), and the checks red.
     MainRed { how: String, checks: Vec<String> },
+    /// A signal of a running round went past its line: which (`growth`, `jump`, `cost`, `calls`, `repeats` or
+    /// `compactions`), its value and line, for `growth` and `jump` the second condition's value and line too, how many
+    /// rounds gave the line, whether they were the cell's own or the graph's (`cell` or `graph`), and what came of it
+    /// (`noted`, `stopped` or `waived`).
+    Guard {
+        signal: String,
+        value: f64,
+        line: f64,
+        also: Option<f64>,
+        also_line: Option<f64>,
+        samples: i64,
+        scope: String,
+        action: String,
+    },
 }
 
 /// Why a request failed.

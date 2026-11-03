@@ -263,7 +263,7 @@ impl Held {
 /// the service (no network, a usage limit, a server error, a message the service refused), left it there; only a
 /// command line that could not run at all (`cannot_run`: not logged in, not installed) did not. Giving such a round's
 /// message again would put a second copy of it in the session at every attempt.
-fn wrote_message(r: &Round) -> bool {
+pub fn wrote_message(r: &Round) -> bool {
     let Some(rej) = r.rejected.as_ref() else {
         return false;
     };

@@ -26,7 +26,9 @@ CREATE TABLE architect_matters (
   -- failure, owner_words, other_architect, slots_free, or check_policy and make_plan, the check of the policy in force
   -- and the plan of what to do next, which the architect's cells queue at the head of the queue, one of each open at a
   -- time. An open question is what an engineer's design could not settle: its body holds the question, the options, the
-  -- one recommended and, once it has come, the answer. A
+  -- one recommended, the link to the design (design_link) and, once it has come, the answer (answer) with who gave it
+  -- (answered_by: architect, or owner when the architect pinned the question for the owner and the owner answered) and,
+  -- for the owner, the ask that holds their words (owner_ask). A
   -- matter handled before these kinds keeps the kind it had then: set_policy for the setting of a new policy, which a
   -- flow version before ran as a stage of its own, and policy for a setting that ended, when the setting was a work of
   -- its own.

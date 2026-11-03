@@ -28,7 +28,7 @@ use serde_json::{Map, Value, json};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::actions::{self, Ctx};
-use crate::checks;
+use crate::checks::{self, Problems};
 use crate::inputs::{self, Gathered, Origin, Part};
 use crate::steps::{finish, what_is_asked};
 use crate::work::{self, Ended, Item, Round, RoundId, Work, json_col, query_json};
@@ -38,7 +38,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 30] = [
+pub const INPUTS: [&str; 31] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -64,6 +64,7 @@ pub const INPUTS: [&str; 30] = [
     "words_behind_changes",
     "group_talk",
     "told_owner",
+    "owner_talk",
     "questions",
     "notebook_project_now",
     "notebook_plan",
@@ -278,6 +279,14 @@ fn empty(v: &Value) -> bool {
 
 fn text(v: &Value) -> &str {
     v.as_str().unwrap_or_default()
+}
+
+/// The addresses of the markdown links in a text, each whole: what stands between `](` and the next `)`.
+fn markdown_link_targets(s: &str) -> Vec<&str> {
+    s.split("](")
+        .skip(1)
+        .filter_map(|rest| rest.find(')').map(|end| rest[..end].trim()))
+        .collect()
 }
 
 /// A time to the minute, in UTC, as `2026-10-28 14:03 UTC`.
@@ -852,9 +861,9 @@ fn taken_first<'a>(cell: &CompiledCell, can: &'a [Value]) -> (Option<&'a Value>,
 }
 
 /// The wait the look at the queue takes now, when neither of the matters taken first ([`taken_first`]) is there and
-/// the cell has its row: for the owner's reply to the question just put ([`db::question_waited_on`]), else for the
-/// owner's next words after the architect answered the owner's words leaving the talk open ([`listens_after`]); none
-/// otherwise.
+/// the cell has its row: for the owner's reply to the question just put, one that pins no open question
+/// ([`db::question_waited_on`]), else for the owner's next words after the architect answered the owner's words leaving
+/// the talk open ([`listens_after`]); none otherwise.
 fn wait_now(
     conn: &Connection,
     project: &str,
@@ -912,9 +921,9 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<St
 /// with the owner's reply, the oldest first, then a matter of two cells that goes on at its second cell, the oldest
 /// first ([`going_on`]), then the matters at the head of the queue ([`at_head`]), and a lone matter are picked here,
 /// without a round. Before the matter of two cells the architect waits for the owner ([`wait_now`]): for the reply to
-/// the newest question pending while it was put just now, and else for the owner's next words while it answered the
-/// owner's words just now leaving the talk open, the owner having said nothing since either; a flow version before
-/// waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
+/// the newest question pending that does not pin an open question while it was put just now, and else for the owner's
+/// next words while it answered the owner's words just now leaving the talk open, the owner having said nothing since
+/// either; a flow version before waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
 /// of two cells come from all the work can take ([`queued`]), never held back by the hold to set the project straight,
 /// which holds back only the matters from the head of the queue on ([`pickable`]).
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
@@ -1064,27 +1073,26 @@ fn fixes_found(conn: &Connection, work: i64) -> Result<i64, String> {
 
 // Sessions.
 
-/// Where the next round at the understanding question would run.
-fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<sessions::Plan, String> {
+/// Where the next round at the understanding question would run at `now`.
+fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph, now: i64) -> Result<sessions::Plan, String> {
     let cell = g
         .cell(UNDERSTAND)
         .ok_or("the architect's graph has no understanding question")?;
     let level = crate::steps::level_of(e, g, cell, None)?.1;
-    let home = e.cli_dir(&level.cli);
-    let on = sessions::On {
-        model: &level.model,
-        home: home.as_deref(),
-    };
+    let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     e.sessions()
-        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)
+        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)
 }
 
 /// Whether the session the architect's work goes on in is the one its previous work left: a new one, or one the next
-/// round would leave for a new one, is not, and understands the project first; a session that goes on never does again,
-/// compacted or not.
+/// round would leave for a new one (past the limit, on another model or account, or let go by the cache), is not, and
+/// understands the project first; a session that goes on never does again, compacted or not.
 fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
-    Ok(matches!(plan_at_understanding(e, w, g)?, sessions::Plan::Going { .. }))
+    Ok(matches!(
+        plan_at_understanding(e, w, g, db::now())?,
+        sessions::Plan::Going { .. }
+    ))
 }
 
 /// How the work came to the understanding question, which only a new session comes to: at the project's first
@@ -1096,13 +1104,43 @@ fn entry(e: &Engine, w: &Work) -> Result<String, String> {
         e.db.conn(),
         &format!(
             "SELECT count(*) FROM rounds r JOIN works x ON x.id = r.work
-             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
-               AND r.transition NOT IN {NO_ANSWER}",
-            db::cells_sql(ARCHITECT, &[UNDERSTAND])
+             WHERE x.graph = 'architect' AND x.project = ?1 AND {}",
+            answered_understanding("r")
         ),
         &[&project],
     )?;
     Ok(if before == 0 { "first" } else { "new" }.into())
+}
+
+/// What makes a round of the rounds table (`alias`) an answer of the understanding question: it is a round of the
+/// understanding that took a row of its own, not one that asked for tools or a search, paused, asked the owner or
+/// answered what the owner said. [`entry`] and [`previous_session_start`] both read it.
+fn answered_understanding(alias: &str) -> String {
+    format!(
+        "{alias}.cell IN {} AND {alias}.transition IS NOT NULL AND {alias}.transition NOT IN {NO_ANSWER}",
+        db::cells_sql(ARCHITECT, &[UNDERSTAND])
+    )
+}
+
+/// When the project's previous architect session began: the first round of the session the project's latest answered
+/// understanding ran in (the understanding is the first round of a new session, so its session is that session's first
+/// row; the rows later works carried it on in hold other rounds). None before any understanding was answered. An
+/// understanding still running has not answered, so the session it runs in never counts, at any of its rounds: the
+/// first, which is given its inputs before its row exists, and those after tools or a return sent back. A session
+/// replaced before its understanding answered is no previous session either, and the cut is the one that session had.
+fn previous_session_start(conn: &Connection, project: &str) -> Result<Option<i64>, String> {
+    conn.query_row(
+        &format!(
+            "SELECT min(x.started_at) FROM rounds x WHERE x.session = (
+               SELECT r.session FROM rounds r JOIN works w ON w.id = r.work
+               WHERE w.graph = 'architect' AND w.project = ?1 AND {}
+               ORDER BY r.started_at DESC LIMIT 1)",
+            answered_understanding("r")
+        ),
+        [project],
+        |r| r.get(0),
+    )
+    .map_err(sql)
 }
 
 /// The detail of the matter picked.
@@ -1151,9 +1189,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 }
 
 /// Whether the architect's work goes back to understanding the project before a round of the architect's line at a
-/// cell: the round would start a new session there (the owner asked for one, the last was past the limit, or the model
-/// or the login account changed), past the understanding, and a new session remembers nothing but the notebook. The
-/// matter it had in hand goes back to the queue, and is taken again as any other.
+/// cell: the round would start a new session there at `now` (the owner asked for one, the last was past the limit, the
+/// model or the login account changed, or the CLI's prompt cache let the last go), past the understanding, and a new
+/// session remembers nothing but the notebook. The matter it had in hand goes back to the queue, and is taken again as
+/// any other.
 ///
 /// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
 /// names them here. Gives why the session would start afresh, in words; none when the work goes on.
@@ -1162,6 +1201,7 @@ pub fn understand_first(
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
+    now: i64,
 ) -> Result<Option<String>, String> {
     let rowed = g.cells.iter().any(|c| c.rows.iter().any(crate::steps::anew));
     let here = if rowed {
@@ -1176,17 +1216,19 @@ pub fn understand_first(
         return Ok(None);
     }
     let level = crate::steps::level_of(e, g, cell, None)?.1;
-    let home = e.cli_dir(&level.cli);
-    let on = sessions::On {
-        model: &level.model,
-        home: home.as_deref(),
-    };
+    let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     let plan = e
         .sessions()
-        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)?;
+        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)?;
     Ok(match plan {
-        sessions::Plan::New(why) => Some(crate::steps::new_session_why(why, cell, limit, &level.model)),
+        sessions::Plan::New(why) => Some(crate::steps::new_session_why(
+            why,
+            cell,
+            limit,
+            &level.model,
+            runs.on().cache,
+        )),
         sessions::Plan::Going { .. } => None,
     })
 }
@@ -1247,6 +1289,102 @@ fn told_owner(e: &Engine, project: &str) -> Result<Option<Value>, String> {
         })
         .collect();
     Ok((!told.is_empty()).then_some(Value::Object(told)))
+}
+
+/// The most characters [`owner_talk`] gives of the talk, the latest whole entries.
+const TALK_MOST: usize = 60_000;
+
+/// What was said in a project's one-to-one with the owner since its previous architect session began (its first round,
+/// [`previous_session_start`]), for a new session, which remembers nothing of it but what the notebook holds: every entry
+/// the page shows in the conversation (`conversation_shown`) made at or after that moment, oldest first and whole, each
+/// with when, who said it to whom and the words; an ask of the architect's with the owner's answer, counted as made when
+/// it was answered if that was at or after it; an entry with images only says how many came with it. Before the
+/// project's first session there is none to cut at: there is no lower bound. Over [`TALK_MOST`] characters the latest
+/// whole entries are given, oldest first (the very latest always), then one line saying how many earlier ones there are.
+/// None when nothing was said since.
+fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
+    let since = previous_session_start(conn, project)?;
+    let after = since.unwrap_or(i64::MIN);
+    let rows = query_json(
+        conn,
+        "SELECT c.at, c.sender, c.recipient, c.text,
+                CASE c.source
+                  WHEN 'words' THEN (SELECT count(*) FROM attachments x WHERE x.matter = c.id)
+                  WHEN 'interjection' THEN (SELECT count(*) FROM attachments x WHERE x.interjection = c.id)
+                  WHEN 'ask' THEN (SELECT count(*) FROM attachments x WHERE x.ask = c.id)
+                  ELSE 0 END AS images,
+                json_extract(a.answer, '$.text') AS answer, json_extract(a.answer, '$.at') AS answered_at,
+                json_extract(a.answer, '$.by') AS answered_by
+         FROM conversation_shown c LEFT JOIN owner_asks a ON c.source = 'ask' AND a.id = c.id
+         WHERE c.conversation = 'architect:' || ?1
+           AND max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)) >= ?2
+         ORDER BY max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)), c.source, c.id",
+        &[&project, &after],
+        usize::MAX,
+    )?;
+    let entries: Vec<(usize, Value)> = rows
+        .iter()
+        .map(|r| {
+            let images = |n: i64| match n {
+                0 => None,
+                1 => Some("1 image attached".to_string()),
+                n => Some(format!("{n} images attached")),
+            };
+            let n = r["images"].as_i64().unwrap_or(0);
+            let text = r["text"].as_str().unwrap_or_default();
+            let mut x = json!({
+                "at": r["at"].as_i64().map(utc_minute),
+                "from": r["sender"],
+                "to": r["recipient"],
+                "text": text,
+            });
+            let mut size = text.chars().count();
+            let answer = r["answer"].as_str();
+            let answered = r["answered_at"].as_i64();
+            if answer.is_some() || answered.is_some() {
+                let said = answer.unwrap_or_default();
+                size += said.chars().count();
+                let mut a = json!({ "at": answered.map(utc_minute), "text": said });
+                if let Some(by) = r["answered_by"].as_str().filter(|b| *b != "owner") {
+                    a["by"] = json!(by);
+                }
+                if let Some(i) = images(n) {
+                    a["images"] = json!(i);
+                }
+                x["answer"] = a;
+            } else if let Some(i) = images(n) {
+                x["images"] = json!(i);
+            }
+            (size, x)
+        })
+        .collect();
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    // The latest whole entries that fit, the very latest always.
+    let mut kept = 0;
+    let mut used = 0;
+    for (size, _) in entries.iter().rev() {
+        if kept > 0 && used + size > TALK_MOST {
+            break;
+        }
+        used += size;
+        kept += 1;
+    }
+    let earlier = entries.len() - kept;
+    let mut said: Vec<Value> = entries.into_iter().skip(earlier).map(|(_, x)| x).collect();
+    if earlier > 0 {
+        let what = if earlier == 1 { "entry" } else { "entries" };
+        said.push(json!(format!(
+            "and {earlier} earlier {what} before these: read them with the history search (X5)"
+        )));
+    }
+    let mut out = json!({ "said": said });
+    if let Some(t) = since {
+        out["since"] = json!(utc_minute(t));
+    }
+    Ok(Some(out))
 }
 
 // Asks of the owner.
@@ -3277,29 +3415,12 @@ fn created_keys(effects: &Value) -> BTreeSet<String> {
 }
 
 /// Runs a check of the architect's graph.
-pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), String> {
+pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
     let conn = c.e.db.conn();
     match name {
         "constitution_covered" => {
             let articles = articles(c.e, project_of(c.w)?);
-            let rows = items(v);
-            if rows.len() != articles.len() {
-                return Err(format!(
-                    "there is one row for each article of the project's constitution, {} of them, and there are {}",
-                    articles.len(),
-                    rows.len()
-                ));
-            }
-            for (i, (row, article)) in rows.iter().zip(&articles).enumerate() {
-                let named = row["article"].as_str().unwrap_or_default();
-                if !names_article(named, article) {
-                    return Err(format!(
-                        "row {} is for \"{article}\", in the constitution's order, and names \"{named}\"",
-                        i + 1
-                    ));
-                }
-            }
-            Ok(())
+            constitution_problems(&articles, &items(v)).into_result()
         }
         "fix_not_queued_again" => {
             let fixes = match (at, v) {
@@ -3334,11 +3455,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                     ));
                 }
             }
-            if problems.is_empty() {
-                Ok(())
-            } else {
-                Err(problems.join("\n"))
-            }
+            Problems::from(problems).into_result()
         }
         "picked_pickable" => {
             let Some(m) = v.and_then(|p| p["matter"].as_i64()) else {
@@ -3351,7 +3468,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             if can.contains(&m) {
                 Ok(())
             } else {
-                Err(format!(
+                checks::fail(format!(
                     "matter {m} cannot be picked now; those that can: {}",
                     can.iter().map(i64::to_string).collect::<Vec<_>>().join(", ")
                 ))
@@ -3363,83 +3480,41 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 .iter()
                 .map(|x| x["change"].clone())
                 .collect();
-            let problems = observation_problems(c, project_of(c.w)?, &items(v), &revised)?;
-            if problems.is_empty() {
-                Ok(())
-            } else {
-                Err(problems.join("\n"))
-            }
+            Problems::from(observation_problems(c, project_of(c.w)?, &items(v), &revised)?).into_result()
         }
         "effects_valid" => {
             let Some(effects) = v else { return Ok(()) };
-            let problems = effects_problems(c, project_of(c.w)?, effects)?;
-            if problems.is_empty() {
-                Ok(())
-            } else {
-                Err(problems.join("\n"))
-            }
+            Problems::from(effects_problems(c, project_of(c.w)?, effects)?).into_result()
         }
         "reply_fits_changes" => {
             let Some(reply) = v else { return Ok(()) };
-            let keys = created_keys(&c.unwrapped["effects"]);
-            for list in ["children", "waits"] {
-                for x in items(reply.get(list)) {
-                    let k = text(&x["key"]).trim().trim_start_matches('#');
-                    let known = match k.parse::<i64>() {
-                        Ok(n) => count(conn, "SELECT count(*) FROM items WHERE id = ?1", &[&n])? > 0,
-                        Err(_) => keys.contains(k),
-                    };
-                    if !known {
-                        return Err(format!(
-                            "the reply's {list} names {k}, which is no item and no key an item change of this round \
-                             makes"
-                        ));
-                    }
-                }
-            }
-            // A question handed on is not answered: it splits nothing and has the work wait for nothing, and it goes
-            // to the owner or to the architect of a project the project's configuration names among its other
-            // projects.
-            if let Some(h) = reply.get("hand_over").filter(|h| h.is_object()) {
-                if !items(reply.get("children")).is_empty() || !items(reply.get("waits")).is_empty() {
-                    return Err(
-                        "a reply that hands the question on neither splits the work nor has it wait: leave out \
-                         children and waits, or hand_over"
-                            .into(),
-                    );
-                }
-                if h["to"] == "architect" {
-                    let project = project_of(c.w)?;
-                    let to = text(&h["project"]).trim();
-                    let related =
-                        c.e.config
-                            .config
-                            .projects
-                            .get(project)
-                            .map(|p| p.other_projects.clone())
-                            .unwrap_or_default();
-                    if to == project || !related.iter().any(|o| o == to) {
-                        return Err(format!(
-                            "hand_over goes to the architect of a project {project}'s configuration names among its \
-                             other projects ({}), and names {to:?}",
-                            related.join(", ")
-                        ));
-                    }
-                    if !c.e.config.config.projects.contains_key(to) {
-                        return Err(format!(
-                            "hand_over names {to}, which is no project in the configuration"
-                        ));
-                    }
-                }
-            }
-            Ok(())
+            let project = project_of(c.w)?;
+            let related =
+                c.e.config
+                    .config
+                    .projects
+                    .get(project)
+                    .map(|p| p.other_projects.clone())
+                    .unwrap_or_default();
+            let known_item = |n: i64| -> Result<bool, String> {
+                Ok(count(conn, "SELECT count(*) FROM items WHERE id = ?1", &[&n])? > 0)
+            };
+            reply_problems(
+                reply,
+                &created_keys(&c.unwrapped["effects"]),
+                known_item,
+                project,
+                &related,
+                |to| c.e.config.config.projects.contains_key(to),
+            )?
+            .into_result()
         }
         "review_covers_changes" => {
             let n = collected(conn, c.w.id)?.len() as i64;
             let mut seen: Vec<i64> = items(v).iter().filter_map(|r| r["change"].as_i64()).collect();
             seen.sort_unstable();
             if seen != (1..=n).collect::<Vec<_>>() {
-                return Err(format!(
+                return checks::fail(format!(
                     "there is one row for each of the batch's {n} changes, by its number from 1, and the rows name \
                      {seen:?}"
                 ));
@@ -3469,34 +3544,15 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                     problems.push(format!("change {}: matter {m} is no matter of this batch", i + 1));
                 }
             }
-            if problems.is_empty() {
-                Ok(())
-            } else {
-                Err(problems.join("\n"))
-            }
+            Problems::from(problems).into_result()
         }
         "candidates_known" => {
-            let list = items(v);
-            if list.len() > 10 {
-                return Err(format!("at most ten candidates, and there are {}", list.len()));
-            }
             let project = project_of(c.w)?;
-            for x in list {
-                let id = x["id"].as_i64().unwrap_or_default();
-                if !open_observation(conn, project, id)? {
-                    return Err(format!("{id} is no open observation of the project"));
-                }
-            }
-            Ok(())
+            candidates_problems(&items(v), |id| open_observation(conn, project, id))?.into_result()
         }
         "notebook_fits" => {
             let Some(edits) = v else { return Ok(()) };
-            let problems = notebook_problems(conn, project_of(c.w)?, &items(Some(edits)))?;
-            if problems.is_empty() {
-                Ok(())
-            } else {
-                Err(problems.join("\n"))
-            }
+            Problems::from(notebook_problems(conn, project_of(c.w)?, &items(Some(edits)))?).into_result()
         }
         "understanding_written" | "plan_written" => {
             let wants: &[&str] = if name == "plan_written" {
@@ -3513,7 +3569,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             if missing.is_empty() {
                 Ok(())
             } else {
-                Err(format!(
+                checks::fail(format!(
                     "rewrite the notebook's section{} {} whole in notebook",
                     if missing.len() > 1 { "s" } else { "" },
                     missing.join(" and ")
@@ -3579,33 +3635,177 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
-        "policy_text_clean" => {
-            let Some(policy) = v else { return Ok(()) };
-            let text = policy.to_string();
-            for said in owner_words(conn, c.w.id)? {
-                if let Some(s) = sentences(&said)
-                    .into_iter()
-                    .find(|s| s.chars().count() >= 30 && text.contains(s.as_str()))
-                {
-                    return Err(format!("the policy quotes the owner's words: \"{s}\""));
-                }
+        "ask_only_on_open_question" => {
+            let Some(ask) = v else { return Ok(()) };
+            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
+            let rows = query_json(
+                conn,
+                "SELECT kind, json_extract(body, '$.design_link') AS link FROM architect_matters WHERE id = ?1",
+                &[&m],
+                1,
+            )?;
+            let Some(row) = rows.first() else { return Ok(()) };
+            // An engineer waiting for the reply cannot be left waiting for the owner: its question is answered, and
+            // what only the owner can decide goes back as an open question of the engineer's design, which waits for
+            // nothing.
+            if row["kind"] != crate::open_questions::KIND {
+                return checks::fail(format!(
+                    "matter {m} is {}: its engineer waits for your reply, so it cannot be parked for the owner. Reply \
+                     to it; what only the owner can decide, the reply has the engineer put to the owner as an open \
+                     question of its design",
+                    row["kind"].as_str().unwrap_or("not an open question")
+                ));
             }
-            if let Some(cell) = names_cell(c.e, &text) {
-                return Err(format!("the policy names the cell {cell} of the flow"));
-            }
-            if names_date(&text) {
-                return Err("the policy names a date".into());
-            }
-            if let Some(item) = names_item(policy) {
-                return Err(format!(
-                    "the policy names the item {item}: what to do next under it is thought out at cell N1, never written \
-                     into it"
+            // The owner reads the question in their one-to-one, away from the design it is about: it links to it.
+            // The whole address of a markdown link: one that only begins with the design's (another round of the same
+            // work) leads somewhere else.
+            if let Some(link) = row["link"].as_str().filter(|l| !l.is_empty())
+                && !markdown_link_targets(text(&ask["question"])).contains(&link)
+            {
+                return checks::fail(format!(
+                    "the question is pinned in the owner's one-to-one, away from the design it is about: link to the \
+                     design in it, as a markdown link to {link}"
                 ));
             }
             Ok(())
         }
-        other => Err(format!("no such engine check: {other}")),
+        "policy_text_clean" => {
+            let Some(policy) = v else { return Ok(()) };
+            let text = policy.to_string();
+            policy_text_problems(policy, &owner_words(conn, c.w.id)?, names_cell(c.e, &text)).into_result()
+        }
+        other => checks::fail(format!("no such engine check: {other}")),
     }
+}
+
+/// What is wrong with the articles of a project's constitution a review's table covers (`rows`, one for each article of
+/// `articles`, in its order): a table with the wrong number of rows, and nothing else, since which row is for which
+/// article is told by position; otherwise every row that names another article than its own.
+fn constitution_problems(articles: &[String], rows: &[Value]) -> Problems {
+    let mut problems = Problems::default();
+    if rows.len() != articles.len() {
+        problems.push(format!(
+            "there is one row for each article of the project's constitution, {} of them, and there are {}",
+            articles.len(),
+            rows.len()
+        ));
+        return problems;
+    }
+    for (i, (row, article)) in rows.iter().zip(articles).enumerate() {
+        let named = row["article"].as_str().unwrap_or_default();
+        if !names_article(named, article) {
+            problems.push(format!(
+                "row {} is for \"{article}\", in the constitution's order, and names \"{named}\"",
+                i + 1
+            ));
+        }
+    }
+    problems
+}
+
+/// What is wrong with a reply that splits a work or hands its question on, each independently: the keys its `children`
+/// and `waits` name that are no item (`known_item` says for a number) and no key of an item change of the round
+/// (`keys`), each list said once with all its keys; a reply that hands the question on and also splits the work or has
+/// it wait; and a hand-over to the architect of a project that is not among the other projects of this one
+/// (`related`), or, only when it is among them, that is no project in the configuration (`in_config`).
+fn reply_problems(
+    reply: &Value,
+    keys: &BTreeSet<String>,
+    known_item: impl Fn(i64) -> Result<bool, String>,
+    project: &str,
+    related: &[String],
+    in_config: impl Fn(&str) -> bool,
+) -> Result<Problems, String> {
+    let mut problems = Problems::default();
+    for list in ["children", "waits"] {
+        let mut unknown: Vec<String> = Vec::new();
+        for x in items(reply.get(list)) {
+            let k = text(&x["key"]).trim().trim_start_matches('#').to_string();
+            let known = match k.parse::<i64>() {
+                Ok(n) => known_item(n)?,
+                Err(_) => keys.contains(&k),
+            };
+            if !known && !unknown.contains(&k) {
+                unknown.push(k);
+            }
+        }
+        problems.about(
+            &unknown,
+            |k| format!("the reply's {list} names {k}, which is no item and no key an item change of this round makes"),
+            |ks| {
+                format!(
+                    "the reply's {list} names {ks}, which are no items and no keys an item change of this round makes"
+                )
+            },
+        );
+    }
+    // A question handed on is not answered: it splits nothing and has the work wait for nothing, and it goes to the
+    // owner or to the architect of a project the project's configuration names among its other projects.
+    if let Some(h) = reply.get("hand_over").filter(|h| h.is_object()) {
+        if !items(reply.get("children")).is_empty() || !items(reply.get("waits")).is_empty() {
+            problems.push(
+                "a reply that hands the question on neither splits the work nor has it wait: leave out children and \
+                 waits, or hand_over",
+            );
+        }
+        if h["to"] == "architect" {
+            let to = text(&h["project"]).trim();
+            if to == project || !related.iter().any(|o| o == to) {
+                problems.push(format!(
+                    "hand_over goes to the architect of a project {project}'s configuration names among its other \
+                     projects ({}), and names {to:?}",
+                    related.join(", ")
+                ));
+            } else if !in_config(to) {
+                problems.push(format!(
+                    "hand_over names {to}, which is no project in the configuration"
+                ));
+            }
+        }
+    }
+    Ok(problems)
+}
+
+/// What is wrong with the candidates of a pick (`list`): more than ten, and every candidate that is no open observation
+/// of the project (`open` says for a number), each one; the two are independent.
+fn candidates_problems(list: &[Value], open: impl Fn(i64) -> Result<bool, String>) -> Result<Problems, String> {
+    let mut problems = Problems::default();
+    if list.len() > 10 {
+        problems.push(format!("at most ten candidates, and there are {}", list.len()));
+    }
+    for x in list {
+        let id = x["id"].as_i64().unwrap_or_default();
+        if !open(id)? {
+            problems.push(format!("{id} is no open observation of the project"));
+        }
+    }
+    Ok(problems)
+}
+
+/// What is wrong with the text of a policy (`policy`), each kind independent of the others: each sentence of at least
+/// 30 characters of the owner's words (`said`) that it quotes; a cell of the flow it names (`cell`, as found); a
+/// date; an item.
+fn policy_text_problems(policy: &Value, said: &[String], cell: Option<String>) -> Problems {
+    let text = policy.to_string();
+    let mut problems = Problems::default();
+    for s in said.iter().flat_map(|said| sentences(said)) {
+        if s.chars().count() >= 30 && text.contains(s.as_str()) {
+            problems.push(format!("the policy quotes the owner's words: \"{s}\""));
+        }
+    }
+    if let Some(cell) = cell {
+        problems.push(format!("the policy names the cell {cell} of the flow"));
+    }
+    if names_date(&text) {
+        problems.push("the policy names a date");
+    }
+    if let Some(item) = names_item(policy) {
+        problems.push(format!(
+            "the policy names the item {item}: what to do next under it is thought out at cell N1, never written \
+             into it"
+        ));
+    }
+    problems
 }
 
 // The architect's inputs.
@@ -3639,6 +3839,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "words_behind_changes" => words_behind_changes(e, w),
         "group_talk" => group_talk(e, w, project),
         "told_owner" => told_owner(e, project),
+        "owner_talk" => owner_talk(e, project),
         "notebook_project_now" | "notebook_plan" | "notebook_unclear" | "notebook_other" => {
             let section = NOTEBOOK.iter().find(|x| x.1 == name).map_or("", |x| x.0);
             Ok(notebook_section(e.db.conn(), project, section)?.map(Value::String))
@@ -5848,6 +6049,57 @@ mod tests {
         assert_eq!(listens_after(said.conn(), "p", WAIT, ANSWERED + 60_000).unwrap(), None);
     }
 
+    // A question the architect just put that pins an open question of an engineer's design is not waited on: the look at
+    // the queue goes on to the matter at the head of the queue at once, while the same question from another kind of
+    // matter is waited on.
+    #[test]
+    fn the_look_at_the_queue_does_not_wait_for_a_question_that_pins_an_open_question() {
+        let q0 = architect_graph().cell(LOOK).unwrap();
+        // A work of the architect whose round 1 put a question (ask 1) that parks a matter of `kind` at `PUT`; and a
+        // check of the policy at the head of the queue (matter 2).
+        let pinned = |kind: &str| {
+            let mut db = db::Db::in_memory().unwrap();
+            db.write(Actor::Engine, |tx| {
+                tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B1', 'p')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+                     VALUES (1, 1, 'H3', '{}', 'c', ?1)",
+                    [ANSWERED],
+                )?;
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"question\":\"Which?\"}')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at, asked, resume_cell)
+                     VALUES ('p', ?1, 'Which?', '{}', 1, 1, 'H3')",
+                    [kind],
+                )?;
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at)
+                     VALUES ('p', 'check_policy', 'Check', '{}', 2)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            db
+        };
+        let look_at = |db: &db::Db| look(db.conn(), "p", 1, q0, WAIT, ANSWERED + 60_000).unwrap()["queue"].clone();
+        assert_eq!(
+            look_at(&pinned("open_question")),
+            json!({ "verdict": "head", "matter": 2 })
+        );
+        assert_eq!(
+            look_at(&pinned("engineer_question")),
+            json!({ "verdict": WAITS, "question": 1 })
+        );
+    }
+
     // While the architect waits for the owner's next words and no matter can be picked, the batch's review waits too,
     // until the owner goes quiet; once the talk is over, the batch is done at once.
     #[test]
@@ -5939,5 +6191,131 @@ mod tests {
         })
         .unwrap();
         assert_eq!(route_of(db.conn(), 1, g).unwrap(), "H3");
+    }
+
+    fn said(p: Problems) -> Vec<String> {
+        p.texts().to_vec()
+    }
+
+    // Item #216: the checks of the architect's returns say all that is wrong at once, as the engineer's do.
+    #[test]
+    fn a_table_of_the_constitution_with_several_rows_wrong_is_told_all_of_them() {
+        let articles: Vec<String> = ["Article 1. Alpha", "Article 2. Beta", "Article 3. Gamma"]
+            .map(String::from)
+            .to_vec();
+        let rows = |names: &[&str]| -> Vec<Value> { names.iter().map(|n| json!({ "article": n })).collect() };
+        assert_eq!(
+            said(constitution_problems(
+                &articles,
+                &rows(&["Article 2", "Article 2 again", "Article 1"])
+            )),
+            [
+                "row 1 is for \"Article 1. Alpha\", in the constitution's order, and names \"Article 2\"",
+                "row 3 is for \"Article 3. Gamma\", in the constitution's order, and names \"Article 1\""
+            ]
+        );
+        assert!(constitution_problems(&articles, &rows(&["Article 1", "beta", "article 3"])).is_empty());
+        // With the wrong number of rows, which row is for which article is not told: only the number is said.
+        assert_eq!(
+            said(constitution_problems(&articles, &rows(&["Article 2", "Article 2"]))),
+            ["there is one row for each article of the project's constitution, 3 of them, and there are 2"]
+        );
+        assert_eq!(
+            constitution_problems(&articles, &rows(&["x", "y", "z", "w"]))
+                .texts()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_reply_with_several_things_wrong_is_told_all_of_them() {
+        let keys: BTreeSet<String> = BTreeSet::from(["new-a".to_string()]);
+        let related = vec!["other".to_string()];
+        let known_item = |n: i64| -> Result<bool, String> { Ok(n == 7) };
+        let reply = json!({
+            "children": [{ "key": "#7" }, { "key": "new-a" }, { "key": "new-b" }],
+            "waits": [{ "key": "9" }, { "key": "nope" }, { "key": "9" }],
+            "hand_over": { "to": "architect", "project": "zzz" }
+        });
+        let found = reply_problems(&reply, &keys, known_item, "mine", &related, |to| to == "other").unwrap();
+        assert_eq!(
+            said(found),
+            [
+                "the reply's children names new-b, which is no item and no key an item change of this round makes",
+                "the reply's waits names 9, nope, which are no items and no keys an item change of this round makes",
+                "a reply that hands the question on neither splits the work nor has it wait: leave out children and waits, or hand_over",
+                "hand_over goes to the architect of a project mine's configuration names among its other projects \
+                 (other), and names \"zzz\""
+            ]
+        );
+        // A hand-over to a project among the others that the configuration does not have is said only then.
+        let hand = json!({ "hand_over": { "to": "architect", "project": "other" } });
+        assert_eq!(
+            said(reply_problems(&hand, &keys, known_item, "mine", &related, |_| false).unwrap()),
+            ["hand_over names other, which is no project in the configuration"]
+        );
+        assert!(
+            reply_problems(&hand, &keys, known_item, "mine", &related, |_| true)
+                .unwrap()
+                .is_empty()
+        );
+        // A hand-over to the work's own project is not among its other projects.
+        let own = json!({ "hand_over": { "to": "architect", "project": "mine" } });
+        assert_eq!(
+            reply_problems(&own, &keys, known_item, "mine", &related, |_| false)
+                .unwrap()
+                .texts()
+                .len(),
+            1
+        );
+        // A read that fails is not a problem of the reply.
+        let failing = |_: i64| -> Result<bool, String> { Err("no database".into()) };
+        let by_number = json!({ "children": [{ "key": "3" }] });
+        assert_eq!(
+            reply_problems(&by_number, &keys, failing, "mine", &related, |_| true).unwrap_err(),
+            "no database"
+        );
+    }
+
+    #[test]
+    fn candidates_over_ten_and_closed_ones_are_all_told() {
+        let list: Vec<Value> = (1..=11).map(|id| json!({ "id": id })).collect();
+        let found = candidates_problems(&list, |id| Ok(id % 2 == 0)).unwrap();
+        assert_eq!(found.texts().len(), 7, "{found:?}");
+        assert_eq!(found.texts()[0], "at most ten candidates, and there are 11");
+        assert_eq!(found.texts()[1], "1 is no open observation of the project");
+        assert_eq!(found.texts()[6], "11 is no open observation of the project");
+        assert!(candidates_problems(&list[..10], |_| Ok(true)).unwrap().is_empty());
+        assert_eq!(
+            candidates_problems(&list[..10], |id| Ok(id != 3))
+                .unwrap()
+                .texts()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_policy_that_quotes_names_a_cell_a_date_and_an_item_is_told_all_four() {
+        let said_by_owner = vec![
+            "The owner wants the course kept steady for all the projects. Short one.".to_string(),
+            "Something the policy does not say at all, however long it is.".to_string(),
+        ];
+        let policy = json!({
+            "text": "The owner wants the course kept steady for all the projects. Cell Q1 is checked; see item #12 and 2026-10-27."
+        });
+        let found = said(policy_text_problems(&policy, &said_by_owner, Some("Q1".to_string())));
+        assert_eq!(
+            found,
+            [
+                "the policy quotes the owner's words: \"The owner wants the course kept steady for all the projects\"",
+                "the policy names the cell Q1 of the flow",
+                "the policy names a date",
+                "the policy names the item #12: what to do next under it is thought out at cell N1, never written into it",
+            ]
+        );
+        let clean = json!({ "text": "Keep the course steady." });
+        assert!(policy_text_problems(&clean, &said_by_owner, None).is_empty());
     }
 }
