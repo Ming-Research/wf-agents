@@ -251,6 +251,125 @@ mod tests {
         );
     }
 
+    fn architect() -> CompiledGraph {
+        let relations = db::relations(db::SCHEMA).unwrap();
+        let tables = db::index_of(db::SCHEMA).unwrap();
+        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+        f.graph(crate::ARCHITECT).unwrap().clone()
+    }
+
+    /// A schema without the property `name` anywhere in it, and without it in any list of required ones: the schema as
+    /// it was before a version added that field.
+    fn without(schema: &mut Value, name: &str) {
+        match schema {
+            Value::Object(o) => {
+                if let Some(Value::Object(p)) = o.get_mut("properties") {
+                    p.remove(name);
+                }
+                if let Some(Value::Array(r)) = o.get_mut("required") {
+                    r.retain(|x| x != name);
+                }
+                o.values_mut().for_each(|v| without(v, name));
+            }
+            Value::Array(xs) => xs.iter_mut().for_each(|v| without(v, name)),
+            _ => {}
+        }
+    }
+
+    /// A return of an agent's cell of the architect's graph, as a round stores it.
+    fn handed_in(n: i64, cell: &str, outcome: Value) -> Handed {
+        Handed {
+            round: RoundId::new(1, n),
+            cell: cell.into(),
+            output: json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" }),
+        }
+    }
+
+    // Item #228: an architect's work that has handed in the returns of before the architect could pick a group (a pick
+    // of one matter, a finding, a way) moves to the version that lets it, at the pick, the cell that finds what a report
+    // is, the cell that takes it in or the review of the batch: the version only added a field the returns may leave out,
+    // to the three cells' schemas, and left their inputs and rows as they were. A return that names others to go with a
+    // matter fits the new version and not the old, which had no such field.
+    #[test]
+    fn an_architect_work_with_returns_from_before_groups_moves() {
+        let now = architect();
+        let mut old = now.clone();
+        for id in ["Q1", "H4", "H5"] {
+            without(cell(&mut old, id).schema.as_mut().unwrap(), "with");
+        }
+        let finding = json!({ "what": "w", "grounds": "g", "sure": "checked" });
+        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse first", "reason": "r" });
+        let mut named = change.clone();
+        named["matter"] = json!(5);
+        let before = [
+            handed_in(1, "Q1", json!({ "pick": { "matter": 4, "why": "w" } })),
+            handed_in(2, "H4", json!({ "finding": finding })),
+            handed_in(
+                3,
+                "H5",
+                json!({ "take": { "way": "fold_in", "why": "w" }, "effects": { "item_changes": [change.clone()] } }),
+            ),
+        ];
+        for h in &before {
+            let schema = old.cell(&h.cell).unwrap().schema.as_ref().unwrap();
+            assert!(
+                flow::valid(schema, &h.output),
+                "{}: {:?}",
+                h.cell,
+                flow::misfit(schema, &h.output, "")
+            );
+        }
+        for stands_at in ["Q1", "H4", "H5", "B2"] {
+            assert_eq!(why_not(&old, &now, &at(stands_at), &before), None, "{stands_at}");
+        }
+        // The new field is an addition: what names others fits the new version only.
+        let group = [
+            handed_in(4, "Q1", json!({ "pick": { "matter": 4, "why": "w", "with": [5, 6] } })),
+            handed_in(
+                5,
+                "H4",
+                json!({ "finding": finding, "with": [{ "matter": 5, "what": "w", "grounds": "g", "sure": "likely" }] }),
+            ),
+            handed_in(
+                6,
+                "H5",
+                json!({ "take": { "way": "nothing", "why": "w" }, "effects": { "item_changes": [named] },
+                        "with": [{ "matter": 5, "way": "merged", "why": "w" }] }),
+            ),
+        ];
+        for h in &group {
+            assert!(
+                flow::valid(now.cell(&h.cell).unwrap().schema.as_ref().unwrap(), &h.output),
+                "{}",
+                h.cell
+            );
+            assert!(
+                !flow::valid(old.cell(&h.cell).unwrap().schema.as_ref().unwrap(), &h.output),
+                "{}",
+                h.cell
+            );
+        }
+        // Their cells keep their inputs and rows, which a work standing there is moved by.
+        let own = |id: &str| -> (Vec<String>, Vec<(String, String)>) {
+            let c = now.cell(id).unwrap();
+            (
+                c.inputs.iter().filter_map(|x| x.name.clone()).collect(),
+                c.rows
+                    .iter()
+                    // The cell's own rows that go on to another cell, not the engine's that keep the work where it is.
+                    .filter(|r| !r.common && r.to != "@self")
+                    .map(|r| (r.name.clone(), r.to.clone()))
+                    .collect(),
+            )
+        };
+        assert_eq!(own("Q1").1, [("picked".to_string(), "Q2".to_string())]);
+        assert_eq!(own("H4").1, [("found".to_string(), "Q0".to_string())]);
+        assert_eq!(own("H5").1, [("done".to_string(), "B1".to_string())]);
+        assert_eq!(own("Q1").0.first().map(String::as_str), Some("The queue"));
+        assert_eq!(own("H4").0.first().map(String::as_str), Some("The report"));
+        assert_eq!(own("H5").0.first().map(String::as_str), Some("What the report is"));
+    }
+
     // What the engine records of a row it took itself, which its cell's schema does not take, is no return: the work
     // moves whatever the new version says of that cell, even that it is gone.
     #[test]

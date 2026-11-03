@@ -256,6 +256,105 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     assert_eq!(g.cell("N1").unwrap().title, "The plan");
 }
 
+// Item #228: the architect picks side reports or answers about one thing together. The pick names the others to go with
+// the matter it picks and sets the group (`group_picked`); the cell that finds what a report is and the cell that takes
+// it in each answer for the group in one round, the others in `with`, which they leave out for a matter alone, and
+// hold the answer to the group (`group_answered`); every cell that may ask the owner takes the group apart as it asks
+// (`dissolve_group`). A `with` that is empty, or lacks a field of an entry, fits no schema.
+#[test]
+fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_the_ask() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    assert!(
+        g.cell("Q1")
+            .unwrap()
+            .always
+            .iter()
+            .any(|a| a.at == "pick" && a.action.as_deref() == Some("group_picked"))
+    );
+    assert!(
+        g.cell("Q1")
+            .unwrap()
+            .checks
+            .iter()
+            .any(|x| x.at.as_deref() == Some("pick") && x.check == "picked_pickable")
+    );
+    for id in ["H4", "H5"] {
+        assert!(
+            g.cell(id)
+                .unwrap()
+                .checks
+                .iter()
+                .any(|x| x.at.as_deref() == Some("with") && x.check == "group_answered"),
+            "{id}"
+        );
+    }
+    let asking: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|x| x.rows.iter().any(|r| r.name == "ask_owner"))
+        .map(|x| x.id.as_str())
+        .collect();
+    assert!(asking.contains(&"H4") && asking.contains(&"H5"), "{asking:?}");
+    for id in &asking {
+        let row = g.cell(id).unwrap().rows.iter().find(|r| r.name == "ask_owner").unwrap();
+        assert!(row.actions.iter().any(|d| d.name() == "dissolve_group"), "{id}");
+    }
+    let ret = |outcome: Value| serde_json::json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" });
+    let takes = |cell: &str, outcome: Value| -> Result<String, String> {
+        g.take(cell, &ret(outcome), &Map::new()).map(|r| r.name.clone())
+    };
+    let refused = |cell: &str, outcome: Value| takes(cell, outcome).unwrap_err().contains("does not fit the schema");
+    // The pick names others, or none.
+    let pick = serde_json::json!({ "matter": 1, "why": "w" });
+    assert_eq!(takes("Q1", serde_json::json!({ "pick": pick })).unwrap(), "picked");
+    let group = serde_json::json!({ "matter": 1, "why": "w", "with": [2, 3] });
+    assert_eq!(takes("Q1", serde_json::json!({ "pick": group })).unwrap(), "picked");
+    let empty = serde_json::json!({ "matter": 1, "why": "w", "with": [] });
+    assert!(refused("Q1", serde_json::json!({ "pick": empty })));
+    // The finding is the matter picked's, and `with` the others'.
+    let finding = serde_json::json!({ "what": "w", "grounds": "g", "sure": "checked" });
+    let other = serde_json::json!({ "matter": 2, "what": "w", "grounds": "g", "sure": "likely" });
+    assert_eq!(takes("H4", serde_json::json!({ "finding": finding })).unwrap(), "found");
+    assert_eq!(
+        takes("H4", serde_json::json!({ "finding": finding, "with": [other] })).unwrap(),
+        "found"
+    );
+    let mut lacking = other.clone();
+    lacking.as_object_mut().unwrap().remove("sure");
+    assert!(refused(
+        "H4",
+        serde_json::json!({ "finding": finding, "with": [lacking] })
+    ));
+    assert!(refused("H4", serde_json::json!({ "finding": finding, "with": [] })));
+    // The way is the matter picked's, and `with` the others', with the changes that come of each naming it.
+    let take = serde_json::json!({ "way": "merged", "why": "w" });
+    let way = serde_json::json!({ "matter": 2, "way": "nothing", "why": "w" });
+    let change = serde_json::json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "t", "reason": "r",
+                                     "matter": 2 });
+    assert_eq!(takes("H5", serde_json::json!({ "take": take })).unwrap(), "done");
+    let both = serde_json::json!({ "take": take, "with": [way], "effects": { "item_changes": [change] } });
+    assert_eq!(takes("H5", both).unwrap(), "done");
+    let mut wrong = way.clone();
+    wrong["way"] = "somehow".into();
+    assert!(refused("H5", serde_json::json!({ "take": take, "with": [wrong] })));
+    assert!(refused("H5", serde_json::json!({ "take": take, "with": [] })));
+    // A member that needs the owner goes back to the queue (`release_members`, the cell's first action, before the
+    // others read the group); the way fits the schema of the entries of `with`, and the check, not the schema, turns it
+    // away from the matter picked.
+    let always = &g.cell("H5").unwrap().always;
+    assert_eq!(
+        (always[0].at.as_str(), always[0].action.as_deref()),
+        ("with", Some("release_members"))
+    );
+    let mut back = way.clone();
+    back["way"] = "back_for_owner".into();
+    assert_eq!(
+        takes("H5", serde_json::json!({ "take": take, "with": [back] })).unwrap(),
+        "done"
+    );
+}
+
 // The check of the policy and the plan of what to do next are matters at the head of the queue: a new session's
 // understanding queues both and goes on to the queue; the look at the queue takes them after the owner's words, a
 // matter back with the owner's reply, the waits for the owner and a matter of two cells going on at its second cell,
