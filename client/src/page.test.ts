@@ -211,7 +211,7 @@ describe('the addresses', () => {
 });
 
 describe('how a work goes on', () => {
-  const work = (extra: Partial<WorkSummary>): WorkSummary => ({
+  const work = (extra: Partial<WorkSummary> = {}): WorkSummary => ({
     id: 5,
     item: 1,
     title: 't',
@@ -241,7 +241,7 @@ describe('how a work goes on', () => {
     open_design_cards: 0,
     ...extra,
   });
-  const status = (extra: Partial<Status>): Status => ({
+  const status = (extra: Partial<Status> = {}): Status => ({
     paused: false,
     keep_warm: true,
     started: [],

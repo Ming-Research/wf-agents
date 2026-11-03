@@ -56,7 +56,7 @@ import { t } from './text';
 
 /// How an architect stands as its mark says it, from what its page read: the page's read turned into the lean one the
 /// mark is worked out from.
-const architectMark = (a: Architect, s: Status) => markOfStanding(standing(a), s);
+const architectMark = (a: Architect, s: Status | null) => markOfStanding(standing(a), s);
 
 /// The flow's lines with their colours, as the interface serves them, which every bubble and avatar is drawn in.
 const LINES: GraphLines[] = [
@@ -1171,9 +1171,9 @@ describe("a work's group as a chat", () => {
     expect(nowWords({ ...c, running: 'goes_on' }, running)).toBe('the review is at work');
     // The running mark in the head, after the stage it is about; the line holds words alone. The engine runs the round,
     // as its status says; without the status (the engine out of reach) the page cannot tell, and the work is ready.
-    const unknown = bubble(now, running);
-    expect(unknown).toContain('<span class="talk-card-kind talk-about">Merge</span><span class="state-mark state-mark-neutral" title="ready"');
-    expect(unknown).not.toContain('running-mark');
+    const outOfReach = bubble(now, running);
+    expect(outOfReach).toContain('<span class="talk-card-kind talk-about">Merge</span><span class="state-mark state-mark-neutral" title="ready"');
+    expect(outOfReach).not.toContain('running-mark');
     engine.status = {
       paused: false,
       running: [5],
