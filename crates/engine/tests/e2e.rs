@@ -19700,7 +19700,6 @@ fn a_round_asked_to_hand_over_records_where_it_came_due() {
 // Each hand-over is whole (the design has the agent write again all of the one before that still holds), so the third
 // session is given the latest, and not the one before it.
 #[test]
-#[ignore = "red until the input Tool results passes through two hand-overs; set aside so the shard reaches the rest"]
 fn a_second_hand_over_in_a_row_still_gives_the_tools_results_and_only_the_latest_hand_over() {
     let s = setup_priced("handover-twice");
     let mut scripts = scripts();
