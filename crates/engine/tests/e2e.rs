@@ -16593,10 +16593,11 @@ fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_lon
         )
     })
     .unwrap();
-    let paused = || GlobalPause {
-        warm: true,
-        runs: [7].into(),
-        architects: ["p".to_string()].into(),
+    // A pass of the loop while the owner has paused every work but the architect's, as the loop takes it: a pass sets
+    // the pause it is given, so a pause set on the engine alone does not last through one.
+    let paused = Go {
+        pause: held_but(&[7], &["p"]),
+        ..Go::default()
     };
     let log = || said.lock().unwrap().join("\n");
     let messages = || sent.lock().unwrap().len();
@@ -16604,7 +16605,6 @@ fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_lon
     // takes by itself, which send the agent nothing at H10.
     assert!(steps_until(&mut e, 40, |_| messages() >= 1), "{}", log());
     // The engine pauses, an item is renamed and an observation recorded: the second round is given all three as they are.
-    e.set_global_pause(Some(paused()));
     e.db.write(Actor::Owner, |tx| {
         tx.execute("UPDATE items SET title = 'Parse the input first' WHERE id = ?1", [item])?;
         tx.execute(
@@ -16615,9 +16615,14 @@ fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_lon
         Ok(())
     })
     .unwrap();
-    assert!(steps_until(&mut e, 40, |_| messages() >= 2), "{}", log());
+    for _ in 0..40 {
+        if messages() >= 2 {
+            break;
+        }
+        let _ = e.pass(&paused).unwrap();
+    }
+    assert!(messages() >= 2, "{}", log());
     // The engine runs again: the slots are the first message's value.
-    e.set_global_pause(None);
     assert!(steps_until(&mut e, 40, |_| messages() >= 3), "{}", log());
     let told = sent.lock().unwrap().clone();
     let (one, two, three) = (&told[0], &told[1], &told[2]);
