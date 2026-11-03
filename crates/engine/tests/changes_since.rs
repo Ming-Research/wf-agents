@@ -33,6 +33,12 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// Main as the work's clone has it fetched (`origin/main`), at the commit main is at now: the work's own files are told
+/// from the files main brought by it.
+fn fetched_main(dir: &Path) {
+    git(dir, &["update-ref", "refs/remotes/origin/main", "main"]);
+}
+
 /// Writes the files, commits them with the message, and gives the new commit.
 fn commit(dir: &Path, files: &[(&str, &str)], message: &str) -> String {
     for (file, text) in files {
@@ -142,6 +148,7 @@ fn two_merges_of_main_are_marked_newest_first_and_only_what_the_work_changed_is_
 fn a_subject_with_a_tab_or_nothing_and_a_name_with_a_space_are_read_whole() {
     let dir = fresh("awkward");
     let start = commit(&dir, &[("a.txt", "a\n")], "Start");
+    fetched_main(&dir);
     let tabbed = commit(&dir, &[("with space.txt", "1\n")], "Fix\tthe tab: 100% done");
     let empty = commit(&dir, &[("b.txt", "2\n")], "");
     let since = changes_since(&dir, "main", &start, "HEAD").unwrap();
@@ -168,6 +175,7 @@ fn a_subject_with_a_tab_or_nothing_and_a_name_with_a_space_are_read_whole() {
 fn a_file_with_a_name_beyond_ascii_is_named_as_it_is() {
     let dir = fresh("unicode");
     let start = commit(&dir, &[("a.txt", "a\n")], "Start");
+    fetched_main(&dir);
     commit(&dir, &[("café.txt", "1\n"), ("日本語.txt", "2\n")], "Names");
     let since = changes_since(&dir, "main", &start, "HEAD").unwrap();
     assert_eq!(since.own_files, ["café.txt", "日本語.txt"], "{since:?}");
@@ -181,6 +189,7 @@ fn a_file_with_a_name_beyond_ascii_is_named_as_it_is() {
 fn a_base_that_is_empty_or_names_nothing_is_an_error_and_a_tag_or_a_branch_is_a_base() {
     let dir = fresh("bases");
     let start = commit(&dir, &[("a.txt", "a\n")], "Start");
+    fetched_main(&dir);
     git(&dir, &["tag", "-a", "-m", "release", "v1"]);
     git(&dir, &["branch", "old"]);
     let second = commit(&dir, &[("b.txt", "b\n")], "Second");
