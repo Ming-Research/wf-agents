@@ -89,7 +89,7 @@ function KeepWarm({ status }: { status: Status }) {
 }
 
 /// The switch of every work: Pause all while works go on, Start all while they are paused. Starting asks first, saying
-/// what goes on and which works on an older flow version are taken over.
+/// what goes on and how the works on an older flow version move to the new one.
 function Switch({ status, works }: { status: Status; works: WorkSummary[] | undefined }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

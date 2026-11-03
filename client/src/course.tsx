@@ -130,7 +130,8 @@ export function nowWords(c: Course, w: WorkSummary): string {
   return t('now_ready');
 }
 
-/// What taking the work over will do, for the note beside a control and the question before it.
+/// What bringing a work on an older flow version to the new one will do, for the note beside a control and the
+/// question before it.
 export function takeoverWords(w: WorkSummary, status: Status | null): string {
   return t('course_outdated_hint', { version: w.flow_version, now: status?.flow_version ?? '' });
 }
@@ -259,9 +260,8 @@ export function StartOver({ a, w, status }: {
   );
 }
 
-/// What opens the round the owner's Step asked for once it has ended, where it ran: in the work that took the asked
-/// one over, when it was on an older flow version. What it returns marks the Step sent at `at`; `asked` is the work
-/// stepped, or null for the architect's Step, which may start a new work of the architect.
+/// What opens the round the owner's Step asked for once it has ended, where it ran. What it returns marks the Step sent
+/// at `at`; `asked` is the work stepped, or null for the architect's Step, which may start a new work of the architect.
 export function useOpenStepped(
   status: Status | null,
   asked: number | null,

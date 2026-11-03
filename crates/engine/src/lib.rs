@@ -80,9 +80,12 @@ pub const ENGINEER: &str = "engineer";
 /// The graph the architect's works run, on no item, and the line its session goes on in.
 pub const ARCHITECT: &str = "architect";
 
+/// The cell of the engineer's graph whose row `merged` merges the work's pull request.
+const MERGE: &str = "M2";
+
 /// The graph a flow version before the setting of a project's policy was a stage of the architect's works ran it as, a
-/// work of its own: the engine takes such a work over when it next goes on, ending it and letting go the hold on new
-/// starts it kept, and the architect's next check of the policy decides again whether to set it.
+/// work of its own: the version the engine runs has no such graph, so such a work that still goes on is paused where it
+/// stands, and its project's architect asked to set it straight ([`Engine::bring`]).
 pub const POLICY: &str = "policy";
 
 /// The line of the search of observations, which runs at the observer's level.
@@ -460,43 +463,122 @@ impl Engine {
     }
 
     /// Brings works on an older flow version to the version the engine runs, which the loop does when each next goes
-    /// on, before it dispatches its step: a work that can move moves ([`Engine::move_up`]), and the rest are taken over
-    /// ([`Engine::take_over`]). Gives the new works started on the items of those taken over.
-    fn bring_up(&mut self, works: &[Work]) -> Result<Vec<i64>, String> {
-        let mut over = Vec::new();
+    /// on with no job in flight, before it dispatches its step ([`Engine::bring`]). A new version never ends a work.
+    fn bring_up(&mut self, works: &[Work]) -> Result<(), String> {
         for w in works {
-            match self.cannot_move(w)? {
-                None => self.move_up(w)?,
-                Some(cannot) => over.push((w.clone(), self.moved_on(&cannot))),
-            }
+            self.bring(w)?;
         }
-        self.take_over(&over)
+        Ok(())
     }
 
-    /// Why a work on an older flow version cannot move to the version the engine runs ([`versions::why_not`]): what
-    /// changed at the cell it stands at, or a return it handed in that its cell there does not take; none when it can
-    /// move. Both versions' graphs are read as the work's project's agents are asked them, which its returns were
-    /// checked against.
-    fn cannot_move(&mut self, w: &Work) -> Result<Option<String>, String> {
-        let old = self.flow(w.flow_version)?.graph(&w.graph).cloned();
-        let now = self.flow_now;
-        let new = self.flow(now)?.graph(&w.graph).cloned();
-        let (Some(old), Some(new)) = (old, new) else {
-            return Ok(Some(format!("there is no graph {}", w.graph)));
+    /// Brings a work on an older flow version to the version the engine runs, as its plan says ([`Engine::plan`]): it
+    /// moves where it stands ([`Engine::move_up`]), or comes to its graph's cell for a work on an older version, to go
+    /// back from there or stay there stuck ([`Engine::bring_back`]). Gives the plan.
+    fn bring(&mut self, w: &Work) -> Result<versions::Plan, String> {
+        let plan = self.plan(w)?;
+        match &plan {
+            versions::Plan::Move => self.move_up(w)?,
+            versions::Plan::GoBack { to, why } => self.bring_back(w, Some(to), why, false)?,
+            versions::Plan::Stuck { why, back_to } => self.bring_back(w, back_to.as_deref(), why, true)?,
+        }
+        Ok(plan)
+    }
+
+    /// What the version the engine runs does with a work on an older one ([`versions::plan`]), both versions' graphs
+    /// read as the work's project's agents are asked them, which its returns were checked against. A work whose graph
+    /// the version lacks is stuck.
+    pub(crate) fn plan(&mut self, w: &Work) -> Result<versions::Plan, String> {
+        if self.flow(self.flow_now)?.graph(&w.graph).is_none() {
+            return Ok(versions::Plan::Stuck {
+                why: format!("the version has no graph {}", w.graph),
+            });
+        }
+        let old = self.graph_of(w)?;
+        let now = Work {
+            flow_version: self.flow_now,
+            ..w.clone()
         };
-        let (old, new) = (self.as_asked(w, old)?, self.as_asked(w, new)?);
-        let handed: Vec<versions::Handed> = work::rounds(self.db.conn(), w.id)?
-            .into_iter()
-            .filter(|r| r.transition.is_some())
-            .filter_map(|r| {
-                Some(versions::Handed {
-                    round: r.id,
-                    cell: r.cell?,
-                    output: r.output?,
-                })
+        let new = self.graph_of(&now)?;
+        let rounds = work::rounds(self.db.conn(), w.id)?;
+        Ok(versions::plan(&old, &new, &w.pos, &rounds, |r| in_effect(&old, r)))
+    }
+
+    /// Brings a work on an older flow version that the version the engine runs cannot take on where it stands to its
+    /// graph's cell for that (its `version`), in one write: on the new version, standing there, with the cell it goes
+    /// back to (`to`; none when it can go back to none) as where it stopped, and no cell waiting for an answer; the round
+    /// it was in cut off, and the question it had out withdrawn, saying why. What it answered, asked and was told stays.
+    /// Then that cell's step runs at once ([`steps::bring_up`]), which keeps it there when it is `stuck`. A work whose
+    /// graph the version lacks, or lacks that cell, is paused where it stands instead, its project's architect asked to
+    /// set it straight.
+    fn bring_back(&mut self, w: &Work, to: Option<&str>, why: &str, stuck: bool) -> Result<(), String> {
+        let (id, from, now) = (w.id, w.flow_version, self.flow_now);
+        let Some(cell) = self.flow(now)?.graph(&w.graph).and_then(|g| g.version.clone()) else {
+            return self.stuck_where_it_stands(w, why);
+        };
+        let left = match to {
+            Some(t) if !stuck => format!("the work goes back to cell {t} of flow version {now}, to do it again: {why}"),
+            _ => format!("the work cannot go on in flow version {now} as it was: {why}"),
+        };
+        let engineer = w.graph == ENGINEER;
+        self.db
+            .write(Actor::Engine, |tx| {
+                if let Some(r) = work::open_round(tx, id).map_err(db::Error::Abort)? {
+                    let cut = work::Ended {
+                        rejected: Some(serde_json::json!({ "interrupted": left })),
+                        ..work::Ended::default()
+                    };
+                    work::finish_round(tx, r.id, &cut).map_err(db::Error::Abort)?;
+                    // An engineer's round that waited for its ask of the owner asks no more; an architect's asks stay
+                    // the owner's to answer, as it goes on without the answer.
+                    if engineer {
+                        let answer = serde_json::json!({
+                            "by": "engine", "at": db::now(), "text": format!("No answer is needed: {left}."),
+                        });
+                        tx.execute(
+                            "UPDATE owner_asks SET answer = ?3 WHERE work = ?1 AND round = ?2 AND answer IS NULL",
+                            params![id, r.id.n, answer.to_string()],
+                        )?;
+                    }
+                }
+                blockers::end_of(tx, id, &left).map_err(db::Error::Abort)?;
+                tx.execute(
+                    "UPDATE works SET flow_version = ?2, moved_from = ?3, at = ?4, resume_at = ?5, waiting = '[]'
+                     WHERE id = ?1",
+                    params![id, now, from, cell, to],
+                )?;
+                Ok(())
             })
-            .collect();
-        Ok(versions::why_not(&old, &new, &w.pos, &handed))
+            .map_err(|e| e.to_string())?;
+        self.say(&format!(
+            "work {id} comes from flow version {from} to cell {cell} of {now}: {why}"
+        ));
+        let w = self.work(id)?;
+        let g = self.graph_of(&w)?;
+        let c = g
+            .cell(&cell)
+            .cloned()
+            .ok_or_else(|| format!("work {id}: flow version {now} has no cell {cell}"))?;
+        let brought = steps::Brought {
+            from,
+            why: why.to_string(),
+            stuck,
+        };
+        steps::bring_up(self, &w, &g, &c, Some(brought))?;
+        Ok(())
+    }
+
+    /// Pauses a work on an older flow version where it stands, which the version the engine runs cannot take on and has
+    /// no cell to bring it to, its graph gone, and asks its project's architect to set it straight.
+    fn stuck_where_it_stands(&mut self, w: &Work, why: &str) -> Result<(), String> {
+        let now = self.flow_now;
+        let id = w.id;
+        self.db
+            .write(Actor::Engine, |tx| {
+                actions::report_stuck(tx, id, now, why).map_err(db::Error::Abort)
+            })
+            .map_err(|e| e.to_string())?;
+        self.say(&format!("work {id} cannot go on in flow version {now}: {why}"));
+        self.pause(id, &format!("it cannot go on in flow version {now}: {why}"))
     }
 
     /// Moves a work on an older flow version to the version the engine runs: the same work, at the same cell, in the
@@ -520,114 +602,61 @@ impl Engine {
         Ok(())
     }
 
-    /// Why a work on an older flow version that cannot move is taken over: the version, and what changed there.
-    fn moved_on(&self, cannot: &str) -> String {
-        format!(
-            "the flow moved to version {}, where {cannot}, and a new work on it takes the item over",
-            self.flow_now
-        )
-    }
-
-    /// Takes works over, each with why: a work on an older flow version that cannot move, which the engine does when
-    /// it next goes on, instead of taking its step, and a work the owner or its project's architect started over
-    /// ([`Engine::start_over`]). Each stops, saying why, as every work ends ([`ending::end`]: the round it was in is
-    /// cut off, its decision cards are replaced, its asks of the owner need no answer, its questions to the architect are
-    /// withdrawn and its sessions end), and its item gets a new work on the version the engine runs, whose cell `S1`
-    /// takes over the stopped work's branch, worktree (with what is not committed in it) and pull request and whose
-    /// cell `R1` is told what exists, the questions withdrawn included. Until then the owner still rules on its design
-    /// cards and answers its asks, and the new work is given them. A new work is paused as the owner had paused the old
-    /// one, so that a work the owner steps stays in the owner's hands, and goes on under the owner's Start of the old
-    /// one ([`Engine::replaced`]). Every work given is stopped before any new one starts, so that the slots they held
-    /// are free; a new work takes a slot only when one is free: in the order of the works stopped, those that find one
-    /// start now, and the items of the rest go to the head of the queue, ahead of the items queued before, in the same
-    /// order, to start as slots free. Gives the new works started.
-    fn take_over(&mut self, works: &[(Work, String)]) -> Result<Vec<i64>, String> {
-        let mut takeovers = Vec::new();
+    /// Takes over a work of the engineer's graph the owner or its project's architect started over
+    /// ([`Engine::start_over`]), with why. It stops, saying why, as every work ends ([`ending::end`]: the round it was
+    /// in is cut off, its decision cards are replaced, its asks of the owner need no answer, its questions to the
+    /// architect are withdrawn and its sessions end), and its item gets a new work on the version the engine runs, whose
+    /// cell `S1` takes over the stopped work's branch, worktree (with what is not committed in it) and pull request and
+    /// whose cell `R1` is told what exists, the questions withdrawn included. Until then the owner still rules on its
+    /// design cards and answers its asks, and the new work is given them. The new work is paused as the owner had paused
+    /// the old one, so that a work the owner steps stays in the owner's hands, and goes on under the owner's Start of the
+    /// old one ([`Engine::replaced`]). It starts once the old one is stopped, so that the slot that one held is free, and
+    /// only when a slot is free: else its item goes to the head of the queue, ahead of the items queued before, to start
+    /// as a slot frees.
+    fn take_over(&mut self, w: &Work, why: &str) -> Result<(), String> {
         let projects = self.config.config.projects.clone();
-        for (w, why) in works {
-            let id = w.id;
-            let stopped = format!("stopped: {why}");
-            self.db
-                .write(Actor::Engine, |tx| {
-                    ending::end(tx, id, ending::End::TakenOver(&stopped), &projects).map_err(db::Error::Abort)?;
-                    actions::notify(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
-                    Ok(())
-                })
-                .map_err(|e| e.to_string())?;
-            self.say(&format!("work {id} stopped: {why}"));
-            // An architect work stopped leaves no hold of its own behind: setting its project straight is the work's,
-            // as a policy being set was the setting's, a work of its own in a flow version before; the architect's
-            // next work asks its questions afresh.
-            if w.graph == ARCHITECT || w.graph == POLICY {
-                let project = w.project.clone();
-                self.db
-                    .write(Actor::Engine, |tx| {
-                        tx.execute(
-                            "DELETE FROM dispatch_holds WHERE project = ?1 AND reason = 'set_straight'",
-                            [&project],
-                        )?;
-                        Ok(())
-                    })
-                    .map_err(|e| e.to_string())?;
-            }
-            // The worktree a setting of a policy read in, as a work of its own, is no one's any longer.
-            if w.graph == POLICY
-                && let Some(p) = w.project.as_deref().and_then(|p| projects.get(p))
-            {
-                let dir = architect::worktree(&self.data, POLICY, w.project.as_deref().unwrap_or_default());
-                if let Err(x) = sessions::worktree::remove_worktree(&p.checkout, &dir) {
-                    self.say(&format!("work {id}: its worktree {} stays: {x}", dir.display()));
-                }
-            }
-            if let Some(item) = w.item.filter(|_| w.graph == ENGINEER) {
-                let held = w.paused.clone().filter(|_| w.paused_by.as_deref() == Some("owner"));
-                takeovers.push((id, item, held));
-            }
+        let id = w.id;
+        let stopped = format!("stopped: {why}");
+        self.db
+            .write(Actor::Engine, |tx| {
+                ending::end(tx, id, ending::End::TakenOver(&stopped), &projects).map_err(db::Error::Abort)?;
+                actions::notify(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+        self.say(&format!("work {id} stopped: {why}"));
+        let Some(item) = w.item.filter(|_| w.graph == ENGINEER) else {
+            return Ok(());
+        };
+        if self.free_slots()? > 0 {
+            let held = w.paused.clone().filter(|_| w.paused_by.as_deref() == Some("owner"));
+            let new = self.start_work(item, held.as_deref())?;
+            self.say(&format!("work {new} started on item {item}, after work {id}"));
+            lock(&self.shared.replaced).push((id, new));
+            return Ok(());
         }
-        // Once one waits, those after it wait too, so that they start in the order of the works they replace.
-        let mut started = Vec::new();
-        let mut waiting = Vec::new();
-        for (id, item, held) in takeovers {
-            if waiting.is_empty() && self.free_slots()? > 0 {
-                let new = self.start_work(item, held.as_deref())?;
-                self.say(&format!("work {new} started on item {item}, after work {id}"));
-                lock(&self.shared.replaced).push((id, new));
-                started.push(new);
-            } else {
-                waiting.push((id, item));
-            }
-        }
-        if waiting.is_empty() {
-            return Ok(started);
-        }
-        let items: Vec<i64> = waiting.iter().map(|(_, item)| *item).collect();
         self.db
             .write(Actor::Engine, |tx| {
                 let first: f64 = tx.query_row("SELECT coalesce(min(position), 1.0) FROM dispatch_queue", [], |r| {
                     r.get(0)
                 })?;
-                for (n, item) in items.iter().enumerate() {
-                    let position = first - (items.len() - n) as f64;
-                    tx.execute(
-                        "INSERT OR REPLACE INTO dispatch_queue (item, position) VALUES (?1, ?2)",
-                        params![item, position],
-                    )?;
-                }
+                tx.execute(
+                    "INSERT OR REPLACE INTO dispatch_queue (item, position) VALUES (?1, ?2)",
+                    params![item, first - 1.0],
+                )?;
                 Ok(())
             })
             .map_err(|e| e.to_string())?;
-        for (id, item) in waiting {
-            self.say(&format!(
-                "item {item} waits for a free slot at the head of the queue, to take over from work {id}"
-            ));
-        }
-        Ok(started)
+        self.say(&format!(
+            "item {item} waits for a free slot at the head of the queue, to take over from work {id}"
+        ));
+        Ok(())
     }
 
-    /// Starts a work over, as the owner or its project's architect asked ([`db::start_over`]), by taking it over as a
-    /// work on an older flow version is taken over ([`Engine::take_over`]), saying who started it over and, for the
-    /// architect, why. A work that can no longer be started over, as one that ended since it was asked, is left as it
-    /// is, and one whose merge came first goes on to watch main, whoever asked told.
+    /// Starts a work over, as the owner or its project's architect asked ([`db::start_over`]), by taking it over
+    /// ([`Engine::take_over`]), saying who started it over and, for the architect, why. A work that can no longer be
+    /// started over, as one that ended since it was asked, is left as it is, and one whose merge came first goes on to
+    /// watch main, whoever asked told.
     fn start_over(&mut self, id: i64, by: &str, why: Option<&str>) -> Result<(), String> {
         let w = self.work(id)?;
         if w.ended.is_some() || w.graph != ENGINEER || self.done(&w)? {
@@ -654,7 +683,7 @@ impl Engine {
             Some(why) => format!("{who} started it over, and a new work on it takes the item over: {why}"),
             None => format!("{who} started it over, and a new work on it takes the item over"),
         };
-        self.take_over(&[(w, why)])?;
+        self.take_over(&w, &why)?;
         Ok(())
     }
 
@@ -1575,6 +1604,21 @@ pub fn takes_interjections(cell: &CompiledCell) -> bool {
 /// The rows of a cell whose name is given.
 pub fn row<'g>(cell: &'g CompiledCell, name: &str) -> Option<&'g flow::CompiledRow> {
     cell.rows.iter().find(|r| r.name == name)
+}
+
+/// What a round of a work did that took hold as it ended and cannot be undone, in words, by the graph `g` it ran on;
+/// none when doing it again undoes or repeats nothing that went out. A work never goes back past such a round when a
+/// new flow version comes ([`versions::plan`]): the engineer's merge, and what the architect's rounds do at once
+/// ([`architect::in_effect`]).
+pub(crate) fn in_effect(g: &CompiledGraph, r: &Round) -> Option<String> {
+    let cell = r.cell.as_deref()?;
+    match g.name.as_str() {
+        ENGINEER if r.transition.as_deref() == Some("merged") && db::is_cell(ENGINEER, MERGE, cell) => {
+            Some("merged the pull request".into())
+        }
+        ARCHITECT => architect::in_effect(g, r),
+        _ => None,
+    }
 }
 
 /// What a return says about itself: the form it holds, by the field it sits in; none for the cell's own answer.

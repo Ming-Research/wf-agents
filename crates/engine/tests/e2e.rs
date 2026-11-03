@@ -3342,13 +3342,20 @@ fn works_of(e: &Engine, item: i64) -> Vec<WorkRow> {
 /// Puts works on a flow version before the one the engine runs: a copy of that one, its engineer's graph changed as
 /// `change` says. Gives the version.
 fn older(e: &mut Engine, works: &[i64], change: impl FnOnce(&mut flow::CompiledGraph)) -> i64 {
+    older_graph(e, works, engine::ENGINEER, change)
+}
+
+/// Puts works on a flow version before the one the engine runs, as [`older`] does, its graph `graph` changed; each call
+/// stores a version of its own.
+fn older_graph(e: &mut Engine, works: &[i64], graph: &str, change: impl FnOnce(&mut flow::CompiledGraph)) -> i64 {
     let now = e.flow_now;
     let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
-    change(f.graphs.iter_mut().find(|g| g.name == engine::ENGINEER).unwrap());
+    change(f.graphs.iter_mut().find(|g| g.name == graph).unwrap());
     let text = f.json();
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
-            "INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)",
+            "INSERT INTO flow_versions (digest, compiled)
+             VALUES ('older ' || (SELECT coalesce(max(id), 0) + 1 FROM flow_versions), ?1)",
             [&text],
         )?;
         let v = tx.last_insert_rowid();
@@ -3543,15 +3550,68 @@ fn a_round_keeps_the_counter_of_the_row_it_took() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work on an older flow version whose cell is unchanged, but one of whose earlier returns its cell's schema in the
-// version the engine runs does not take, is taken over when it goes on: it ends, saying the round and where the return
-// does not fit, and a new work takes its item over.
+/// The rounds of a work at the cell that brings a work on an older flow version to the one the engine runs, `V1`, each
+/// with the row it took and its output.
+fn brought(e: &Engine, work: i64) -> Vec<(String, Value)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT transition, output FROM rounds WHERE work = ?1 AND cell = 'V1' ORDER BY n")
+            .unwrap();
+    st.query_map([work], |r| {
+        Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?))
+    })
+    .unwrap()
+    .map(|x| {
+        let (took, output) = x.unwrap();
+        let output = output.and_then(|o| serde_json::from_str(&o).ok());
+        (took.unwrap_or_default(), output.unwrap_or(Value::Null))
+    })
+    .collect()
+}
+
+/// What the engine told the owner of its own accord about a work, oldest first.
+fn notices(e: &Engine, work: i64) -> Vec<String> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id")
+            .unwrap();
+    st.query_map([work], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+}
+
+/// The version a work is on and the one it moved from, if it moved.
+fn versions_of(e: &Engine, work: i64) -> (i64, Option<i64>) {
+    e.db.conn()
+        .query_row(
+            "SELECT flow_version, moved_from FROM works WHERE id = ?1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+// Item #230: a work on an older flow version, one of whose earlier answers the version the engine runs no longer takes,
+// is the same work after. It comes to cell `V1`, which records the versions, the cell it goes back to and why, and goes
+// back from there to the cell of that answer, the owner told; it does that cell again and goes on to the merge, and its
+// design's open question, answered before, is not put to the architect again.
 #[test]
-fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
+fn a_work_whose_earlier_answer_no_longer_fits_goes_back_to_that_cell_and_on_to_the_merge() {
     let s = setup("reshaped");
-    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, with_before);
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let asked = open_questions(&e, work);
+    assert_eq!(asked.len(), 1, "{}", said.lock().unwrap().join("\n"));
+    let v = older(&mut e, &[work], with_before);
     let n: i64 =
         e.db.write(Actor::Engine, |tx| {
+            // The question has its answer, as the architect's reply leaves it.
+            tx.execute(
+                "UPDATE architect_matters SET body = json_set(body, '$.answer', 'One table.') WHERE id = ?1",
+                [asked[0].0],
+            )?;
+            // The answer of cell R1 holds a field the version the engine runs does not take.
             let n: i64 = tx.query_row(
                 "SELECT n FROM rounds WHERE work = ?1 AND cell = 'R1' AND transition IS NOT NULL",
                 [work],
@@ -3564,29 +3624,413 @@ fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
             Ok(n)
         })
         .unwrap();
-    let stepped = e.step(None).unwrap();
+    e.advance(work).unwrap();
     let log = said.lock().unwrap().join("\n");
-    let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    assert_eq!(works[0].0, work);
     let now = e.flow_now;
-    let ended = works[0].5.clone().unwrap_or_default();
-    assert!(
-        ended.starts_with(&format!(
-            "stopped: the flow moved to version {now}, where the return of cell R1 in round R{work}-{n} no longer \
-             fits it (outcome "
-        )),
-        "{ended}\n{log}"
-    );
-    assert!(
-        ended.ends_with("), and a new work on it takes the item over"),
-        "{ended}"
-    );
+    assert_eq!(versions_of(&e, work), (now, Some(v)), "{log}");
+    let v1 = brought(&e, work);
+    assert_eq!(v1.len(), 1, "{v1:?}\n{log}");
+    let (took, output) = &v1[0];
     assert_eq!(
-        (stepped.work, stepped.started_item),
-        (Some(works[1].0), Some(item)),
+        (took.as_str(), &output["back_to"], &output["from"], &output["to"]),
+        ("went_back", &json!("R1"), &json!(v), &json!(now)),
         "{log}"
     );
+    let why = output["why"].as_str().unwrap_or_default();
+    assert!(
+        why.starts_with(&format!("the return of cell R1 in round R{work}-{n} no longer fits it (")),
+        "{why}"
+    );
+    let told = notices(&e, work);
+    assert!(
+        told.iter().any(|t| t.contains(&format!("goes back to cell R1 ")) && t.contains(why)),
+        "{told:?}"
+    );
+    assert_eq!(transitions(&e, item, "R1").len(), 2, "{log}");
+    for _ in 0..200 {
+        if transitions(&e, item, "M2").iter().any(|t| t == "merged") {
+            break;
+        }
+        e.advance(work).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(
+        transitions(&e, item, "M2").iter().any(|t| t == "merged"),
+        "{log}"
+    );
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    assert_eq!(open_questions(&e, work).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A version before the one the engine runs as flow 34 was before 35: without the rows of the engine's fallback that 35
+/// gave every agent's cell, for a step of the engine's that reaches the network and fails.
+fn without_the_network_rows(g: &mut flow::CompiledGraph) {
+    let added = ["transient_too_often", "step_network_too_often", "step_network"];
+    for c in g.cells.iter_mut().filter(|c| c.kind == "agent") {
+        c.rows.retain(|r| !(r.fallback && added.contains(&r.name.as_str())));
+    }
+}
+
+// Item #230, flow 35: a version that only gives every agent's cell more rows of the engine's fallback moves a work where
+// it stands, at any point of the cell it is at: just come to it, back from its tools with their results, or with its
+// return sent back. Each time it is the same work at the same cell, in the same session, through no cell of its own.
+#[test]
+fn a_version_that_adds_rows_every_agent_s_cell_shares_moves_a_work_at_any_point_of_its_cell() {
+    let s = setup("shared-rows");
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    // Its second round at cell I1 hands in a head that is no text, which is sent back.
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 2 {
+                return (Vec::new(), vec![("outcome.head", json!(5))]);
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let mut session = None;
+    for point in ["just come", "back from its tools", "sent back"] {
+        let v = older(&mut e, &[work], without_the_network_rows);
+        e.advance(work).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{point}\n{log}");
+        assert!(brought(&e, work).is_empty(), "{point}\n{log}");
+        assert_eq!(works_of(&e, item).len(), 1, "{point}\n{log}");
+        let now = session_of(&e, work, "I1");
+        assert_eq!(*session.get_or_insert(now), now, "{point}\n{log}");
+        if point == "just come" {
+            // The cell asked for tools; they run, and the work is back at it with their results.
+            e.advance(work).unwrap();
+            assert_eq!(state(&e, item).unwrap().1, "I1", "{log}");
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let sent: usize = ended_at(&e, item, "I1")
+        .iter()
+        .filter(|(took, why)| took.is_none() && why.is_some())
+        .count();
+    assert_eq!(sent, 1, "{log}");
+    assert_eq!(transitions(&e, item, "I1"), ["tools", "done"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230, W245: a work at an engine's cell that has not run moves when the version gives that cell a row of its own,
+// and takes that row there.
+#[test]
+fn a_work_at_an_engine_s_cell_not_run_moves_and_takes_the_row_its_version_added() {
+    let s = setup("engine-row");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "D4");
+    let (work, _, _) = state(&e, item).unwrap();
+    // The version before had no row for a project that names nothing under test.
+    let v = older(&mut e, &[work], |g| {
+        let d4 = g.cells.iter_mut().find(|c| c.id == "D4").unwrap();
+        d4.rows.retain(|r| r.name != "no");
+    });
+    e.advance(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+    assert!(brought(&e, work).is_empty(), "{log}");
+    assert_eq!(transitions(&e, item, "D4"), ["no"], "{log}");
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A version before the one the engine runs in which cell I1 was another way, and what the version the engine runs
+/// finds changed of it.
+type Changed = (&'static str, fn(&mut flow::CompiledGraph));
+
+// Item #230, as the owner asked: a cell under way that the version the engine runs puts on another line, or has read
+// other inputs of its own, is done again from its start. The same work comes to cell `V1` and goes back from there to
+// that cell, whose next round, in the session of its line in that version, is told it came from `V1`.
+#[test]
+fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
+    let changes: [Changed; 2] = [
+        ("is on another line", |g| {
+            g.cells.iter_mut().find(|c| c.id == "I1").unwrap().line = Some("review".into());
+        }),
+        ("reads other inputs", |g| {
+            let i1 = g.cells.iter_mut().find(|c| c.id == "I1").unwrap();
+            let own = i1.inputs.iter_mut().find(|x| !x.common).unwrap();
+            own.from = vec![flow::format::Src::Place("R2".into(), "answer".into())];
+        }),
+    ];
+    for (what, change) in changes {
+        let s = setup(if what.ends_with("line") { "begun-line" } else { "begun-inputs" });
+        let (mut e, said, item) = start(&s, scripts());
+        step_to(&mut e, item, "I1");
+        let (work, _, _) = state(&e, item).unwrap();
+        // Cell I1 asks for tools, and is back from them with their results.
+        e.advance(work).unwrap();
+        e.advance(work).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(state(&e, item).unwrap().1, "I1", "{log}");
+        let v = older(&mut e, &[work], change);
+        e.advance(work).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let v1 = brought(&e, work);
+        assert_eq!(v1.len(), 1, "{what}: {v1:?}\n{log}");
+        assert_eq!(
+            (v1[0].0.as_str(), &v1[0].1["back_to"], &v1[0].1["why"]),
+            (
+                "went_back",
+                &json!("I1"),
+                &json!(format!("cell I1, which the work had begun, {what}"))
+            ),
+            "{log}"
+        );
+        assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+        assert_eq!(works_of(&e, item).len(), 1, "{log}");
+        let m = message_at(&e, work, "I1", true);
+        assert!(
+            m.contains("Came from cell V1 (Bring the work to the new version) by its row `went_back`"),
+            "{m}"
+        );
+        let engineer: i64 =
+            e.db.conn()
+                .query_row(
+                    "SELECT id FROM sessions WHERE work = ?1 AND line = 'engineer' ORDER BY id DESC LIMIT 1",
+                    [work],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        assert_eq!(session_of(&e, work, "I1"), engineer, "{what}\n{log}");
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// Item #230, W245: an architect's work brought to a new flow version in the middle of its batch makes the item changes
+// it collected before, whether it moves where it stands or goes back through cell `V1` to the review of the batch it had
+// begun, which the version puts on another line; its ask of the owner stays the owner's to answer, and is answered.
+#[test]
+fn an_architect_work_brought_up_mid_batch_makes_its_changes_and_keeps_its_ask() {
+    for back in [false, true] {
+        let s = setup(if back { "batch-back" } else { "batch-moves" });
+        let mut agents = scripts();
+        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse the input first",
+                             "reason": "Clearer." });
+        agents.insert(
+            "H8",
+            Box::new(move |_: &Request, _: usize| {
+                (
+                    vec![("outcome.answer", "done")],
+                    vec![
+                        ("outcome.answer.reply", json!("I retitle it as an action.")),
+                        (
+                            "outcome.effects",
+                            json!({ "item_changes": [change.clone()], "observation_changes": null }),
+                        ),
+                    ],
+                )
+            }),
+        );
+        // The review's first return has a verdict it does not have, and is sent back.
+        agents.insert(
+            "B2",
+            Box::new(|_: &Request, n: usize| {
+                let verdict = if n == 1 { "maybe" } else { "ok" };
+                let row = json!({ "change": 1, "verdict": verdict, "why": "It reads better." });
+                (Vec::new(), vec![("outcome.review", json!([row]))])
+            }),
+        );
+        let (mut e, said) = engine(&s, agents);
+        quiet(&mut e);
+        an_item(&mut e);
+        say(&mut e, "Make the parser's item clearer.");
+        let arch = e.step(None).unwrap().work.unwrap();
+        // It stands at the review of the batch: before it ran, or, to go back, once its first return was sent back.
+        let at_review = |e: &mut Engine| {
+            let sent: i64 =
+                e.db.conn()
+                    .query_row(
+                        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'B2' AND rejected IS NOT NULL",
+                        [arch],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+            e.work(arch).unwrap().pos.at == "B2" && (sent > 0) == back
+        };
+        assert!(
+            steps_until(&mut e, 40, at_review),
+            "{}",
+            said.lock().unwrap().join("\n")
+        );
+        let ask =
+            e.db.write(Actor::Engine, |tx| {
+                let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [arch], |r| r.get(0))?;
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                    [arch, round],
+                )?;
+                Ok(tx.last_insert_rowid())
+            })
+            .unwrap();
+        let v = older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
+            let b2 = g.cells.iter_mut().find(|c| c.id == "B2").unwrap();
+            if back {
+                b2.line = Some("observer".into());
+            } else {
+                b2.rows[0].name = format!("{} before", b2.rows[0].name);
+            }
+        });
+        assert!(
+            steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+            "{}",
+            said.lock().unwrap().join("\n")
+        );
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(versions_of(&e, arch), (e.flow_now, Some(v)), "{log}");
+        let v1 = brought(&e, arch);
+        match back {
+            true => assert_eq!(
+                (v1.len(), v1[0].0.as_str(), &v1[0].1["back_to"]),
+                (1, "went_back", &json!("B2")),
+                "{log}"
+            ),
+            false => assert!(v1.is_empty(), "{v1:?}\n{log}"),
+        }
+        let title: String =
+            e.db.conn()
+                .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(title, "Parse the input first", "{log}");
+        let answer: Option<String> =
+            e.db.conn()
+                .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+                .unwrap();
+        assert_eq!(answer, None, "{log}");
+        let answer = api::Answer {
+            text: "The first.".into(),
+            speaker: "owner".into(),
+            relayed: None,
+            why: None,
+            reply: None,
+            to: None,
+            images: Vec::new(),
+        };
+        api::answer(&mut e.db, ask, &answer).unwrap();
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// Item #230: a work that the version the engine runs can take on at none of the cells it walked comes to cell `V1` and
+// stays there, paused, the owner told why and its project's architect asked to set it straight; no new work takes it
+// over. The owner's Start has the engine look again: it stays, and the architect is asked nothing more.
+#[test]
+fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
+    let s = setup("nowhere");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = a_ready_item(&mut e, "Gone");
+    let v = older(&mut e, &[], |g| {
+        for (id, like) in [("Z0", "R1"), ("Z1", "R2")] {
+            let mut c = g.cell(like).unwrap().clone();
+            c.id = id.into();
+            g.cells.push(c);
+        }
+    });
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'Z1')",
+                params![item, v],
+            )?;
+            let work = tx.last_insert_rowid();
+            record_round(tx, work, 1, "Z0", &json!({}), "done")?;
+            Ok(work)
+        })
+        .unwrap();
+    let asked = |e: &Engine| -> Vec<i64> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT id FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
+                )
+                .unwrap();
+        st.query_map([work], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    for time in 1..=2 {
+        e.step(None).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let (_, at, paused) = state(&e, item).unwrap();
+        assert_eq!(at, "V1", "{log}");
+        assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+        assert!(
+            paused
+                .as_deref()
+                .is_some_and(|p| p.starts_with(&format!("it cannot go on in flow version {}: cell Z1 is gone", e.flow_now))),
+            "{paused:?}"
+        );
+        let v1 = brought(&e, work);
+        assert_eq!(v1.len(), time, "{v1:?}\n{log}");
+        assert_eq!(
+            (v1[time - 1].0.as_str(), &v1[time - 1].1["back_to"]),
+            ("stuck", &Value::Null),
+            "{log}"
+        );
+        assert_eq!(asked(&e).len(), 1, "{log}");
+        assert_eq!(works_of(&e, item).len(), 1, "{log}");
+        // The owner starts it again.
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+            Ok(())
+        })
+        .unwrap();
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230: a work whose graph the version the engine runs has no more, as the setting of a policy that was a graph of
+// its own, has no cell of that version to come to: it is paused where it stands, saying why, and its project's
+// architect is asked to set it straight. It is not ended.
+#[test]
+fn a_work_whose_graph_the_version_lacks_is_paused_where_it_stands() {
+    let s = setup("graph-gone");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let now = e.flow_now;
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
+    let mut policy = f.graph(engine::ARCHITECT).unwrap().clone();
+    policy.name = engine::POLICY.into();
+    f.graphs.push(policy);
+    let text = f.json();
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (digest, compiled) VALUES ('with the policy graph', ?1)",
+                [&text],
+            )?;
+            let v = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, ?2, 'P1', 'p')",
+                params![v, engine::POLICY],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let w = e.work(work).unwrap();
+    assert_eq!((w.pos.at.as_str(), w.ended.as_deref()), ("P1", None), "{log}");
+    assert_eq!(
+        w.paused.as_deref(),
+        Some(format!("it cannot go on in flow version {now}: the version has no graph policy").as_str()),
+        "{log}"
+    );
+    let asked: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(asked, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -3638,12 +4082,12 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// When the flow moves to a new version, a work on the old one is not taken over when the engine starts: the owner still
-// answers its asks. Once it goes on, it stops, saying why, and its item gets a new work at once: it takes over the
-// branch, the worktree and the pull request, its cell `R1` is told what exists, and what the owner
-// answered stays the owner's answer. An item whose works ended can be queued again.
+// Item #230: when the flow moves to a new version, a work on the old one is not brought up when the engine starts: the
+// owner still answers its asks. Once it goes on, a work whose cell the version changed only in its rows moves where it
+// stands: the same work, with its worktree, branch and pull request, its asks and its question to the architect as they
+// were, through no cell of its own. An item whose works ended can be queued again.
 #[test]
-fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
+fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes_on() {
     let s = setup("version");
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..80 {
@@ -3699,21 +4143,26 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         images: Vec::new(),
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
-    let first = e.step(None).unwrap();
+    e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    assert_eq!(works.len(), 1, "{works:?}\n{log}");
+    assert_eq!(works[0].5, None, "{log}");
+    let (on, from) = versions_of(&e, old);
+    assert!(on == e.flow_now && from.is_some(), "{log}");
+    assert!(brought(&e, old).is_empty(), "{log}");
     assert!(
-        works[0]
-            .5
-            .as_deref()
-            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")
-                && w.contains(&format!("where cell {at} changed (its rows)"))),
-        "{works:?}"
+        log.contains(&format!("work {old} moved from flow version")) && log.contains(&format!(", at cell {at}")),
+        "{log}"
     );
-    let new = works[1].0;
-    assert_eq!((first.work, first.started_item), (Some(new), Some(item)), "{log}");
-    let by = |e: &Engine, ask: i64| -> String {
+    // Its worktree, branch and pull request are its own still; the ask the owner answered keeps the owner's answer, the
+    // other is still the owner's to answer, and its question waits in the architect's queue.
+    assert_eq!(
+        (&works[0].2, &works[0].3, works[0].4),
+        (&worktree, &branch, pr),
+        "{log}"
+    );
+    let by = |e: &Engine, ask: i64| -> Option<String> {
         e.db.conn()
             .query_row(
                 "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
@@ -3722,58 +4171,18 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
             )
             .unwrap()
     };
-    assert_eq!((by(&e, asks[0]), by(&e, asks[1])), ("owner".into(), "engine".into()));
-    // The work stopped as every work ends: its sessions ended and its question left the architect's queue, while the
-    // new work took over its worktree, branch and pull request.
-    let going: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM sessions WHERE work = ?1 AND ended IS NULL",
-                [old],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(going, 0);
-    let withdrawn: String =
+    assert_eq!((by(&e, asks[0]), by(&e, asks[1])), (Some("owner".into()), None));
+    api::answer(&mut e.db, asks[1], &answer).unwrap();
+    let withdrawn: Option<String> =
         e.db.conn()
             .query_row("SELECT withdrawn FROM architect_matters WHERE work = ?1", [old], |r| {
                 r.get(0)
             })
             .unwrap();
-    assert!(
-        withdrawn.starts_with("the work that raised it ended (stopped: the flow moved to version"),
-        "{withdrawn}"
-    );
-    e.step(None).unwrap();
-    let log = said.lock().unwrap().join("\n");
-    let works = works_of(&e, item);
-    assert_eq!(
-        (&works[1].2, &works[1].3, works[1].4),
-        (&worktree, &branch, pr),
-        "{log}"
-    );
-    let input: String =
-        e.db.conn()
-            .query_row("SELECT input FROM rounds WHERE work = ?1 AND cell = 'R1'", [new], |r| {
-                r.get(0)
-            })
-            .unwrap();
-    let input: Value = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
-    let m = input["message"].as_str().unwrap();
-    for want in [
-        "This item was worked on before.".to_string(),
-        format!("- Work {old} "),
-        format!("WHERE work = {old} ORDER BY n"),
-        "git log --oneline origin/main..HEAD".to_string(),
-        format!("pr view {} --comments", pr.unwrap()),
-        "it was half done before".to_string(),
-        format!("- Work {old} asked the architect, and had no answer when it ended, so the question was withdrawn"),
-    ] {
-        assert!(m.contains(&want), "{want}\n{m}");
-    }
+    assert_eq!(withdrawn, None, "{log}");
     // Once its works ended, the item can be queued again.
     e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [new])?;
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [old])?;
         tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [item])?;
         Ok(())
     })
@@ -4101,15 +4510,14 @@ fn a_check_after_a_redesign_is_given_what_the_design_changed() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A new work that takes over from one the new flow version stopped takes a slot only when one is free; until then its
-// item waits at the head of the queue, ahead of the items queued before, in the order of the works it replaces.
+// A new work that takes over from one the owner started over takes a slot only when one is free; until then its item
+// waits at the head of the queue, ahead of the items queued before, and starts first once a slot frees.
 #[test]
 fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     let s = setup("takeover-slots");
-    let (mut e, _, queued) = start(&s, scripts());
-    // Two items had works running on a flow version the engine no longer has built in, where their cell was another;
-    // the machine has one slot.
-    let v = older(&mut e, &[], |g| renamed(g, "R1"));
+    let (mut e, said, queued) = start(&s, scripts());
+    // Two items have works running, as many as the machine's one slot and one past it.
+    let v = e.flow_now;
     let items: Vec<i64> =
         e.db.write(Actor::Owner, |tx| {
             let mut items = Vec::new();
@@ -4129,34 +4537,29 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
             Ok(items)
         })
         .unwrap();
-    drop(e);
-    let (mut e, said) = engine(&s, scripts());
     let ready = |e: &Engine| -> Vec<i64> {
         let mut st = e.db.conn().prepare("SELECT item FROM ready_items").unwrap();
         st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
     };
-    // Nothing is taken over as the engine starts; both are as soon as works go on, before the item queued before.
-    assert_eq!(works_of(&e, items[0]).len(), 1);
-    let stepped = e.step(None).unwrap();
+    let first = works_of(&e, items[0])[0].0;
+    api::start_over(&mut e.db, first).unwrap();
+    // The first stops; the second still holds the slot, so its item waits ahead of the item queued before.
+    e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(stepped.started_item, Some(items[0]), "{log}");
-    // The first takes the slot; the second waits ahead of the item queued before.
-    assert_eq!(works_of(&e, items[0]).len(), 2, "{log}");
-    assert_eq!(works_of(&e, items[1]).len(), 1, "{log}");
-    assert_eq!(ready(&e), vec![items[1], queued], "{log}");
+    let works = works_of(&e, items[0]);
+    assert!(works.len() == 1 && works[0].5.is_some(), "{works:?}\n{log}");
+    assert_eq!(ready(&e), vec![items[0], queued], "{log}");
     assert_eq!(e.free_slots().unwrap(), 0);
-    // Once the slot is free, the second starts, before the item queued before.
-    let first = works_of(&e, items[0])[1].0;
+    // Once the slot is free, the first starts, before the item queued before.
     e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [first])?;
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE item = ?1", [items[1]])?;
         Ok(())
     })
     .unwrap();
     let stepped = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(stepped.started_item, Some(items[1]), "{log}");
-    // The first, whose work was stopped, waits again in the architect's order, after the item the owner queued.
-    assert_eq!(ready(&e), vec![queued, items[0]], "{log}");
+    assert_eq!(stepped.started_item, Some(items[0]), "{log}");
+    assert_eq!(ready(&e), vec![queued], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -6369,10 +6772,10 @@ fn a_work_s_pause_is_kept_across_a_restart() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A paused work on an older flow version is not taken over while nothing makes it go on; the owner's step takes it
-// over, runs the first round of the new work, and leaves the new work paused in the owner's hands.
+// A paused work on an older flow version is not brought up while nothing makes it go on; the owner's step brings it
+// up, the same work moving where it stands, runs its round there, and leaves it paused in the owner's hands.
 #[test]
-fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
+fn a_step_brings_a_work_on_an_older_flow_version_up_and_keeps_it_paused() {
     let s = setup("step_takeover");
     let (mut e, said, item) = start(&s, scripts());
     let first = e.step(None).unwrap();
@@ -6380,34 +6783,21 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
     e.step(first.work).unwrap();
     api::pause(&mut e.db, old, None).unwrap();
     let at = state(&e, item).unwrap().1;
-    older(&mut e, &[old], |g| renamed(g, &at));
+    let v = older(&mut e, &[old], |g| renamed(g, &at));
     drop(e);
     let (mut e, _) = engine(&s, scripts());
     assert_eq!(e.step(None).unwrap().work, None);
-    assert_eq!(works_of(&e, item).len(), 1);
+    assert_eq!(versions_of(&e, old), (v, None));
+    let before = transitions(&e, item, &at).len();
     let stepped = e.step_work(old).unwrap();
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    assert!(
-        works[0]
-            .5
-            .as_deref()
-            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")),
-        "{works:?}"
-    );
-    let new = works[1].0;
-    assert_eq!((stepped.work, stepped.started_item), (Some(new), Some(item)));
-    let cells: Vec<String> = {
-        let mut st =
-            e.db.conn()
-                .prepare("SELECT cell FROM rounds WHERE work = ?1 ORDER BY n")
-                .unwrap();
-        st.query_map([new], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
-    };
-    assert_eq!(cells, ["S1"]);
-    assert_eq!(paused_by(&e, new).as_deref(), Some("owner"));
-    assert_eq!(e.step(Some(new)).unwrap().work, None);
+    assert_eq!(works.len(), 1, "{works:?}\n{log}");
+    assert_eq!(stepped.work, Some(old), "{log}");
+    assert_eq!(versions_of(&e, old), (e.flow_now, Some(v)), "{log}");
+    assert_eq!(transitions(&e, item, &at).len(), before + 1, "{log}");
+    assert_eq!(paused_by(&e, old).as_deref(), Some("owner"));
+    assert_eq!(e.step(Some(old)).unwrap().work, None);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -8163,11 +8553,12 @@ fn a_flow_anomaly_at_choosing_the_way_on_reaches_the_architect() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work standing at the owner's cell of an older flow version, waiting for its ask of the owner, cannot move to the
-// version the engine runs, which has no such cell: a new work takes its item over when it next goes on, and the old
-// work's ending closes its open ask, saying no answer is needed.
+// Item #230: a work standing at the owner's cell of an older flow version, waiting for its ask of the owner, cannot stay
+// where it stands in the version the engine runs, which has no such cell. When it next goes on it is the same work: it
+// comes to cell `V1` and goes back from there to the cell it stopped at, which does it again; the ask it had out needs no
+// answer, and the owner is told where the work went back and why. No new work starts.
 #[test]
-fn a_work_at_the_owner_s_cell_of_an_older_version_is_taken_over_and_its_ask_closed() {
+fn a_work_at_a_cell_the_version_lacks_goes_back_through_v1_to_where_it_stopped() {
     let s = setup("owner-cell-gone");
     let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| {
         // The older version still had the owner's cell.
@@ -8196,20 +8587,37 @@ fn a_work_at_the_owner_s_cell_of_an_older_version_is_taken_over_and_its_ask_clos
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    assert!(
-        works[0].5.as_deref().is_some_and(|w| w.contains("cell A3 is gone")),
-        "{works:?}"
+    assert_eq!(works.len(), 1, "{works:?}\n{log}");
+    assert_eq!(works[0].5, None, "{log}");
+    let v1 = brought(&e, work);
+    assert_eq!(v1.len(), 1, "{v1:?}\n{log}");
+    assert_eq!(
+        (v1[0].0.as_str(), &v1[0].1["back_to"], &v1[0].1["why"]),
+        ("went_back", &json!("R2"), &json!("cell A3 is gone")),
+        "{log}"
     );
-    let by: Option<String> =
+    // The work went on from cell R2 in the same pass.
+    assert!(!transitions(&e, item, "R2").is_empty(), "{log}");
+    let (by, text): (Option<String>, Option<String>) =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                "SELECT json_extract(answer, '$.by'), json_extract(answer, '$.text') FROM owner_asks WHERE id = ?1",
                 [ask],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
     assert_eq!(by.as_deref(), Some("engine"), "{log}");
+    assert!(
+        text.as_deref()
+            .is_some_and(|t| t.starts_with("No answer is needed: the work goes back to cell R2 of flow version")),
+        "{text:?}"
+    );
+    let told = notices(&e, work);
+    assert!(
+        told.iter()
+            .any(|t| t.contains("goes back to cell R2 ") && t.ends_with(": cell A3 is gone.")),
+        "{told:?}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -16723,7 +17131,8 @@ fn a_work(e: &Engine, dice: &Dice) -> Option<i64> {
 /// whose rounds ask the advisor and the architect, hand questions on (the advisor to the architect, an architect to the
 /// other project's architect), and reply, sometimes with an item to wait for, of either project, a way on chosen wrong
 /// going to the architect as a flow anomaly; the architects' hours, past their limit; interjections; cancels; and
-/// takeovers by a new flow version. After each, every chain of blockers closes.
+/// works put on an older flow version, which the engine brings to the one it runs. After each, every chain of blockers
+/// closes.
 fn random_events(seed: u64, events: usize) {
     let s = setup(&format!("blockers-{seed}"));
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
@@ -16951,7 +17360,7 @@ fn random_events(seed: u64, events: usize) {
                     .unwrap();
                     format!("work {w} is on an older flow version")
                 }
-                None => "no work to take over".into(),
+                None => "no work to put on an older flow version".into(),
             },
             // The architects had hours to act, in rounds of a work over by now: a question they hold is past its limit.
             26..=28 => {
@@ -17136,9 +17545,9 @@ fn a_step_on_another_thread_writes_what_it_writes_on_the_engines_own() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A step reports the rounds its own connection wrote: the round of the work it took, and a round of another work it
-// cut off, as taking over a work on an older flow version cuts off the round the work was in; never a round another
-// connection wrote meanwhile, as another thread's step would.
+// A step reports the rounds its own connection wrote: the round of the work it took, and a round it cut off before
+// that, as one an engine that stopped left open; never a round another connection wrote meanwhile, as another
+// thread's step would.
 #[test]
 fn a_step_reports_the_rounds_its_own_connection_wrote() {
     let s = setup("own_rounds");
@@ -17183,8 +17592,8 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
     assert_eq!(r1.cell.as_deref(), Some("R1"), "{r1:?}\n{log}");
     assert_eq!(architects, 2, "{log}");
     assert_eq!(r1.rounds, [engine::RoundId::new(work, n)], "{log}");
-    // A round of the work under way as the next step takes the work over, on an older flow version where the cell it
-    // stands at is another: the step cuts it off, and reports it with the round of the new work it starts.
+    // A round of the work left open, as by an engine that stopped while it ran: the next step cuts it off, and reports
+    // it with the round it runs in its place.
     let at = state(&e, item).unwrap().1;
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -17194,18 +17603,14 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
         Ok(())
     })
     .unwrap();
-    older(&mut e, &[work], |g| renamed(g, &at));
-    let over = e.step(Some(work)).unwrap();
+    let again = e.step(Some(work)).unwrap();
     let log = said.lock().unwrap().join("\n");
-    let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    let new = works[1].0;
-    assert_eq!(over.work, Some(new), "{over:?}\n{log}");
+    assert_eq!(again.work, Some(work), "{again:?}\n{log}");
     assert!(
-        over.rounds.contains(&engine::RoundId::new(work, n + 1)),
-        "{over:?}\n{log}"
+        again.rounds.contains(&engine::RoundId::new(work, n + 1))
+            && again.rounds.contains(&engine::RoundId::new(work, n + 2)),
+        "{again:?}\n{log}"
     );
-    assert!(over.rounds.iter().any(|r| r.work == new), "{over:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -17220,8 +17625,7 @@ fn a_forked_context_shares_what_lasts_between_steps() {
     let first = e.step(None).unwrap();
     let work = first.work.unwrap();
     e.step(first.work).unwrap();
-    let at = state(&e, item).unwrap().1;
-    older(&mut e, &[work], |g| renamed(g, &at));
+    api::start_over(&mut e.db, work).unwrap();
     let mut t = e.fork().unwrap();
     let (mut t, over) = std::thread::spawn(move || {
         let over = t.step(Some(work));

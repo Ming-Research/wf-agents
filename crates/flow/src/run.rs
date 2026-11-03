@@ -12,7 +12,9 @@ use crate::compiled::{CompiledGraph, CompiledRow};
 pub struct Position {
     /// The cell the work is at.
     pub at: String,
-    /// The cell the work left for the asking part; `@stopped` points at it.
+    /// The cell the work left for the asking part; `@stopped` points at it. At the cell that brings a work on an older
+    /// flow version to the version the engine runs (a graph's `version`), it is the cell the work goes back to there,
+    /// which the engine sets as it brings the work in, the cells that waited for an answer dropped.
     pub stopped: Option<String>,
     /// The cells waiting for an answer, innermost last; `@caller` points at the last.
     pub callers: Vec<String>,

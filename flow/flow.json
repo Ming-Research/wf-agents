@@ -3607,7 +3607,8 @@
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply (a question that pins an open question of an engineer's design is not waited for: that engineer's work goes on without its answer); then, when the architect answered the owner's words less than that wait ago and the owner said nothing since, it waits for the owner's next words; then a matter of two cells waiting for its second cell; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round. Before a matter taken afresh (the owner's words, a matter at the head of the queue, the one matter or the pick among many), the session the architect would take it in ends when its context is past the architect's limit (`agents.architect_context_limit`), so that the matter is taken in a new session, which goes on from the notebook; a matter going on at its second cell or back with the owner's reply keeps its session.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. This pause withdraws a resume that still waits for a free slot, as `resume_work` says. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
-      "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request."
+      "bring_up": "A work on an older flow version, when it next goes on with no step under way, is brought to the version the engine runs by what it carries now: where it stands, what rows recorded, the returns later cells will read and, in the middle of a cell, the session that cell has open. A new version never ends a work. The cell it serves is the one it is doing: where it stopped, else the first of the cells that wait for an answer, else the cell it stands at; it has begun that cell once a round ran there since the work last took a row of a cell that is not one of those every agent's cell shares (the tools, the search, the owner's Start, the answers to who interjected) or of the asking part: a round that asked for tools and got their results, or a return sent back, has begun it, and coming to a cell, or standing at an engine's cell that has not run, has not. The returns later cells will read are the newest own answer of each cell, as the engine reads returns by their cell, and the work's last return, which the cell after it reads by where it came from; earlier returns of the cells every agent's cell shares and of the asking part are read only so, and are not counted. Each is compared by what its cell takes now, its outcome alone for an agent's. It moves where it stands, in the same sessions, its version changed and no round recorded, when the version has the graph, every return counted still fits its cell, the cell it stands at is there, the cell it serves (and an agent's cell of the asking part it stands at) has not changed since it began it its kind, its line or the inputs of its own (their names and sources; those every agent's cell has come with what every return shares), and the cells it goes back to are there as cells of the same kind; a session in the middle of a cell is given what the version changed of its format, task and rows, and a return that does not fit them is sent back. Otherwise it comes here, its version changed, with where it goes back to as where it stopped: the first cell of the work's main way whose return does not fit, or the cell it serves when that changed or a cell it goes back to did not hold, or, when the cell it stands at or serves is gone, the latest cell it walked that the version has. It does that cell again from its start: the round it was in is cut off, the question it had out is withdrawn, as the cell that asked does it again, and what it answered, asked and was told stays. A work never goes back past a round that did what cannot be undone: an engineer's merge, so that a merged work never goes back before its merge; and what an architect's round does at once: an action on a work or on new starts (a pause, a resume, a start over, new starts held or let go, an interjection), a word to the owner, a message to another project's architect, a change to observations, a reply that went out to an engineer or to the work that reported, and the batch's item changes made after its review. What has not taken effect is done again: the batch's item changes still collected are revised, a reply that waits for the review is dropped, the matters closed whose reply has not gone out go back to the queue, and the notebook is written again. A work that would go back past such a round stays here instead, paused, with the cell as where it stopped, for the owner to decide: the owner's Start takes it there all the same. When the version has none of the cells it walked, it stays here, paused, with nowhere to go back to, until a later flow version has one, which looks again; an engineer's work may be started over, or its item cancelled, meanwhile. An engineer's work that stays here asks its project's architect to set it straight; an architect's tells the owner alone, by its pause, since the architect it would ask is that work. A work whose graph the version lacks has no such cell: it is paused where it stands, and its project's architect is asked to set it straight.",
+      "stop_work": "A work cancelled, or started over by the owner or its project's architect, which a new work on the version the engine runs takes over, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request."
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
@@ -3650,6 +3651,9 @@
       "revise_batch": "Puts the revised changes in place of the batch's changes, for the review to look at again; a cancel of an item they create cancels that create out, as an answer's effects do.",
       "settle_straight_hold": "Releases the hold to set the project straight once every matter that sets it straight is handled and the batch's item changes are made.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
+      "tell_went_back": "Tells the owner that the work went back to a cell of the new flow version, naming the round, the versions, the cell and why.",
+      "report_stuck": "Asks the project's architect, as a place to set straight, about the work that cannot go on in the new flow version, and why: once while it stays stuck, the same work brought here again asking nothing more.",
+      "redo_batch": "Undoes what the rounds the architect's work goes back to do again did that has not taken effect: the batch's item changes they collected are revised, to be collected again, and the matters they closed whose reply has not gone out go back to the queue, a reply held for the batch's review dropped, to be written again.",
       "wait_on_blocker": "Counts the architect's time to act on the task's blocker again from now: the work chose to wait longer.",
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
@@ -3766,6 +3770,7 @@
       "history_sources": "The database's read-only address and the project's checkout, for the gatherer's `sqlite3` and git."
     },
     "values": {
+      "brought_up": "Whether the work brought to the new flow version has a cell there to go back to.",
       "came_by": "How the work came to choose the way on.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the line the work stands on has not taken it up yet.",
       "collected_changes": "Whether the batch collected item changes before the round that records its decisions.",
@@ -4260,6 +4265,16 @@
       "tell_owner": [
         "owner_messages"
       ],
+      "tell_went_back": [
+        "owner_notices"
+      ],
+      "report_stuck": [
+        "architect_queue"
+      ],
+      "redo_batch": [
+        "batch",
+        "architect_queue"
+      ],
       "wait_for_start": [
         "owner_notices",
         "architect_queue"
@@ -4331,6 +4346,12 @@
       "ask_architect": {
         "stores": [
           "architect_queue"
+        ]
+      },
+      "brought_up": {
+        "says": "the cell the work goes back to",
+        "stores": [
+          "place"
         ]
       },
       "came_by": {
@@ -4692,6 +4713,15 @@
           "entries": [
             "E1"
           ]
+        },
+        {
+          "name": "version",
+          "nodes": [
+            "V1"
+          ],
+          "entries": [
+            "V1"
+          ]
         }
       ],
       "sessions": {
@@ -4800,7 +4830,7 @@
           "The owner's interface shows two things for each work: its stage, and what it is doing or waiting for right now, such as \"running the full CI\" or \"waiting for an answer to an open question\".",
           "The stage is not stored: it follows from the cell the work is at. The engine records that cell anyway, and the table below gives its stage.",
           "While a question waits (at the advisor, the architect or the owner it was handed to), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
-          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or taken over by a work on a newer flow when it cannot move to that flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
+          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or started over and taken over by a new work, at any cell: it ends at cell `C1`, and keeps the cell it stopped at. A work on an older flow version that the new one cannot take on where it stands comes to cell `V1`, at no stage of its own: it shows at the stage of the cell it goes back to, or of the last cell it had a round at."
         ],
         "list": [
           {
@@ -12825,6 +12855,74 @@
             "close_pr"
           ],
           "inputs": []
+        },
+        {
+          "id": "V1",
+          "kind": "engine",
+          "title": "Bring the work to the new version",
+          "step": "bring_up",
+          "inputs": [
+            {
+              "name": "Cell it goes back to",
+              "what": "Recorded by the engine as it brought the work here: the cell of the new flow version the work goes back to, as where it stopped; none when the new version has no cell the work can go on from",
+              "from": [
+                {
+                  "db": "work_state",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "went_back",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "went_back"
+                  ]
+                ]
+              ],
+              "to": "@stopped",
+              "do": [
+                "tell_went_back"
+              ],
+              "note": "The same work does that cell again from its start, by the new version: in the session it had when the cell's line is the same, in a session of the new line when it is not."
+            },
+            {
+              "name": "stuck",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "stuck"
+                  ]
+                ]
+              ],
+              "to": "@self",
+              "pauses": true,
+              "do": [
+                "report_stuck"
+              ],
+              "note": "The work waits here, paused, and the owner is told why; the project's architect is asked to set it straight, as by starting it over. With a cell to go back to, the owner's Start takes it there all the same; with none, it stays here."
+            }
+          ],
+          "inenums": {
+            "brought_up": [
+              [
+                "went_back",
+                "The new version has a cell the work goes back to"
+              ],
+              [
+                "stuck",
+                "It has none the work can go on from"
+              ]
+            ]
+          }
         }
       ],
       "designCard": [
@@ -13013,12 +13111,14 @@
           }
         ]
       },
-      "cancel": "C1"
+      "cancel": "C1",
+      "version": "V1"
     },
     {
       "name": "architect",
       "start": "S0",
       "end": "E2",
+      "version": "V1",
       "blocks": [
         {
           "name": "start",
@@ -13145,6 +13245,15 @@
           ],
           "entries": [
             "E2"
+          ]
+        },
+        {
+          "name": "version",
+          "nodes": [
+            "V1"
+          ],
+          "entries": [
+            "V1"
           ]
         }
       ],
@@ -19136,6 +19245,72 @@
           "step": "end_architect_work",
           "inputs": [],
           "out": []
+        },
+        {
+          "id": "V1",
+          "kind": "engine",
+          "title": "Bring the work to the new version",
+          "step": "bring_up",
+          "inputs": [
+            {
+              "name": "Cell it goes back to",
+              "what": "Recorded by the engine as it brought the work here: the cell of the new flow version the work goes back to, as where it stopped; none when the new version has no cell the work can go on from",
+              "from": [
+                {
+                  "db": "work_state",
+                  "by": "work"
+                }
+              ]
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "went_back",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "went_back"
+                  ]
+                ]
+              ],
+              "to": "@stopped",
+              "do": [
+                "redo_batch",
+                "tell_went_back"
+              ],
+              "note": "The same work does that cell again from its start, by the new version, in the architect's session."
+            },
+            {
+              "name": "stuck",
+              "if": [
+                [
+                  "inp",
+                  "brought_up",
+                  [
+                    "stuck"
+                  ]
+                ]
+              ],
+              "to": "@self",
+              "pauses": true,
+              "note": "The work waits here, paused, and the owner is told why, by the pause: the architect it would ask is this work. With a cell to go back to, the owner's Start takes it there all the same; with none, it waits for a flow version that has a cell it walked."
+            }
+          ],
+          "inenums": {
+            "brought_up": [
+              [
+                "went_back",
+                "The new version has a cell the work goes back to"
+              ],
+              [
+                "stuck",
+                "It has none the work can go on from"
+              ]
+            ]
+          }
         },
         {
           "id": "A3",

@@ -683,8 +683,89 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             });
             crate::architect::add_flow_feedback(tx, &project, &ctx.work.graph, &ctx.cell.id, entry)?;
         }
+        "tell_went_back" => {
+            // The notice names the round, where the owner's page shows what the work went back to and why.
+            let o = &ctx.output;
+            let text = format!(
+                "{} goes back to cell {} ({}) in flow version {}, from version {}, and does it again from its start \
+                 (R{}-{}): {}.",
+                capitalized(&ctx.about()),
+                ctx.to.at,
+                ctx.to_title,
+                o["to"],
+                o["from"],
+                ctx.round.work,
+                ctx.round.n,
+                db::without_final_terminal(o["why"].as_str().unwrap_or_default())
+            );
+            notify(tx, Some(w), &text)?;
+        }
+        "report_stuck" => {
+            let now = ctx.output["to"].as_i64().unwrap_or_default();
+            report_stuck(tx, w, now, ctx.output["why"].as_str().unwrap_or_default())?;
+        }
         other => return Err(format!("no such engine action: {other}")),
     }
+    Ok(())
+}
+
+/// A text with its first letter a capital, as a sentence begins.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// `report_stuck`: asks the project's architect, as a place to set straight, about a work that cannot go on in flow
+/// version `now`, and why, as it waits paused: once while it stays stuck, a matter still open for it asking nothing more.
+/// A work of the architect is its own architect's, which would be the work that waits: the owner alone is told, by its
+/// pause.
+pub(crate) fn report_stuck(tx: &Transaction<'_>, work: i64, now: i64, why: &str) -> Result<(), String> {
+    type Found = (String, Option<String>, Option<i64>, Option<String>);
+    let found: Option<Found> = tx
+        .query_row(
+            "SELECT w.graph, coalesce(i.project, w.project), w.item, i.title FROM works w
+             LEFT JOIN items i ON i.id = w.item WHERE w.id = ?1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((graph, Some(project), item, title)) = found.filter(|f| f.0 != crate::ARCHITECT) else {
+        return Ok(());
+    };
+    let open: i64 = tx
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'
+               AND json_extract(body, '$.work') = ?1 AND json_extract(body, '$.version') = ?2
+               AND handled_round IS NULL AND withdrawn IS NULL",
+            params![work, now],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    if open > 0 {
+        return Ok(());
+    }
+    let why = db::without_final_terminal(why.trim());
+    let (which, then) = match (item, &title) {
+        (Some(i), Some(t)) => (
+            format!("Work {work} on item {i} ({t})"),
+            "for the owner's Start, a start over or a cancel of its item",
+        ),
+        _ => (format!("Work {work} of the graph {graph}"), "for the owner's Start"),
+    };
+    let m = db::Matter {
+        project,
+        kind: "set_straight".into(),
+        detail: None,
+        what: format!("{which} cannot go on in flow version {now}: {why}; it waits, paused, {then}"),
+        body: json!({ "work": work, "version": now, "why": why }),
+        item,
+        raised: None,
+    };
+    db::queue_matter(tx, &m).map_err(sql)?;
     Ok(())
 }
 

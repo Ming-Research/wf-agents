@@ -30,21 +30,18 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
-/// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
-/// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
-/// rows' names, conditions and targets, each in their order; hashed short, one line of the reference for each cell.
+/// What of a cell decides whether a work that has begun it moves to a new flow version where it stands or goes back to
+/// do it again, as the engine's `versions::plan` compares a cell's two versions: its kind and line, and the ids, names
+/// and sources of the inputs of its own, in their order (those every agent's cell has, and the cell's rows, a work
+/// under way takes on as they change); hashed short, one line of the reference for each cell.
 fn moves_by(c: &flow::CompiledCell) -> String {
     let inputs: Vec<Value> = c
         .inputs
         .iter()
+        .filter(|x| !x.common)
         .map(|x| serde_json::json!([x.id, x.name, x.from]))
         .collect();
-    let rows: Vec<Value> = c
-        .rows
-        .iter()
-        .map(|r| serde_json::json!([r.name, r.conditions, r.to]))
-        .collect();
-    let text = serde_json::json!([c.kind, c.line, inputs, rows]).to_string();
+    let text = serde_json::json!([c.kind, c.line, inputs]).to_string();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in text.bytes() {
         h ^= u64::from(b);
@@ -53,9 +50,9 @@ fn moves_by(c: &flow::CompiledCell) -> String {
     format!("{h:016x}")
 }
 
-// The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
-// are as the reference has them, so that a change of the flow shows in the reference which cells' works a new version
-// takes over when it is installed, at the cost of a work begun again.
+// The parts of each cell of the engineer's graph that decide whether a work that has begun it moves to a new flow
+// version are as the reference has them, so that a change of the flow shows in the reference which cells a work under
+// way goes back to through cell V1 when the version is installed, at the cost of the cell done again.
 #[test]
 fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
     let c = compiled();
@@ -71,7 +68,7 @@ fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
     let gone: Vec<&String> = want.keys().filter(|k| !have.contains_key(*k)).collect();
     assert!(
         changed.is_empty() && gone.is_empty(),
-        "cells whose works a new version takes over: changed or new {changed:?}; gone {gone:?}. Now: {}",
+        "cells a work under way at goes back to do again: changed or new {changed:?}; gone {gone:?}. Now: {}",
         serde_json::to_string(&have).unwrap()
     );
 }
@@ -205,7 +202,8 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
 // changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
 // only its matter (`A3`), the tools (`X1`), the observer
-// (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, no wait
+// (`X2`), the wait for the owner's Start after a pause (`X3`) and the bringing of a work to a new flow version (`V1`):
+// as many cells, rows and states. No wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
 // The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
@@ -214,7 +212,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (31, 136, 197));
+    assert_eq!((s.cells, s.rows, s.states), (32, 138, 197));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
