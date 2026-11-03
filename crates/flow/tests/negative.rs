@@ -35,6 +35,16 @@ fn row<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
     rows(v, id).iter_mut().find(|r| r["name"] == name).unwrap()
 }
 
+/// The field `name` of what cell `id` hands in.
+fn out_field<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
+    node(v, id)["out"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["name"] == name)
+        .unwrap()
+}
+
 fn obj(v: &mut Value) -> &mut serde_json::Map<String, Value> {
     v.as_object_mut().unwrap()
 }
@@ -92,6 +102,22 @@ case!(an_input_said_to_be_in_the_session, "fits none of the forms", |v| {
 case!(an_unknown_key, "unknown field", |v| {
     node(v, "D1")["colour"] = json!("red");
 });
+// What a field was in a return handed in on an earlier version is a shape, or `absent` for a field a return handed in
+// now may not leave out.
+case!(
+    an_earlier_field_named_by_no_known_word,
+    "no such earlier shape: gone, in field item_decisions",
+    |v| {
+        out_field(v, "D2", "item_decisions")["earlier"] = json!("gone");
+    }
+);
+case!(
+    an_earlier_absence_of_a_field_a_return_may_leave_out,
+    "a field a return may leave out names no earlier absence: item_decisions",
+    |v| {
+        out_field(v, "D2", "item_decisions")["optional"] = json!(true);
+    }
+);
 case!(a_line_with_no_colour, "a line with no colour: engineer", |v| {
     obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
 });

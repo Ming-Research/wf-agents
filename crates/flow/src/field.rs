@@ -7,7 +7,10 @@
 
 use std::collections::BTreeMap;
 
-use crate::format::{Branches, Kind, RawField, Role, Tool, Values};
+use crate::format::{Branches, Kind, RawEarlier, RawField, Role, Tool, Values};
+
+/// The earlier shape of a field a return handed in on an earlier flow version did not have.
+const ABSENT: &str = "absent";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Field {
@@ -29,6 +32,17 @@ pub(crate) struct Field {
     /// The field that tells a union's branches apart.
     pub by: String,
     pub min: u32,
+    /// What a return handed in on an earlier flow version may hold here instead.
+    pub earlier: Option<Earlier>,
+}
+
+/// A field as a return handed in on an earlier flow version may hold it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Earlier {
+    /// The return may lack it.
+    Absent,
+    /// The return may hold it in the shape it had then.
+    Shape(Box<Field>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +87,7 @@ impl Shapes<'_> {
                 common: x.common.or(b.common),
                 by: x.by.or(b.by),
                 min: x.min.or(b.min),
+                earlier: x.earlier.or(b.earlier),
             };
         }
         Err("shapes that are each other".into())
@@ -163,8 +178,22 @@ impl Shapes<'_> {
             common: all(x.common.as_deref().unwrap_or_default())?,
             by: x.by.clone().unwrap_or_default(),
             min: x.min.unwrap_or(0),
+            earlier: match &x.earlier {
+                None => None,
+                Some(RawEarlier::Named(n)) if n == ABSENT => Some(Earlier::Absent),
+                Some(RawEarlier::Named(n)) => {
+                    return Err(format!("no such earlier shape: {n}, in field {name}"));
+                }
+                Some(RawEarlier::Shape(s)) => Some(Earlier::Shape(Box::new(self.field(s, tools, roles)?))),
+            },
             name,
         };
+        if f.optional && f.earlier == Some(Earlier::Absent) {
+            return Err(format!(
+                "a field a return may leave out names no earlier absence: {}",
+                f.name
+            ));
+        }
         if kind == Kind::Union && f.by.is_empty() {
             return Err(format!(
                 "a union names no field that tells its branches apart: {}",

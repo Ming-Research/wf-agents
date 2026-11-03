@@ -13094,6 +13094,72 @@ fn a_design_true_to_its_item_s_decisions_goes_on_past_the_wait_for_a_ruling() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The design's cells as a flow version before item #247 had them: the design's articles in a text, with no answers to
+/// the item's decisions, and its review with no claims tried.
+fn design_before_247(g: &mut flow::CompiledGraph) {
+    for (id, own, added) in [("D2", "design", "item_decisions"), ("D3", "better", "claims")] {
+        let c = g.cells.iter_mut().find(|c| c.id == id).unwrap();
+        c.carried = None;
+        let forms = c.schema.as_mut().unwrap()["properties"]["outcome"]["anyOf"]
+            .as_array_mut()
+            .unwrap();
+        let form = forms.iter_mut().find(|f| f["properties"].get(own).is_some()).unwrap();
+        form["properties"].as_object_mut().unwrap().remove(added);
+        form["required"].as_array_mut().unwrap().retain(|r| r != added);
+        if id == "D2" {
+            form["properties"]["articles"] = json!({ "type": "string" });
+        }
+    }
+}
+
+// Item #247 had the design answer the constitution's articles in rows and each decision of its item, which its review
+// and the wait for a ruling read. A work under way when it came carries a design handed in before: it moves to the
+// version the engine runs where it stands, at the review, and does not come to cell V1 to design again; the review
+// tries the item's decision against the design as it is, and the wait finds no departure in it and lets the work go on
+// to implement.
+#[test]
+fn a_work_carrying_a_design_from_before_its_rows_moves_and_goes_on_to_implement() {
+    let s = setup("design-before-rows");
+    let mut agents = scripts();
+    let row = json!({ "decision": "L1", "verdict": "follows", "passage": ON_THE_MAIN_PATH });
+    agents.insert("D2", designs_answering(json!([row])));
+    agents.insert("D3", tries_the_answers(&["L1"]));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(
+        &mut e,
+        item,
+        "Decisions:\n- Decision (2026-11-01, owner): Keep it on the main path.",
+    );
+    step_to(&mut e, item, "D3");
+    let (work, _, _) = state(&e, item).unwrap();
+    let v = older(&mut e, &[work], design_before_247);
+    // The design as one handed in before: its articles in a text, and no decisions given or answered.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET output = json_set(json_remove(output, '$.outcome.item_decisions'),
+                                                 '$.outcome.articles', 'It keeps every article it touches.'),
+                               input = json_remove(input, '$.engine.decisions')
+             WHERE work = ?1 AND cell = 'D2' AND transition IS NOT NULL",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    step_to(&mut e, item, "I1");
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+    assert!(brought(&e, work).is_empty(), "{log}");
+    assert_eq!(transitions(&e, item, "D2"), ["first"], "{log}");
+    assert_eq!(
+        ended_at(&e, item, "D3"),
+        [(Some("present_best".to_string()), None)],
+        "{log}"
+    );
+    assert_eq!(ended_at(&e, item, "D12"), [(Some("clear".to_string()), None)], "{log}");
+    assert!(blockers_of(&e, work).is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work that delivers a report goes on from the checks after design by its own way, past the wait for a ruling, which
 // lets it go at once when its design departs from nothing.
 #[test]

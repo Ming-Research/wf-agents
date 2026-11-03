@@ -2915,7 +2915,13 @@ rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null, for
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */
-schema?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>,
+schema?: JsonValue | null,
+/**
+ * What a return a work carries from an earlier flow version must be for the work to move to this one without
+ * doing the cell again: the schema, with what each field names as it was earlier (`earlier`) taken too; none when
+ * no field names it, and the schema is that. No agent is given it.
+ */
+carried?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>,
 /**
  * What an engine's cell does besides its step and its rows, in order: at an end, how the work ends.
  */

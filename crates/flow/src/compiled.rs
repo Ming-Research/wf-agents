@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
 use crate::check::Analysis;
-use crate::field::{Field, segment};
+use crate::field::{Earlier, Field, segment};
 use crate::format::{
     Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, FRESH_SESSION, Form,
     GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src, Then,
@@ -215,6 +215,11 @@ pub struct CompiledCell {
     /// What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
+    /// What a return a work carries from an earlier flow version must be for the work to move to this one without
+    /// doing the cell again: the schema, with what each field names as it was earlier (`earlier`) taken too; none when
+    /// no field names it, and the schema is that. No agent is given it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carried: Option<Value>,
     pub rows: Vec<CompiledRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub always: Vec<Always>,
@@ -245,6 +250,14 @@ pub struct CompiledCell {
     /// page heads it with. No agent is sent these.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub titles: BTreeMap<String, String>,
+}
+
+impl CompiledCell {
+    /// What a return a work carries from an earlier flow version is held to when the work moves to this one:
+    /// [`CompiledCell::carried`], else the schema.
+    pub fn carried_schema(&self) -> Option<&Value> {
+        self.carried.as_ref().or(self.schema.as_ref())
+    }
 }
 
 /// Whether a flag is off, which the compiled flow leaves out.
@@ -296,7 +309,8 @@ impl CompiledGraph {
         }
         let at = |p: &str| gone.iter().any(|f| p == f || p.starts_with(&format!("{f}.")));
         for c in self.cells.iter_mut().filter(|c| c.kind == CellKind::Agent.name()) {
-            if let Some(Value::Object(s)) = &mut c.schema {
+            for s in [&mut c.schema, &mut c.carried].into_iter().flatten() {
+                let Value::Object(s) = s else { continue };
                 if let Some(Value::Object(props)) = s.get_mut("properties") {
                     props.retain(|k, _| !gone.contains(k));
                 }
@@ -880,10 +894,22 @@ pub fn valid(s: &Value, x: &Value) -> bool {
 
 struct Schemas<'a> {
     text: &'a EnumText,
+    /// Whether the schemas are those a return a work carries from an earlier flow version is held to: what each field
+    /// names as it was earlier is taken too.
+    carried: bool,
 }
 
 impl Schemas<'_> {
     fn field(&self, f: &Field) -> Value {
+        let s = self.now(f);
+        match &f.earlier {
+            Some(Earlier::Shape(was)) if self.carried => json!({ "anyOf": [s, self.field(was)] }),
+            _ => s,
+        }
+    }
+
+    /// A field as a return handed in now holds it.
+    fn now(&self, f: &Field) -> Value {
         let mut s = match f.kind {
             Kind::Text => json!({ "type": "string" }),
             Kind::Int => json!({ "type": "integer" }),
@@ -952,7 +978,8 @@ impl Schemas<'_> {
         }
         for f in fs {
             props.insert(f.name.clone(), self.field(f));
-            if !f.optional {
+            let absent = self.carried && f.earlier == Some(Earlier::Absent);
+            if !f.optional && !absent {
                 required.push(json!(f.name));
             }
         }
@@ -1099,6 +1126,11 @@ pub fn own_answer<'c>(cell: &'c CompiledCell, within: &str) -> Option<&'c Value>
 pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), String> {
     let schemas = Schemas {
         text: &g.source.enum_text,
+        carried: false,
+    };
+    let carrying = Schemas {
+        text: &g.source.enum_text,
+        carried: true,
     };
     let mut cells = Vec::new();
     for (ci, c) in g.cells.iter().enumerate() {
@@ -1109,6 +1141,8 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         }
         let mut titles = BTreeMap::new();
         titled(&c.id, &c.out, "", &mut titles)?;
+        let schema = schemas.cell(g, c);
+        let carried = carrying.cell(g, c).filter(|s| Some(s) != schema.as_ref());
         cells.push(CompiledCell {
             id: c.id.clone(),
             kind: c.kind.name().to_string(),
@@ -1171,7 +1205,8 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             prompt: c.prompt.clone(),
             prompt_by: c.prompt_by.clone(),
             forms: c.forms.clone(),
-            schema: schemas.cell(g, c),
+            schema,
+            carried,
             rows: c
                 .rows
                 .iter()

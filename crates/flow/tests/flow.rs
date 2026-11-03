@@ -1200,7 +1200,14 @@ fn a_field_a_project_does_not_ask_for_is_taken_out_of_every_agent_cell() {
             assert!(!s["required"].as_array().unwrap().contains(&field), "{}", cell.id);
             assert!(cell.always.iter().all(|a| a.at != "flow_feedback"), "{}", cell.id);
             assert!(cell.read_by.iter().all(|x| x.at != "flow_feedback"), "{}", cell.id);
+            // What a return carried from an earlier version must be loses the field alike.
+            for (was, is) in on.carried.iter().zip(&cell.carried) {
+                assert!(was["properties"].get("flow_feedback").is_some(), "{}", on.id);
+                assert!(is["properties"].get("flow_feedback").is_none(), "{}", cell.id);
+                assert!(!is["required"].as_array().unwrap().contains(&field), "{}", cell.id);
+            }
         }
+        assert!(name != "engineer" || off.cells.iter().any(|c| c.carried.is_some()));
         assert!(flow::formats::common_format(&asked).contains("flow_feedback"));
         assert!(!flow::formats::common_format(&off).contains("flow_feedback"));
     }
@@ -1668,6 +1675,55 @@ fn a_return_that_does_not_fit_says_where() {
     assert!(e.ends_with("outcome.better has no considered"), "{e}");
     let e = refused(&|x| x["outcome"] = Value::String(x["outcome"].to_string()));
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
+}
+
+// Item #247 had the design answer the constitution's articles in rows, where it had written them in a text, and each
+// decision of its item (`item_decisions`), and had its review try each claim (`claims`). A design and a review handed in
+// before, which works under way carry, still fit those cells as returns carried from an earlier version, so that such a
+// work moves to this one where it stands; handed in now, they are refused, saying what is missing. A return handed in
+// now is carried too, and a cell no field of which names what it was earlier carries what it takes now.
+#[test]
+fn a_design_from_before_its_rows_is_carried_and_one_handed_in_now_needs_them() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut design = samples["D2"][0]["json"].clone();
+    design["outcome"]["articles"] = "It keeps Article 1: it names no project.".into();
+    design["outcome"]
+        .as_object_mut()
+        .unwrap()
+        .shift_remove("item_decisions");
+    let mut review = samples["D3"][0]["json"].clone();
+    review["outcome"].as_object_mut().unwrap().shift_remove("claims");
+    let before = [
+        (
+            "D2",
+            design,
+            vec![
+                "outcome.articles must be a list, and is a string",
+                "outcome has no item_decisions",
+            ],
+        ),
+        ("D3", review, vec!["outcome has no claims"]),
+    ];
+    for (cell, old, missing) in before {
+        let x = g.cell(cell).unwrap();
+        let carried = x.carried_schema().unwrap();
+        assert!(
+            flow::valid(carried, &old),
+            "{cell}: {:?}",
+            flow::misfits(carried, &old, "")
+        );
+        assert!(flow::valid(carried, &samples[cell][0]["json"]), "{cell}");
+        let given: Map<String, Value> = samples[cell][0]["given"].as_object().cloned().unwrap_or_default();
+        let e = g.take(cell, &old, &given).unwrap_err();
+        for m in missing {
+            assert!(e.contains(m), "{cell}: {e}");
+        }
+    }
+    let d1 = g.cell("D1").unwrap();
+    assert!(d1.carried.is_none());
+    assert_eq!(d1.carried_schema(), d1.schema.as_ref());
 }
 
 // A return that does not fit in several places says every place at once, each on a line of its own after a first line
