@@ -1439,7 +1439,8 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
 
 // Cell `M2`.
 
-/// Catches the PR up with main; when that moved the head, runs the full CI on it again; then merges it.
+/// Catches the PR up with main; when that moved the head, runs the full CI on it again; then merges it. A PR that
+/// merged on GitHub already is only recorded.
 pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let wt = w.worktree.clone().ok_or("the work has no worktree")?;
@@ -1449,6 +1450,17 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
             (Failure::other("the work has no PR to merge"), String::new()),
         ));
     };
+    // Merged on GitHub already, as when an earlier try lost the answer of its merge: the record is all that is missing.
+    // Nothing below applies to a merged PR: catching up with main can conflict, the full CI has nothing to guard, a stop
+    // cannot undo the merge, and the merge call is refused.
+    let merged = attempts(e, round, "merge", &json!({ "pr": pr }), |e| {
+        hub::merged_on(e.github(), &repo(&project), pr, &project.main).map(|sha| sha.map_or(Value::Null, Value::String))
+    });
+    match merged {
+        Ok(Value::String(sha)) => return Ok(json!({ "result": { "kind": "merged", "merge_commit": sha } })),
+        Ok(_) => {}
+        Err(x) => return Ok(not_run("result", x)),
+    }
     let head = match git::catch_up(&wt, &project.main)? {
         Ok(h) => h,
         Err(files) => return Ok(json!({ "result": { "kind": "conflict", "files": files } })),
@@ -1780,6 +1792,10 @@ mod tests {
 
         fn set_base(&self, _repo: &str, _pr: i64, _base: &str) -> Result<(), Failure> {
             unreachable!("no pull request is changed here")
+        }
+
+        fn merge_commit(&self, _repo: &str, _pr: i64) -> Result<Option<String>, Failure> {
+            unreachable!("no pull request is read here")
         }
 
         fn merge(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
@@ -2390,6 +2406,10 @@ mod ci_on_demand {
 
         fn set_base(&self, _repo: &str, _pr: i64, _base: &str) -> Result<(), Failure> {
             Ok(())
+        }
+
+        fn merge_commit(&self, _repo: &str, _pr: i64) -> Result<Option<String>, Failure> {
+            Ok(None)
         }
 
         fn merge(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {

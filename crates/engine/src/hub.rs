@@ -101,8 +101,12 @@ pub trait GitHub: Send + Sync {
     fn base(&self, repo: &str, pr: i64) -> Result<String, Failure>;
     /// Sets the branch a pull request merges into.
     fn set_base(&self, repo: &str, pr: i64, base: &str) -> Result<(), Failure>;
+    /// The commit a pull request merged as; none when it has not merged, whether it is open or closed.
+    fn merge_commit(&self, repo: &str, pr: i64) -> Result<Option<String>, Failure>;
     /// Marks the pull request ready and merges it into its base, whichever branch that is; gives the commit it made
-    /// there. The engine merges only through [`merge_into`], which makes the base the project's main first.
+    /// there. It is called only for a pull request that has not merged, which marking ready refuses; the engine merges
+    /// only through [`merge_into`], which gives the commit of one that merged already, and makes the base the
+    /// project's main first.
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure>;
     /// Closes a pull request with a comment.
     fn close(&self, repo: &str, pr: i64, comment: &str) -> Result<(), Failure>;
@@ -142,9 +146,31 @@ pub fn ensure_base(github: &dyn GitHub, repo: &str, pr: i64, main: &str) -> Resu
     Ok(())
 }
 
+/// The commit a pull request merged as into `main`, the project's main; none when it has not merged. Fails, naming both
+/// branches, when it merged into another branch: that is no merge into the project's main. The merge of a pull request
+/// is GitHub's write and the engine's record of it another, so that a merge whose answer was lost (a 502 after GitHub
+/// merged it) leaves a pull request that merged and a step that does not know it.
+pub fn merged_on(github: &dyn GitHub, repo: &str, pr: i64, main: &str) -> Result<Option<String>, Failure> {
+    // One read in the common case, a pull request that is not merged.
+    let Some(sha) = github.merge_commit(repo, pr)? else {
+        return Ok(None);
+    };
+    let base = github.base(repo, pr)?;
+    if base != main {
+        return Err(Failure::other(format!(
+            "PR {pr} merged into {base}, not the project's main {main}"
+        )));
+    }
+    Ok(Some(sha))
+}
+
 /// Merges a pull request into `main`, the project's main, and nowhere else: makes `main` its base first, and merges
-/// nothing when it cannot; gives the merge commit.
+/// nothing when it cannot; gives the merge commit. A pull request that merged into `main` already, as when the answer
+/// of the merge was lost, is not merged again, which GitHub refuses: its merge commit is the answer.
 pub fn merge_into(github: &dyn GitHub, repo: &str, pr: i64, main: &str) -> Result<String, Failure> {
+    if let Some(sha) = merged_on(github, repo, pr, main)? {
+        return Ok(sha);
+    }
     ensure_base(github, repo, pr, main)?;
     github.merge(repo, pr)
 }
@@ -764,15 +790,19 @@ impl GitHub for Gh {
             .map(|_| ())
     }
 
+    fn merge_commit(&self, repo: &str, pr: i64) -> Result<Option<String>, Failure> {
+        let n = pr.to_string();
+        // `state` tells a pull request that merged from one that was closed; `mergeCommit` is null until it merges.
+        let v = self.json(&["pr", "view", &n, "-R", repo, "--json", "state,mergeCommit"])?;
+        merged_oid(&v, &n)
+    }
+
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure> {
         let n = pr.to_string();
         self.run(&["pr", "ready", &n, "-R", repo])?;
         self.run(&["pr", "merge", &n, "-R", repo, "--squash"])?;
-        let v = self.json(&["pr", "view", &n, "-R", repo, "--json", "mergeCommit"])?;
-        v["mergeCommit"]["oid"]
-            .as_str()
-            .map(str::to_string)
-            .ok_or_else(|| Failure::other(format!("PR {n} merged but gh gave no merge commit")))
+        self.merge_commit(repo, pr)?
+            .ok_or_else(|| Failure::other(format!("PR {n} is not merged after gh pr merge")))
     }
 
     fn close(&self, repo: &str, pr: i64, comment: &str) -> Result<(), Failure> {
@@ -793,6 +823,19 @@ impl GitHub for Gh {
         }
         Ok((out.status.code().unwrap_or(-1), text))
     }
+}
+
+/// The merge commit in what `gh pr view N --json state,mergeCommit` gave, `n` the pull request's number: only a pull
+/// request in the state `MERGED` has one. One that is merged and has none is a failure, not a pull request that did
+/// not merge.
+fn merged_oid(v: &Value, n: &str) -> Result<Option<String>, Failure> {
+    if v["state"] != "MERGED" {
+        return Ok(None);
+    }
+    v["mergeCommit"]["oid"]
+        .as_str()
+        .map(|s| Some(s.to_string()))
+        .ok_or_else(|| Failure::other(format!("PR {n} merged but gh gave no merge commit")))
 }
 
 /// Whether what `gh workflow run` said (its stderr, not the command line) is GitHub refusing the request itself (HTTP 422: an input the workflow requires
@@ -976,11 +1019,32 @@ mod tests {
         Ignored,
     }
 
-    /// GitHub with one pull request: its base, what setting it does, and which branch it merged into.
+    /// GitHub with one pull request: its base, what setting it does, which branch it merged into, whether it was closed
+    /// without merging, and how many times [`GitHub::merge`] was called. Marking ready refuses a pull request that is
+    /// not open, as gh does, whether it merged or was closed.
     struct OnePr {
         base: std::sync::Mutex<String>,
         setting: Setting,
         merged_into: std::sync::Mutex<Option<String>>,
+        closed: bool,
+        merges: std::sync::atomic::AtomicUsize,
+    }
+
+    /// An open pull request on `base`.
+    fn one_pr(base: &str, setting: Setting) -> OnePr {
+        OnePr {
+            base: std::sync::Mutex::new(base.to_string()),
+            setting,
+            merged_into: std::sync::Mutex::new(None),
+            closed: false,
+            merges: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    impl OnePr {
+        fn merges(&self) -> usize {
+            self.merges.load(std::sync::atomic::Ordering::SeqCst)
+        }
     }
 
     impl GitHub for OnePr {
@@ -1018,7 +1082,18 @@ mod tests {
             }
         }
 
-        fn merge(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
+        fn merge_commit(&self, _repo: &str, _pr: i64) -> Result<Option<String>, Failure> {
+            Ok(self.merged_into.lock().unwrap().as_ref().map(|_| "merged".to_string()))
+        }
+
+        fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
+            self.merges.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.closed || self.merged_into.lock().unwrap().is_some() {
+                return Err(Failure::network(format!(
+                    "gh pr ready {pr} -R o/r: X Pull request o/r#{pr} is closed. Only draft pull requests can be \
+                     marked as \"ready for review\""
+                )));
+            }
             *self.merged_into.lock().unwrap() = Some(self.base.lock().unwrap().clone());
             Ok("merged".to_string())
         }
@@ -1037,26 +1112,21 @@ mod tests {
     // merges, and the failure names both branches.
     #[test]
     fn a_pull_request_merges_into_the_project_s_main_and_nowhere_else() {
-        let hub = |base: &str, setting| OnePr {
-            base: std::sync::Mutex::new(base.to_string()),
-            setting,
-            merged_into: std::sync::Mutex::new(None),
-        };
         // Setting the base would fail, and is not asked.
-        let on_main = hub("trial-main", Setting::Fails);
+        let on_main = one_pr("trial-main", Setting::Fails);
         assert_eq!(merge_into(&on_main, "o/r", 4, "trial-main"), Ok("merged".to_string()));
         assert_eq!(
             on_main.merged_into.lock().unwrap().take().as_deref(),
             Some("trial-main")
         );
-        let elsewhere = hub("first-version", Setting::Takes);
+        let elsewhere = one_pr("first-version", Setting::Takes);
         assert_eq!(merge_into(&elsewhere, "o/r", 4, "trial-main"), Ok("merged".to_string()));
         assert_eq!(
             elsewhere.merged_into.lock().unwrap().take().as_deref(),
             Some("trial-main")
         );
         for setting in [Setting::Fails, Setting::Ignored] {
-            let stuck = hub("first-version", setting);
+            let stuck = one_pr("first-version", setting);
             let f = merge_into(&stuck, "o/r", 4, "trial-main").unwrap_err();
             assert!(
                 f.what
@@ -1066,5 +1136,55 @@ mod tests {
             );
             assert_eq!(stuck.merged_into.lock().unwrap().take(), None);
         }
+    }
+
+    // A pull request that merged into the project's main already, as when the answer of the merge was lost, gives the
+    // commit it merged as and is not merged again, which gh refuses; one that merged into another branch is no merge
+    // into the project's main and fails naming both, setting nothing; one that was closed without merging is merged as
+    // before, and fails as gh does.
+    #[test]
+    fn a_pull_request_that_merged_already_gives_its_merge_commit_and_is_not_merged_again() {
+        let lost = one_pr("first-version", Setting::Takes);
+        assert_eq!(merge_into(&lost, "o/r", 4, "trial-main"), Ok("merged".to_string()));
+        // The second call finds it merged, and the merge is not called again.
+        assert_eq!(merge_into(&lost, "o/r", 4, "trial-main"), Ok("merged".to_string()));
+        assert_eq!(lost.merges(), 1);
+
+        let elsewhere = OnePr {
+            merged_into: std::sync::Mutex::new(Some("first-version".to_string())),
+            ..one_pr("first-version", Setting::Takes)
+        };
+        let f = merge_into(&elsewhere, "o/r", 4, "trial-main").unwrap_err();
+        assert_eq!(
+            f.what,
+            "PR 4 merged into first-version, not the project's main trial-main"
+        );
+        assert_eq!(elsewhere.merges(), 0);
+        assert_eq!(*elsewhere.base.lock().unwrap(), "first-version");
+
+        let closed = OnePr {
+            closed: true,
+            ..one_pr("trial-main", Setting::Takes)
+        };
+        let f = merge_into(&closed, "o/r", 4, "trial-main").unwrap_err();
+        assert!(f.what.contains("is closed. Only draft pull requests"), "{}", f.what);
+        assert_eq!(closed.merges(), 1);
+    }
+
+    // Only a pull request in the state MERGED has a merge commit: an open one and a closed one have none, and one that
+    // merged without a commit in gh's answer is a failure, not a pull request that did not merge.
+    #[test]
+    fn a_pull_request_is_merged_only_when_gh_says_state_merged_with_a_commit() {
+        let merged = serde_json::json!({ "state": "MERGED", "mergeCommit": { "oid": "abc" } });
+        assert_eq!(merged_oid(&merged, "4"), Ok(Some("abc".to_string())));
+        for state in ["OPEN", "CLOSED"] {
+            let v = serde_json::json!({ "state": state, "mergeCommit": null });
+            assert_eq!(merged_oid(&v, "4"), Ok(None), "{state}");
+        }
+        let lost = serde_json::json!({ "state": "MERGED", "mergeCommit": null });
+        assert_eq!(
+            merged_oid(&lost, "4").unwrap_err().what,
+            "PR 4 merged but gh gave no merge commit"
+        );
     }
 }
