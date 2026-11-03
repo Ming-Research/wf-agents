@@ -13425,6 +13425,35 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
     let numbers = given_value(&message_at(&e, arch, "U1", false), "·engine·numbers").unwrap();
     assert_eq!(numbers["measures"]["items.made"]["last_7_days"], 2, "{numbers}");
     assert_eq!(numbers["weeks"][0]["items_made"], 2, "{numbers}");
+    // A number that had nothing to measure says not measured and why, never a zero: defects after a merge, which
+    // nothing records; the time to merge and the wait for CI, with no item merged; the engine's CPU, with no sample
+    // taken; and waiting for a slot among the stops. A count of what the records hold is a zero.
+    let says_why = |v: &Value| {
+        v.as_str()
+            .and_then(|t| t.strip_prefix("not measured: "))
+            .is_some_and(|why| !why.is_empty())
+    };
+    for name in ["merge.defects", "work.to_merge", "ci.wait", "engine.cpu"] {
+        for period in ["last_7_days", "the_7_days_before"] {
+            assert!(says_why(&numbers["measures"][name][period]), "{name}, {period}: {numbers}");
+        }
+    }
+    assert!(says_why(&numbers["measures"]["work.stops"]["by_reason"]["slot"]["last_7_days"]), "{numbers}");
+    assert_eq!(numbers["measures"]["merge.broken"]["last_7_days"], 0, "{numbers}");
+    assert_eq!(numbers["measures"]["items.merged"]["last_7_days"], 0, "{numbers}");
+    // Only what nothing records yet is listed as not measured, each with why.
+    let listed = numbers["not_measured"].as_object().unwrap();
+    let names: BTreeSet<&str> = listed.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        BTreeSet::from([
+            "merge.defects",
+            "work.stops for reason slot",
+            "work.stopped for reason slot"
+        ]),
+        "{numbers}"
+    );
+    assert!(listed.values().all(|why| why.as_str().is_some_and(|t| !t.is_empty())), "{numbers}");
     let start: i64 =
         e.db.conn()
             .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [arch], |r| {

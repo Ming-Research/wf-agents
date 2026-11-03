@@ -623,3 +623,98 @@ fn every_measure_gives_a_series() {
         assert_eq!(got.points[9].to, T0 + 10 * M, "{}", m.name);
     }
 }
+
+// A period that is no whole number of steps and does not start on a minute: its points start at the period's start,
+// a step apart, and its last point ends at the period's end, holding only what fell before it. From 30 s up to 190 s
+// at a step of a minute, the points are [30 s, 90 s), [90 s, 150 s) and [150 s, 190 s).
+#[test]
+fn a_period_of_no_whole_number_of_steps_ends_its_last_point_at_its_end() {
+    let mut s = Seed::new();
+    let (from, to) = (T0 + 30_000, T0 + 190_000);
+    // Made 1 ms before the period, at its first millisecond, within the first point, at the start of the last point,
+    // and at the period's end, which is no longer in it.
+    for at in [from - 1, from, T0 + 89_999, T0 + 150_000, to] {
+        s.item("p", false, at);
+    }
+    let i = s.item("p", false, T0 - 60 * M);
+    let (w, v) = (s.work(Some(i), "engineer", None), s.work(Some(i), "engineer", None));
+    // A question from 60 s to 170 s, and an ask of the owner from 100 s still open.
+    s.blocker(w, "question", T0 + 60_000, Some(T0 + 170_000));
+    s.blocker(v, "owner_ask", T0 + 100_000, None);
+    // The engine's CPU sampled at the start of each minute; the one at 0 s is before the period.
+    for (k, cpu) in [0.1, 0.2, 0.3, 0.4].into_iter().enumerate() {
+        s.sample("engine.cpu", "", T0 + k as i64 * M, cpu);
+    }
+    let m = measure("items.made").unwrap();
+    let made = series(s.conn(), m, &p(), from, to, M).unwrap();
+    let bounds: Vec<(i64, i64)> = made.points.iter().map(|x| (x.from, x.to)).collect();
+    assert_eq!(
+        bounds,
+        [(from, T0 + 90_000), (T0 + 90_000, T0 + 150_000), (T0 + 150_000, to)]
+    );
+    let ns: Vec<i64> = made.points.iter().map(|x| x.n).collect();
+    assert_eq!(ns, [2, 0, 1]);
+    assert_eq!(s.values("items.made", p(), from, to, M), [Some(2.0), Some(0.0), Some(1.0)]);
+    assert_eq!(
+        s.values("work.stopped", p(), from, to, M),
+        [Some(30_000.0), Some(50_000.0 + 60_000.0), Some(20_000.0 + 40_000.0)]
+    );
+    assert_eq!(
+        s.values("work.stops", p(), from, to, M),
+        [Some(1.0), Some(1.0), Some(0.0)]
+    );
+    assert_eq!(
+        s.values("engine.cpu", p(), from, to, M),
+        [Some(0.2), Some(0.3), Some(0.4)]
+    );
+}
+
+// A pause lasts only for the part of it within the period, wherever it began and ended: one that began before the
+// period, ended within it and began again, still going on; one that began within it and ended after it; one of a work
+// that ended while paused; and neither one that began and ended before the period nor one that began after it. A
+// blocker open since before the period lasts all of it and counts in none of its points.
+#[test]
+fn a_pause_that_turns_outside_the_period_lasts_only_within_it() {
+    let mut s = Seed::new();
+    let i = s.item("p", false, T0 - 60 * M);
+    let [u1, u2, u3, u4, u5] = [(); 5].map(|_| s.work(Some(i), "engineer", None));
+    // u1: paused from 10 minutes before, on again at 150 s, paused again at 360 s and still paused.
+    s.pause(u1, true, T0 - 10 * M);
+    s.pause(u1, false, T0 + 150_000);
+    s.pause(u1, true, T0 + 6 * M);
+    // u2: paused at 300 s, on again 15 minutes after T0.
+    s.pause(u2, true, T0 + 5 * M);
+    s.pause(u2, false, T0 + 15 * M);
+    // u3: paused from 3 minutes before, ended at 240 s while paused.
+    s.pause(u3, true, T0 - 3 * M);
+    s.sql("UPDATE works SET ended = 'done' WHERE id = ?1", [u3]);
+    s.restamp("works", u3, T0 + 4 * M);
+    // u4: paused and on again before the period; a ruling it waits for since 2 minutes before, still open.
+    s.pause(u4, true, T0 - 8 * M);
+    s.pause(u4, false, T0 - M);
+    s.blocker(u4, "ruling", T0 - 2 * M, None);
+    // u5: paused 12 minutes after T0, after the ten minutes, and still paused.
+    s.pause(u5, true, T0 + 12 * M);
+    let paused = [
+        120_000.0, 120_000.0, 90_000.0, 60_000.0, 0.0, 60_000.0, 120_000.0, 120_000.0, 120_000.0, 120_000.0,
+    ];
+    assert_eq!(s.minutes("work.stopped", of("paused")), paused.map(Some).to_vec());
+    assert_eq!(
+        s.minutes("work.stops", of("paused")),
+        ten(&[(5, 1.0), (6, 1.0)], Some(0.0))
+    );
+    assert_eq!(s.minutes("work.stopped", of("ruling")), ten(&[], Some(60_000.0)));
+    assert_eq!(s.minutes("work.stops", of("ruling")), ten(&[], Some(0.0)));
+    assert_eq!(
+        s.minutes("work.stopped", p()),
+        paused.map(|x| Some(x + 60_000.0)).to_vec()
+    );
+    // From 90 s to 450 s: u1 from 90 s to 150 s and from 360 s, u2 from 300 s, u3 from 90 s to 240 s.
+    assert_eq!(
+        s.whole("work.stopped", of("paused")),
+        Some(60_000.0 + 90_000.0 + 150_000.0 + 150_000.0)
+    );
+    assert_eq!(s.whole("work.stops", of("paused")), Some(2.0));
+    assert_eq!(s.whole("work.stopped", of("ruling")), Some(360_000.0));
+    assert_eq!(s.whole("work.stops", p()), Some(2.0));
+}
