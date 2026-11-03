@@ -240,6 +240,55 @@ describe('an entry that did not change', () => {
     expect(drawnTimes(7)).toBe(1);
     expect([1, 2, 3, 4, 5, 6].map(drawnTimes)).toEqual(before);
   });
+
+  it('is not drawn again when a full window slides by one entry, the oldest leaving and the gap growing', async () => {
+    const c = conversation('architect:p', 'architect');
+    // The window of 100 holds entries 1 to 100 with 255 folded away before them; with one more it holds 2 to 101.
+    const all = Array.from({ length: 101 }, (_, k) => entry(k + 1));
+    let conversations = 0;
+    let architects = 0;
+    serve = (path) => {
+      if (path.startsWith('/api/v1/conversation?')) {
+        conversations += 1;
+        return conversations === 1
+          ? detail(c.key, all.slice(0, 100), [{ source: 'message', id: 1, count: 255 }])
+          : detail(c.key, all.slice(1, 101), [{ source: 'message', id: 2, count: 256 }]);
+      }
+      if (path.startsWith('/api/v1/architect?')) {
+        architects += 1;
+        const architect: Architect = {
+          project: 'p',
+          projects: ['p'],
+          works: [{ work: architectWork(1000 * architects), handling: null, listens: false }],
+          queue: [],
+          holds: [],
+          asks: [],
+          draft: null,
+        };
+        return architect;
+      }
+      return undefined;
+    };
+
+    const page = await show(<Talk c={c} />);
+    await settle();
+    expect(page.textContent).toContain(tn('conv_gap', 255));
+    const kept = Array.from({ length: 99 }, (_, k) => k + 2);
+    const before = kept.map(drawnTimes);
+    expect(before.every((n) => n >= 1)).toBe(true);
+
+    await act(async () => bump(['messages', 'architect']));
+    await settle();
+
+    expect(conversations).toBe(2);
+    expect(architects).toBe(2);
+    expect(page.textContent).toContain('said 101');
+    expect(page.textContent).toContain(tn('conv_gap', 256));
+    // The new entry is drawn once; none of the 99 that stay is drawn again, though the run they are in now begins with
+    // another entry.
+    expect(drawnTimes(101)).toBe(1);
+    expect(kept.map(drawnTimes)).toEqual(before);
+  });
 });
 
 describe('the line that says entries are folded away', () => {

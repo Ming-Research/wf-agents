@@ -1202,8 +1202,11 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
       <div className="talk-stream-wrap">
         <div className="talk-stream" ref={list}>
           {stream.length === 0 ? <p className="talk-none">{t('conv_none')}</p> : null}
-          {runs.map((run) => {
-            const key = `${run.entries[0].source}-${run.entries[0].id}-${run.entries[0].at}`;
+          {runs.map((run, i) => {
+            // By place and kind, never by the first entry: the interface gives a window of the latest entries, which
+            // slides by one with each new entry, so the first entry of the first run changes every time, and a run
+            // keyed by it would be built again with all the entries in it. A Timeline is never reused for a div.
+            const key = `${run.cards ? 'cards' : 'messages'}-${i}`;
             const items: ReactNode = run.entries.map((e) => (
               <Entry
                 key={`${e.source}-${e.id}-${e.at}`}
