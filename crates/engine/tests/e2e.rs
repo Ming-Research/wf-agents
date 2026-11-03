@@ -1618,6 +1618,9 @@ fn route_of(e: &Engine, work: i64) -> String {
 fn a_bug_fix_redesigned_from_the_light_route_turns_to_the_normal_route() {
     let s = setup("light-redesign");
     let mut agents = light_scripts();
+    // Turned to the normal route, its table review judges its design's choice of no adversarial testing, as any first
+    // review of such a design does.
+    agents.insert("T4", answers_columns(|_| vec![("outcome.no_adversarial", "stands")]));
     agents.insert(
         "A4",
         Box::new(|_: &Request, n: usize| {
