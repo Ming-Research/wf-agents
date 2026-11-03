@@ -512,6 +512,40 @@ pub fn carry(approach: &str, from: &str) -> String {
     out
 }
 
+/// The `approach` of the items a batch of changes touches as the batch leaves it so far, which the check of a change
+/// and the write of it both judge a text by: an item's text as the database has it, with the lines of decisions a
+/// merge of the batch carried into it and the text an earlier edit of the batch gave it.
+#[derive(Default)]
+pub struct Approaches {
+    now: std::collections::BTreeMap<i64, String>,
+}
+
+impl Approaches {
+    /// The text of an item's `approach` now: the batch's, or the database's with none; empty with no such item.
+    pub fn of(&self, conn: &Connection, item: i64) -> String {
+        if let Some(t) = self.now.get(&item) {
+            return t.clone();
+        }
+        conn.query_row("SELECT approach FROM items WHERE id = ?1", [item], |r| {
+            r.get::<_, Option<String>>(0)
+        })
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+    }
+
+    /// An item is kept in a merge of another into it: the lines of decisions the other holds that it does not are its.
+    pub fn merged(&mut self, conn: &Connection, keep: i64, absorbed: i64) {
+        let carried = carry(&self.of(conn, keep), &self.of(conn, absorbed));
+        self.now.insert(keep, carried);
+    }
+
+    /// An edit of the batch writes an item's `approach` whole.
+    pub fn written(&mut self, item: i64, text: &str) {
+        self.now.insert(item, text.to_string());
+    }
+}
+
 /// Whether a text holds a line that starts a decision which an earlier text of the same item does not hold: such a line
 /// is written by the engine from a decision, never by hand.
 pub fn new_decision_lines(before: &str, after: &str) -> Vec<String> {
@@ -994,6 +1028,35 @@ mod tests {
             carry("Approach:\n- Do it.", &absorbed),
             format!("Approach:\n- Do it.\nDecisions:\n{a}\n{b}")
         );
+    }
+
+    // The text of an item as a batch leaves it: the database's, with the lines a merge carried into it, and then the text
+    // an edit of the batch gave it; an item the database does not hold is empty.
+    #[test]
+    fn the_text_of_an_item_follows_the_merges_and_edits_of_a_batch() {
+        let line = "Decision (2026-11-01, owner): A.";
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let gone = format!("Approach:\n- Gone.\nDecisions:\n{line}");
+            for approach in ["Approach:\n- Keep.", gone.as_str()] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+                     VALUES ('p', 't', 'x', 'y', ?1, 'change', 'l')",
+                    [approach],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let mut a = Approaches::default();
+        assert_eq!(a.of(db.conn(), 1), "Approach:\n- Keep.");
+        a.merged(db.conn(), 1, 2);
+        assert_eq!(a.of(db.conn(), 1), format!("Approach:\n- Keep.\nDecisions:\n{line}"));
+        // A text written over it after the merge leaves the carried line out.
+        assert_eq!(unkept(&a.of(db.conn(), 1), "Approach:\n- New.").len(), 2);
+        a.written(1, "Approach:\n- New.");
+        assert_eq!(a.of(db.conn(), 1), "Approach:\n- New.");
+        assert_eq!(a.of(db.conn(), 99), "");
     }
 
     // A text that replaces an item's keeps its decisions: the lines letter for letter, in order, under their head; one

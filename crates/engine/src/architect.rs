@@ -2529,22 +2529,28 @@ fn without_stale_approaches(
     left_out: &mut Vec<(Change, Value)>,
 ) -> Result<Vec<Change>, String> {
     let mut kept = Vec::new();
+    // The texts as the rows made so far leave them: a merge carries the lines of the item it absorbs into the one it
+    // keeps.
+    let mut approaches = decisions::Approaches::default();
     for row in sound {
         let c = &row.3;
-        let now: Option<String> = if c["kind"] == "edit_item" && c["part"] == "approach" {
-            match item_number(&c["item"]) {
-                Some(id) => tx
-                    .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
-                    .optional()
-                    .map_err(sql)?
-                    .flatten(),
-                None => None,
+        if c["kind"] == "merge" {
+            if let Some(keep) = item_number(&c["keep"]) {
+                for a in items(c.get("absorbed")).iter().filter_map(item_number) {
+                    approaches.merged(tx, keep, a);
+                }
             }
-        } else {
-            None
-        };
-        let lost = now.map(|n| decisions::unkept(&n, text(&c["text"]))).unwrap_or_default();
+        }
+        let edit = (c["kind"] == "edit_item" && c["part"] == "approach")
+            .then(|| item_number(&c["item"]))
+            .flatten();
+        let lost = edit
+            .map(|id| decisions::unkept(&approaches.of(tx, id), text(&c["text"])))
+            .unwrap_or_default();
         if lost.is_empty() {
+            if let Some(id) = edit {
+                approaches.written(id, text(&c["text"]));
+            }
             kept.push(row);
         } else {
             let what = format!(

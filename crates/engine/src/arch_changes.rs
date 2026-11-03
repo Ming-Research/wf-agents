@@ -195,6 +195,10 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
     // The items a decision of the batch is recorded in so far, and the words each has quoted.
     let mut decided: BTreeSet<i64> = BTreeSet::new();
     let mut quoted: BTreeSet<(i64, String, i64, String)> = BTreeSet::new();
+    // The `approach` of the items changes of the batch make, and the items merged away so far, with the item each is
+    // kept in.
+    let mut approaches = crate::decisions::Approaches::default();
+    let mut away: BTreeMap<i64, i64> = BTreeMap::new();
     for (i, c) in changes.iter().enumerate() {
         let n = i + 1;
         let mut bad = |p: String| {
@@ -331,6 +335,8 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                             bad(format!("item {v} is not another item to merge into item {keep}"));
                             continue;
                         };
+                        approaches.merged(e.db.conn(), keep, a);
+                        away.insert(a, keep);
                         let links: Vec<(i64, i64)> = s.links.iter().copied().collect();
                         s.links.clear();
                         for (x, d) in links {
@@ -355,15 +361,10 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 }
                 if text(c, "part") == "approach" {
                     // The lines of decisions the text had stand; a line it did not have is a decision written by hand.
-                    let now: Option<String> = id
-                        .filter(|id| *id > 0)
-                        .and_then(|id| {
-                            e.db.conn()
-                                .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
-                                .ok()
-                        })
-                        .flatten();
-                    let now = now.as_deref().unwrap_or_default();
+                    // The text it has now is the one the batch has made of it: a merge of an earlier change carried the
+                    // lines of the absorbed item's decisions into it.
+                    let now = id.map(|id| approaches.of(e.db.conn(), id)).unwrap_or_default();
+                    let now = now.as_str();
                     for l in crate::decisions::new_decision_lines(now, text(c, "text")) {
                         bad(hand_written(&l));
                     }
@@ -381,6 +382,9 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                                 .into(),
                         );
                     }
+                    if let Some(id) = id {
+                        approaches.written(id, text(c, "text"));
+                    }
                 }
             }
             "record_decision" => {
@@ -389,6 +393,13 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     Some(v) => own(v, &s, &mut bad),
                     None => None,
                 };
+                if let Some(keep) = id.and_then(|id| away.get(&id)) {
+                    bad(format!(
+                        "item {} is merged into item {keep} earlier in this batch, and is cancelled with it: record \
+                         the decision in item {keep}, or put it before the merge, which carries it",
+                        id.unwrap_or_default()
+                    ));
+                }
                 if let Some(id) = id {
                     decided.insert(id);
                 }
