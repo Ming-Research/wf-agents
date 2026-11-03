@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ArchitectRounds, RoundSummary } from './api';
 import { roundName } from './format';
 import { getJson } from './http';
-import { useVersion } from './live';
+import { useResource } from './live';
 import { forProject, type RoundKey, sameRound } from './route';
 
 /// The rounds listed, oldest first, and whether older and newer ones are there to read.
@@ -80,7 +80,8 @@ export function openRead(w: RoundsWindow | null, round: RoundKey | null): Window
 
 /// A project's architect's rounds as its page lists them: opened on the newest, or around the round asked for, which
 /// is read around afresh whenever it is not listed; more read before or after the rounds listed as the list scrolls to
-/// its ends (`more`), and the newest read again as the architect's rounds change.
+/// its ends (`more`), and the newest read again as the architect's rounds change: that read is made as any part's is
+/// (`useResource`, one at a time, no oftener than the reader allows), the others when the owner asks for them.
 export function useRoundsWindow(
   project: string,
   round: RoundKey | null,
@@ -94,16 +95,11 @@ export function useRoundsWindow(
   // Each opening of the window starts a generation; what an earlier one read comes back too late and is dropped.
   const generation = useRef(0);
   const busy = useRef(false);
-  const again = useRef(false);
-  const readRef = useRef<(read: WindowRead, opens: boolean) => void>(() => {});
   const read = useCallback(
     (r: WindowRead, opens: boolean) => {
       if (opens) {
         generation.current += 1;
-        again.current = false;
       } else if (busy.current) {
-        // What changed while a read was under way is read once it is done.
-        if (r.kind !== 'older') again.current = true;
         return;
       }
       const at = generation.current;
@@ -122,11 +118,6 @@ export function useRoundsWindow(
           setHeld(next);
           setError(null);
           done();
-          if (again.current) {
-            again.current = false;
-            const fresh = refreshRead(next.w);
-            if (fresh !== null) readRef.current(fresh, false);
-          }
         },
         (e: unknown) => {
           if (generation.current !== at) return;
@@ -137,7 +128,6 @@ export function useRoundsWindow(
     },
     [project],
   );
-  readRef.current = read;
   // Opens the window on the newest, or around a round asked for that is not listed.
   const opening = openRead(w, round);
   const opens = opening === null ? null : opening.kind === 'around' ? roundName(opening.round.work, opening.round.n) : 'newest';
@@ -146,20 +136,20 @@ export function useRoundsWindow(
     // Only when what is to be opened changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, opens]);
-  // The architect's rounds changed: the newest listed are read again.
-  const changed = useVersion('architect');
-  const first = useRef(true);
+  // The architect's rounds changed: the newest listed are read again, as the events that name the architect say.
+  const fresh = w !== null ? refreshRead(w) : null;
+  const polled = useResource<ArchitectRounds>('architect', fresh !== null ? windowPath(project, fresh) : null);
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
     const was = now.current !== null && now.current.project === project ? now.current.w : null;
-    const fresh = was !== null ? refreshRead(was) : null;
-    if (fresh !== null) read(fresh, false);
-    // Only when the architect's rounds changed.
+    if (polled.data === undefined || fresh === null || was === null) return;
+    // The round it was read after is not listed any more, as when the window was opened afresh meanwhile.
+    if (fresh.kind === 'newer' && !was.rounds.some((r) => sameRound(keyOf(r), fresh.after))) return;
+    const next = { project, w: merged(was, fresh, polled.data) };
+    now.current = next;
+    setHeld(next);
+    // Only when what was read changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [changed]);
+  }, [polled.data]);
   const more = useCallback(
     (end: 'older' | 'newer') => {
       const was = now.current !== null && now.current.project === project ? now.current.w : null;

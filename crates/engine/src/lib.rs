@@ -277,6 +277,9 @@ pub struct Engine {
     /// How long a run that failed in passing waits before it runs again the first time; twice as long each time
     /// after, up to five minutes.
     pub retry_wait: Duration,
+    /// How long a second of the flow's backoff for a step of the engine's that failed in passing lasts: one second,
+    /// which a test shortens so that it does not wait.
+    pub backoff_unit: Duration,
 }
 
 // A thread that takes a step owns its context, and every thread shares one `Shared`: a field added to either that may
@@ -344,6 +347,7 @@ impl Engine {
             config,
             flow_now,
             retry_wait: Duration::from_secs(10),
+            backoff_unit: Duration::from_secs(1),
         }
     }
 
@@ -362,6 +366,7 @@ impl Engine {
             config: self.shared.config(),
             flow_now: self.flow_now,
             retry_wait: self.retry_wait,
+            backoff_unit: self.backoff_unit,
         })
     }
 

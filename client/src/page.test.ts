@@ -2683,6 +2683,7 @@ describe("the owner's conversations", () => {
       waits_on: null,
       read_to: null,
       forwarding: null,
+      gaps: [],
     };
     expect(d.entries.map((e) => voiceOf(e))).toEqual([
       'agent',

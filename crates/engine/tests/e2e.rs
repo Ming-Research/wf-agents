@@ -21,8 +21,8 @@ use serde_json::{Value, json};
 /// owner lets go on, each step on a thread of its own, and waits for every job to end, as `wf-agents run --once` does.
 trait Passes {
     /// One pass while every work goes on: what its first step that moved came to. A work it leaves gathering the
-    /// history (`G1`, `G2`) has that round taken too, in passes of their own: these tests are about the cells either
-    /// side of it, and those about gathering look at its rounds.
+    /// history (`G1`, `G2`, `G3`) has that round taken too, in passes of their own: these tests are about the cells
+    /// either side of it, and those about gathering look at its rounds.
     fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
     /// One pass while every work goes on, a gathering of the history taken with it as [`Passes::step`] takes it:
     /// whether a step moved or a work started.
@@ -86,7 +86,7 @@ impl Passes for Engine {
                 .db
                 .conn()
                 .query_row(
-                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2') AND ended IS NULL AND paused IS NULL",
+                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2', 'G3') AND ended IS NULL AND paused IS NULL",
                     [],
                     |r| r.get(0),
                 )
@@ -701,25 +701,25 @@ impl GitHub for FakeHub {
     }
 }
 
-/// The ids of the columns the review table lists in a prompt that gives it whole.
-fn columns(prompt: &str) -> Vec<String> {
-    columns_known(prompt, &mut Vec::new())
-}
+/// What the message says before the numbers of the columns a review answers this round, when it does not give the
+/// columns whole.
+const COLUMNS_TO_ANSWER: &str = "Columns to answer this round, one row each, whether or not the change touches them: ";
 
-/// The ids of the columns of the review's table as a session that read its prompts knows them, `known` holding those
-/// it knew before: the table given whole, under its address; what changed in it since, its lines removed and added; or
-/// the table referred to, as given before.
-fn columns_known(prompt: &str, known: &mut Vec<String>) -> Vec<String> {
+/// The ids of the columns a review answers, as a reviewer that has only the message reads them: the line that lists
+/// them, which a message that does not give the columns whole has; otherwise the table given whole under its address.
+/// A table given as what changed, or referred to, with no such line says nothing a reader could answer by, and gives
+/// none.
+fn columns(prompt: &str) -> Vec<String> {
     let Some(start) = prompt.find("## Review table") else {
         return Vec::new();
     };
-    let body: Vec<&str> = prompt[start..]
-        .lines()
-        .skip(1)
-        .skip_while(|l| l.trim().is_empty())
-        .collect();
+    let section = &prompt[start..];
+    if let Some(line) = section.lines().find_map(|l| l.strip_prefix(COLUMNS_TO_ANSWER)) {
+        return line.trim_end_matches('.').split(", ").map(str::to_string).collect();
+    }
+    let body: Vec<&str> = section.lines().skip(1).skip_while(|l| l.trim().is_empty()).collect();
     if !body.first().is_some_and(|l| l.starts_with("### ")) {
-        return known.clone();
+        return Vec::new();
     }
     let lines: Vec<&str> = body[1..]
         .iter()
@@ -727,21 +727,13 @@ fn columns_known(prompt: &str, known: &mut Vec<String>) -> Vec<String> {
         .take_while(|l| !l.trim().is_empty())
         .copied()
         .collect();
-    let id = |l: &str| l.split_once(". ").map(|(id, _)| id.to_string());
     if lines.first().is_some_and(|l| l.starts_with("What changed since")) {
-        for l in &lines[1..] {
-            if let Some(gone) = l.strip_prefix('-').and_then(id) {
-                known.retain(|k| *k != gone);
-            } else if let Some(added) = l.strip_prefix('+').and_then(id) {
-                known.push(added);
-            }
-        }
-        known.sort_by_key(|k| k.parse::<u32>().unwrap_or(u32::MAX));
-        known.dedup();
-    } else {
-        *known = lines.iter().filter_map(|l| id(l)).collect();
+        return Vec::new();
     }
-    known.clone()
+    lines
+        .iter()
+        .filter_map(|l| l.split_once(". ").map(|(id, _)| id.to_string()))
+        .collect()
 }
 
 struct Setup {
@@ -888,22 +880,20 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         }),
     );
     // The table review answers every column of its table.
-    s.insert("T4", answers_columns(vec![("outcome.no_adversarial", "stands")]));
+    s.insert("T4", answers_columns(|_| vec![("outcome.no_adversarial", "stands")]));
     s
 }
 
-/// A review that answers every column of its table as passing, which its session holds from its earlier prompts, with
-/// the choices `also` beside the table.
-fn answers_columns(also: Vec<(&'static str, &'static str)>) -> Script {
-    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
-    Box::new(move |r: &Request, _: usize| {
-        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
-        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
-        let cols: Vec<Value> = ids
+/// A review that answers every column its message tells it to as passing, and only those: it reads the message alone,
+/// as a review that holds nothing of its session's earlier prompts would. `also` gives the choices beside the table
+/// for the review's `n`th round: the first review judges the skipping of adversarial testing, a re-review does not.
+fn answers_columns(also: impl Fn(usize) -> Vec<(&'static str, &'static str)> + Send + Sync + 'static) -> Script {
+    Box::new(move |r: &Request, n: usize| {
+        let cols: Vec<Value> = columns(&r.prompt)
             .into_iter()
             .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
             .collect();
-        (also.clone(), vec![("outcome.columns", json!(cols))])
+        (also(n), vec![("outcome.columns", json!(cols))])
     })
 }
 
@@ -1110,6 +1100,8 @@ fn an_item_goes_from_the_queue_to_main() {
         m.contains("## Review table: answer each column by its number\n\n### columns:T4\n\n1. "),
         "{m}"
     );
+    // The first review has the columns whole in its message, and is not told again which to answer.
+    assert!(!m.contains(COLUMNS_TO_ANSWER), "{m}");
     let ci = given_value(m, "·engine·work_ci").expect(m);
     assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
     // The review line's session is given the worktree once, at its first round, the blind review.
@@ -1390,6 +1382,227 @@ fn the_review_after_a_fix_is_given_the_table_the_fix_answered() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item #216: a table review in the session of an earlier one is not given the columns of its table whole, but referred
+// to, or given as what changed in them, and it answers every column whatever the change touched. The message says by
+// number which columns the round answers, so that a review that reads nothing but the message answers them all and
+// `columns_answered` takes it: R233-59 answered 9 of 19 columns and R238-64 8 of 27, each told only "given to you
+// before". The review here reads nothing else (`answers_columns`).
+#[test]
+fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
+    let s = setup("columns-line");
+    let mut scripts = scripts();
+    // The first review judges the skipping of adversarial testing; a re-review does not.
+    scripts.insert(
+        "T4",
+        answers_columns(|n| {
+            if n == 1 {
+                vec![("outcome.no_adversarial", "stands")]
+            } else {
+                Vec::new()
+            }
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let reviews = |e: &Engine| -> Vec<Value> {
+        agent_rounds(e, item)
+            .into_iter()
+            .filter(|r| r.1 == "T4")
+            .map(|r| r.2)
+            .collect()
+    };
+    for _ in 0..60 {
+        if !reviews(&e).is_empty() {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = || said.lock().unwrap().join("\n");
+    let message = |round: &Value| round["message"].as_str().unwrap_or_default().to_string();
+    let first = reviews(&e);
+    assert_eq!(first.len(), 1, "{}", log());
+    // The first review is given its columns whole, and is not told which to answer.
+    let m = message(&first[0]);
+    let all = columns(&m);
+    assert!(all.len() >= 3, "{all:?}\n{m}");
+    assert!(!m.contains(COLUMNS_TO_ANSWER), "{m}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let sent_back = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'T4' AND rejected IS NOT NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(sent_back(&e), 0, "{}", log());
+    // Another round of the table review, as the work comes back to it.
+    let again = |e: &mut Engine| -> Value {
+        move_to(e, work, "T4");
+        e.step(None).unwrap();
+        reviews(e).last().unwrap().clone()
+    };
+    let insert = |e: &mut Engine, cell: &str, output: &Value, row: &str| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 1, 2)",
+                params![work, next_round(tx, work)?, cell, output.to_string(), row],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    let returned =
+        |outcome: Value| json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none" });
+
+    // The columns are what they were: the message refers to them, and lists every one.
+    let second = again(&mut e);
+    let m = message(&second);
+    assert!(second["call"]["session"]["resumed"].is_string(), "{}", second["call"]);
+    assert!(m.contains("columns:T4, given to you before in R"), "{m}");
+    assert!(m.contains(&format!("{COLUMNS_TO_ANSWER}{}.", all.join(", "))), "{m}");
+    assert_eq!(columns(&m), all, "{m}");
+    assert_eq!(sent_back(&e), 0, "{}", log());
+
+    // A deviation of the implementation adds a column: the message gives what changed, and lists every column, the
+    // new one among them.
+    let deviation = returned(
+        json!({ "deviations": [{ "kind": "workaround", "what": "Used the other way.",
+                                                      "why": "It was needed." }], "test_changes": [] }),
+    );
+    insert(&mut e, "I1", &deviation, "done");
+    let third = again(&mut e);
+    let m = message(&third);
+    assert!(m.contains("What changed since"), "{m}");
+    let added = m
+        .lines()
+        .find(|l| l.starts_with('+') && l.contains("The workaround \"Used the other way.\""))
+        .unwrap_or_else(|| panic!("no added column for the deviation: {m}"));
+    let new_id = added[1..].split_once(". ").unwrap().0.to_string();
+    let listed = columns(&m);
+    assert!(m.contains(COLUMNS_TO_ANSWER), "{m}");
+    assert!(listed.contains(&new_id), "{new_id} not in {listed:?}\n{m}");
+    assert!(listed.len() >= all.len(), "{listed:?} {all:?}");
+    // The review that answered those columns only was taken: `columns_answered` wants exactly the engine's columns.
+    assert_eq!(sent_back(&e), 0, "{}", log());
+
+    // A re-review of disputes has only the column the last review could not verify, and says so.
+    let unverified = returned(json!({ "columns": [{ "id": "4", "verdict": "cannot_verify",
+                                                    "reason": "Nothing was measured." }] }));
+    insert(&mut e, "T4", &unverified, "done");
+    insert(
+        &mut e,
+        "T7",
+        &json!({ "plan": { "review": "disputes", "adversarial": "skipped" } }),
+        "review_first",
+    );
+    let fourth = again(&mut e);
+    let m = message(&fourth);
+    assert!(m.contains(&format!("{COLUMNS_TO_ANSWER}4.")), "{m}");
+    assert_eq!(columns(&m), ["4"], "{m}");
+    assert_eq!(sent_back(&e), 0, "{}", log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #216, acceptance A1, A2 and A3 through the engine, not through the functions the check is made of: a table
+// review that answers a column that is none of them, one column twice and leaves two out is sent back once, with a
+// line for each of the three kinds and every column of a kind in its line; one that then leaves out a single column is
+// sent back with the one line it always had, and the third return is taken. The reference is the item's own example
+// (R246-46/47: columns 4 and 5 left out, said at once) and the text of the single miss before the change.
+#[test]
+fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all_of_them() {
+    let s = setup("columns-misses");
+    let mut scripts = scripts();
+    let listed: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept = listed.clone();
+    scripts.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let mut all = kept.lock().unwrap();
+            if all.is_empty() {
+                *all = columns(&r.prompt);
+            }
+            let ids: Vec<String> = match n {
+                // An unknown column, the first column twice, and the last two columns left out.
+                1 => {
+                    let mut v = all[..all.len() - 2].to_vec();
+                    v.push("99".to_string());
+                    v.push(all[0].clone());
+                    v
+                }
+                // Only the last column left out.
+                2 => all[..all.len() - 1].to_vec(),
+                _ => all.clone(),
+            };
+            let cols: Vec<Value> = ids
+                .iter()
+                .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
+                .collect();
+            (
+                vec![("outcome.no_adversarial", "stands")],
+                vec![("outcome.columns", json!(cols))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let taken = |e: &mut Engine| -> bool {
+        state(e, item).is_some_and(|(work, _, _)| {
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'T4' AND transition IS NOT NULL",
+                    [work],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+                > 0
+        })
+    };
+    assert!(steps_until(&mut e, 80, taken), "{}", said.lock().unwrap().join("\n"));
+    let (work, _, _) = state(&e, item).unwrap();
+    let all = listed.lock().unwrap().clone();
+    assert!(all.len() >= 3, "{all:?}");
+    let why = why_sent_back(&e, work, "T4");
+    assert_eq!(why.len(), 2, "{why:?}\n{}", said.lock().unwrap().join("\n"));
+    let lines = |text: &str| text.matches("columns_answered (columns.id): ").count();
+    // The first return: one line for each kind, and nothing else said.
+    assert_eq!(lines(&why[0]), 3, "{}", why[0]);
+    assert!(
+        why[0].contains("columns_answered (columns.id): there is no column 99"),
+        "{}",
+        why[0]
+    );
+    assert!(
+        why[0].contains(&format!(
+            "columns_answered (columns.id): column {} is answered twice",
+            all[0]
+        )),
+        "{}",
+        why[0]
+    );
+    let n = all.len();
+    assert!(
+        why[0].contains(&format!(
+            "columns_answered (columns.id): columns {}, {} are not answered",
+            all[n - 2],
+            all[n - 1]
+        )),
+        "{}",
+        why[0]
+    );
+    // The second return left out one column: the line of a single miss, as before the change.
+    assert_eq!(lines(&why[1]), 1, "{}", why[1]);
+    assert!(
+        why[1].contains(&format!(
+            "columns_answered (columns.id): column {} is not answered",
+            all[n - 1]
+        )),
+        "{}",
+        why[1]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The judgment whether a work may enter the merge queue reads the newest review, as the fix table does: a column the
 // first review could not verify sends the work to the fix; the re-review that looks only at disputes is given that
 // column again, and only it; and once it hands in no table, the first review's column no longer sends the work to a
@@ -1477,13 +1690,11 @@ fn step_until(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>, what: &
 /// A table review that gives the last column of its table a finding, R1, and answers the others as passing; at each
 /// later round it hands in only `later`, its answers to its earlier findings, one list for each round.
 fn review_with_a_finding(later: Vec<Value>) -> Script {
-    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
     Box::new(move |r: &Request, n: usize| {
         if n > 1 {
             return (Vec::new(), vec![("outcome.previous", later[n - 2].clone())]);
         }
-        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
-        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
+        let ids = columns(&r.prompt);
         let evidence = json!({ "files": [], "ran": [], "nodes": [] });
         let cols: Vec<Value> = ids
             .iter()
@@ -1937,7 +2148,7 @@ fn a_single_step_runs_exactly_one_round() {
         e.db.conn()
             .query_row(
                 "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.graph = 'engineer' AND r.cell NOT IN ('G1', 'G2')",
+                 WHERE w.graph = 'engineer' AND r.cell NOT IN ('G1', 'G2', 'G3')",
                 [],
                 |r| r.get(0),
             )
@@ -2897,7 +3108,10 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     }
     let log = said.lock().unwrap().join("\n");
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
-    assert!(why.starts_with("3 returns of cell R1 in a row were sent back"), "{why}");
+    assert!(
+        why.starts_with("3 returns in a row were sent back, the last at cell R1"),
+        "{why}"
+    );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
     api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
@@ -2915,7 +3129,7 @@ fn agent_rounds(e: &Engine, item: i64) -> Vec<(String, String, Value)> {
     engine::query_json(
         e.db.conn(),
         "SELECT 'R' || r.work || '-' || r.n AS name, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.session IS NOT NULL AND r.cell NOT IN ('G1', 'G2') ORDER BY r.work, r.n",
+         WHERE w.item = ?1 AND r.session IS NOT NULL AND r.cell NOT IN ('G1', 'G2', 'G3') ORDER BY r.work, r.n",
         &[&item],
         1000,
     )
@@ -3367,9 +3581,11 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     assert!(
         paused
             .as_deref()
-            .is_some_and(|p| p.starts_with("2 returns of cell R1 in a row were sent back")),
+            .is_some_and(|p| p.starts_with("2 returns in a row were sent back, the last at cell R1")),
         "{paused:?}\n{log}"
     );
+    // Each return sent back is counted, and none is a retry.
+    assert_eq!((counted(&e, work, "sent_back"), counted(&e, work, "retries")), (2, 0));
     // After a return sent back the message only says why, and that the return is to be rewritten.
     let rounds = agent_rounds(&e, item);
     let (id, _, again) = &rounds[1];
@@ -3428,9 +3644,11 @@ fn sent_back(e: &Engine) -> i64 {
 
 fn rounds_count(e: &Engine) -> i64 {
     e.db.conn()
-        .query_row("SELECT count(*) FROM rounds WHERE cell NOT IN ('G1', 'G2')", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT count(*) FROM rounds WHERE cell NOT IN ('G1', 'G2', 'G3')",
+            [],
+            |r| r.get(0),
+        )
         .unwrap()
 }
 
@@ -3673,6 +3891,8 @@ fn a_passing_failure_runs_again_until_it_passes() {
     // The round after a failed run is told its kind only, never what the command line reported, which may quote the
     // run's own return. The report is looked for whole: the test's directory holds its process id, which may hold 529.
     let (work, _, _) = state(&e, item).unwrap();
+    // Each run again is a retry; none is a return sent back.
+    assert_eq!((counted(&e, work, "retries"), counted(&e, work, "sent_back")), (3, 0));
     let again = message_at(&e, work, "R1", true);
     assert!(
         again.contains("ended without a return (transient)") && !again.contains("529 Overloaded"),
@@ -8630,6 +8850,271 @@ fn the_history_s_address_reads_the_live_database_in_wal_mode() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Only in the log");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The history of the files a change touches is gathered once, by the reader of the history, between the blind review
+// and the first table review, from the change's commits and where the history is. The table review is given it, and
+// is still given it at the re-review after a fix, which does not gather it again. The blind review is given neither
+// the brief nor what the table review is told to do with it.
+#[test]
+fn the_history_of_the_changed_files_is_gathered_once_and_the_table_review_is_given_it() {
+    let s = setup("history-of-the-change");
+    let mut agents = scripts();
+    let brief = "Dropped: a second table, for lack of room (#12), bears on src/lib.txt.";
+    agents.insert(
+        "G3",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!(brief))])),
+    );
+    agents.insert(
+        "T4",
+        review_with_a_finding(vec![json!([{ "fid": "R1", "verdict": "closed" }])]),
+    );
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    // One gathering, between the blind review and the first table review; two table reviews, the second after a fix.
+    assert_eq!(transitions(&e, item, "G3"), ["done"], "{log}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done"], "{log}");
+    let path = path_of(&e, work);
+    let blind = path.iter().position(|c| c == "T3").unwrap();
+    assert_eq!(path[blind..blind + 3].to_vec(), ["T3", "G3", "T4"], "{path:?}");
+    // The table review is given the brief and told what to do with it; the blind review neither.
+    let first = message_at(&e, work, "T4", false);
+    assert!(first.contains(brief), "{first}");
+    assert!(first.contains("records as dropped"), "{first}");
+    assert!(first.contains("`history`"), "{first}");
+    let blind = message_at(&e, work, "T3", false);
+    assert!(
+        !blind.contains(brief) && !blind.contains("records as dropped"),
+        "{blind}"
+    );
+    // The re-review has the brief still, which its session holds: it is referred to, not given again.
+    let given_to = |last: bool| given_ending(&input_at(&e, work, "T4", last), "·G3·brief");
+    assert_eq!((given_to(false), given_to(true)), (Some(true), Some(false)), "{log}");
+    // The gatherer is given the change by commits the worktree has. Where the history is, it is given as the reader's
+    // session was at the first gathering, which that session holds: the round refers to it.
+    let message = message_at(&e, work, "G3", false);
+    let base = given_value(&message, "·engine·review_base").expect(&message);
+    let fork = base["fork_point"].as_str().unwrap_or_default();
+    let head = base["head"].as_str().unwrap_or_default();
+    assert!(fork.len() == 40 && head.len() == 40, "{base}");
+    assert_eq!(base["change"], format!("git diff {fork}..{head}"));
+    assert!(base.get("last_reviewed").is_none(), "{base}");
+    let sources = given_value(&message_at(&e, work, "G1", false), "·engine·history_sources").expect(&log);
+    assert_eq!(sources["database"], config::database(&s.data).display().to_string());
+    assert!(sources["checkout"].is_string(), "{sources}");
+    let at_g3 = given_ending(&input_at(&e, work, "G3", false), "·engine·history_sources");
+    assert_eq!(at_g3, Some(false), "{message}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What the sessions hold decides what a round is given. When the reader's session was compacted before the gathering
+// of the change's history, that round is given where the history is, and when the review's session was compacted
+// before the re-review, that round is given the brief again: the review and the gathering do not rest on a session
+// that holds what they need, they are given it.
+#[test]
+fn the_gathering_and_the_re_review_are_given_what_a_compacted_session_no_longer_holds() {
+    let s = setup("history-after-compaction");
+    let mut agents = scripts();
+    let brief = "Dropped: a second table, for lack of room (#12), bears on src/lib.txt.";
+    agents.insert(
+        "G2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.brief", json!("The code's history.")),
+                    ("@compactions", json!(1)),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "G3",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!(brief))])),
+    );
+    let review = review_with_a_finding(vec![json!([{ "fid": "R1", "verdict": "closed" }])]);
+    agents.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let (set, mut put) = review(r, n);
+            if n == 1 {
+                put.push(("@compactions", json!(1)));
+            }
+            (set, put)
+        }),
+    );
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "G3"), ["done"], "{log}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done"], "{log}");
+    // The gathering is given the change by the engine's review base, and where the history is, as the first gathering
+    // gave it, the value the same.
+    let at_g3 = input_at(&e, work, "G3", false);
+    assert_eq!(given_ending(&at_g3, "·engine·history_sources"), Some(true), "{log}");
+    let message = message_at(&e, work, "G3", false);
+    let base = given_value(&message, "·engine·review_base").expect(&message);
+    assert!(
+        base["change"].as_str().is_some_and(|c| c.starts_with("git diff ")),
+        "{base}"
+    );
+    let sources = given_value(&message, "·engine·history_sources").expect(&message);
+    assert_eq!(sources["database"], config::database(&s.data).display().to_string());
+    assert!(sources["checkout"].is_string(), "{sources}");
+    let first = given_value(&message_at(&e, work, "G1", false), "·engine·history_sources").expect(&log);
+    assert_eq!(sources, first);
+    // The re-review is given the brief again, in its text.
+    let given_to = |last: bool| given_ending(&input_at(&e, work, "T4", last), "·G3·brief");
+    assert_eq!((given_to(false), given_to(true)), (Some(true), Some(true)), "{log}");
+    assert!(message_at(&e, work, "T4", true).contains(brief), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The table review can have more looked up, as the research can: the look-up goes to the reader and back to the table
+// review, in the reader's session, which the first gathering started with the rule for gathering history, once; the
+// table review is given what was found, in the round after.
+#[test]
+fn the_table_review_has_the_history_looked_up_by_the_reader_in_its_session() {
+    let s = setup("history-for-the-review");
+    let mut agents = scripts();
+    agents.insert(
+        "X5",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.brief", json!("What was looked up for the review."))],
+            )
+        }),
+    );
+    // The first round reads the table, so that the later round's answers know its columns, and asks instead.
+    let table = answers_columns(|_| vec![("outcome.no_adversarial", "stands")]);
+    agents.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let answered = table(r, n);
+            if n > 1 {
+                return answered;
+            }
+            (
+                vec![("outcome", "history")],
+                vec![("outcome.history", json!("Was a second table dropped for src/lib.txt?"))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the table review answering", |e| {
+        transitions(e, item, "T4").iter().any(|t| t == "done")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "T4"), ["history", "done"], "{log}");
+    assert!(
+        message_at(&e, work, "X5", false).contains("Was a second table dropped for src/lib.txt?"),
+        "{log}"
+    );
+    assert!(
+        message_at(&e, work, "T4", true).contains("What was looked up for the review."),
+        "{log}"
+    );
+    let session = |cell: &str| session_of(&e, work, cell);
+    for cell in ["G2", "G3", "X5"] {
+        assert_eq!(session("G1"), session(cell), "{cell}");
+    }
+    assert_ne!(session("G1"), session("T4"));
+    // The rule for gathering, with the check of paths, is in the system prompt the reader's session started with, once,
+    // and every later round of it carries that prompt: no cell's own text says it again.
+    let opening = "You gather the history an agent needs before it works.";
+    let started = input_at(&e, work, "G1", false);
+    assert!(in_system(&started, "rule:history"), "{}", started["system"]);
+    let system = system_text(&started).expect("the reader's system prompt");
+    assert_eq!(system.matches(opening).count(), 1, "{system}");
+    assert!(
+        system.contains("put `(gone)` after a path the files do not have"),
+        "{system}"
+    );
+    for cell in ["G1", "G2", "G3", "X5"] {
+        assert_eq!(
+            system_text(&input_at(&e, work, cell, false)),
+            Some(system.clone()),
+            "{cell}"
+        );
+        assert!(!message_at(&e, work, cell, false).contains(opening), "{cell}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's look-up of the history is given the same rule for gathering history as the engineer's reader is, by
+// name, since its line is the search of observations as well: the check of paths reaches every gatherer.
+#[test]
+fn the_architect_s_look_up_of_the_history_is_given_the_rule_for_gathering_it() {
+    let s = setup("architect-history");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return (
+                    vec![("outcome", "history")],
+                    vec![("outcome.history", json!("Why is the parser's item so?"))],
+                );
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    db::say_to_architect(&mut e.db, "p", None, None, "Why is the parser's item so?", &[]).unwrap();
+    let arch = e.step(None).unwrap().work.unwrap();
+    let looked_up = |e: &mut Engine| -> bool {
+        let n: i64 =
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'X5' AND ended_at IS NOT NULL",
+                    [arch],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        n > 0
+    };
+    assert!(
+        steps_until(&mut e, 40, looked_up),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The rule is in the system prompt the look-up's session starts with or in its message, as every line's rules are.
+    let look_up = input_at(&e, arch, "X5", false);
+    let text = format!(
+        "{}\n{}",
+        system_text(&look_up).unwrap_or_default(),
+        look_up["message"].as_str().unwrap_or_default()
+    );
+    assert!(
+        text.contains("put `(gone)` after a path the files do not have"),
+        "{text}"
+    );
+    assert!(text.contains("(gone: moved to <path> in <commit>)"), "{text}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The architect pauses a work in its effects: the engine pauses it, with a reason that says the architect stopped it
 // and why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on, which is the owner's
 // release of it: the architect is told in the owner's words.
@@ -15088,5 +15573,574 @@ fn a_works_graph_is_made_once_and_shared() {
     let first = e.graph_of(&w).unwrap();
     let again = e.graph_of(&w).unwrap();
     assert!(std::sync::Arc::ptr_eq(&first, &again));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// How many times a work took the rows that count a counter, as the view `work_counters` says.
+fn counted(e: &Engine, work: i64, counter: &str) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT coalesce(sum(times), 0) FROM work_counters WHERE work = ?1 AND counter = ?2",
+            params![work, counter],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The row each round of a work took at its cell, oldest first, as the view `round_rows` says.
+fn rows_taken(e: &Engine, work: i64) -> Vec<(String, Option<String>)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT cell, took FROM round_rows WHERE work = ?1 ORDER BY round")
+            .unwrap();
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The architect's work at `U1`, with its project's remote at `url` from now on, and no wait for a step that failed to
+/// be taken again.
+fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
+    no_reply_wait(s);
+    let (mut e, said) = engine(s, scripts());
+    quiet(&mut e);
+    e.backoff_unit = Duration::ZERO;
+    let arch = architect_work_at(&mut e, "U1");
+    git(&s.root.join("checkout"), &["remote", "set-url", "origin", url]);
+    (e, said, arch)
+}
+
+/// A remote that refuses every connection, as a network that fails in passing does.
+const REFUSED: &str = "http://127.0.0.1:1/p.git";
+
+/// Limits the project sets on counters of the flow, committed to the configuration.
+fn limit_on(s: &Setup, limits: &[(&str, u64)]) {
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    let limits: String = limits.iter().map(|(c, n)| format!("{c} = {n}\n")).collect();
+    write(&s.data, "projects/p.toml", &format!("{project}\n[limits]\n{limits}"));
+    git(&s.data, &["commit", "-q", "-am", "limits on counters"]);
+}
+
+// The rows the engine itself takes for a round or a step that failed in passing count `retries`, and a return sent back
+// counts `sent_back`: a project's limit on either is told to the owner once, as the count passes it, and the work goes
+// on. Here a failed step of the architect's work passes a limit of 1 on its second time.
+#[test]
+fn a_step_taken_again_past_its_projects_limit_tells_the_owner_once() {
+    let s = setup("limit-step");
+    limit_on(&s, &[("retries", 1)]);
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    for _ in 0..3 {
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(told(&s, "passed the limit its project sets on retries"), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The same for the agent's rounds: two runs that end in passing failures pass a limit of 1 on `retries` at the second,
+// and two returns sent back pass a limit of 1 on `sent_back` at the second; each is told once.
+#[test]
+fn a_round_run_again_or_sent_back_past_its_projects_limit_tells_the_owner_once() {
+    let s = setup("limit-round");
+    limit_on(&s, &[("retries", 1), ("sent_back", 1)]);
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| match n {
+            1 | 2 => (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))]),
+            3 | 4 => (Vec::new(), vec![("outcome", json!("not an object"))]),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        let work = state(&e, item).unwrap().0;
+        if counted(&e, work, "retries") >= 2 && counted(&e, work, "sent_back") >= 2 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let work = state(&e, item).unwrap().0;
+    assert_eq!(
+        (counted(&e, work, "retries"), counted(&e, work, "sent_back")),
+        (2, 2),
+        "{log}"
+    );
+    assert_eq!(told(&s, "passed the limit its project sets on retries"), 1, "{log}");
+    assert_eq!(told(&s, "passed the limit its project sets on sent_back"), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step of the engine's before the architect's round that fails the way the network does by itself does not pause the
+// work: the failure is recorded on the cell with its text, counted as a retry, and the step is taken again, after which
+// the round runs as if nothing had happened, and is told nothing of the failed step.
+#[test]
+fn a_step_that_fails_like_the_network_is_taken_again() {
+    let s = setup("step-network");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    // First, that the work did not pause: this is what the code before the change fails, where there is no view
+    // `round_rows` to read the rows from yet.
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(
+        rows_taken(&e, arch),
+        [("U1".to_string(), Some("step_network".to_string()))],
+        "{log}"
+    );
+    assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
+    let (input, rejected): (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT input, rejected FROM rounds WHERE work = ?1 AND n = 1",
+                [arch],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(input.contains("127.0.0.1"), "{input}");
+    assert!(
+        rejected.contains("step_network") && !rejected.contains("over"),
+        "{rejected}"
+    );
+    // The remote answers again: the step is taken again and the round runs.
+    git(
+        &s.root.join("checkout"),
+        &["remote", "set-url", "origin", &s.origin.to_string_lossy()],
+    );
+    for _ in 0..3 {
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let rows = rows_taken(&e, arch);
+    assert_eq!(rows[0], ("U1".to_string(), Some("step_network".to_string())), "{log}");
+    assert!(
+        rows.len() > 1 && rows[1].1.as_deref() != Some("step_network"),
+        "{rows:?}\n{log}"
+    );
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
+    // The round that ran is the cell's last; its message says nothing of the step that failed before it.
+    let message = message_at(&e, arch, "U1", true);
+    assert!(
+        message.contains("cell U1") && !message.contains("step_network"),
+        "{message}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that fails for any cause but the network's is not taken again: the work pauses at once, with the reason, and
+// no round records a retry.
+#[test]
+fn a_step_that_fails_for_another_cause_pauses_the_work_at_once() {
+    let s = setup("step-other");
+    let (mut e, said, arch) = architect_with_remote(&s, "/nonexistent/p.git");
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let why: String =
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [arch], |r| r.get(0))
+            .unwrap();
+    assert!(why.contains("could not be brought to main"), "{why}");
+    assert!(rows_taken(&e, arch).is_empty(), "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that keeps failing like the network pauses the work and tells the owner once the flow's bound of failures in a
+// row is passed, the architect's own work as much as any; the owner's Start counts afresh.
+#[test]
+fn a_step_that_keeps_failing_like_the_network_pauses_the_work_past_its_bound() {
+    let s = setup("step-bound");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let mut advances = 0;
+    for _ in 0..12 {
+        e.advance(arch).unwrap();
+        advances += 1;
+        if paused_by(&e, arch).is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    // Five failures are taken again and the sixth pauses; the code before the change pauses at the first. This comes
+    // before any read of the view `round_rows`, which the code before the change does not have.
+    assert_eq!(advances, 6, "{log}");
+    let rows: Vec<Option<String>> = rows_taken(&e, arch).into_iter().map(|r| r.1).collect();
+    let mut want = vec![Some("step_network".to_string()); 5];
+    want.push(Some("step_network_too_often".to_string()));
+    assert_eq!(rows, want, "{log}");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 5, "{log}");
+    assert!(told(&s, "6 times in a row") > 0, "{log}");
+    // Once the owner lets the work go on, it counts afresh: the next failure is retried, not paused.
+    api::resume(&mut e.db, arch).unwrap();
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(
+        rows_taken(&e, arch).last().and_then(|r| r.1.clone()).as_deref(),
+        Some("step_network"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A passing failure of the agent's run is run again only up to the flow's bound of failures in a row: past it, the work
+// pauses and the owner is told. Each run again is counted as a retry, and the run past the bound as none.
+#[test]
+fn a_passing_failure_pauses_the_work_past_its_bound() {
+    let (s, mut e, said, item) = failing("transient-bound", "API Error: 529 Overloaded".to_string(), 100);
+    for _ in 0..30 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    assert!(
+        paused
+            .as_deref()
+            .is_some_and(|p| p.contains("once more after 8 times in a row")),
+        "{paused:?}\n{log}"
+    );
+    assert_eq!(failed_kinds(&e), vec!["transient"; 9], "{log}");
+    assert_eq!(counted(&e, work, "retries"), 8, "{log}");
+    assert_eq!(
+        rows_taken(&e, work).last().and_then(|r| r.1.clone()).as_deref(),
+        Some("transient_too_often"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Failures are in a row only until a row of an agent is taken: eight failures, a return, and one more failure are not
+// nine in a row, and the ninth is not past the bound.
+#[test]
+fn failures_with_a_return_between_are_not_in_a_row() {
+    let s = setup("far-apart");
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))])),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    // Eight failures, as many as the flow runs again, and a return of an agent after them.
+    let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..8).map(|_| ("U1", None, transient.clone())).collect();
+    past.push(("H9", Some("done"), None));
+    past_rounds(&mut e, arch, &past);
+    // The next failure is the first in its row: it is run again, not paused (it would be past the bound if the eight
+    // before the return were counted).
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(
+        rows_after(&e, arch, past.len()),
+        [Some("transient".to_string())],
+        "{log}"
+    );
+    assert_eq!(counted(&e, arch, "retries"), 9, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Rounds already in a work's history, oldest first, each as `(cell, row taken, rejected)`; they began an hour before
+/// now, so that an owner's Start after them ends the row they are in.
+fn past_rounds(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<Value>)]) {
+    let first = db::now() - 3_600_000;
+    e.db.write(Actor::Engine, |tx| {
+        for (i, (cell, row, rejected)) in rounds.iter().enumerate() {
+            let at = first + i as i64;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, rejected, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, ?6, 'c', ?7, ?7)",
+                params![
+                    work,
+                    i as i64 + 1,
+                    cell,
+                    row.map(|_| "{}"),
+                    row,
+                    rejected.as_ref().map(Value::to_string),
+                    at
+                ],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The rejection a round has that a step of the engine's before it failed like the network.
+fn step_failed() -> Option<Value> {
+    Some(json!({ "failed": { "kind": "step_network", "what": "channel 0: open failed: administratively prohibited" } }))
+}
+
+/// The rows a work took after its first `skip` rounds.
+fn rows_after(e: &Engine, work: i64, skip: usize) -> Vec<Option<String>> {
+    rows_taken(e, work).into_iter().skip(skip).map(|r| r.1).collect()
+}
+
+/// Advances a work until it is paused, at most `most` times.
+fn advance_to_pause(e: &mut Engine, work: i64, most: usize) {
+    for _ in 0..most {
+        e.advance(work).unwrap();
+        if paused_by(e, work).is_some() {
+            break;
+        }
+    }
+}
+
+// Five failures of the step and then a return of an agent: the return is a row from outside the engine, so the
+// failures after it are counted afresh, and all five of them are run again before the sixth pauses (a count that kept
+// the five before the return would pause at the first).
+#[test]
+fn step_failures_before_a_return_of_an_agent_are_not_in_a_row_with_those_after_it() {
+    let s = setup("step-reset");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..5).map(|_| ("U1", None, step_failed())).collect();
+    past.push(("H9", Some("done"), None));
+    past_rounds(&mut e, arch, &past);
+    advance_to_pause(&mut e, arch, 12);
+    let log = said.lock().unwrap().join("\n");
+    let mut want = vec![Some("step_network".to_string()); 5];
+    want.push(Some("step_network_too_often".to_string()));
+    assert_eq!(rows_after(&e, arch, 6), want, "{log}");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Rows of the engine's between two failures of the step neither count nor start the count afresh: a failed run, a
+// round cut off and the engine's own cell between five failures leave the sixth past the bound.
+#[test]
+fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
+    let s = setup("step-engine-rows");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
+    let cut_off = Some(json!({ "interrupted": "the engine stopped before this round ended; it runs again" }));
+    let past: Vec<(&str, Option<&str>, Option<Value>)> = vec![
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+        ("Q0", Some("waits"), None),
+        ("U1", None, transient),
+        ("U1", None, cut_off),
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+    ];
+    past_rounds(&mut e, arch, &past);
+    advance_to_pause(&mut e, arch, 12);
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        rows_after(&e, arch, past.len()),
+        [Some("step_network_too_often".to_string())],
+        "{log}"
+    );
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    assert!(told(&s, "6 times in a row") > 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A record of a step that failed before the cell's round is no run of the cell: after a run the service refused and a
+// step that failed like the network, a run refused again pauses the work at once, since the run before the step's
+// record was refused too. (A reading that took the step's record for the round before would find the first refusal
+// of its kind and not pause the work yet.)
+#[test]
+fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
+    let s = setup("refused-at-once");
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| {
+            let flagged = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)";
+            (Vec::new(), vec![("@error", json!(flagged))])
+        }),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
+    past_rounds(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that failed waits as long as the flow's backoff says for the time it failed (5, 15, then 45 of its seconds, a
+// second here being an hour), and not for a shorter or a longer one: the round that runs it again is not begun before
+// the wait is over, and is begun once it is.
+#[test]
+fn a_step_that_failed_is_taken_again_only_after_the_waits_the_flow_gives() {
+    let s = setup("step-backoff");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    e.backoff_unit = Duration::from_secs(3600);
+    let hour = 3_600_000;
+    // The round that failed ended `ago` ago.
+    let ended_ago = |e: &Engine, round: i64, ago: i64| {
+        e.db.conn()
+            .execute(
+                "UPDATE rounds SET ended_at = ?3 WHERE work = ?1 AND n = ?2",
+                params![arch, round, db::now() - ago],
+            )
+            .unwrap();
+    };
+    for (round, hours) in [(1_i64, 5_i64), (2, 15), (3, 45)] {
+        e.advance(arch).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(rows_taken(&e, arch).len() as i64, round, "{log}");
+        // A minute short of the wait: nothing runs.
+        ended_ago(&e, round, hours * hour - 60_000);
+        e.advance(arch).unwrap();
+        e.advance(arch).unwrap();
+        assert_eq!(rows_taken(&e, arch).len() as i64, round, "{round}: {log}");
+        assert_eq!(paused_by(&e, arch), None, "{log}");
+        // A minute past it: the step is taken again, and fails again.
+        ended_ago(&e, round, hours * hour + 60_000);
+    }
+    e.advance(arch).unwrap();
+    assert_eq!(rows_taken(&e, arch).len(), 4, "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Start counts the failed runs of an agent afresh as it does the steps': once the work paused past the
+// bound is let go on, the next failure is run again, not paused.
+#[test]
+fn a_passing_failure_after_the_owner_s_start_is_run_again() {
+    let (s, mut e, said, item) = failing("transient-start", "API Error: 529 Overloaded".to_string(), 100);
+    for _ in 0..30 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let (work, _, paused) = state(&e, item).unwrap();
+    assert!(paused.is_some(), "{}", said.lock().unwrap().join("\n"));
+    let before = rows_taken(&e, work).len();
+    api::resume(&mut e.db, work).unwrap();
+    for _ in 0..2 {
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+    let rows = rows_after(&e, work, before);
+    assert_eq!(rows.first(), Some(&Some("transient".to_string())), "{rows:?}\n{log}");
+    assert!(
+        rows.iter().all(|r| r.as_deref() == Some("transient")),
+        "{rows:?}\n{log}"
+    );
+    assert_eq!(counted(&e, work, "retries"), 8 + rows.len() as i64, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Returns sent back pause the work after the flow's own number, 3, and each is counted.
+#[test]
+fn three_returns_sent_back_in_a_row_pause_the_work() {
+    let s = setup("sent-back-three");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome", json!("not an object"))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    assert!(
+        paused
+            .as_deref()
+            .is_some_and(|p| p.starts_with("3 returns in a row were sent back, the last at cell R1")),
+        "{paused:?}\n{log}"
+    );
+    assert_eq!(sent_back(&e), 3, "{log}");
+    assert_eq!(
+        (counted(&e, work, "sent_back"), counted(&e, work, "retries")),
+        (3, 0),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return of an agent taken between two cells' returns sent back starts the count afresh: two sent back at one cell,
+// its return taken, and two at the next are four, and pause nothing (they would at three).
+#[test]
+fn returns_sent_back_either_side_of_a_return_taken_are_not_in_a_row() {
+    let s = setup("sent-back-apart");
+    let mut scripts = scripts();
+    for cell in ["R1", "R2"] {
+        scripts.insert(
+            cell,
+            Box::new(|_: &Request, n: usize| {
+                let bad = vec![("outcome", json!("not an object"))];
+                (Vec::new(), if n <= 2 { bad } else { Vec::new() })
+            }),
+        );
+    }
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..20 {
+        e.tick().unwrap();
+        let (_, at, paused) = state(&e, item).unwrap();
+        if paused.is_some() || !matches!(at.as_str(), "R1" | "R2") {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert!(!matches!(at.as_str(), "R1" | "R2"), "{at}\n{log}");
+    assert_eq!(sent_back(&e), 4, "{log}");
+    assert_eq!(
+        (counted(&e, work, "sent_back"), counted(&e, work, "retries")),
+        (4, 0),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// `retries` is one counter for a step that failed and a run that failed: with a limit of 1, one step taken again and
+// then one run taken again pass it at the run, which is told once, and the next run taken again is told no more.
+#[test]
+fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
+    let s = setup("limit-mixed");
+    limit_on(&s, &[("retries", 1)]);
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            let fail = vec![("@error", json!("API Error: 529 Overloaded"))];
+            (Vec::new(), if n <= 2 { fail } else { Vec::new() })
+        }),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    // One step taken again already: the count is at the limit, not past it.
+    past_rounds(&mut e, arch, &[("U1", None, step_failed())]);
+    let phrase = "passed the limit its project sets on retries";
+    for _ in 0..6 {
+        e.advance(arch).unwrap();
+        if counted(&e, arch, "retries") >= 3 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(told(&s, phrase), 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
