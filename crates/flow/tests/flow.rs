@@ -869,7 +869,7 @@ fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_tex
     let handing_effects: Vec<&str> = g
         .cells
         .iter()
-        .filter(|cell| gives_effects(*cell))
+        .filter(|cell| gives_effects(cell))
         .map(|cell| cell.id.as_str())
         .collect();
     assert_eq!(handing_effects, ["H1", "H3", "H5", "H7", "H8", "H9", "H10", "H12"]);
