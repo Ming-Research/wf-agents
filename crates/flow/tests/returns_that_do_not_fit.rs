@@ -494,6 +494,43 @@ fn a_place_is_told_with_the_field_it_is_about_through_unions_inside_unions() {
     assert!(places[0].text.starts_with("outcome.rows[2] "), "{places:?}");
 }
 
+// A field the schema does not have is told with the name the agent wrote, whatever characters it holds: the field is
+// the path of its parent and the name, and a name is an object's key, not an item of a list, so it is not written `[]`
+// where it looks like an index; a dot in it is part of it. The reference is the definition of `Misfit::field`. The
+// schema is written here: closed objects, one of which holds a list of closed objects.
+#[test]
+fn a_name_the_agent_wrote_is_the_field_as_it_wrote_it() {
+    let schema = json!({
+        "type": "object", "required": ["label", "items"], "additionalProperties": false,
+        "properties": {
+            "label": { "type": "string" },
+            "items": { "type": "array", "items": {
+                "type": "object", "required": ["a"], "additionalProperties": false,
+                "properties": { "a": { "type": "string" } } } },
+        },
+    });
+    let cases: Vec<(Value, Vec<Option<&str>>)> = vec![
+        // A name that ends like an index.
+        (json!({ "label": "l", "items": [], "x[3]": 1 }), vec![Some("x[3]")]),
+        // A name that is an index and nothing else.
+        (json!({ "label": "l", "items": [], "[7]": 1 }), vec![Some("[7]")]),
+        // A name with a dot: its parent's path and its own name, not told as two fields.
+        (json!({ "label": "l", "items": [], "a.b": 1 }), vec![Some("a.b")]),
+        // A name with a bracket that is not closed.
+        (json!({ "label": "l", "items": [], "m[": 1 }), vec![Some("m[")]),
+        // In an item of a list: the item's index is written `[]`, the name is not; the same name in two items is one field.
+        (
+            json!({ "label": "l", "items": [{ "a": "s", "k[12]": 1 }, { "a": "s", "k[12]": 2 }] }),
+            vec![Some("items[].k[12]"), Some("items[].k[12]")],
+        ),
+    ];
+    for (value, fields) in cases {
+        let places = flow::misfit_places(&schema, &value, "");
+        let told: Vec<Option<&str>> = places.iter().map(|p| p.field.as_deref()).collect();
+        assert_eq!(told, fields, "{value}\n{places:?}");
+    }
+}
+
 /// A return a cell refuses is refused with the places it is about besides the text `take` gives: a return that does not
 /// fit the schema with each place of it, one that no row takes with its sentence as its one place of no field (the row
 /// of cell D2 that takes a return is chosen by the values the engine gives it), and a cell that is not there likewise.

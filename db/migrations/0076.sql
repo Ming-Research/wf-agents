@@ -89,9 +89,9 @@ CREATE VIEW sent_back_problems AS
   -- kept has no row. `field` is the check's `at` in the flow (`columns[pass].evidence`) for a check and the path in the
   -- schema with each list index written `[]` (`columns[].evidence`) for `format`, so group by `check_name` and
   -- `field` together. One return may hold several problems of one check and field: count returns with
-  -- `count(DISTINCT work || '-' || round)` and problems with the rows. Read by: people and agents counting the returns
-  -- sent back by check and by field; the architect's items on returns sent back (#198) and the merging of like ones
-  -- (#257).
+  -- `count(DISTINCT work || '-' || round)` and problems with the rows. Read by: today only people and agents who query
+  -- it, to count the returns sent back by check and by field. The architect's items on returns sent back (#198) and the
+  -- merging of like ones (#257) will read it; no code reads it yet.
   SELECT r.work, r.n AS round, r.cell, p.key AS position,
     json_extract(p.value, '$.check') AS check_name,
     json_extract(p.value, '$.field') AS field,
