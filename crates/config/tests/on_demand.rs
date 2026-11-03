@@ -68,9 +68,7 @@ impl Data {
         put("rules/ground.md", "Write in `owner.language`.");
         put(
             "projects/p.toml",
-            &format!(
-                "extends = [\"common\"]\nrepo = \"o/p\"\ncheckout = \"/tmp/p\"\nrules = [\"ground\"]\n[ci]\n{ci}"
-            ),
+            &format!("extends = [\"common\"]\nrepo = \"o/p\"\ncheckout = \"/tmp/p\"\nrules = [\"ground\"]\n[ci]\n{ci}"),
         );
         Data(dir)
     }
@@ -94,16 +92,9 @@ fn refused(name: &str, ci: &str) -> Option<String> {
 // A project whose CI runs on demand has a fast workflow that is not one of its full CI's: the fast workflow is run by
 // hand with the tests named, and its green means those tests passed, so that, as one of the full workflows, it would
 // give the merge a check that the whole CI never ran. The same project with another workflow for the fast CI, and the
-// project that does not run on demand, are read as before. The input that takes the tests is a name: an empty one
-// cannot be passed to the workflow.
+// project that does not run on demand, are read as before.
 #[test]
-fn a_ci_on_demand_has_its_fast_workflow_apart_from_the_full_ones_and_names_its_input() {
-    // The shared file names `ci` as both the fast workflow and the full one.
-    let e = refused("same", "on_demand = true\n").expect("on demand with one workflow for both is refused");
-    assert!(e.contains("projects/p.toml") && e.contains("on_demand"), "{e}");
-    let e = refused("empty", "on_demand = true\nfast = \"fast\"\ntests_input = \"\"\n")
-        .expect("an empty input name is refused");
-    assert!(e.contains("projects/p.toml") && e.contains("tests_input"), "{e}");
+fn a_ci_on_demand_has_its_fast_workflow_apart_from_the_full_ones() {
     let apart = Data::new("apart", "on_demand = true\nfast = \"fast\"\n");
     let c = config::working(apart.path()).unwrap();
     assert!(c.projects["p"].ci.on_demand);
@@ -113,4 +104,16 @@ fn a_ci_on_demand_has_its_fast_workflow_apart_from_the_full_ones_and_names_its_i
     let c = config::working(off.path()).unwrap();
     assert!(!c.projects["p"].ci.on_demand);
     assert_eq!(c.projects["p"].ci.fast, "ci");
+    // The shared file names `ci` as both the fast workflow and the full one.
+    let e = refused("same", "on_demand = true\n").expect("on demand with one workflow for both is refused");
+    assert!(e.contains("projects/p.toml") && e.contains("on_demand"), "{e}");
+}
+
+// The input that takes the tests is a name: an empty one cannot be passed to the workflow, which the tool would run
+// with an input of no name.
+#[test]
+fn a_ci_on_demand_names_its_input_to_the_workflow() {
+    let e = refused("empty", "on_demand = true\nfast = \"fast\"\ntests_input = \"\"\n")
+        .expect("an empty input name is refused");
+    assert!(e.contains("projects/p.toml") && e.contains("tests_input"), "{e}");
 }

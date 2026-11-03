@@ -76,7 +76,10 @@ fn the_fast_workflow_runs_only_by_hand_and_has_no_job_a_merge_waits_for() {
     let text = workflow("workflows/fast.yml");
     assert_eq!(children(&block(&text, "on")), ["workflow_dispatch"]);
     let on = block(&text, "on").join("\n");
-    assert!(on.contains("inputs:") && on.contains("      tests:"), "no input `tests`:\n{on}");
+    assert!(
+        on.contains("inputs:") && on.contains("      tests:"),
+        "no input `tests`:\n{on}"
+    );
     let jobs = block(&text, "jobs");
     let names = children(&jobs);
     assert_eq!(names, ["lint", "test", "fast"], "the jobs of fast.yml");
@@ -107,7 +110,10 @@ fn the_full_workflow_keeps_the_check_a_merge_waits_for() {
 // a cancelled run reads as no pass.
 #[test]
 fn the_two_workflows_do_not_share_a_concurrency_group() {
-    let (fast, full) = (group(&workflow("workflows/fast.yml")), group(&workflow("workflows/ci.yml")));
+    let (fast, full) = (
+        group(&workflow("workflows/fast.yml")),
+        group(&workflow("workflows/ci.yml")),
+    );
     assert!(fast.starts_with("fast-"), "{fast}");
     assert!(full.starts_with("ci-"), "{full}");
     assert_ne!(fast, full);
@@ -119,7 +125,10 @@ fn the_two_workflows_do_not_share_a_concurrency_group() {
 fn the_lint_is_one_action_and_the_fast_workflow_skips_it_on_a_temporary_branch() {
     let fast = workflow("workflows/fast.yml");
     let lint = job(&block(&fast, "jobs"), "lint").join("\n");
-    assert!(lint.contains("startsWith(github.ref_name, 'wf-agents-before/')"), "{lint}");
+    assert!(
+        lint.contains("startsWith(github.ref_name, 'wf-agents-before/')"),
+        "{lint}"
+    );
     assert!(lint.contains("uses: ./.github/actions/lint"), "{lint}");
     let full = workflow("workflows/ci.yml");
     let lint = job(&block(&full, "jobs"), "lint").join("\n");
