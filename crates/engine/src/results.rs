@@ -371,6 +371,50 @@ error[E0599]: no method named `rounds_mark` found
         );
     }
 
+    // Retries as nextest's JUnit documentation writes them (nexte.st/docs/machine-readable/junit): a test that failed on
+    // every try has its last failure as `failure` and each earlier one as `rerunFailure`, and failed; one that failed
+    // and then passed has only `flakyFailure` or `flakyError` elements, and passed; one marked to fail when flaky has
+    // `failure` beside them, and failed. The same with `error` and `rerunError`.
+    #[test]
+    fn a_test_that_failed_on_every_try_failed_and_one_that_passed_on_a_retry_passed() {
+        let xml = r#"<testsuites><testsuite name="u">
+  <testcase name="always" time="0.3">
+    <failure type="test failure">last</failure>
+    <rerunFailure type="test failure">first</rerunFailure>
+    <rerunFailure type="test failure">second</rerunFailure>
+  </testcase>
+  <testcase name="rerun_first" time="0.3">
+    <rerunFailure type="test failure">first</rerunFailure>
+    <failure type="test failure">last</failure>
+  </testcase>
+  <testcase name="crashed"><error type="test abort"/><rerunError type="test abort"/></testcase>
+  <testcase name="flaky">
+    <flakyFailure type="test failure">once</flakyFailure>
+    <flakyFailure type="test failure">twice</flakyFailure>
+  </testcase>
+  <testcase name="flaky_error"><flakyError type="test abort"/></testcase>
+  <testcase name="flaky_fail"><failure type="flaky"/><flakyFailure type="test failure"/></testcase>
+</testsuite></testsuites>"#;
+        let run = read(&[file("junit.xml", xml)]).unwrap();
+        let got: Vec<(&str, &str, Option<&str>)> = run
+            .cases
+            .iter()
+            .map(|c| (c.test.name.as_str(), c.outcome.as_str(), c.ended.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("always", "failed", Some("failure")),
+                ("rerun_first", "failed", Some("failure")),
+                ("crashed", "failed", Some("error")),
+                ("flaky", "passed", None),
+                ("flaky_error", "passed", None),
+                ("flaky_fail", "failed", Some("failure")),
+            ]
+        );
+        assert!(run.unbuilt.is_empty(), "{:?}", run.unbuilt);
+    }
+
     // A file that is not XML, not UTF-8 or not JUnit makes the whole run unread, saying which file; an artifact with no
     // JUnit file is unread too, so that a test of a file that cannot be read is never taken for passed.
     #[test]

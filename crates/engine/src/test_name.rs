@@ -149,6 +149,37 @@ mod tests {
         }
     }
 
+    // A title that holds both separators, as a page test of a class's method does (`Api::get > returns rows`), is cut
+    // only right after one of them, wherever they stand and in whichever order; never inside a part, and never at the
+    // `/` of its file's path, which is no separator here.
+    #[test]
+    fn a_title_that_holds_a_separator_is_cut_only_right_after_one() {
+        let s = seps(&["::", " > "]);
+        let t = test("src/api.test.ts", "Api::get > returns rows");
+        for named in [
+            "returns rows",
+            "get > returns rows",
+            "Api::get > returns rows",
+            "src/api.test.ts > Api::get > returns rows",
+            "src/api.test.ts::Api::get > returns rows",
+            "src/api.test.ts Api::get > returns rows",
+        ] {
+            assert!(names(named, &t, &s), "{named}");
+        }
+        for named in [
+            "Api::get",
+            "Api",
+            "rows",
+            "et > returns rows",
+            "> returns rows",
+            ":get > returns rows",
+            "api.test.ts > Api::get > returns rows",
+            "src/api.test.ts",
+        ] {
+            assert!(!names(named, &t, &s), "{named}");
+        }
+    }
+
     // A separator that is empty separates nothing: it does not let a name name every test whose name ends in it.
     #[test]
     fn an_empty_separator_cuts_nothing() {

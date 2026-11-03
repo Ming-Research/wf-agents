@@ -3532,6 +3532,45 @@ mod tests {
         );
     }
 
+    // Item #11: a table's name is tied to the tests a run reported by `names`, not to the row a request wrote: ci named
+    // `a_row`, which names a passing test of one unit and a failing one of another, and the row says failed. The table
+    // that names the passing test alone (`engine::e2e a_row`) said green rightly; one that names both (`a_row`) or the
+    // failing one did not; and ci_before is read the same way.
+    #[test]
+    fn a_table_s_name_is_judged_by_the_tests_it_names_not_by_the_row_it_was_run_under() {
+        let both = row(
+            "a_row",
+            "failed",
+            &[
+                ("engine::e2e", "a_row", "passed"),
+                ("engine", "tools::tests::a_row", "failed"),
+            ],
+        );
+        let head = [json!({ "tests": [both.clone()] })];
+        let before = vec![before_run(
+            json!({ "checks": [{ "name": "test", "result": "red" }], "tests": [both] }),
+            "aaaaaaaaaaaa",
+            &["t/x.rs"],
+        )];
+        let rows = vec![
+            json!({ "name": "engine::e2e a_row", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "e2e::a_row", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "a_row", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "tests::a_row", "on_head": "red", "on_base": "red" }),
+            json!({ "name": "engine tools::tests::a_row", "on_head": "green", "on_base": "red" }),
+        ];
+        assert_eq!(
+            said(results_vs_runs(&rows, &head, &before, &seps(), |_| Vec::new())),
+            [
+                "a_row is said to be green on the head, and the latest run of ci there that reported it reports it \
+                 failed",
+                "a_row is said to be green before the change, and ci_before reports it failed: say red",
+                "engine tools::tests::a_row is said to be green on the head, and the latest run of ci there that \
+                 reported it reports it failed",
+            ]
+        );
+    }
+
     #[test]
     fn every_test_in_a_table_of_the_wrong_kind_is_said() {
         let rows = vec![
