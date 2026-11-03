@@ -433,7 +433,12 @@ pub fn gather(
         let mut parts: Vec<Part> = Vec::new();
         let after = if x.unanswered { last_answer } else { None };
         for s in &x.from {
-            parts.extend(source(e, w, g, cell, item, s, x.newest, after, main)?);
+            match s {
+                // What the cell before this one answered of the matter, and for a group of matters, of the others too:
+                // one place of its return for each.
+                Src::Engine(n) if n == crate::architect::BEFORE => parts.extend(crate::architect::before(e, w, g)?),
+                _ => parts.extend(source(e, w, g, cell, item, s, x.newest, after, main)?),
+            }
         }
         let value = match parts.as_slice() {
             [] => None,
@@ -579,8 +584,6 @@ fn source(
                 })
             }
         }
-        // What the cell before this one on a matter's path answered is a place of that round's return.
-        Src::Engine(n) if n == crate::architect::BEFORE => crate::architect::before(e, w, g)?,
         Src::Engine(n) if n == DESIGN_CHANGE => design_change(e, w, g, &cell.id)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,

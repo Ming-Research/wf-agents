@@ -693,11 +693,13 @@ CREATE TABLE interjections (
   delivered_round INTEGER,
   -- For the notice that an item this work's item depended on was cancelled: that item; NULL for anything else said.
   -- The cells where the work waits (`A2`, `A6`, `M1`) take such a notice to choose the way on by a row of their own,
-  -- as an item they waited for that will never deliver. Read by: the engine's value `cancelled`.
+  -- as an item they waited for that will never deliver, when it is for the line the work stands on: a question asked
+  -- from another line is not withdrawn for it, since the cell the work goes back to would not hear it. Read by: the
+  -- engine's values `cancelled` and `held`.
   cancelled_item INTEGER REFERENCES items(id),
   -- 1 for a word that needs no answer and changes no way on, as the owner confirming every decision of a design card:
   -- the line's next round is given it, and a work standing at an engine step is not taken by it to choose the way on.
-  -- Read by: the engine's value `interjection`.
+  -- Read by: the engine's values `interjection`, `cancelled` and `held`, which leave such words out.
   informs INTEGER NOT NULL DEFAULT 0 CHECK (informs IN (0, 1)),
   -- For what the owner said in the work's group to its project's architect: that architect's matter, which holds the
   -- words. Said to the architect alone, the engineer is given it as a word that needs no answer (informs); said to
@@ -728,7 +730,10 @@ CREATE TABLE changes (
   -- Every change to a row of a state table: who made it, when, the row before and after. Written by triggers that the
   -- engine generates from this file, in the same transaction as the change, so no write can skip it. rounds and
   -- tool_runs are history themselves and are not tracked; neither are changes and outbox.
-  -- Read by: people and agents looking at how something got where it is; views that need when a row was created.
+  -- Read by: people and agents looking at how something got where it is; views that need when a row was created, said
+  -- or came to a state, or in what order rows did (find them by searching this file for `FROM changes`). Nothing
+  -- deletes from it: such a view would answer differently if rows were cut away, so cutting it first means changing
+  -- those views.
   id INTEGER PRIMARY KEY,
   -- The transaction; the rows one write changed share it.
   tx INTEGER NOT NULL,
@@ -834,6 +839,16 @@ CREATE TABLE architect_matters (
   -- otherwise, and again once it is closed or a cell on its path asks the owner about it. Read by: the queue, which
   -- takes it again before any other matter but the owner's words, a reply and the waits; the engine, which routes it.
   goes_on_at TEXT,
+  -- For a side report or an engineer's answer the architect picked together with others of its kind in one pick (the
+  -- pick's `with`), the matter that leads the group: the one that was picked. NULL for a matter picked alone, and for
+  -- the lead itself. A group is its lead and the matters not handled whose group_lead is the lead; the lead's cells
+  -- answer for each of them, and one round closes them all. It is cleared for the matters of a group when the lead is
+  -- parked for the owner's reply (the group falls apart, each goes its own way), for a member the round that takes the
+  -- group in gives the way back_for_owner (it needs the owner, so it goes back to the queue on its own while the rest
+  -- are handled) and for any not handled when the next pick is made (a group left by a work that ended before it was
+  -- handled); it stays on a matter handled, saying with which others it was handled. Read by: the engine, which gives the lead's cells each matter of the group, closes
+  -- them together and tells each one's reporter what became of it.
+  group_lead INTEGER REFERENCES architect_matters(id),
   -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
   -- work's group to a question the architect holds is the reply too, said by the owner (by), with who the caller
   -- declared to speak (speaker, owner or delegate). Read by: the engine, which takes it back unchanged to the work that
@@ -1398,11 +1413,17 @@ CREATE VIEW waiting_interjections AS
   WHERE j.delivered_round IS NULL;
 
 CREATE VIEW merge_queue AS
-  -- Each project's merge queue: the works at the merge cell, oldest first. Read by: cell `M2`.
+  -- Each project's merge queue: the works at the merge cell, in the order they came to it; a work that left it and
+  -- came back is last. Read by: cell `M2`.
   SELECT i.project, w.id AS work, w.pr, w.pushed_head
   FROM works w JOIN items i ON i.id = w.item
   WHERE w.at IN ('M2', '9', 'merge_queue', 'merge.queue') AND w.ended IS NULL
-  ORDER BY w.id;
+  -- The newest change of the row that changed `at` brought it to this cell. Scanned from the newest change back, so
+  -- it stops after the few since then.
+  ORDER BY (SELECT c.id FROM changes c
+            WHERE c.table_name = 'works' AND c.row_key = json_object('id', w.id)
+              AND json_extract(c.old_row, '$.at') IS NOT json_extract(c.new_row, '$.at')
+            ORDER BY c.id DESC LIMIT 1), w.id;
 
 CREATE VIEW side_reports AS
   -- Every side report a round handed in. Read by: the engine, which queues each for the architect; the owner's

@@ -675,6 +675,84 @@ pub fn picked(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
     picked_before(conn, work, None)
 }
 
+// Groups of matters picked together.
+
+/// The most matters the pick names to go with the one it picks, so that a group is at most eight.
+const GROUP_MOST: usize = 7;
+
+/// The most characters of a side report's or an answer's text the queue gives, cut at a word.
+const EXCERPT: usize = 400;
+
+/// The kind of group a matter may be in, which is the kind of report it is for the cells that take it in
+/// ([`value`]'s `report`): a side report an agent handed in beside its work, or an engineer's answer to what the
+/// architect said to its work. None for any other matter: a report's what to do next, flow feedback, a fault, the side
+/// reports a migration put in one matter, and every kind of matter that is no report.
+fn group_class(kind: &str, detail: Option<&str>, body: &Value) -> Option<&'static str> {
+    match (kind, detail) {
+        ("report", Some("answer")) => Some("answer"),
+        ("report", Some("followup" | FLOW_FEEDBACK | db::FAULT)) => None,
+        ("report", _) if body["report"].is_object() => Some("side_report"),
+        _ => None,
+    }
+}
+
+/// The text of a side report or an answer, which is all its excerpt in the queue is made of.
+fn report_text(body: &Value) -> &str {
+    text(&body["report"]["what"])
+}
+
+/// A text cut to at most [`EXCERPT`] characters at a word, its spaces collapsed.
+fn excerpt(s: &str) -> String {
+    flow::cut(&s.split_whitespace().collect::<Vec<_>>().join(" "), EXCERPT)
+}
+
+/// The other matters of the group `lead` leads: those picked with it that are not handled, oldest first.
+fn members(conn: &Connection, lead: i64) -> Result<Vec<i64>, String> {
+    Ok(query_json(
+        conn,
+        "SELECT id FROM architect_matters WHERE group_lead = ?1 AND handled_round IS NULL AND withdrawn IS NULL
+         ORDER BY id",
+        &[&lead],
+        ROWS,
+    )?
+    .iter()
+    .filter_map(|r| r["id"].as_i64())
+    .collect())
+}
+
+/// The way of a member of a group (`with` of the cell that takes the group in) that is not taken in with the group: it
+/// needs the owner's word, so it goes back to the queue on its own.
+const BACK_FOR_OWNER: &str = "back_for_owner";
+
+/// Takes the matters `matters` that are not handled out of the group they are in, so that each is a matter of the queue
+/// on its own again, to be picked as any other.
+fn leave_group(tx: &Transaction<'_>, matters: &[i64]) -> Result<(), String> {
+    for m in matters {
+        tx.execute(
+            "UPDATE architect_matters SET group_lead = NULL, goes_on_at = NULL WHERE id = ?1 AND handled_round IS NULL",
+            [m],
+        )
+        .map_err(sql)?;
+    }
+    Ok(())
+}
+
+/// The group `lead` leads, the lead first: the matters one round of each cell on its path answers for. A matter picked
+/// alone is a group of one.
+fn group_of(conn: &Connection, lead: i64) -> Result<Vec<i64>, String> {
+    let mut group = vec![lead];
+    group.extend(members(conn, lead)?);
+    Ok(group)
+}
+
+/// The matters of the group the architect work `work` has in hand, the matter picked first.
+fn group_in_hand(conn: &Connection, work: i64) -> Result<Vec<i64>, String> {
+    match picked(conn, work)? {
+        Some(lead) => group_of(conn, lead),
+        None => Ok(Vec::new()),
+    }
+}
+
 /// The round an architect work's batch began after: its latest rethink, which ends a batch; 0 when it had none.
 fn batch_start(conn: &Connection, work: i64) -> Result<i64, String> {
     count(
@@ -1998,21 +2076,46 @@ fn message(tx: &Transaction<'_>, from: &str, to: &str, words: &str, detail: &str
     queue_matter(tx, &m).map_err(sql)
 }
 
+/// The body of a message to another project's architect, which says the matter it comes of: the matter the message names
+/// (`m`, of a group), or else the matter in hand `matter`.
+fn message_body(project: &str, m: &Value, matter: i64, work: i64) -> Value {
+    json!({ "from": project, "text": m["text"], "matter": m["matter"].as_i64().unwrap_or(matter), "work": work })
+}
+
+/// An item change as the batch keeps it: the change itself, without the matter it names, which the batch keeps in the
+/// row of the change.
+fn kept_change(change: &Value) -> Value {
+    let mut kept = change.clone();
+    if let Some(o) = kept.as_object_mut() {
+        o.remove("matter");
+    }
+    kept
+}
+
 /// Carries out the effects of an answer on a matter's path: item changes are collected into the architect work's batch;
 /// changes to observations, actions and messages are made at once.
 fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(), String> {
     let (w, project) = architect_work_of(ctx)?;
     let matter = matter_of(tx, w)?;
+    // A change comes of the matter of the group it names, or else of the matter picked; the batch keeps the change
+    // itself, without the name.
     for c in items(effects.get("item_changes")) {
+        let change = kept_change(&c);
         tx.execute(
             "INSERT INTO architect_item_changes (work, round, matter, change, state) VALUES (?1, ?2, ?3, ?4, 'collected')",
-            params![ctx.round.work, ctx.round.n, matter, c.to_string()],
+            params![
+                ctx.round.work,
+                ctx.round.n,
+                c["matter"].as_i64().unwrap_or(matter),
+                change.to_string()
+            ],
         )
         .map_err(sql)?;
     }
     cancel_within_batch(tx, w)?;
     for o in items(effects.get("observation_changes")) {
-        observe(tx, &project, &format!("matter {matter}"), &o)?;
+        let from = o["matter"].as_i64().unwrap_or(matter);
+        observe(tx, &project, &format!("matter {from}"), &o)?;
     }
     for a in items(effects.get("actions")) {
         act_now(tx, &project, &a)?;
@@ -2025,7 +2128,7 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
         "message"
     };
     for m in items(effects.get("messages")) {
-        let body = json!({ "from": project, "text": m["text"], "matter": matter, "work": w });
+        let body = message_body(&project, &m, matter, w);
         message(tx, &project, text(&m["project"]), text(&m["text"]), detail, body)?;
     }
     Ok(())
@@ -2050,6 +2153,42 @@ fn changes_items(ctx: &Ctx) -> bool {
     !items(ctx.unwrapped["effects"].get("item_changes")).is_empty()
 }
 
+/// Whether the effects of a round (`outcome`, as it handed them in) hold an item change that comes of matter `m`,
+/// `lead` being the matter picked, which a change that names no matter comes of.
+fn changes_matter(outcome: &Value, m: i64, lead: i64) -> bool {
+    items(outcome["effects"].get("item_changes"))
+        .iter()
+        .any(|c| c["matter"].as_i64().unwrap_or(lead) == m)
+}
+
+/// What a round that took a group in handed in about one matter of it, as a round on that matter alone hands it in:
+/// its way (`take` for the matter picked, the entry of `with` that names the other) and the changes to observations and
+/// the messages to other architects that come of it. The matter picked is the one no entry of `with` names, and a
+/// change or a message that names no matter comes of it.
+fn about_matter(outcome: &Value, matter: i64) -> Value {
+    let named = |x: &Value| x["matter"].as_i64();
+    let other = items(outcome.get("with"))
+        .into_iter()
+        .find(|x| named(x) == Some(matter));
+    let take = match &other {
+        Some(x) => json!({ "way": x["way"], "why": x["why"] }),
+        None => outcome["take"].clone(),
+    };
+    let own = |o: &Value| named(o) == Some(matter) || (other.is_none() && named(o).is_none());
+    let observation_changes: Vec<Value> = items(outcome["effects"].get("observation_changes"))
+        .into_iter()
+        .filter(own)
+        .collect();
+    let messages: Vec<Value> = items(outcome["effects"].get("messages"))
+        .into_iter()
+        .filter(own)
+        .collect();
+    json!({
+        "take": take,
+        "effects": { "observation_changes": observation_changes, "messages": messages },
+    })
+}
+
 /// A reply with the keys of the items a batch made put back as their numbers.
 fn numbered(reply: &Value, keys: &BTreeMap<String, i64>) -> Value {
     let mut r = reply.clone();
@@ -2065,20 +2204,34 @@ fn numbered(reply: &Value, keys: &BTreeMap<String, i64>) -> Value {
     r
 }
 
+/// Rows of a batch that are left out, each with what was found of it: the review's row, or why the write refused it.
+type LeftOut = Vec<(Change, Value)>;
+
 /// Makes the given rows of an architect work's batch, as the architect, each in order; a key a change made the item
-/// under is given its number. Gives the keys and the numbers they were given.
+/// under is given its number. Gives the keys and the numbers they were given, and the rows the write refused, each with
+/// why, to be left out as the review's drops are: the review judged the batch whole, and a dependency one of its drops
+/// leaves open may close a cycle with a change it kept.
 fn make(
     tx: &Transaction<'_>,
     rows: &[Change],
     projects: &BTreeMap<String, config::Project>,
-) -> Result<BTreeMap<String, i64>, String> {
+) -> Result<(BTreeMap<String, i64>, LeftOut), String> {
     let changes: Vec<Value> = rows.iter().map(|r| r.3.clone()).collect();
-    let created = crate::arch_changes::write_all(tx, &changes, projects)?;
-    let keys: BTreeMap<String, i64> = created
+    let written = crate::arch_changes::write_all(tx, &changes, projects)?;
+    let keys: BTreeMap<String, i64> = written
+        .created
         .iter()
         .filter_map(|c| Some((c["key"].as_str()?.to_string(), c["id"].as_str()?.parse().ok()?)))
         .collect();
-    for (id, _, _, change) in rows {
+    let refused: BTreeMap<usize, &String> = written.refused.iter().map(|(i, why)| (*i, why)).collect();
+    let mut left_out = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        if let Some(why) = refused.get(&i) {
+            let what = format!("It was not made, as the changes the review left out leave the items: {why}");
+            left_out.push((row.clone(), json!({ "verdict": "drop", "what": what })));
+            continue;
+        }
+        let (id, _, _, change) = row;
         let outcome = match change["kind"].as_str() {
             Some("create_item") => keys.get(text(&change["key"]).trim()).map(|n| json!({ "created": n })),
             _ => None,
@@ -2089,7 +2242,7 @@ fn make(
         )
         .map_err(sql)?;
     }
-    Ok(keys)
+    Ok((keys, left_out))
 }
 
 /// The keys of items the batch was to create that a reply names, in its children and its waits: those that are no
@@ -2404,6 +2557,8 @@ fn answer(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<(), Stri
     let Some(r) = reporter(tx, matter)? else {
         return Ok(());
     };
+    // What the round handed in about this matter: for a matter of a group, its own way and its own changes.
+    let outcome = &about_matter(outcome, matter);
     let reply: Option<String> = tx
         .query_row("SELECT reply FROM architect_matters WHERE id = ?1", [matter], |x| {
             x.get(0)
@@ -2663,7 +2818,8 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let review = items(ctx.unwrapped.get("review"));
     let (sound, mut left_out) = sorted_by_review(collected(tx, w)?, &review);
     let sound = without_stale_approaches(tx, sound, &mut left_out)?;
-    let keys = make(tx, &sound, &ctx.projects)?;
+    let (keys, refused) = make(tx, &sound, &ctx.projects)?;
+    left_out.extend(refused);
     drop_rows(tx, &left_out)?;
     // What the review drops is left out, and what it still finds to fix is put to the owner.
     let dropped: Vec<(Change, Value)> = left_out.into_iter().filter(|(_, f)| f["verdict"] == "fix").collect();
@@ -3044,13 +3200,66 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             actions::outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
         }
         "close_matter" => {
-            let m = matter_of(tx, w)?;
+            // The matter picked and every other matter of its group, by the one round.
+            let group = group_of(tx, matter_of(tx, w)?)?;
+            for m in group {
+                tx.execute(
+                    "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3, goes_on_at = NULL
+                     WHERE id = ?1 AND handled_round IS NULL",
+                    params![m, ctx.round.work, ctx.round.n],
+                )
+                .map_err(sql)?;
+            }
+        }
+        "group_picked" => {
+            // A group left unhandled by a work that ended before it was handled falls apart. The look at the queue
+            // takes a matter that goes on at its second cell before it lets the architect pick, so none of the groups
+            // cleared is in the middle of its cells.
+            let (_, project) = architect_work_of(ctx)?;
             tx.execute(
-                "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3, goes_on_at = NULL
-                 WHERE id = ?1 AND handled_round IS NULL",
-                params![m, ctx.round.work, ctx.round.n],
+                "UPDATE architect_matters SET group_lead = NULL
+                 WHERE project = ?1 AND group_lead IS NOT NULL AND handled_round IS NULL",
+                params![project],
             )
             .map_err(sql)?;
+            if let Some(pick) = at
+                && let Some(lead) = pick["matter"].as_i64()
+            {
+                for m in items(pick.get("with")).iter().filter_map(Value::as_i64) {
+                    tx.execute(
+                        "UPDATE architect_matters SET group_lead = ?2 WHERE id = ?1 AND project = ?3",
+                        params![m, lead, project],
+                    )
+                    .map_err(sql)?;
+                }
+            }
+        }
+        "dissolve_group" => {
+            // The matter in hand is parked for the owner's reply alone: the others go back to the queue as matters of
+            // their own.
+            if let Some(lead) = picked(tx, w)? {
+                let others = query_json(
+                    tx,
+                    "SELECT id FROM architect_matters WHERE group_lead = ?1 AND handled_round IS NULL",
+                    &[&lead],
+                    ROWS,
+                )?;
+                leave_group(tx, &others.iter().filter_map(|r| r["id"].as_i64()).collect::<Vec<_>>())?;
+            }
+        }
+        "release_members" => {
+            // The members the round gave the way `back_for_owner` go back to the queue before the round's other actions
+            // read the group, so that none of them closes or answers for those.
+            if let Some(lead) = picked(tx, w)? {
+                let of_group = members(tx, lead)?;
+                let back: Vec<i64> = items(at)
+                    .iter()
+                    .filter(|x| x["way"] == BACK_FOR_OWNER)
+                    .filter_map(|x| x["matter"].as_i64())
+                    .filter(|m| of_group.contains(m))
+                    .collect();
+                leave_group(tx, &back)?;
+            }
         }
         "go_on_at_second_cell" => {
             // The matter goes back to the queue between its cells, to go on at its second cell once the owner's words
@@ -3100,10 +3309,14 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             }
         }
         "answer_reporter" => {
-            // The work that handed the matter in is told what became of it at once, or, when the round's item changes
-            // say it, once the batch is made.
-            if !changes_items(ctx) {
-                answer(tx, matter_of(tx, w)?, &ctx.unwrapped)?;
+            // The work that handed each matter in is told what became of it at once, or, when the round's item changes
+            // for that matter say it, once the batch is made. A matter of a group with no item change of its own is
+            // told at once, though another matter of the group has some.
+            let lead = matter_of(tx, w)?;
+            for m in group_of(tx, lead)? {
+                if !changes_matter(&ctx.unwrapped, m, lead) {
+                    answer(tx, m, &ctx.unwrapped)?;
+                }
             }
         }
         "answer_architect" => {
@@ -3144,7 +3357,9 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 let change = if x["decision"].is_object() {
                     decision_change(tx, &project, matter.unwrap_or_default(), &x["decision"])?
                 } else {
-                    x["change"].clone()
+                    // The row names the matter the change comes of; the change itself, which shares its shape with the
+                    // changes of an answer, is kept without the name such a change may carry.
+                    kept_change(&x["change"])
                 };
                 tx.execute(
                     "INSERT INTO architect_item_changes (work, round, matter, change, state)
@@ -3180,7 +3395,8 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let (_, project) = architect_work_of(ctx)?;
             let (rows, mut dropped) = sorted_by_review(collected(tx, w)?, &items(at));
             let rows = without_stale_approaches(tx, rows, &mut dropped)?;
-            let keys = make(tx, &rows, &ctx.projects)?;
+            let (keys, refused) = make(tx, &rows, &ctx.projects)?;
+            dropped.extend(refused);
             drop_rows(tx, &dropped)?;
             release_held_replies(tx, w, &keys, &BTreeSet::new())?;
             answer_batch(tx, w)?;
@@ -3702,21 +3918,36 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             Problems::from(problems).into_result()
         }
         "picked_pickable" => {
-            let Some(m) = v.and_then(|p| p["matter"].as_i64()) else {
+            let Some(pick) = v else { return Ok(()) };
+            let Some(m) = pick["matter"].as_i64() else {
                 return Ok(());
             };
             let can: Vec<i64> = pickable(conn, project_of(c.w)?, c.w.id)?
                 .iter()
                 .filter_map(|r| r["matter"].as_i64())
                 .collect();
-            if can.contains(&m) {
-                Ok(())
-            } else {
-                checks::fail(format!(
+            let mut problems = Problems::default();
+            if !can.contains(&m) {
+                problems.push(format!(
                     "matter {m} cannot be picked now; those that can: {}",
                     can.iter().map(i64::to_string).collect::<Vec<_>>().join(", ")
-                ))
+                ));
             }
+            problems.extend(picked_with_problems(conn, &can, m, &items(pick.get("with")))?);
+            problems.into_result()
+        }
+        "group_answered" => {
+            let Some(lead) = picked(conn, c.w.id)? else {
+                return Ok(());
+            };
+            group_problems(
+                lead,
+                &members(conn, lead)?,
+                &items(c.unwrapped.get("with")),
+                &c.unwrapped["take"],
+                &c.unwrapped["effects"],
+            )
+            .into_result()
         }
         "observation_changes_valid" => {
             // The revision's item changes stand for the batch's; a round that revises none, as the one that records
@@ -3729,7 +3960,15 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         }
         "effects_valid" => {
             let Some(effects) = v else { return Ok(()) };
-            Problems::from(effects_problems(c, project_of(c.w)?, effects)?).into_result()
+            let mut problems = Problems::from(effects_problems(c, project_of(c.w)?, effects)?);
+            // A cell that checks the group (`group_answered`) holds the matters its changes name to the group; any other
+            // cell answers for the matter in hand alone, which a change may not leave for another.
+            if !c.cell.checks.iter().any(|x| x.check == "group_answered")
+                && let Some(lead) = picked(conn, c.w.id)?
+            {
+                problems.extend(stray_matter_problems(lead, effects));
+            }
+            problems.into_result()
         }
         "reply_fits_changes" => {
             let Some(reply) = v else { return Ok(()) };
@@ -4094,6 +4333,205 @@ fn reply_problems(
         }
     }
     Ok(problems)
+}
+
+/// What is wrong with the matters a pick names to go with the matter it picks (`lead`), every reason at once: more than
+/// [`GROUP_MOST`] of them; one named twice, or the matter picked itself; one that cannot be picked now (`can` are those
+/// that can); one that is neither a side report nor an engineer's answer, or the matter picked is neither; and one of
+/// the other kind than the matter picked, a side report going with side reports only and an answer with answers only.
+fn picked_with_problems(conn: &Connection, can: &[i64], lead: i64, with: &[Value]) -> Result<Problems, String> {
+    let mut problems = Problems::default();
+    let named: Vec<i64> = with.iter().filter_map(Value::as_i64).collect();
+    if named.is_empty() {
+        return Ok(problems);
+    }
+    if named.len() > GROUP_MOST {
+        problems.push(format!(
+            "{} matters are picked with matter {lead}, and at most {GROUP_MOST} can be: a group is eight matters at \
+             most, the one picked and seven with it",
+            named.len()
+        ));
+    }
+    if named.contains(&lead) {
+        problems.push(format!(
+            "matter {lead} is the matter picked, and is not picked with itself"
+        ));
+    }
+    let ids = |xs: &[i64]| -> Vec<String> { xs.iter().map(i64::to_string).collect() };
+    let others: Vec<i64> = named.iter().copied().filter(|m| *m != lead).collect();
+    let pickable: Vec<i64> = can.iter().copied().filter(|m| *m != lead).collect();
+    let misses = checks::id_misses(&ids(&pickable), &ids(&others));
+    problems.about(
+        &misses.unknown,
+        |x| format!("matter {x} cannot be picked now"),
+        |xs| format!("matters {xs} cannot be picked now"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("matter {x} is picked twice"),
+        |xs| format!("matters {xs} are each picked twice"),
+    );
+    // What kind of group each matter may be in: a side report, an answer, or neither.
+    let class_of = |id: i64| -> Result<Option<(Option<&'static str>, String)>, String> {
+        let rows = query_json(
+            conn,
+            "SELECT kind, detail, body FROM architect_matters WHERE id = ?1",
+            &[&id],
+            1,
+        )?;
+        Ok(rows.first().map(|r| {
+            let (kind, detail) = (text(&r["kind"]), r["detail"].as_str());
+            (group_class(kind, detail, &r["body"]), described(kind, detail))
+        }))
+    };
+    let (lead_class, lead_is) = class_of(lead)?.unwrap_or((None, "no matter".to_string()));
+    if lead_class.is_none() {
+        problems.push(format!(
+            "matter {lead}, the matter picked, is {lead_is}, and only a side report or an engineer's answer goes in a \
+             group: nothing is picked with it"
+        ));
+    }
+    let mut neither = Vec::new();
+    let mut other_kind = Vec::new();
+    for m in others
+        .iter()
+        .filter(|m| pickable.contains(m))
+        .copied()
+        .collect::<BTreeSet<i64>>()
+    {
+        match class_of(m)? {
+            Some((None, is)) => neither.push(format!("{m} ({is})")),
+            Some((Some(class), _)) if lead_class.is_some_and(|l| l != class) => other_kind.push(m.to_string()),
+            _ => {}
+        }
+    }
+    problems.about(
+        &neither,
+        |x| format!("matter {x} is neither a side report nor an engineer's answer, and only those go in a group"),
+        |xs| format!("matters {xs} are neither side reports nor engineers' answers, and only those go in a group"),
+    );
+    problems.about(
+        &other_kind,
+        |x| {
+            format!(
+                "matter {x} is not of the kind of matter {lead}: a side report goes with side reports only, and an \
+                 answer with answers only"
+            )
+        },
+        |xs| {
+            format!(
+                "matters {xs} are not of the kind of matter {lead}: a side report goes with side reports only, and \
+                 an answer with answers only"
+            )
+        },
+    );
+    Ok(problems)
+}
+
+/// A matter's kind as a problem names it: the kind, and what more it says.
+fn described(kind: &str, detail: Option<&str>) -> String {
+    match detail {
+        Some(d) => format!("a matter of kind {kind} ({d})"),
+        None => format!("a matter of kind {kind}"),
+    }
+}
+
+/// What is wrong with the round of a cell that answers for a group, every reason at once: its `with` has an entry for
+/// each of the other matters of the group (`members`, those picked with `lead`) once, and none for the matter in hand
+/// or one outside the group; and, at the cell that takes the group in, a change to observations or to items that
+/// names a matter names one of the group (`effects`, as the round handed them in) that is not given the way
+/// `back_for_owner`, which a member may have in `with` but the matter in hand (`take`) may not, since a matter that needs
+/// the owner is put to the owner, not taken in, and a member sent back is not taken in this round, so no change comes of
+/// it.
+fn group_problems(lead: i64, members: &[i64], with: &[Value], take: &Value, effects: &Value) -> Problems {
+    let mut problems = Problems::default();
+    if take["way"] == BACK_FOR_OWNER {
+        problems.push(format!(
+            "take has the way {BACK_FOR_OWNER}, which is only for a matter picked with the matter in hand; matter \
+             {lead} needs the owner: ask the owner, and the others go back to the queue"
+        ));
+    }
+    let back: Vec<i64> = with
+        .iter()
+        .filter(|x| x["way"] == BACK_FOR_OWNER)
+        .filter_map(|x| x["matter"].as_i64())
+        .filter(|m| members.contains(m))
+        .collect();
+    let given: Vec<String> = with
+        .iter()
+        .filter_map(|x| x["matter"].as_i64())
+        .map(|m| m.to_string())
+        .collect();
+    let want: Vec<String> = members.iter().map(i64::to_string).collect();
+    let misses = checks::id_misses(&want, &given);
+    let (itself, strangers): (Vec<String>, Vec<String>) =
+        misses.unknown.iter().cloned().partition(|x| *x == lead.to_string());
+    if !itself.is_empty() {
+        problems.push(format!(
+            "with has an entry for matter {lead}, the matter in hand, whose answer is not in with"
+        ));
+    }
+    problems.about(
+        &strangers,
+        |x| format!("with has an entry for matter {x}, which was not picked with matter {lead}"),
+        |xs| format!("with has entries for matters {xs}, which were not picked with matter {lead}"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("with has two entries for matter {x}"),
+        |xs| format!("with has two entries each for matters {xs}"),
+    );
+    problems.about(
+        &misses.missing,
+        |x| format!("with has no entry for matter {x}, which was picked with matter {lead}"),
+        |xs| format!("with has no entry for matters {xs}, which were picked with matter {lead}"),
+    );
+    let group: Vec<i64> = std::iter::once(lead).chain(members.iter().copied()).collect();
+    let listed = group.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
+    for (list, what) in [
+        ("item_changes", "item change"),
+        ("observation_changes", "observation change"),
+        ("messages", "message"),
+    ] {
+        for (i, c) in items(effects.get(list)).iter().enumerate() {
+            if let Some(m) = c["matter"].as_i64().filter(|m| !group.contains(m)) {
+                problems.push(format!(
+                    "{what} {} comes of matter {m}, which is not in the group; its matters are {listed}",
+                    i + 1
+                ));
+            } else if let Some(m) = c["matter"].as_i64().filter(|m| back.contains(m)) {
+                problems.push(format!(
+                    "{what} {} comes of matter {m}, which is given the way {BACK_FOR_OWNER} and is not taken in \
+                     this round: no change may come of it",
+                    i + 1
+                ));
+            }
+        }
+    }
+    problems
+}
+
+/// What is wrong with the changes of a round that answers for the matter `lead` alone (`effects`, as the round handed
+/// them in): a change to observations or to items that names another matter, which only the cell that takes in a group
+/// may do. Left alone, the change would be recorded under a matter that is not in hand, or fail the key of the table.
+fn stray_matter_problems(lead: i64, effects: &Value) -> Problems {
+    let mut problems = Problems::default();
+    for (list, what) in [
+        ("item_changes", "item change"),
+        ("observation_changes", "observation change"),
+        ("messages", "message"),
+    ] {
+        for (i, c) in items(effects.get(list)).iter().enumerate() {
+            if let Some(m) = c["matter"].as_i64().filter(|m| *m != lead) {
+                problems.push(format!(
+                    "{what} {} comes of matter {m}, which is not the matter in hand ({lead}): this cell answers for \
+                     that matter alone, so leave `matter` out",
+                    i + 1
+                ));
+            }
+        }
+    }
+    problems
 }
 
 /// What is wrong with the candidates of a pick (`list`): more than ten, and every candidate that is no open observation
@@ -5133,6 +5571,44 @@ fn slots(e: &Engine) -> Result<Value, String> {
     }))
 }
 
+/// The excerpts of the text of the project's side reports and engineers' answers not handled, by matter: the matters that
+/// can be picked together, given with an excerpt which tells whether two are about the same thing; no other matter is.
+fn excerpts(conn: &Connection, project: &str) -> Result<BTreeMap<i64, String>, String> {
+    Ok(query_json(
+        conn,
+        "SELECT id, detail, body FROM architect_matters
+         WHERE project = ?1 AND kind = 'report' AND handled_round IS NULL AND withdrawn IS NULL",
+        &[&project],
+        100_000,
+    )?
+    .iter()
+    .filter_map(|r| {
+        group_class("report", r["detail"].as_str(), &r["body"])?;
+        Some((r["id"].as_i64()?, excerpt(report_text(&r["body"]))))
+    })
+    .collect())
+}
+
+/// A row of the project's queue (`row`, of the view `architect_queue`) as the architect is given it, with the excerpt of
+/// its text if it has one; a field with nothing to say is left out.
+fn queued_matter(row: &Value, excerpt: Option<&String>) -> Value {
+    let mut m = json!({
+        "kind": row["kind"], "detail": row["detail"], "item": row["item"], "waits": row["waits"],
+        "since": row["at"].as_i64().map(utc_minute), "what": row["what"],
+        "excerpt": excerpt,
+    });
+    if row["answered"] == 1 {
+        m["back_with_answer"] = json!(true);
+    }
+    if row["urgent"] == 1 || row["urgent"] == true {
+        m["urgent"] = json!(true);
+    }
+    if let Some(o) = m.as_object_mut() {
+        o.retain(|_, v| !v.is_null());
+    }
+    m
+}
+
 /// A project's queue, by matter: each matter that can be picked, with its kind and detail, the item it concerns, who
 /// waits for it and since when, and what it is; those held for the owner's answer, listed as held; and whether new
 /// starts are held to set things straight.
@@ -5148,29 +5624,18 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         &[&project],
         ROWS,
     )?;
+    let texts = excerpts(conn, project)?;
     let mut matters = Map::new();
     for r in rows {
         let id = r["matter"].as_i64().unwrap_or_default();
         // Flow feedback and what was said in the groups that came after the work started, and that it did not queue
         // itself, wait for the architect's next work.
         let later = !taken.contains(&id);
-        let mut m = json!({
-            "kind": r["kind"], "detail": r["detail"], "item": r["item"], "waits": r["waits"],
-            "since": r["at"].as_i64().map(utc_minute), "what": r["what"],
-        });
-        if r["answered"] == 1 {
-            m["back_with_answer"] = json!(true);
-        }
-        if r["urgent"] == 1 || r["urgent"] == true {
-            m["urgent"] = json!(true);
-        }
+        let mut m = queued_matter(&r, texts.get(&id));
         if later {
             m["not_now"] = json!("it came after this work started: the architect's next work takes it");
         } else if !can.contains(&id) {
             m["not_now"] = json!("set straight first");
-        }
-        if let Some(o) = m.as_object_mut() {
-            o.retain(|_, v| !v.is_null());
         }
         matters.insert(format!("#{id}"), m);
     }
@@ -5276,12 +5741,28 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     }))
 }
 
-/// The matter picked, with its material by its kind.
+/// The matter picked, with its material by its kind; for a group, with each of the other matters of it, as `with`.
 fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
-    let Some(m) = picked(conn, w.id)? else {
+    let Some(lead) = picked(conn, w.id)? else {
         return Ok(None);
     };
+    let Some(mut given) = matter_given(e, lead)? else {
+        return Ok(None);
+    };
+    let mut with = Vec::new();
+    for m in members(conn, lead)? {
+        with.extend(matter_given(e, m)?);
+    }
+    if !with.is_empty() {
+        given["with"] = Value::Array(with);
+    }
+    Ok(Some(given))
+}
+
+/// A matter, with its material by its kind.
+fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
     let row = query_json(
         conn,
         "SELECT id AS matter, kind, detail, what, body, item, work, round, at FROM architect_matters WHERE id = ?1",
@@ -5575,40 +6056,41 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
 /// The items and works the matter picked concerns, each in full, as the fields of the matter and of its material name
 /// them: the item it concerns; in its material, and in the place to set straight or the cancelled item it holds, an
 /// item, items, and the item of a work or of works. A number in a text, its words' or a step's, names no item: by
-/// "matter #2" or "item 1 to 5" there, it concerns none.
+/// "matter #2" or "item 1 to 5" there, it concerns none. For a group, those of every matter of it, up to twelve for
+/// each.
 fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
-    let Some(m) = picked(conn, w.id)? else {
-        return Ok(None);
-    };
-    let row = query_json(conn, "SELECT item, body FROM architect_matters WHERE id = ?1", &[&m], 1)?;
-    let Some(r) = row.first() else { return Ok(None) };
+    let group = group_in_hand(conn, w.id)?;
     let mut ids = BTreeSet::new();
-    ids_of(&r["item"], &mut ids);
-    let body = &r["body"];
-    for part in [body, &body["fix"], &body["cancelled"]] {
-        ids_of(&part["item"], &mut ids);
-        for i in items(part.get("items")) {
-            ids_of(&i, &mut ids);
-        }
-        let mut works = BTreeSet::new();
-        ids_of(&part["work"], &mut works);
-        for x in items(part.get("works")) {
-            ids_of(&x, &mut works);
-        }
-        for work in works {
-            let item: Option<i64> = conn
-                .query_row("SELECT item FROM works WHERE id = ?1", [work], |r| {
-                    r.get::<_, Option<i64>>(0)
-                })
-                .optional()
-                .map_err(sql)?
-                .flatten();
-            ids.extend(item);
+    for m in &group {
+        let row = query_json(conn, "SELECT item, body FROM architect_matters WHERE id = ?1", &[m], 1)?;
+        let Some(r) = row.first() else { continue };
+        ids_of(&r["item"], &mut ids);
+        let body = &r["body"];
+        for part in [body, &body["fix"], &body["cancelled"]] {
+            ids_of(&part["item"], &mut ids);
+            for i in items(part.get("items")) {
+                ids_of(&i, &mut ids);
+            }
+            let mut works = BTreeSet::new();
+            ids_of(&part["work"], &mut works);
+            for x in items(part.get("works")) {
+                ids_of(&x, &mut works);
+            }
+            for work in works {
+                let item: Option<i64> = conn
+                    .query_row("SELECT item FROM works WHERE id = ?1", [work], |r| {
+                        r.get::<_, Option<i64>>(0)
+                    })
+                    .optional()
+                    .map_err(sql)?
+                    .flatten();
+                ids.extend(item);
+            }
         }
     }
     let mut out = Map::new();
-    for id in ids.into_iter().take(12) {
+    for id in ids.into_iter().take(12 * group.len()) {
         if let Some(x) = item_in_full(e, id)? {
             out.insert(format!("#{id}"), x);
         }
@@ -5786,11 +6268,13 @@ fn owner_answer(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 
 /// What the cell before this one on the matter picked's path answered of it: the last round of that cell after the
 /// matter was picked, in whichever architect work, its own answer given as a place of that round's return, so that a
-/// session that holds it is only referred to it. None when that cell gave no answer on this matter.
-pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, String> {
+/// session that holds it is only referred to it. Nothing when that cell gave no answer on this matter. For a group, what
+/// the same round answered of its other matters follows, as a place of its own (`with`), but for those no longer in the
+/// group.
+pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Vec<Part>, String> {
     let conn = e.db.conn();
     let Some(m) = picked(conn, w.id)? else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     // The agent's cell whose own answer leads here, as the crux `H2` finds leads to `H3`, through the queue for a matter
     // of two cells.
@@ -5802,7 +6286,7 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
                     .iter()
                     .any(|r| !r.common && r.to == w.pos.at && r.conditions.contains(&flow::format::Atom::Own)))
     }) else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     let Some(field) = prev
         .schema
@@ -5811,7 +6295,7 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
         .and_then(Value::as_str)
         .map(str::to_string)
     else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     let rounds = query_json(
         conn,
@@ -5838,21 +6322,35 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
                 x.get(0)
             })
             .map_err(sql)?;
-        let Some(value) = json_col(output).and_then(|o| o[&g.within].get(&field).cloned()) else {
+        let Some(handed) = json_col(output).map(|o| o[&g.within].clone()) else {
+            continue;
+        };
+        let Some(value) = handed.get(&field).cloned() else {
             continue;
         };
         let id = RoundId::new(work, n);
-        return Ok(Some(Part {
+        let place = |path: &str, value: Value| Part {
             origin: Origin::Place {
                 round: id,
                 first: id,
                 cell: prev.id.clone(),
-                path: field,
+                path: path.to_string(),
             },
             value,
-        }));
+        };
+        let mut parts = vec![place(&field, value)];
+        // What the round answered of the others of the group, those that are still in it.
+        let group = members(conn, m)?;
+        let others: Vec<Value> = items(handed.get("with"))
+            .into_iter()
+            .filter(|x| x["matter"].as_i64().is_some_and(|o| group.contains(&o)))
+            .collect();
+        if !others.is_empty() {
+            parts.push(place("with", Value::Array(others)));
+        }
+        return Ok(parts);
     }
-    Ok(None)
+    Ok(Vec::new())
 }
 
 /// The item changes of an architect work's batch, numbered from 1, each with the matter it came from and its kind.
@@ -7020,5 +7518,413 @@ mod tests {
         );
         let clean = json!({ "text": "Keep the course steady." });
         assert!(policy_text_problems(&clean, &said_by_owner, None).is_empty());
+    }
+
+    /// A database with matters of project p to pick together or not: 1 to 3 and 9 to 16 side reports, 4 an engineer's
+    /// answer, 5 what to do next after a report, 6 flow feedback, 7 the side reports a migration put in one matter, 8 an
+    /// engineer's question.
+    fn grouped() -> db::Db {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let report = json!({ "report": { "kind": "other", "what": "The parser is slow.", "urgent": false } });
+            let answer = json!({ "report": { "kind": "answer", "what": "Done.", "urgent": false } });
+            let mut rows = vec![
+                ("report", Some("other"), report.clone()),
+                ("report", Some("duplicate"), report.clone()),
+                ("report", Some("other"), report.clone()),
+                ("report", Some("answer"), answer),
+                ("report", Some("followup"), json!({})),
+                ("report", Some(FLOW_FEEDBACK), json!({})),
+                ("report", None, json!({ "side_reports": [] })),
+                ("engineer_question", None, json!({})),
+            ];
+            rows.extend((9..=16).map(|_| ("report", Some("other"), report.clone())));
+            for (kind, detail, body) in rows {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, detail, what, body, at)
+                     VALUES ('p', ?1, ?2, 'x', ?3, 1)",
+                    params![kind, detail, body.to_string()],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    // Item #228: a pick that names others to go with the matter it picks is told everything wrong with them at once:
+    // too many, the matter picked itself, one named twice, one that cannot be picked, those that are no side report or
+    // answer, and one of the other kind; a pick of up to seven that can go together is taken.
+    #[test]
+    fn a_pick_with_matters_that_cannot_go_with_it_is_told_all_of_them() {
+        let db = grouped();
+        let can: Vec<i64> = (1..=16).collect();
+        let problems = |lead: i64, with: &[i64]| -> Vec<String> {
+            let with: Vec<Value> = with.iter().map(|m| json!(m)).collect();
+            said(picked_with_problems(db.conn(), &can, lead, &with).unwrap())
+        };
+        assert!(problems(1, &[]).is_empty());
+        assert!(problems(1, &[2, 3, 9, 10, 11, 12, 13]).is_empty());
+        assert_eq!(
+            problems(1, &[2, 3, 9, 10, 11, 12, 13, 14]),
+            [
+                "8 matters are picked with matter 1, and at most 7 can be: a group is eight matters at most, the one \
+                 picked and seven with it"
+            ]
+        );
+        assert_eq!(
+            problems(1, &[2, 2, 1, 4, 5, 7, 99, 3, 6, 8]),
+            [
+                "10 matters are picked with matter 1, and at most 7 can be: a group is eight matters at most, the one \
+                 picked and seven with it",
+                "matter 1 is the matter picked, and is not picked with itself",
+                "matter 99 cannot be picked now",
+                "matter 2 is picked twice",
+                "matters 5 (a matter of kind report (followup)), 6 (a matter of kind report (flow_feedback)), 7 (a \
+                 matter of kind report), 8 (a matter of kind engineer_question) are neither side reports nor \
+                 engineers' answers, and only those go in a group",
+                "matter 4 is not of the kind of matter 1: a side report goes with side reports only, and an answer \
+                 with answers only"
+            ]
+        );
+        // A matter that goes in no group has nothing picked with it, and an answer goes with answers only.
+        assert_eq!(
+            problems(5, &[1]),
+            [
+                "matter 5, the matter picked, is a matter of kind report (followup), and only a side report or an \
+                 engineer's answer goes in a group: nothing is picked with it"
+            ]
+        );
+        assert_eq!(
+            problems(4, &[1]),
+            [
+                "matter 1 is not of the kind of matter 4: a side report goes with side reports only, and an answer \
+                 with answers only"
+            ]
+        );
+        // A matter that cannot be picked now is said so, and nothing about its kind.
+        let can_now: Vec<i64> = vec![1, 2];
+        let with = [json!(3), json!(5)];
+        assert_eq!(
+            said(picked_with_problems(db.conn(), &can_now, 1, &with).unwrap()),
+            ["matters 3, 5 cannot be picked now"]
+        );
+    }
+
+    // A round that answers for a group is told everything wrong with its `with` at once: an entry for the matter in hand,
+    // for one outside the group, two for one matter, none for a matter of the group, and a change that comes of a matter
+    // outside the group; one that answers for each matter of the group once is taken, as is a matter alone.
+    #[test]
+    fn a_round_that_answers_for_a_group_is_told_everything_it_misses() {
+        let entry = |m: i64| json!({ "matter": m });
+        let effects = json!({
+            "item_changes": [{ "kind": "edit_item", "matter": 11 }, { "kind": "edit_item", "matter": 15 }],
+            "observation_changes": [{ "kind": "new" }, { "kind": "merge", "matter": 16 }]
+        });
+        assert_eq!(
+            said(group_problems(
+                10,
+                &[11, 12, 13],
+                &[entry(11), entry(11), entry(14), entry(10)],
+                &Value::Null,
+                &effects
+            )),
+            [
+                "with has an entry for matter 10, the matter in hand, whose answer is not in with",
+                "with has an entry for matter 14, which was not picked with matter 10",
+                "with has two entries for matter 11",
+                "with has no entry for matters 12, 13, which were picked with matter 10",
+                "item change 2 comes of matter 15, which is not in the group; its matters are 10, 11, 12, 13",
+                "observation change 2 comes of matter 16, which is not in the group; its matters are 10, 11, 12, 13"
+            ]
+        );
+        assert!(
+            group_problems(10, &[11, 12], &[entry(12), entry(11)], &Value::Null, &effects)
+                .texts()
+                .len()
+                == 2
+        );
+        assert!(group_problems(10, &[11, 12], &[entry(12), entry(11)], &Value::Null, &Value::Null).is_empty());
+        // A matter alone has no entry in `with`, and its changes come of it or name nothing.
+        assert!(
+            group_problems(
+                10,
+                &[],
+                &[],
+                &Value::Null,
+                &json!({ "item_changes": [{ "matter": 10 }, {}] })
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            said(group_problems(
+                10,
+                &[],
+                &[entry(11), entry(12)],
+                &Value::Null,
+                &Value::Null
+            )),
+            ["with has entries for matters 11, 12, which were not picked with matter 10"]
+        );
+    }
+
+    // A round that sends a member of its group back for the owner is told, with everything else wrong in it, when the
+    // matter in hand takes that way and when a change comes of the member sent back; one that sends a member back and
+    // keeps every change off it is taken.
+    #[test]
+    fn a_round_that_sends_a_member_back_for_the_owner_is_told_where_it_goes_wrong() {
+        let back = |m: i64| json!({ "matter": m, "way": "back_for_owner" });
+        let merged = |m: i64| json!({ "matter": m, "way": "merged" });
+        let effects = json!({
+            "item_changes": [{ "kind": "edit_item", "matter": 12 }, { "kind": "edit_item", "matter": 11 }],
+            "observation_changes": [{ "kind": "new" }, { "kind": "merge", "matter": 12 }]
+        });
+        let take = json!({ "way": "back_for_owner" });
+        assert_eq!(
+            said(group_problems(
+                10,
+                &[11, 12, 13],
+                &[merged(11), back(12)],
+                &take,
+                &effects
+            )),
+            [
+                "take has the way back_for_owner, which is only for a matter picked with the matter in hand; matter \
+                 10 needs the owner: ask the owner, and the others go back to the queue",
+                "with has no entry for matter 13, which was picked with matter 10",
+                "item change 1 comes of matter 12, which is given the way back_for_owner and is not taken in this \
+                 round: no change may come of it",
+                "observation change 2 comes of matter 12, which is given the way back_for_owner and is not taken in \
+                 this round: no change may come of it"
+            ]
+        );
+        // The matter in hand takes the way alone, with every member answered and no change naming one sent back.
+        assert_eq!(
+            said(group_problems(10, &[11], &[merged(11)], &take, &Value::Null)),
+            [
+                "take has the way back_for_owner, which is only for a matter picked with the matter in hand; matter \
+                 10 needs the owner: ask the owner, and the others go back to the queue"
+            ]
+        );
+        // A member sent back with no change of its own is taken; a matter alone with the way is told too.
+        let fine = json!({ "item_changes": [{ "kind": "edit_item", "matter": 11 }, { "kind": "edit_item" }] });
+        assert!(
+            group_problems(
+                10,
+                &[11, 12],
+                &[merged(11), back(12)],
+                &json!({ "way": "new_item" }),
+                &fine
+            )
+            .is_empty()
+        );
+        assert_eq!(said(group_problems(10, &[], &[], &take, &Value::Null)).len(), 1);
+    }
+
+    // A change or a message that names a matter is held to the matters the cell answers for: at the cell that takes a
+    // group in, to the group (a message too), and at any other cell, which answers for the matter in hand alone, to
+    // that matter, every one told at once; the batch keeps a change without the name it may carry.
+    #[test]
+    fn a_change_that_names_a_matter_the_cell_does_not_answer_for_is_told_and_not_kept_with_its_name() {
+        let effects = json!({
+            "item_changes": [{ "kind": "edit_item", "matter": 10 }, { "kind": "edit_item", "matter": 14 }],
+            "observation_changes": [{ "kind": "new" }, { "kind": "merge", "matter": 15 }],
+            "messages": [{ "project": "q", "matter": 16 }, { "project": "r" }]
+        });
+        assert_eq!(
+            said(stray_matter_problems(10, &effects)),
+            [
+                "item change 2 comes of matter 14, which is not the matter in hand (10): this cell answers for that \
+                 matter alone, so leave `matter` out",
+                "observation change 2 comes of matter 15, which is not the matter in hand (10): this cell answers \
+                 for that matter alone, so leave `matter` out",
+                "message 1 comes of matter 16, which is not the matter in hand (10): this cell answers for that \
+                 matter alone, so leave `matter` out"
+            ]
+        );
+        assert!(stray_matter_problems(10, &json!({ "item_changes": [{ "matter": 10 }, {}] })).is_empty());
+        assert!(stray_matter_problems(10, &Value::Null).is_empty());
+        // The group's cell tells a message of a matter outside the group as it does a change.
+        assert_eq!(
+            said(group_problems(
+                10,
+                &[11],
+                &[json!({ "matter": 11 })],
+                &Value::Null,
+                &effects
+            )),
+            [
+                "item change 2 comes of matter 14, which is not in the group; its matters are 10, 11",
+                "observation change 2 comes of matter 15, which is not in the group; its matters are 10, 11",
+                "message 1 comes of matter 16, which is not in the group; its matters are 10, 11"
+            ]
+        );
+        let change = json!({ "kind": "edit_item", "item": "1", "matter": 12 });
+        assert_eq!(kept_change(&change), json!({ "kind": "edit_item", "item": "1" }));
+        // A message says the matter it comes of to the architect it goes to: the member it names, else the matter in hand.
+        let of_member = message_body("p", &json!({ "project": "q", "text": "t", "matter": 11 }), 10, 7);
+        assert_eq!(of_member["matter"], 11);
+        assert_eq!(
+            message_body("p", &json!({ "project": "q", "text": "t" }), 10, 7)["matter"],
+            10
+        );
+    }
+
+    // What a round that took a group in handed in is read for one matter of it as for a matter alone: the way of the
+    // matter picked is `take`, the way of another its entry of `with`, and an observation change comes of the matter it
+    // names, or else of the matter picked; an item change likewise.
+    #[test]
+    fn what_a_round_handed_in_about_one_matter_of_a_group_is_its_own() {
+        let outcome = json!({
+            "take": { "way": "new_observation", "why": "New." },
+            "with": [
+                { "matter": 5, "way": "merged", "why": "Same." },
+                { "matter": 6, "way": "nothing", "why": "Nothing." }
+            ],
+            "effects": {
+                "observation_changes": [
+                    { "kind": "new", "title": "A" },
+                    { "kind": "merge", "into": 1, "matter": 5 },
+                    { "kind": "merge", "into": 2, "matter": 4 }
+                ],
+                "item_changes": [{ "kind": "edit_item", "matter": 6 }, { "kind": "edit_item" }],
+                "messages": [{ "project": "q", "matter": 5 }, { "project": "r" }, { "project": "s", "matter": 6 }]
+            }
+        });
+        let picked = about_matter(&outcome, 4);
+        assert_eq!(picked["take"], outcome["take"]);
+        assert_eq!(
+            picked["effects"]["observation_changes"],
+            json!([{ "kind": "new", "title": "A" }, { "kind": "merge", "into": 2, "matter": 4 }])
+        );
+        let other = about_matter(&outcome, 5);
+        assert_eq!(other["take"], json!({ "way": "merged", "why": "Same." }));
+        assert_eq!(
+            other["effects"]["observation_changes"],
+            json!([{ "kind": "merge", "into": 1, "matter": 5 }])
+        );
+        assert_eq!(about_matter(&outcome, 6)["effects"]["observation_changes"], json!([]));
+        assert_eq!(about_matter(&outcome, 6)["take"]["way"], "nothing");
+        // A message to another architect is told to the reporter of the matter it comes of only: the one that names no
+        // matter comes of the matter picked.
+        assert_eq!(
+            about_matter(&outcome, 6)["effects"]["messages"],
+            json!([{ "project": "s", "matter": 6 }])
+        );
+        assert_eq!(
+            about_matter(&outcome, 5)["effects"]["messages"],
+            json!([{ "project": "q", "matter": 5 }])
+        );
+        assert_eq!(
+            about_matter(&outcome, 4)["effects"]["messages"],
+            json!([{ "project": "r" }])
+        );
+        // Item changes are told apart the same way: the one that names no matter comes of the matter picked.
+        assert!(changes_matter(&outcome, 4, 4) && changes_matter(&outcome, 6, 4));
+        assert!(!changes_matter(&outcome, 5, 4));
+        // A round on a matter alone reads as before.
+        let alone = json!({ "take": { "way": "nothing", "why": "x" }, "effects": { "observation_changes": [{ "kind": "new" }] } });
+        assert_eq!(about_matter(&alone, 4)["take"], alone["take"]);
+        assert_eq!(
+            about_matter(&alone, 4)["effects"]["observation_changes"],
+            json!([{ "kind": "new" }])
+        );
+    }
+
+    // The queue gives a side report and an answer an excerpt of at most 400 characters, cut at a word with an ellipsis, its
+    // spaces collapsed; and only a side report an agent handed in and an engineer's answer are matters a group may hold.
+    #[test]
+    fn an_excerpt_is_cut_at_a_word_and_only_side_reports_and_answers_go_in_a_group() {
+        let cut = excerpt(&"word ".repeat(200));
+        assert!(cut.chars().count() <= EXCERPT, "{}", cut.chars().count());
+        assert!(cut.ends_with("word…"), "{cut}");
+        assert_eq!(excerpt("Short\n  text\t."), "Short text .");
+        assert_eq!(excerpt(&"x".repeat(EXCERPT)).chars().count(), EXCERPT);
+        let report = json!({ "report": { "what": "x" } });
+        assert_eq!(group_class("report", Some("duplicate"), &report), Some("side_report"));
+        assert_eq!(group_class("report", None, &report), Some("side_report"));
+        assert_eq!(group_class("report", Some("answer"), &report), Some("answer"));
+        assert_eq!(group_class("report", Some("followup"), &report), None);
+        assert_eq!(group_class("report", Some(FLOW_FEEDBACK), &report), None);
+        assert_eq!(group_class("report", Some(db::FAULT), &report), None);
+        assert_eq!(group_class("report", None, &json!({ "side_reports": [] })), None);
+        assert_eq!(group_class("engineer_question", Some("split"), &report), None);
+        assert_eq!(group_class("other_architect", Some(FLOW_FEEDBACK), &report), None);
+    }
+
+    // The queue the architect picks from gives a long side report and an answer an excerpt of at most 400 characters, and
+    // a follow-up, flow feedback, a packed report of the migration and an engineer's question none: the entry of the
+    // queue has no `excerpt` at all (the matters of `grouped` are 1 to 3 side reports, 4 an answer, 5 a follow-up, 6 flow
+    // feedback, 7 a packed report, 8 an engineer's question).
+    #[test]
+    fn the_queue_gives_an_excerpt_to_side_reports_and_answers_alone_and_never_a_longer_one_than_400() {
+        let mut db = grouped();
+        db.write(Actor::Engine, |tx| {
+            let long = json!({ "report": { "kind": "other", "what": "The parser is slow. ".repeat(100) } });
+            tx.execute(
+                "UPDATE architect_matters SET body = ?1 WHERE id IN (1, 4)",
+                [long.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let texts = excerpts(db.conn(), "p").unwrap();
+        let ids: Vec<i64> = texts.keys().copied().collect();
+        assert_eq!(ids, [1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
+        assert!(texts.values().all(|t| t.chars().count() <= 400));
+        assert!(texts[&1].ends_with('…') && texts[&4].ends_with('…'), "{}", texts[&1]);
+        // The entry of the queue holds the excerpt of the matters that have one, and no field of the others.
+        let row = |id: i64| json!({ "matter": id, "kind": "report", "detail": "x", "what": "w", "at": 1 });
+        for id in 1..=8 {
+            let entry = queued_matter(&row(id), texts.get(&id));
+            assert_eq!(
+                entry.as_object().unwrap().contains_key("excerpt"),
+                texts.contains_key(&id),
+                "matter {id}: {entry}"
+            );
+        }
+        assert_eq!(queued_matter(&row(1), texts.get(&1))["excerpt"], texts[&1].as_str());
+    }
+
+    // The batch counts the matters of a group each, and the group is the matter picked with the others not handled that
+    // name it: a matter handled, or one that names another, is not in it.
+    #[test]
+    fn a_group_is_the_matter_picked_with_the_others_not_handled_that_name_it() {
+        let mut db = grouped();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H5', 'p')",
+                [],
+            )?;
+            let round = json!({ "outcome": { "take": { "way": "nothing", "why": "x" } } });
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 1, 'H5', '{}', ?1, 'done', 'c', 1, 1)",
+                [round.to_string()],
+            )?;
+            tx.execute("UPDATE architect_matters SET group_lead = 1 WHERE id IN (2, 3, 9)", [])?;
+            tx.execute("UPDATE architect_matters SET group_lead = 2 WHERE id = 10", [])?;
+            tx.execute(
+                "UPDATE architect_matters SET handled_work = 1, handled_round = 1 WHERE id = 9",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(group_of(db.conn(), 1).unwrap(), [1, 2, 3]);
+        assert_eq!(group_of(db.conn(), 2).unwrap(), [2, 10]);
+        assert_eq!(group_of(db.conn(), 4).unwrap(), [4]);
+        // A batch counts each matter a round handled, not the round: matters 1 to 3 closed by one round are three.
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET handled_work = 1, handled_round = 1 WHERE id IN (1, 2, 3)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(handled_in_batch(db.conn(), 1).unwrap(), 4);
+        assert_eq!(group_of(db.conn(), 1).unwrap(), [1]);
     }
 }

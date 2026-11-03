@@ -570,11 +570,54 @@ pub fn architect_time(conn: &Connection, project: &str, since: i64, now: i64) ->
     .map_err(sql)
 }
 
+/// The line the work stands on: the line of the nearest agent cell, counting from the cell the work is at back through
+/// the cells that wait for an answer, whose turn it is when the work goes on. A cell takes only what is said to its own
+/// line, so words for another line wait however the work moves; these are the words that can turn the work. At the cell
+/// of a task that asked, the nearest agent is the asker itself, or for an engine step that asks, as `X1` does for the
+/// tools of the cell it runs them for, the agent that step runs for. Where the stack holds no agent cell, the line of
+/// the graph's agents, the engineer's, which the engine steps that ask (`M1`, `T7`, `A6`) go on to by rows of their own.
+/// A tool cell that asks with no agent below it (`T2`, `M2`, `L1`) stands on no line: `@asker` takes the work back to
+/// the tool, which runs again and hears no words, so no words can turn it and none is a reason to withdraw the question.
+///
+/// It agrees with where `@asker` takes the work ([`flow::CompiledGraph::step`]): back to the asker, or to the graph's
+/// receiving cell when that is on the asker's line, so on the asker's line either way.
+pub fn standing_line(g: &CompiledGraph, w: &Work) -> Option<String> {
+    let cells = || {
+        std::iter::once(&w.pos.at)
+            .chain(w.pos.callers.iter().rev())
+            .filter_map(|id| g.cell(id))
+    };
+    if let Some(agent) = cells().find(|c| c.kind == "agent") {
+        return Some(crate::line_of(g, agent));
+    }
+    // The cell that asked is the innermost on the stack, or the cell the work is at when the stack is empty.
+    let asker = w.pos.callers.last().unwrap_or(&w.pos.at);
+    if g.cell(asker).is_some_and(|c| c.kind == "tool") {
+        return None;
+    }
+    Some(ENGINEER.to_string())
+}
+
+/// How many words said to the work wait to be handed to `line`: not yet delivered, and not of the kind that needs no
+/// answer (`informs`), which turns nothing. With `only_cancelled`, only the notices that an item the work's item
+/// depended on was cancelled. The one definition of "words waiting", for the engine's values `held`, `interjection`
+/// and `cancelled`.
+pub fn waiting_words(conn: &Connection, work: i64, line: &str, only_cancelled: bool) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT count(*) FROM interjections WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL AND informs = 0
+           AND (?3 = 0 OR cancelled_item IS NOT NULL)",
+        params![work, line, only_cancelled],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
 /// The engine's value `held`: where the question a task put to an architect stands, at the cell it waits at for it
 /// (`A2`). The architect replied, or handed it to the owner or to a related project's architect; else an item the work
-/// depended on was cancelled; else something was said to the work; else the architect that holds it is gone; else it
-/// waited past its limit of the architect's time; else it waits, which no row takes.
-pub fn held(e: &Engine, w: &Work) -> Result<String, String> {
+/// depended on was cancelled; else something was said to the line the work stands on, which a withdrawn question
+/// takes the work back to hear; else the architect that holds it is gone; else it waited past its limit of the
+/// architect's time; else it waits, which no row takes.
+pub fn held(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     let conn = e.db.conn();
     let s = |x: &str| Ok(x.to_string());
     let Some(b) = open(conn, w.id)? else {
@@ -594,22 +637,16 @@ pub fn held(e: &Engine, w: &Work) -> Result<String, String> {
             });
         }
     }
-    let pending = |extra: &str| -> Result<i64, String> {
-        conn.query_row(
-            &format!(
-                "SELECT count(*) FROM interjections WHERE work = ?1 AND line = 'engineer' AND delivered_round IS NULL
-                   AND informs = 0 {extra}"
-            ),
-            [w.id],
-            |r| r.get(0),
-        )
-        .map_err(sql)
-    };
-    if pending("AND cancelled_item IS NOT NULL")? > 0 {
-        return s("cancelled");
-    }
-    if pending("")? > 0 {
-        return s("interjection");
+    // Words for the line the work stands on, which withdrawing the question takes the work back to hear. Words for
+    // another line wait however the work moves, so they are no reason to withdraw it; nor are any for a tool cell that
+    // asks, which hears none.
+    if let Some(line) = standing_line(g, w) {
+        if waiting_words(conn, w.id, &line, true)? > 0 {
+            return s("cancelled");
+        }
+        if waiting_words(conn, w.id, &line, false)? > 0 {
+            return s("interjection");
+        }
     }
     let project = b.project.clone().unwrap_or_default();
     if !e.config.config.projects.contains_key(&project) {
@@ -911,7 +948,9 @@ fn resolve_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Str
     resolve(tx, b.id, &outcome)
 }
 
-/// `withdraw_blocker`: the task's blocker, withdrawn by a row that takes the task on without it, saying why.
+/// `withdraw_blocker`: the task's blocker, withdrawn by a row that takes the task on without it, saying why. A row
+/// that withdraws it for what was said to the work does so only when the cell it takes the work back to hears it: the
+/// words `held` counts are those for the line the work stands on.
 fn withdraw_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let Some(b) = open(tx, ctx.work.id)? else { return Ok(()) };
     let why = match ctx.row.name.as_str() {
