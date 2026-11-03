@@ -15862,7 +15862,10 @@ fn a_text_that_replaces_the_approach_of_the_item_kept_in_a_merge_keeps_the_decis
         Ok(())
     })
     .unwrap();
-    say(&mut e, "Merge the second item into the first, and write the first again.");
+    say(
+        &mut e,
+        "Merge the second item into the first, and write the first again.",
+    );
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
@@ -15947,7 +15950,10 @@ fn a_decision_is_not_left_only_in_an_item_the_batch_merged_away_and_one_on_a_cre
             ));
             (
                 Vec::new(),
-                vec![("outcome.looked", json!(looked)), ("outcome.decisions", json!(decisions))],
+                vec![
+                    ("outcome.looked", json!(looked)),
+                    ("outcome.decisions", json!(decisions)),
+                ],
             )
         }),
     );
@@ -15983,10 +15989,6 @@ fn a_decision_is_not_left_only_in_an_item_the_batch_merged_away_and_one_on_a_cre
     };
     let (kept, gone) = (approach_of(1), approach_of(2));
     let has = |t: &str| t.lines().any(|l| l.contains("\"the parser takes integers first\""));
-    assert!(
-        !has(&gone) || has(&kept),
-        "the decision stands only in the item merged away:\nkept: {kept}\nmerged away: {gone}\n{log}"
-    );
     // The created item is item 3: its decision is under the head, before `Learned:`, and nothing else moved.
     let b = matter_with(&path, "lexer simple");
     let day = day_of(&e, b);
@@ -15996,10 +15998,18 @@ fn a_decision_is_not_left_only_in_an_item_the_batch_merged_away_and_one_on_a_cre
         "The lexer stays simple",
         &format!("\"Keep the lexer simple\" (matter {b}, {day})"),
     );
-    assert_eq!(
-        approach_of(3),
-        format!("Approach:\n- Lex it.\nDecisions:\n{line}\nLearned:\nFact: f"),
-        "{log}"
-    );
+    // Both are judged before either fails the test, so that one failure does not hide the other.
+    let mut wrong: Vec<String> = Vec::new();
+    if has(&gone) && !has(&kept) {
+        wrong.push(format!(
+            "the decision stands only in the item merged away:\nkept: {kept}\nmerged away: {gone}"
+        ));
+    }
+    let made = approach_of(3);
+    let want = format!("Approach:\n- Lex it.\nDecisions:\n{line}\nLearned:\nFact: f");
+    if made != want {
+        wrong.push(format!("the created item's text is\n{made}\nand should be\n{want}"));
+    }
+    assert!(wrong.is_empty(), "{}\n{log}", wrong.join("\n"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
