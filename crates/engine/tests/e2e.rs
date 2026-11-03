@@ -11485,6 +11485,15 @@ fn departing(agents: &mut BTreeMap<&'static str, Script>) {
     );
 }
 
+/// The architect ruling on a departure from its own decision each time it is asked, by `ruling`: `stands` or
+/// `turned_down`.
+fn rules_on_its_own(ruling: &'static str) -> Script {
+    Box::new(move |_: &Request, _: usize| {
+        let reply = json!({ "text": "As ruled.", "why": "My own decision.", "departure": ruling });
+        (Vec::new(), vec![("outcome.reply", reply)])
+    })
+}
+
 /// A work's blockers, oldest first: each with the cell that raised it, its holder, its kind and whether it ended.
 fn blockers_of(e: &Engine, work: i64) -> Vec<(String, String, String, bool)> {
     let mut st =
@@ -11578,7 +11587,8 @@ fn a_design_departing_from_the_owner_s_decision_waits_for_the_owner_s_ruling_bef
         "H3",
         Box::new(move |r: &Request, n: usize| {
             if r.prompt.contains(LET_IT_STAND) {
-                let reply = json!({ "text": "Keep it on the main path.", "why": "The owner let it stand." });
+                let reply =
+                    json!({ "text": "Keep it on the main path.", "why": "The owner let it stand.", "departure": "stands" });
                 return (Vec::new(), vec![("outcome.reply", reply)]);
             }
             if n == 1 {
@@ -11715,13 +11725,7 @@ fn a_design_departing_from_the_architect_s_decision_waits_for_the_architect() {
     let s = setup("departs-architect");
     let mut agents = scripts();
     departing(&mut agents);
-    agents.insert(
-        "H3",
-        Box::new(|_: &Request, _: usize| {
-            let reply = json!({ "text": "Keep it on the main path.", "why": "My own decision gives way." });
-            (Vec::new(), vec![("outcome.reply", reply)])
-        }),
-    );
+    agents.insert("H3", rules_on_its_own("stands"));
     let (mut e, said, item) = start(&s, agents);
     set_approach(&mut e, item, &format!("Decisions:\n{ARCHITECT_DECIDED}"));
     step_to(&mut e, item, "D12");
@@ -11866,7 +11870,8 @@ fn a_design_written_again_after_the_work_went_back_to_design_is_reviewed_again()
 // design written again that still departs from the same decision has had no ruling: the ruling given was on the earlier
 // design, and it said no. So the work waits at the wait for a ruling again, and does not go on to implement. Here the
 // architect turns down a departure from its own decision, the engineer redesigns, and the new design departs in the
-// same way.
+// same way. Once that one is turned down too, the engineer's choice to carry on with it anyway is a flow anomaly, not a
+// way to implement: the ruling the engine reads says the design must change.
 #[test]
 fn a_design_written_again_that_still_departs_after_its_departure_was_turned_down_waits_again() {
     let s = setup("departs-again");
@@ -11881,13 +11886,7 @@ fn a_design_written_again_that_still_departs_after_its_departure_was_turned_down
         }),
     );
     // The architect turns the departure down each time it is asked.
-    agents.insert(
-        "H3",
-        Box::new(|_: &Request, _: usize| {
-            let reply = json!({ "text": "No: keep the light way on a path of its own.", "why": "My decision stands." });
-            (Vec::new(), vec![("outcome.reply", reply)])
-        }),
-    );
+    agents.insert("H3", rules_on_its_own("turned_down"));
     let (mut e, said, item) = start(&s, agents);
     set_approach(&mut e, item, &format!("Decisions:\n{ARCHITECT_DECIDED}"));
     step_to(&mut e, item, "D12");
@@ -11911,6 +11910,168 @@ fn a_design_written_again_that_still_departs_after_its_departure_was_turned_down
         ["wait_architect", "interjection", "wait_architect"],
         "{rows:?}\n{log}"
     );
+    // The second design turned down, carrying on with it goes to the architect as a flow anomaly.
+    let chose_again = |e: &mut Engine| transitions(e, item, "A4").len() >= 2;
+    assert!(
+        steps_until(&mut e, 200, chose_again),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        transitions(&e, item, "A4")[..2],
+        ["redesign", "carry_on_unfit"],
+        "{log}"
+    );
+    assert!(ended_at(&e, item, "I1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A ruling that lets a departure stand holds for the work: a design written again after it, for another reason, that
+// departs from the same decision is not asked about again, and goes on past the wait for a ruling at once.
+#[test]
+fn a_departure_let_stand_is_not_asked_about_again_when_the_design_is_written_again() {
+    let s = setup("departs-stands");
+    let mut agents = scripts();
+    departing(&mut agents);
+    // After the ruling the engineer designs again; after that it carries on.
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    agents.insert("H3", rules_on_its_own("stands"));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n{ARCHITECT_DECIDED}"));
+    let implements =
+        |e: &mut Engine| state(e, item).is_some_and(|x| x.1 == "I1") || !ended_at(e, item, "I1").is_empty();
+    assert!(
+        steps_until(&mut e, 250, implements),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "D2"), ["first", "first"], "{log}");
+    assert_eq!(
+        transitions(&e, item, "D12"),
+        ["wait_architect", "interjection", "clear"],
+        "{log}"
+    );
+    assert_eq!(open_questions(&e, work).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A design written again while the owner has not ruled on where the earlier one departed withdraws that question: it is
+// about a design that is no more. The ask that pinned it for the owner needs no answer, the merge does not wait for it,
+// and the owner rules once, on the design written again. Here the owner asks for a new design while the work waits.
+#[test]
+fn a_design_written_again_withdraws_the_unanswered_question_on_the_earlier_one() {
+    let s = setup("departs-superseded");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    departing(&mut agents);
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    let at = path.clone();
+    // The architect pins each departure for the owner, linking the design it is about, and rules once they answered.
+    agents.insert(
+        "H3",
+        Box::new(move |r: &Request, _: usize| {
+            if r.prompt.contains(LET_IT_STAND) {
+                let reply = json!({ "text": "Keep it.", "why": "The owner let it stand.", "departure": "stands" });
+                return (Vec::new(), vec![("outcome.reply", reply)]);
+            }
+            let c = db::open_read(&at).unwrap();
+            let link: String = c
+                .query_row(
+                    "SELECT body ->> '$.design_link' FROM architect_matters WHERE kind = 'open_question'
+                       AND withdrawn IS NULL AND body ->> '$.answer' IS NULL ORDER BY id DESC LIMIT 1",
+                    [],
+                    |x| x.get(0),
+                )
+                .unwrap();
+            asks_the_owner(&format!(
+                "The design departs from your decision. See [the design]({link})."
+            ))
+        }),
+    );
+    agents.insert("B5", records_the_ruling(path.clone()));
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n- {OWNER_DECIDED}"));
+    // The project's other item, which the record of the ruling names once by mistake.
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Another', 'x', 'y', 'change', 'l')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    step_to(&mut e, item, "D12");
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = |said: &Arc<Mutex<Vec<String>>>| said.lock().unwrap().join("\n");
+    let first = open_questions(&e, work)[0].0;
+    // The owner asks for a new design while the work waits for the ruling.
+    owner_says(&mut e, work, "Design it again.");
+    let asked_again = |e: &mut Engine| open_questions(e, work).len() == 2;
+    assert!(steps_until(&mut e, 200, asked_again), "{}", log(&said));
+    let withdrawn: Option<String> =
+        e.db.conn()
+            .query_row("SELECT withdrawn FROM architect_matters WHERE id = ?1", [first], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert!(
+        withdrawn.as_deref().is_some_and(|w| w.contains("written again")),
+        "{withdrawn:?}\n{}",
+        log(&said)
+    );
+    // The owner rules on the question the design written again put, once it is pinned for them.
+    let second = open_questions(&e, work)[1].0;
+    let pinned = |e: &mut Engine| parked_for(e, second).is_some();
+    assert!(steps_until(&mut e, 120, pinned), "{}", log(&said));
+    let (ask, _) = parked_for(&e, second).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, LET_IT_STAND, &[], db::Speaker::Owner).unwrap();
+    let implements =
+        |e: &mut Engine| state(e, item).is_some_and(|x| x.1 == "I1") || !ended_at(e, item, "I1").is_empty();
+    assert!(steps_until(&mut e, 200, implements), "{}", log(&said));
+    // No ask is left for the owner, the owner answered one, and the merge waits for no question.
+    let asks: Vec<(i64, Option<String>)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT id, answer ->> '$.by' FROM owner_asks WHERE answer IS NOT NULL ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let unanswered: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks WHERE answer IS NULL", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(unanswered, 0, "{asks:?}");
+    let by_owner = asks.iter().filter(|a| a.1.as_deref() != Some("engine")).count();
+    assert_eq!(by_owner, 1, "{asks:?}");
+    let waiting: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM work_open_questions q JOIN architect_matters m ON m.id = q.matter
+                 WHERE q.work = ?1 AND q.answer IS NULL AND m.withdrawn IS NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(waiting, 0, "{}", log(&said));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

@@ -4347,6 +4347,9 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                     &format!("SELECT count(*) FROM architect_matters m WHERE m.id = ?1 AND {RULED_BY_OWNER}"),
                     &[&m],
                 )? > 0,
+                // A reply that hands the question on rules on nothing.
+                v.filter(|r| !r["hand_over"].is_object())
+                    .map(|r| r["departure"].as_str().unwrap_or_default()),
             )
             .into_result()
         }
@@ -4396,11 +4399,36 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
 /// What is wrong with a reply to matter `m` (an open question when `open_question`, which says where a design departs
 /// from a decision of its item when it holds `departs`, the line and who made it), the owner having answered an ask that
 /// holds it or not (`owner_ruled`): a departure is ruled on only by whoever made the decision, so the architect replies
-/// on its own judgment only where the decision is the architect's own, and otherwise after the owner answered.
-fn departure_problems(m: i64, open_question: bool, departs: &Value, owner_ruled: bool) -> Problems {
+/// on its own judgment only where the decision is the architect's own, and otherwise after the owner answered. A reply
+/// that answers says the ruling (`ruling`, its `departure`: whether the departure stands or is turned down), which
+/// decides whether the work may carry on with its design, on a departure and on nothing else; one that hands the
+/// question on (`ruling` none) says none.
+fn departure_problems(
+    m: i64,
+    open_question: bool,
+    departs: &Value,
+    owner_ruled: bool,
+    ruling: Option<&str>,
+) -> Problems {
+    use crate::open_questions::{STANDS, TURNED_DOWN};
     let mut problems = Problems::default();
+    let departure = open_question && departs.is_object();
+    let answers = ruling.is_some();
+    let ruling = ruling.unwrap_or_default();
+    if departure && answers && ruling != STANDS && ruling != TURNED_DOWN {
+        problems.push(format!(
+            "matter {m} says the design departs from a decision of its item: say the ruling in the reply's departure, \
+             {STANDS} or {TURNED_DOWN}, as the answer it carries gives it"
+        ));
+    }
+    if !departure && !ruling.is_empty() {
+        problems.push(format!(
+            "matter {m} says no design departs from a decision of its item: leave out the reply's departure, which \
+             only a ruling on such a departure says"
+        ));
+    }
     let by = departs["by"].as_str().unwrap_or_default();
-    if !open_question || !departs.is_object() || by == decisions::Source::Architect.as_str() || owner_ruled {
+    if !departure || by == decisions::Source::Architect.as_str() || owner_ruled {
         return problems;
     }
     problems.push(format!(
@@ -6767,8 +6795,9 @@ mod tests {
     // architect's own decision, and any other matter, the architect answers by its own judgment.
     #[test]
     fn only_whoever_made_a_decision_rules_on_a_departure_from_it() {
+        let stands = Some("stands");
         let owner = json!({ "decision": "L1", "line": "- Decision (2026-11-03, owner): One path.", "by": "owner" });
-        let p = departure_problems(7, true, &owner, false);
+        let p = departure_problems(7, true, &owner, false, stands);
         assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
         assert!(
             p.texts()[0].starts_with(
@@ -6778,13 +6807,35 @@ mod tests {
             "{:?}",
             p.texts()
         );
-        assert!(departure_problems(7, true, &owner, true).is_empty());
+        assert!(departure_problems(7, true, &owner, true, stands).is_empty());
         let delegate = json!({ "line": "Decision (2026-11-03, delegate): Two.", "by": "delegate" });
-        assert_eq!(departure_problems(7, true, &delegate, false).texts().len(), 1);
+        assert_eq!(departure_problems(7, true, &delegate, false, stands).texts().len(), 1);
         let architect = json!({ "line": "Decision (2026-11-03, architect): Three.", "by": "architect" });
-        assert!(departure_problems(7, true, &architect, false).is_empty());
-        assert!(departure_problems(7, true, &Value::Null, false).is_empty());
-        assert!(departure_problems(7, false, &owner, false).is_empty());
+        assert!(departure_problems(7, true, &architect, false, Some("turned_down")).is_empty());
+        assert!(departure_problems(7, true, &Value::Null, false, Some("")).is_empty());
+        assert!(departure_problems(7, false, &owner, false, Some("")).is_empty());
+    }
+
+    // A reply that answers a departure says whether it stands or is turned down, which the engine reads to let the work
+    // carry on with its design or not; a reply to any other matter says no such ruling; one that hands the question on
+    // rules on nothing. Each problem is reported with the others.
+    #[test]
+    fn a_ruling_on_a_departure_says_whether_it_stands() {
+        let owner = json!({ "decision": "L1", "line": "Decision (2026-11-03, owner): One path.", "by": "owner" });
+        let architect =
+            json!({ "decision": "L2", "line": "Decision (2026-11-03, architect): Two.", "by": "architect" });
+        let says = |p: &Problems, what: &str| p.texts().iter().any(|t| t.contains(what));
+        for ruling in [Some(""), Some("maybe")] {
+            let p = departure_problems(7, true, &architect, false, ruling);
+            assert!(says(&p, "say the ruling in the reply's departure"), "{:?}", p.texts());
+        }
+        let p = departure_problems(7, true, &owner, false, Some(""));
+        assert_eq!(p.texts().len(), 2, "{:?}", p.texts());
+        assert!(departure_problems(7, true, &architect, false, None).is_empty());
+        let p = departure_problems(7, false, &Value::Null, false, Some("stands"));
+        assert!(says(&p, "leave out the reply's departure"), "{:?}", p.texts());
+        let p = departure_problems(7, true, &Value::Null, false, Some("turned_down"));
+        assert!(says(&p, "leave out the reply's departure"), "{:?}", p.texts());
     }
 
     // The coherence review is given the current decision cards of the project's other items whose works run, by item:

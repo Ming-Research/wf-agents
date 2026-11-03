@@ -1596,6 +1596,23 @@
           "desc": "Why it was done this way"
         },
         {
+          "name": "departure",
+          "title": "Ruling on the departure",
+          "type": "enum",
+          "optional": true,
+          "desc": "Only in a reply that answers an open question saying a design departs from a decision of its item, and there always: the ruling, as whoever made the decision gave it. Leave it out otherwise",
+          "values": [
+            [
+              "stands",
+              "The departure stands: the design may go its own way there"
+            ],
+            [
+              "turned_down",
+              "The departure is turned down: the design must follow the decision, and the work cannot carry on with it"
+            ]
+          ]
+        },
+        {
           "name": "children",
           "title": "Sub-items split off",
           "type": "list",
@@ -3880,7 +3897,7 @@
       "decisions_answered": "One row for each decision of the item the round was given, by its number: none that is no such number, none answered twice, none left out; a passage quoted to follow one or to depart from it is found, each run of white space taken as one space, in the plan's own sections (a design's solution, where it changes, what it leaves out, its pitfalls and its acceptance conditions), never in why or in its claims.",
       "claims_answered": "One row for each article of the project's constitution in its order, and one for each decision of the item the round was given by its number; each passage quoted is found, each run of white space taken as one space, in the plan's own sections, never in its claims; none near only for an article the plan says it does not touch, or a decision it says does not concern it.",
       "claims_fit_verdict": "A review that finds a claim of the plan refuted (an article contradicted, an answer to a decision wrong) says a better design is found.",
-      "departure_ruled_by_owner": "A reply to an open question that says a design departs from a decision of its item that someone other than the architect made comes only once the owner has answered an ask that holds the question: only whoever made a decision rules on a departure from it.",
+      "departure_ruled_by_owner": "A reply to an open question that says a design departs from a decision of its item that someone other than the architect made comes only once the owner has answered an ask that holds the question: only whoever made a decision rules on a departure from it. A reply that answers such a question says its ruling in departure (stands or turned_down); a reply to any other matter says none.",
       "policy_text_clean": "The policy quotes none of the owner's words; it names no cell of the flow, no item and no date the owner said something.",
       "picked_pickable": "The matter picked is one of those that can be picked now. Those picked with it (`with`) are at most 7, each named once, each one that can be picked now, a side report or an engineer's answer, and of the kind of the matter picked: a side report goes with side reports only, an answer with answers only.",
       "group_answered": "A group's round answers for every matter of the group, once each, and for none outside it: `with` has an entry for each matter picked with the matter in hand, and none for the matter in hand, one outside the group or one named twice; with nothing picked with it, `with` is left out. At the cell that takes the group in, the matter an observation change, an item change or a message names is in the group too and is not one sent back (`back_for_owner`), and the matter in hand is not given that way.",
@@ -3955,7 +3972,7 @@
       "cancelled": "Whether an item the work's item depended on was cancelled, and the line the work stands on has not taken it up yet.",
       "collected_changes": "Whether the batch collected item changes before the round that records its decisions.",
       "deliver": "Whether the item delivers a change or a report.",
-      "design_card_disputed": "Whether the owner chose another option on a current decision card of the work, or disagreed with one.",
+      "design_card_disputed": "Whether the owner chose another option on a current decision card of the work, or disagreed with one, or a ruling turned down a departure of the work's latest design from a decision of its item.",
       "due": "Whether a matter in the project's queue is due for its architect, which starts a work of it.",
       "entry": "How the work came to the understanding question: the architect's first work on the project, or another new session.",
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
@@ -4536,9 +4553,10 @@
         ]
       },
       "design_card_disputed": {
-        "says": "the owner's choice of another option on a decision card, or a disagreement with one",
+        "says": "the owner's choice of another option on a decision card, or a disagreement with one; a departure of the latest design turned down",
         "stores": [
-          "design_cards"
+          "design_cards",
+          "architect_queue"
         ]
       },
       "due": {
@@ -15958,7 +15976,7 @@
             "What the question needs, judge from what it says. A defect or a root outside the work is fixed where it lies, by an item, made when there is none, or by a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings on its decision cards go to the item kept by an interjection. A capability gap, the system lacking what the work needs (a tool, an input, a permission, a rule that says enough, data it cannot reach), is a defect of the system and not of the agent: unblock the work first, by the first way that works, a way around within the rules said in the reply, what only the owner can give (a credential, a configuration in the data directory) by pausing the work until the owner has given it, else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name; then take the gap in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already. A flow anomaly the engine reports, the way the engineer chose not fitting, is such a gap of the flow: the reply says which way fits. A question that need not touch other items or the structure changes nothing: the reply says whom to ask.",
             "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
-            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put to the owner as an open question of its design, and go on with the option it recommends: the merge waits for the answer. An engineer that asked waits for your reply, so you never ask the owner about its question and wait; an open question of an engineer's design waits for nothing, and is yours to answer by the plan, the policy and the owner's earlier decisions. When one is left to the owner (a rule of the project that leaves it to the owner, a safety guarantee, the work's direction), do not answer it and do not reply that you will not: any reply is kept as the answer. Ask the owner instead: the question written as its field says, with a markdown link to the design it is about, since the owner reads it away from the design. The matter then waits for the owner out of your queue and comes back here with the owner's reply; reply to the engineer by it, writing the decision down so that the work can go on, and saying plainly where it goes against the design. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found. An open question that says a design departs from a decision of its item is ruled on only by whoever made the decision: one of your own you may answer; any other, pin for the owner with an ask, quoting the line of the decision and the design's reason, and reply once the owner has answered."
+            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put to the owner as an open question of its design, and go on with the option it recommends: the merge waits for the answer. An engineer that asked waits for your reply, so you never ask the owner about its question and wait; an open question of an engineer's design waits for nothing, and is yours to answer by the plan, the policy and the owner's earlier decisions. When one is left to the owner (a rule of the project that leaves it to the owner, a safety guarantee, the work's direction), do not answer it and do not reply that you will not: any reply is kept as the answer. Ask the owner instead: the question written as its field says, with a markdown link to the design it is about, since the owner reads it away from the design. The matter then waits for the owner out of your queue and comes back here with the owner's reply; reply to the engineer by it, writing the decision down so that the work can go on, and saying plainly where it goes against the design. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found. An open question that says a design departs from a decision of its item is ruled on only by whoever made the decision: one of your own you may answer; any other, pin for the owner with an ask, quoting the line of the decision and the design's reason, and reply once the owner has answered. Your reply to such a question says the ruling in departure: stands when the design may go its own way there, turned_down when it must follow the decision."
           ],
           "out": [
             {

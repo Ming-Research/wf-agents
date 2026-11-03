@@ -123,29 +123,71 @@ pub fn departures(conn: &Connection, work: i64, within: &str) -> Result<Option<(
     Ok(Some((RoundId::new(work, n), departs)))
 }
 
+/// The ruling that lets a departure stand, as the reply to its question gives it (`departure`) and its body keeps it
+/// (`ruling`).
+pub const STANDS: &str = "stands";
+
+/// The ruling that turns a departure down: the design must not go its own way there.
+pub const TURNED_DOWN: &str = "turned_down";
+
+/// Where a departure of a design stands.
+#[derive(Debug, PartialEq, Eq)]
+enum Ruled {
+    /// A ruling on this design or an earlier one of the work let the same departure stand: it waits for nothing.
+    Stands,
+    /// The question this design put was answered, with the ruling the reply gave, or withdrawn (no ruling).
+    Answered(Option<String>),
+    /// The question this design put has no answer yet, or was never put.
+    Waiting,
+}
+
+/// Where departure `d` of the design round `design` wrote stands: let stand by any ruling of the work on the same
+/// decision, or ruled on by the answer to the question this design put, which an answer to an earlier design's does not
+/// stand for: a ruling that turned a departure down is on the design it was asked about.
+fn ruled(conn: &Connection, design: RoundId, d: &Departure) -> Result<Ruled, String> {
+    let question = d.question();
+    let stood: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE work = ?1 AND kind = ?2 AND trim(what) = ?3
+               AND json_extract(body, '$.answer') IS NOT NULL AND json_extract(body, '$.ruling') = ?4",
+            params![design.work, KIND, question, STANDS],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    if stood > 0 {
+        return Ok(Ruled::Stands);
+    }
+    type Row = (Option<String>, Option<String>, Option<String>);
+    let matter: Option<Row> = conn
+        .query_row(
+            "SELECT json_extract(body, '$.answer'), json_extract(body, '$.ruling'), withdrawn FROM architect_matters
+             WHERE work = ?1 AND round = ?2 AND kind = ?3 AND trim(what) = ?4 ORDER BY id DESC LIMIT 1",
+            params![design.work, design.n, KIND, question],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    Ok(match matter {
+        Some((Some(_), ruling, _)) => Ruled::Answered(ruling),
+        Some((None, _, Some(_))) => Ruled::Answered(None),
+        _ => Ruled::Waiting,
+    })
+}
+
 /// Whose ruling the work waits for on where its latest design departs from the decisions of its item, as the engine's
-/// value `departures` says it: `none` when the open question of each departure is answered or withdrawn, `owner` while
-/// one that departs from a decision anyone but the architect made has no answer, and `architect` while those left are
-/// all from the architect's own. A departure whose question was never put waits as one put and unanswered: the work
-/// goes on past none that was not ruled on. Only the latest design counts, and only the questions it put itself: a
-/// question an earlier design put, answered or not, rules on that design and not this one, and still holds the merge
-/// as any open question does.
+/// value `departures` says it: `none` when each departure stands by a ruling or its question is answered or withdrawn,
+/// `owner` while one that departs from a decision anyone but the architect made has no answer, and `architect` while
+/// those left are all from the architect's own. A departure whose question was never put waits as one put and
+/// unanswered: the work goes on past none that was not ruled on. Only the latest design counts, and only the questions
+/// it put itself, or a ruling that let the same departure stand: a question an earlier design put that turned it down
+/// rules on that design and not this one.
 pub fn ruling_due(conn: &Connection, work: i64, within: &str) -> Result<&'static str, String> {
     let Some((design, departs)) = departures(conn, work, within)? else {
         return Ok("none");
     };
     let (mut owner, mut architect) = (false, false);
     for d in departs {
-        let matter: Option<(Option<String>, Option<String>)> = conn
-            .query_row(
-                "SELECT json_extract(body, '$.answer'), withdrawn FROM architect_matters
-                 WHERE work = ?1 AND round = ?2 AND kind = ?3 AND trim(what) = ?4 ORDER BY id DESC LIMIT 1",
-                params![work, design.n, KIND, d.question()],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(sql)?;
-        if matches!(matter, Some((Some(_), _) | (_, Some(_)))) {
+        if ruled(conn, design, &d)? != Ruled::Waiting {
             continue;
         }
         if d.architect_s() {
@@ -161,6 +203,20 @@ pub fn ruling_due(conn: &Connection, work: i64, within: &str) -> Result<&'static
     } else {
         "none"
     })
+}
+
+/// Whether a ruling turned down a departure of the work's latest design: an answer against the design that the work
+/// must follow, so that it cannot carry on with this design.
+pub fn turned_down(conn: &Connection, work: i64, within: &str) -> Result<bool, String> {
+    let Some((design, departs)) = departures(conn, work, within)? else {
+        return Ok(false);
+    };
+    for d in departs {
+        if ruled(conn, design, &d)? == Ruled::Answered(Some(TURNED_DOWN.to_string())) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Whether a work's question was put already, word for word: a design written again that hands it in does not put it
@@ -189,12 +245,54 @@ fn departure_put(tx: &Transaction<'_>, design: RoundId, question: &str) -> Resul
     Ok(before > 0)
 }
 
+/// The departure questions that designs of the work before the one round `design` wrote put and that have no answer:
+/// each is on a design written again since, so it is withdrawn, and an ask of the owner that holds it, unanswered and
+/// holding nothing else still open, needs no answer any more. The withdrawn matters, by their numbers.
+fn withdraw_superseded(tx: &Transaction<'_>, design: RoundId) -> Result<Vec<String>, String> {
+    let mut st = tx
+        .prepare(
+            "SELECT id, asked FROM architect_matters
+             WHERE work = ?1 AND round < ?2 AND kind = ?3 AND json_type(body, '$.departs') = 'object'
+               AND json_extract(body, '$.answer') IS NULL AND withdrawn IS NULL AND handled_round IS NULL
+             ORDER BY id",
+        )
+        .map_err(sql)?;
+    let stale: Vec<(i64, Option<i64>)> = st
+        .query_map(params![design.work, design.n, KIND], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(sql)?
+        .collect::<Result<_, _>>()
+        .map_err(sql)?;
+    let why = format!(
+        "the design it is about was written again, in round R{}-{}",
+        design.work, design.n
+    );
+    for (m, _) in &stale {
+        tx.execute(
+            "UPDATE architect_matters SET withdrawn = ?2 WHERE id = ?1",
+            params![m, why],
+        )
+        .map_err(sql)?;
+    }
+    for a in stale.iter().filter_map(|(_, a)| *a) {
+        let answer = json!({ "by": "engine", "at": db::now(), "text": format!("No answer is needed: {why}.") });
+        tx.execute(
+            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1 AND answer IS NULL AND NOT EXISTS (
+               SELECT 1 FROM architect_matters m WHERE m.asked = ?1
+                 AND json_extract(m.body, '$.answer') IS NULL AND m.withdrawn IS NULL)",
+            params![a, answer.to_string()],
+        )
+        .map_err(sql)?;
+    }
+    Ok(stale.iter().map(|(m, _)| m.to_string()).collect())
+}
+
 /// `post_open_questions`: each open question of the work's latest design becomes a matter of its project's architect,
 /// raised by the round that wrote it, and so does each place the design departs from a decision of its item, which the
 /// work waits on at cell [`RULING`] for the ruling of whoever made the decision. An open question the work put before,
 /// word for word, as a design written again hands it in, is not put again; one it no longer hands in stays, and is
-/// answered as it was asked. A departure is put again for each design that departs, since a ruling is on the design it
-/// was asked about.
+/// answered as it was asked. A departure is put for each design that departs, since a ruling is on the design it was
+/// asked about, unless a ruling let the same departure stand; the departure questions of earlier designs left
+/// unanswered are withdrawn ([`withdraw_superseded`]).
 pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let Some(item) = &ctx.item else {
         return Ok(());
@@ -224,11 +322,12 @@ pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
             new.push(queue_matter(tx, &m).map_err(sql)?.to_string());
         }
     }
-    let mut departed = Vec::new();
+    let (mut departed, mut superseded) = (Vec::new(), Vec::new());
     if let Some((round, departs)) = departures(tx, ctx.work.id, &ctx.within)? {
+        superseded = withdraw_superseded(tx, round)?;
         for d in departs {
             let question = d.question();
-            if departure_put(tx, round, &question)? {
+            if departure_put(tx, round, &question)? || ruled(tx, round, &d)? == Ruled::Stands {
                 continue;
             }
             let m = Matter {
@@ -257,6 +356,18 @@ pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
                 "Open questions {} of {} wait for an answer. They block nothing until the merge.",
                 cards::and_list(&new),
                 ctx.about()
+            ),
+        )?;
+    }
+    if !superseded.is_empty() {
+        crate::actions::log_only(
+            tx,
+            ctx.work.id,
+            &format!(
+                "The design of {} was written again: open questions {}, on where an earlier design departed from \
+                 decisions of its item, are withdrawn unanswered.",
+                ctx.about(),
+                cards::and_list(&superseded)
             ),
         )?;
     }
@@ -359,6 +470,16 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
             (said.clone(), said)
         }
     };
+    // The ruling on a departure, which decides whether the work may carry on with its design.
+    let ruling = text(reply, "departure");
+    let told = match ruling {
+        STANDS => format!("{told}\n\nThe ruling: the departure stands, and the design may go its own way here."),
+        TURNED_DOWN => format!("{told}\n\nThe ruling: the departure is turned down, and the design must change here."),
+        _ => told,
+    };
+    if !ruling.is_empty() {
+        body["ruling"] = json!(ruling);
+    }
     body["answer"] = json!(answer);
     // When it was answered: a decision that quotes the answer is dated by this, not by when the question was raised.
     body["answered_at"] = json!(db::now());
