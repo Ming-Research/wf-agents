@@ -3177,7 +3177,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed: the head is not pushed, a file is not on this head, or a file is outside the test paths"
+                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, or a file is outside the test paths"
                 }
               ]
             }
@@ -3187,8 +3187,8 @@
     },
     {
       "name": "measure",
-      "desc": "Pushes your local commits and runs a measurement, such as a timing. Before measuring, write down what it must answer, what is compared with what, and what result passes and what result overturns; when it is done, you get the raw results and draw the conclusion yourself",
-      "runs": "The engine checks the head, pushes to this work's branch and triggers the measurement workflow; a machine that measures one run at a time takes the runs in the order the engine triggers them. It waits for it to finish and downloads the logs and artifacts",
+      "desc": "Runs a measurement workflow of the project on your local commits, such as a timing. Before measuring, write down what it must answer, what is compared with what, and what result passes and what result overturns; when it is done, you get the raw results and draw the conclusion yourself. Only the workflows the project lists run: where it lists none, the tool refuses",
+      "runs": "The engine checks the head and the request against the workflows the project's configuration lists, pushes the head to a temporary ref as a commit of its own (not to this work's branch) and triggers the workflow on that ref, by hand, with the inputs given. It waits for the run to finish, downloads the log of each job and the artifact the configuration names, and deletes the ref. A hosted runner has no machine of its own for timing, so a workflow that needs quiet measures its own noise in the run, in alternating pairs beside a control",
       "in": [
         {
           "name": "head",
@@ -3200,13 +3200,13 @@
           "name": "workflow",
           "title": "Workflow",
           "type": "text",
-          "desc": "Which workflow"
+          "desc": "Which workflow: the file name of one the project lists, `project.ci.measure`, which also gives the inputs each takes"
         },
         {
           "name": "inputs",
           "title": "Workflow inputs",
           "type": "text",
-          "desc": "The workflow's inputs"
+          "desc": "The workflow's inputs, one name=value on each line, a value on one line; only inputs the listed workflow takes, each once"
         },
         {
           "name": "minutes",
@@ -3238,18 +3238,18 @@
           "name": "push",
           "title": "Push result",
           "type": "union",
-          "desc": "Whether it was pushed",
+          "desc": "Whether the workflow ran",
           "by": "verdict",
           "branches": [
             {
               "value": "ran",
-              "desc": "Pushed, and the measurement has finished",
+              "desc": "The workflow was run on the head, and has finished or been given up on; ok and note say which",
               "fields": [
                 {
                   "name": "head",
-                  "title": "Commit pushed",
+                  "title": "Commit measured",
                   "type": "text",
-                  "desc": "The head pushed"
+                  "desc": "The head measured"
                 },
                 {
                   "name": "run",
@@ -3269,27 +3269,38 @@
                     ],
                     [
                       "not_run",
-                      "It failed or timed out"
+                      "A job of the workflow ended red or was cancelled, or the run did not start or did not finish in time (the note says which)"
                     ]
                   ]
                 },
                 {
                   "name": "files",
                   "title": "Logs and artifacts",
+                  "type": "list",
+                  "desc": "The files the run left, saved on this machine for you to read: the log of each job, and the files of the artifact the project's configuration names for the workflow",
+                  "item": {
+                    "type": "text",
+                    "desc": "The file's local path"
+                  }
+                },
+                {
+                  "name": "note",
+                  "title": "Note",
                   "type": "text",
-                  "desc": "The local path the logs and artifacts were downloaded to"
+                  "desc": "What of the run's logs or artifact could not be fetched or saved, and why; or, when the run is empty, why there is no run: it did not start or did not finish in time",
+                  "optional": true
                 }
               ]
             },
             {
               "value": "refused",
-              "desc": "The push did not pass the engine's checks",
+              "desc": "The request did not pass the engine's checks, so nothing ran",
               "fields": [
                 {
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed: the head is not the one handed in, it does not follow the last push, or it carries another branch"
+                  "desc": "Which check failed, or what GitHub said in refusing the request: the project lists no measurement workflow, the workflow or an input is not one it lists, or the head is not the one handed in, has uncommitted changes in the worktree, does not follow the last push, or carries another branch"
                 }
               ]
             }
@@ -3299,8 +3310,8 @@
     },
     {
       "name": "gh",
-      "desc": "One read-only gh command (your machine has no GitHub credentials): pr view/diff/checks/list, run view/list, repo view, issue view/list, release view, search; api GET only (no -f/-F, --method GET only, GraphQL queries only). To push or run CI, use ci or measure; for anything else on GitHub, ask the owner, kind permission",
-      "runs": "The engine runs it with its own credentials. It lets through only commands on the allow list in the engine's configuration, runs nothing else and records the attempt; only the owner changes the allow list. The log of run view is downloaded",
+      "desc": "One read-only gh command (your machine has no GitHub credentials). Only a command that starts with an entry of the allow list `gh.allow` runs: an entry that ends in / allows any argument under it, any other entry that command with any arguments after it. A request of api only reads: one with any of `-X`, `--method`, `-f`, `-F`, `--field`, `--raw-field` or `--input` is refused. To push or run CI, use ci or measure; for anything else on GitHub, ask the owner, kind permission",
+      "runs": "The engine runs it with its own credentials, in the work's worktree. It lets through only commands on the allow list in the engine's configuration and an api request that only reads, runs nothing else, and records the attempt of each command it runs; only the owner changes the allow list",
       "in": [
         {
           "name": "command",
@@ -3502,7 +3513,7 @@
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
-      "measure_matches_runs": "An answer of measured has this work's measure runs among the engine's records; any other answer (not_measured, from_records) has none. Reading the records, with query or otherwise, needs no run of measure.",
+      "measure_matches_runs": "An answer of measured has a run of this work's measure tool among the engine's records, a request that was refused not counting; any other answer (not_measured, from_records) has none. Reading the records, with query or otherwise, needs no run of measure.",
       "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first (ask to the advisor), whose reply with new_acceptance replaces all of them and is locked by the engine then, or, after the owner disagreed with a decision of the design or chose another option since they were locked, the design hands in the acceptance the ruling needs. A work that delivers a change has no report_answer condition.",
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it is green.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a report changes nothing outside `research/`.",
