@@ -4114,6 +4114,89 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item #230, A8 and A13: an engineer's work whose merge stands and that the version the engine runs can take on at none
+// of the cells it walked since its merge stays at cell `V1`, paused; neither its pause nor the matter its architect is
+// given offers a start over or a cancel of its item, which its merge refuses, only the owner's Start once a version
+// with a cell it walked is installed. Its architect is asked once on this version: once the architect has handled that
+// matter, the owner's Start, which finds it stuck again, asks nothing more.
+#[test]
+fn a_merged_work_the_version_can_take_on_nowhere_is_offered_only_the_start_and_asks_once() {
+    let s = setup("nowhere-merged");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = a_ready_item(&mut e, "Merged");
+    let v = older(&mut e, &[], |g| {
+        let mut c = g.cell("L2").unwrap().clone();
+        c.id = "Z1".into();
+        g.cells.push(c);
+    });
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'Z1')",
+                params![item, v],
+            )?;
+            let work = tx.last_insert_rowid();
+            record_round(tx, work, 1, "M2", &json!({}), "merged")?;
+            Ok(work)
+        })
+        .unwrap();
+    let asked = |e: &Engine| -> Vec<(i64, String)> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT id, what FROM architect_matters
+                 WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1 ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "V1", "{log}");
+    let paused = paused.unwrap_or_default();
+    assert!(
+        paused.ends_with(". Start it once a flow version that has a cell it walked is installed, and it looks again")
+            && !paused.contains("Start it over")
+            && !paused.contains("cancel"),
+        "{paused}"
+    );
+    let first = asked(&e);
+    assert_eq!(first.len(), 1, "{log}");
+    assert!(
+        first[0].1.ends_with(
+            "it waits, paused, for the owner's Start once a flow version that has a cell it walked is installed"
+        ),
+        "{}",
+        first[0].1
+    );
+    // The architect handles the matter, and the owner starts the work again on the same version.
+    e.db.write(Actor::Engine, |tx| {
+        let arch: i64 = tx.query_row(
+            "SELECT id FROM works WHERE graph = 'architect' AND ended IS NOT NULL ORDER BY id LIMIT 1",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.execute(
+            "UPDATE architect_matters SET handled_work = ?2, handled_round = 1 WHERE id = ?1",
+            params![first[0].0, arch],
+        )?;
+        tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+        Ok(())
+    })
+    .unwrap();
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).unwrap().1, "V1", "{log}");
+    assert_eq!(brought(&e, work).len(), 2, "{log}");
+    assert_eq!(asked(&e).len(), 1, "{:?}\n{log}", asked(&e));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Item #230, A8: an architect's work that the version the engine runs can take on at none of the cells it walked stays
 // at cell `V1`, paused, as an engineer's does; it asks no architect to set it straight, since that architect is this
 // work, and its pause alone tells the owner, saying what the owner's Start will do.
