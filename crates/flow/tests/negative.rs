@@ -39,6 +39,16 @@ fn obj(v: &mut Value) -> &mut serde_json::Map<String, Value> {
     v.as_object_mut().unwrap()
 }
 
+/// The shared form `redirect`, which only the engineer's line hands in.
+fn redirect_form(v: &mut Value) -> &mut Value {
+    graph(v)["agentCommon"]["returns"]["forms"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["field"] == "redirect")
+        .unwrap()
+}
+
 fn drop_source(v: &mut Value, id: &str, src: Value) {
     for x in node(v, id)["inputs"].as_array_mut().unwrap() {
         let from = x["from"].as_array_mut().unwrap();
@@ -437,11 +447,11 @@ case!(
     a_form_on_every_line_that_takes_an_interjection,
     "an agent off the line of the cell that receives",
     |v| {
-        obj(&mut graph(v)["agentCommon"]["returns"]["forms"][6]).remove("lines");
+        obj(redirect_form(v)).remove("lines");
     }
 );
 case!(a_form_for_no_such_line, "a form for no such line", |v| {
-    graph(v)["agentCommon"]["returns"]["forms"][6]["lines"] = json!(["test"]);
+    redirect_form(v)["lines"] = json!(["test"]);
 });
 // Every agent's cell runs at an effort the command line names; a cell that is not an agent's runs at none.
 case!(
