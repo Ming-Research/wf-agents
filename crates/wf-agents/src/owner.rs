@@ -61,11 +61,7 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
         return Err(format!("no level {} in the configuration", x.level));
     }
     c.item_level(&x.level)?;
-    let max = c.install.items.title_max as usize;
-    let len = x.title.chars().filter(|c| !c.is_whitespace()).count();
-    if len > max {
-        return Err(format!("the title is {len} long; at most {max}, spaces not counted"));
-    }
+    config::title_fits(&x.title, c.install.items.title_max as usize)?;
     if !matches!(x.deliver.as_str(), "change" | "report") {
         return Err("deliver is change or report".into());
     }

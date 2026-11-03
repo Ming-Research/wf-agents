@@ -325,6 +325,21 @@ pub fn returns_holding(
     Ok(out)
 }
 
+/// The engineer's tests of one table (`new_tests` or `guard_tests`) with their two results, from the returns' test
+/// changes, oldest first; none when there are none, and none when the design chose adversarial testing, which runs the
+/// tests: the engineer then writes no results, and the rows would hold a name and no result.
+fn engineer_tests<'a>(
+    chose_adversarial: bool,
+    returns: impl IntoIterator<Item = &'a Value>,
+    name: &str,
+) -> Option<Value> {
+    if chose_adversarial {
+        return None;
+    }
+    let rows = crate::test_tables::accumulated(returns).table(name).to_vec();
+    (!rows.is_empty()).then_some(Value::Array(rows))
+}
+
 /// The last return of a cell in the work that holds a place, as [`returns_holding`] finds it.
 pub fn last_return(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str, path: &str) -> Result<Option<Value>, String> {
     Ok(returns_holding(e, w, g, cell, path)?.into_iter().next().map(|x| x.1))
@@ -794,6 +809,19 @@ pub fn engine_input(
             .next()
             .and_then(|r| r.input.get("engine").and_then(|x| x.get("table")).cloned())
             .filter(|t| t.as_array().is_some_and(|rows| !rows.is_empty())),
+        // The engineer's tests with their two results, read from the test changes of implementing and fixing, oldest
+        // round first so that a test written again has its later row. Nothing is written back to a return.
+        "new_tests" | "guard_tests" => {
+            let chose = last_return(e, w, g, "D11", "adversarial")?
+                .and_then(|r| at_path(&r, "adversarial"))
+                .is_some_and(|a| a["verdict"] == "needed");
+            let mut returns = Vec::new();
+            for cell in crate::test_tables::CELLS {
+                returns.extend(returns_holding(e, w, g, cell, "test_changes")?);
+            }
+            returns.sort_by_key(|(round, _)| *round);
+            engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name)
+        }
         // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
         // commit of main the branch was cut from or last took main in at, the head under review, the merges of main
         // into the branch (none, said so, when it never took main in), and at a re-review the head the last table
@@ -1073,6 +1101,26 @@ mod tests {
         assert_eq!(
             line_diff("It reads. It writes. It ends.", "It reads. It checks. It ends."),
             " It reads.\n-It writes.\n+It checks.\n It ends."
+        );
+    }
+
+    // Item #217: the engineer's tests with their results are an input only when the engineer wrote results, which is
+    // when the design chose no adversarial testing; with it, the rows would hold a name and no result.
+    #[test]
+    fn the_engineers_tests_are_given_only_when_adversarial_testing_was_not_chosen() {
+        let ret = json!({ "test_changes": [
+            { "change": "added", "test": "a", "kind": "new_behaviour", "on_head": "green", "on_base": "red" },
+            { "change": "added", "test": "b", "kind": "old_behaviour", "on_head": "green", "on_base": "green" },
+        ] });
+        let given = engineer_tests(false, [&ret], "new_tests").unwrap();
+        assert_eq!(given[0]["name"], "a");
+        assert_eq!(engineer_tests(false, [&ret], "guard_tests").unwrap()[0]["name"], "b");
+        assert_eq!(engineer_tests(true, [&ret], "new_tests"), None);
+        assert_eq!(engineer_tests(true, [&ret], "guard_tests"), None);
+        // No test of a kind is no input, as before.
+        assert_eq!(
+            engineer_tests(false, [&json!({ "test_changes": [] })], "new_tests"),
+            None
         );
     }
 

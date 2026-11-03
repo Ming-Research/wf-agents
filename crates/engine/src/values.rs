@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 
 use crate::inputs::{Gathered, answered, last_return};
 use crate::work::{Item, Work};
-use crate::{ENGINEER, Engine, git};
+use crate::{ENGINEER, Engine};
 
 /// What the rows of a cell are given: the values rows recorded, the engine's values the cell names, and each input
 /// read by id under `@<id>`.
@@ -305,16 +305,4 @@ pub fn head_reviewed_by(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> 
     Ok(answered(e, w, g, cell)?
         .first()
         .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
-}
-
-/// What the PR's own change is, apart from catching up with main: a hash of its diff from the fork point.
-pub fn change_hash(wt: &std::path::Path, main: &str) -> Option<String> {
-    let fork = git::fork_point(wt, main).ok()?;
-    let d = git::diff(wt, &fork, "HEAD", &[]).ok()?;
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in d.bytes() {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    Some(format!("{h:016x}"))
 }

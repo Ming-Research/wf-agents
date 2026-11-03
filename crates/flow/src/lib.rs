@@ -39,7 +39,7 @@ use std::fmt;
 
 pub use compiled::{
     COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse, Stats,
-    ToolUse, found_at, misfit, valid, without_null_options,
+    ToolUse, found_at, misfits, valid, without_null_options,
 };
 pub use run::Position;
 pub use texts::cells_named;

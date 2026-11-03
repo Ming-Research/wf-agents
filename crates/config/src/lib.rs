@@ -112,10 +112,37 @@ fn remind_interval() -> u64 {
     3_600
 }
 
+/// How wide a title is when shown, the unit `items.title_max` is in: every character but a space counts the columns it
+/// takes in a line of monospaced text. A space of any kind is not counted; a character of East Asian wide or full width
+/// (a Chinese character, a kana, a hangul syllable, an emoji) counts 2, a combining mark or other character that takes
+/// no column 0, and any other character 1. So the same limit holds titles of any language to about the same room on the
+/// board: 24 allows 24 letters of English or 12 Chinese characters.
+pub fn title_width(title: &str) -> usize {
+    title
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum()
+}
+
+/// Whether a title is within `max` ([`title_width`]); if not, why not, saying how wide it is.
+pub fn title_fits(title: &str, max: usize) -> Result<(), String> {
+    let width = title_width(title);
+    if width > max {
+        return Err(format!(
+            "the title is {width} wide and a title is {max} wide at most (spaces are not counted, and a character of \
+             East Asian wide or full width counts 2): write it shorter"
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Items {
-    /// The longest an item's title may be, spaces not counted.
+    /// The widest an item's title may be, and an observation's, as [`title_width`] counts it: spaces are not counted,
+    /// a character of East Asian wide or full width counts 2 and any other 1. A title is held to it when it is made or
+    /// changed; a title already there is not counted again. There is no default: the installation names the width.
     pub title_max: u32,
     /// The highest level an item may be at, by its name among the levels: an item above it is refused when it is
     /// made and when a work starts on it, while the advisor may still run one level above; none, any level.

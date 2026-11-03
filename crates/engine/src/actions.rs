@@ -179,6 +179,39 @@ impl Ctx {
     }
 }
 
+/// Puts `acceptance` on the item as its locked conditions, from the round that gave them. The locked conditions change
+/// in this way only: with the advisor's `new_acceptance` ([`lock_advised`]), or with the acceptance a design hands in
+/// after the owner, once they were locked, disagreed with a decision of the design ([`lock_designed`]). Editing the
+/// item's text, by the architect or the owner, changes the item's `wanted` and not these.
+fn lock(tx: &Transaction<'_>, item: i64, round: RoundId, acceptance: &Value) -> Result<(), String> {
+    tx.execute(
+        "UPDATE items SET acceptance = ?2, acceptance_work = ?3, acceptance_round = ?4 WHERE id = ?1",
+        params![item, acceptance.to_string(), round.work, round.n],
+    )
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// Locks the acceptance the design of `round` handed in, unless it is what is locked already.
+fn lock_designed(tx: &Transaction<'_>, item: i64, round: RoundId, acceptance: &Value) -> Result<(), String> {
+    let locked: Option<String> = tx
+        .query_row("SELECT acceptance FROM items WHERE id = ?1", [item], |r| r.get(0))
+        .map_err(sql)?;
+    if json_col(locked).as_ref() != Some(acceptance) {
+        lock(tx, item, round, acceptance)?;
+    }
+    Ok(())
+}
+
+/// Locks the advisor's `new_acceptance`, which replaces the whole of what is locked: a condition it does not list is
+/// dropped. No conditions at all is not new acceptance: the reply left them as they are.
+fn lock_advised(tx: &Transaction<'_>, item: i64, round: RoundId, new: Option<Value>) -> Result<(), String> {
+    match new.filter(|a| a.as_array().is_none_or(|xs| !xs.is_empty())) {
+        Some(acceptance) => lock(tx, item, round, &acceptance),
+        None => Ok(()),
+    }
+}
+
 /// A value json_extract gave, as JSON: objects and lists come back as their text.
 fn sql_value(v: db::rusqlite::types::Value) -> Value {
     use db::rusqlite::types::Value as V;
@@ -327,31 +360,11 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             let Some((round, acceptance)) = ctx.last(tx, DESIGN, &format!("{}.acceptance", ctx.within))? else {
                 return Err("no design handed in acceptance conditions to lock".into());
             };
-            let item = ctx.item_id()?;
-            let locked: Option<String> = tx
-                .query_row("SELECT acceptance FROM items WHERE id = ?1", [item], |r| r.get(0))
-                .map_err(sql)?;
-            if json_col(locked).as_ref() != Some(&acceptance) {
-                tx.execute(
-                    "UPDATE items SET acceptance = ?2, acceptance_work = ?3, acceptance_round = ?4 WHERE id = ?1",
-                    params![item, acceptance.to_string(), round.work, round.n],
-                )
-                .map_err(sql)?;
-            }
+            lock_designed(tx, ctx.item_id()?, round, &acceptance)?;
         }
         "lock_new_acceptance" => {
-            // No conditions at all is not new acceptance: the reply left them as they are.
-            let Some(acceptance) = at_value
-                .or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance"))
-                .filter(|a| a.as_array().is_none_or(|xs| !xs.is_empty()))
-            else {
-                return Ok(());
-            };
-            tx.execute(
-                "UPDATE items SET acceptance = ?2, acceptance_work = ?3, acceptance_round = ?4 WHERE id = ?1",
-                params![ctx.item_id()?, acceptance.to_string(), ctx.round.work, ctx.round.n],
-            )
-            .map_err(sql)?;
+            let new = at_value.or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance"));
+            lock_advised(tx, ctx.item_id()?, ctx.round, new)?;
         }
         "post_design_card" => post_cards(ctx, tx)?,
         "post_open_questions" => crate::open_questions::post(ctx, tx)?,
@@ -809,4 +822,106 @@ fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: 
         .map_err(|f| f.what)?;
     crate::hub::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use db::{Actor, Db};
+
+    use super::*;
+
+    /// Conditions of the kind the design hands in, one for each id.
+    fn conditions(ids: &[&str]) -> Value {
+        Value::Array(
+            ids.iter()
+                .map(|id| json!({ "by": "test", "id": id, "condition": format!("{id} holds.") }))
+                .collect(),
+        )
+    }
+
+    /// A database with an item whose acceptance the design of round 1 locked (A1 to A3), and rounds 2 and 3 to lock
+    /// from.
+    fn locked() -> Db {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 't', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')",
+                [],
+            )?;
+            for n in 1..=3 {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+                     VALUES (1, ?1, 'D2', '{}', 'c', 0)",
+                    [n],
+                )?;
+            }
+            lock_designed(tx, 1, RoundId::new(1, 1), &conditions(&["A1", "A2", "A3"])).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        db
+    }
+
+    /// The ids of the conditions locked on the item, and the round that locked them.
+    fn state(db: &Db) -> (Vec<String>, i64) {
+        let (acceptance, round): (String, i64) = db
+            .conn()
+            .query_row("SELECT acceptance, acceptance_round FROM items WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        let ids = serde_json::from_str::<Vec<Value>>(&acceptance)
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_string())
+            .collect();
+        (ids, round)
+    }
+
+    fn ids(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|x| x.to_string()).collect()
+    }
+
+    // Item #217, R232-45: the advisor's `new_acceptance` is the whole of the new acceptance. A condition it leaves out is
+    // dropped (the field's description says so, so that an advisor lists every condition that stays); a reply without
+    // one, or with an empty one, leaves the conditions as they are.
+    #[test]
+    fn the_advisors_new_acceptance_replaces_all_of_the_locked_conditions() {
+        let mut db = locked();
+        assert_eq!(state(&db), (ids(&["A1", "A2", "A3"]), 1));
+        for left in [None, Some(json!([]))] {
+            db.write(Actor::Engine, |tx| {
+                lock_advised(tx, 1, RoundId::new(1, 2), left).map_err(db::Error::Abort)
+            })
+            .unwrap();
+            assert_eq!(state(&db), (ids(&["A1", "A2", "A3"]), 1));
+        }
+        db.write(Actor::Engine, |tx| {
+            lock_advised(tx, 1, RoundId::new(1, 2), Some(conditions(&["A1", "A3", "A4"]))).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        assert_eq!(state(&db), (ids(&["A1", "A3", "A4"]), 2));
+    }
+
+    // Item #217: the acceptance a design hands in after the owner disagreed with a decision of the design is locked as
+    // it is; the same acceptance again locks nothing, so that the round that locked them stays the one that did.
+    #[test]
+    fn the_acceptance_a_design_hands_in_after_the_owner_disagreed_is_locked() {
+        let mut db = locked();
+        db.write(Actor::Engine, |tx| {
+            lock_designed(tx, 1, RoundId::new(1, 2), &conditions(&["A1", "A2", "A3"])).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        assert_eq!(state(&db).1, 1);
+        db.write(Actor::Engine, |tx| {
+            lock_designed(tx, 1, RoundId::new(1, 3), &conditions(&["A1", "A2", "A5"])).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        assert_eq!(state(&db), (ids(&["A1", "A2", "A5"]), 3));
+    }
 }

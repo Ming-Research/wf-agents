@@ -1225,6 +1225,9 @@ fn engineer_columns(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
                     added.push(name.to_string());
                     one.push(new_test(name, ""));
                 }
+                Some("extended") => one.push(format!(
+                    "The extended test {name}: take the other side on its running time now. Do other tests already catch what it catches more, could it be smaller or faster, could it be folded into another test?"
+                )),
                 Some("added") | None => {}
                 Some(c) => one.push(format!(
                     "The test {name}, {c}: compared with before, is there a technical reason?"

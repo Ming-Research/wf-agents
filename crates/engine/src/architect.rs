@@ -3626,7 +3626,7 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
 }
 
 /// What is wrong with changes to a project's observations, as an answer's effects or the revision of a batch hands them
-/// in: a new one that says nothing, has no title or one longer than an item's may be, or carries no tag of the
+/// in: a new one that says nothing, has no title or one wider than an item's may be, or carries no tag of the
 /// project's, or one not of them; a merge or a close of an observation the project has no open one of; a merge that
 /// makes one no item took in yet reported [`RECURS`] times or more, which is work, when the batch's item changes
 /// (`batch`, as they would be with this round's) do not take it in ([`recurring_problem`]); a close of one an item takes
@@ -3660,9 +3660,13 @@ fn observation_problems(
                 if title.is_empty() {
                     problems.push(format!("observation change {n}: it has no title"));
                 }
-                crate::arch_changes::title_fits(title, &mut |p: String| {
-                    problems.push(format!("observation change {n}: {p}"));
-                });
+                crate::arch_changes::title_fits(
+                    title,
+                    c.e.config.config.install.items.title_max as usize,
+                    &mut |p: String| {
+                        problems.push(format!("observation change {n}: {p}"));
+                    },
+                );
                 // Observations are summed up and looked for by their tags: once the project has tags, a new one carries
                 // one at least.
                 if !tags.is_empty() && texts(&o["tags"]).is_empty() {
