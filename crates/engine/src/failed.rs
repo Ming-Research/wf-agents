@@ -366,6 +366,7 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
             "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
             params![w.id, why],
         )?;
+        db::withdraw_resume(tx, w.id)?;
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;

@@ -1,12 +1,13 @@
 //! How a work ends, whichever way it ends: at its graph's end, stopped before it (its item cancelled, or merged into
 //! another), or stopped for a new work that takes it over. [`end`] is the only place a work's end is written, so that
 //! no way of ending leaves behind what the work held: its sessions, its worktree, its pull request, its questions to
-//! the architect and its asks of the owner. Cancelling an item ([`cancel_item`]) also lets go of the items that
-//! depended on it, telling each.
+//! the architect and its asks of the owner. Cancelling an item also lets go of the items that depended on it, telling
+//! each. A work with a step to finish is not ended from outside it: [`cancel_item`] then asks the engine's loop to, and
+//! a merge that comes first stands, so that nothing done to GitHub or told to the works around is taken back.
 
 use std::collections::BTreeMap;
 
-use db::rusqlite::{Transaction, params};
+use db::rusqlite::{Connection, Transaction, params};
 use serde_json::{Value, json};
 
 use crate::work;
@@ -22,7 +23,8 @@ pub enum End<'a> {
     Done,
     /// Before its end, saying why, such as its item cancelled.
     Stopped(&'a str),
-    /// Before its end, saying why, for a new work that takes over its worktree, branch and pull request.
+    /// Before its end, saying why, for a new work that takes over its worktree, branch and pull request, which it holds
+    /// from its first cell on; a cancel before then lets go of them ([`cancel_now`]).
     TakenOver(&'a str),
 }
 
@@ -34,10 +36,11 @@ const DONE_AT: &str = "E1";
 /// it, and stays.
 const WAITING_ON_IT: &str = "('engineer_question', 'open_question', 'failure', 'design_card')";
 
-/// Ends a work: the only place a work's end is written. Its matters that wait on it leave the architect's queue,
-/// withdrawn, saying why. A work stopped before its end records why; a round of it still open, a question that waits
-/// or a round the engine was cut off in, is cut off saying why, and a round that was running when the work ended hands
-/// in nothing (`steps::agent`); its decision cards are replaced, since the owner can no longer rule on them, and its asks
+/// Ends a work: the only place a work's end is written, by the work's own step or, from outside it, only once it has
+/// none in flight ([`schedule`](crate::schedule)). Its matters that wait on it leave the architect's queue, withdrawn,
+/// saying why. A work stopped before its end records why; a round of it still open, a question that waits, a round the
+/// engine was cut off in or one whose work was asked to stop while it ran, which hands in nothing (`steps::agent`), is
+/// cut off saying why; its decision cards are replaced, since the owner can no longer rule on them, and its asks
 /// of the owner still open need no answer. A work of the engineer's graph then lets go of what it held: its sessions
 /// end; unless a new work takes them over, its worktree is removed and, when it has a pull request that did not merge,
 /// the pull request is closed with a comment that its work ended without merging, while a work done at its end had its
@@ -127,6 +130,43 @@ pub fn end(
     Ok(())
 }
 
+/// Lets go of what a work taken over left for the new work on its item, when that item is cancelled before any new work
+/// took it up: the new work has not been set up (cell `S1`), or its item still waits for a free slot, so no work that
+/// ends now holds the worktree or the pull request, and they would stay with no one to remove or close them. What a new
+/// work takes up is the item's latest work with a branch's ([`sessions::worktree::set_up`]), and on an item not
+/// cancelled yet a work with a branch has ended only by being taken over. To be called before the item is marked.
+fn let_go_of_what_no_one_took_up(
+    tx: &Transaction<'_>,
+    item: i64,
+    projects: &BTreeMap<String, config::Project>,
+) -> Result<(), String> {
+    let left = work::query_json(
+        tx,
+        "SELECT w.id, w.worktree, w.pr, w.ended, i.project, i.cancelled
+         FROM works w JOIN items i ON i.id = w.item
+         WHERE w.item = ?1 AND w.branch IS NOT NULL ORDER BY w.id DESC LIMIT 1",
+        &[&item],
+        1,
+    )?;
+    let Some(left) = left
+        .first()
+        .filter(|w| w["ended"].is_string() && w["cancelled"].is_null())
+    else {
+        return Ok(());
+    };
+    let Some(p) = left["project"].as_str().and_then(|p| projects.get(p)) else {
+        return Ok(());
+    };
+    let work = left["id"].as_i64().unwrap_or_default();
+    if let Some(dir) = left["worktree"].as_str() {
+        remove_worktree(tx, work, p, dir)?;
+    }
+    if let Some(n) = left["pr"].as_i64() {
+        close_pr(tx, work, Some(item), n, p)?;
+    }
+    Ok(())
+}
+
 // The shared ending, by the names the flow gives it on the cells a work ends at (`E1`, and `C1` for a work cancelled
 // or taken over): each is one part of [`end`], which says when it is done.
 
@@ -202,18 +242,14 @@ fn remove_worktree(tx: &Transaction<'_>, work: i64, p: &config::Project, dir: &s
 /// with a comment that its work ended without merging. The comment does not say why: why is the owner's or the
 /// architect's words, in the owner's language, and everything in a pull request is in English.
 fn close_pr(tx: &Transaction<'_>, work: i64, item: Option<i64>, n: i64, p: &config::Project) -> Result<(), String> {
-    // A pull request that merged, here or in an earlier work on the item that had it, is not closed.
-    let merged: bool = tx
-        .query_row(
-            &format!(
-                "SELECT EXISTS (SELECT 1 FROM rounds r JOIN works x ON x.id = r.work
-                                    WHERE x.item = ?1 AND x.pr = ?2 AND r.cell IN {} AND r.transition = 'merged')",
-                db::cells_sql(crate::ENGINEER, &["M2"])
-            ),
-            params![item, n],
-            |r| r.get(0),
-        )
-        .map_err(sql)?;
+    // A pull request whose merge stands, here or in an earlier work on the item that had it, is not closed. Once that
+    // merge is reverted the work has let go of it (the action `reopen_with_fix`), and the one it has now is the fix's,
+    // which never merged: a merge on its record says nothing of that one, though the work's rounds hold it.
+    let merged = item
+        .map(|i| db::merge_stands(tx, i))
+        .transpose()
+        .map_err(sql)?
+        .unwrap_or(false);
     if !merged {
         let comment = "Its work ended without merging.";
         outbox(
@@ -226,30 +262,134 @@ fn close_pr(tx: &Transaction<'_>, work: i64, item: Option<i64>, n: i64, p: &conf
     Ok(())
 }
 
-/// Cancels an item, as `by`, the owner or its project's architect, does: it is not to be done, it leaves the owner's
-/// queue, every work on it that has not ended ends, saying why, and it no longer depends on any item or holds any back.
-/// Each item that depended on it is told, by where it stands: a work running on it, by an interjection from `by`, which
-/// a work standing where it waits, for the items it depends on (`A6`), to enter the merge queue (`M1`) or for the
-/// architect's reply (`A2`), takes at once to choose the way on (`A4`) by a row of its own; an item with no work running, by a
-/// matter for its project's architect, to set straight.
+/// What cancelling an item came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cancelling {
+    /// It is cancelled.
+    Cancelled,
+    /// A work on it goes on: the engine's loop cancels it once that work has no step in flight.
+    Asked,
+    /// Its merge stands on main: it is not cancelled, and whoever asked is told.
+    Merged,
+}
+
+/// The work on an item that goes on: not ended and not at the end of the engineer's graph.
+fn going_on(conn: &Connection, item: i64) -> Result<Option<i64>, String> {
+    let works = ids(
+        conn,
+        &format!(
+            "SELECT id FROM works WHERE item = ?1 AND graph = 'engineer' AND ended IS NULL AND at NOT IN {}
+             ORDER BY id DESC LIMIT 1",
+            db::cells_sql(crate::ENGINEER, &[DONE_AT])
+        ),
+        item,
+    )?;
+    Ok(works.first().copied())
+}
+
+/// Every work on an item that has not ended.
+pub(crate) fn not_ended(conn: &Connection, item: i64) -> Result<Vec<i64>, String> {
+    ids(
+        conn,
+        "SELECT id FROM works WHERE item = ?1 AND ended IS NULL ORDER BY id",
+        item,
+    )
+}
+
+/// Asks to cancel an item, as `by`, the owner or its project's architect, asks it, from wherever the asker stands: the
+/// command line's process or an architect's step, neither of which knows what the engine's loop has in flight. An item
+/// whose merge stands on main is not cancelled, and whoever asked is told ([`merge_came_first`]); one with a work that
+/// goes on is cancelled by the loop once that work has no step in flight, so that the merge a step of it is making, and
+/// the pull request it opened, are known by then; any other is cancelled at once ([`cancel_now`]).
 pub fn cancel_item(
     tx: &Transaction<'_>,
     item: i64,
     why: &str,
     by: &str,
     projects: &BTreeMap<String, config::Project>,
+) -> Result<Cancelling, String> {
+    if db::merge_stands(tx, item).map_err(sql)? {
+        merge_came_first(tx, item, "cancelled", &[by])?;
+        return Ok(Cancelling::Merged);
+    }
+    if let Some(work) = going_on(tx, item)? {
+        db::ask_cancel(tx, work, item, why, by).map_err(sql)?;
+        return Ok(Cancelling::Asked);
+    }
+    cancel_now(tx, item, why, by, projects)?;
+    Ok(Cancelling::Cancelled)
+}
+
+/// Carries out a cancel the outbox holds, as the engine's loop does once no work on the item has a step in flight: by
+/// then what those steps did to GitHub is in the database, and the merge, if it came first, stands, and each who asked
+/// is told, as the outbox holds them in this transaction.
+pub fn cancel_asked(
+    tx: &Transaction<'_>,
+    item: i64,
+    why: &str,
+    by: &str,
+    projects: &BTreeMap<String, config::Project>,
 ) -> Result<(), String> {
+    if db::merge_stands(tx, item).map_err(sql)? {
+        let also = db::cancel_asked_too(tx, item).map_err(sql)?;
+        let askers: Vec<&str> = std::iter::once(by).chain(also.as_deref()).collect();
+        return merge_came_first(tx, item, "cancelled", &askers);
+    }
+    cancel_now(tx, item, why, by, projects)
+}
+
+/// Tells whoever asked to stop the work on an item that it is not done, since the item's merge stands on main: the owner
+/// always, the architect, when it is among those who asked, by a report for its queue. The work, when it goes on, watches
+/// main as after any merge. `not` says what is not done to it, as in "it is not cancelled".
+pub(crate) fn merge_came_first(tx: &Transaction<'_>, item: i64, not: &str, askers: &[&str]) -> Result<(), String> {
+    let (title, project): (String, String) = tx
+        .query_row("SELECT title, project FROM items WHERE id = ?1", [item], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(sql)?;
+    let work = ids(
+        tx,
+        "SELECT id FROM works WHERE item = ?1 ORDER BY id DESC LIMIT 1",
+        item,
+    )?;
+    let text = format!("Item {item} ({title}) is not {not}: its merge stands on main, which it reached first.");
+    crate::actions::notify(tx, work.first().copied(), &text)?;
+    if askers.contains(&db::Actor::Architect.name()) {
+        let m = db::Matter {
+            project,
+            kind: "report".into(),
+            detail: Some("other".into()),
+            what: text.clone(),
+            body: json!({ "report": { "kind": "other", "what": text, "urgent": false } }),
+            item: Some(item),
+            ..db::Matter::default()
+        };
+        db::queue_matter(tx, &m).map_err(sql)?;
+    }
+    Ok(())
+}
+
+/// Cancels an item now, with no work on it left to wait for: it is not to be done, it leaves the owner's
+/// queue, every work on it that has not ended ends, saying why, what a work taken over left that no new work took up
+/// is let go of, and it no longer depends on any item or holds any back.
+/// Each item that depended on it is told, by where it stands: a work running on it, by an interjection from `by`, which
+/// a work standing where it waits, for the items it depends on (`A6`), to enter the merge queue (`M1`) or for the
+/// architect's reply (`A2`), takes at once to choose the way on (`A4`) by a row of its own; an item with no work running, by a
+/// matter for its project's architect, to set straight.
+fn cancel_now(
+    tx: &Transaction<'_>,
+    item: i64,
+    why: &str,
+    by: &str,
+    projects: &BTreeMap<String, config::Project>,
+) -> Result<(), String> {
+    let_go_of_what_no_one_took_up(tx, item, projects)?;
     tx.execute("UPDATE items SET cancelled = ?2 WHERE id = ?1", params![item, why])
         .map_err(sql)?;
     tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])
         .map_err(sql)?;
-    let works = ids(
-        tx,
-        "SELECT id FROM works WHERE item = ?1 AND ended IS NULL ORDER BY id",
-        item,
-    )?;
     let ended = format!("item cancelled: {why}");
-    for w in works {
+    for w in not_ended(tx, item)? {
         end(tx, w, End::Stopped(&ended), projects)?;
     }
     let title: String = tx
@@ -310,8 +450,8 @@ pub fn cancel_item(
 }
 
 /// The numbers a query of one number gives.
-fn ids(tx: &Transaction<'_>, q: &str, arg: i64) -> Result<Vec<i64>, String> {
-    let mut st = tx.prepare(q).map_err(sql)?;
+fn ids(conn: &Connection, q: &str, arg: i64) -> Result<Vec<i64>, String> {
+    let mut st = conn.prepare(q).map_err(sql)?;
     st.query_map([arg], |r| r.get(0))
         .map_err(sql)?
         .collect::<Result<_, _>>()
@@ -423,7 +563,7 @@ mod tests {
         let mut db = Db::in_memory().unwrap();
         let (item, work) = db.write(Actor::Owner, |tx| a_work(tx, "Lex", "I1", 7)).unwrap();
         db.write(Actor::Owner, |tx| {
-            cancel_item(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+            cancel_now(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
         })
         .unwrap();
         let ended: String = one(&db, "SELECT ended FROM works");
@@ -521,6 +661,172 @@ mod tests {
         assert_eq!(outbox(&db).len(), 2);
     }
 
+    // Cancelling an item with a work going on only asks, once however often it is asked, keeping the first asker's words
+    // and each asker; an item with no work going on is cancelled at once. One whose merge stands is not cancelled, and
+    // whoever asked is told; once watching main has
+    // reverted that merge it can be cancelled, and the pull request of its fix, which never merged, is closed, though
+    // the work's rounds hold the merge of the one before.
+    #[test]
+    fn what_cancelling_an_item_comes_to_goes_by_its_work_and_its_merge() {
+        let mut db = Db::in_memory().unwrap();
+        let ask = |db: &mut Db, item: i64, by: &str| {
+            db.write(Actor::Owner, |tx| {
+                cancel_item(tx, item, "a duplicate", by, &projects()).map_err(db::Error::Abort)
+            })
+            .unwrap()
+        };
+        let (item, work) = db.write(Actor::Owner, |tx| a_work(tx, "Lex", "L1", 7)).unwrap();
+        assert_eq!(ask(&mut db, item, "owner"), Cancelling::Asked);
+        assert_eq!(ask(&mut db, item, "architect"), Cancelling::Asked);
+        let asked: Vec<(String, Value)> = outbox(&db).into_iter().map(|x| (x.1, x.2)).collect();
+        assert_eq!(
+            asked,
+            [(
+                db::CANCEL_ITEM.to_string(),
+                json!({ "item": item, "why": "a duplicate", "by": "owner", "also": "architect" })
+            )]
+        );
+        db.write(Actor::Engine, |tx| {
+            tx.execute("DELETE FROM outbox", [])?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, 2, 'M2', '{}', '{}', 'merged', 'c', 2, 2)",
+                [work],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(ask(&mut db, item, "architect"), Cancelling::Merged);
+        let cancelled: Option<String> = one(&db, "SELECT cancelled FROM items");
+        assert_eq!(cancelled, None);
+        let report: String = one(
+            &db,
+            "SELECT what FROM architect_matters WHERE kind = 'report' AND detail = 'other'",
+        );
+        assert!(report.contains("is not cancelled"), "{report}");
+        let notice: String = one(&db, "SELECT text FROM engine_notices");
+        assert_eq!(notice, report);
+        db.write(Actor::Engine, |tx| {
+            tx.execute("DELETE FROM outbox", [])?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, 3, 'L1', '{}', '{}', 'broken_by_merge', 'c', 3, 3)",
+                [work],
+            )?;
+            // The revert let go of the pull request that merged, and the fix opened another.
+            tx.execute("UPDATE works SET pr = 8 WHERE id = ?1", [work])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(ask(&mut db, item, "owner"), Cancelling::Asked);
+        db.write(Actor::Engine, |tx| {
+            tx.execute("DELETE FROM outbox", [])?;
+            cancel_asked(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        let cancelled: String = one(&db, "SELECT cancelled FROM items");
+        assert_eq!(cancelled, "a duplicate");
+        let closing: Vec<(String, Value)> = outbox(&db).into_iter().map(|x| (x.1, x.2["pr"].clone())).collect();
+        assert_eq!(
+            closing,
+            [
+                ("remove_worktree".to_string(), Value::Null),
+                ("close_pr".to_string(), json!(8))
+            ]
+        );
+        // An item no work goes on on is cancelled at once.
+        db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Idle', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let idle: i64 = one(&db, "SELECT max(id) FROM items");
+        assert_eq!(ask(&mut db, idle, "owner"), Cancelling::Cancelled);
+    }
+
+    // A work taken over leaves its worktree and pull request to the new work on its item. Cancelled before a new work took
+    // them up, the item must let go of them itself, whether its new work still waits for a free slot, so that none goes
+    // on, or stands before cell `S1` with neither. Once a new work took them up, they are that work's to let go of; and
+    // cancelling an item again repeats nothing.
+    #[test]
+    fn a_cancel_lets_go_of_what_a_work_taken_over_left_and_no_one_took_up() {
+        let mut db = Db::in_memory().unwrap();
+        let closes = |db: &Db, work: i64| -> Vec<(i64, String)> {
+            outbox(db)
+                .into_iter()
+                .filter(|x| x.0 == work && x.1 != "cancel_item")
+                .map(|x| (x.0, x.1))
+                .collect()
+        };
+        let let_go = |work: i64| vec![(work, "remove_worktree".to_string()), (work, "close_pr".to_string())];
+        let ended = |db: &mut Db, work: i64| {
+            db.write(Actor::Engine, |tx| {
+                end(tx, work, End::TakenOver("stopped: started over"), &projects()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        // A new work with no place yet, as before cell `S1`, or one that took up the place of the work before it.
+        let new_work = |db: &mut Db, item: i64, place: Option<i64>| -> i64 {
+            db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, worktree, branch, pr)
+                     VALUES (?1, 1, 'engineer', 'S1', ?2, ?3, ?4)",
+                    params![
+                        item,
+                        place.map(|_| format!("/worktrees/{item}")),
+                        place.map(|_| "b"),
+                        place
+                    ],
+                )?;
+                Ok(tx.last_insert_rowid())
+            })
+            .unwrap()
+        };
+        let cancel = |db: &mut Db, item: i64| {
+            db.write(Actor::Owner, |tx| {
+                cancel_item(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+            })
+            .unwrap()
+        };
+        let carry_out = |db: &mut Db, item: i64| {
+            db.write(Actor::Engine, |tx| {
+                cancel_asked(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+
+        // No work goes on: the item waits at the head of the queue, and is cancelled at once.
+        let (waits, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Waits", "T3", 1)).unwrap();
+        ended(&mut db, taken);
+        assert!(closes(&db, taken).is_empty());
+        assert_eq!(cancel(&mut db, waits), Cancelling::Cancelled);
+        assert_eq!(closes(&db, taken), let_go(taken));
+        // The same cancel again, which the command line does not refuse, finds them let go of.
+        assert_eq!(cancel(&mut db, waits), Cancelling::Cancelled);
+        assert_eq!(closes(&db, taken), let_go(taken));
+
+        // A new work stands before cell `S1`: the cancel is asked, and the loop lets go of them.
+        let (before, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Before", "T3", 2)).unwrap();
+        ended(&mut db, taken);
+        let new = new_work(&mut db, before, None);
+        assert_eq!(cancel(&mut db, before), Cancelling::Asked);
+        carry_out(&mut db, before);
+        assert_eq!(closes(&db, taken), let_go(taken));
+        assert!(closes(&db, new).is_empty());
+
+        // A new work took them up: only it lets go of them, once.
+        let (took, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Took", "T3", 3)).unwrap();
+        ended(&mut db, taken);
+        let new = new_work(&mut db, took, Some(3));
+        assert_eq!(cancel(&mut db, took), Cancelling::Asked);
+        carry_out(&mut db, took);
+        assert!(closes(&db, taken).is_empty());
+        assert_eq!(closes(&db, new), let_go(new));
+    }
+
     // A cancelled item depends on nothing and holds back nothing, and each item that depended on it is told: a work
     // running on it by an interjection from whoever cancelled it, an item with no work running by a matter for its
     // project's architect to set straight.
@@ -537,7 +843,7 @@ mod tests {
             let idle = tx.last_insert_rowid();
             db::add_dependency(tx, waiting, lexer, "its tokens", "parallel")?;
             db::add_dependency(tx, idle, lexer, "its tokens too", "blocking")?;
-            cancel_item(tx, lexer, "no longer needed", "architect", &projects()).map_err(db::Error::Abort)?;
+            cancel_now(tx, lexer, "no longer needed", "architect", &projects()).map_err(db::Error::Abort)?;
             let links: i64 = tx.query_row("SELECT count(*) FROM item_links", [], |r| r.get(0))?;
             assert_eq!(links, 0);
             let (speaker, text): (String, String) = tx.query_row(

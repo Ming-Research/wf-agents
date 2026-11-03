@@ -29,6 +29,44 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+// A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
+// loop to end the work, taken only at the work's turn in the queue. What depends on the order things happened in, and
+// not on a cell, no row can say, so the words the owner and the architect read say it: a cancel or a start over waits
+// for the step under way, a merge that came first stands, a cancel closes what a work taken over left, and a resume
+// waits for a free slot until a later pause withdraws it.
+#[test]
+fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let row = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "stopped").unwrap();
+    assert_eq!(row.to, "M2");
+    assert!(row.waits && row.counts.is_none());
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let stop = v["engine"]["steps"]["stop_work"].as_str().unwrap();
+    assert!(stop.contains("once the step it is in has ended"), "{stop}");
+    assert!(stop.contains("A merge that came first stands"), "{stop}");
+    assert!(stop.contains("waits for its next start"), "{stop}");
+    assert!(
+        stop.contains("the cancel removes the worktree and closes the pull request"),
+        "{stop}"
+    );
+    let waits = v["engine"]["steps"]["wait_for_start"].as_str().unwrap();
+    assert!(waits.contains("withdraws a resume"), "{waits}");
+    for (said, want) in [
+        ("Cancel an item; its work ends", "once the step it is in has ended"),
+        (
+            "Cancel an item; its work ends",
+            "whose merge comes first, is not cancelled",
+        ),
+        ("Let a work you paused go on", "once its machine has a slot free"),
+        ("Let a work you paused go on", "later Pause or Step"),
+        ("Let a work you paused go on", "the engine's pause for a problem"),
+    ] {
+        let line = FLOW.lines().find(|l| l.contains(said)).unwrap();
+        assert!(line.contains(want), "{line}");
+    }
+}
+
 // The answers of a cell's list of forms are read from the flow built into the program: the fix has the answer made for
 // a fix in no commit, a field that is no list of forms and a cell the flow lacks give none.
 #[test]

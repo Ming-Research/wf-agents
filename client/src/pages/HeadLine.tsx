@@ -39,16 +39,23 @@ export function Held({ c, why }: { c: Course; why: string | null }) {
   );
 }
 
-/// How a work goes on, on one line: a round of it running and how long it has run, or what holds it back, then what it
-/// waits for, linked to where the owner gives it, or, what it waited for come, that it waits for a free slot, saying
-/// why on hovering, and its decision cards and asks waiting for the owner as small chips; then why the engine or the
-/// architect stopped it, or why it ended.
+/// How a work goes on, on one line: that it is stopping, saying why on hovering, or a round of it running and how long
+/// it has run, or what holds it back, then what it waits for, linked to where the owner gives it, or, what it waited for
+/// come or its pause asked to be lifted, that it waits for a free slot, saying why on hovering, and its decision cards
+/// and asks waiting for the owner as small chips; then why the engine or the architect stopped it, or why it ended.
 export function State({ w, c }: { w: WorkSummary; c: Course }) {
   if (c.over) {
     return (
       <span className="course">
         <WorkBadge state={w.state} />
         {w.ended ? <span className="why">{w.ended}</span> : null}
+      </span>
+    );
+  }
+  if (c.stopping) {
+    return (
+      <span className="course">
+        <WorkBadge state="stopping" />
       </span>
     );
   }

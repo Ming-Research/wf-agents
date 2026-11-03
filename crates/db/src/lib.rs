@@ -28,7 +28,10 @@ pub use matters::{
     one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
-pub use start_over::{START_OVER, cannot_start_over, start_over, start_over_asked};
+pub use start_over::{
+    CANCEL_ITEM, RESUME_WORK, START_OVER, ask_cancel, ask_resume, cancel_asked_too, cannot_start_over, merge_stands,
+    resume_asked, resume_asker, start_over, stop_asked, stopping, withdraw_resume,
+};
 
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
@@ -194,6 +197,11 @@ pub const PAUSED_BY_OWNER: &str = "the owner paused it";
 /// and the reason says the architect stopped it, then why. Only the architect's resume, or the owner's Continue of
 /// that work, lets it go on.
 pub const STOPPED_BY_ARCHITECT: &str = "stopped by the architect";
+
+/// Whether a work's pause, by why and who paused it as its row has them, is the architect's stop.
+pub fn stopped_by_architect(paused: Option<&str>, by: Option<&str>) -> bool {
+    by == Some("engine") && paused.is_some_and(|p| p.starts_with(STOPPED_BY_ARCHITECT))
+}
 
 #[derive(Debug)]
 pub enum Error {
