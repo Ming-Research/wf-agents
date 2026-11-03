@@ -8,7 +8,7 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
 
-import { type Chart, type ChartEdge, cellNode, MAIN } from './flowModel';
+import { type Chart, type ChartEdge, type ChartNode, cellNode, MAIN } from './flowModel';
 import { attachments, landings, layUnit, type Unit } from './units';
 
 const elk = new ELK();
@@ -191,21 +191,31 @@ async function layPart(
         ]),
     );
   const ends = (cell: string) => external.filter((e) => e.source === cell || e.target === cell).length;
-  // Inside a stage box elkjs breaks a loop by its own measure, not by the order the flow writes the cells in, which
-  // fails it there. A row back into the actions on a line into a cell of the same box, from a cell the flow writes
-  // after that cell, is given to it already turned round, as outside the boxes, so that the actions stay just above
-  // the cell they lead into and the row comes up into them.
+  // A loop that runs through a stage box elkjs does not break by the order the flow writes the cells in: it turned
+  // round a row down into the actions on a line into a cell, and, with rows coming back into the fix's actions from a
+  // later box, the row from the table review down to the fix, so that a cell came between the actions and the cell
+  // they lead into. So every row that goes back up the chart's order is given to it already turned round, and the part
+  // holds no loop for elkjs to break: the boxes and the nodes outside them keep their order, the cells in a box the
+  // flow's, the actions stay just above the cell they lead into, and a row back comes up.
   const order = new Map(members.map((n, i) => [n.id, i]));
+  const place = new Map<string, number>();
+  top.forEach((t, i) => {
+    for (const id of 'id' in t ? [t.id] : t.ids) place.set(id, i);
+  });
+  // Where a node comes in the chart's order: where the box it is in, or it, comes among the part's nodes and boxes;
+  // then where the flow writes its cell, or the cell it is drawn for; the actions on a line into a cell just before it.
+  const rank = (n: ChartNode): number[] => [
+    place.get(unitOf(n.id)) ?? 0,
+    order.get(cellNode(n.cell)) ?? 0,
+    n.kind === 'cell' ? 1 : 0,
+  ];
   const turned = (e: ChartEdge) => {
-    const a = byId.get(e.target);
+    const to = byId.get(e.target);
     const from = byId.get(e.source);
-    return (
-      a?.kind === 'action' &&
-      from?.kind === 'cell' &&
-      from.group !== null &&
-      from.group === a.group &&
-      (order.get(e.source) ?? 0) > (order.get(cellNode(a.cell)) ?? 0)
-    );
+    if (to === undefined || from === undefined) return false;
+    const [a, b] = [rank(from), rank(to)];
+    const k = a.findIndex((x, i) => x !== b[i]);
+    return k >= 0 && a[k] > b[k];
   };
   // The rows that run up the chart, found from the first layout: given to the second turned round too, so that elkjs
   // takes each as running down from its target into its source rather than as a row it turned round itself, which it

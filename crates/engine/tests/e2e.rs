@@ -740,12 +740,12 @@ impl GitHub for FakeHub {
                 return Err(Failure::network("gh run list: connection reset"));
             }
         }
-        let red = command("red");
+        let red = command("red") || self.regression_red(sha);
         Ok(vec![CheckRun {
             name: "check".into(),
             result: if red { "red" } else { "green" }.into(),
             run: format!("https://example.invalid/{workflow}/{sha}"),
-            log_tail: None,
+            log_tail: red.then(|| format!("test {REGRESSION} ... FAILED")),
             log_path: None,
         }])
     }
@@ -860,6 +860,28 @@ impl GitHub for FakeHub {
     /// Says the command and the directory it ran in, where the real gh reads which repository it is about.
     fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
         Ok((0, format!("{} in {}", args.join(" "), dir.display())))
+    }
+}
+
+/// The regression test a bug fix of the light route adds, as a file in the test paths that names it.
+const REGRESSION: &str = "regression";
+
+impl FakeHub {
+    /// Whether the commit holds the regression test and not the fix it tests, the word `fixed` in `src/lib.txt`: the
+    /// CI of such a commit is red, as a regression test run on the code before its fix is. No other test makes either.
+    fn regression_red(&self, sha: &str) -> bool {
+        let shown = |path: &str| {
+            std::process::Command::new("git")
+                .arg("--git-dir")
+                .arg(&self.origin)
+                .args(["show", &format!("{sha}:{path}")])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        };
+        shown(&format!("tests/{REGRESSION}.txt")).is_some()
+            && shown("src/lib.txt").is_none_or(|lib| !lib.contains("fixed"))
     }
 }
 
@@ -1323,6 +1345,395 @@ fn an_item_goes_from_the_queue_to_main() {
         base["change"],
         format!("git diff {fork}..{}", base["head"].as_str().unwrap())
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Marks an item for the route its works go.
+fn marked(e: &mut Engine, item: i64, route: &str) {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET route = ?2 WHERE id = ?1", params![item, route])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Runs the engine until the work on the item ends, failing if it pauses or does not end; gives the work.
+fn ran_to_its_end(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>) -> i64 {
+    for _ in 0..300 {
+        e.tick().unwrap();
+        if let Some((id, _, paused)) = &state(e, item) {
+            assert!(
+                paused.is_none(),
+                "the work paused: {paused:?}\n{}",
+                said.lock().unwrap().join("\n")
+            );
+            if e.advance(*id).unwrap() == Advance::Stopped {
+                return *id;
+            }
+        }
+    }
+    panic!("the work did not end:\n{}", said.lock().unwrap().join("\n"));
+}
+
+/// The rows a work's rounds took, each as `cell:row`, in order.
+fn rows_said(e: &Engine, work: i64) -> Vec<String> {
+    rows_taken(e, work)
+        .into_iter()
+        .filter_map(|(cell, row)| Some(format!("{cell}:{}", row?)))
+        .collect()
+}
+
+/// The scripts of a bug fix on the light route. The research says the work goes the light route, at its second round:
+/// its first says nothing of the route. The plan has one condition. Implementing fixes the bug with a regression test,
+/// asking for ci on the head and ci_before on the test, then hands in both results of the test; the table review
+/// answers its columns, and nothing of adversarial testing, which the light route has none of.
+fn light_scripts() -> BTreeMap<&'static str, Script> {
+    let mut s = scripts();
+    s.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let route = if n == 1 {
+                Vec::new()
+            } else {
+                vec![("outcome.route", "light")]
+            };
+            (route, Vec::new())
+        }),
+    );
+    s.insert(
+        "F1",
+        Box::new(|_: &Request, _: usize| {
+            let plan = json!({
+                "verdict": "planned", "cause": "The parser drops the last line.", "change": "Keep the last line.",
+                "tests": "regression: red before the fix, green after it.",
+                "acceptance": [{ "by": "test", "id": "A1", "condition": "The last line is kept." }],
+            });
+            (Vec::new(), vec![("outcome.plan", plan)])
+        }),
+    );
+    s.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            let done = git(wt, &["log", "--format=%s"]).lines().any(|l| l == "Fix the bug");
+            if !done {
+                write(wt, "src/lib.txt", "old\nfixed\n");
+                write(wt, &format!("tests/{REGRESSION}.txt"), &format!("{REGRESSION}\n"));
+                git(wt, &["add", "-A"]);
+                git(wt, &["commit", "-q", "-m", "Fix the bug"]);
+                let head = git(wt, &["rev-parse", "HEAD"]);
+                let tools = json!([
+                    { "tool": "ci", "head": head, "tests": [REGRESSION],
+                      "pr": { "title": "Fix the bug", "body": "It fixes it." } },
+                    { "tool": "ci_before", "head": head, "files": [format!("tests/{REGRESSION}.txt")],
+                      "tests": [REGRESSION] },
+                ]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            // The regression test is written once, in the test changes, with its two results.
+            let added = json!([{ "change": "added", "test": REGRESSION, "catches": "The last line dropped.",
+                                 "kind": "new_behaviour", "on_head": "green", "on_base": "red",
+                                 "time": "1 ms", "worth": "No other test reads the last line." }]);
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.head", json!(head)),
+                    ("outcome.test_changes", added),
+                    (
+                        "outcome.conditions",
+                        json!([{ "how": "tested", "id": "A1", "tests": [REGRESSION] }]),
+                    ),
+                ],
+            )
+        }),
+    );
+    s.insert("T4", answers_columns(|_| Vec::new()));
+    s
+}
+
+// A bug fix goes the light route from its start to main. Its research, sent back once for saying nothing of the route
+// its item is marked for, says it goes light; like fixes are gathered, the plan is made and found sound, which locks the
+// plan's acceptance, and the fix is implemented with a regression test that ci_before shows red before the change and ci
+// green after it. The full CI runs on the draft, and the table review, which goes on in the session that reviewed the
+// plan, is given both results of the test. No round of the judgment whether it stands, the design, its checks,
+// adversarial testing or the blind review runs.
+#[test]
+fn a_bug_fix_goes_the_light_route_from_its_start_to_main() {
+    let s = setup("light-route");
+    let (mut e, said, item) = start(&s, light_scripts());
+    marked(&mut e, item, "bugfix");
+    let work = ran_to_its_end(&mut e, item, &said);
+    let log = said.lock().unwrap().join("\n");
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:light",
+        "G4:done",
+        "F1:planned",
+        "F2:sound",
+        "I1:done",
+        "T7:full_ci",
+        "T2:review_again",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}\n{log}");
+    }
+    let ran: Vec<String> = path_of(&e, work);
+    for skipped in [
+        "R2", "G2", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "T1", "T3", "G3",
+    ] {
+        assert!(!ran.iter().any(|c| c == skipped), "{skipped} ran: {ran:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 0, "{rows:?}");
+    assert_eq!(route_of(&e, work), "light");
+    // The research that said nothing of the route was sent back for it, once.
+    let back = why_sent_back(&e, work, "R1");
+    assert_eq!(back.len(), 1, "{back:?}");
+    assert!(
+        back[0].contains("the work goes the light route: say in route whether"),
+        "{back:?}"
+    );
+    // The plan found sound locked its acceptance, from the plan's round.
+    let (acceptance, locked_at): (String, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT acceptance, acceptance_round FROM items WHERE id = ?1",
+                [item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(acceptance.contains("The last line is kept."), "{acceptance}");
+    let planned: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT n FROM rounds WHERE work = ?1 AND cell = 'F1' AND transition = 'planned'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(locked_at, planned);
+    // ci_before ran the regression test on the code before the change, which was red.
+    let before: String =
+        e.db.conn()
+            .query_row(
+                "SELECT result FROM tool_runs WHERE work = ?1 AND tool = 'ci_before'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(before.contains("\"result\":\"red\""), "{before}");
+    // The table review is given the test's results before and after the change, in the session of the plan's review.
+    let review = message_at(&e, work, "T4", false);
+    let results = given_value(&review, "·engine·new_tests").expect(&review);
+    assert_eq!(
+        results,
+        json!([{ "name": REGRESSION, "by": "engineer", "on_head": "green", "on_base": "red" }])
+    );
+    assert_eq!(session_of(&e, work, "T4"), session_of(&e, work, "F2"));
+    let main = git(
+        &s.root,
+        &["--git-dir", &s.origin.to_string_lossy(), "show", "main:src/lib.txt"],
+    );
+    assert_eq!(main, "old\nfixed");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review of the plan sends it back twice, and each time the work plans it again; the third time it still sends it
+// back, the work turns to the normal route, counted once. It is then judged to stand, designed and checked, and its first
+// review is the blind review, in a session of its own and not the one that reviewed the plan, which the table review goes
+// on in.
+#[test]
+fn a_plan_sent_back_a_third_time_turns_the_work_to_the_normal_route() {
+    let s = setup("light-to-normal");
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.route", "light")], Vec::new())),
+    );
+    agents.insert(
+        "F2",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.review", "revise")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    marked(&mut e, item, "feature");
+    let work = ran_to_its_end(&mut e, item, &said);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:light",
+        "G4:done",
+        "F1:planned",
+        "F2:revise",
+        "F1:planned",
+        "F2:revise",
+        "F1:planned",
+        "F2:revised_out",
+        "R2:stands",
+        "D2:first",
+        "D11:not_needed",
+        "I1:done",
+        "T2:review_first",
+        "T3:done",
+        "G3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    assert_eq!(counted(&e, work, "plan_revisions"), 2, "{rows:?}");
+    assert_eq!(counted(&e, work, "route_to_normal"), 1, "{rows:?}");
+    // The design's acceptance is the one locked, not the last plan's.
+    let acceptance: String =
+        e.db.conn()
+            .query_row("SELECT acceptance FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
+    assert!(acceptance.contains("The feature is there."), "{acceptance}");
+    let (plan, blind, table) = (
+        session_of(&e, work, "F2"),
+        session_of(&e, work, "T3"),
+        session_of(&e, work, "T4"),
+    );
+    assert_ne!(plan, blind);
+    assert_eq!(blind, table);
+    assert_eq!(route_of(&e, work), "turned");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The route the work goes, as the view the engine, the owner's page and the architect's board read it.
+fn route_of(e: &Engine, work: i64) -> String {
+    e.db.conn()
+        .query_row("SELECT route FROM work_routes WHERE work = ?1", [work], |r| r.get(0))
+        .unwrap()
+}
+
+// A bug fix on the light route that the owner's word sends back to design after it was implemented turns to the normal
+// route by the way on's own row, counted as any turn is, and is designed, checked and blind reviewed. Its table review
+// has the columns of what ran: the plan its review found sound and the plan's tests, and no judgment that the work
+// stands, which never ran.
+#[test]
+fn a_bug_fix_redesigned_from_the_light_route_turns_to_the_normal_route() {
+    let s = setup("light-redesign");
+    let mut agents = light_scripts();
+    // Turned to the normal route, its table review judges its design's choice of no adversarial testing, as any first
+    // review of such a design does.
+    agents.insert("T4", answers_columns(|_| vec![("outcome.no_adversarial", "stands")]));
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    // The design hands in the acceptance the plan locked, word for word.
+    agents.insert(
+        "D2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.measure", "not_measured")],
+                vec![(
+                    "outcome.acceptance",
+                    json!([{ "by": "test", "id": "A1", "condition": "The last line is kept." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    marked(&mut e, item, "bugfix");
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(route_of(&e, work), "light");
+    owner_says(&mut e, work, "Design it after all: the parser's interface changes.");
+    let ended = ran_to_its_end(&mut e, item, &said);
+    assert_eq!(ended, work);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:light",
+        "F2:sound",
+        "I1:done",
+        "A4:redesign_from_light",
+        "D2:first",
+        "T2:review_first",
+        "T3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 1, "{rows:?}");
+    assert_eq!(route_of(&e, work), "turned");
+    let review = message_at(&e, work, "T4", false);
+    assert!(review.contains("The plan the review found sound"), "{review}");
+    assert!(review.contains("The plan's tests"), "{review}");
+    assert!(
+        !review.contains("The research's judgment that the work stands"),
+        "{review}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work past its research keeps the route it took, as the design and the items' table say: an item that went the
+// normal route and is marked a bug fix once its research answered still has its work judged whether it stands, designed
+// and checked, and its first review is the blind review; nothing of the light route runs, and no turn is counted.
+#[test]
+fn an_item_marked_a_bug_fix_after_its_research_keeps_its_work_on_the_normal_route() {
+    let s = setup("marked-late");
+    let (mut e, said, item) = start(&s, scripts());
+    let mut researched = None;
+    for _ in 0..100 {
+        e.tick().unwrap();
+        if let Some((id, _, paused)) = &state(&e, item) {
+            assert!(paused.is_none(), "the work paused: {paused:?}");
+            if rows_said(&e, *id).iter().any(|r| r == "R1:done") {
+                researched = Some(*id);
+                break;
+            }
+            e.advance(*id).unwrap();
+        }
+    }
+    let work = researched.expect("the research did not answer");
+    // The item is marked while the work is still well before its review.
+    let before = path_of(&e, work);
+    assert!(!before.iter().any(|c| c == "T7"), "{before:?}");
+    marked(&mut e, item, "bugfix");
+    let ended = ran_to_its_end(&mut e, item, &said);
+    assert_eq!(ended, work);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:done",
+        "R2:stands",
+        "D2:first",
+        "D11:not_needed",
+        "I1:done",
+        "T2:review_first",
+        "T3:done",
+        "G3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    let ran = path_of(&e, work);
+    for light in ["G4", "F1", "F2"] {
+        assert!(!ran.iter().any(|c| c == light), "{light} ran: {ran:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 0, "{rows:?}");
+    // The work goes the normal route as its page and the board show it, whatever the item's mark says now.
+    assert_eq!(route_of(&e, work), "normal");
+    // The table review is asked of the judgment that the work stands, and not of a plan.
+    let review = message_at(&e, work, "T4", false);
+    assert!(
+        review.contains("The research's judgment that the work stands"),
+        "{review}"
+    );
+    assert!(!review.contains("The plan the review found sound"), "{review}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -1868,6 +2279,11 @@ fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
 // line for each of the three kinds and every column of a kind in its line; one that then leaves out a single column is
 // sent back with the one line it always had, and the third return is taken. The reference is the item's own example
 // (R246-46/47: columns 4 and 5 left out, said at once) and the text of the single miss before the change.
+//
+// Item #256, acceptance A1: the record of each return sent back keeps each problem with the check and the field. The
+// first has three problems of one check and one field. The second, besides leaving out a column, cites a file that is
+// not in the worktree: it fails two checks at once, and is recorded with exactly two problems, one for each check, in
+// the order of the checks in the flow, and the text under `check` is their lines, one to a line, in that order.
 #[test]
 fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all_of_them() {
     let s = setup("columns-misses");
@@ -1893,9 +2309,18 @@ fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all
                 2 => all[..all.len() - 1].to_vec(),
                 _ => all.clone(),
             };
+            // The second return also cites, in its first column, a file that is not in the worktree.
             let cols: Vec<Value> = ids
                 .iter()
-                .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
+                .enumerate()
+                .map(|(i, id)| {
+                    let files = if n == 2 && i == 0 {
+                        vec!["no/such/file.rs"]
+                    } else {
+                        Vec::new()
+                    };
+                    json!({ "id": id, "verdict": "pass", "evidence": { "files": files, "ran": [], "nodes": [] } })
+                })
                 .collect();
             (
                 vec![("outcome.no_adversarial", "stands")],
@@ -1957,6 +2382,73 @@ fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all
         )),
         "{}",
         why[1]
+    );
+    // What the column keeps of each return: the text, then the problems.
+    let stored: Vec<Value> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'T4' AND rejected IS NOT NULL ORDER BY n",
+        &[&work],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].clone())
+    .collect();
+    assert_eq!(stored.len(), 2);
+    for r in &stored {
+        assert_eq!(
+            r.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["check", "problems"],
+            "{r}"
+        );
+        // The text is the lines of the problems, `check (field): text`, one to a line, in their order.
+        let lines: Vec<String> = r["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                format!(
+                    "{} ({}): {}",
+                    p["check"].as_str().unwrap(),
+                    p["field"].as_str().unwrap(),
+                    p["text"].as_str().unwrap()
+                )
+            })
+            .collect();
+        assert_eq!(r["check"].as_str().unwrap(), lines.join("\n"), "{r}");
+    }
+    // The first: three problems of one check and one field, each its own entry.
+    let first = stored[0]["problems"].as_array().unwrap();
+    assert_eq!(first.len(), 3, "{}", stored[0]);
+    assert!(
+        first
+            .iter()
+            .all(|p| p["check"] == "columns_answered" && p["field"] == "columns.id"),
+        "{}",
+        stored[0]
+    );
+    // The second: exactly two problems, one of each check, with the field each check looks at.
+    let second = stored[1]["problems"].as_array().unwrap();
+    assert_eq!(second.len(), 2, "{}", stored[1]);
+    assert_eq!(
+        second[0],
+        json!({
+            "check": "columns_answered",
+            "field": "columns.id",
+            "text": format!("column {} is not answered", all[n - 1])
+        })
+    );
+    assert_eq!(
+        (&second[1]["check"], &second[1]["field"]),
+        (&json!("evidence_holds"), &json!("columns[pass].evidence"))
+    );
+    assert!(
+        second[1]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("no/such/file.rs is not in the worktree"),
+        "{}",
+        stored[1]
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -3823,6 +4315,8 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
         "{why}"
     );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
+    // The text the owner is paused with is the reason alone, without the problems the column keeps for counting.
+    assert!(!why.contains("problems"), "{why}");
     api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
         e.tick().unwrap();
@@ -4250,14 +4744,22 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// How many returns sent back pause a work is the number the flow the work runs on says.
+// How many returns sent back pause a work is the number the flow the work runs on says. The return is sent back for not
+// fitting the schema in two places, which `rounds.rejected` keeps as the text it is sent back with under `format` and as
+// two problems of check `format`, each with the path of its field; the text the owner is paused with, and the one the
+// agent is told, are that text alone, word for word as they were before the problems were kept.
 #[test]
 fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let s = setup("pause");
     let mut scripts = scripts();
     scripts.insert(
         "R1",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome", json!("not an object"))])),
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome", json!("not an object")), ("progress", json!(7))],
+            )
+        }),
     );
     let (mut e, said, item) = start(&s, scripts);
     e.step(None).unwrap();
@@ -4296,14 +4798,60 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     );
     // Each return sent back is counted, and none is a retry.
     assert_eq!((counted(&e, work, "sent_back"), counted(&e, work, "retries")), (2, 0));
+    // The column holds the text under `format`, then each place under `problems`, the check named `format`, no check of
+    // the flow being named so; the text is the sentences of the places, each on a line, and the fields are the paths.
+    let stored: String = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'R1' AND rejected IS NOT NULL ORDER BY n LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let rejected: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(
+        rejected.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["format", "problems"],
+        "{stored}"
+    );
+    let problems = rejected["problems"].as_array().unwrap();
+    assert_eq!(problems.len(), 2, "{stored}");
+    assert!(problems.iter().all(|p| p["check"] == "format"), "{stored}");
+    let mut fields: Vec<&str> = problems.iter().map(|p| p["field"].as_str().unwrap()).collect();
+    fields.sort();
+    assert_eq!(fields, ["outcome", "progress"], "{stored}");
+    let text = rejected["format"].as_str().unwrap();
+    assert_eq!(
+        text,
+        format!(
+            "the return does not fit the schema of R1 in 2 places:\n{}\n{}",
+            problems[0]["text"].as_str().unwrap(),
+            problems[1]["text"].as_str().unwrap()
+        ),
+        "{stored}"
+    );
+    assert!(text.contains("outcome must be an object, and is a string"), "{text}");
+    assert!(text.contains("progress must be a string, and is a number"), "{text}");
+    // The work is paused with that text alone, in the form the column had before the problems were kept.
+    assert_eq!(
+        paused.as_deref(),
+        Some(
+            format!(
+                "2 returns in a row were sent back, the last at cell R1: {}",
+                json!({ "format": text })
+            )
+            .as_str()
+        ),
+        "{log}"
+    );
     // After a return sent back the message only says why, and that the return is to be rewritten.
     let rounds = agent_rounds(&e, item);
     let (id, _, again) = &rounds[1];
     let m = again["message"].as_str().unwrap();
-    assert!(
-        m.starts_with(&format!("# {id} · cell R1\n\nYour return was sent back: "))
-            && m.ends_with("\nRewrite it (format:R1).\n"),
-        "{m}"
+    assert_eq!(
+        m,
+        format!("# {id} · cell R1\n\nYour return was sent back: {text}\nRewrite it (format:R1).\n")
     );
     assert_eq!(again["conditional"], json!([]));
     let _ = std::fs::remove_dir_all(&s.root);
@@ -15553,6 +16101,86 @@ fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Only an item that delivers a change goes the light route: an answer that creates a report marked a bug fix, and marks
+// that report a feature, is sent back saying so of each; handed in again with the report on the normal route and a
+// change marked a bug fix, its changes are made, each item with its route.
+#[test]
+fn a_report_marked_for_the_light_route_is_sent_back() {
+    let s = setup("route-of-a-report");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 2 {
+                return (Vec::new(), Vec::new());
+            }
+            let (route, item, part) = if n == 1 {
+                ("bugfix", "measure", "feature")
+            } else {
+                ("normal", "1", "bugfix")
+            };
+            let changes = json!([
+                { "kind": "create_item", "key": "measure", "project": "p", "title": "Measure the parse",
+                  "problem": "Its time is unknown.", "why": "Needed.", "acceptance": ["It is measured."], "level": "l",
+                  "deliver": "report", "route": route, "reason": "r" },
+                { "kind": "edit_item", "item": item, "part": "route", "text": part, "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Measure the parse.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let rejected = why_sent_back(&e, arch, "H8");
+    assert_eq!(rejected.len(), 1, "{rejected:?}");
+    assert!(
+        rejected[0].contains(
+            "item change 1 (create_item): it gives the route bugfix to an item that delivers a report: only a change \
+             goes the light route"
+        ) && rejected[0]
+            .contains("item change 2 (edit_item): it gives the route feature to an item that delivers a report"),
+        "{rejected:?}"
+    );
+    let routes: Vec<(String, String)> =
+        engine::query_json(e.db.conn(), "SELECT deliver, route FROM items ORDER BY id", &[], 10)
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r["deliver"].as_str().unwrap().to_string(),
+                    r["route"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        routes,
+        [
+            ("change".to_string(), "bugfix".to_string()),
+            ("report".to_string(), "normal".to_string())
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A cancel of an item the batch creates, named by its key, cancels the create out: the item is never made, and the
 // create, the changes that name its key and the cancel are dropped as they are collected, saying so, so that the review
 // is not given them; in the sixth trial a batch held a create, a move and a cancel of one item, which the review could
@@ -17504,7 +18132,11 @@ fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     };
     let merging = turns_until(&mut e, &only_b, |_| s.ci.came() > held);
     assert!(merging, "{}", said_so_far());
-    let in_the_queue = turns_until(&mut e, &Go::default(), |e| !merge_rounds(&*e, a).is_empty());
+    // A step's round is written when it starts and its row when it ends, in two transactions: wait for `a`'s first
+    // merge round to end, or the row is read before it is written. A merge round of `a` would not end, held at the CI.
+    let in_the_queue = turns_until(&mut e, &Go::default(), |e| {
+        merge_rounds(&*e, a).first().is_some_and(|r| r.2.is_some())
+    });
     let (a_rounds, b_rounds) = (merge_rounds(&e, a), merge_rounds(&e, b));
     s.ci.open();
     assert!(in_the_queue, "{}", said_so_far());

@@ -603,7 +603,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 interjections: &interjections,
                 main: main.as_deref(),
             };
-            checks::run(&ctx)
+            checks::run(&ctx).map_err(|problems| checks::reason(&problems))
         };
         let r = crate::unparsed::recover(e, &req, &reply, round, cell, &accepts);
         let mut record = r.record;
@@ -739,9 +739,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     }
-    let row = match g.take(&cell.id, &output, &given) {
+    let row = match g.take_or_places(&cell.id, &output, &given) {
         Ok(r) => r.clone(),
-        Err(why) => {
+        Err(not_taken) => {
+            let problems: Vec<checks::Problem> = not_taken.places.iter().map(checks::Problem::format).collect();
             return reject(
                 e,
                 w,
@@ -751,7 +752,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                     output: Some(output),
                     ..ended
                 },
-                json!({ "format": why }),
+                checks::record("format", not_taken.text, &problems),
             );
         }
     };
@@ -771,7 +772,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         interjections: &interjections,
         main: main.as_deref(),
     };
-    if let Err(why) = checks::run(&ctx) {
+    if let Err(problems) = checks::run(&ctx) {
         return reject(
             e,
             w,
@@ -781,7 +782,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 output: Some(output),
                 ..ended
             },
-            json!({ "check": why }),
+            checks::record("check", checks::reason(&problems), &problems),
         );
     }
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after, &given)
@@ -1061,7 +1062,7 @@ fn reject(
     ended: Ended,
     why: Value,
 ) -> Result<Advance, String> {
-    e.say(&format!("{round} sent back: {why}"));
+    e.say(&format!("{round} sent back: {}", db::without_problems(&why)));
     let ended = Ended {
         rejected: Some(why),
         transition: None,

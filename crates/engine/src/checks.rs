@@ -130,22 +130,72 @@ impl From<Vec<String>> for Problems {
     }
 }
 
-/// Adds the lines a check's problems make in the reason a return is sent back with, `check (place): problem`, one
-/// for each problem; a line already there is not added again.
-fn render(lines: &mut Vec<String>, check: &str, at: Option<&str>, found: &Problems) {
-    for why in found.texts() {
-        let line = format!("{check} ({}): {why}", at.unwrap_or("the return"));
-        if !lines.contains(&line) {
-            lines.push(line);
+/// One problem of a return that is sent back, with the check that found it and the field it is about: what
+/// `rounds.rejected` keeps under `problems`, one entry each, so that returns sent back can be counted by check and by
+/// field.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Problem {
+    /// The check's name; `format` for a return that does not fit the schema of its cell, which no check is named.
+    pub check: String,
+    /// The check's `at` in the flow (`columns[pass].evidence`), or for `format` the path in the schema with a list's
+    /// items written `[]` (`columns[].evidence`); none for a check about the return as a whole, and for a refusal
+    /// about no field.
+    pub field: Option<String>,
+    /// What is wrong, and how to put it right.
+    pub text: String,
+}
+
+impl Problem {
+    /// A place of a return that does not fit its cell's schema.
+    pub fn format(place: &flow::Misfit) -> Problem {
+        Problem {
+            check: "format".to_string(),
+            field: place.field.clone(),
+            text: place.text.clone(),
         }
+    }
+
+    /// The line this problem makes in the text a return is sent back with, `check (place): problem`.
+    fn line(&self) -> String {
+        format!(
+            "{} ({}): {}",
+            self.check,
+            self.field.as_deref().unwrap_or("the return"),
+            self.text
+        )
     }
 }
 
-/// Runs every check of the cell that applies to the return; gives every reason it fails, every problem of every
-/// check: a return is sent back once with all that can be found, since each send-back costs a round.
-pub fn run(c: &Ctx<'_>) -> Result<(), String> {
+/// The text a return that failed checks is sent back with: a line for each problem, in the order found. The only
+/// place this line is made.
+pub fn reason(problems: &[Problem]) -> String {
+    problems.iter().map(Problem::line).collect::<Vec<_>>().join("\n")
+}
+
+/// What `rounds.rejected` keeps for a return sent back: under `kind` (`check` or `format`) the text it was sent back
+/// with, and then under `problems` each problem, `{check, field, text}`. The text comes first; what reads it reads it
+/// by `kind` ([`db::sent_back_text`]).
+pub fn record(kind: &str, text: String, problems: &[Problem]) -> Value {
+    let mut sent = serde_json::Map::new();
+    sent.insert(kind.to_string(), Value::String(text));
+    sent.insert(
+        "problems".to_string(),
+        Value::Array(
+            problems
+                .iter()
+                .map(|p| serde_json::json!({ "check": p.check, "field": p.field, "text": p.text }))
+                .collect(),
+        ),
+    );
+    Value::Object(sent)
+}
+
+/// Runs every check of the cell that applies to the return; gives every problem of every check, each once, in the
+/// order found: a return is sent back once with all that can be found, since each send-back costs a round.
+/// [`reason`] makes the text it is sent back with.
+pub fn run(c: &Ctx<'_>) -> Result<(), Vec<Problem>> {
     let form = form_of(c.g, c.cell, c.output);
-    let mut lines: Vec<String> = Vec::new();
+    let mut found: Vec<Problem> = Vec::new();
     for ch in &c.cell.checks {
         let top = ch.at.as_deref().map(|a| a.split(['.', '[']).next().unwrap_or_default());
         let form_field = top.filter(|t| c.cell.forms.iter().any(|f| f.field.as_deref() == Some(*t)));
@@ -157,14 +207,25 @@ pub fn run(c: &Ctx<'_>) -> Result<(), String> {
             continue;
         }
         let value = ch.at.as_deref().and_then(|a| at_path(&c.unwrapped, a));
-        if let Err(found) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
-            render(&mut lines, &ch.check, ch.at.as_deref(), &found);
+        if let Err(problems) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
+            add(&mut found, &ch.check, ch.at.as_deref(), &problems);
         }
     }
-    if lines.is_empty() {
-        Ok(())
-    } else {
-        Err(lines.join("\n"))
+    if found.is_empty() { Ok(()) } else { Err(found) }
+}
+
+/// Adds the problems a check found to those found so far, each as a [`Problem`] of that check and place. A problem
+/// whose line is there already, from this check or another, is the same problem and is not added again.
+fn add(found: &mut Vec<Problem>, check: &str, at: Option<&str>, problems: &Problems) {
+    for text in problems.texts() {
+        let p = Problem {
+            check: check.to_string(),
+            field: at.map(str::to_string),
+            text: text.clone(),
+        };
+        if !found.iter().any(|q| q.line() == p.line()) {
+            found.push(p);
+        }
     }
 }
 
@@ -445,7 +506,8 @@ impl Ctx<'_> {
         Ok(Some(("D2".to_string(), plan, crate::inputs::decisions_of(&r))))
     }
 
-    /// The acceptance conditions in force: those locked on the item, or else those the design handed in.
+    /// The acceptance conditions in force: those locked on the item, or else those the latest design handed in, or on
+    /// the light route the latest plan.
     fn acceptance(&self) -> Result<Vec<Value>, String> {
         let locked: Option<String> = self
             .e
@@ -455,10 +517,18 @@ impl Ctx<'_> {
                 r.get(0)
             })
             .map_err(|e| e.to_string())?;
-        match work::json_col(locked) {
-            Some(Value::Array(xs)) => Ok(xs),
-            _ => Ok(items(self.last("D2", "acceptance")?.as_ref())),
+        if let Some(Value::Array(xs)) = work::json_col(locked) {
+            return Ok(xs);
         }
+        let mut written: Vec<(RoundId, Value)> = Vec::new();
+        for (cell, path) in [("D2", "acceptance"), ("F1", "plan.acceptance")] {
+            let returns = crate::inputs::returns_holding(self.e, self.w, self.g, cell, path)?;
+            if let Some((round, conditions)) = returns.iter().find_map(|(r, x)| Some((*r, at_path(x, path)?))) {
+                written.push((round, conditions));
+            }
+        }
+        let newest = written.into_iter().max_by_key(|(r, _)| *r).map(|(_, v)| v);
+        Ok(items(newest.as_ref()))
     }
 
     /// The results of the ci and ci_before runs of this work, newest first: the tool, the head it ran on, and its
@@ -586,6 +656,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             research_problems(clean, &outside).into_result()
         }
+        "route_given" => route_problems(values::light_route(c.e, c.w)?, v).into_result(),
         "design_paths_unchanged" => {
             let wt = c.wt()?;
             let Some(start) = &c.head_start else { return Ok(()) };
@@ -722,6 +793,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             crate::cards::check(&handed, &revised, &current, &earlier).or_else(fail)
         }
         "acceptance_matches_locked" => {
+            // A plan that turns the work to the normal route hands in no conditions.
+            if v.is_none() {
+                return Ok(());
+            }
             let given = items(v);
             let report_answer = c.item()?.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer");
             let locked: Option<String> =
@@ -980,10 +1055,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
-            let chose = c.last("D11", "T1")?.is_some_and(|a| a["verdict"] == "needed");
+            let chose = c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed");
             let ran = !c.accepted("T1")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
-            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;
+            // The light route has no design to choose adversarial testing or not, and no judgment of that choice.
+            let light = values::light_route(c.e, c.w)?;
+            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran && !light;
             let verdict = v.and_then(|x| x["verdict"].as_str());
             match (due, first, verdict) {
                 (true, true, None) => fail(
@@ -1718,6 +1795,25 @@ fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
     problems
 }
 
+/// What is wrong with the route the research said, `given`, for a work that goes the light route (`light`) or not:
+/// only the item's route lightens a work, and its engineer only turns it heavier. A work goes the light route by its
+/// item's mark before its research first answers, and by its research's answer after, so the words name the work's
+/// route, not the item's mark, which may have changed since.
+fn route_problems(light: bool, given: Option<&Value>) -> Problems {
+    let mut problems = Problems::default();
+    match (light, given) {
+        (true, None) => problems.push(
+            "the work goes the light route: say in route whether it goes on the light route (light) or turns to the \
+             normal route (to_normal)",
+        ),
+        (false, Some(_)) => {
+            problems.push("the work goes the normal route, and only the item's route lightens a work: leave route out")
+        }
+        _ => {}
+    }
+    problems
+}
+
 /// What is wrong with a research round's changes: the worktree holds changes that are not committed, and the round
 /// changed files outside `research/` (`changed`, the files it changed); the two are independent.
 fn research_problems(clean: bool, changed: &[String]) -> Problems {
@@ -2152,6 +2248,85 @@ mod tests {
         assert!(claims.problems(&[], &[], &tried("none_near", "holds")).is_empty());
         let p = claims.problems(&[], &[], &tried("holds", "holds")[1..]);
         assert_eq!(p.texts(), ["decision L1 of the item is not tried"]);
+    }
+
+    fn problem(check: &str, field: Option<&str>, text: &str) -> Problem {
+        Problem {
+            check: check.to_string(),
+            field: field.map(str::to_string),
+            text: text.to_string(),
+        }
+    }
+
+    // The text a return is sent back with is a line for each problem, `check (field): text`, the return standing for a
+    // problem of no field, joined by a new line in the order given; the record keeps that text under its key and then
+    // each problem as `{check, field, text}`, a problem of no field with null, and the same text and problems are in
+    // the record whatever the key. The lines are written here by the form the owner and the agent have always read.
+    #[test]
+    fn the_text_a_return_is_sent_back_with_and_the_record_of_its_problems_say_the_same() {
+        let problems = [
+            problem(
+                "evidence_holds",
+                Some("columns[pass].evidence"),
+                "a.rs is not in the worktree",
+            ),
+            problem("columns_answered", Some("columns.id"), "column 2 is not answered"),
+            problem("no_field", None, "it is wrong"),
+        ];
+        let text = "evidence_holds (columns[pass].evidence): a.rs is not in the worktree\n\
+                    columns_answered (columns.id): column 2 is not answered\n\
+                    no_field (the return): it is wrong";
+        assert_eq!(reason(&problems), text);
+        assert_eq!(reason(&problems[..1]), text.lines().next().unwrap());
+        assert_eq!(reason(&[]), "");
+        for key in ["check", "format"] {
+            let record = record(key, text.to_string(), &problems);
+            // The text first, then the problems: text readers and the pause quote the column in that order.
+            assert_eq!(
+                record.as_object().unwrap().keys().collect::<Vec<_>>(),
+                [key, "problems"]
+            );
+            assert_eq!(record[key], text);
+            assert_eq!(
+                record["problems"],
+                json!([
+                    { "check": "evidence_holds", "field": "columns[pass].evidence", "text": "a.rs is not in the worktree" },
+                    { "check": "columns_answered", "field": "columns.id", "text": "column 2 is not answered" },
+                    { "check": "no_field", "field": null, "text": "it is wrong" },
+                ])
+            );
+            assert_eq!(db::sent_back_text(&record), Some(text));
+        }
+    }
+
+    // A place of a return that does not fit its cell's schema is a problem of the check `format`, with the path the
+    // place is about, or none for the return as a whole and for a refusal about no field, as the record keeps it.
+    #[test]
+    fn a_place_that_does_not_fit_is_a_problem_of_the_check_format() {
+        let at = flow::Misfit {
+            field: Some("columns[].evidence".to_string()),
+            text: "columns[3] has no evidence".to_string(),
+        };
+        let whole = flow::Misfit {
+            field: None,
+            text: "no row of D2 takes the return".to_string(),
+        };
+        assert_eq!(
+            Problem::format(&at),
+            problem("format", Some("columns[].evidence"), "columns[3] has no evidence")
+        );
+        assert_eq!(
+            Problem::format(&whole),
+            problem("format", None, "no row of D2 takes the return")
+        );
+        let record = record("format", whole.text.clone(), &[Problem::format(&whole)]);
+        assert_eq!(
+            record,
+            json!({
+                "format": "no row of D2 takes the return",
+                "problems": [{ "check": "format", "field": null, "text": "no row of D2 takes the return" }]
+            })
+        );
     }
 
     /// A result of the tool `ci`: the head it pushed, what it ran and its checks.
@@ -2649,27 +2824,29 @@ mod tests {
         assert!(columns_problems(&[], &[]).is_empty());
     }
 
-    // The reason a return is sent back with is one line for each problem, `check (place): problem`; a line already
-    // there is not added again, and a check with one problem gives the line it always gave.
+    // The reason a return is sent back with is one line for each problem, `check (place): problem`; a problem whose
+    // line is there already is not added again, and a check with one problem gives the line it always gave. Each
+    // problem keeps its check and its place.
     #[test]
     fn a_check_with_several_problems_gives_a_line_for_each_and_one_with_a_single_problem_the_line_it_gave() {
-        let mut lines = Vec::new();
-        render(
-            &mut lines,
+        let mut found = Vec::new();
+        add(
+            &mut found,
             "columns_answered",
             Some("columns.id"),
             &Problems::from("column 4 is not answered"),
         );
-        assert_eq!(lines, ["columns_answered (columns.id): column 4 is not answered"]);
-        render(
-            &mut lines,
+        let line = "columns_answered (columns.id): column 4 is not answered";
+        assert_eq!(reason(&found), line);
+        add(
+            &mut found,
             "table_answered",
             None,
             &Problems::from(vec!["a is answered twice".to_string(), "no answer for b".to_string()]),
         );
         // The same check twice, and a problem twice in one check, add nothing.
-        render(
-            &mut lines,
+        add(
+            &mut found,
             "columns_answered",
             Some("columns.id"),
             &Problems::from(vec![
@@ -2678,13 +2855,19 @@ mod tests {
             ]),
         );
         assert_eq!(
-            lines,
+            found,
             [
-                "columns_answered (columns.id): column 4 is not answered",
-                "table_answered (the return): a is answered twice",
-                "table_answered (the return): no answer for b",
+                problem("columns_answered", Some("columns.id"), "column 4 is not answered"),
+                problem("table_answered", None, "a is answered twice"),
+                problem("table_answered", None, "no answer for b"),
             ]
         );
+        let lines = [
+            line,
+            "table_answered (the return): a is answered twice",
+            "table_answered (the return): no answer for b",
+        ];
+        assert_eq!(reason(&found), lines.join("\n"));
         let mut p = Problems::default();
         assert!(p.is_empty());
         p.push("a");
@@ -3330,6 +3513,28 @@ mod tests {
         );
         assert!(research_problems(true, &ids(&["research/a.md", "research/b/c.md"])).is_empty());
         assert!(research_problems(true, &[]).is_empty());
+    }
+
+    // A work on the light route says whether it goes that way, and a work on the normal route says nothing of the
+    // route: the engineer cannot lighten a work its item does not mark.
+    #[test]
+    fn the_research_says_the_route_only_on_the_light_route() {
+        let light = json!({ "verdict": "light", "why": "The root is in one function." });
+        let to_normal = json!({ "verdict": "to_normal", "why": "It changes an interface." });
+        assert!(route_problems(true, Some(&light)).is_empty());
+        assert!(route_problems(true, Some(&to_normal)).is_empty());
+        assert!(route_problems(false, None).is_empty());
+        assert_eq!(
+            said(route_problems(true, None)),
+            [
+                "the work goes the light route: say in route whether it goes on the light route (light) or turns to \
+                 the normal route (to_normal)"
+            ]
+        );
+        assert_eq!(
+            said(route_problems(false, Some(&light))),
+            ["the work goes the normal route, and only the item's route lightens a work: leave route out"]
+        );
     }
 
     #[test]
