@@ -36,7 +36,10 @@ fn main_merged_into(dir: &Path, rev: &str, main: &str) -> Result<String, String>
 
 /// The files changed from one commit to another.
 pub fn changed(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
-    Ok(names(&git(dir, &["diff", "--name-only", "-z", &format!("{from}..{to}")])?))
+    Ok(names(&git(
+        dir,
+        &["diff", "--name-only", "-z", &format!("{from}..{to}")],
+    )?))
 }
 
 /// The files among `paths` that differ between two commits, a file taken away included, and a file moved to another

@@ -373,7 +373,7 @@ mod tests {
                         "asks": { "type": "array", "minItems": 1, "items": { "type": "string" } },
                     } },
                 } },
-                { "type": "object", "required": ["verdict"], "properties": {
+                { "type": "object", "required": ["verdict"], "additionalProperties": false, "properties": {
                     "verdict": { "oneOf": [
                         { "type": "object", "required": ["verdict"], "additionalProperties": false,
                           "properties": { "verdict": { "const": "holds" } } },
@@ -409,7 +409,7 @@ mod tests {
                       "then": { "type": "object", "required": ["verdict", "kind"],
                                 "properties": { "verdict": {}, "kind": {} }, "additionalProperties": false } },
                 ] },
-            } })
+            }, "additionalProperties": false })
         );
     }
 
@@ -453,15 +453,17 @@ mod tests {
         let both = Shape::of(&a).merged(&Shape::of(&b)).schema();
         assert_eq!(both["allOf"].as_array().unwrap().len(), 3);
         // The fields of every branch, each as its branch has it (null-able only where its branch may leave it out), the
-        // fields all require, and no other field refused only if no branch takes one.
+        // fields all require, and no other field refused only if no branch takes one. Branch x of `b` takes other
+        // fields, so `q` of `a` and `s` of `b` are of any type there, and the fields have none; `r` is only in the
+        // branch that lists it, and `a` takes no other field.
         assert_eq!(
             both["properties"],
             json!({
                 "kind": { "type": "string" },
                 "p": { "type": "string" },
-                "q": { "type": "string" },
+                "q": {},
                 "r": { "type": ["integer", "null"] },
-                "s": { "type": "string" },
+                "s": {},
             })
         );
         assert_eq!(both["required"], json!(["kind"]));
