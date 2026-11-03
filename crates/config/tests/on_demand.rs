@@ -56,6 +56,11 @@ struct Data(PathBuf);
 
 impl Data {
     fn new(name: &str, ci: &str) -> Data {
+        Data::extending(name, SHARED, ci)
+    }
+
+    /// The same, the file the project extends being `shared`.
+    fn extending(name: &str, shared: &str, ci: &str) -> Data {
         let dir = std::env::temp_dir().join(format!("wf-agents-config-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let put = |file: &str, text: &str| {
@@ -64,7 +69,7 @@ impl Data {
             std::fs::write(path, text).unwrap();
         };
         put("install.toml", INSTALL);
-        put("shared/common.toml", SHARED);
+        put("shared/common.toml", shared);
         put("rules/ground.md", "Write in `owner.language`.");
         put(
             "projects/p.toml",
@@ -116,4 +121,30 @@ fn a_ci_on_demand_names_its_input_to_the_workflow() {
     let e = refused("empty", "on_demand = true\nfast = \"fast\"\ntests_input = \"\"\n")
         .expect("an empty input name is refused");
     assert!(e.contains("projects/p.toml") && e.contains("tests_input"), "{e}");
+}
+
+// The setting that says whether the CI runs on the engine's temporary refs is true unless a project says otherwise, is
+// kept from the file a project extends, and goes with a tests_input and with a CI on demand, which do not read it; a
+// project's settings written as JSON and read back keep it, whichever it is: false is written, and true, which is the
+// default, is left out.
+#[test]
+fn the_switch_for_the_temporary_refs_is_true_by_default_and_kept() {
+    let read_ci = |name: &str, ci: &str| {
+        let data = Data::new(name, ci);
+        config::working(data.path()).unwrap().projects["p"].ci.clone()
+    };
+    assert!(read_ci("default", "").runs_on_before_branches);
+    // The shared file names a tests_input, which the setting is not read beside, and that is no mistake.
+    assert!(!read_ci("false", "runs_on_before_branches = false\n").runs_on_before_branches);
+    let both = read_ci("both", "on_demand = true\nfast = \"fast\"\nruns_on_before_branches = false\n");
+    assert!(both.on_demand && !both.runs_on_before_branches);
+    // Set in the file a project extends, and not said by the project, it holds.
+    let shared = SHARED.replace("[limits]", "runs_on_before_branches = false\n[limits]");
+    let data = Data::extending("shared", &shared, "");
+    let inherited = config::working(data.path()).unwrap().projects["p"].ci.clone();
+    assert!(!inherited.runs_on_before_branches);
+    for ci in [inherited, read_ci("true", "runs_on_before_branches = true\n")] {
+        let back: config::Ci = serde_json::from_value(serde_json::to_value(&ci).unwrap()).unwrap();
+        assert_eq!(back.runs_on_before_branches, ci.runs_on_before_branches);
+    }
 }
