@@ -61,10 +61,13 @@ pub fn why_not(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, handed:
                 h.cell
             ));
         };
-        if let Some(why) = is.schema.as_ref().and_then(|s| flow::misfit(s, &h.output, "")) {
+        let misfits = is.schema.as_ref().map(|s| flow::misfits(s, &h.output, ""));
+        if let Some(why) = misfits.filter(|m| !m.is_empty()) {
             return Some(format!(
-                "the return of cell {} in round {} no longer fits it ({why})",
-                h.cell, h.round
+                "the return of cell {} in round {} no longer fits it ({})",
+                h.cell,
+                h.round,
+                why.join("; ")
             ));
         }
     }
@@ -251,6 +254,28 @@ mod tests {
         );
     }
 
+    // A return that does not fit the new version in several places is told with every place, joined by semicolons, not
+    // with the first alone.
+    #[test]
+    fn a_work_whose_return_no_longer_fits_in_several_places_is_told_every_place() {
+        let now = engineer();
+        let mut old = now.clone();
+        fields(&mut old, "X1").insert("before".into(), json!({ "type": "string" }));
+        let mut new = now.clone();
+        fields(&mut new, "X1").insert("after".into(), json!({ "type": "string" }));
+        let schema = cell(&mut new, "X1").schema.as_mut().unwrap();
+        schema["required"].as_array_mut().unwrap().push(json!("after"));
+        let mut handed = ran(4, 7, gh());
+        handed.output["before"] = json!("kept");
+        assert_eq!(
+            why_not(&old, &new, &at("R2"), &[handed]).as_deref(),
+            Some(
+                "the return of cell X1 in round R4-7 no longer fits it (the return has no after; the return has \
+                 before, which is not one of its fields: results, failed, after)"
+            )
+        );
+    }
+
     fn architect() -> CompiledGraph {
         let relations = db::relations(db::SCHEMA).unwrap();
         let tables = db::index_of(db::SCHEMA).unwrap();
@@ -316,7 +341,7 @@ mod tests {
                 flow::valid(schema, &h.output),
                 "{}: {:?}",
                 h.cell,
-                flow::misfit(schema, &h.output, "")
+                flow::misfits(schema, &h.output, "")
             );
         }
         for stands_at in ["Q1", "H4", "H5", "B2"] {

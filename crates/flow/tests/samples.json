@@ -683,6 +683,18 @@
        "test": "match_int_range",
        "catches": "outcome.test_changes.catches",
        "kind": "new_behaviour",
+       "on_head": "green",
+       "on_base": "cannot_run",
+       "time": "outcome.test_changes.time",
+       "worth": "outcome.test_changes.worth"
+      },
+      {
+       "change": "extended",
+       "test": "every_sample_takes_its_row",
+       "catches": "outcome.test_changes.catches",
+       "kind": "old_behaviour",
+       "on_head": "green",
+       "on_base": "green",
        "time": "outcome.test_changes.time",
        "worth": "outcome.test_changes.worth"
       }

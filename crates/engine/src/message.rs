@@ -1125,6 +1125,9 @@ pub fn columns(
                         Some("added") => cols.push(format!(
                             "The new test {name}: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test?"
                         )),
+                        Some("extended") => cols.push(format!(
+                            "The extended test {name}: take the other side on its running time now. Do other tests already catch what it catches more, could it be smaller or faster, could it be folded into another test?"
+                        )),
                         Some(c) => cols.push(format!(
                             "The test {name}, {c}: compared with before, is there a technical reason?"
                         )),

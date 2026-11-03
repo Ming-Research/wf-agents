@@ -10,12 +10,10 @@ use std::process::Command;
 /// clean.
 pub use sessions::worktree::{create_worktree, git, head, is_clean, remove_worktree, resolve, take_over_worktree};
 
-fn lines(s: &str) -> Vec<String> {
-    s.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect()
+/// The file names git wrote with `-z`: separated by NUL, as written, with no quoting or escapes (without `-z` git
+/// quotes a name that holds a tab, a quote, a backslash or a character outside ASCII).
+fn names(s: &str) -> Vec<String> {
+    s.split('\0').filter(|n| !n.is_empty()).map(str::to_string).collect()
 }
 
 /// Whether `a` is `b` or an ancestor of it.
@@ -38,7 +36,34 @@ fn main_merged_into(dir: &Path, rev: &str, main: &str) -> Result<String, String>
 
 /// The files changed from one commit to another.
 pub fn changed(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
-    Ok(lines(&git(dir, &["diff", "--name-only", &format!("{from}..{to}")])?))
+    Ok(names(&git(
+        dir,
+        &["diff", "--name-only", "-z", &format!("{from}..{to}")],
+    )?))
+}
+
+/// The files among `paths` that differ between two commits, a file taken away included, and a file moved to another
+/// name counted at the name it had: the paths are taken as they are written, with no pattern in them, and told as
+/// they were written (git's `-z` output holds no quoting or escapes). No path names no file, where git itself reads
+/// an empty list as every path; a commit the clone does not have is an error.
+pub fn changed_among(dir: &Path, from: &str, to: &str, paths: &[String]) -> Result<Vec<String>, String> {
+    let range = format!("{from}..{to}");
+    if paths.is_empty() {
+        // Still ask git about the range, so that a commit it lacks is told as an error.
+        git(dir, &["rev-list", "--max-count=0", range.as_str()])?;
+        return Ok(Vec::new());
+    }
+    let mut args = vec![
+        "--literal-pathspecs",
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        range.as_str(),
+        "--",
+    ];
+    args.extend(paths.iter().map(String::as_str));
+    Ok(names(&git(dir, &args)?))
 }
 
 /// The files the work itself changed from one commit to another: those changed between them that `to` also changes
@@ -109,8 +134,8 @@ pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
 
 /// The files changed in the worktree against a commit, committed or not, untracked files included.
 pub fn changed_since(dir: &Path, from: &str) -> Result<Vec<String>, String> {
-    let mut out = lines(&git(dir, &["diff", "--name-only", from])?);
-    out.extend(lines(&git(dir, &["ls-files", "--others", "--exclude-standard"])?));
+    let mut out = names(&git(dir, &["diff", "--name-only", "-z", from])?);
+    out.extend(names(&git(dir, &["ls-files", "-z", "--others", "--exclude-standard"])?));
     out.sort();
     out.dedup();
     Ok(out)
@@ -166,7 +191,7 @@ pub fn catch_up(dir: &Path, main: &str) -> Result<Result<String, Vec<String>>, S
     ) {
         Ok(_) => Ok(Ok(head(dir)?)),
         Err(_) => {
-            let files = lines(&git(dir, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default());
+            let files = names(&git(dir, &["diff", "--name-only", "-z", "--diff-filter=U"]).unwrap_or_default());
             let _ = git(dir, &["merge", "--abort"]);
             Ok(Err(files))
         }
@@ -289,6 +314,57 @@ mod tests {
             vec!["design/a.md", "src/x.txt"]
         );
         assert!(own_changes(&dir, "main", "HEAD", "HEAD").unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Item #217, R241-41: the files a run of ci_before put on the code before the change are compared with the head by
+    // name: one edited, one taken away and one moved to another name count at the name they had, one left as it was
+    // does not, a name with a pattern in it is a name, and a file the run did not use counts for nothing.
+    #[test]
+    fn the_files_among_some_paths_that_changed_are_named_as_they_were_written() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-changed-among-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q"]);
+        let start = commit(
+            &dir,
+            &[
+                ("t/kept.rs", "kept\n"),
+                ("t/edited.rs", "one\n"),
+                ("t/removed.rs", "gone\n"),
+                ("t/moved.rs", "moved\nmoved\nmoved\n"),
+                ("t/star*.rs", "star\n"),
+                ("t/starry.rs", "starry\n"),
+                ("src/other.rs", "other\n"),
+            ],
+            "Start",
+        );
+        std::fs::remove_file(dir.join("t/removed.rs")).unwrap();
+        std::fs::rename(dir.join("t/moved.rs"), dir.join("t/renamed.rs")).unwrap();
+        commit(
+            &dir,
+            &[
+                ("t/edited.rs", "two\n"),
+                ("t/starry.rs", "starry, edited\n"),
+                ("src/other.rs", "other, edited\n"),
+            ],
+            "Change",
+        );
+        let ps = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let among = |paths: &[&str]| changed_among(&dir, &start, "HEAD", &ps(paths)).unwrap();
+        assert_eq!(
+            among(&["t/kept.rs", "t/edited.rs", "t/removed.rs", "t/moved.rs"]),
+            ["t/edited.rs", "t/moved.rs", "t/removed.rs"]
+        );
+        // The pattern in a name is no pattern: `t/star*.rs` is a file that did not change, and `t/starry.rs` is not it.
+        assert!(among(&["t/star*.rs"]).is_empty());
+        // Nothing changed in the files left alone, and the other file of the commit is not asked about.
+        assert!(among(&["t/kept.rs"]).is_empty());
+        assert!(
+            changed_among(&dir, "HEAD", "HEAD", &ps(&["t/edited.rs"]))
+                .unwrap()
+                .is_empty()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

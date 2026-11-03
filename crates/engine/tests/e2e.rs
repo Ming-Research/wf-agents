@@ -369,6 +369,15 @@ impl Agents for Scripted {
             .or_insert(json!(format!("round {n} at {}", r.cell)));
         let fault = set.remove("@unparsed");
         let as_text = set.remove("@outcome_text").is_some();
+        // Where the return was read from, as the command line tells it: `@from` is `tool` or `text`; with none the
+        // reply tells none, as the replies of most tests do not.
+        let from = match set.remove("@from").as_ref().and_then(Value::as_str) {
+            Some("tool") => Some(engine::agent::Source::Tool),
+            Some("text") => Some(engine::agent::Source::Text),
+            _ => None,
+        };
+        // A field of another form than the return's, written as null beside the form: the field's name.
+        let foreign_null = set.remove("@foreign_null");
         // Attempts the command line refused before it took the return, each by why.
         let refused: Vec<engine::agent::Refused> = set
             .remove("@refused")
@@ -414,8 +423,12 @@ impl Agents for Scripted {
         if as_text {
             output["outcome"] = json!(output["outcome"].to_string());
         }
+        if let Some(field) = foreign_null.as_ref().and_then(Value::as_str) {
+            output["outcome"][field] = Value::Null;
+        }
         Reply {
             output: Some(output),
+            output_from: from,
             session,
             model: Some(r.model.clone()),
             usage,
@@ -1279,18 +1292,16 @@ fn light_scripts() -> BTreeMap<&'static str, Script> {
                 return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
             }
             let head = git(wt, &["rev-parse", "HEAD"]);
+            // The regression test is written once, in the test changes, with its two results.
             let added = json!([{ "change": "added", "test": REGRESSION, "catches": "The last line dropped.",
-                                 "kind": "new_behaviour", "time": "1 ms", "worth": "No other test reads the last line." }]);
+                                 "kind": "new_behaviour", "on_head": "green", "on_base": "red",
+                                 "time": "1 ms", "worth": "No other test reads the last line." }]);
             (
                 Vec::new(),
                 vec![
                     ("outcome.head", json!(head)),
                     ("outcome.test_changes", added),
                     ("outcome.conditions", json!([{ "how": "tested", "id": "A1", "tests": [REGRESSION] }])),
-                    (
-                        "outcome.new_tests",
-                        json!([{ "name": REGRESSION, "by": "engineer", "on_head": "green", "on_base": "red" }]),
-                    ),
                 ],
             )
         }),
@@ -1373,7 +1384,7 @@ fn a_bug_fix_goes_the_light_route_from_its_start_to_main() {
     assert!(before.contains("\"result\":\"red\""), "{before}");
     // The table review is given the test's results before and after the change, in the session of the plan's review.
     let review = message_at(&e, work, "T4", false);
-    let results = given_value(&review, "·I1·new_tests").expect(&review);
+    let results = given_value(&review, "·engine·new_tests").expect(&review);
     assert_eq!(
         results,
         json!([{ "name": REGRESSION, "by": "engineer", "on_head": "green", "on_base": "red" }])
@@ -4842,6 +4853,58 @@ fn an_outcome_handed_in_as_its_json_text_is_taken_as_the_object() {
     assert_eq!(sent_back(&e), 0, "{log}");
     assert_eq!(taken_from_text(&e, work).as_deref(), Some("outcome"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// What the first round of a work at `R1` keeps under `engine` in its record.
+fn engine_record(e: &Engine, work: i64) -> Value {
+    let text: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine') FROM rounds WHERE work = ?1 AND cell = 'R1'
+                 ORDER BY n LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+// A round records where its return was read from: the tool's input, which the command line checked, or the text of the
+// run's result, which no check of it saw. A null a return holds in a field of another form than its own (`ask` beside
+// the understanding) is taken as left out, the round takes its row with nothing sent back, and the round records the
+// path of the null; a return with no such null records none.
+#[test]
+fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out() {
+    for (from, nulls) in [("text", true), ("tool", false)] {
+        let s = setup(&format!("return-from-{from}"));
+        let mut agents = scripts();
+        agents.insert(
+            "R1",
+            Box::new(move |_: &Request, n: usize| match n {
+                1 if nulls => (
+                    Vec::new(),
+                    vec![("@from", json!(from)), ("@foreign_null", json!("ask"))],
+                ),
+                1 => (Vec::new(), vec![("@from", json!(from))]),
+                _ => (Vec::new(), Vec::new()),
+            }),
+        );
+        let (mut e, said, item) = start(&s, agents);
+        past_r1(&mut e, item);
+        let log = said.lock().unwrap().join("\n");
+        let (work, at, paused) = state(&e, item).unwrap();
+        assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+        assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+        assert_eq!(sent_back(&e), 0, "{log}");
+        let record = engine_record(&e, work);
+        assert_eq!(record["return_from"], from, "{record}");
+        assert_eq!(
+            record.get("foreign_nulls").cloned(),
+            nulls.then(|| json!(["outcome.ask"])),
+            "{record}"
+        );
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
 }
 
 // A run the command line gave up on because its last attempt held the outcome as a string of its JSON is taken from
@@ -11644,6 +11707,25 @@ fn setup_priced(name: &str) -> Setup {
     s
 }
 
+/// A setup of an installation in Chinese whose titles may be 24 wide at most, as the owner sets it: 12 Chinese
+/// characters, or 24 letters of English.
+fn setup_titled(name: &str) -> Setup {
+    let s = setup(name);
+    let install = std::fs::read_to_string(s.data.join("install.toml"))
+        .unwrap()
+        .replace("language = \"English\"", "language = \"Chinese\"")
+        .replace("title_max = 40", "title_max = 24");
+    write(&s.data, "install.toml", &install);
+    git(&s.data, &["commit", "-q", "-am", "titles 24 wide"]);
+    s
+}
+
+/// A title of `n` Chinese characters, made from a number: the repository holds no letter of another language, not even
+/// as an escape.
+fn chinese(n: usize) -> String {
+    char::from_u32(0x4e2d).unwrap().to_string().repeat(n)
+}
+
 fn line_sessions(e: &Engine, work: i64, line: &str) -> Vec<(String, bool, String)> {
     let mut st =
         e.db.conn()
@@ -13712,11 +13794,14 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// An item's title has 20 characters at most, spaces not counted: an answer that creates an item, or retitles one, with
-// a longer title is sent back saying how long each is, and handed in again with shorter titles, its changes are made.
+// Item #217: an item's title is as wide as the installation's `items.title_max` at most (here 24), spaces not counted,
+// a Chinese character counting 2 and an English letter 1: an answer that creates an item, or retitles one, with 13
+// Chinese characters (26 wide) or 25 letters is sent back saying how wide each is, and handed in again with 12 Chinese
+// characters or 24 letters, its changes are made. A title already there, as wide as the limit lets none now be, is not
+// looked at again by a change that does not give it a title.
 #[test]
-fn an_item_title_over_twenty_characters_is_sent_back() {
-    let s = setup("title-too-long");
+fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
+    let s = setup_titled("title-too-long");
     let mut agents = scripts();
     agents.insert(
         "H8",
@@ -13724,16 +13809,18 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
             if n > 2 {
                 return (Vec::new(), Vec::new());
             }
-            // 23 characters and 22, spaces not counted; then 20 and 18.
+            // 26 wide and 25; then 24 and 24.
             let (title, retitle) = if n == 1 {
-                ("Let match take integers too", "Parse all the inputs first")
+                (chinese(13), "Abcdefghijklmnopqrstuvwxy".to_string())
             } else {
-                ("Let match take integers", "Parse the input first")
+                (chinese(12), "Abcdefghijklmnopqrstuvwx".to_string())
             };
             let changes = json!([
                 { "kind": "create_item", "key": "match", "project": "p", "title": title, "problem": "No match.",
                   "why": "Needed.", "acceptance": ["It matches."], "level": "l", "deliver": "change", "reason": "r" },
                 { "kind": "edit_item", "item": "1", "part": "title", "text": retitle, "reason": "r" },
+                // Item 2 has a title wider than 24, which no change here gives it.
+                { "kind": "edit_acceptance", "item": "2", "acceptance": ["It holds."], "reason": "r" },
             ]);
             (
                 Vec::new(),
@@ -13745,12 +13832,22 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
         "B2",
         Box::new(|_: &Request, _: usize| {
             let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
-            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
         }),
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
+    // Item 2, whose title is 33 wide, as an installation that allowed more once made it.
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level)
+             VALUES ('p', 'Abcdefghijklmnopqrstuvwxyzabcdefg', 'x', 'y', 'change', 'l')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
     say(&mut e, "Let match take integers.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
@@ -13761,17 +13858,27 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
     let rejected = why_sent_back(&e, arch, "H8");
     assert_eq!(rejected.len(), 1, "{rejected:?}");
     assert!(
-        rejected[0].contains("item change 1 (create_item): the title it gives has 23 characters")
-            && rejected[0].contains("item change 2 (edit_item): the title it gives has 22 characters"),
+        rejected[0].contains("item change 1 (create_item): the title is 26 wide and a title is 24 wide at most")
+            && rejected[0].contains("item change 2 (edit_item): the title is 25 wide and a title is 24 wide at most"),
         "{rejected:?}"
     );
+    // The change that gives item 2 no title is not sent back for the title it has.
+    assert!(!rejected[0].contains("item change 3"), "{rejected:?}");
     let titles: Vec<String> = engine::query_json(e.db.conn(), "SELECT title FROM items ORDER BY id", &[], 10)
         .unwrap()
         .iter()
         .map(|r| r["title"].as_str().unwrap_or_default().to_string())
         .collect();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(titles, ["Parse the input first", "Let match take integers"], "{log}");
+    assert_eq!(
+        titles,
+        [
+            "Abcdefghijklmnopqrstuvwx".to_string(),
+            "Abcdefghijklmnopqrstuvwxyzabcdefg".to_string(),
+            chinese(12)
+        ],
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -14781,12 +14888,13 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A new observation of a project that has tags carries one of them at least, and a title as short as an item's: one
-// with no tag and a title too long is sent back, saying which tags there are and how long the title is, and the
-// return handed in again with a tag and a short title records it, its title with it.
+// A new observation of a project that has tags carries one of them at least, and a title as wide as an item's may be
+// (here 24 at most, a Chinese character counting 2): one with no tag and a title of 13 Chinese characters is sent back,
+// saying which tags there are and how wide the title is, and the return handed in again with a tag and a title of 12
+// records it, its title with it.
 #[test]
-fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
-    let s = setup("observation-untagged");
+fn an_observation_with_no_tag_or_a_wide_title_is_sent_back() {
+    let s = setup_titled("observation-untagged");
     let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
     write(
         &s.data,
@@ -14805,9 +14913,9 @@ fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
                 return (Vec::new(), Vec::new());
             }
             let (tags, title) = if n == 1 {
-                (json!([]), "Parsing of large files is slow")
+                (json!([]), chinese(13))
             } else {
-                (json!(["perf"]), "Slow large parses")
+                (json!(["perf"]), chinese(12))
             };
             let new = json!({ "kind": "new", "title": title, "what": "Parsing large files is slow.", "tags": tags,
                               "source": "The owner's words.", "refs": [], "reason": "Worth keeping." });
@@ -14843,9 +14951,7 @@ fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
         "{rejected:?}"
     );
     assert!(
-        rejected[0].contains(
-            "observation change 1: the title it gives has 25 characters, spaces not counted, and a title has 20 at most"
-        ),
+        rejected[0].contains("observation change 1: the title is 26 wide and a title is 24 wide at most"),
         "{rejected:?}"
     );
     let recorded: Vec<(Value, Value)> =
@@ -14854,11 +14960,7 @@ fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
             .iter()
             .map(|r| (r["title"].clone(), r["tags"].clone()))
             .collect();
-    assert_eq!(
-        recorded,
-        [(json!("Slow large parses"), json!(["perf"]))],
-        "{recorded:?}"
-    );
+    assert_eq!(recorded, [(json!(chinese(12)), json!(["perf"]))], "{recorded:?}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
