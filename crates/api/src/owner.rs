@@ -805,21 +805,25 @@ pub fn remove_dependency(db: &mut Db, item: i64, on: i64) -> Result<String, Stri
 
 /// Asks to lift a paused work's pause, as the owner: the engine lifts it once the work's machine has a slot free, as it
 /// does for the owner's Start, and its cell then runs again. The engine closes a round the pause left open, with the
-/// reason. A work the architect stopped is the owner's release of it, which the architect is told.
+/// reason. A work the architect stopped is the owner's release of it, which the architect is told. It reads and writes
+/// in one transaction, so that a request is only ever written under the pause it is for: one written after the loop
+/// lifted that pause would wait on through the work's next step and lift the pause that comes after.
 pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
-    let paused: Option<(Option<String>, Option<String>)> = db
-        .conn()
-        .query_row("SELECT paused, paused_by FROM works WHERE id = ?1", [work], |r| {
-            Ok((r.get(0)?, r.get(1)?))
+    let stopped = db
+        .write(Actor::Owner, |tx| {
+            let paused: Option<(Option<String>, Option<String>)> = tx
+                .query_row("SELECT paused, paused_by FROM works WHERE id = ?1", [work], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .optional()?;
+            let stopped = match paused {
+                None => return Err(db::Error::Abort(format!("no work {work}"))),
+                Some((None, _)) => return Err(db::Error::Abort(format!("work {work} is not paused"))),
+                Some((p, by)) => db::stopped_by_architect(p.as_deref(), by.as_deref()),
+            };
+            db::ask_resume(tx, work, Actor::Owner)?;
+            Ok(stopped)
         })
-        .optional()
-        .map_err(sql)?;
-    let stopped = match paused {
-        None => return Err(format!("no work {work}")),
-        Some((None, _)) => return Err(format!("work {work} is not paused")),
-        Some((p, by)) => db::stopped_by_architect(p.as_deref(), by.as_deref()),
-    };
-    db.write(Actor::Owner, |tx| db::ask_resume(tx, work, Actor::Owner))
         .map_err(sql)?;
     Ok(if stopped {
         format!("work {work} goes on once its machine has a slot free; the architect, which had stopped it, is told")

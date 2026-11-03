@@ -309,7 +309,7 @@ pub fn cancel_item(
     projects: &BTreeMap<String, config::Project>,
 ) -> Result<Cancelling, String> {
     if db::merge_stands(tx, item).map_err(sql)? {
-        merge_came_first(tx, item, "cancelled", by)?;
+        merge_came_first(tx, item, "cancelled", &[by])?;
         return Ok(Cancelling::Merged);
     }
     if let Some(work) = going_on(tx, item)? {
@@ -321,7 +321,8 @@ pub fn cancel_item(
 }
 
 /// Carries out a cancel the outbox holds, as the engine's loop does once no work on the item has a step in flight: by
-/// then what those steps did to GitHub is in the database, and the merge, if it came first, stands.
+/// then what those steps did to GitHub is in the database, and the merge, if it came first, stands, and each who asked
+/// is told, as the outbox holds them in this transaction.
 pub fn cancel_asked(
     tx: &Transaction<'_>,
     item: i64,
@@ -330,15 +331,17 @@ pub fn cancel_asked(
     projects: &BTreeMap<String, config::Project>,
 ) -> Result<(), String> {
     if db::merge_stands(tx, item).map_err(sql)? {
-        return merge_came_first(tx, item, "cancelled", by);
+        let also = db::cancel_asked_too(tx, item).map_err(sql)?;
+        let askers: Vec<&str> = std::iter::once(by).chain(also.as_deref()).collect();
+        return merge_came_first(tx, item, "cancelled", &askers);
     }
     cancel_now(tx, item, why, by, projects)
 }
 
 /// Tells whoever asked to stop the work on an item that it is not done, since the item's merge stands on main: the owner
-/// always, the architect, when it asked, by a report for its queue. The work, when it goes on, watches main as after any
-/// merge. `not` says what is not done to it, as in "it is not cancelled".
-pub(crate) fn merge_came_first(tx: &Transaction<'_>, item: i64, not: &str, by: &str) -> Result<(), String> {
+/// always, the architect, when it is among those who asked, by a report for its queue. The work, when it goes on, watches
+/// main as after any merge. `not` says what is not done to it, as in "it is not cancelled".
+pub(crate) fn merge_came_first(tx: &Transaction<'_>, item: i64, not: &str, askers: &[&str]) -> Result<(), String> {
     let (title, project): (String, String) = tx
         .query_row("SELECT title, project FROM items WHERE id = ?1", [item], |r| {
             Ok((r.get(0)?, r.get(1)?))
@@ -351,7 +354,7 @@ pub(crate) fn merge_came_first(tx: &Transaction<'_>, item: i64, not: &str, by: &
     )?;
     let text = format!("Item {item} ({title}) is not {not}: its merge stands on main, which it reached first.");
     crate::actions::notify(tx, work.first().copied(), &text)?;
-    if by == db::Actor::Architect.name() {
+    if askers.contains(&db::Actor::Architect.name()) {
         let m = db::Matter {
             project,
             kind: "report".into(),

@@ -610,6 +610,7 @@ struct FakeHub {
     prs: Prs,
     ci: Gate,
     merging: Gate,
+    closing: Gate,
 }
 
 impl GitHub for FakeHub {
@@ -707,6 +708,7 @@ impl GitHub for FakeHub {
     }
 
     fn close(&self, _repo: &str, pr: i64, _comment: &str) -> Result<(), Failure> {
+        self.closing.pass();
         let mut prs = self.prs.lock().unwrap();
         let p = prs.get_mut(&pr).ok_or_else(|| Failure::other("no such PR"))?;
         if p.state == PrState::Merged {
@@ -775,6 +777,8 @@ struct Setup {
     ci: Gate,
     /// Where the fake GitHub's merges wait while a test keeps a merge from coming back; it counts the merge calls.
     merging: Gate,
+    /// Where the fake GitHub's closing of a pull request waits while a test keeps it from coming back.
+    closing: Gate,
 }
 
 fn setup(name: &str) -> Setup {
@@ -855,6 +859,7 @@ merge_checks = ["check"]
         prs: Prs::default(),
         ci: Gate::default(),
         merging: Gate::default(),
+        closing: Gate::default(),
     }
 }
 
@@ -1003,6 +1008,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         prs: s.prs.clone(),
         ci: s.ci.clone(),
         merging: s.merging.clone(),
+        closing: s.closing.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -1209,6 +1215,7 @@ fn building_a_message_writes_nothing() {
         prs: s.prs.clone(),
         ci: s.ci.clone(),
         merging: s.merging.clone(),
+        closing: s.closing.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
@@ -15010,6 +15017,52 @@ fn a_resume_that_met_the_lifting_of_its_pause_does_not_lift_the_owner_s_next_pau
     e.dispatch(&Go::default()).unwrap();
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The loop reads what is due in the outbox once, and carries it out in turn; an action before a request to lift a pause
+// can take a while on GitHub. The owner's Pause in that time withdraws the request and answers that the work stays
+// paused, so the loop must find the request gone where it lifts, or it lifts the pause the owner was just told stands.
+// The thread stands for the owner's command line, at the moment the loop's turn is held at the action before.
+#[test]
+fn a_resume_withdrawn_during_the_loop_s_turn_lifts_nothing() {
+    let s = setup("resume-withdrawn-in-turn");
+    let (mut e, said, _) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'close_pr', ?2, 0)",
+            params![work, json!({ "repo": "r", "pr": 1, "comment": "c" }).to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    api::resume(&mut e.db, work).unwrap();
+    s.closing.shut();
+    let path = config::database(&s.data);
+    let closing = s.closing.clone();
+    let owner = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while closing.came() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let answer = api::pause(&mut db::Db::open(&path).unwrap(), work, None);
+        closing.open();
+        answer
+    });
+    e.rouse();
+    e.dispatch(&Go::default()).unwrap();
+    let answer = owner.join().unwrap().unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(s.closing.came(), 1, "{log}");
+    assert_eq!(
+        answer,
+        format!("work {work} stays paused: the resume asked is withdrawn"),
+        "{log}"
+    );
     assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

@@ -76,7 +76,8 @@ pub fn start_over(tx: &Transaction<'_>, work: i64, by: Actor, why: Option<&str>)
 }
 
 /// Asks the engine to cancel an item once its work, `work` as asked, has no step in flight, as `by`, the owner or its
-/// project's architect, asks it, saying why. An item asked already stays as it was first asked.
+/// project's architect, asks it, saying why. An item asked already stays as it was first asked, the other asker kept
+/// beside the first: a cancel the merge outruns tells each who asked ([`cancel_asked_too`]).
 pub fn ask_cancel(tx: &Transaction<'_>, work: i64, item: i64, why: &str, by: &str) -> Result<()> {
     let asked: bool = tx.query_row(
         "SELECT EXISTS (SELECT 1 FROM outbox WHERE kind = ?1 AND json_extract(args, '$.item') = ?2)",
@@ -84,6 +85,11 @@ pub fn ask_cancel(tx: &Transaction<'_>, work: i64, item: i64, why: &str, by: &st
         |r| r.get(0),
     )?;
     if asked {
+        tx.execute(
+            "UPDATE outbox SET args = json_set(args, '$.also', ?3)
+              WHERE kind = ?1 AND json_extract(args, '$.item') = ?2 AND json_extract(args, '$.by') <> ?3",
+            params![CANCEL_ITEM, item, by],
+        )?;
         return Ok(());
     }
     let args = json!({ "item": item, "why": why, "by": by });
@@ -94,23 +100,47 @@ pub fn ask_cancel(tx: &Transaction<'_>, work: i64, item: i64, why: &str, by: &st
     Ok(())
 }
 
-/// Asks the engine to lift a work's pause once its machine has a slot free, as `by` asks it. A work asked already stays
-/// as it was first asked.
+/// Who else a cancel of an item the outbox holds was asked by, beside the first asker; none when no one was.
+pub fn cancel_asked_too(conn: &Connection, item: i64) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT json_extract(args, '$.also') FROM outbox WHERE kind = ?1 AND json_extract(args, '$.item') = ?2",
+            params![CANCEL_ITEM, item],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// Asks the engine to lift a work's pause once its machine has a slot free, as `by` asks it. A work asked already keeps
+/// its place, and stays as it was first asked unless the owner asks now: the owner's release of a work is what tells the
+/// architect, which an owner's request that found the architect's would otherwise promise and not do.
 pub fn ask_resume(tx: &Transaction<'_>, work: i64, by: Actor) -> Result<()> {
-    let asked: bool = tx.query_row(
-        "SELECT EXISTS (SELECT 1 FROM outbox WHERE work = ?1 AND kind = ?2)",
-        params![work, RESUME_WORK],
-        |r| r.get(0),
-    )?;
-    if asked {
-        return Ok(());
+    let args = json!({ "by": by.name() }).to_string();
+    if resume_asker(tx, work)?.is_none() {
+        tx.execute(
+            "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, ?2, ?3, ?4)",
+            params![work, RESUME_WORK, args, now()],
+        )?;
+    } else if by == Actor::Owner {
+        tx.execute(
+            "UPDATE outbox SET args = ?3 WHERE work = ?1 AND kind = ?2",
+            params![work, RESUME_WORK, args],
+        )?;
     }
-    let args = json!({ "by": by.name() });
-    tx.execute(
-        "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, ?2, ?3, ?4)",
-        params![work, RESUME_WORK, args.to_string(), now()],
-    )?;
     Ok(())
+}
+
+/// Who asked to lift a work's pause, as the outbox holds it now; none when no request waits.
+pub fn resume_asker(conn: &Connection, work: i64) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT json_extract(args, '$.by') FROM outbox WHERE work = ?1 AND kind = ?2",
+            params![work, RESUME_WORK],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten())
 }
 
 /// Withdraws a request to lift a work's pause: the pause it was for is gone or replaced, as by the engine's pause for a
@@ -272,6 +302,80 @@ mod tests {
         })
         .unwrap();
         assert_eq!(stopping(db.conn()).unwrap(), Vec::<i64>::new());
+    }
+
+    // A second asker joins the request of the first, which stays one request. A cancel keeps both askers, whichever came
+    // first, and no asker twice. A resume keeps the owner, whose release is the one that tells the architect, and its
+    // place in the outbox, which is the order free slots go by.
+    #[test]
+    fn a_second_asker_joins_the_first_one_s_request() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+                [],
+            )?;
+            for i in 1..=2 {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', 'l')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'R1')",
+                    [i],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let cancel = |db: &mut Db, item: i64, by: &str| {
+            db.write(Actor::Engine, |tx| ask_cancel(tx, item, item, "a duplicate", by))
+                .unwrap();
+        };
+        // How many requests name the item, and who asked first.
+        let asked = |db: &Db, item: i64| -> (i64, String) {
+            db.conn()
+                .query_row(
+                    "SELECT count(*), max(json_extract(args, '$.by')) FROM outbox
+                      WHERE kind = 'cancel_item' AND json_extract(args, '$.item') = ?1",
+                    [item],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap()
+        };
+        let also = |db: &Db, item: i64| cancel_asked_too(db.conn(), item).unwrap();
+        cancel(&mut db, 1, "owner");
+        cancel(&mut db, 1, "owner");
+        assert_eq!(asked(&db, 1), (1, "owner".to_string()));
+        assert_eq!(also(&db, 1), None);
+        cancel(&mut db, 1, "architect");
+        cancel(&mut db, 1, "owner");
+        assert_eq!(asked(&db, 1), (1, "owner".to_string()));
+        assert_eq!(also(&db, 1).as_deref(), Some("architect"));
+        cancel(&mut db, 2, "architect");
+        cancel(&mut db, 2, "owner");
+        assert_eq!(asked(&db, 2), (1, "architect".to_string()));
+        assert_eq!(also(&db, 2).as_deref(), Some("owner"));
+
+        let resume = |db: &mut Db, work: i64, by: Actor| {
+            db.write(Actor::Engine, |tx| ask_resume(tx, work, by)).unwrap();
+        };
+        resume(&mut db, 1, Actor::Architect);
+        resume(&mut db, 2, Actor::Owner);
+        resume(&mut db, 1, Actor::Owner);
+        resume(&mut db, 2, Actor::Architect);
+        let asker = |db: &Db, work: i64| resume_asker(db.conn(), work).unwrap();
+        assert_eq!(asker(&db, 1).as_deref(), Some("owner"));
+        assert_eq!(asker(&db, 2).as_deref(), Some("owner"));
+        let order: Vec<i64> = db
+            .conn()
+            .prepare("SELECT work FROM outbox WHERE kind = 'resume_work' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(order, [1, 2]);
     }
 
     // A work on an item that goes on can be started over once; one of the architect, one ended and one done cannot.

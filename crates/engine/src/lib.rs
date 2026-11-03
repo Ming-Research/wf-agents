@@ -626,7 +626,7 @@ impl Engine {
         {
             self.db
                 .write(Actor::Engine, |tx| {
-                    ending::merge_came_first(tx, item, "started over", by).map_err(db::Error::Abort)
+                    ending::merge_came_first(tx, item, "started over", &[by]).map_err(db::Error::Abort)
                 })
                 .map_err(|e| e.to_string())?;
             self.say(&format!("work {id} is not started over: its merge came first"));

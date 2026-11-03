@@ -29,8 +29,8 @@ pub use matters::{
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use start_over::{
-    CANCEL_ITEM, RESUME_WORK, START_OVER, ask_cancel, ask_resume, cannot_start_over, merge_stands, resume_asked,
-    start_over, stop_asked, stopping, withdraw_resume,
+    CANCEL_ITEM, RESUME_WORK, START_OVER, ask_cancel, ask_resume, cancel_asked_too, cannot_start_over, merge_stands,
+    resume_asked, resume_asker, start_over, stop_asked, stopping, withdraw_resume,
 };
 
 /// The database's definition, as `db/schema.sql` writes it.

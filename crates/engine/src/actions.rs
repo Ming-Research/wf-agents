@@ -688,7 +688,9 @@ pub(crate) enum Carried {
 /// pause, the removal of its worktree, closing its pull request, reverting its merge) waits until the job has ended,
 /// since a start over or a cancel would end the work under the job and the others take away what it works on; a notice
 /// to the owner does not wait. A cancel waits too for a work that took its item over, and lifting a pause for a free
-/// slot; neither counts as anything done, nor as a failure. Gives whether anything was done.
+/// slot; neither counts as anything done, nor as a failure. What is due is read once and carried out in turn, and an
+/// action may take a while, so a request a later word can withdraw or join is read again where it is carried out. Gives
+/// whether anything was done.
 pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
     let due = query_json(
         e.db.conn(),
