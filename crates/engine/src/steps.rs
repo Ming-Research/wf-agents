@@ -95,6 +95,38 @@ fn recorded_inputs(gathered: &[Gathered]) -> Value {
     )
 }
 
+/// The commit of the project's main a step's round reads the project at ([`inputs::pin_main`]), main fetched once for
+/// it: for a cell on a project's architect's line, by the fetch that brings the architect's worktree to main
+/// ([`architect::ready`]), so that the worktree the architect reads files in and the inputs the round is given are of
+/// one commit, though main moves on between two fetches; for any other cell by the fetch of `pin_main`. Where the
+/// worktree cannot be brought to main, the step stops as a step of the engine's before a round does
+/// ([`failed::networked`]): a failure of the network that passes by itself is waited out and the step taken again, the
+/// work waits while the network is down for it to be up again, and any other failure pauses the work, with why.
+fn pin_round(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    item: Option<&Item>,
+    section: &flow::format::Rounds,
+    took: &[failed::Took],
+) -> Result<Result<inputs::Pin, Advance>, String> {
+    if item.is_none() {
+        match failed::networked(e, w, cell, section, took, |e| architect::ready(e, w, g, cell))? {
+            Ok(Some(commit)) => {
+                let commit = inputs::reads_main(cell).then_some(commit);
+                return Ok(Ok(inputs::Pin {
+                    commit,
+                    fetch_failed: None,
+                }));
+            }
+            Ok(None) => {}
+            Err(stop) => return Ok(Err(stop)),
+        }
+    }
+    inputs::pin_main(e, w, cell, item, true).map(Ok)
+}
+
 /// The item a work is on, for a step that needs one.
 fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
     item.as_ref()
@@ -114,7 +146,11 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             return crate::architect::back_to_understanding(e, w, g, cell);
         };
         let commit = e.config.commit.clone();
-        let input = json!({ "engine": { "new_session": why } });
+        // The round is pinned to a commit of main as any round of the cell is: the check of the policy its row queues
+        // compares the constitution as that commit has it.
+        let pin = inputs::pin_main(e, w, cell, None, true)?;
+        let mut input = json!({ "engine": { "new_session": why } });
+        pin.record(&mut input["engine"]);
         let round =
             e.db.write(Actor::Engine, |tx| {
                 work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
@@ -140,16 +176,34 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         Some(_) => Some(e.project_of(w)?),
         None => None,
     };
+    // The commit of the project's main this step's round reads the project at, pinned once ([`pin_round`]): main is
+    // fetched once to find it, before any input is gathered, so that the inputs that read the project's files on main
+    // are the project as the remote has it now, and every one of them, with the checks of the return, is of that one
+    // commit. When the fetch of a cell that has such an input fails, the round goes on at the commit an earlier fetch
+    // left, and its record says why. A cell with no such input does not read main, and fetches only where it is an
+    // architect's on a line, whose worktree is brought to main.
+    let mut pinned: Option<inputs::Pin> = None;
+    let section = failed::section(e, g)?;
+    // What the work took since it last took a row from outside the engine, or since the owner last let it go on after
+    // it paused: every row that runs again is counted in these, and a run waits after the one before.
+    let took = failed::since_outside(e, w, g)?;
     // A table the cell must answer that has no row leaves its round nothing to answer: no round runs, and the engine
     // takes the cell's row for it, recorded with why.
     if let Some(row) = crate::row(cell, flow::format::NOTHING_TO_ANSWER).cloned() {
-        let gathered = inputs::gather(e, w, g, cell, item.as_ref())?;
+        let pin = match pin_round(e, w, g, cell, item.as_ref(), &section, &took)? {
+            Ok(pin) => pin,
+            Err(stop) => return Ok(stop),
+        };
+        let gathered = inputs::gather(e, w, g, cell, item.as_ref(), pin.commit.as_deref())?;
+        let kept = pin.clone();
+        pinned = Some(pin);
         if inputs::table(&gathered).is_empty() {
             let why = format!(
                 "the table cell {} answers has no row, so its round could answer nothing",
                 cell.id
             );
-            let input = json!({ "engine": { "nothing_to_answer": why }, "inputs": recorded_inputs(&gathered) });
+            let mut input = json!({ "engine": { "nothing_to_answer": why }, "inputs": recorded_inputs(&gathered) });
+            kept.record(&mut input["engine"]);
             let commit = e.config.commit.clone();
             let round =
                 e.db.write(Actor::Engine, |tx| {
@@ -172,10 +226,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             );
         }
     }
-    let section = failed::section(e, g)?;
-    // What the work took since it last took a row from outside the engine, or since the owner last let it go on after
-    // it paused: every row that runs again is counted in these, and a run waits after the one before.
-    let took = failed::since_outside(e, w, g)?;
     // The cell's rounds and when the owner last let the work go on, as the run guard judges the round by them.
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
     let resumed = work::resumed_at(e.db.conn(), w.id)?;
@@ -199,15 +249,18 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
-    // A round of a project's architect reads the project at the latest main: its graph's worktree is brought there
-    // first. A failure of the network that passes by itself is waited out and the step taken again, up to the bound
-    // of the flow's `step_network`; while the network is down, every work waits for it; any other failure waits for the
-    // owner, with why.
-    if item.is_none()
-        && let Some(advance) = failed::networked(e, w, cell, &section, &took, |e| architect::ready(e, w, g, cell))?
-    {
-        return Ok(advance);
-    }
+    // A round of a project's architect reads the project at the latest main: for a cell on its line, its graph's worktree
+    // is brought there first, by the one fetch the round makes. A failure of the network that passes by itself is
+    // waited out and the step taken again, up to the bound of the flow's `step_network`; while the network is down,
+    // every work waits for it; any other failure waits for the owner, with why.
+    let pin = match pinned {
+        Some(pin) => pin,
+        None => match pin_round(e, w, g, cell, item.as_ref(), &section, &took)? {
+            Ok(pin) => pin,
+            Err(stop) => return Ok(stop),
+        },
+    };
+    let main = pin.commit.clone();
     let line_of_cell = crate::line_of(g, cell);
     let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
     let cli_name = level.cli.clone();
@@ -224,7 +277,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         whole,
         system,
         starts_with,
-    } = compose(e, w, g, cell, item.as_ref(), now)?;
+    } = compose(e, w, g, cell, item.as_ref(), main.as_deref(), now)?;
     // A message that would give its session whole what the session already holds is the engine's fault: it is not
     // sent, and the work waits for the owner.
     if !msg.repeats.is_empty() {
@@ -383,6 +436,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             "new_session": new_why, "guard": started.lines().record(),
         },
     });
+    pin.record(&mut input["engine"]);
     // Where the owner's images were given, by their attachments, and those only referred to.
     if !msg.images.is_empty() {
         input["images"] = msg.record_images();
@@ -554,6 +608,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 columns: &columns,
                 table: &table,
                 interjections: &interjections,
+                main: main.as_deref(),
             };
             checks::run(&ctx)
         };
@@ -693,6 +748,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         columns: &columns,
         table: &table,
         interjections: &interjections,
+        main: main.as_deref(),
     };
     if let Err(why) = checks::run(&ctx) {
         return reject(
@@ -843,6 +899,7 @@ fn compose(
     g: &CompiledGraph,
     cell: &CompiledCell,
     item: Option<&Item>,
+    main: Option<&str>,
     now: i64,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
@@ -883,7 +940,7 @@ fn compose(
     let mut known: Vec<Round> = line_rounds.iter().filter(|r| r.id.work != w.id).cloned().collect();
     known.extend(work_rounds.iter().cloned());
     let registry = message::registry(&known);
-    let gathered = inputs::gather(e, w, g, cell, item)?;
+    let gathered = inputs::gather(e, w, g, cell, item, main)?;
     let given = values::given(e, w, g, cell, item, &gathered)?;
     // The interjections waiting for the cell's line, when the cell takes them.
     let speaks_to = crate::line_of(g, cell);
@@ -947,7 +1004,8 @@ fn compose(
 }
 
 /// The message the work's next round would be sent, when the work is at an agent's cell: built as its round builds
-/// it, with nothing run or recorded.
+/// it, with nothing run or recorded, and so with no fetch: the project is read at the commit `origin/<main>` is at in
+/// its checkout now.
 pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, String> {
     let w = e.work(work)?;
     let g = e.graph_of(&w)?;
@@ -957,7 +1015,8 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
         .cloned()
         .ok_or_else(|| format!("work {work} is at cell {}, which is not an agent's", w.pos.at))?;
     let item = e.subject(&w)?;
-    Ok(compose(e, &w, &g, &cell, item.as_ref(), db::now())?.msg)
+    let pin = inputs::pin_main(e, &w, &cell, item.as_ref(), false)?;
+    Ok(compose(e, &w, &g, &cell, item.as_ref(), pin.commit.as_deref(), db::now())?.msg)
 }
 
 /// Ends a round whose return is sent back, and tells the owner once if the work passes the limit its project sets on
@@ -1227,7 +1286,7 @@ pub fn engine(
     let gathered = if starts {
         Vec::new()
     } else {
-        inputs::gather(e, w, g, cell, item.as_ref())?
+        inputs::gather(e, w, g, cell, item.as_ref(), None)?
     };
     let given = values::given(e, w, g, cell, item.as_ref(), &gathered)?;
     let commit = e.config.commit.clone();
@@ -1558,7 +1617,7 @@ fn ask(
             // What was said to the work before the owner answered takes it on to choose the way on: the ask needs no
             // answer then.
             if let Some(row) = crate::row(cell, "interjection").cloned() {
-                let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+                let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
                 let given = values::given(e, w, g, cell, Some(item), &gathered)?;
                 if given.get("interjection").and_then(Value::as_str) == Some("yes") {
                     if no_slot(e, w, g, &row, slotted)? {
@@ -1605,7 +1664,7 @@ fn ask(
                 }
             }
         };
-        let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+        let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
         let mut given = values::given(e, w, g, cell, Some(item), &gathered)?;
         // The owner's answer came: what was said to the work meanwhile reaches it at its next round.
         if given.contains_key("interjection") {
@@ -1623,7 +1682,7 @@ fn ask(
             cell.id
         ));
     }
-    let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+    let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
     // The ask holds what the cells handed in: the question, how far the cell got, what failed. The history and the
     // other tables the cell reads are in the database for the owner to look at.
     let mut asked: Vec<Value> = gathered

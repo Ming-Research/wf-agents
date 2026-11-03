@@ -760,7 +760,7 @@ fn revert(e: &Engine, args: &Value) -> Result<(), String> {
     let short: String = sha.chars().take(10).collect();
     let branch = format!("wf-agents/revert-{short}");
     let dir = PathBuf::from(s("worktrees")).join(format!("revert-{short}"));
-    git::git(&checkout, &["fetch", "-q", "origin", &main])?;
+    git::git(&checkout, &["fetch", "-q", "origin", &config::main_refspec(&main)])?;
     git::remove_worktree(&checkout, &dir)?;
     git::git(
         &checkout,
