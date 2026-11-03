@@ -67,6 +67,7 @@ import {
   partsOf,
   related,
   roundArrows,
+  stageLetter,
   taken,
   ways,
   workingAt,
@@ -917,7 +918,7 @@ const COLOURS = coloursOf([
       { name: 'review', desc: 'The review', colour: 'teal' },
     ],
   },
-  { graph: 'architect', lines: [{ name: 'observer', desc: 'The search of observations', colour: 'lime' }] },
+  { graph: 'architect', lines: [{ name: 'observer', desc: 'The search of observations', colour: 'brown' }] },
 ]);
 
 function cell(id: string, rows: CompiledRow[], extra: Partial<CompiledCell> = {}): CompiledCell {
@@ -1144,6 +1145,13 @@ describe('the chart of a flow', () => {
     const coded = chart(code(graph), code(view));
     expect(coded.groups.find((g) => g.id === 'stage:build')?.letter).toBe('B');
     expect(c.groups.every((g) => g.letter === '')).toBe(true);
+    // A cell of another line in a stage, as G1 among the research cells, leaves the stage its letter; a tie gives none.
+    expect([stageLetter(['G', 'R', 'R', '']), stageLetter(['T', 'G', 'T']), stageLetter(['R', 'G']), stageLetter([''])]).toEqual([
+      'R',
+      'T',
+      '',
+      '',
+    ]);
   });
 
   it('draws the actions on rows into the same cell as one node on their way into it, in its box and laid out before it', () => {

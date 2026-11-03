@@ -1,0 +1,107 @@
+name: fast
+
+# The fast CI of a work: what the engine's ci tool waits for while the code is being written. It runs only when asked,
+# by hand, on the work's branch, with the tests to run: those tests and the lint, which run side by side. It never runs
+# the whole set of tests, and has no job named `check`, the one a merge waits for (ci.yml): a head that only this
+# workflow has run is not one that may merge. The project's configuration names this workflow (`fast`) and its input
+# (`tests_input`).
+#
+# The engine's ci_before tool runs it too, on its temporary branches `wf-agents-before/...`, which hold the code before
+# a change with the tests of the change put on it. On those it runs exactly the tests listed, and skips the lint: the
+# lint would check the code before the change against the page's types of now, and say nothing of the tests.
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: The tests to run, by their names separated by spaces, each to its end; empty for the lint only
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# A newer run on the same branch makes the older one pointless. This group is not ci.yml's, so that a run of either
+# does not cancel the other's on the same branch.
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    # The engine's temporary branches of the code before a change are named by this prefix; ci.yml leaves them alone by
+    # the same prefix.
+    if: ${{ !startsWith(github.ref_name, 'wf-agents-before/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/lint
+
+  # The tests named, in one job: they are few, so that the build of the page and the compiling are paid once.
+  test:
+    if: ${{ inputs.tests != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest@0.9.146
+      # What ci.yml saves on main is what this restores; a run on a branch saves nothing, which would only add to its
+      # time.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+      # The incremental state of the workspace's own crates that ci.yml keeps on main, so that this run recompiles only
+      # what the work changed: a one-line change to the engine compiled in some 29 s with it against 124 s without.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/ci
+          key: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+      - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      # Before any cargo step that compiles the crate the page is built into.
+      - name: Build the page
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
+      # 60 s. Each test is named by its name or the end of its path, and runs to its end.
+      - name: Test
+        env:
+          TESTS: ${{ inputs.tests }}
+        run: |
+          set -f
+          filter=""
+          for t in $TESTS; do
+            name=$(printf '%s' "$t" | sed 's/[][\\.^$*+?(){}|]/\\&/g')
+            filter="${filter:+$filter | }test(/(^|::)${name}\$/)"
+          done
+          exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci \
+            --no-fail-fast --no-tests=pass -E "$filter"
+
+  # The one check the engine reads, red whenever a job that ran is. A job that did not run is skipped: the lint on a
+  # temporary branch of the code before a change, the tests when none are named.
+  fast:
+    needs: [lint, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job that ran passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "lint and test: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || [ "$r" = skipped ] || exit 1; done

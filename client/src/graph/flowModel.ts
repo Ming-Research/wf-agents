@@ -58,7 +58,7 @@ export type ChartEdge = {
   kind: 'row' | 'rule' | 'interjection' | 'does' | 'store';
 };
 
-/// A box around a stage's cells or the asking part: its label, and the letter its cells' codes start with, if they share one.
+/// A box around a stage's cells or the asking part: its label, and the letter most of its cells' codes start with.
 export type ChartGroup = { id: string; label: string; letter: string; part: string };
 
 /// What a cell's box says besides its id and title: for a step the engine decides, what the engine's values its rows
@@ -375,6 +375,17 @@ export function letterOf(id: string): string {
   return m ? m[1] : '';
 }
 
+/// A stage's letter: the one more of its cells' codes start with than any other, so that a cell of another line placed
+/// in it, as the librarian's G1 among the research cells, does not take the stage's letter away; none when no code is
+/// commonest, or none is a code.
+export function stageLetter(letters: string[]): string {
+  const counts = new Map<string, number>();
+  for (const l of letters) if (l !== '') counts.set(l, (counts.get(l) ?? 0) + 1);
+  const most = Math.max(0, ...counts.values());
+  const commonest = [...counts].filter(([, n]) => n === most);
+  return commonest.length === 1 ? commonest[0][0] : '';
+}
+
 /// The chart of a graph; `engine`, the flow's engine part, says what the values a step decides by read.
 export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null = null): Chart {
   const ms = moves(g);
@@ -591,20 +602,17 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     if (Object.keys(only).length > 0) n.only = only;
   }
   const groups: ChartGroup[] = [];
-  const letters = new Map<string, Set<string>>();
+  const letters = new Map<string, string[]>();
   for (const c of g.cells) {
     const id = groupOf(c.id);
     if (id === null) continue;
     if (!letters.has(id)) {
-      letters.set(id, new Set());
+      letters.set(id, []);
       groups.push({ id, label: id === ASKING ? ASKING : id.slice('stage:'.length), letter: '', part: parts.get(c.id) ?? MAIN });
     }
-    letters.get(id)?.add(letterOf(c.id));
+    letters.get(id)?.push(letterOf(c.id));
   }
-  for (const gr of groups) {
-    const all = [...(letters.get(gr.id) ?? [])];
-    gr.letter = all.length === 1 ? all[0] : '';
-  }
+  for (const gr of groups) gr.letter = stageLetter(letters.get(gr.id) ?? []);
   const notes = new Map<string, CellNotes>();
   const known = new Set(Object.keys(engine?.values ?? {}));
   for (const c of g.cells) {

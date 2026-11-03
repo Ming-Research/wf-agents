@@ -8,8 +8,8 @@
    --role-mark, its solid colour: an avatar's circle, its mark white on it (bgColor-emphasis);
    --role-text, its foreground: words on its tint, as who ran a round in a list of rounds (fgColor).
    The display colours, since they have each colour the flow may give in both themes, where the data visualisation
-   colours have no indigo; for blue, auburn, pink, purple and lime their edge and tint are the data colours a chart's
-   cells had, teal's edge a step darker. An agent with no colour of its own (a cell on no line, a line the flow no
+   colours have no indigo; for blue, auburn, pink and purple their edge and tint are the data colours a chart's cells
+   had, teal's edge a step darker. An agent with no colour of its own (a cell on no line, a line the flow no
    longer has, or any agent while the lines are not read yet) takes the page's neutral grey, the engine's own steps'
    on a chart, where it is a box and they are rounded. */
 
@@ -61,20 +61,28 @@
   --role-text: var(--display-indigo-fgColor);
 }
 
-.role-lime {
-  --role-edge: var(--display-lime-borderColor-emphasis);
-  --role-fill: var(--display-lime-bgColor-muted);
-  --role-line: var(--display-lime-borderColor-muted);
-  --role-mark: var(--display-lime-bgColor-emphasis);
-  --role-text: var(--display-lime-fgColor);
+.role-green {
+  --role-edge: var(--display-green-borderColor-emphasis);
+  --role-fill: var(--display-green-bgColor-muted);
+  --role-line: var(--display-green-borderColor-muted);
+  --role-mark: var(--display-green-bgColor-emphasis);
+  --role-text: var(--display-green-fgColor);
 }
 
-.role-olive {
-  --role-edge: var(--display-olive-borderColor-emphasis);
-  --role-fill: var(--display-olive-bgColor-muted);
-  --role-line: var(--display-olive-borderColor-muted);
-  --role-mark: var(--display-olive-bgColor-emphasis);
-  --role-text: var(--display-olive-fgColor);
+.role-brown {
+  --role-edge: var(--display-brown-borderColor-emphasis);
+  --role-fill: var(--display-brown-bgColor-muted);
+  --role-line: var(--display-brown-borderColor-muted);
+  --role-mark: var(--display-brown-bgColor-emphasis);
+  --role-text: var(--display-brown-fgColor);
+}
+
+.role-cyan {
+  --role-edge: var(--display-cyan-borderColor-emphasis);
+  --role-fill: var(--display-cyan-bgColor-muted);
+  --role-line: var(--display-cyan-borderColor-muted);
+  --role-mark: var(--display-cyan-bgColor-emphasis);
+  --role-text: var(--display-cyan-fgColor);
 }
 
 .role-none {

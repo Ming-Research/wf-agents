@@ -614,9 +614,30 @@ impl Gate {
     }
 }
 
+/// A workflow the fake GitHub was asked to run by hand: the branch it was asked to run on, the commit that branch had on
+/// the remote then (none if it had none), and the inputs given.
+#[derive(Clone, Debug)]
+struct ByHand {
+    workflow: String,
+    branch: String,
+    commit: Option<String>,
+    inputs: Vec<(String, String)>,
+    /// How many times the run was waited for.
+    waits: usize,
+}
+
+/// The runs by hand the fake GitHub was asked for, in order, which a test reads. A run whose `command` input is `red`
+/// ends red, one whose `command` is `down` fails to start, as GitHub does when it cannot be reached, one whose `command`
+/// is `reject` is refused as GitHub refuses a request that lacks an input the workflow requires, one whose `command` is
+/// `timeout` does not finish in time, one whose `command` is `nostart` never gets a run, one whose `command` is `nojobs`
+/// has a run with no job, one whose `command` is `flaky_dispatch` fails to reach GitHub the first time it is asked for,
+/// and one whose `command` is `flaky` is run, but the first wait for it fails to reach GitHub.
+type ByHands = Arc<Mutex<Vec<ByHand>>>;
+
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
 /// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
-/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does.
+/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does. A workflow
+/// run by hand is recorded in `by_hand`, and its run has a log and an artifact `measurement`.
 struct FakeHub {
     origin: PathBuf,
     scratch: PathBuf,
@@ -624,6 +645,23 @@ struct FakeHub {
     ci: Gate,
     merging: Gate,
     closing: Gate,
+    by_hand: ByHands,
+}
+
+impl FakeHub {
+    /// The run by hand whose commit is the one given.
+    fn run_by_hand(&self, commit: &str) -> Option<ByHand> {
+        let runs = self.by_hand.lock().unwrap();
+        runs.iter().find(|d| d.commit.as_deref() == Some(commit)).cloned()
+    }
+
+    /// The run by hand a check is of: its link ends with the run's commit.
+    fn run_of(&self, check: &CheckRun) -> Option<ByHand> {
+        let runs = self.by_hand.lock().unwrap();
+        runs.iter()
+            .find(|d| d.commit.as_deref().is_some_and(|c| check.run.ends_with(c)))
+            .cloned()
+    }
 }
 
 impl GitHub for FakeHub {
@@ -672,13 +710,101 @@ impl GitHub for FakeHub {
 
     fn checks(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
         self.ci.pass();
+        let command = |c: &str| {
+            self.run_by_hand(sha)
+                .is_some_and(|d| d.inputs.contains(&("command".to_string(), c.to_string())))
+        };
+        if command("timeout") {
+            return Err(Failure {
+                kind: "timed_out",
+                what: format!("the run of {workflow} on {sha} did not finish in 10800 s"),
+            });
+        }
+        if command("nostart") {
+            return Err(Failure {
+                kind: "ci_did_not_start",
+                what: format!("no run of {workflow} on {sha} after 600 s"),
+            });
+        }
+        // A run that failed as it started, as GitHub does for a workflow file it cannot read, has no job at all.
+        if command("nojobs") {
+            return Ok(Vec::new());
+        }
+        if command("flaky") {
+            let mut runs = self.by_hand.lock().unwrap();
+            let waits = runs.iter_mut().find(|d| d.commit.as_deref() == Some(sha)).map(|d| {
+                d.waits += 1;
+                d.waits
+            });
+            if waits == Some(1) {
+                return Err(Failure::network("gh run list: connection reset"));
+            }
+        }
+        let red = command("red");
         Ok(vec![CheckRun {
             name: "check".into(),
-            result: "green".into(),
+            result: if red { "red" } else { "green" }.into(),
             run: format!("https://example.invalid/{workflow}/{sha}"),
             log_tail: None,
             log_path: None,
         }])
+    }
+
+    fn dispatch(&self, _repo: &str, workflow: &str, branch: &str, inputs: &[(&str, &str)]) -> Result<(), Failure> {
+        let on_remote = Command::new("git")
+            .arg("--git-dir")
+            .arg(&self.origin)
+            .args(["rev-parse", "--verify", "-q", &format!("refs/heads/{branch}")])
+            .output()
+            .unwrap();
+        let inputs: Vec<(String, String)> = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let down = inputs.contains(&("command".to_string(), "down".to_string()));
+        let reject = inputs.contains(&("command".to_string(), "reject".to_string()));
+        // A dispatch that fails to reach GitHub the first time it is made for a branch, and not the second.
+        let flaky = inputs.contains(&("command".to_string(), "flaky_dispatch".to_string()))
+            && !self.by_hand.lock().unwrap().iter().any(|d| d.branch == branch);
+        self.by_hand.lock().unwrap().push(ByHand {
+            workflow: workflow.to_string(),
+            branch: branch.to_string(),
+            commit: on_remote
+                .status
+                .success()
+                .then(|| String::from_utf8_lossy(&on_remote.stdout).trim().to_string()),
+            inputs,
+            waits: 0,
+        });
+        if down || flaky {
+            return Err(Failure::network("GitHub cannot be reached"));
+        }
+        if reject {
+            return Err(Failure::rejected(format!(
+                "gh workflow run {workflow}: could not create workflow dispatch event: HTTP 422: Required input \
+                 'base' not provided"
+            )));
+        }
+        Ok(())
+    }
+
+    fn job_log(&self, _repo: &str, check: &CheckRun) -> Result<String, Failure> {
+        match self.run_of(check) {
+            Some(_) => Ok(format!(
+                "check\tRun\t2026-11-03T00:00:00.0000000Z the log of {}",
+                check.run
+            )),
+            None => Err(Failure::other("no job logs here")),
+        }
+    }
+
+    fn artifact(
+        &self,
+        _repo: &str,
+        check: &CheckRun,
+        name: &str,
+    ) -> Result<Option<Vec<engine::hub::ArtifactFile>>, Failure> {
+        match self.run_of(check) {
+            Some(_) => Ok((name == "measurement").then(|| vec![("pairs.tsv".to_string(), b"1\t2\t3\n".to_vec())])),
+            None => Err(Failure::other("no artifacts here")),
+        }
     }
 
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
@@ -741,6 +867,10 @@ impl GitHub for FakeHub {
 /// columns whole.
 const COLUMNS_TO_ANSWER: &str = "Columns to answer this round, one row each, whether or not the change touches them: ";
 
+/// What the message says first when a review of disputes only is given every column, since a number it was to look at
+/// stands for other words than it did.
+const COLUMNS_CHANGED: &str = "The columns changed since your last review, so all of them are listed";
+
 /// The ids of the columns a review answers, as a reviewer that has only the message reads them: the line that lists
 /// them, which a message that does not give the columns whole has; otherwise the table given whole under its address.
 /// A table given as what changed, or referred to, with no such line says nothing a reader could answer by, and gives
@@ -750,7 +880,11 @@ fn columns(prompt: &str) -> Vec<String> {
         return Vec::new();
     };
     let section = &prompt[start..];
-    if let Some(line) = section.lines().find_map(|l| l.strip_prefix(COLUMNS_TO_ANSWER)) {
+    // The line may begin with what is said of columns that changed.
+    if let Some(line) = section
+        .lines()
+        .find_map(|l| l.find(COLUMNS_TO_ANSWER).map(|at| &l[at + COLUMNS_TO_ANSWER.len()..]))
+    {
         return line.trim_end_matches('.').split(", ").map(str::to_string).collect();
     }
     let body: Vec<&str> = section.lines().skip(1).skip_while(|l| l.trim().is_empty()).collect();
@@ -784,6 +918,8 @@ struct Setup {
     merging: Gate,
     /// Where the fake GitHub's closing of a pull request waits while a test keeps it from coming back.
     closing: Gate,
+    /// The workflows the fake GitHub was asked to run by hand.
+    by_hand: ByHands,
 }
 
 fn setup(name: &str) -> Setup {
@@ -865,6 +1001,7 @@ merge_checks = ["check"]
         ci: Gate::default(),
         merging: Gate::default(),
         closing: Gate::default(),
+        by_hand: ByHands::default(),
     }
 }
 
@@ -1027,6 +1164,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         ci: s.ci.clone(),
         merging: s.merging.clone(),
         closing: s.closing.clone(),
+        by_hand: s.by_hand.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -1151,8 +1289,7 @@ fn an_item_goes_from_the_queue_to_main() {
     assert!(!columns.contains("cross-project dependency"), "{columns}");
     assert!(columns.contains("unsure facts"), "{columns}");
     // The table review is given its columns under their address, which a later review of its session refers to or
-    // is given what changed in, and the CI on the work as one object, whose entries a later review is given as they
-    // change.
+    // is given what changed in.
     let review = input_of("T4");
     let m = review["message"].as_str().unwrap_or_default();
     assert!(
@@ -1161,15 +1298,18 @@ fn an_item_goes_from_the_queue_to_main() {
     );
     // The first review has the columns whole in its message, and is not told again which to answer.
     assert!(!m.contains(COLUMNS_TO_ANSWER), "{m}");
-    let ci = given_value(m, "·engine·work_ci").expect(m);
-    assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
-    // The review line's session is given the worktree once, at its first round, the blind review.
+    // The review line's session is given the worktree once, at its first round, the blind review, and the CI on the
+    // work as one object, whose entries a later review is given as they change: the table review of the same session
+    // is not given the whole object again.
     let blind = input_of("T3");
     let message = blind["message"].as_str().unwrap_or_default();
     assert!(
         message.contains("you only read it, and change and commit nothing there"),
         "{message}"
     );
+    let ci = given_value(message, "·engine·work_ci").expect(message);
+    assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
+    assert!(given_value(m, "·engine·work_ci").is_none(), "{m}");
     // The review is given what it reviews by commits the worktree has: main as fetched, the commit the branch was cut
     // from, the head under review and the command that reads the change between them.
     let base = given_value(message, "·engine·review_base").expect(message);
@@ -1236,6 +1376,7 @@ fn building_a_message_writes_nothing() {
         ci: s.ci.clone(),
         merging: s.merging.clone(),
         closing: s.closing.clone(),
+        by_hand: s.by_hand.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
@@ -1621,12 +1762,19 @@ fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
         e.step(None).unwrap();
         reviews(e).last().unwrap().clone()
     };
-    let insert = |e: &mut Engine, cell: &str, output: &Value, row: &str| {
+    let insert = |e: &mut Engine, cell: &str, input: &Value, output: &Value, row: &str| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 1, 2)",
-                params![work, next_round(tx, work)?, cell, output.to_string(), row],
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'c', 1, 2)",
+                params![
+                    work,
+                    next_round(tx, work)?,
+                    cell,
+                    input.to_string(),
+                    output.to_string(),
+                    row
+                ],
             )?;
             Ok(())
         })
@@ -1650,7 +1798,7 @@ fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
         json!({ "deviations": [{ "kind": "workaround", "what": "Used the other way.",
                                                       "why": "It was needed." }], "test_changes": [] }),
     );
-    insert(&mut e, "I1", &deviation, "done");
+    insert(&mut e, "I1", &json!({}), &deviation, "done");
     let third = again(&mut e);
     let m = message(&third);
     assert!(m.contains("What changed since"), "{m}");
@@ -1666,13 +1814,17 @@ fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
     // The review that answered those columns only was taken: `columns_answered` wants exactly the engine's columns.
     assert_eq!(sent_back(&e), 0, "{}", log());
 
-    // A re-review of disputes has only the column the last review could not verify, and says so.
+    // A re-review of disputes has only the column the last review could not verify, and says so, while that number
+    // stands for the words it had when the review that could not verify it was given the columns, which its round
+    // records.
     let unverified = returned(json!({ "columns": [{ "id": "4", "verdict": "cannot_verify",
                                                     "reason": "Nothing was measured." }] }));
-    insert(&mut e, "T4", &unverified, "done");
+    let recorded = json!({ "engine": { "columns": third["engine"]["columns"] } });
+    insert(&mut e, "T4", &recorded, &unverified, "done");
     insert(
         &mut e,
         "T7",
+        &json!({}),
         &json!({ "plan": { "review": "disputes", "adversarial": "skipped" } }),
         "review_first",
     );
@@ -1680,7 +1832,34 @@ fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
     let m = message(&fourth);
     assert!(m.contains(&format!("{COLUMNS_TO_ANSWER}4.")), "{m}");
     assert_eq!(columns(&m), ["4"], "{m}");
+    assert!(!m.contains(COLUMNS_CHANGED), "{m}");
     assert_eq!(sent_back(&e), 0, "{}", log());
+
+    // A review whose record has other words for the number it could not verify, as when a column came in before it,
+    // is not pointed at another column by that number: the round lists every column, and says why.
+    let mut then = third["engine"]["columns"].clone();
+    assert_eq!(then[3][0], "4", "{then}");
+    then[3][1] = json!("A column that was the fourth when the last review was given the columns.");
+    insert(
+        &mut e,
+        "T4",
+        &json!({ "engine": { "columns": then } }),
+        &unverified,
+        "done",
+    );
+    let fifth = again(&mut e);
+    let m = message(&fifth);
+    assert!(m.contains(COLUMNS_CHANGED), "{m}");
+    assert_eq!(columns(&m), listed, "{m}");
+    assert_eq!(sent_back(&e), 0, "{}", log());
+
+    // A review whose record keeps no columns (a round of a flow version before the record had them) cannot say what
+    // its numbers stood for, and is told the same.
+    insert(&mut e, "T4", &json!({}), &unverified, "done");
+    let sixth = again(&mut e);
+    let m = message(&sixth);
+    assert!(m.contains(COLUMNS_CHANGED), "{m}");
+    assert_eq!(columns(&m), listed, "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -1794,12 +1973,19 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
         e.step(None).unwrap();
     }
     let (work, _, _) = state(&e, item).unwrap();
-    let add = |e: &mut Engine, cell: &str, output: &Value, row: &str, at: &str| {
+    let add = |e: &mut Engine, cell: &str, input: &Value, output: &Value, row: &str, at: &str| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 1, 2)",
-                params![work, next_round(tx, work)?, cell, output.to_string(), row],
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'c', 1, 2)",
+                params![
+                    work,
+                    next_round(tx, work)?,
+                    cell,
+                    input.to_string(),
+                    output.to_string(),
+                    row
+                ],
             )?;
             tx.execute("UPDATE works SET at = ?2 WHERE id = ?1", params![work, at])?;
             Ok(())
@@ -1819,15 +2005,31 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
         { "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } },
         { "id": "4", "verdict": "cannot_verify", "reason": "Nothing was measured." },
     ] }));
-    add(&mut e, "T4", &first, "done", "M1");
+    // The first review's round records the columns it was given, as a real round does; a disputes-only review is
+    // narrowed by them.
+    let given = {
+        let w = e.work(work).unwrap();
+        let g = e.graph_of(&w).unwrap();
+        let subject = e.subject(&w).unwrap();
+        engine::message::columns(&e, &w, &g, g.cell("T4").unwrap(), subject.as_ref()).columns
+    };
+    assert!(given.len() >= 4, "{given:?}");
+    add(
+        &mut e,
+        "T4",
+        &json!({ "engine": { "columns": given } }),
+        &first,
+        "done",
+        "M1",
+    );
     e.step_work(work).unwrap();
     assert_eq!(took(&e), "fix", "{}", said.lock().unwrap().join("\n"));
     let disputes = json!({ "plan": { "review": "disputes", "adversarial": "skipped" } });
-    add(&mut e, "T7", &disputes, "review_first", "T4");
+    add(&mut e, "T7", &json!({}), &disputes, "review_first", "T4");
     let m = engine::next_message(&mut e, work).unwrap().text;
     assert_eq!(columns(&m), ["4"], "{m}");
     let again = returned(json!({ "previous": [{ "fid": "F1", "verdict": "withdraw" }] }));
-    add(&mut e, "T4", &again, "done", "M1");
+    add(&mut e, "T4", &json!({}), &again, "done", "M1");
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert!(!took(&e).starts_with("fix"), "{}\n{log}", took(&e));
@@ -2737,12 +2939,18 @@ fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// A change of a flow version at cell `R1`: its return may hold a field `before`, which the version the engine runs
-/// does not have.
+/// A change of a flow version at cell `R1`: the outcome of its return, in any of its forms, may hold a field `before`,
+/// which the version the engine runs does not have.
 fn with_before(g: &mut flow::CompiledGraph) {
     let r1 = g.cells.iter_mut().find(|c| c.id == "R1").unwrap();
-    if let Some(Value::Object(props)) = r1.schema.as_mut().and_then(|s| s.get_mut("properties")) {
-        props.insert("before".into(), json!({ "type": "string" }));
+    let forms = r1
+        .schema
+        .as_mut()
+        .and_then(|s| s["properties"]["outcome"]["anyOf"].as_array_mut());
+    for form in forms.into_iter().flatten() {
+        if let Some(Value::Object(props)) = form.get_mut("properties") {
+            props.insert("before".into(), json!({ "type": "string" }));
+        }
     }
 }
 
@@ -2858,7 +3066,7 @@ fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
                 |r| r.get(0),
             )?;
             tx.execute(
-                "UPDATE rounds SET output = json_set(output, '$.before', 'kept') WHERE work = ?1 AND n = ?2",
+                "UPDATE rounds SET output = json_set(output, '$.outcome.before', 'kept') WHERE work = ?1 AND n = ?2",
                 params![work, n],
             )?;
             Ok(n)
@@ -2874,7 +3082,7 @@ fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
     assert!(
         ended.starts_with(&format!(
             "stopped: the flow moved to version {now}, where the return of cell R1 in round R{work}-{n} no longer \
-             fits it (the return has before, which is not one of its fields: "
+             fits it (outcome "
         )),
         "{ended}\n{log}"
     );
@@ -4315,6 +4523,611 @@ fn a_tool_without_the_network_waits_for_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The rows of tool_runs of a tool in an item's work, in order: the attempt, the result and the files kept.
+fn tool_runs(e: &Engine, item: i64, tool: &str) -> Vec<(i64, Value, Vec<String>)> {
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT t.attempt, t.result, t.files FROM tool_runs t JOIN works w ON w.id = t.work
+                 WHERE w.item = ?1 AND t.tool = ?2 ORDER BY t.id",
+            )
+            .unwrap();
+    st.query_map(params![item, tool], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+    })
+    .unwrap()
+    .map(|x| {
+        let (attempt, result, files) = x.unwrap();
+        (
+            attempt,
+            serde_json::from_str(&result).unwrap(),
+            serde_json::from_str(&files).unwrap(),
+        )
+    })
+    .collect()
+}
+
+/// The branches there are on the fake GitHub's remote.
+fn remote_branches(s: &Setup) -> Vec<String> {
+    git(
+        &s.root,
+        &[
+            "--git-dir",
+            &s.origin.to_string_lossy(),
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/heads",
+        ],
+    )
+    .lines()
+    .map(str::to_string)
+    .collect()
+}
+
+/// Lists a workflow in the project's configuration for the measure tool, as `[[ci.measure]]`.
+fn lists_a_measurement_workflow(s: &Setup) {
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &format!(
+            "{project}\n[[ci.measure]]\nworkflow = \"measure.yml\"\ninputs = [\"command\", \"base\"]\n\
+             artifact = \"measurement\"\n"
+        ),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a measurement workflow"]);
+}
+
+/// A request for the measure tool, with the words the flow asks for beside what it runs.
+fn measure_request(head: &str, workflow: &str, inputs: &str) -> Value {
+    json!({ "tool": "measure", "head": head, "workflow": workflow, "inputs": inputs, "minutes": 1,
+            "question": "How long does it take?", "compare": "The head with the one before it.",
+            "decide": "Slower than before is a regression." })
+}
+
+// The measure tool runs a workflow the project lists, by hand, on a temporary ref that holds the code handed in as a
+// commit of its own, and not on the work's branch; it waits, keeps the run's logs and artifact under the data directory
+// and takes the ref away. A workflow that ends red has run, but not to the end. A request for a workflow the project
+// does not list, for an input the workflow does not take, or for a head that is not the worktree's is refused, says
+// what the project does list, runs nothing and leaves no ref. Every request is a row of tool_runs, which the view of the
+// work's measurements reads, and the tool cell's return holds a result for each, which passed the check against the
+// flow.
+#[test]
+fn the_measure_tool_runs_a_listed_workflow_on_a_temporary_ref() {
+    let s = setup("measure");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let before = git(wt, &["rev-parse", "HEAD~1"]);
+            let tools = json!([
+                measure_request(&head, "measure.yml", "command=true\nbase=main"),
+                measure_request(&head, "measure.yml", "command=red"),
+                measure_request(&head, "other.yml", ""),
+                measure_request(&head, "measure.yml", "pairs=3"),
+                measure_request(&before, "measure.yml", "command=true"),
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let head = git(&worktree_of(&e, work), &["rev-parse", "HEAD"]);
+    assert_eq!(ended_at(&e, item, "X1"), [(Some("ran".to_string()), None)], "{log}");
+    let runs = tool_runs(&e, item, "measure");
+    assert_eq!(runs.len(), 5, "{runs:?}\n{log}");
+    assert!(runs.iter().all(|r| r.0 == 1), "{runs:?}");
+    let verdicts: Vec<(&str, Option<&str>)> = runs
+        .iter()
+        .map(|r| (r.1["push"]["verdict"].as_str().unwrap(), r.1["push"]["ok"].as_str()))
+        .collect();
+    assert_eq!(
+        verdicts,
+        [
+            ("ran", Some("ran")),
+            ("ran", Some("not_run")),
+            ("refused", None),
+            ("refused", None),
+            ("refused", None)
+        ],
+        "{runs:?}"
+    );
+    // The two runs: the head handed in, a link to the run, and the files kept, which the row of tool_runs lists.
+    let by_hand = s.by_hand.lock().unwrap().clone();
+    assert_eq!(by_hand.len(), 2, "{by_hand:?}");
+    let ran = &runs[0].1["push"];
+    let commit = by_hand[0]
+        .commit
+        .clone()
+        .expect("the temporary ref was on the remote when the workflow was run");
+    assert_eq!(ran["head"], head);
+    assert_eq!(ran["run"], format!("https://example.invalid/measure.yml/{commit}"));
+    let files: Vec<String> = serde_json::from_value(ran["files"].clone()).unwrap();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert_eq!(runs[0].2, files);
+    assert!(files[0].ends_with("-measure/job-1-check.log"), "{files:?}");
+    assert_eq!(
+        std::fs::read_to_string(&files[0]).unwrap(),
+        format!("the log of https://example.invalid/measure.yml/{commit}")
+    );
+    assert!(
+        files[1].ends_with("-measure/artifact-measurement/pairs.tsv"),
+        "{files:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&files[1]).unwrap(), "1\t2\t3\n");
+    assert!(files.iter().all(|f| f.contains("tool-output")), "{files:?}");
+    // A workflow that ended red has run, and its log is kept.
+    assert_eq!(runs[1].1["push"]["files"].as_array().map(Vec::len), Some(2), "{runs:?}");
+    // The workflow ran on a temporary ref, by hand, with the inputs given, on a commit of its own that holds the head's
+    // files; another request for the same head is another commit.
+    for d in &by_hand {
+        assert_eq!(d.workflow, "measure.yml");
+        assert!(d.branch.starts_with("wf-agents-measure/"), "{d:?}");
+    }
+    assert_eq!(
+        by_hand[0].inputs,
+        [
+            ("command".to_string(), "true".to_string()),
+            ("base".to_string(), "main".to_string())
+        ]
+    );
+    assert_ne!(by_hand[0].commit, by_hand[1].commit);
+    let wt = worktree_of(&e, work);
+    assert_ne!(commit, head);
+    assert_eq!(git(&wt, &["rev-parse", &format!("{commit}^")]), head);
+    assert_eq!(
+        git(&wt, &["rev-parse", &format!("{commit}^{{tree}}")]),
+        git(&wt, &["rev-parse", &format!("{head}^{{tree}}")])
+    );
+    // Nothing is left on the remote but main: no temporary ref, and the work's branch was not pushed.
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    // The refusals say why, and what the project lists.
+    let why = |i: usize| runs[i].1["push"]["why"].as_str().unwrap().to_string();
+    assert!(
+        why(2).contains("\"other.yml\"") && why(2).ends_with("they are: measure.yml"),
+        "{}",
+        why(2)
+    );
+    assert!(
+        why(3).contains("\"pairs\"") && why(3).ends_with("it takes: command, base"),
+        "{}",
+        why(3)
+    );
+    assert!(why(4).starts_with("The head is not the one handed in"), "{}", why(4));
+    // The view of the work's measurements reads every request, the runs and the refusals.
+    let (all, ran_to_the_end): (i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*), count(*) FILTER (WHERE json_extract(result, '$.push.ok') = 'ran')
+                 FROM work_measurements WHERE work = ?1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((all, ran_to_the_end), (5, 1));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A measurement that cannot be started is a failed tool, tried again only while the network is up; it leaves no
+// temporary ref on the remote, and its attempt is a row of tool_runs.
+#[test]
+fn a_measurement_that_cannot_start_leaves_no_temporary_ref() {
+    let s = setup("measure-down");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([measure_request(&head, "measure.yml", "command=down")]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let up = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let seen = up.clone();
+    let hooks = Hooks {
+        network: Some(Arc::new(move || seen.load(std::sync::atomic::Ordering::SeqCst))),
+        ..Hooks::default()
+    };
+    let (mut e, said, item) = start_with(&s, agents, hooks);
+    step_to(&mut e, item, "X1");
+    up.store(false, std::sync::atomic::Ordering::SeqCst);
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let runs = tool_runs(&e, item, "measure");
+    assert_eq!(runs.len(), 1, "{runs:?}\n{log}");
+    assert_eq!(runs[0].1["failed"]["kind"], "network_or_api", "{runs:?}");
+    // The workflow was asked for on a ref that was on the remote then, and is not now.
+    let by_hand = s.by_hand.lock().unwrap().clone();
+    assert_eq!(by_hand.len(), 1, "{by_hand:?}");
+    assert!(by_hand[0].commit.is_some(), "{by_hand:?}");
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A request GitHub refuses to run (an input the workflow requires is missing) is a refusal the engineer sees with what
+// GitHub said, not a failed tool tried three times; a run that does not finish in time is a measurement that did not run
+// to the end, not tried again to wait as long again; and a wait that fails to reach GitHub is tried again by waiting
+// for the same run, not by starting another measurement. None leaves a temporary ref.
+#[test]
+fn a_measurement_is_tried_again_only_by_waiting_for_the_run_it_started() {
+    let s = setup("measure-retry");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([
+                measure_request(&head, "measure.yml", "command=reject"),
+                measure_request(&head, "measure.yml", "command=timeout"),
+                measure_request(&head, "measure.yml", "command=flaky"),
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "X1"), [(Some("ran".to_string()), None)], "{log}");
+    let runs = tool_runs(&e, item, "measure");
+    let attempts: Vec<i64> = runs.iter().map(|r| r.0).collect();
+    assert_eq!(attempts, [1, 1, 1, 2], "{runs:?}\n{log}");
+    // The refusal says what GitHub said.
+    assert_eq!(runs[0].1["push"]["verdict"], "refused", "{runs:?}");
+    let why = runs[0].1["push"]["why"].as_str().unwrap();
+    assert!(why.contains("HTTP 422: Required input 'base' not provided"), "{why}");
+    // The run that did not finish in time has run, not to the end, and says why.
+    let timed_out = &runs[1].1["push"];
+    assert_eq!(
+        (&timed_out["verdict"], &timed_out["ok"]),
+        (&json!("ran"), &json!("not_run")),
+        "{runs:?}"
+    );
+    assert!(
+        timed_out["note"]
+            .as_str()
+            .unwrap()
+            .contains("did not finish in 10800 s"),
+        "{runs:?}"
+    );
+    // The wait that failed is a failed attempt, and the next one has the run of the same measurement.
+    assert_eq!(runs[2].1["failed"]["kind"], "network_or_api", "{runs:?}");
+    assert_eq!(runs[3].1["push"]["ok"], "ran", "{runs:?}");
+    // One workflow was started for each request, none for the try again.
+    let by_hand = s.by_hand.lock().unwrap().clone();
+    assert_eq!(by_hand.len(), 3, "{by_hand:?}");
+    assert_eq!(by_hand[2].waits, 2, "{by_hand:?}");
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A run that never got started is a measurement that did not run to the end and is not tried again, and a start that
+// failed once before GitHub was reached is tried again with the same temporary commit, so that no second workflow is
+// started on another one.
+#[test]
+fn a_measurement_that_never_started_is_not_tried_again_and_a_start_that_failed_once_is_made() {
+    let s = setup("measure-edges");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([
+                measure_request(&head, "measure.yml", "command=nostart"),
+                measure_request(&head, "measure.yml", "command=flaky_dispatch"),
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "X1"), [(Some("ran".to_string()), None)], "{log}");
+    let runs = tool_runs(&e, item, "measure");
+    let attempts: Vec<i64> = runs.iter().map(|r| r.0).collect();
+    assert_eq!(attempts, [1, 1, 2], "{runs:?}\n{log}");
+    // A run that never started has run, not to the end, and the note says it did not start.
+    let nostart = &runs[0].1["push"];
+    assert_eq!(
+        (&nostart["verdict"], &nostart["ok"]),
+        (&json!("ran"), &json!("not_run")),
+        "{runs:?}"
+    );
+    assert!(
+        nostart["note"].as_str().is_some_and(|n| n.contains("no run of")),
+        "{runs:?}"
+    );
+    // The start that failed once failed as an attempt, and the next attempt ran the measurement.
+    assert_eq!(runs[1].1["failed"]["kind"], "network_or_api", "{runs:?}");
+    assert_eq!(runs[2].1["push"]["ok"], "ran", "{runs:?}");
+    // The workflow was asked for twice for the last request, on the same branch and the same commit.
+    let by_hand = s.by_hand.lock().unwrap().clone();
+    assert_eq!(by_hand.len(), 3, "{by_hand:?}");
+    assert_eq!(by_hand[1].branch, by_hand[2].branch, "{by_hand:?}");
+    assert!(by_hand[1].commit.is_some(), "{by_hand:?}");
+    assert_eq!(by_hand[1].commit, by_hand[2].commit, "{by_hand:?}");
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A run with no job (GitHub gives one for a workflow file it cannot read) has run, not to the end, and has no run to link
+// to and no log to keep; the note is all the engineer has to read, and it says why there is nothing.
+#[test]
+fn a_run_with_no_job_says_why_it_left_nothing() {
+    let s = setup("measure-nojobs");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([measure_request(&head, "measure.yml", "command=nojobs")]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let runs = tool_runs(&e, item, "measure");
+    assert_eq!(runs.len(), 1, "{runs:?}\n{log}");
+    let nojobs = &runs[0].1["push"];
+    assert_eq!(
+        (&nojobs["verdict"], &nojobs["ok"]),
+        (&json!("ran"), &json!("not_run")),
+        "{runs:?}"
+    );
+    assert_eq!(nojobs["files"], json!([]), "{runs:?}");
+    assert!(
+        nojobs["note"].as_str().is_some_and(|n| !n.trim().is_empty()),
+        "a run with no job gave neither a run to link to, a file, nor a note: {nojobs}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A workflow GitHub refuses to run for ci_before, the tool that runs the fast CI on the tests alone on the code before
+// the change, is what it is for measure: a refusal its engineer reads, not a failed tool of a kind the flow does not
+// name, tried three times. Its reference is the contract of the failure kind `rejected` (it is "never given as a failed
+// tool") and the kinds of failure the flow's cell X1 lists.
+#[test]
+fn a_dispatch_github_refuses_for_ci_before_is_a_refusal_and_not_a_failed_tool() {
+    let s = setup("ci-before-rejected");
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &format!("{project}tests_input = \"command\"\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "the fast CI takes the tests it runs"]);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            write(wt, "tests/feature.txt", "feature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([
+                { "tool": "ci", "head": head, "tests": ["feature"], "pr": { "title": "Add the feature", "body": "It adds it." } },
+                { "tool": "ci_before", "head": head, "files": ["tests/feature.txt"], "tests": ["reject"] },
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let runs = tool_runs(&e, item, "ci_before");
+    let listed = [
+        "network_or_api",
+        "ci_did_not_start",
+        "timed_out",
+        "machine_down",
+        "other",
+    ];
+    for r in &runs {
+        if let Some(kind) = r.1["failed"]["kind"].as_str() {
+            assert!(
+                listed.contains(&kind),
+                "a failed tool of the kind {kind}, which the flow does not name: {runs:?}"
+            );
+        }
+    }
+    // Asked for once and not tried again, and the engineer is told what GitHub said.
+    assert_eq!(runs.len(), 1, "{runs:?}\n{log}");
+    assert_eq!(runs[0].1["ran"]["verdict"], "refused", "{runs:?}\n{log}");
+    assert!(
+        runs[0].1["ran"]["why"].as_str().is_some_and(|w| w.contains("HTTP 422")),
+        "{runs:?}"
+    );
+    assert_eq!(s.by_hand.lock().unwrap().len(), 1);
+    // The temporary branch of the tests is gone; the work's own branch, which ci pushed, may be there.
+    let branches = remote_branches(&s);
+    assert!(
+        branches.iter().all(|b| !b.contains("wf-agents-before")),
+        "{branches:?}\n{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A project that lists no measurement workflow is told so, and what to answer instead; nothing runs, the request is a
+// row of tool_runs but not a run of a measurement, so an answer of measured is sent back and one of not_measured stands.
+#[test]
+fn a_project_that_lists_no_measurement_workflow_is_told_to_answer_not_measured() {
+    let s = setup("measure-none");
+    let mut agents = scripts();
+    agents.insert(
+        "D2",
+        Box::new(|r: &Request, n: usize| {
+            let acceptance = json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]);
+            match n {
+                1 => {
+                    let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+                    let tools = json!([measure_request(&head, "measure.yml", "command=true")]);
+                    (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+                }
+                2 => (
+                    vec![("outcome.measure", "measured")],
+                    vec![("outcome.acceptance", acceptance)],
+                ),
+                _ => (
+                    vec![("outcome.measure", "not_measured")],
+                    vec![("outcome.acceptance", acceptance)],
+                ),
+            }
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    for _ in 0..40 {
+        if ended_at(&e, item, "D2").len() >= 3 {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let runs = tool_runs(&e, item, "measure");
+    assert_eq!(runs.len(), 1, "{runs:?}\n{log}");
+    assert_eq!(runs[0].1["push"]["verdict"], "refused", "{runs:?}");
+    let why = runs[0].1["push"]["why"].as_str().unwrap();
+    assert!(why.contains("ci.measure") && why.contains("not_measured"), "{why}");
+    assert!(s.by_hand.lock().unwrap().is_empty());
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    // The answer of measured is sent back, saying why; the answer of not_measured is taken.
+    let d2 = ended_at(&e, item, "D2");
+    assert_eq!(d2.len(), 3, "{d2:?}\n{log}");
+    assert_eq!(d2[0], (Some("tools".to_string()), None), "{d2:?}");
+    assert!(
+        d2[1].0.is_none()
+            && d2[1]
+                .1
+                .as_deref()
+                .is_some_and(|why| why.contains("measured, but this work has no measure run")),
+        "{d2:?}\n{log}"
+    );
+    assert!(d2[2].0.is_some() && d2[2].1.is_none(), "{d2:?}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The form of a tool in the schema of the common format, as an agent is given it: the object that holds its
+/// properties.
+fn tool_form(schema: &Value, tool: &str) -> Option<Value> {
+    match schema {
+        Value::Object(o) => {
+            if o.get("properties")
+                .and_then(|p| p.get("tool"))
+                .is_some_and(|t| t["const"] == tool)
+            {
+                return Some(schema.clone());
+            }
+            o.values().find_map(|v| tool_form(v, tool))
+        }
+        Value::Array(xs) => xs.iter().find_map(|v| tool_form(v, tool)),
+        _ => None,
+    }
+}
+
+/// What each of the cells that ask for the tools is told of the gh tool and of the measure tool in the common format its
+/// session is given for the project: the cell, the gh tool's description and the description of the measure tool's input
+/// that names the workflow. The cells are the research (`R1`), the design (`D1`, `D2`) and the implementation (`I1`).
+fn tool_descriptions(s: &Setup) -> Vec<(&'static str, String, String)> {
+    let (e, _) = engine(s, scripts());
+    let flow = e.flow(e.flow_now).unwrap();
+    let g = flow.graphs.iter().find(|g| g.name == engine::ENGINEER).unwrap();
+    ["R1", "D1", "D2", "I1"]
+        .into_iter()
+        .map(|cell| {
+            let parts = engine::message::line_parts(&e, g, g.cell(cell).unwrap(), "p");
+            let common = parts
+                .iter()
+                .find(|(address, _)| address == "format:common")
+                .and_then(|(_, text)| text.as_str())
+                .unwrap();
+            // The schema is the last part of the text, which holds no blank line.
+            let schema: Value = serde_json::from_str(common.rsplit("\n\n").next().unwrap()).unwrap();
+            let gh = tool_form(&schema, "gh").unwrap_or_else(|| panic!("{cell}: no gh tool"));
+            let measure = tool_form(&schema, "measure").unwrap_or_else(|| panic!("{cell}: no measure tool"));
+            (
+                cell,
+                gh["properties"]["tool"]["description"].as_str().unwrap().to_string(),
+                measure["properties"]["workflow"]["description"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            )
+        })
+        .collect()
+}
+
+// What the cells that research, design and implement are told of the gh tool and of the measure tool holds the values
+// of the settings they name, as the installation and the project set them now: the allow list of gh, and the
+// workflows the project lists, which read as none where it lists none; a change of either shows in the description
+// given next. A design that does not know the project lists no measurement workflow would lock acceptance conditions
+// that need one.
+#[test]
+fn the_tools_are_described_with_the_settings_in_force() {
+    let s = setup("tool-settings");
+    let told = tool_descriptions(&s);
+    assert_eq!(told.len(), 4);
+    for (cell, gh, workflow) in &told {
+        assert!(gh.contains("`gh.allow` ([\"pr view\"])"), "{cell}: {gh}");
+        for copied in ["pr list", "repo view", "release view", "search"] {
+            assert!(!gh.contains(copied), "{cell}: {copied}: {gh}");
+        }
+        assert!(workflow.contains("`project.ci.measure` (none)"), "{cell}: {workflow}");
+    }
+    // The installation allows more, and the project lists a workflow.
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &install.replace("allow = [\"pr view\"]", "allow = [\"pr view\", \"run list\"]"),
+    );
+    lists_a_measurement_workflow(&s);
+    for (cell, gh, workflow) in &tool_descriptions(&s) {
+        assert!(gh.contains("`gh.allow` ([\"pr view\",\"run list\"])"), "{cell}: {gh}");
+        assert!(
+            workflow.contains(
+                "`project.ci.measure` ([{\"workflow\":\"measure.yml\",\"inputs\":[\"command\",\"base\"],\
+                 \"artifact\":\"measurement\"}])"
+            ),
+            "{cell}: {workflow}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A message the service refused is not run again in the session that holds what it refused: the line's session ends
 // and the round runs once more in a new one.
 #[test]
@@ -5676,8 +6489,8 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
             }
         }
     }
-    // The engineer's graph has five lines, the architect's three.
-    assert_eq!(lines, 8);
+    // The engineer's graph has five lines, the architect's four.
+    assert_eq!(lines, 9);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -5808,6 +6621,7 @@ fn architect_works_in(
     talks: &[(i64, &str)],
 ) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Vec<i64>) {
     let s = setup(name);
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -5994,6 +6808,7 @@ fn the_first_understanding_is_given_the_latest_whole_entries_of_the_talk() {
 #[test]
 fn the_cache_expiring_in_the_middle_of_an_architect_work_starts_a_new_session() {
     let s = setup("expired-midway");
+    understanding_each_session(&s);
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     let (mut e, said) = engine(&s, agents);
@@ -6039,6 +6854,97 @@ fn the_cache_expiring_in_the_middle_of_an_architect_work_starts_a_new_session() 
         ],
         "{log}"
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The cache of the architect's session expiring in the middle of a work while the project's latest understanding holds
+// opens a new session at the next round, started as expired, which goes on from the notebook: the work does not go back
+// to understanding the project, and the matter in hand stays in hand.
+#[test]
+fn a_new_session_goes_on_from_the_notebook_while_the_understanding_holds() {
+    let s = setup("expired-notebook");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "One.");
+    say(&mut e, "Two.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| e.work(arch).unwrap().pos.at == "H8"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    assert_eq!(path.iter().filter(|c| *c == "S1").count(), 1, "{path:?}\n{log}");
+    assert_eq!(path.iter().filter(|c| *c == "U1").count(), 1, "{path:?}\n{log}");
+    assert!(
+        rows_at(&e, arch, "H8").iter().all(|r| r != "session_anew"),
+        "{path:?}\n{log}"
+    );
+    let lines = line_sessions(&e, arch, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert_eq!(lines[1].0, "expired", "{lines:?}");
+    assert!(lines[1].2.starts_with("H8"), "{lines:?}");
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, true),
+            ("owner_words".to_string(), false, true)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's session past the architect's limit ends at the look at the queue before a matter taken afresh, whose
+// round records it: the matter is taken in a new session, which goes on from the notebook while the understanding holds.
+#[test]
+fn a_long_session_of_the_architect_s_ends_before_a_matter_taken_afresh() {
+    let s = setup("architect-limit");
+    agents_setting(&s, "architect_context_limit = 1000");
+    git(&s.data, &["commit", "-q", "-am", "a small limit for the architect"]);
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 200_000))])),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "One.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    assert_eq!(path.iter().filter(|c| *c == "U1").count(), 1, "{path:?}\n{log}");
+    let lines = line_sessions(&e, arch, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert_eq!((lines[0].1, lines[0].2.as_str()), (true, "U1"), "{lines:?}");
+    assert!(lines[1].2.starts_with("H8"), "{lines:?}");
+    let ended: Value =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.session_ended') FROM rounds WHERE work = ?1 AND cell = 'Q0'
+                 AND json_extract(input, '$.session_ended') IS NOT NULL",
+                [arch],
+                |r| r.get::<_, String>(0),
+            )
+            .map(|t| serde_json::from_str(&t).unwrap())
+            .expect(&log);
+    assert_eq!(ended, json!({ "context": 200_503, "limit": 1000 }), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -6836,7 +7742,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
         "R1",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "other", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
             } else {
                 json!([])
             };
@@ -6938,7 +7844,7 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
         "R1",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "other", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
             } else {
                 json!([])
             };
@@ -7168,13 +8074,26 @@ fn asks_the_owner(question: &str) -> Hands {
 /// Sets the installation's wait for the owner's reply to none, so that a question the architect puts waits at the back
 /// of its queue at once.
 fn no_reply_wait(s: &Setup) {
-    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
-    write(
-        &s.data,
-        "install.toml",
-        &format!("{install}\n[agents]\nowner_reply_wait = 0\n"),
-    );
+    agents_setting(s, "owner_reply_wait = 0");
     git(&s.data, &["commit", "-q", "-am", "no wait for the owner's reply"]);
+}
+
+/// Sets a setting of the installation's agents, under the table `[agents]`, which it adds when there is none.
+fn agents_setting(s: &Setup, line: &str) {
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    let install = if install.contains("\n[agents]\n") {
+        install.replacen("\n[agents]\n", &format!("\n[agents]\n{line}\n"), 1)
+    } else {
+        format!("{install}\n[agents]\n{line}\n")
+    };
+    write(&s.data, "install.toml", &install);
+}
+
+/// Has every new session of the architect's understand the project first, as it did before a new session went on from
+/// the notebook: the understanding holds no time at all.
+fn understanding_each_session(s: &Setup) {
+    agents_setting(s, "understanding_life = 0");
+    git(&s.data, &["commit", "-q", "-am", "an understanding that holds no time"]);
 }
 
 // A question to the owner from a cell on a matter's path parks only that matter: once the wait for the owner's reply
@@ -8996,6 +9915,7 @@ fn a_return_that_misuses_back_for_the_owner_is_sent_back_with_all_its_problems_a
 #[test]
 fn a_group_goes_on_to_its_second_cell_after_the_owner_s_words_and_a_new_session() {
     let s = setup("group-between");
+    understanding_each_session(&s);
     let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
     let given = ids.clone();
     let take_in: Script = Box::new(move |_: &Request, n: usize| {
@@ -9550,7 +10470,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     };
     agents.insert(
         "R1",
-        reporting(json!({ "kind": "duplicate", "what": "Item 7 does the same.", "urgent": true })),
+        reporting(json!({ "kind": "out_of_scope_defect", "what": "The lexer drops a token.", "urgent": true })),
     );
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
@@ -9563,7 +10483,7 @@ fn side_reports_come_to_the_architect_as_reports() {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .unwrap();
-    assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
+    assert_eq!((detail.as_str(), urgent), ("out_of_scope_defect", 1));
     // A work of the architect starts for the report, its first step beside the work's own.
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -13256,6 +14176,7 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
 #[test]
 fn a_new_session_s_understanding_is_given_what_is_unclear_and_not_what_the_project_is_now() {
     let s = setup("notebook-new-session");
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
@@ -14775,7 +15696,7 @@ fn a_side_report_handed_in_again_is_queued_once() {
     agents.insert(
         "R1",
         Box::new(|_: &Request, n: usize| {
-            let r = |what: &str| json!({ "kind": "other", "what": what, "urgent": false });
+            let r = |what: &str| json!({ "kind": "improvement", "what": what, "urgent": false });
             let reports = if n == 1 {
                 json!([
                     r("The parser is slow."),
@@ -14806,6 +15727,7 @@ fn a_side_report_handed_in_again_is_queued_once() {
 #[test]
 fn a_new_session_in_the_middle_of_an_architect_work_understands_the_project_first() {
     let s = setup("new-session-midway");
+    understanding_each_session(&s);
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     let (mut e, said) = engine(&s, agents);
@@ -19840,6 +20762,7 @@ fn say_with_an_image(e: &mut Engine, text: &str) {
 #[test]
 fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_asks_and_images() {
     let s = setup("owner-talk-window");
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
@@ -20098,6 +21021,7 @@ fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bo
 #[test]
 fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
     let s = setup("owner-talk-kinds");
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
@@ -21683,5 +22607,300 @@ fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
     assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
     assert_eq!(paused_by(&e, arch), None, "{log}");
     assert_eq!(told(&s, phrase), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The name of the latest round of the work at a cell, `R<work>-<n>`.
+fn latest_round(e: &Engine, work: i64, cell: &str) -> String {
+    let n: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT max(n) FROM rounds WHERE work = ?1 AND cell = ?2",
+                params![work, cell],
+                |r| r.get(0),
+            )
+            .unwrap();
+    format!("R{work}-{n}")
+}
+
+/// A commit in a worktree that writes one file, and its id.
+fn commit_file(wt: &Path, file: &str, text: &str, message: &str) -> String {
+    write(wt, file, text);
+    git(wt, &["add", "-A"]);
+    git(wt, &["commit", "-q", "-m", message]);
+    git(wt, &["rev-parse", "HEAD"])
+}
+
+// Item #16, acceptance A1 to A6 through the engine: the blind review is told whether the branch took main in (an empty
+// list when it never did) and given the CI on the work, with the plain statement that it has `gh` alone; a re-review is
+// told the merges of main since the head its last review looked at; adversarial testing's re-check is told the commits
+// since the head its last round ended at, a merge among them marked, the files the work itself changed in them, and the
+// rounds of the fix in between, none at its first round; and the table review has a column for each test and workaround
+// of the implementation, of the fixes and of adversarial testing, a test once however many returns name it.
+#[test]
+fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
+    let s = setup("branch-since");
+    let (mut e, _said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+
+    // The blind review: the branch never took main in, said as an empty list; it is given the CI on the work and told
+    // its only tool is `gh`, so that it does not look for the CI in the database.
+    let blind = message_at(&e, work, "T3", false);
+    let base = given_value(&blind, "·engine·review_base").expect(&blind);
+    assert_eq!(base["main_merges"], json!([]), "{base}");
+    assert!(base.get("last_reviewed").is_none(), "{base}");
+    let ci = given_value(&blind, "·engine·work_ci").expect(&blind);
+    assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
+    assert!(blind.contains("Your only tool is `gh`, with no `query`"), "{blind}");
+
+    // A table review was given the change at the head the work has now; the branch took main in since: no merge yet.
+    let head0 = git(&wt, &["rev-parse", "HEAD"]);
+    let reviewed = json!({ "engine": { "head": head0, "columns": [["1", "one"], ["2", "two"]] } });
+    seed_round(
+        &mut e,
+        work,
+        "T4",
+        &reviewed,
+        &returned(json!({ "columns": [] })),
+        "done",
+        "T4",
+    );
+    let review_base = |e: &mut Engine| -> Value {
+        let m = engine::next_message(e, work).unwrap().text;
+        given_value(&m, "·engine·review_base").expect(&m)
+    };
+    let before = review_base(&mut e);
+    assert_eq!(before["last_reviewed"], json!(head0), "{before}");
+    assert_eq!(before["main_merges"], json!([]), "{before}");
+    assert_eq!(before["merges_since_last_review"], json!([]), "{before}");
+
+    // The work's own commit, then main's change taken in by a merge, then the work's second commit.
+    let own = commit_file(&wt, "src/own.txt", "own\n", "The work's own change");
+    main_moves_on(&s.root, &[("src/main-only.txt", "main\n")], "Main's change");
+    merge_main(&wt);
+    let merge = git(&wt, &["rev-parse", "HEAD"]);
+    let second = commit_file(&wt, "src/own2.txt", "own two\n", "The work's second change");
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET pushed_head = ?2 WHERE id = ?1", params![work, second])?;
+        Ok(())
+    })
+    .unwrap();
+    let after = review_base(&mut e);
+    let commits_of = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["commit"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(after["head"], json!(second), "{after}");
+    assert_eq!(
+        commits_of(&after["main_merges"]),
+        std::slice::from_ref(&merge),
+        "{after}"
+    );
+    assert_eq!(
+        commits_of(&after["merges_since_last_review"]),
+        std::slice::from_ref(&merge),
+        "{after}"
+    );
+
+    // Adversarial testing's first round is told nothing of a last one.
+    let plan = json!({ "plan": { "review": "changed", "adversarial": "changed" } });
+    seed_round(&mut e, work, "T7", &json!({}), &plan, "adversarial_changed", "T1");
+    let first = engine::next_message(&mut e, work).unwrap().text;
+    assert!(given_value(&first, "·engine·since_adversarial").is_none(), "{first}");
+
+    // A round that wrote no test ended at the head it began at; a fix answered after it. The re-check is told every
+    // commit since, the merge marked, the files the work itself changed without what main brought, and the fix's round.
+    let none = returned(
+        json!({ "wrote": { "verdict": "none" }, "directions": ["d"], "new_tests": [],
+                                 "guard_tests": [], "conditions": [] }),
+    );
+    seed_round(
+        &mut e,
+        work,
+        "T1",
+        &json!({ "engine": { "head": head0 } }),
+        &none,
+        "for_engineer",
+        "T6",
+    );
+    let fix = returned(json!({
+        "rows": [], "head": second,
+        "deviations": [
+            { "kind": "workaround", "what": "Used the fix's way.", "why": "It was needed." },
+            { "kind": "surprise", "what": "A small thing." }
+        ],
+        "test_changes": [
+            { "change": "added", "test": "fix_test", "catches": "c", "kind": "new_behaviour", "time": "1s", "worth": "w" },
+            { "change": "relaxed", "test": "old_test", "reason": "A technical one." }
+        ]
+    }));
+    seed_round(&mut e, work, "T6", &json!({}), &fix, "done", "T7");
+    let fixed_in = latest_round(&e, work, "T6");
+    seed_round(&mut e, work, "T7", &json!({}), &plan, "adversarial_changed", "T1");
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    let since = given_value(&m, "·engine·since_adversarial").expect(&m);
+    assert_eq!(since["since"], json!(head0), "{since}");
+    let listed: Vec<(String, bool)> = since["commits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["commit"].as_str().unwrap().to_string(), c["merge"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(
+        listed,
+        [(second.clone(), false), (merge.clone(), true), (own.clone(), false)],
+        "{since}"
+    );
+    assert_eq!(since["own_files"], json!(["src/own.txt", "src/own2.txt"]), "{since}");
+    assert_eq!(since["fix_rounds"], json!([fixed_in]), "{since}");
+
+    // A round that wrote tests ended at the last commit it wrote them in: the commits after that one only, and no fix
+    // since.
+    let wrote = returned(json!({
+        "wrote": { "verdict": "wrote", "head": own, "tests": [
+            { "name": "adv_test", "checks": "c", "oracle": "o", "time": "1s", "worth": "w" },
+            { "name": "fix_test", "checks": "c", "oracle": "o", "time": "1s", "worth": "w" }
+        ] },
+        "directions": ["d"], "new_tests": [], "guard_tests": [], "conditions": []
+    }));
+    seed_round(
+        &mut e,
+        work,
+        "T1",
+        &json!({ "engine": { "head": head0 } }),
+        &wrote,
+        "for_engineer",
+        "T7",
+    );
+    seed_round(&mut e, work, "T7", &json!({}), &plan, "adversarial_changed", "T1");
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    let since = given_value(&m, "·engine·since_adversarial").expect(&m);
+    assert_eq!(since["since"], json!(own), "{since}");
+    assert_eq!(since["commits"].as_array().unwrap().len(), 2, "{since}");
+    assert_eq!(since["own_files"], json!(["src/own2.txt"]), "{since}");
+    assert_eq!(since["fix_rounds"], json!([]), "{since}");
+
+    // The table review has a column for each test and workaround, whoever reported it, a test named twice once, and
+    // the tests adversarial testing wrote say so.
+    move_to(&mut e, work, "T4");
+    let table = engine::next_message(&mut e, work).unwrap().text;
+    let count = |needle: &str| table.matches(needle).count();
+    assert_eq!(count("The new test fix_test: take the other side"), 1, "{table}");
+    assert_eq!(
+        count("The new test adv_test, written by adversarial testing: take the other side"),
+        1,
+        "{table}"
+    );
+    assert_eq!(count("fix_test, written by adversarial testing"), 0, "{table}");
+    assert_eq!(
+        count("The workaround \"Used the fix's way.\": does its reason hold, and did the design change with it?"),
+        1,
+        "{table}"
+    );
+    assert_eq!(count("The surprise \"A small thing.\""), 0, "{table}");
+    assert_eq!(
+        count("The test old_test, relaxed: compared with before, is there a technical reason?"),
+        1,
+        "{table}"
+    );
+    // Appended in the order the returns came: the fix's test before the one adversarial testing wrote.
+    assert!(
+        table.find("The new test fix_test").unwrap() < table.find("The new test adv_test").unwrap(),
+        "{table}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #16, acceptance A9, A10 and A11 through the engine: a condition the design says is met by the CI or by reading
+// the change, and one that says tests but is met by a job of the CI, are answered by rows of kind ci_job and read_diff.
+// The first return names a job no CI run of the work has and a command in no file of the branch: it is sent back once,
+// saying both. The second names the job the CI results give and a command the branch has, and is taken; the table review
+// is given the rows as they were handed in, and told how to judge them.
+#[test]
+fn conditions_met_by_a_ci_job_or_a_reading_of_the_change_are_taken_and_a_job_or_command_not_there_is_sent_back() {
+    let s = setup("ci-job-conditions");
+    let mut agents = scripts();
+    agents.insert(
+        "D2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.measure", "not_measured")],
+                vec![(
+                    "outcome.acceptance",
+                    json!([
+                        { "by": "test", "id": "A1", "condition": "The feature is there." },
+                        { "by": "ci", "id": "A2", "condition": "The check job passes." },
+                        { "by": "diff", "id": "A3", "condition": "The library says it." }
+                    ]),
+                )],
+            )
+        }),
+    );
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            let (pick, mut set) = implement(r, n);
+            for (path, value) in set.iter_mut() {
+                if *path == "outcome.conditions" {
+                    // The first hand-in of the end names what is not there; the next names what is.
+                    let (job, step) = if n == 2 {
+                        ("build", "no such command anywhere")
+                    } else {
+                        ("check", "feature")
+                    };
+                    *value = json!([
+                        { "how": "ci_job", "id": "A1", "jobs": [job], "steps": [step] },
+                        { "how": "ci_job", "id": "A2", "jobs": ["check"] },
+                        { "how": "read_diff", "id": "A3", "where": "src/lib.txt", "what": "It says feature." }
+                    ]);
+                }
+            }
+            (pick, set)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let log = || said.lock().unwrap().join("\n");
+    // The work comes to the table review, which then runs its first round.
+    let at_review = steps_until(&mut e, 80, |e| state(e, item).is_some_and(|(_, at, _)| at == "T4"));
+    assert!(at_review, "{:?}\n{}", state(&e, item), log());
+    e.step(None).unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    let why = why_sent_back(&e, work, "I1");
+    assert_eq!(why.len(), 1, "{why:?}\n{}", log());
+    assert!(
+        why[0].contains(
+            "conditions_cover_acceptance (conditions): the job build is not a check of any CI run of this work; the checks recorded are: check"
+        ),
+        "{}",
+        why[0]
+    );
+    assert!(
+        why[0].contains(
+            "conditions_cover_acceptance (conditions): the step no such command anywhere is not in any file of the branch"
+        ),
+        "{}",
+        why[0]
+    );
+    // The table review is given the rows as the second return handed them in, and how to judge a CI job and a reading.
+    let review = message_at(&e, work, "T4", false);
+    let rows = given_value(&review, "·I1·conditions").expect(&review);
+    assert_eq!(rows[0]["how"], "ci_job", "{rows}");
+    assert_eq!(rows[0]["jobs"], json!(["check"]), "{rows}");
+    assert_eq!(rows[2]["how"], "read_diff", "{rows}");
+    assert_eq!(rows[2]["where"], "src/lib.txt", "{rows}");
+    assert!(
+        review.contains("If the table meets it with a CI job (`ci_job`), read that job's result on this head, and check that each command in its `steps` runs in the job it names"),
+        "{review}"
+    );
+    assert!(
+        review.contains("For either, if a test could prove the condition instead, that is a finding."),
+        "{review}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }

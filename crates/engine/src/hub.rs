@@ -27,7 +27,8 @@ pub struct CheckRun {
 /// A tool that did not run, in the kinds the flow names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
-    /// network_or_api, ci_did_not_start, timed_out, machine_down or other.
+    /// network_or_api, ci_did_not_start, timed_out, machine_down or other; or `rejected`, which a tool turns into a
+    /// refusal its agent sees and never gives as a failed tool: GitHub reached, and refused the request itself.
     pub kind: &'static str,
     pub what: String,
 }
@@ -36,6 +37,13 @@ impl Failure {
     pub fn network(what: impl Into<String>) -> Failure {
         Failure {
             kind: "network_or_api",
+            what: what.into(),
+        }
+    }
+
+    pub fn rejected(what: impl Into<String>) -> Failure {
+        Failure {
+            kind: "rejected",
             what: what.into(),
         }
     }
@@ -67,9 +75,25 @@ pub trait GitHub: Send + Sync {
     /// Waits for the workflow's run on a commit to finish, and gives each check's result.
     fn checks(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure>;
     /// Runs a workflow on a branch, by hand, with the inputs given, each as its name and its value; [`GitHub::checks`]
-    /// on the branch's commit then waits for that run.
+    /// on the branch's commit then waits for that run, or [`GitHub::checks_after`] for the run this made.
     fn dispatch(&self, _repo: &str, _workflow: &str, _branch: &str, _inputs: &[(&str, &str)]) -> Result<(), Failure> {
         Err(Failure::other("no workflow runs by hand here"))
+    }
+    /// The number of the workflow's latest run on a commit, finished or not; none when it has none. Runs are numbered
+    /// in the order they are made, so that a run with a larger number than this one is made after it.
+    fn latest_run_id(&self, _repo: &str, _sha: &str, _workflow: &str) -> Result<Option<i64>, Failure> {
+        Err(Failure::other("no runs are listed here"))
+    }
+    /// Waits for the workflow's run on a commit that is numbered above `after` (any run when none is given) to finish,
+    /// and gives each check's result: a run numbered at or below `after` was made before, and is never the one.
+    fn checks_after(
+        &self,
+        _repo: &str,
+        _sha: &str,
+        _workflow: &str,
+        _after: Option<i64>,
+    ) -> Result<Vec<CheckRun>, Failure> {
+        Err(Failure::other("no runs are waited for here"))
     }
     /// Runs the red checks of the workflow's run on a commit once more, waits, and gives each check's result.
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure>;
@@ -147,16 +171,19 @@ impl Gh {
     }
 
     fn run(&self, args: &[&str]) -> Result<String, Failure> {
+        self.run_said(args).map_err(|(failure, _)| failure)
+    }
+
+    /// Runs gh; when it fails, gives the failure and, apart from the command line the failure's text begins with, what
+    /// gh said, which is all that tells why: the command line holds the inputs an engineer gave.
+    fn run_said(&self, args: &[&str]) -> Result<String, (Failure, String)> {
         let out = Command::new("gh")
             .args(args)
             .output()
-            .map_err(|e| Failure::other(format!("gh: {e}")))?;
+            .map_err(|e| (Failure::other(format!("gh: {e}")), String::new()))?;
         if !out.status.success() {
-            return Err(Failure::network(format!(
-                "gh {}: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&out.stderr).trim()
-            )));
+            let said = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err((Failure::network(format!("gh {}: {said}", args.join(" "))), said));
         }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
@@ -166,25 +193,39 @@ impl Gh {
         serde_json::from_str(&out).map_err(|e| Failure::other(format!("gh {}: {e}", args.join(" "))))
     }
 
-    /// The workflow's latest run on a commit, once it has finished.
-    fn finished_run(&self, repo: &str, sha: &str, workflow: &str, after: Option<i64>) -> Result<Value, Failure> {
+    /// The workflow's runs on a commit, as gh lists them, the newest first.
+    fn runs(&self, repo: &str, sha: &str, workflow: &str) -> Result<Value, Failure> {
+        self.json(&[
+            "run",
+            "list",
+            "-R",
+            repo,
+            "--workflow",
+            workflow,
+            "--commit",
+            sha,
+            "--json",
+            "databaseId,status,conclusion,url,attempt",
+            "-L",
+            "20",
+        ])
+    }
+
+    /// The workflow's latest run on a commit, once it has finished: one at an attempt above `after` when that is
+    /// given, which is how a run run again is told from the run it was, and one numbered above `run_above` when that
+    /// is given, which is how a run made after a point is told from the runs there were.
+    fn finished_run(
+        &self,
+        repo: &str,
+        sha: &str,
+        workflow: &str,
+        after: Option<i64>,
+        run_above: Option<i64>,
+    ) -> Result<Value, Failure> {
         let started = Instant::now();
         loop {
-            let runs = self.json(&[
-                "run",
-                "list",
-                "-R",
-                repo,
-                "--workflow",
-                workflow,
-                "--commit",
-                sha,
-                "--json",
-                "databaseId,status,conclusion,url,attempt",
-                "-L",
-                "5",
-            ])?;
-            let latest = runs.as_array().and_then(|rs| rs.first()).cloned();
+            let runs = self.runs(repo, sha, workflow)?;
+            let latest = newest_above(&runs, run_above);
             match latest {
                 None if started.elapsed() > self.start_timeout => {
                     return Err(Failure {
@@ -242,6 +283,18 @@ impl Gh {
         }
         Ok(out)
     }
+}
+
+/// The newest of the runs gh lists that is numbered above `above` (any when none is given): runs are numbered in the
+/// order they are made, so that the newest is the one with the largest number, whatever order they are listed in. A run
+/// numbered at or below `above` was made before it, however recent its last attempt, and is never the one.
+fn newest_above(runs: &Value, above: Option<i64>) -> Option<Value> {
+    runs.as_array()?
+        .iter()
+        .filter_map(|r| r["databaseId"].as_i64().map(|id| (id, r)))
+        .filter(|(id, _)| above.is_none_or(|a| *id > a))
+        .max_by_key(|(id, _)| *id)
+        .map(|(_, r)| r.clone())
 }
 
 /// The last `n` lines of a text.
@@ -612,8 +665,22 @@ impl GitHub for Gh {
     }
 
     fn checks(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
-        let run = self.finished_run(repo, sha, workflow, None)?;
+        self.checks_after(repo, sha, workflow, None)
+    }
+
+    fn checks_after(
+        &self,
+        repo: &str,
+        sha: &str,
+        workflow: &str,
+        after: Option<i64>,
+    ) -> Result<Vec<CheckRun>, Failure> {
+        let run = self.finished_run(repo, sha, workflow, None, after)?;
         self.jobs(repo, &run)
+    }
+
+    fn latest_run_id(&self, repo: &str, sha: &str, workflow: &str) -> Result<Option<i64>, Failure> {
+        Ok(newest_above(&self.runs(repo, sha, workflow)?, None).and_then(|r| r["databaseId"].as_i64()))
     }
 
     fn dispatch(&self, repo: &str, workflow: &str, branch: &str, inputs: &[(&str, &str)]) -> Result<(), Failure> {
@@ -622,7 +689,13 @@ impl GitHub for Gh {
         for f in &fields {
             args.extend(["-f", f.as_str()]);
         }
-        self.run(&args).map(|_| ())
+        self.run_said(&args).map(|_| ()).map_err(|(failure, said)| {
+            if dispatch_rejected(&said) {
+                Failure::rejected(failure.what)
+            } else {
+                failure
+            }
+        })
     }
 
     fn job_log(&self, repo: &str, check: &CheckRun) -> Result<String, Failure> {
@@ -669,11 +742,11 @@ impl GitHub for Gh {
     }
 
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
-        let run = self.finished_run(repo, sha, workflow, None)?;
+        let run = self.finished_run(repo, sha, workflow, None, None)?;
         let id = run["databaseId"].as_i64().unwrap_or_default().to_string();
         let attempt = run["attempt"].as_i64().unwrap_or(1);
         self.run(&["run", "rerun", &id, "-R", repo, "--failed"])?;
-        let run = self.finished_run(repo, sha, workflow, Some(attempt))?;
+        let run = self.finished_run(repo, sha, workflow, Some(attempt), None)?;
         self.jobs(repo, &run)
     }
 
@@ -722,6 +795,14 @@ impl GitHub for Gh {
     }
 }
 
+/// Whether what `gh workflow run` said (its stderr, not the command line) is GitHub refusing the request itself (HTTP 422: an input the workflow requires
+/// is missing, one it does not take is given, a value is not allowed, the workflow cannot run by hand), which running
+/// it again cannot change; not a failure to reach GitHub, nor a ref GitHub has not seen yet after the push, which a
+/// later try gets through.
+fn dispatch_rejected(said: &str) -> bool {
+    said.contains("HTTP 422") && !said.contains("No ref found")
+}
+
 /// Pushes a commit to a branch or ref of the worktree's origin; it must fast-forward unless forced.
 pub fn push(worktree: &Path, sha: &str, refname: &str, force: bool) -> Result<(), Failure> {
     let spec = format!("{}{sha}:{refname}", if force { "+" } else { "" });
@@ -740,6 +821,41 @@ pub fn delete_ref(worktree: &Path, refname: &str) -> Result<(), Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A wait for a run made after a point takes only a run numbered above it: one at the point, or below, was made
+    // before, however recent its last attempt, and the newest above it is the one with the largest number, in
+    // whatever order gh lists them. With nothing above the point there is no run yet, and the wait goes on.
+    #[test]
+    fn a_run_numbered_at_or_below_the_point_is_never_the_run_waited_for() {
+        let runs = serde_json::json!([
+            { "databaseId": 7, "status": "completed", "attempt": 3 },
+            { "databaseId": 9, "status": "in_progress", "attempt": 1 },
+            { "databaseId": 8, "status": "completed", "attempt": 1 },
+        ]);
+        let id = |above| newest_above(&runs, above).map(|r| r["databaseId"].as_i64().unwrap());
+        assert_eq!(id(None), Some(9));
+        assert_eq!(id(Some(7)), Some(9));
+        assert_eq!(id(Some(8)), Some(9));
+        assert_eq!(id(Some(9)), None);
+        assert_eq!(id(Some(100)), None);
+        assert_eq!(newest_above(&serde_json::json!([]), None), None);
+        assert_eq!(newest_above(&serde_json::json!({}), None), None);
+    }
+
+    // gh's messages for a workflow run by hand that GitHub refuses are told from a failure to reach GitHub and from a
+    // ref GitHub has not seen yet: only the first is a request no later try can fix.
+    #[test]
+    fn a_refused_dispatch_is_told_from_one_that_could_not_be_made() {
+        assert!(dispatch_rejected(
+            "could not create workflow dispatch event: HTTP 422: Required input 'base' not provided"
+        ));
+        assert!(dispatch_rejected(
+            "could not create workflow dispatch event: HTTP 422: Unexpected inputs provided: [\"x\"]"
+        ));
+        assert!(!dispatch_rejected("HTTP 422: No ref found for: b"));
+        assert!(!dispatch_rejected("error connecting to api.github.com"));
+        assert!(!dispatch_rejected("HTTP 502: Bad Gateway"));
+    }
 
     #[test]
     fn a_job_log_loses_what_gh_puts_before_each_line_and_its_colours() {
