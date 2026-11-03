@@ -82,21 +82,18 @@ fn each_graph_compiles_to_the_cells_of_its_nodes() {
     assert_eq!(e, "architect: a cell ZZ that is no node");
 }
 
-/// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
-/// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
-/// rows' names, conditions and targets, each in their order; hashed short, the file of the cell in `tests/moves/`.
+/// What of a cell decides whether a work that has begun it moves to a new flow version where it stands or goes back to
+/// do it again, as the engine's `versions::plan` compares a cell's two versions: its kind and line, and the ids, names
+/// and sources of the inputs of its own, in their order (those every agent's cell has, and the cell's rows, a work
+/// under way takes on as they change); hashed short, the file of the cell in `tests/moves/`.
 fn moves_by(c: &flow::CompiledCell) -> String {
     let inputs: Vec<Value> = c
         .inputs
         .iter()
+        .filter(|x| !x.common)
         .map(|x| serde_json::json!([x.id, x.name, x.from]))
         .collect();
-    let rows: Vec<Value> = c
-        .rows
-        .iter()
-        .map(|r| serde_json::json!([r.name, r.conditions, r.to]))
-        .collect();
-    let text = serde_json::json!([c.kind, c.line, inputs, rows]).to_string();
+    let text = serde_json::json!([c.kind, c.line, inputs]).to_string();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in text.bytes() {
         h ^= u64::from(b);
@@ -129,10 +126,11 @@ fn moves_misses(have: &BTreeMap<String, String>, files: &BTreeMap<String, String
     misses
 }
 
-// The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
-// are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's files
-// which cells' works a new version takes over when it is installed, at the cost of a work begun again. The comparison
-// is shown to fail for a hash that differs, a cell with no file and a file with no cell, each naming the cell.
+// The parts of each cell of the engineer's graph that decide whether a work that has begun it moves to a new flow
+// version are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's
+// files which cells a work under way goes back to through cell V1 when the version is installed, at the cost of the
+// cell done again. The comparison is shown to fail for a hash that differs, a cell with no file and a file with no
+// cell, each naming the cell.
 #[test]
 fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let c = compiled();
@@ -156,7 +154,7 @@ fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let misses = moves_misses(&have, &files);
     assert!(
         misses.is_empty(),
-        "cells whose works a new version takes over:\n{}",
+        "cells a work under way at goes back to do again:\n{}",
         misses.join("\n")
     );
 
@@ -310,7 +308,8 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
 // changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
 // only its matter (`A3`), the tools (`X1`), the observer
-// (`X2`) and the wait for the owner's Start after a pause (`X3`). It has no wrap-up, no wait
+// (`X2`), the wait for the owner's Start after a pause (`X3`) and the bringing of a work to a new flow version (`V1`).
+// It has no wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
 // The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
@@ -1039,6 +1038,69 @@ fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
         "One asked for with no why of its own, as a new session's understanding asks for it, is not queued while the \
          policy in force and the constitution are those the last check handled had."
     ));
+}
+
+// Item #239: the owner can hold a project's new starts, and the architect reads the holds. Every cell of the
+// architect that can hand in a hold or a release among its effects is given the board, where the holds are listed,
+// so that a cell added later which hands in effects without the board is found here; and the texts say who holds,
+// who releases which hold and when the engine queues no matter of free slots.
+#[test]
+fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_texts_say_who_releases_which() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let effects = r#""effects":{"$ref":"format:common#/$defs/effects"}"#;
+    let gives_effects =
+        |cell: &flow::CompiledCell| cell.kind == "agent" && flow::formats::cell_format(g, cell).contains(effects);
+    let handing_effects: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|cell| gives_effects(cell))
+        .map(|cell| cell.id.as_str())
+        .collect();
+    // No total of the graph's cells is held here: a work that adds a cell handing in effects would rewrite it. The
+    // two cells named are the ones other tests here read the effects of, so the filter is shown to find cells at all.
+    for id in ["H1", "H3"] {
+        assert!(
+            handing_effects.contains(&id),
+            "{id} is not found among {handing_effects:?}"
+        );
+    }
+    for id in handing_effects {
+        let cell = g.cell(id).unwrap();
+        let board = cell
+            .inputs
+            .iter()
+            .any(|i| serde_json::to_string(&i.from).unwrap().contains(r#""engine":"board""#));
+        assert!(board, "{id} is given no board, where the architect reads the holds");
+    }
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let text = |path: &[&str]| -> String {
+        path.iter()
+            .fold(&v, |at, k| &at[*k])
+            .as_str()
+            .unwrap_or_else(|| panic!("{path:?}"))
+            .to_string()
+    };
+    assert!(text(&["engine", "inputs", "board"]).contains("`starts_held`"));
+    assert!(text(&["engine", "actions", "queue_slots_free"]).contains("the owner has paused every work"));
+    assert!(text(&["engine", "stores", "holds", "owner"]).contains("releases any hold"));
+    let held = &v["engine"]["stores"]["holds"]["inputs"];
+    assert!(held.as_array().unwrap().iter().any(|i| i == "board"), "{held}");
+    // The row of the cell where a new work starts that a hold keeps waiting says who releases which hold.
+    let start = c.graph("engineer").unwrap().cell("S0").unwrap();
+    let row = start.rows.iter().find(|r| r.name == "project_held").unwrap();
+    let note = row.note.as_deref().unwrap();
+    assert!(
+        note.contains("the owner's, by the owner") && note.contains("by the architect or the owner"),
+        "{note}"
+    );
+    assert!(!note.contains("sets a policy"), "{note}");
+    // The architect's release is said to leave the owner's hold alone.
+    let release = &v["shapes"]["arch_action"];
+    assert!(
+        release.to_string().contains("stays until the owner releases it"),
+        "{release}"
+    );
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

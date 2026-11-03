@@ -840,6 +840,101 @@ fn the_owner_reads_each_project_s_observations_and_closes_one() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
+// Item #239: the owner holds a project's new starts on the page and releases any hold on it. The hold is written as the
+// owner, with the words that say why; holding again changes the words and keeps the time; no words, or a project the
+// configuration does not have, is refused and writes nothing; the owner releases the architect's hold and the one to
+// set the project straight too, and a release of a reason with no hold is refused saying so.
+#[test]
+fn the_owner_holds_and_releases_a_project_s_new_starts() {
+    let s = serve("project-hold");
+    let path = s.dir.join("db/wf-agents.sqlite");
+    let rows = || -> Vec<(String, i64, Option<String>)> {
+        let db = db::Db::open(&path).unwrap();
+        let mut st = db
+            .conn()
+            .prepare("SELECT reason, since, why FROM dispatch_holds WHERE project = 'p' ORDER BY reason")
+            .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let hold = |project: &str, body: &str| {
+        post(
+            s.port,
+            &format!("/api/v1/projects/{project}/hold"),
+            body,
+            "application/json",
+        )
+    };
+    let release = |project: &str, body: &str| {
+        post(
+            s.port,
+            &format!("/api/v1/projects/{project}/hold/release"),
+            body,
+            "application/json",
+        )
+    };
+    let (status, done) = hold("p", r#"{"why":"  Leaving for a week.  "}"#);
+    assert_eq!(status, 200, "{done}");
+    let first = rows();
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        (first[0].0.as_str(), first[0].2.as_deref()),
+        ("owner", Some("Leaving for a week."))
+    );
+    let actor: String = {
+        let db = db::Db::open(&path).unwrap();
+        db.conn()
+            .query_row(
+                "SELECT actor FROM changes WHERE table_name = 'dispatch_holds' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(actor, "owner");
+    // Again: the words change, the time stays.
+    std::thread::sleep(Duration::from_millis(5));
+    let (status, done) = hold("p", r#"{"why":"Installing."}"#);
+    assert_eq!(status, 200, "{done}");
+    let again = rows();
+    assert_eq!((again[0].1, again[0].2.as_deref()), (first[0].1, Some("Installing.")));
+    // No words, a project the configuration does not have: refused, nothing written.
+    let (status, error) = hold("p", r#"{"why":"   "}"#);
+    assert_eq!(status, 422, "{error}");
+    assert!(error.contains("says why"), "{error}");
+    let (status, error) = hold("nowhere", r#"{"why":"x"}"#);
+    assert_eq!(status, 404, "{error}");
+    assert!(error.contains("no project nowhere"), "{error}");
+    assert_eq!(rows().len(), 1);
+    // The owner releases a hold the architect made, and the one to set the project straight.
+    {
+        let mut db = db::Db::open(&path).unwrap();
+        db.write(db::Actor::Architect, |tx| {
+            db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+            db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
+        })
+        .unwrap();
+    }
+    assert_eq!(rows().len(), 3);
+    for reason in ["architect", "set_straight"] {
+        let (status, done) = release("p", &format!(r#"{{"reason":"{reason}"}}"#));
+        assert_eq!(status, 200, "{done}");
+        let (status, error) = release("p", &format!(r#"{{"reason":"{reason}"}}"#));
+        assert_eq!(status, 422, "{error}");
+        assert!(error.contains("has no hold of the reason"), "{error}");
+    }
+    assert_eq!(rows().iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["owner"]);
+    let (status, error) = release("p", r#"{"reason":"policy"}"#);
+    assert_eq!(status, 422, "{error}");
+    assert!(error.contains("owner, architect, set_straight"), "{error}");
+    let (status, done) = release("p", r#"{"reason":"owner"}"#);
+    assert_eq!(status, 200, "{done}");
+    assert!(rows().is_empty());
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
 /// Reads the stream until `want` appears in it.
 fn read_until(s: &mut TcpStream, seen: &mut String, want: &str) {
     let started = Instant::now();

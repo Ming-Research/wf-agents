@@ -554,12 +554,14 @@ enum PrState {
     Closed,
 }
 
-/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, and how it stands.
+/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, how it stands, and the commit it
+/// merged as, once it has.
 #[derive(Clone)]
 struct Pr {
     branch: String,
     base: String,
     state: PrState,
+    merged_as: Option<String>,
 }
 
 /// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
@@ -644,7 +646,8 @@ fn commanded(inputs: &[(String, String)], c: &str) -> bool {
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
 /// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
-/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does. A workflow
+/// branch onto the pull request's base and fails for a pull request that is not open, as `gh pr ready` does, and closing a
+/// pull request that merged fails, as `gh pr close` does. A workflow
 /// run by hand is recorded in `by_hand`, and its run has a log and an artifact `measurement`.
 struct FakeHub {
     origin: PathBuf,
@@ -669,6 +672,54 @@ impl FakeHub {
         runs.iter()
             .find(|d| d.commit.as_deref().is_some_and(|c| check.run.ends_with(c)))
             .cloned()
+    }
+
+    /// What GitHub does to merge an open pull request: squashes its branch onto its base on the remote, marks it merged
+    /// and keeps the commit it made. It is a function of the pull requests and the remote, not of the hub, so that a
+    /// test can merge a pull request on GitHub without the engine's merge call, as when the answer of that call is
+    /// lost. `gh pr ready`, the first thing the engine's real merge does, refuses a pull request that is not open,
+    /// whether it merged or was closed, and so does this, with gh's own words.
+    fn squash_merge(origin: &Path, scratch: &Path, prs: &Prs, repo: &str, pr: i64) -> Result<String, Failure> {
+        let Pr {
+            branch, base, state, ..
+        } = prs
+            .lock()
+            .unwrap()
+            .get(&pr)
+            .cloned()
+            .ok_or_else(|| Failure::other("no such PR"))?;
+        if state != PrState::Open {
+            return Err(Failure::network(format!(
+                "gh pr ready {pr} -R {repo}: X Pull request {repo}#{pr} is closed. Only draft pull requests can be \
+                 marked as \"ready for review\""
+            )));
+        }
+        let dir = scratch.join(format!("merge-{pr}"));
+        git(
+            scratch,
+            &[
+                "clone",
+                "-q",
+                "-b",
+                &base,
+                &origin.to_string_lossy(),
+                &dir.to_string_lossy(),
+            ],
+        );
+        git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
+        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
+        // squashes to nothing, and merges as an empty commit.
+        git(
+            &dir,
+            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
+        );
+        git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
+        let sha = git(&dir, &["rev-parse", "HEAD"]);
+        if let Some(p) = prs.lock().unwrap().get_mut(&pr) {
+            p.state = PrState::Merged;
+            p.merged_as = Some(sha.clone());
+        }
+        Ok(sha)
     }
 }
 
@@ -695,6 +746,7 @@ impl GitHub for FakeHub {
                 branch: branch.to_string(),
                 base: base.to_string(),
                 state: PrState::Open,
+                merged_as: None,
             },
         );
         Ok(n)
@@ -821,39 +873,18 @@ impl GitHub for FakeHub {
         self.checks(repo, sha, workflow)
     }
 
-    fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
-        self.merging.pass();
-        let Pr { branch, base, .. } = self
-            .prs
+    fn merge_commit(&self, _repo: &str, pr: i64) -> Result<Option<String>, Failure> {
+        self.prs
             .lock()
             .unwrap()
             .get(&pr)
-            .cloned()
-            .ok_or_else(|| Failure::other("no such PR"))?;
-        let dir = self.scratch.join(format!("merge-{pr}"));
-        git(
-            &self.scratch,
-            &[
-                "clone",
-                "-q",
-                "-b",
-                &base,
-                &self.origin.to_string_lossy(),
-                &dir.to_string_lossy(),
-            ],
-        );
-        git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
-        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
-        // squashes to nothing, and merges as an empty commit.
-        git(
-            &dir,
-            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
-        );
-        git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
-        if let Some(p) = self.prs.lock().unwrap().get_mut(&pr) {
-            p.state = PrState::Merged;
-        }
-        Ok(git(&dir, &["rev-parse", "HEAD"]))
+            .map(|p| p.merged_as.clone())
+            .ok_or_else(|| Failure::other("no such PR"))
+    }
+
+    fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure> {
+        self.merging.pass();
+        FakeHub::squash_merge(&self.origin, &self.scratch, &self.prs, repo, pr)
     }
 
     fn close(&self, _repo: &str, pr: i64, _comment: &str) -> Result<(), Failure> {
@@ -3370,13 +3401,20 @@ fn works_of(e: &Engine, item: i64) -> Vec<WorkRow> {
 /// Puts works on a flow version before the one the engine runs: a copy of that one, its engineer's graph changed as
 /// `change` says. Gives the version.
 fn older(e: &mut Engine, works: &[i64], change: impl FnOnce(&mut flow::CompiledGraph)) -> i64 {
+    older_graph(e, works, engine::ENGINEER, change)
+}
+
+/// Puts works on a flow version before the one the engine runs, as [`older`] does, its graph `graph` changed; each call
+/// stores a version of its own.
+fn older_graph(e: &mut Engine, works: &[i64], graph: &str, change: impl FnOnce(&mut flow::CompiledGraph)) -> i64 {
     let now = e.flow_now;
     let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
-    change(f.graphs.iter_mut().find(|g| g.name == engine::ENGINEER).unwrap());
+    change(f.graphs.iter_mut().find(|g| g.name == graph).unwrap());
     let text = f.json();
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
-            "INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)",
+            "INSERT INTO flow_versions (digest, compiled)
+             VALUES ('older ' || (SELECT coalesce(max(id), 0) + 1 FROM flow_versions), ?1)",
             [&text],
         )?;
         let v = tx.last_insert_rowid();
@@ -3571,15 +3609,71 @@ fn a_round_keeps_the_counter_of_the_row_it_took() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work on an older flow version whose cell is unchanged, but one of whose earlier returns its cell's schema in the
-// version the engine runs does not take, is taken over when it goes on: it ends, saying the round and where the return
-// does not fit, and a new work takes its item over.
+/// The rounds of a work at the cell that brings a work on an older flow version to the one the engine runs, `V1`, each
+/// with the row it took and its output.
+fn brought(e: &Engine, work: i64) -> Vec<(String, Value)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT transition, output FROM rounds WHERE work = ?1 AND cell = 'V1' ORDER BY n")
+            .unwrap();
+    st.query_map([work], |r| {
+        Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?))
+    })
+    .unwrap()
+    .map(|x| {
+        let (took, output) = x.unwrap();
+        let output = output.and_then(|o| serde_json::from_str(&o).ok());
+        (took.unwrap_or_default(), output.unwrap_or(Value::Null))
+    })
+    .collect()
+}
+
+/// What the engine told the owner of its own accord about a work, oldest first.
+fn notices_of(e: &Engine, work: i64) -> Vec<String> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id")
+            .unwrap();
+    st.query_map([work], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The version a work is on and the one it moved from, if it moved.
+fn versions_of(e: &Engine, work: i64) -> (i64, Option<i64>) {
+    e.db.conn()
+        .query_row(
+            "SELECT flow_version, moved_from FROM works WHERE id = ?1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+// Item #230: a work on an older flow version, one of whose earlier answers the version the engine runs no longer takes,
+// is the same work after. It comes to cell `V1`, which records the versions, the cell it goes back to and why, and goes
+// back from there to the cell of that answer, the owner told; it does that cell again and goes on to the merge, and its
+// design's open question, answered before, is not put to the architect again.
 #[test]
-fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
+fn a_work_whose_earlier_answer_no_longer_fits_goes_back_to_that_cell_and_on_to_the_merge() {
     let s = setup("reshaped");
-    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, with_before);
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let asked = open_questions(&e, work);
+    assert_eq!(asked.len(), 1, "{}", said.lock().unwrap().join("\n"));
+    let v = older(&mut e, &[work], with_before);
     let n: i64 =
         e.db.write(Actor::Engine, |tx| {
+            // The question has its answer, as the architect's reply leaves it.
+            tx.execute(
+                "UPDATE architect_matters SET body = json_set(body, '$.answer', 'One table.') WHERE id = ?1",
+                [asked[0].0],
+            )?;
+            // The answer of cell R1 holds a field the version the engine runs does not take.
             let n: i64 = tx.query_row(
                 "SELECT n FROM rounds WHERE work = ?1 AND cell = 'R1' AND transition IS NOT NULL",
                 [work],
@@ -3592,29 +3686,708 @@ fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
             Ok(n)
         })
         .unwrap();
-    let stepped = e.step(None).unwrap();
+    e.advance(work).unwrap();
     let log = said.lock().unwrap().join("\n");
-    let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    assert_eq!(works[0].0, work);
     let now = e.flow_now;
-    let ended = works[0].5.clone().unwrap_or_default();
-    assert!(
-        ended.starts_with(&format!(
-            "stopped: the flow moved to version {now}, where the return of cell R1 in round R{work}-{n} no longer \
-             fits it (outcome "
-        )),
-        "{ended}\n{log}"
-    );
-    assert!(
-        ended.ends_with("), and a new work on it takes the item over"),
-        "{ended}"
-    );
+    assert_eq!(versions_of(&e, work), (now, Some(v)), "{log}");
+    let v1 = brought(&e, work);
+    assert_eq!(v1.len(), 1, "{v1:?}\n{log}");
+    let (took, output) = &v1[0];
     assert_eq!(
-        (stepped.work, stepped.started_item),
-        (Some(works[1].0), Some(item)),
+        (took.as_str(), &output["back_to"], &output["from"], &output["to"]),
+        ("went_back", &json!("R1"), &json!(v), &json!(now)),
         "{log}"
     );
+    let why = output["why"].as_str().unwrap_or_default();
+    assert!(
+        why.starts_with(&format!(
+            "the return of cell R1 in round R{work}-{n} no longer fits it ("
+        )),
+        "{why}"
+    );
+    let told = notices_of(&e, work);
+    assert!(
+        told.iter()
+            .any(|t| t.contains("goes back to cell R1 ") && t.contains(why)),
+        "{told:?}"
+    );
+    assert_eq!(transitions(&e, item, "R1").len(), 2, "{log}");
+    for _ in 0..200 {
+        if transitions(&e, item, "M2").iter().any(|t| t == "merged") {
+            break;
+        }
+        e.advance(work).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(transitions(&e, item, "M2").iter().any(|t| t == "merged"), "{log}");
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    assert_eq!(open_questions(&e, work).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A version before the one the engine runs as flow 34 was before 35: without the rows of the engine's fallback that 35
+/// gave every agent's cell, for a step of the engine's that reaches the network and fails.
+fn without_the_network_rows(g: &mut flow::CompiledGraph) {
+    let added = ["transient_too_often", "step_network_too_often", "step_network"];
+    for c in g.cells.iter_mut().filter(|c| c.kind == "agent") {
+        c.rows.retain(|r| !(r.fallback && added.contains(&r.name.as_str())));
+    }
+}
+
+// Item #230, flow 35: a version that only gives every agent's cell more rows of the engine's fallback moves a work where
+// it stands, at any point of the cell it is at: just come to it, back from its tools with their results, or with its
+// return sent back. Each time it is the same work at the same cell, in the same session, through no cell of its own.
+#[test]
+fn a_version_that_adds_rows_every_agent_s_cell_shares_moves_a_work_at_any_point_of_its_cell() {
+    let s = setup("shared-rows");
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    // Its second round at cell I1 hands in a head that is no text, which is sent back.
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 2 {
+                return (Vec::new(), vec![("outcome.head", json!(5))]);
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let mut session = None;
+    for point in ["just come", "back from its tools", "sent back"] {
+        let v = older(&mut e, &[work], without_the_network_rows);
+        e.advance(work).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{point}\n{log}");
+        assert!(brought(&e, work).is_empty(), "{point}\n{log}");
+        assert_eq!(works_of(&e, item).len(), 1, "{point}\n{log}");
+        let now = session_of(&e, work, "I1");
+        assert_eq!(*session.get_or_insert(now), now, "{point}\n{log}");
+        if point == "just come" {
+            // The cell asked for tools; they run, and the work is back at it with their results.
+            e.advance(work).unwrap();
+            assert_eq!(state(&e, item).unwrap().1, "I1", "{log}");
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let sent: usize = ended_at(&e, item, "I1")
+        .iter()
+        .filter(|(took, why)| took.is_none() && why.is_some())
+        .count();
+    assert_eq!(sent, 1, "{log}");
+    assert_eq!(transitions(&e, item, "I1"), ["tools", "done"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230, W245: a work at an engine's cell that has not run moves when the version gives that cell a row of its own,
+// and takes that row there.
+#[test]
+fn a_work_at_an_engine_s_cell_not_run_moves_and_takes_the_row_its_version_added() {
+    let s = setup("engine-row");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "D4");
+    let (work, _, _) = state(&e, item).unwrap();
+    // The version before had no row for a project that names nothing under test.
+    let v = older(&mut e, &[work], |g| {
+        let d4 = g.cells.iter_mut().find(|c| c.id == "D4").unwrap();
+        d4.rows.retain(|r| r.name != "no");
+    });
+    e.advance(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+    assert!(brought(&e, work).is_empty(), "{log}");
+    assert_eq!(transitions(&e, item, "D4"), ["no"], "{log}");
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A version before the one the engine runs in which cell I1 was another way, and what the version the engine runs
+/// finds changed of it.
+type Changed = (&'static str, fn(&mut flow::CompiledGraph));
+
+// Item #230, as the owner asked: a cell under way that the version the engine runs puts on another line, or has read
+// other inputs of its own, is done again from its start. The same work comes to cell `V1` and goes back from there to
+// that cell, whose next round, in the session of its line in that version, is told it came from `V1`.
+#[test]
+fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
+    let changes: [Changed; 2] = [
+        ("is on another line", |g| {
+            g.cells.iter_mut().find(|c| c.id == "I1").unwrap().line = Some("review".into());
+        }),
+        ("reads other inputs", |g| {
+            let i1 = g.cells.iter_mut().find(|c| c.id == "I1").unwrap();
+            let own = i1.inputs.iter_mut().find(|x| !x.common).unwrap();
+            own.from = vec![flow::format::Src::Place("R2".into(), "answer".into())];
+        }),
+    ];
+    for (what, change) in changes {
+        let s = setup(if what.ends_with("line") {
+            "begun-line"
+        } else {
+            "begun-inputs"
+        });
+        let (mut e, said, item) = start(&s, scripts());
+        step_to(&mut e, item, "I1");
+        let (work, _, _) = state(&e, item).unwrap();
+        let line = what.ends_with("line");
+        // For the line, cell I1 runs on the version that puts it on the review line, so that its rounds are in a
+        // session of that line; the engine then runs the version it started with again, where I1 is the engineer's.
+        let now = e.flow_now;
+        let v = if line {
+            let v = older(&mut e, &[work], change);
+            e.flow_now = v;
+            v
+        } else {
+            0
+        };
+        // Cell I1 asks for tools, and is back from them with their results.
+        e.advance(work).unwrap();
+        e.advance(work).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(state(&e, item).unwrap().1, "I1", "{log}");
+        let before = session_of(&e, work, "I1");
+        let v = if line {
+            e.flow_now = now;
+            v
+        } else {
+            older(&mut e, &[work], change)
+        };
+        let line_of = |e: &Engine, session: i64| -> String {
+            e.db.conn()
+                .query_row("SELECT line FROM sessions WHERE id = ?1", [session], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(
+            line_of(&e, before),
+            if line { "review" } else { "engineer" },
+            "{what}\n{log}"
+        );
+        e.advance(work).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let v1 = brought(&e, work);
+        assert_eq!(v1.len(), 1, "{what}: {v1:?}\n{log}");
+        assert_eq!(
+            (v1[0].0.as_str(), &v1[0].1["back_to"], &v1[0].1["why"]),
+            (
+                "went_back",
+                &json!("I1"),
+                &json!(format!("cell I1, which the work had begun, {what}"))
+            ),
+            "{log}"
+        );
+        assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+        assert_eq!(works_of(&e, item).len(), 1, "{log}");
+        let m = message_at(&e, work, "I1", true);
+        assert!(
+            m.contains("Came from cell V1 (Bring the work to the new version) by its row `went_back`"),
+            "{m}"
+        );
+        let engineer: i64 =
+            e.db.conn()
+                .query_row(
+                    "SELECT id FROM sessions WHERE work = ?1 AND line = 'engineer' ORDER BY id DESC LIMIT 1",
+                    [work],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        // The round done again runs in the session of I1's line in the version the engine runs: for the line, not the
+        // review session its earlier rounds ran in; for the inputs, the same session as before.
+        let after = session_of(&e, work, "I1");
+        assert_eq!(
+            (after, line_of(&e, after).as_str()),
+            (engineer, "engineer"),
+            "{what}\n{log}"
+        );
+        assert_eq!(after != before, line, "{what}\n{log}");
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// Item #230: the advisor's session is under way while the advisor's own tools run, as much as while it stands at its
+// cell: a version that puts the advisor on another line while the work is at the tools for it does not move the work,
+// whose tools' results would go back to a session of the new line that never asked for them. The same work comes to
+// cell `V1` and goes back to the cell that asked the advisor, as it does when the advisor stands at its cell.
+#[test]
+fn an_advisor_whose_tools_run_when_its_line_changes_is_done_again() {
+    let s = setup("advisor-tools");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[agents.levels.m]\ndesc = \"one level up\"\ncli = \"claude\"\nmodel = \"m-up\"\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a level above"]);
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return an_ask("advisor");
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    agents.insert(
+        "A1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT 1" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let pos = e.work(work).unwrap().pos;
+    // The advisor, which R1 asked, waits for its tools.
+    assert_eq!(
+        (pos.stopped.as_deref(), pos.callers.last().map(String::as_str)),
+        (Some("R1"), Some("A1")),
+        "{log}"
+    );
+    let v = older(&mut e, &[work], |g| {
+        g.cells.iter_mut().find(|c| c.id == "A1").unwrap().line = Some("review".into());
+    });
+    e.advance(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+    let v1 = brought(&e, work);
+    assert_eq!(v1.len(), 1, "{v1:?}\n{log}");
+    assert_eq!(
+        (v1[0].0.as_str(), &v1[0].1["back_to"]),
+        ("went_back", &json!("R1")),
+        "{log}"
+    );
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230, W245: an architect's work brought to a new flow version in the middle of its batch makes the item changes
+// it collected before, whether it moves where it stands or goes back through cell `V1` to the review of the batch it had
+// begun, which the version puts on another line; its ask of the owner stays the owner's to answer, and is answered.
+#[test]
+fn an_architect_work_brought_up_mid_batch_makes_its_changes_and_keeps_its_ask() {
+    for back in [false, true] {
+        let s = setup(if back { "batch-back" } else { "batch-moves" });
+        let mut agents = scripts();
+        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse the input first",
+                             "reason": "Clearer." });
+        agents.insert(
+            "H8",
+            Box::new(move |_: &Request, _: usize| {
+                (
+                    vec![("outcome.answer", "done")],
+                    vec![
+                        ("outcome.answer.reply", json!("I retitle it as an action.")),
+                        (
+                            "outcome.effects",
+                            json!({ "item_changes": [change.clone()], "observation_changes": null }),
+                        ),
+                    ],
+                )
+            }),
+        );
+        // The review's first return has a verdict it does not have, and is sent back.
+        agents.insert(
+            "B2",
+            Box::new(|_: &Request, n: usize| {
+                let verdict = if n == 1 { "maybe" } else { "ok" };
+                let row = json!({ "change": 1, "verdict": verdict, "why": "It reads better." });
+                (Vec::new(), vec![("outcome.review", json!([row]))])
+            }),
+        );
+        let (mut e, said) = engine(&s, agents);
+        quiet(&mut e);
+        an_item(&mut e);
+        say(&mut e, "Make the parser's item clearer.");
+        let arch = e.step(None).unwrap().work.unwrap();
+        // It stands at the review of the batch: before it ran, or, to go back, once its first return was sent back.
+        let at_review = |e: &mut Engine| {
+            let sent: i64 =
+                e.db.conn()
+                    .query_row(
+                        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'B2' AND rejected IS NOT NULL",
+                        [arch],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+            e.work(arch).unwrap().pos.at == "B2" && (sent > 0) == back
+        };
+        assert!(
+            steps_until(&mut e, 40, at_review),
+            "{}",
+            said.lock().unwrap().join("\n")
+        );
+        let ask =
+            e.db.write(Actor::Engine, |tx| {
+                let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [arch], |r| r.get(0))?;
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                    [arch, round],
+                )?;
+                Ok(tx.last_insert_rowid())
+            })
+            .unwrap();
+        let v = older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
+            let b2 = g.cells.iter_mut().find(|c| c.id == "B2").unwrap();
+            if back {
+                b2.line = Some("observer".into());
+            } else {
+                b2.rows[0].name = format!("{} before", b2.rows[0].name);
+            }
+        });
+        assert!(
+            steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+            "{}",
+            said.lock().unwrap().join("\n")
+        );
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(versions_of(&e, arch), (e.flow_now, Some(v)), "{log}");
+        let v1 = brought(&e, arch);
+        match back {
+            true => assert_eq!(
+                (v1.len(), v1[0].0.as_str(), &v1[0].1["back_to"]),
+                (1, "went_back", &json!("B2")),
+                "{log}"
+            ),
+            false => assert!(v1.is_empty(), "{v1:?}\n{log}"),
+        }
+        let title: String =
+            e.db.conn()
+                .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(title, "Parse the input first", "{log}");
+        let answer: Option<String> =
+            e.db.conn()
+                .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+                .unwrap();
+        assert_eq!(answer, None, "{log}");
+        let answer = api::Answer {
+            text: "The first.".into(),
+            speaker: "owner".into(),
+            relayed: None,
+            why: None,
+            reply: None,
+            to: None,
+            images: Vec::new(),
+        };
+        api::answer(&mut e.db, ask, &answer).unwrap();
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// Item #230: a work that the version the engine runs can take on at none of the cells it walked comes to cell `V1` and
+// stays there, paused, the owner told why and its project's architect asked to set it straight; no new work takes it
+// over. The owner's Start has the engine look again: it stays, and the architect is asked nothing more.
+#[test]
+fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
+    let s = setup("nowhere");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = a_ready_item(&mut e, "Gone");
+    let v = older(&mut e, &[], |g| {
+        for (id, like) in [("Z0", "R1"), ("Z1", "R2")] {
+            let mut c = g.cell(like).unwrap().clone();
+            c.id = id.into();
+            g.cells.push(c);
+        }
+    });
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'Z1')",
+                params![item, v],
+            )?;
+            let work = tx.last_insert_rowid();
+            record_round(tx, work, 1, "Z0", &json!({}), "done")?;
+            Ok(work)
+        })
+        .unwrap();
+    let asked = |e: &Engine| -> Vec<i64> {
+        let mut st = e
+            .db
+            .conn()
+            .prepare(
+                "SELECT id FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
+            )
+            .unwrap();
+        st.query_map([work], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    for time in 1..=2 {
+        e.step(None).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let (_, at, paused) = state(&e, item).unwrap();
+        assert_eq!(at, "V1", "{log}");
+        assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+        assert!(
+            paused.as_deref().is_some_and(|p| p.starts_with(&format!(
+                "it cannot go on in flow version {}: cell Z1 is gone",
+                e.flow_now
+            ))),
+            "{paused:?}"
+        );
+        // Its merge does not stand, so a start over and a cancel are offered beside the Start.
+        assert!(
+            paused.as_deref().is_some_and(|p| p.ends_with(
+                "Start it over, or cancel its item; or Start it once a flow version that has a cell it walked is \
+                 installed, and it looks again"
+            )),
+            "{paused:?}"
+        );
+        let v1 = brought(&e, work);
+        assert_eq!(v1.len(), time, "{v1:?}\n{log}");
+        assert_eq!(
+            (v1[time - 1].0.as_str(), &v1[time - 1].1["back_to"]),
+            ("stuck", &Value::Null),
+            "{log}"
+        );
+        assert_eq!(asked(&e).len(), 1, "{log}");
+        let what: String =
+            e.db.conn()
+                .query_row(
+                    "SELECT what FROM architect_matters WHERE id = ?1",
+                    [asked(&e)[0]],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        assert!(
+            what.ends_with("it waits, paused, for the owner's Start, a start over or a cancel of its item"),
+            "{what}"
+        );
+        assert_eq!(works_of(&e, item).len(), 1, "{log}");
+        // The owner starts it again.
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+            Ok(())
+        })
+        .unwrap();
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230, A8 and A13: an engineer's work whose merge stands and that the version the engine runs can take on at none
+// of the cells it walked since its merge stays at cell `V1`, paused; neither its pause nor the matter its architect is
+// given offers a start over or a cancel of its item, which its merge refuses, only the owner's Start once a version
+// with a cell it walked is installed. Its architect is asked once on this version: once the architect has handled that
+// matter, the owner's Start, which finds it stuck again, asks nothing more.
+#[test]
+fn a_merged_work_the_version_can_take_on_nowhere_is_offered_only_the_start_and_asks_once() {
+    let s = setup("nowhere-merged");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = a_ready_item(&mut e, "Merged");
+    let v = older(&mut e, &[], |g| {
+        let mut c = g.cell("L2").unwrap().clone();
+        c.id = "Z1".into();
+        g.cells.push(c);
+    });
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'Z1')",
+                params![item, v],
+            )?;
+            let work = tx.last_insert_rowid();
+            record_round(tx, work, 1, "M2", &json!({}), "merged")?;
+            Ok(work)
+        })
+        .unwrap();
+    let asked = |e: &Engine| -> Vec<(i64, String)> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT id, what FROM architect_matters
+                 WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1 ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "V1", "{log}");
+    let paused = paused.unwrap_or_default();
+    assert!(
+        paused.ends_with(". Start it once a flow version that has a cell it walked is installed, and it looks again")
+            && !paused.contains("Start it over")
+            && !paused.contains("cancel"),
+        "{paused}"
+    );
+    let first = asked(&e);
+    assert_eq!(first.len(), 1, "{log}");
+    assert!(
+        first[0].1.ends_with(
+            "it waits, paused, for the owner's Start once a flow version that has a cell it walked is installed"
+        ),
+        "{}",
+        first[0].1
+    );
+    // The architect handles the matter, and the owner starts the work again on the same version.
+    e.db.write(Actor::Engine, |tx| {
+        let arch: i64 = tx.query_row(
+            "SELECT id FROM works WHERE graph = 'architect' AND ended IS NOT NULL ORDER BY id LIMIT 1",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.execute(
+            "UPDATE architect_matters SET handled_work = ?2, handled_round = 1 WHERE id = ?1",
+            params![first[0].0, arch],
+        )?;
+        tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+        Ok(())
+    })
+    .unwrap();
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).unwrap().1, "V1", "{log}");
+    assert_eq!(brought(&e, work).len(), 2, "{log}");
+    assert_eq!(asked(&e).len(), 1, "{:?}\n{log}", asked(&e));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230, A8: an architect's work that the version the engine runs can take on at none of the cells it walked stays
+// at cell `V1`, paused, as an engineer's does; it asks no architect to set it straight, since that architect is this
+// work, and its pause alone tells the owner, saying what the owner's Start will do.
+#[test]
+fn an_architect_work_the_version_can_take_on_nowhere_stays_at_v1_and_asks_no_one() {
+    let s = setup("nowhere-architect");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look at the item.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    // On the version before, it stood at a cell the version the engine runs lacks, having walked only such a cell.
+    older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
+        for (id, like) in [("Z0", "Q0"), ("Z1", "Q1")] {
+            let mut c = g.cell(like).unwrap().clone();
+            c.id = id.into();
+            g.cells.push(c);
+        }
+    });
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE works SET at = 'Z1', resume_at = NULL, waiting = '[]' WHERE id = ?1",
+            [arch],
+        )?;
+        tx.execute("UPDATE rounds SET cell = 'Z0' WHERE work = ?1", [arch])?;
+        Ok(())
+    })
+    .unwrap();
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let w = e.work(arch).unwrap();
+    assert_eq!(
+        (w.pos.at.as_str(), w.paused_by.as_deref()),
+        ("V1", Some("engine")),
+        "{log}"
+    );
+    let paused = w.paused.unwrap_or_default();
+    assert!(
+        paused.starts_with(&format!("it cannot go on in flow version {}: ", e.flow_now))
+            && paused
+                .ends_with("Start it once a flow version that has a cell it walked is installed, and it looks again"),
+        "{paused}"
+    );
+    let v1 = brought(&e, arch);
+    assert_eq!(
+        v1.iter()
+            .map(|(row, out)| (row.as_str(), &out["back_to"]))
+            .collect::<Vec<_>>(),
+        [("stuck", &Value::Null)],
+        "{log}"
+    );
+    let asked: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(asked, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230, A11: a work whose graph the version the engine runs has no more, as the setting of a policy that was a
+// graph of its own, has no cell of that version that can run it: it ends, the owner told why, and what it held is let
+// go: its project's hold of new starts for setting it straight, and the worktree the setting read in. It is neither
+// paused nor put to the architect, and no work starts in its place.
+#[test]
+fn a_work_whose_graph_the_version_lacks_ends_and_lets_go_of_what_it_held() {
+    let s = setup("graph-gone");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let tree = s.data.join("worktrees").join(engine::POLICY).join("p");
+    git(
+        &s.root.join("checkout"),
+        &["worktree", "add", "-q", "--detach", &tree.to_string_lossy()],
+    );
+    let now = e.flow_now;
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
+    let mut policy = f.graph(engine::ARCHITECT).unwrap().clone();
+    policy.name = engine::POLICY.into();
+    f.graphs.push(policy);
+    let text = f.json();
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (digest, compiled) VALUES ('with the policy graph', ?1)",
+                [&text],
+            )?;
+            let v = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, ?2, 'P1', 'p')",
+                params![v, engine::POLICY],
+            )?;
+            let work = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'set_straight', 1)",
+                [],
+            )?;
+            Ok(work)
+        })
+        .unwrap();
+    assert!(tree.exists());
+    let works = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM works", [], |r| r.get(0))
+            .unwrap()
+    };
+    let before = works(&e);
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let w = e.work(work).unwrap();
+    let why = "the version has no graph policy";
+    assert_eq!(
+        (w.ended.as_deref(), w.paused.as_deref()),
+        (Some(format!("stopped: {why}").as_str()), None),
+        "{log}"
+    );
+    assert_eq!(notices_of(&e, work), [format!("Work {work} stopped: {why}.")], "{log}");
+    let count = |sql: &str| -> i64 { e.db.conn().query_row(sql, [], |r| r.get(0)).unwrap() };
+    assert_eq!(
+        count("SELECT count(*) FROM dispatch_holds WHERE reason = 'set_straight'"),
+        0,
+        "{log}"
+    );
+    assert_eq!(
+        count("SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'"),
+        0,
+        "{log}"
+    );
+    assert!(!tree.exists(), "{log}");
+    assert_eq!(works(&e), before, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -3666,12 +4439,12 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// When the flow moves to a new version, a work on the old one is not taken over when the engine starts: the owner still
-// answers its asks. Once it goes on, it stops, saying why, and its item gets a new work at once: it takes over the
-// branch, the worktree and the pull request, its cell `R1` is told what exists, and what the owner
-// answered stays the owner's answer. An item whose works ended can be queued again.
+// Item #230: when the flow moves to a new version, a work on the old one is not brought up when the engine starts: the
+// owner still answers its asks. Once it goes on, a work whose cell the version changed only in its rows moves where it
+// stands: the same work, with its worktree, branch and pull request, its asks and its question to the architect as they
+// were, through no cell of its own. An item whose works ended can be queued again.
 #[test]
-fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
+fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes_on() {
     let s = setup("version");
     let (mut e, said, item) = start(&s, scripts());
     for _ in 0..80 {
@@ -3727,21 +4500,26 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         images: Vec::new(),
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
-    let first = e.step(None).unwrap();
+    e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    assert_eq!(works.len(), 1, "{works:?}\n{log}");
+    assert_eq!(works[0].5, None, "{log}");
+    let (on, from) = versions_of(&e, old);
+    assert!(on == e.flow_now && from.is_some(), "{log}");
+    assert!(brought(&e, old).is_empty(), "{log}");
     assert!(
-        works[0]
-            .5
-            .as_deref()
-            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")
-                && w.contains(&format!("where cell {at} changed (its rows)"))),
-        "{works:?}"
+        log.contains(&format!("work {old} moved from flow version")) && log.contains(&format!(", at cell {at}")),
+        "{log}"
     );
-    let new = works[1].0;
-    assert_eq!((first.work, first.started_item), (Some(new), Some(item)), "{log}");
-    let by = |e: &Engine, ask: i64| -> String {
+    // Its worktree, branch and pull request are its own still; the ask the owner answered keeps the owner's answer, the
+    // other is still the owner's to answer, and its question waits in the architect's queue.
+    assert_eq!(
+        (&works[0].2, &works[0].3, works[0].4),
+        (&worktree, &branch, pr),
+        "{log}"
+    );
+    let by = |e: &Engine, ask: i64| -> Option<String> {
         e.db.conn()
             .query_row(
                 "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
@@ -3750,58 +4528,18 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
             )
             .unwrap()
     };
-    assert_eq!((by(&e, asks[0]), by(&e, asks[1])), ("owner".into(), "engine".into()));
-    // The work stopped as every work ends: its sessions ended and its question left the architect's queue, while the
-    // new work took over its worktree, branch and pull request.
-    let going: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM sessions WHERE work = ?1 AND ended IS NULL",
-                [old],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(going, 0);
-    let withdrawn: String =
+    assert_eq!((by(&e, asks[0]), by(&e, asks[1])), (Some("owner".into()), None));
+    api::answer(&mut e.db, asks[1], &answer).unwrap();
+    let withdrawn: Option<String> =
         e.db.conn()
             .query_row("SELECT withdrawn FROM architect_matters WHERE work = ?1", [old], |r| {
                 r.get(0)
             })
             .unwrap();
-    assert!(
-        withdrawn.starts_with("the work that raised it ended (stopped: the flow moved to version"),
-        "{withdrawn}"
-    );
-    e.step(None).unwrap();
-    let log = said.lock().unwrap().join("\n");
-    let works = works_of(&e, item);
-    assert_eq!(
-        (&works[1].2, &works[1].3, works[1].4),
-        (&worktree, &branch, pr),
-        "{log}"
-    );
-    let input: String =
-        e.db.conn()
-            .query_row("SELECT input FROM rounds WHERE work = ?1 AND cell = 'R1'", [new], |r| {
-                r.get(0)
-            })
-            .unwrap();
-    let input: Value = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
-    let m = input["message"].as_str().unwrap();
-    for want in [
-        "This item was worked on before.".to_string(),
-        format!("- Work {old} "),
-        format!("WHERE work = {old} ORDER BY n"),
-        "git log --oneline origin/main..HEAD".to_string(),
-        format!("pr view {} --comments", pr.unwrap()),
-        "it was half done before".to_string(),
-        format!("- Work {old} asked the architect, and had no answer when it ended, so the question was withdrawn"),
-    ] {
-        assert!(m.contains(&want), "{want}\n{m}");
-    }
+    assert_eq!(withdrawn, None, "{log}");
     // Once its works ended, the item can be queued again.
     e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [new])?;
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [old])?;
         tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [item])?;
         Ok(())
     })
@@ -4130,15 +4868,14 @@ fn a_check_after_a_redesign_is_given_what_the_design_changed() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A new work that takes over from one the new flow version stopped takes a slot only when one is free; until then its
-// item waits at the head of the queue, ahead of the items queued before, in the order of the works it replaces.
+// A new work that takes over from one the owner started over takes a slot only when one is free; until then its item
+// waits at the head of the queue, ahead of the items queued before, and starts first once a slot frees.
 #[test]
 fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     let s = setup("takeover-slots");
-    let (mut e, _, queued) = start(&s, scripts());
-    // Two items had works running on a flow version the engine no longer has built in, where their cell was another;
-    // the machine has one slot.
-    let v = older(&mut e, &[], |g| renamed(g, "R1"));
+    let (mut e, said, queued) = start(&s, scripts());
+    // Two items have works running, as many as the machine's one slot and one past it.
+    let v = e.flow_now;
     let items: Vec<i64> =
         e.db.write(Actor::Owner, |tx| {
             let mut items = Vec::new();
@@ -4158,34 +4895,30 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
             Ok(items)
         })
         .unwrap();
-    drop(e);
-    let (mut e, said) = engine(&s, scripts());
     let ready = |e: &Engine| -> Vec<i64> {
         let mut st = e.db.conn().prepare("SELECT item FROM ready_items").unwrap();
         st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
     };
-    // Nothing is taken over as the engine starts; both are as soon as works go on, before the item queued before.
-    assert_eq!(works_of(&e, items[0]).len(), 1);
-    let stepped = e.step(None).unwrap();
+    let first = works_of(&e, items[0])[0].0;
+    api::start_over(&mut e.db, first).unwrap();
+    // The first stops; the second still holds the slot, so its item waits ahead of the item queued before.
+    e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(stepped.started_item, Some(items[0]), "{log}");
-    // The first takes the slot; the second waits ahead of the item queued before.
-    assert_eq!(works_of(&e, items[0]).len(), 2, "{log}");
-    assert_eq!(works_of(&e, items[1]).len(), 1, "{log}");
-    assert_eq!(ready(&e), vec![items[1], queued], "{log}");
+    let works = works_of(&e, items[0]);
+    assert!(works.len() == 1 && works[0].5.is_some(), "{works:?}\n{log}");
+    assert_eq!(ready(&e), vec![items[0], queued], "{log}");
     assert_eq!(e.free_slots().unwrap(), 0);
-    // Once the slot is free, the second starts, before the item queued before.
-    let first = works_of(&e, items[0])[1].0;
+    // Once the slot is free, the first starts, before the item queued before.
     e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [first])?;
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE item = ?1", [items[1]])?;
         Ok(())
     })
     .unwrap();
     let stepped = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(stepped.started_item, Some(items[1]), "{log}");
-    // The first, whose work was stopped, waits again in the architect's order, after the item the owner queued.
-    assert_eq!(ready(&e), vec![queued, items[0]], "{log}");
+    assert_eq!(stepped.started_item, Some(items[0]), "{log}");
+    // The second, whose work was stopped, waits again in the architect's order, after the item the owner queued.
+    assert_eq!(ready(&e), vec![queued, items[1]], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -4254,6 +4987,7 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
         branch: "outside/feature".into(),
         base: "first-version".into(),
         state: PrState::Open,
+        merged_as: None,
     };
     s.prs.lock().unwrap().insert(9, elsewhere.clone());
     let (mut e, said, item) = start(&s, scripts());
@@ -6398,10 +7132,10 @@ fn a_work_s_pause_is_kept_across_a_restart() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A paused work on an older flow version is not taken over while nothing makes it go on; the owner's step takes it
-// over, runs the first round of the new work, and leaves the new work paused in the owner's hands.
+// A paused work on an older flow version is not brought up while nothing makes it go on; the owner's step brings it
+// up, the same work moving where it stands, runs its round there, and leaves it paused in the owner's hands.
 #[test]
-fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
+fn a_step_brings_a_work_on_an_older_flow_version_up_and_keeps_it_paused() {
     let s = setup("step_takeover");
     let (mut e, said, item) = start(&s, scripts());
     let first = e.step(None).unwrap();
@@ -6409,34 +7143,21 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
     e.step(first.work).unwrap();
     api::pause(&mut e.db, old, None).unwrap();
     let at = state(&e, item).unwrap().1;
-    older(&mut e, &[old], |g| renamed(g, &at));
+    let v = older(&mut e, &[old], |g| renamed(g, &at));
     drop(e);
     let (mut e, _) = engine(&s, scripts());
     assert_eq!(e.step(None).unwrap().work, None);
-    assert_eq!(works_of(&e, item).len(), 1);
+    assert_eq!(versions_of(&e, old), (v, None));
+    let before = transitions(&e, item, &at).len();
     let stepped = e.step_work(old).unwrap();
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    assert!(
-        works[0]
-            .5
-            .as_deref()
-            .is_some_and(|w| w.starts_with("stopped: the flow moved to version")),
-        "{works:?}"
-    );
-    let new = works[1].0;
-    assert_eq!((stepped.work, stepped.started_item), (Some(new), Some(item)));
-    let cells: Vec<String> = {
-        let mut st =
-            e.db.conn()
-                .prepare("SELECT cell FROM rounds WHERE work = ?1 ORDER BY n")
-                .unwrap();
-        st.query_map([new], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
-    };
-    assert_eq!(cells, ["S1"]);
-    assert_eq!(paused_by(&e, new).as_deref(), Some("owner"));
-    assert_eq!(e.step(Some(new)).unwrap().work, None);
+    assert_eq!(works.len(), 1, "{works:?}\n{log}");
+    assert_eq!(stepped.work, Some(old), "{log}");
+    assert_eq!(versions_of(&e, old), (e.flow_now, Some(v)), "{log}");
+    assert_eq!(transitions(&e, item, &at).len(), before + 1, "{log}");
+    assert_eq!(paused_by(&e, old).as_deref(), Some("owner"));
+    assert_eq!(e.step(Some(old)).unwrap().work, None);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -8192,11 +8913,12 @@ fn a_flow_anomaly_at_choosing_the_way_on_reaches_the_architect() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work standing at the owner's cell of an older flow version, waiting for its ask of the owner, cannot move to the
-// version the engine runs, which has no such cell: a new work takes its item over when it next goes on, and the old
-// work's ending closes its open ask, saying no answer is needed.
+// Item #230: a work standing at the owner's cell of an older flow version, waiting for its ask of the owner, cannot stay
+// where it stands in the version the engine runs, which has no such cell. When it next goes on it is the same work: it
+// comes to cell `V1` and goes back from there to the cell it stopped at, which does it again; the ask it had out needs no
+// answer, and the owner is told where the work went back and why. No new work starts.
 #[test]
-fn a_work_at_the_owner_s_cell_of_an_older_version_is_taken_over_and_its_ask_closed() {
+fn a_work_at_a_cell_the_version_lacks_goes_back_through_v1_to_where_it_stopped() {
     let s = setup("owner-cell-gone");
     let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| {
         // The older version still had the owner's cell.
@@ -8225,20 +8947,37 @@ fn a_work_at_the_owner_s_cell_of_an_older_version_is_taken_over_and_its_ask_clos
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    assert!(
-        works[0].5.as_deref().is_some_and(|w| w.contains("cell A3 is gone")),
-        "{works:?}"
+    assert_eq!(works.len(), 1, "{works:?}\n{log}");
+    assert_eq!(works[0].5, None, "{log}");
+    let v1 = brought(&e, work);
+    assert_eq!(v1.len(), 1, "{v1:?}\n{log}");
+    assert_eq!(
+        (v1[0].0.as_str(), &v1[0].1["back_to"], &v1[0].1["why"]),
+        ("went_back", &json!("R2"), &json!("cell A3 is gone")),
+        "{log}"
     );
-    let by: Option<String> =
+    // The work went on from cell R2 in the same pass.
+    assert!(!transitions(&e, item, "R2").is_empty(), "{log}");
+    let (by, text): (Option<String>, Option<String>) =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                "SELECT json_extract(answer, '$.by'), json_extract(answer, '$.text') FROM owner_asks WHERE id = ?1",
                 [ask],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
     assert_eq!(by.as_deref(), Some("engine"), "{log}");
+    assert!(
+        text.as_deref()
+            .is_some_and(|t| t.starts_with("No answer is needed: the work goes back to cell R2 of flow version")),
+        "{text:?}"
+    );
+    let told = notices_of(&e, work);
+    assert!(
+        told.iter()
+            .any(|t| t.contains("goes back to cell R2 ") && t.ends_with(": cell A3 is gone.")),
+        "{told:?}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -13406,6 +14145,442 @@ fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The matters of free slots queued for project p's architect, handled or not.
+fn slots_free_matters(e: &Engine) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE project = 'p' AND kind = 'slots_free'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The reasons of the holds on project p's new starts, in order.
+fn hold_reasons(e: &Engine) -> Vec<String> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT reason FROM dispatch_holds WHERE project = 'p' ORDER BY reason")
+            .unwrap();
+    st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+}
+
+// Item #239 (O63): while the owner has paused every work no new work can start, so no matter of free slots is queued for
+// any architect, whether the owner started the project's architect or steps it by hand, which before woke the
+// architect for a round that could only end in starting nothing. It uses nothing of the owner's hold, so that it runs,
+// and fails, on the code before that hold existed. Once every work goes on, the matter is queued as it always was.
+#[test]
+fn no_matter_of_free_slots_is_queued_while_every_work_is_paused() {
+    let s = setup("slots-free-paused");
+    let (mut e, said) = engine(&s, scripts());
+    let works = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))
+            .unwrap()
+    };
+    // The owner started the project's architect and paused every other work.
+    let started = Go {
+        pause: held_but(&[], &["p"]),
+        ..Go::default()
+    };
+    e.pass(&started).unwrap();
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The owner steps the architect by hand while every work is paused.
+    e.step_architect("p").unwrap();
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // Every work paused, no architect started.
+    e.pass(&Go {
+        pause: held_but(&[], &[]),
+        ..Go::default()
+    })
+    .unwrap();
+    assert_eq!(slots_free_matters(&e), 0);
+    // With every work going on again, it is queued as before and starts a work of the architect.
+    let again = e.step(None).unwrap();
+    assert_eq!(again.cell.as_deref(), Some("S1"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(slots_free_matters(&e), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: a hold of the owner's on the project stops the matter of free slots as well, for the new starts it stops
+// are the only thing that matter could lead to. Released, the matter is queued as it always was.
+#[test]
+fn no_matter_of_free_slots_is_queued_while_the_owner_holds_the_project() {
+    let s = setup("slots-free-owner-hold");
+    let (mut e, said) = engine(&s, scripts());
+    let works = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))
+            .unwrap()
+    };
+    // The owner holds the project: every work goes on, and none is queued.
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    e.step(None).unwrap();
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // Released, it is queued as before and starts a work of the architect.
+    api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
+    let again = e.step(None).unwrap();
+    assert_eq!(again.cell.as_deref(), Some("S1"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(slots_free_matters(&e), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: while the owner holds a project's new starts, a work already running goes on to its merge, and no other
+// item of the project starts, though a slot is free; once the owner releases the hold, the waiting item starts. The
+// hold is the owner's, written as the owner, and stands whatever the architect does.
+#[test]
+fn an_owner_hold_lets_the_running_work_merge_and_starts_the_next_item_only_once_released() {
+    let s = setup("owner-hold-merge");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &install.replace("slots = 1", "slots = 2"));
+    git(&s.data, &["commit", "-q", "-am", "two slots"]);
+    let (mut e, said, first) = start(&s, scripts());
+    let started = e.step(None).unwrap();
+    assert_eq!(started.started_item, Some(first), "{}", said.lock().unwrap().join("\n"));
+    let second =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Second', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", [id])?;
+            Ok(id)
+        })
+        .unwrap();
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Installing the new machine.").unwrap();
+    let actor: String =
+        e.db.conn()
+            .query_row(
+                "SELECT actor FROM changes WHERE table_name = 'dispatch_holds' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(actor, "owner");
+    // The first item's work goes through every cell, the waits for CI and the merge included, with a slot free all the
+    // while; the second item does not start.
+    let work = state(&e, first).unwrap().0;
+    let mut done = false;
+    for _ in 0..200 {
+        e.tick().unwrap();
+        assert!(state(&e, second).is_none(), "{}", said.lock().unwrap().join("\n"));
+        if e.advance(work).unwrap() == Advance::Stopped {
+            done = true;
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(done, "the work did not end:\n{log}");
+    let main = git(
+        &s.root,
+        &["--git-dir", &s.origin.to_string_lossy(), "show", "main:src/lib.txt"],
+    );
+    assert_eq!(main, "old\nfeature", "{log}");
+    // Still held after the merge, the next item waits; released, it starts.
+    e.step(None).unwrap();
+    assert!(state(&e, second).is_none(), "{log}");
+    api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
+    let next = e.step(None).unwrap();
+    assert_eq!(next.started_item, Some(second), "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: the architect's hold and its release leave the owner's hold alone. With the owner's hold in place, the
+// architect holds new starts in its effects: its own row is written beside the owner's, as the architect; it releases
+// its own, and only its own: the owner's stays, and the board of its later cells still lists it.
+#[test]
+fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_beside_it() {
+    let s = setup("architect-and-owner-hold");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
+            let release = json!({ "kind": "release_starts", "reason": "The plan is right again." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("I hold, then let go.")),
+                    ("outcome.effects", json!({ "actions": [hold, release] })),
+                ],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    let held_at: i64 =
+        e.db.conn()
+            .query_row("SELECT since FROM dispatch_holds WHERE reason = 'owner'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    say(&mut e, "Hold and release.");
+    let started = e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
+    let arch = started.work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The owner's row is as the owner wrote it; the architect's own came and went.
+    assert_eq!(hold_reasons(&e), ["owner"]);
+    let owner_row: (i64, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT since, why FROM dispatch_holds WHERE reason = 'owner'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(owner_row, (held_at, "Leaving for a week.".to_string()));
+    let changes: Vec<(String, String, bool)> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT actor, json_extract(coalesce(new_row, old_row), '$.reason'), new_row IS NULL FROM changes
+                     WHERE table_name = 'dispatch_holds' ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |a: &str, r: &str, gone: bool| (a.to_string(), r.to_string(), gone);
+    assert_eq!(
+        changes,
+        [
+            row("owner", "owner", false),
+            row("architect", "architect", false),
+            row("architect", "architect", true)
+        ]
+    );
+    // The board the architect was given at its first cell lists the owner's hold. A later work of the architect, after
+    // its hold and release, is given no other: its session already holds that board, which the message refers to by
+    // its address because nothing in it changed, the architect's own hold gone and the owner's there.
+    let m = message_at(&e, arch, "U1", false);
+    let board = given_value(&m, "·engine·board").expect(&m);
+    let held = &board["starts_held"];
+    assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");
+    assert_eq!(
+        (&held[0]["reason"], &held[0]["why"]),
+        (&json!("owner"), &json!("Leaving for a week.")),
+        "{board}"
+    );
+    let address = m
+        .lines()
+        .find(|l| l.starts_with("### ") && l.ends_with("·engine·board"))
+        .map(|l| l.trim_start_matches("### ").to_string())
+        .expect(&m);
+    let later = architect_work_at(&mut e, "H10");
+    let m = engine::next_message(&mut e, later).unwrap().text;
+    assert!(given_value(&m, "·engine·board").is_none(), "{m}");
+    assert!(work_from(&m).iter().any(|l| l.ends_with(&address)), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: the board of a cell that can hold or release new starts lists each hold on the project with its reason,
+// since when and why, whoever holds, and has no such key while nothing holds; the owner's release of any reason takes
+// its row, and one of a reason not there is refused saying so.
+#[test]
+fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
+    let s = setup("board-holds");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "H10");
+    let board = |e: &mut Engine| -> Value {
+        let m = engine::next_message(e, arch).unwrap().text;
+        given_value(&m, "·engine·board").expect(&m)
+    };
+    assert_eq!(board(&mut e).get("starts_held"), None);
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving.").unwrap();
+    e.db.write(Actor::Architect, |tx| {
+        db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
+    })
+    .unwrap();
+    let held = board(&mut e)["starts_held"].clone();
+    let reasons: Vec<&str> = held
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["reason"].as_str().unwrap())
+        .collect();
+    let mut sorted = reasons.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["architect", "owner", "set_straight"], "{held}");
+    let of = |reason: &str| {
+        held.as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["reason"] == reason)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(of("owner")["why"], "Leaving.");
+    assert_eq!(of("architect")["why"], "Wrong order.");
+    assert_eq!(of("set_straight").get("why"), None);
+    assert!(of("owner")["since"].is_string(), "{held}");
+    for reason in ["set_straight", "architect", "owner"] {
+        api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap();
+        assert!(!hold_reasons(&e).contains(&reason.to_string()), "{reason}");
+        let again = api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap_err();
+        assert!(again.contains("has no hold of the reason"), "{again}");
+    }
+    assert_eq!(board(&mut e).get("starts_held"), None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: an architect work the engine stops, here because the flow version it ran on had a graph for it that the
+// version the engine runs lacks (the setting of a policy, a graph of its own before; item #230 ends such a work),
+// leaves behind no hold to set the project straight, and takes nothing else: the owner's hold, the architect's own
+// hold and a hold of another project all stay.
+#[test]
+fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight() {
+    let s = setup("takeover-holds");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let work = architect_work_at(&mut e, "H10");
+    // The work ran on a flow version where it was a setting of a policy, a graph the version the engine runs lacks.
+    let now = e.flow_now;
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
+    let mut policy = f.graph(engine::ARCHITECT).unwrap().clone();
+    policy.name = engine::POLICY.into();
+    f.graphs.push(policy);
+    let text = f.json();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)",
+            [&text],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute(
+            "UPDATE works SET flow_version = ?2, graph = ?3 WHERE id = ?1",
+            params![work, v, engine::POLICY],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    e.db.write(Actor::Architect, |tx| {
+        db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)?;
+        db::hold_starts(tx, "q", db::HoldReason::SetStraight, None)
+    })
+    .unwrap();
+    e.pass(&Go::default()).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let ended: Option<String> =
+        e.db.conn()
+            .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert!(ended.is_some_and(|w| w.starts_with("stopped")), "{log}");
+    let rows: Vec<(String, String)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT project, reason FROM dispatch_holds ORDER BY project, reason")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |p: &str, r: &str| (p.to_string(), r.to_string());
+    assert_eq!(
+        rows,
+        [row("p", "architect"), row("p", "owner"), row("q", "set_straight")],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: the owner may release their hold while the architect's round is going on, and the architect's actions of
+// that round, a release of its own hold that is not there and a hold, still go through: the owner's row is gone as the
+// owner released it, the architect's own row stands, and the round is not sent back for an action that found nothing.
+#[test]
+fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_working() {
+    let s = setup("owner-releases-mid-round");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            // The owner releases their hold while the architect is answering.
+            let mut db = db::Db::open(&path).unwrap();
+            db.write(Actor::Owner, |tx| {
+                db::release_starts(tx, "p", db::HoldReason::Owner).map(|_| ())
+            })
+            .unwrap();
+            let release = json!({ "kind": "release_starts", "reason": "Nothing to hold any more." });
+            let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Let go, then hold.")),
+                    ("outcome.effects", json!({ "actions": [release, hold] })),
+                ],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    say(&mut e, "Release and hold.");
+    let started = e.step(None).unwrap();
+    let arch = started.work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(hold_reasons(&e), ["architect"], "{log}");
+    let changes: Vec<(String, String, bool)> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT actor, json_extract(coalesce(new_row, old_row), '$.reason'), new_row IS NULL FROM changes
+                     WHERE table_name = 'dispatch_holds' ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |a: &str, r: &str, gone: bool| (a.to_string(), r.to_string(), gone);
+    assert_eq!(
+        changes,
+        [
+            row("owner", "owner", false),
+            row("owner", "owner", true),
+            row("architect", "architect", false)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // With every work paused, the owner steps a project's architect: the first step starts a work of the architect, paused
 // by the owner, and runs its first round; each later step runs the work's next round, as a step of the work by its id
 // does, and the work stays paused in the owner's hands. With nothing to start a work for, a step runs nothing.
@@ -17425,7 +18600,8 @@ fn a_work(e: &Engine, dice: &Dice) -> Option<i64> {
 /// whose rounds ask the advisor and the architect, hand questions on (the advisor to the architect, an architect to the
 /// other project's architect), and reply, sometimes with an item to wait for, of either project, a way on chosen wrong
 /// going to the architect as a flow anomaly; the architects' hours, past their limit; interjections; cancels; and
-/// takeovers by a new flow version. After each, every chain of blockers closes.
+/// works put on an older flow version, which the engine brings to the one it runs. After each, every chain of blockers
+/// closes.
 fn random_events(seed: u64, events: usize) {
     let s = setup(&format!("blockers-{seed}"));
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
@@ -17653,7 +18829,7 @@ fn random_events(seed: u64, events: usize) {
                     .unwrap();
                     format!("work {w} is on an older flow version")
                 }
-                None => "no work to take over".into(),
+                None => "no work to put on an older flow version".into(),
             },
             // The architects had hours to act, in rounds of a work over by now: a question they hold is past its limit.
             26..=28 => {
@@ -17721,7 +18897,7 @@ macro_rules! random_events {
 }
 
 // Random sequences of events (asks of the advisor and the architect, hand-overs between them and between two related
-// projects' architects, the architects' replies, flow anomalies, interjections, cancels, ends and takeovers by a new
+// projects' architects, the architects' replies, flow anomalies, interjections, cancels, ends and works brought to a new
 // flow version) leave every chain of blockers closed after each event: every stopped task has
 // exactly one open blocker, raised at the cell it stopped at and held by the holder of the cell it stands at; every
 // open blocker's holder exists, in whichever project; no ended task has an open blocker; the items waited for form no
@@ -17838,9 +19014,9 @@ fn a_step_on_another_thread_writes_what_it_writes_on_the_engines_own() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A step reports the rounds its own connection wrote: the round of the work it took, and a round of another work it
-// cut off, as taking over a work on an older flow version cuts off the round the work was in; never a round another
-// connection wrote meanwhile, as another thread's step would.
+// A step reports the rounds its own connection wrote: the round of the work it took, and a round it cut off before
+// that, as one an engine that stopped left open; never a round another connection wrote meanwhile, as another
+// thread's step would.
 #[test]
 fn a_step_reports_the_rounds_its_own_connection_wrote() {
     let s = setup("own_rounds");
@@ -17885,8 +19061,8 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
     assert_eq!(r1.cell.as_deref(), Some("R1"), "{r1:?}\n{log}");
     assert_eq!(architects, 2, "{log}");
     assert_eq!(r1.rounds, [engine::RoundId::new(work, n)], "{log}");
-    // A round of the work under way as the next step takes the work over, on an older flow version where the cell it
-    // stands at is another: the step cuts it off, and reports it with the round of the new work it starts.
+    // A round of the work left open, as by an engine that stopped while it ran: the next step cuts it off, and reports
+    // it with the round it runs in its place.
     let at = state(&e, item).unwrap().1;
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -17896,18 +19072,14 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
         Ok(())
     })
     .unwrap();
-    older(&mut e, &[work], |g| renamed(g, &at));
-    let over = e.step(Some(work)).unwrap();
+    let again = e.step(Some(work)).unwrap();
     let log = said.lock().unwrap().join("\n");
-    let works = works_of(&e, item);
-    assert_eq!(works.len(), 2, "{works:?}\n{log}");
-    let new = works[1].0;
-    assert_eq!(over.work, Some(new), "{over:?}\n{log}");
+    assert_eq!(again.work, Some(work), "{again:?}\n{log}");
     assert!(
-        over.rounds.contains(&engine::RoundId::new(work, n + 1)),
-        "{over:?}\n{log}"
+        again.rounds.contains(&engine::RoundId::new(work, n + 1))
+            && again.rounds.contains(&engine::RoundId::new(work, n + 2)),
+        "{again:?}\n{log}"
     );
-    assert!(over.rounds.iter().any(|r| r.work == new), "{over:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -17922,8 +19094,7 @@ fn a_forked_context_shares_what_lasts_between_steps() {
     let first = e.step(None).unwrap();
     let work = first.work.unwrap();
     e.step(first.work).unwrap();
-    let at = state(&e, item).unwrap().1;
-    older(&mut e, &[work], |g| renamed(g, &at));
+    api::start_over(&mut e.db, work).unwrap();
     let mut t = e.fork().unwrap();
     let (mut t, over) = std::thread::spawn(move || {
         let over = t.step(Some(work));
@@ -19476,6 +20647,69 @@ fn notices(e: &Engine, word: &str) -> i64 {
             |r| r.get(0),
         )
         .unwrap()
+}
+
+// A pull request that GitHub merged before the merge step began, as when the answer of an earlier merge call was lost
+// (a 502 after GitHub had merged it), is recorded as merged, with the commit GitHub made. The step reads the pull
+// request first: catching up with main, pushing and waiting for the full CI guard nothing in a merged pull request, and
+// the merge call is refused by `gh pr ready`, as the fake GitHub refuses it. Without the read, the step makes its merge
+// call on every try, is refused each time, and takes the row `not_run`; a read only in the merge call leaves the step
+// to push and wait for the full CI first, which its record of the merge tool shows.
+#[test]
+fn a_pull_request_merged_on_github_before_the_merge_step_is_recorded_without_merging_again() {
+    let s = setup("merged-before-the-merge-step");
+    let (origin, root, prs) = (s.origin.clone(), s.root.clone(), s.prs.clone());
+    let made = Arc::new(Mutex::new(None::<String>));
+    let kept = made.clone();
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            // The second round hands in the end of the work: its branch and its pull request are on GitHub by then.
+            if n == 2 {
+                let pr = *prs.lock().unwrap().keys().next().unwrap();
+                *kept.lock().unwrap() = Some(FakeHub::squash_merge(&origin, &root, &prs, "o/p", pr).unwrap());
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let at = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "M2"));
+    assert!(at, "{}", said.lock().unwrap().join("\n"));
+    let work = state(&e, item).unwrap().0;
+    // The step ends in one round: with the row `merged`, or, when its merge calls are refused, `not_run`.
+    let ended = turns_until(&mut e, &Go::default(), |e| {
+        transitions_at(e, work, "M2").iter().any(Option::is_some)
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(ended, "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
+    let log = done_after_watching_main(&mut e, work, &said);
+    let made = made.lock().unwrap().clone().expect("GitHub merged the pull request");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    let recorded: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.result.merge_commit') FROM rounds WHERE work = ?1 AND cell = 'M2'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(recorded, made, "{log}");
+    // One look at the pull request, and nothing after it: no push, no full CI, no merge call.
+    let tries: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM tool_runs WHERE work = ?1 AND tool = 'merge'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(tries, 1, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 // A cancel that comes while the merge step waits for the full CI stops the merge: nothing reaches GitHub's merge, the

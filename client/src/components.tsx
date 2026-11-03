@@ -103,7 +103,7 @@ export type Course = {
   /// What it waited for came, and it waits, holding no slot, until its machine has a slot free, as the engine's status
   /// says: it then goes on before any new work starts.
   slot: boolean;
-  /// Its flow version is older than the one the engine runs: when it goes on, it is taken over.
+  /// Its flow version is older than the one the engine runs: when it goes on, it is brought to that one.
   outdated: boolean;
   /// The owner started it since every work was last paused (a work of the architect: the architect): it goes on
   /// whatever the global state.

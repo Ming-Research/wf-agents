@@ -11,13 +11,13 @@
 //! and a pause of a work takes effect when the round under way ends. A job's thread marks its job as over and says so
 //! (the hook `ended`), and the loop reaps it ([`Engine::reap`]).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, PoisonError};
 use std::thread::JoinHandle;
 
 use crate::{
-    ARCHITECT, Advance, ENGINEER, Engine, GlobalPause, RoundId, Stepped, Work, actions, architect, lock, warm,
+    ARCHITECT, Advance, ENGINEER, Engine, GlobalPause, RoundId, Stepped, Work, actions, architect, lock, versions, warm,
 };
 
 /// What the owner lets go on, as the loop that runs the engine hands it at each turn.
@@ -196,9 +196,9 @@ impl Engine {
     /// job in flight. A work that waits, holding no slot, steps without one, to find what it waits for come; one whose
     /// step found it come waits on for a slot, which no new work takes meanwhile ([`Engine::start_ready`]), and is
     /// granted a free slot of its machine for its next step, in the order of the works' ids and before any new work
-    /// starts, not dispatched while its machine has none free. Gives the owner's rounds asked that it took without a step, since none
-    /// could run: a project's architect with nothing to start a work for, or a work taken over whose item waits for a
-    /// free slot.
+    /// starts, not dispatched while its machine has none free. Gives the owner's rounds asked that it took without a
+    /// step, since none could run: a project's architect with nothing to start a work for, or a work brought to the
+    /// version the engine runs that could go on from no cell there, whose step that was.
     pub fn dispatch(&mut self, go: &Go) -> Result<Vec<Stepped>, String> {
         self.reload_config();
         self.set_global_pause(go.pause.clone());
@@ -214,12 +214,8 @@ impl Engine {
             .into_iter()
             .filter(|w| goes_on(go.pause.as_ref(), w) && !self.has_job(w.id))
             .collect();
-        // The new works that take over the items of works taken over: each step dispatched for one names its item.
-        let mut taking_over = BTreeMap::new();
         if !old.is_empty() {
-            for new in self.bring_up(&old)? {
-                taking_over.insert(new, self.work(new)?.item);
-            }
+            self.bring_up(&old)?;
             self.rouse();
         }
         // The owner's Start of a work taken over, here or by a start over the outbox held, goes on at once in the work
@@ -241,7 +237,7 @@ impl Engine {
                 continue;
             }
             match self.owner_round(work)? {
-                Some((id, started_item)) => self.dispatch_step(id, true, false, Some(ask), started_item)?,
+                Some(id) => self.dispatch_step(id, true, false, Some(ask), None)?,
                 None => taken.push(Stepped {
                     work: Some(work),
                     asked: Some(ask),
@@ -257,7 +253,7 @@ impl Engine {
             match architect::running(self, project)? {
                 Some(id) if self.has_job(id) => {}
                 Some(id) => match self.owner_round(id)? {
-                    Some((n, started_item)) => self.dispatch_step(n, true, false, Some(ask), started_item)?,
+                    Some(n) => self.dispatch_step(n, true, false, Some(ask), None)?,
                     None => taken.push(Stepped {
                         asked: Some(ask),
                         ..Stepped::default()
@@ -295,8 +291,7 @@ impl Engine {
             if held && !granted {
                 continue;
             }
-            let started_item = taking_over.get(&id).copied().flatten();
-            self.dispatch_step(id, false, granted, None, started_item)?;
+            self.dispatch_step(id, false, granted, None, None)?;
         }
         if pause.is_none() {
             self.start_ready()?;
@@ -372,23 +367,20 @@ impl Engine {
     }
 
     /// Makes ready the owner's round of a work, as the loop does before it dispatches it: the work is taken into the
-    /// owner's hands ([`Engine::take_in_hand`]) and, on an older flow version, brought up first, so that a work that
-    /// cannot move is taken over and the round is the first of the new work, which the owner holds paused after it
-    /// the same way. Gives the work whose step to dispatch, with the item the new work started on when the work was
-    /// taken over; none when the new work found no slot free, its item waiting at the head of the queue.
-    fn owner_round(&mut self, work: i64) -> Result<Option<(i64, Option<i64>)>, String> {
+    /// owner's hands ([`Engine::take_in_hand`]) and, on an older flow version, brought up first ([`Engine::bring`]), so
+    /// that the round is of the cell it moved to or went back to. Gives the work whose step to dispatch; none when it
+    /// could go on from no cell of the version and stays where it was brought, paused, or ended as the version has no
+    /// graph for it: that was its step.
+    fn owner_round(&mut self, work: i64) -> Result<Option<i64>, String> {
         self.take_in_hand(work)?;
         let w = self.work(work)?;
         if w.ended.is_some() || w.flow_version == self.flow_now || self.done(&w)? {
-            return Ok(Some((work, None)));
+            return Ok(Some(work));
         }
-        let Some(cannot) = self.cannot_move(&w)? else {
-            self.move_up(&w)?;
-            return Ok(Some((work, None)));
-        };
-        let item = w.item;
-        let why = self.moved_on(&cannot);
-        Ok(self.take_over(&[(w, why)])?.first().map(|&new| (new, item)))
+        Ok(match self.bring(&w)? {
+            versions::Plan::Stuck { .. } => None,
+            _ => Some(work),
+        })
     }
 
     /// Dispatches a step of a work as its job: the owner's round when `asked`, granted a free slot when `granted`.

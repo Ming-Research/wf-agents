@@ -56,6 +56,10 @@ pub struct CompiledGraph {
     /// The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel: Option<String>,
+    /// The cell a work on an older flow version comes to when this version cannot take it on where it stands, from
+    /// wherever it stands; none in a graph without one, or in a flow version stored before there was one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// The field an agent's return holds its one form in.
     pub within: String,
     /// The cells of the asking part, and the one that receives answers to the cells of its line.
@@ -1179,7 +1183,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     actions: r.actions.clone(),
                     counts: r.counts.clone(),
                     waits: r.waits,
-                    pauses: false,
+                    pauses: r.pauses,
                     interject: r.interject,
                     main: r.main,
                     drops: r.drops,
@@ -1236,6 +1240,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         start: f.start.clone(),
         end: f.end.clone(),
         cancel: f.cancel.clone(),
+        version: f.version.clone(),
         within: f.agent_common.returns.within.name.clone(),
         asking: f.asking.nodes.clone(),
         receive: f.asking.receive.clone(),
