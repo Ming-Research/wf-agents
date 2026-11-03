@@ -6019,6 +6019,44 @@ fn a_question_asked_from_the_engineer_s_line_is_withdrawn_for_words_that_come_wh
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A question asked by a tool cell (the full CI, the merge queue, the watch on main) with no agent below it is not
+// withdrawn for words that wait for the engineer's line either: the cell it would go back to is the tool itself, which
+// runs again and hears no words, so withdrawing it would leave the words where they were, the question unanswered and
+// the tool, failing again, asking again. The work is placed at the question's cell (`A2`) with the full CI (`T2`) as
+// its asker, as the tool's `not_run` row leaves it, and a word waiting for the engineer's line.
+#[test]
+fn a_question_asked_by_a_tool_cell_is_not_withdrawn_for_words_waiting_for_the_engineer() {
+    let s = setup("ask-from-tool");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let text = "Halt every work on a red check.";
+    let project: String =
+        e.db.conn()
+            .query_row("SELECT project FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET at = 'A2', waiting = '[\"T2\"]' WHERE id = ?1", [work])?;
+        tx.execute(
+            "INSERT INTO blockers (work, cell, kind, what, holder, project, at, since)
+             VALUES (?1, 'T2', 'question', 'The full CI did not run.', 'architect', ?2, ?3, ?3)",
+            params![work, project, db::now()],
+        )?;
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
+            params![work, text],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    e.step_work(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(question_took(&e, work), None, "{log}");
+    assert_eq!(e.work(work).unwrap().pos.at, "A2", "{log}");
+    assert_eq!(delivered_at(&e, work, text), None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Capability reports: an agent says the system lacks what its work needs, a defect of the system and not of the agent.
 
 /// A first round of the item's work that asks the architect about a capability gap, saying what, with no kind.

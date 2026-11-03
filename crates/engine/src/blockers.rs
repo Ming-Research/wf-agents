@@ -575,17 +575,27 @@ pub fn architect_time(conn: &Connection, project: &str, since: i64, now: i64) ->
 /// line, so words for another line wait however the work moves; these are the words that can turn the work. At the cell
 /// of a task that asked, the nearest agent is the asker itself, or for an engine step that asks, as `X1` does for the
 /// tools of the cell it runs them for, the agent that step runs for. Where the stack holds no agent cell, the line of
-/// the graph's agents, the engineer's.
+/// the graph's agents, the engineer's, which the engine steps that ask (`M1`, `T7`, `A6`) go on to by rows of their own.
+/// A tool cell that asks with no agent below it (`T2`, `M2`, `L1`) stands on no line: `@asker` takes the work back to
+/// the tool, which runs again and hears no words, so no words can turn it and none is a reason to withdraw the question.
 ///
 /// It agrees with where `@asker` takes the work ([`flow::CompiledGraph::step`]): back to the asker, or to the graph's
 /// receiving cell when that is on the asker's line, so on the asker's line either way.
-pub fn standing_line(g: &CompiledGraph, w: &Work) -> String {
-    std::iter::once(&w.pos.at)
-        .chain(w.pos.callers.iter().rev())
-        .filter_map(|id| g.cell(id))
-        .find(|c| c.kind == "agent")
-        .map(|c| crate::line_of(g, c))
-        .unwrap_or_else(|| ENGINEER.to_string())
+pub fn standing_line(g: &CompiledGraph, w: &Work) -> Option<String> {
+    let cells = || {
+        std::iter::once(&w.pos.at)
+            .chain(w.pos.callers.iter().rev())
+            .filter_map(|id| g.cell(id))
+    };
+    if let Some(agent) = cells().find(|c| c.kind == "agent") {
+        return Some(crate::line_of(g, agent));
+    }
+    // The cell that asked is the innermost on the stack, or the cell the work is at when the stack is empty.
+    let asker = w.pos.callers.last().unwrap_or(&w.pos.at);
+    if g.cell(asker).is_some_and(|c| c.kind == "tool") {
+        return None;
+    }
+    Some(ENGINEER.to_string())
 }
 
 /// How many words said to the work wait to be handed to `line`: not yet delivered, and not of the kind that needs no
@@ -628,13 +638,15 @@ pub fn held(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
         }
     }
     // Words for the line the work stands on, which withdrawing the question takes the work back to hear. Words for
-    // another line wait however the work moves, so they are no reason to withdraw it.
-    let line = standing_line(g, w);
-    if waiting_words(conn, w.id, &line, true)? > 0 {
-        return s("cancelled");
-    }
-    if waiting_words(conn, w.id, &line, false)? > 0 {
-        return s("interjection");
+    // another line wait however the work moves, so they are no reason to withdraw it; nor are any for a tool cell that
+    // asks, which hears none.
+    if let Some(line) = standing_line(g, w) {
+        if waiting_words(conn, w.id, &line, true)? > 0 {
+            return s("cancelled");
+        }
+        if waiting_words(conn, w.id, &line, false)? > 0 {
+            return s("interjection");
+        }
     }
     let project = b.project.clone().unwrap_or_default();
     if !e.config.config.projects.contains_key(&project) {

@@ -100,8 +100,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
         "cancelled" => {
-            let line = crate::blockers::standing_line(g, w);
-            let waiting = crate::blockers::waiting_words(e.db.conn(), w.id, &line, true)?;
+            let waiting = match crate::blockers::standing_line(g, w) {
+                Some(line) => crate::blockers::waiting_words(e.db.conn(), w.id, &line, true)?,
+                None => 0,
+            };
             s(if waiting > 0 { "yes" } else { "no" })
         }
         // Whether another work of the project is ahead of this one in its merge queue.
@@ -189,8 +191,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
 
 /// How many words said to a work are waiting for the line it stands on, which turn its way on.
 pub fn interjections(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<i64, String> {
-    let line = crate::blockers::standing_line(g, w);
-    crate::blockers::waiting_words(e.db.conn(), w.id, &line, false)
+    match crate::blockers::standing_line(g, w) {
+        Some(line) => crate::blockers::waiting_words(e.db.conn(), w.id, &line, false),
+        None => Ok(0),
+    }
 }
 
 /// The reply the work brought back to choose the way on: the last return of the cell that brought it, when that is

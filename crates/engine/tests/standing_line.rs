@@ -64,10 +64,13 @@ fn row<'a>(g: &'a CompiledGraph, cell: &str, name: &str) -> &'a CompiledRow {
 // The line the work stands on is the line of the nearest agent cell on its stack, counting from the cell it is at
 // back through the cells that wait for an answer, the innermost first; an engine step, which has no line, and a cell
 // of an older flow version that the graph no longer has are passed over; with no agent on the stack, the line of the
-// graph's agents, the engineer's. The lines are those of the flow: cell `T1` is on the adversarial line, `T6` and the
-// merge's cells on the engineer's.
+// graph's agents, the engineer's, as for the engine steps that ask; a tool cell that asks with no agent below it
+// stands on no line, since it hears no words. The lines are those of the flow: cell `T1` is on the adversarial line,
+// `T6` and the merge's cells on the engineer's. "none" stands for no line.
 fn the_nearest_agent_cell_on_the_stack_gives_the_line(g: &CompiledGraph) {
-    let line = |at: &str, callers: &[&str]| standing_line(g, &work_at(stack(at, callers)));
+    let line = |at: &str, callers: &[&str]| {
+        standing_line(g, &work_at(stack(at, callers))).unwrap_or_else(|| "none".to_string())
+    };
     // The question's cell, with the asker below it.
     assert_eq!(line("A2", &["T1"]), "adversarial");
     assert_eq!(line("A2", &["T6"]), "engineer");
@@ -80,10 +83,17 @@ fn the_nearest_agent_cell_on_the_stack_gives_the_line(g: &CompiledGraph) {
     // The cell the work is at counts first.
     assert_eq!(line("T1", &["T6"]), "adversarial");
     assert_eq!(line("X1", &["T1"]), "adversarial");
-    // No agent on the stack: the engineer's line, whether the stack is empty or holds only engine steps.
+    // No agent on the stack: the engineer's line when the stack is empty or its asker is an engine step, whose own rows
+    // go on to the engineer's cells.
     assert_eq!(line("A2", &[]), "engineer");
-    assert_eq!(line("A2", &["X1"]), "engineer");
-    assert_eq!(line("X1", &[]), "engineer");
+    assert_eq!(line("A2", &["M1"]), "engineer");
+    assert_eq!(line("A2", &["T7"]), "engineer");
+    assert_eq!(line("A2", &["A6"]), "engineer");
+    // No agent on the stack and a tool cell asking: no line, however many words wait for the engineer's.
+    for tool in ["T2", "M2", "L1", "X1"] {
+        assert_eq!(line("A2", &[tool]), "none", "{tool}");
+    }
+    assert_eq!(line("X1", &[]), "none");
     // A cell the graph does not have is passed over.
     assert_eq!(line("A2", &["T1", "Z9"]), "adversarial");
     assert_eq!(line("A2", &["Z9"]), "engineer");
@@ -121,7 +131,7 @@ fn the_line_a_work_stands_on_at_its_question_is_the_line_its_answer_goes_back_to
         }
         for at_question in asking {
             assert_eq!(at_question.at, "A2", "{}", c.id);
-            let stands = standing_line(g, &work_at(at_question.clone()));
+            let stands = standing_line(g, &work_at(at_question.clone())).unwrap();
             assert_eq!(stands, own, "asked by {}: {at_question:?}", c.id);
             let back = g.step(&at_question, answered).unwrap();
             let lands = g.cell(&back.at).unwrap();
@@ -129,7 +139,7 @@ fn the_line_a_work_stands_on_at_its_question_is_the_line_its_answer_goes_back_to
                 lands.line.clone().unwrap_or_else(|| ENGINEER.to_string())
             } else {
                 // An engine step the answer goes back to runs for the agent below it.
-                standing_line(g, &work_at(back.clone()))
+                standing_line(g, &work_at(back.clone())).unwrap()
             };
             assert_eq!(stands, there, "asked by {}, answered to {}", c.id, lands.id);
             asked_by.push(c.id.clone());
@@ -141,6 +151,32 @@ fn the_line_a_work_stands_on_at_its_question_is_the_line_its_answer_goes_back_to
     }
     // Adversarial testing asks through its tools twice over: its own ask row and the tools cell.
     assert!(asked_by.iter().filter(|a| *a == "T1").count() >= 2, "{asked_by:?}");
+    // A tool cell that asks (the full CI, the merge queue, the watch on main) stands on no line, and its answer goes
+    // back to the tool itself, which hears no words.
+    let mut tools_asking = 0;
+    for c in g.cells.iter().filter(|c| c.kind == "tool") {
+        let start = Position {
+            at: c.id.clone(),
+            ..Position::default()
+        };
+        for ask in c
+            .rows
+            .iter()
+            .filter(|r| r.to == "A2" && r.actions.iter().any(|a| a.name() == "raise_blocker"))
+        {
+            let at_question = g.step(&start, ask).unwrap();
+            assert_eq!(
+                standing_line(g, &work_at(at_question.clone())),
+                None,
+                "asked by {}",
+                c.id
+            );
+            let back = g.step(&at_question, answered).unwrap();
+            assert_eq!(back.at, c.id, "asked by {}", c.id);
+            tools_asking += 1;
+        }
+    }
+    assert!(tools_asking >= 3, "{tools_asking}");
 }
 
 /// A database with one work, whose words the tests write.
