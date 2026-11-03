@@ -11448,8 +11448,9 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
             row("architect", "architect", true)
         ]
     );
-    // The board the architect was given at its first cell lists the owner's hold, and the one a later work is given,
-    // after the architect's hold and release, lists it still.
+    // The board the architect was given at its first cell lists the owner's hold. A later work of the architect, after
+    // its hold and release, is given no other: its session already holds that board, which the message refers to by
+    // its address because nothing in it changed, the architect's own hold gone and the owner's there.
     let m = message_at(&e, arch, "U1", false);
     let board = given_value(&m, "·engine·board").expect(&m);
     let held = &board["starts_held"];
@@ -11459,12 +11460,15 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
         (&json!("owner"), &json!("Leaving for a week.")),
         "{board}"
     );
+    let address = m
+        .lines()
+        .find(|l| l.starts_with("### ") && l.ends_with("·engine·board"))
+        .map(|l| l.trim_start_matches("### ").to_string())
+        .expect(&m);
     let later = architect_work_at(&mut e, "H10");
     let m = engine::next_message(&mut e, later).unwrap().text;
-    let board = given_value(&m, "·engine·board").expect(&m);
-    let held = &board["starts_held"];
-    assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");
-    assert_eq!(held[0]["reason"], "owner", "{board}");
+    assert!(given_value(&m, "·engine·board").is_none(), "{m}");
+    assert!(work_from(&m).iter().any(|l| l.ends_with(&address)), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

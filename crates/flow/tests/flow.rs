@@ -864,9 +864,8 @@ fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_tex
     let c = compiled();
     let g = c.graph("architect").unwrap();
     let effects = r#""effects":{"$ref":"format:common#/$defs/effects"}"#;
-    let gives_effects = |cell: &flow::CompiledCell| {
-        cell.kind == "agent" && flow::formats::cell_format(g, cell).contains(effects)
-    };
+    let gives_effects =
+        |cell: &flow::CompiledCell| cell.kind == "agent" && flow::formats::cell_format(g, cell).contains(effects);
     let handing_effects: Vec<&str> = g
         .cells
         .iter()
@@ -905,7 +904,7 @@ fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_tex
     );
     assert!(!note.contains("sets a policy"), "{note}");
     // The architect's release is said to leave the owner's hold alone.
-    let release = &v["shapes"]["arch_effects"];
+    let release = &v["shapes"]["arch_action"];
     assert!(
         release.to_string().contains("stays until the owner releases it"),
         "{release}"
