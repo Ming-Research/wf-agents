@@ -15,15 +15,18 @@ struct Server {
     dir: PathBuf,
 }
 
-/// A configuration of one project, p, committed in the data directory, which the architect's routes read.
-fn configure(dir: &std::path::Path) {
+/// The part of project p's configuration that does not say where its checkout is or what its constitution is.
+const PROJECT_REST: &str = "design_goal = \"simple\"\n\
+                            test_paths = [\"tests/\"]\nobservation_tags = [{ name = \"perf\", desc = \"How fast\" }]\n\
+                            [ci]\nfast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = []\n";
+
+/// A configuration of one project, p, committed in the data directory, which the architect's routes read: `project` is
+/// p's configuration.
+fn configure(dir: &std::path::Path, project: &str) {
     let install = "[owner]\nlanguage = \"English\"\n[items]\ntitle_max = 40\n[machines]\nworkstation = \"here\"\n\
                    heavy = \"builds\"\npoll_interval = 60\n[machines.hosts.here]\nslots = 1\n[agents.clis.claude]\n\
                    kind = \"claude\"\ncommand = \"claude\"\n[agents.levels.l]\ndesc = \"all\"\ncli = \"claude\"\n\
                    model = \"m\"\n[gh]\nallow = []\n[query]\nmax_rows = 10\ntimeout_ms = 1000\n";
-    let project = "repo = \"o/p\"\ncheckout = \"/p\"\ndesign_goal = \"simple\"\n\
-                   test_paths = [\"tests/\"]\nobservation_tags = [{ name = \"perf\", desc = \"How fast\" }]\n\
-                   [ci]\nfast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = []\n";
     std::fs::create_dir_all(dir.join("projects")).unwrap();
     std::fs::write(dir.join("install.toml"), install).unwrap();
     std::fs::write(dir.join("projects/p.toml"), project).unwrap();
@@ -44,10 +47,15 @@ fn configure(dir: &std::path::Path) {
 }
 
 fn serve(name: &str) -> Server {
+    serve_project(name, &format!("repo = \"o/p\"\ncheckout = \"/p\"\n{PROJECT_REST}"))
+}
+
+/// A server over a data directory whose project p is configured as `project` says.
+fn serve_project(name: &str, project: &str) -> Server {
     let dir = std::env::temp_dir().join(format!("wf-agents-web-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("db")).unwrap();
-    configure(&dir);
+    configure(&dir, project);
     let path = dir.join("db/wf-agents.sqlite");
     db::Db::create(&path).unwrap();
     let bus = Arc::new(Bus::new(5));
@@ -867,4 +875,168 @@ fn the_stream_gives_each_event_and_what_a_client_missed() {
     let mut seen = String::new();
     read_until(&mut other, &mut seen, r#"{"kind":"resync"}"#);
     let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+/// Runs git in a directory; a failure fails the test.
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Commits every file of a directory as one commit, and gives it.
+fn commit_all(dir: &std::path::Path, message: &str) -> String {
+    git(dir, &["add", "-A"]);
+    git(
+        dir,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        ],
+    );
+    git(dir, &["rev-parse", "HEAD"])
+}
+
+// What the pages show of a project's text is its main's, as the last fetch left it: they fetch nothing, no file of the
+// checkout is read, and a text they cannot read says why in its own place and takes nothing else from the page.
+#[test]
+fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() {
+    let root = std::env::temp_dir().join(format!("wf-agents-web-{}-main-repos", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let (origin, checkout, other) = (root.join("origin.git"), root.join("checkout"), root.join("other"));
+    git(
+        &root,
+        &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()],
+    );
+    git(
+        &root,
+        &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
+    );
+    std::fs::write(checkout.join("constitution.md"), "## Article 1. Old.\n").unwrap();
+    std::fs::write(checkout.join("AGENTS.md"), "Old way of work.\n").unwrap();
+    let first = commit_all(&checkout, "first");
+    git(&checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let s = serve_project(
+        "main",
+        &format!(
+            "repo = \"o/p\"\ncheckout = \"{}\"\nconstitution = \"constitution.md\"\n{PROJECT_REST}",
+            checkout.display()
+        ),
+    );
+    let here = format!("127.0.0.1:{}", s.port);
+    let page = |path: &str| -> serde_json::Value {
+        let (status, out) = get(s.port, path, &here, "");
+        assert_eq!(status, 200, "{out}");
+        serde_json::from_str(out.split_once("\r\n\r\n").map_or("", |x| x.1)).unwrap()
+    };
+
+    // The page shows the constitution (in the panel beside the one-to-one) and the project guide at the commit main is
+    // at in the checkout.
+    let tab = page("/api/v1/architect/panel");
+    let law = &tab["constitution"];
+    assert_eq!(law["name"], "constitution.md");
+    assert_eq!(law["commit"], first.as_str());
+    assert_eq!(law["text"], "## Article 1. Old.\n");
+    assert_eq!(law["error"], serde_json::Value::Null);
+    // The time the commit was committed, which tells the owner how new the text is, in milliseconds.
+    let committed = git(&checkout, &["show", "-s", "--format=%ct", &first])
+        .parse::<i64>()
+        .unwrap()
+        * 1000;
+    assert_eq!(law["committed_at"], committed);
+    let now = page("/api/v1/inputs-now");
+    assert_eq!(now["projects"][0]["commit"], first.as_str());
+    assert_eq!(now["projects"][0]["committed_at"], committed);
+    assert_eq!(now["projects"][0]["agents_md"], "Old way of work.\n");
+    assert_eq!(now["projects"][0]["error"], serde_json::Value::Null);
+
+    // Main moves on the remote; the pages fetch nothing, so they still show the commit they showed.
+    git(
+        &root,
+        &["clone", "-q", &origin.to_string_lossy(), &other.to_string_lossy()],
+    );
+    std::fs::write(other.join("constitution.md"), "## Article 1. New.\n").unwrap();
+    std::fs::write(other.join("AGENTS.md"), "New way of work.\n").unwrap();
+    let second = commit_all(&other, "second");
+    git(&other, &["push", "-q", "origin", "HEAD:main"]);
+    assert_eq!(
+        page("/api/v1/architect/panel")["constitution"]["commit"],
+        first.as_str()
+    );
+    // Once the engine has fetched, both show the new text and the commit it is at, though no file of the checkout
+    // changed.
+    git(&checkout, &["fetch", "-q", "origin", "main"]);
+    let tab = page("/api/v1/architect/panel");
+    assert_eq!(tab["constitution"]["commit"], second.as_str());
+    assert_eq!(tab["constitution"]["text"], "## Article 1. New.\n");
+    let now = page("/api/v1/inputs-now");
+    assert_eq!(now["projects"][0]["commit"], second.as_str());
+    assert_eq!(now["projects"][0]["agents_md"], "New way of work.\n");
+    assert_eq!(
+        std::fs::read_to_string(checkout.join("constitution.md")).unwrap(),
+        "## Article 1. Old.\n"
+    );
+
+    // The configured path is not on main any more: the constitution says so, with the file and the commit, and is no
+    // empty text; the rest of the page is what it was.
+    git(&other, &["rm", "-q", "constitution.md"]);
+    let third = commit_all(&other, "third");
+    git(&other, &["push", "-q", "origin", "HEAD:main"]);
+    git(&checkout, &["fetch", "-q", "origin", "main"]);
+    let tab = page("/api/v1/architect/panel");
+    let law = &tab["constitution"];
+    let error = law["error"].as_str().unwrap_or_default();
+    assert!(error.contains("constitution.md") && error.contains(&third), "{law}");
+    assert_eq!(law["name"], "constitution.md");
+    assert_eq!(law["commit"], third.as_str());
+    assert_eq!(law["text"], "");
+    let tab = page("/api/v1/architect");
+    assert_eq!(tab["project"], "p");
+    assert_eq!(tab["projects"], serde_json::json!(["p"]));
+    assert_eq!(tab["works"], serde_json::json!([]));
+    // The project guide of the same commit is still read.
+    assert_eq!(
+        page("/api/v1/inputs-now")["projects"][0]["agents_md"],
+        "New way of work.\n"
+    );
+
+    // A checkout that is gone: the commit is none, both pages say why in the place of the text, and nothing else fails.
+    std::fs::remove_dir_all(&checkout).unwrap();
+    let tab = page("/api/v1/architect/panel");
+    assert_eq!(tab["constitution"]["commit"], serde_json::Value::Null);
+    assert!(
+        tab["constitution"]["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("origin/main")),
+        "{tab}"
+    );
+    assert_eq!(page("/api/v1/architect")["project"], "p");
+    let now = page("/api/v1/inputs-now");
+    let project = &now["projects"][0];
+    assert!(
+        project["error"].as_str().is_some_and(|e| e.contains("origin/main")),
+        "{now}"
+    );
+    assert_eq!(project["commit"], serde_json::Value::Null);
+    assert_eq!(project["agents_md"], "");
+    assert_eq!(project["records"], serde_json::json!([]));
+    assert_eq!(project["project"], "p");
+    let _ = std::fs::remove_dir_all(&s.dir);
+    let _ = std::fs::remove_dir_all(&root);
 }

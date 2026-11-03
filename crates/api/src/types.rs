@@ -1025,7 +1025,7 @@ pub struct ProjectSettings {
     pub ci_fast: String,
     pub ci_full: Vec<String>,
     pub merge_checks: Vec<String>,
-    /// Its constitution, a path in its checkout; none when it has none.
+    /// Its constitution, a path in its repository as its main has it; none when it has none.
     pub constitution: Option<String>,
     /// The rules it takes in, by name.
     pub rules: Vec<String>,
@@ -1165,10 +1165,10 @@ pub struct ArchitectPanel {
     /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
     /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
     pub notebook: Vec<NotebookSection>,
-    /// The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
-    /// as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
-    /// none.
-    pub constitution: Option<NamedText>,
+    /// The project's constitution, which the architect judges by with the policy, as the project's main has it: its
+    /// path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
+    /// why it could not be read; none when the project names none.
+    pub constitution: Option<MainText>,
 }
 
 /// One of the owner's conversations, as their list shows it.
@@ -2089,8 +2089,8 @@ pub struct CellInput {
 }
 
 /// What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
-/// project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
-/// of the database holds.
+/// project's settings and rules, as its configuration has them, its guide, as its main has it in its checkout as the
+/// engine last fetched it, and what each table and view of the database holds.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct InputsNow {
     pub projects: Vec<ProjectNow>,
@@ -2104,13 +2104,36 @@ pub struct ProjectNow {
     pub project: String,
     /// Each setting the flow may read, by its name, with its value as text: a text as it is, anything else as JSON.
     pub settings: Vec<NamedText>,
-    /// The project's AGENTS.md as its checkout has it now.
+    /// The commit of the project's main its AGENTS.md and the index of its records were read at: `origin/<main>` in its
+    /// checkout as the engine last fetched it. None when main has no commit there.
+    pub commit: Option<String>,
+    /// When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+    pub committed_at: Option<i64>,
+    /// Why they could not be read, in a sentence; none when they were. Then `agents_md` and `records` are empty.
+    pub error: Option<String>,
+    /// The project's AGENTS.md as its main has it at `commit`.
     pub agents_md: String,
-    /// The index of its records as its checkout has it now: each file's path with its first line. The full text of
+    /// The index of its records as its main has it at `commit`: each file's path with its first line. The full text of
     /// the files an item cites is added for each item.
     pub records: Vec<NamedText>,
     /// The project's own rules, each by its name with its text.
     pub rules: Vec<NamedText>,
+}
+
+/// A file of a project as its main has it: read at a commit of `origin/<main>` in its checkout, as the engine last
+/// fetched it, never from the checkout's files.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MainText {
+    /// Its path in the project's repository.
+    pub name: String,
+    /// The commit it was read at; none when main has no commit in the checkout.
+    pub commit: Option<String>,
+    /// When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+    pub committed_at: Option<i64>,
+    /// Its text; empty when `error` is set.
+    pub text: String,
+    /// Why it could not be read, in a sentence that names the file and the commit; none when it was.
+    pub error: Option<String>,
 }
 
 /// A name with a text.

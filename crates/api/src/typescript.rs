@@ -151,6 +151,7 @@ pub fn typescript() -> String {
         decl::<InputsNow>(&cfg),
         decl::<ProjectNow>(&cfg),
         decl::<NamedText>(&cfg),
+        decl::<MainText>(&cfg),
         decl::<Returns>(&cfg),
         decl::<ReturnForm>(&cfg),
         decl::<FieldKind>(&cfg),

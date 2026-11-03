@@ -8,7 +8,7 @@
 // the one-to-one no longer holds once done. Each part names the cell that wrote it, and its round opens on the
 // architect's chart.
 
-import { Label } from '@primer/react';
+import { Flash, Label } from '@primer/react';
 import { useEffect, useState } from 'react';
 
 import type { Architect, ArchitectPanel, NotebookSection } from '../api';
@@ -120,8 +120,9 @@ function Notebook({ p, onRound }: { p: ArchitectPanel; onRound: OpenRound }) {
 /// The architect's policy: the draft that waits for the owner's approval, while one does, headed as such, as one
 /// document under the round that wrote it; the policy in force, as one document, with when it took effect and the
 /// round that wrote it, or that none has taken effect yet; and under it the project's constitution, which the
-/// architect judges by with the policy, as the project's own file has it in its checkout; each folded at first, as the
-/// owner asked. The owner approves the draft by replying to the architect's question in the one-to-one beside it.
+/// architect judges by with the policy, as the project's main has it at the commit named beside its path, or why it
+/// could not be read; each folded at first, as the owner asked, but a constitution that could not be read, which opens
+/// to say why. The owner approves the draft by replying to the architect's question in the one-to-one beside it.
 function Policy({ a, panel, onRound }: { a: Architect; panel: ArchitectPanel; onRound: OpenRound }) {
   const p = panel.policy;
   const draft = a.draft;
@@ -150,12 +151,27 @@ function Policy({ a, panel, onRound }: { a: Architect; panel: ArchitectPanel; on
       </Section>
       <Section
         title={t('constitution')}
-        by={law !== null ? <span className="by">{t('constitution_at', { path: law.name })}</span> : undefined}
+        open={law !== null && law.error !== null}
+        by={
+          law !== null ? (
+            <span className="by">
+              {law.commit !== null
+                ? t('constitution_at_commit', {
+                    path: law.name,
+                    commit: law.commit.slice(0, 7),
+                    time: law.committed_at !== null ? time(law.committed_at) : t('commit_time_unknown'),
+                  })
+                : t('constitution_at', { path: law.name })}
+            </span>
+          ) : undefined
+        }
       >
         {law === null ? (
           <p className="muted">{t('constitution_none')}</p>
+        ) : law.error !== null ? (
+          <Flash variant="danger">{law.error}</Flash>
         ) : law.text.trim() === '' ? (
-          <p className="muted">{t('constitution_unread', { path: law.name })}</p>
+          <p className="muted">{t('constitution_empty', { path: law.name })}</p>
         ) : (
           <div className="document">
             <Markdown text={law.text} />

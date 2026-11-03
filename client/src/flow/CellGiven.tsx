@@ -5,9 +5,11 @@
 // its text. For an engine's step, a tool or the owner: what the step does, and the inputs it reads, each opening to
 // what it holds; none of it goes into any agent's context.
 
+import { Flash } from '@primer/react';
 import type { ReactNode } from 'react';
 
 import type { CellInput, CompiledCell, CompiledInput, InputsNow, Src } from '../api';
+import { time } from '../format';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { t, tn } from '../text';
@@ -100,9 +102,10 @@ export function InputFacts({ x, sources }: { x: CompiledInput; sources: CellInpu
 }
 
 /// What one source of an input holds now, as far as the page can know outside a round: a setting, as each project's
-/// configuration has it, in the sheet of what is sent; the project guide, as each project's checkout has it; what the
-/// engine computes and a table or view, as the flow and the definition say, in the page's words; nothing for a place
-/// of a return, which the cell it comes from shows, or what rows recorded.
+/// configuration has it, in the sheet of what is sent; the project guide, as each project's main has it, at the commit
+/// named, or why it could not be read; what the engine computes and a table or view, as the flow and the definition
+/// say, in the page's words; nothing for a place of a return, which the cell it comes from shows, or what rows
+/// recorded.
 function SourceHolds({ src, now }: { src: Src; now: InputsNow | undefined }) {
   const f = useFlow();
   if (Array.isArray(src) || src === 'self' || 'recorded' in src) return null;
@@ -141,17 +144,30 @@ function SourceHolds({ src, now }: { src: Src; now: InputsNow | undefined }) {
   }
   return (
     <>
-      {now.projects.map((p) => (
-        <div key={p.project} className="pp-part">
-          <Over>{tn('holds_guide_in', p.records.length, { project: p.project })}</Over>
-          <Sheet>
-            <Long text={p.agents_md}>{(x) => <Markdown text={x} />}</Long>
-          </Sheet>
-          <Sheet mono>
-            <Long text={p.records.map((n) => `${n.name} ${n.text}`).join('\n')} />
-          </Sheet>
-        </div>
-      ))}
+      {now.projects.map((p) =>
+        p.error !== null ? (
+          <div key={p.project} className="pp-part">
+            <Over>{t('holds_guide_failed', { project: p.project })}</Over>
+            <Flash variant="danger">{p.error}</Flash>
+          </div>
+        ) : (
+          <div key={p.project} className="pp-part">
+            <Over>
+              {tn('holds_guide_in', p.records.length, {
+                project: p.project,
+                commit: (p.commit ?? '').slice(0, 7),
+                time: p.committed_at !== null ? time(p.committed_at) : t('commit_time_unknown'),
+              })}
+            </Over>
+            <Sheet>
+              <Long text={p.agents_md}>{(x) => <Markdown text={x} />}</Long>
+            </Sheet>
+            <Sheet mono>
+              <Long text={p.records.map((n) => `${n.name} ${n.text}`).join('\n')} />
+            </Sheet>
+          </div>
+        ),
+      )}
       <p className="pp-note">{t('holds_guide_cited')}</p>
     </>
   );
