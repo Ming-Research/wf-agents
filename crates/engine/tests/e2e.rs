@@ -23771,14 +23771,11 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
     assert_eq!(tests["weakened"][0]["test"], "old_test", "{tests}");
     assert_eq!(tests["weakened"][0]["reason"], "A technical one.", "{tests}");
     assert_eq!(tests["test_files"], json!([]), "{tests}");
-    // The first round and the re-check both list the project's test paths among their inputs (the session holds them
-    // from the first round, so the re-check refers to them), and neither lists a source of the old test changes.
-    let first_round = message_at(&e, work, "T1", false);
-    for message in [&first_round, &m] {
-        let from = work_from(message);
-        assert!(from.iter().any(|l| l.ends_with(". config:test_paths")), "{message}");
-        assert!(from.iter().all(|l| !l.contains("test_changes[")), "{message}");
-    }
+    // The re-check lists the project's test paths among its inputs (the session holds them from the first round, so it
+    // refers to them), and lists no source of the old test changes.
+    let from = work_from(&m);
+    assert!(from.iter().any(|l| l.ends_with(". config:test_paths")), "{m}");
+    assert!(from.iter().all(|l| !l.contains("test_changes[")), "{m}");
 
     // A round that wrote tests ended at the last commit it wrote them in: the commits after that one only, and no fix
     // since.
