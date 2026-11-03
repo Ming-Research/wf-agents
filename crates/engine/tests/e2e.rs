@@ -12967,6 +12967,413 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The dependencies between items, each as the item and the item it depends on, in order.
+fn links_of(e: &Engine) -> Vec<(i64, i64)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// An architect's change removes a dependency, and the review of the batch lets it be made: the item no longer depends
+// on the other, the dependency it keeps stands, and the changes are made. A dependency the batch makes and removes again
+// is not there once the batch is made: each change is checked against what the earlier ones leave.
+#[test]
+fn a_batch_removes_a_dependency_and_the_review_makes_it() {
+    let s = setup("remove-dependency");
+    let mut agents = scripts();
+    // The items are made below, numbered 1 to 4 in order: the parser, the lexer, the tokens and one to do later. The
+    // parser depends on the lexer and on the tokens; the batch removes the first, and makes and removes one on item 4.
+    let changes = json!([
+        { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "The parser needs nothing the lexer hands in." },
+        { "kind": "add_dependency", "item": "1", "on": "4", "dependency": "blocking", "reason": "It seemed to need it." },
+        { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "It does not, on a second look." },
+    ]);
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes.clone() }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let later = a_ready_item(&mut e, "Do it later");
+    assert_eq!((parser, lexer, tokens, later), (1, 2, 3, 4));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "The parser needs nothing the lexer hands in.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(links_of(&e), [(parser, tokens)], "{log}");
+    let states: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT state FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(states, ["made", "made", "made"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A change that removes a dependency the items do not have then is sent back, with every other reason, and nothing is
+// made: one removed twice, one never made, one a cancel of the batch took away, and one of an item another project's
+// architect changes, which is the project's own business to remove. A dependency made after a cancel still closes a
+// cycle with a dependency the cancel took away, since the write may leave it.
+#[test]
+fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
+    let s = setup("remove-dependency-refused");
+    let mut agents = scripts();
+    // The items are numbered 1 to 5 in order: the parser, the lexer, the tokens, one to do later and one of project q.
+    // The parser depends on the lexer and the tokens, and the item of q on the lexer.
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "r" },
+                { "kind": "cancel", "item": "3", "goes": "Not needed.", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "3", "reason": "r" },
+                { "kind": "remove_dependency", "item": "5", "on": "2", "reason": "r" },
+                // The tokens depend on item 4, and the cancel of the tokens takes that away only when no work goes on
+                // them: the write may leave it, so this closes a cycle all the same.
+                { "kind": "add_dependency", "item": "4", "on": "3", "dependency": "blocking", "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let later = a_ready_item(&mut e, "Do it later");
+    let other =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('q', 'Lex too', 'Missing.', 'Needed.', 'change', 'l')",
+                [],
+            )?;
+            let other = tx.last_insert_rowid();
+            db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+            db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+            db::add_dependency(tx, other, lexer, "its lexer", "parallel")?;
+            db::add_dependency(tx, tokens, later, "its later part", "parallel")?;
+            Ok(other)
+        })
+        .unwrap();
+    assert_eq!((parser, lexer, tokens, other), (1, 2, 3, 5));
+    say(&mut e, "Take away what the parser does not need.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rejected = why_sent_back(&e, arch, "H8");
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    for reason in [
+        "item change 2 (remove_dependency): item 1 does not depend on item 2",
+        "item change 3 (remove_dependency): item 1 does not depend on item 4",
+        "item change 5 (remove_dependency): item 1 does not depend on item 3",
+        "item change 6 (remove_dependency): item 5 is not of p",
+    ] {
+        assert!(rejected[0].contains(reason), "{reason}\n{rejected:?}");
+    }
+    assert!(
+        rejected[0].contains("the items' dependencies close a cycle"),
+        "{rejected:?}"
+    );
+    // The first change is sound, and the cancel is: neither is named.
+    assert!(!rejected[0].contains("item change 1 "), "{rejected:?}");
+    assert!(!rejected[0].contains("item change 4 "), "{rejected:?}");
+    // Nothing was made: the dependencies stand and the item is not cancelled.
+    assert_eq!(links_of(&e), [(1, 2), (1, 3), (3, 4), (5, 2)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 3", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review drops the removal of a dependency and keeps the change that reverses it. Each was valid in the state the
+// batch gave, but with the removal left out the reversal closes a cycle: the reversal alone is left out, saying why, the
+// batch is made, and the work of the architect does not fail.
+#[test]
+fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("remove-dependency-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2); the batch turns that around.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "add_dependency", "item": "2", "on": "1", "dependency": "blocking", "reason": "r" },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The parser needs the lexer." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")
+    })
+    .unwrap();
+    say(&mut e, "Turn the parser and the lexer around.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("item 2 cannot depend on 1"), "{why}");
+    // The dependency stands, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer)], "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review drops the removal of a dependency and keeps a merge that the removal made room for. With the removal left
+// out, the merge would make an item depend on the item that depends on it: the merge alone is left out, saying why, and
+// nothing of it stays (the absorbed item keeps its dependency and is not cancelled), the change after it is made, and
+// the work of the architect does not fail.
+#[test]
+fn a_merge_is_left_out_whole_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("merge-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2), and the tokens (3) on the parser.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "3", "on": "1", "reason": "r" },
+                { "kind": "merge", "keep": "3", "absorbed": ["2"], "reason": "The lexer is the tokens." },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The tokens need the parser." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Make the tokens");
+    assert_eq!((parser, lexer, tokens), (1, 2, 3));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, tokens, parser, "its parser", "parallel")
+    })
+    .unwrap();
+    say(&mut e, "Merge the lexer into the tokens.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("cannot depend on"), "{why}");
+    // Both dependencies stand, the lexer is not cancelled, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer), (tokens, parser)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
+// nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
+// its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes
+// the row that clears, towards the merge (`M2`), its blocker resolved.
+#[test]
+fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_is_free() {
+    let s = setup("remove-dependency-slot");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let lexer = a_ready_item(&mut e, "Make the lexer");
+    let parser = a_ready_item(&mut e, "Parse with it");
+    let other = a_ready_item(&mut e, "Keep the slot");
+    let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            db::add_dependency(tx, parser, lexer, "its tokens", "blocking")?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'M1')",
+                params![parser, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    // Only this work goes on, so that no other starts or takes the slot.
+    let go = Go {
+        pause: held_but(&[work], &[]),
+        ..Go::default()
+    };
+    let blockers = |e: &Engine| -> Vec<(String, Option<String>)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT holder, ended FROM blockers WHERE work = ?1 ORDER BY id")
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let log = || said.lock().unwrap().join("\n");
+    // It waits for the item, and its blocker is held by the items it waits for.
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // A slot is free, and the dependency stands: it stays as it is.
+    assert_eq!(e.free_slots().unwrap(), 1);
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // Another work takes the machine's one slot, and the dependency is removed.
+    let holder =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'I1')",
+                params![other, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    assert_eq!(e.free_slots().unwrap(), 0);
+    api::remove_dependency(&mut e.db, parser, lexer).unwrap();
+    // With no slot free it does not go on, though nothing holds it back: it waits for a slot, its blocker open.
+    for _ in 0..2 {
+        e.pass(&go).unwrap();
+        assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+        assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+        assert_eq!(state(&e, parser).unwrap().1, "M1", "{}", log());
+        assert_eq!(e.waiting_for_slot().unwrap(), [work], "{}", log());
+    }
+    // The slot is free: it goes on, the row that clears, and its blocker is resolved. No one said anything to it.
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [holder])?;
+        Ok(())
+    })
+    .unwrap();
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait", "clear"], "{}", log());
+    assert_eq!(
+        blockers(&e),
+        [("items".to_string(), Some("resolved".to_string()))],
+        "{}",
+        log()
+    );
+    assert_eq!(state(&e, parser).unwrap().1, "M2", "{}", log());
+    let told: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM interjections WHERE work = ?1", [work], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(told, 0, "{}", log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A cancel of an item the batch creates, named by its key, cancels the create out: the item is never made, and the
 // create, the changes that name its key and the cancel are dropped as they are collected, saying so, so that the review
 // is not given them; in the sixth trial a batch held a create, a move and a cancel of one item, which the review could
@@ -14845,9 +15252,12 @@ fn a_work_goes_on_while_another_waits_for_its_ci() {
 }
 
 // Two works that run side by side each merge into main through the flow, in the order they came into the project's
-// merge queue. Every change to their state is one transaction recorded in `changes`, the rows of a transaction written
-// at one time by one writer, one after the other; each work's rounds are numbered from one, none twice or missing,
-// and none is left open.
+// merge queue, the work with the larger number coming first: while its merge runs, held at its CI, the other comes,
+// reads that it is behind and records a round saying so, and merges only after the first's merge round ended. The order
+// they came in is read from the times their rounds before the queue ended, the merges' order from main's log and the
+// rounds' times; the `merge_queue` view, whose order is what is tested, is read nowhere here. Every change to their
+// state is one transaction recorded in `changes`, the rows of a transaction written at one time by one writer, one
+// after the other; each work's rounds are numbered from one, none twice or missing, and none is left open.
 #[test]
 fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     let mut agents = scripts();
@@ -14877,33 +15287,102 @@ fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     );
     let (s, mut e, said, first, second) = two_works_with("both-merge", agents, Hooks::default());
     let over = |e: &Engine, item: i64| state(e, item).is_some_and(|w| w.1 == "E1");
-    // The works in the order they came into the merge queue.
-    let mut queued: Vec<i64> = Vec::new();
-    for _ in 0..300 {
-        e.tick().unwrap();
-        let log = said.lock().unwrap().join("\n");
-        let mut st =
-            e.db.conn()
-                .prepare("SELECT work FROM merge_queue WHERE project = 'p'")
-                .unwrap();
-        let queue: Vec<i64> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
-        drop(st);
-        for w in queue {
-            if !queued.contains(&w) {
-                queued.push(w);
+    let said_so_far = || said.lock().unwrap().join("\n");
+    let cell = |e: &Engine, work: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    // The rounds of a work's merge cell, oldest first: the row each took, when it started and when it ended.
+    let merge_rounds = |e: &Engine, work: i64| -> Vec<(Option<String>, i64, Option<i64>)> {
+        let sql = "SELECT transition, started_at, ended_at FROM rounds WHERE work = ?1 AND cell = 'M2' ORDER BY n";
+        let mut st = e.db.conn().prepare(sql).unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    // A work goes on alone until it stands at `until`, not having taken that cell's step.
+    let goes_on_to = |e: &mut Engine, work: i64, until: &str| {
+        for _ in 0..300 {
+            if cell(&*e, work) == until {
+                return;
             }
+            e.advance(work).unwrap();
         }
-        for item in [first, second] {
-            let paused = state(&e, item).and_then(|w| w.2);
-            assert!(paused.is_none(), "{paused:?}\n{log}");
-        }
-        if over(&e, first) && over(&e, second) {
-            break;
-        }
-    }
-    let log = said.lock().unwrap().join("\n");
-    assert!(over(&e, first) && over(&e, second), "{log}");
+    };
+    // The first pass starts both works; `a` began first and has the smaller number.
+    e.tick().unwrap();
     let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    assert!(a < b);
+    // `a` stops short of the merge queue; `b`, which began after it, comes into the queue first.
+    goes_on_to(&mut e, a, "M1");
+    goes_on_to(&mut e, b, "M2");
+    let (at_a, at_b) = (cell(&e, a), cell(&e, b));
+    assert_eq!((at_a.as_str(), at_b.as_str()), ("M1", "M2"), "{}", said_so_far());
+    // `b` merges with its CI held, its merge round open. `a` comes into the queue meanwhile.
+    s.ci.shut();
+    let held = s.ci.came();
+    let only_b = Go {
+        pause: held_but(&[b], &[]),
+        ..Go::default()
+    };
+    let merging = turns_until(&mut e, &only_b, |_| s.ci.came() > held);
+    assert!(merging, "{}", said_so_far());
+    let in_the_queue = turns_until(&mut e, &Go::default(), |e| !merge_rounds(&*e, a).is_empty());
+    let (a_rounds, b_rounds) = (merge_rounds(&e, a), merge_rounds(&e, b));
+    s.ci.open();
+    assert!(in_the_queue, "{}", said_so_far());
+    // `a` read that it is behind and recorded a round saying so, while `b`'s merge round is open still.
+    assert_eq!(
+        a_rounds.iter().map(|r| r.0.as_deref()).collect::<Vec<_>>(),
+        [Some("behind")],
+        "{}",
+        said_so_far()
+    );
+    assert!(
+        b_rounds.len() == 1 && b_rounds[0].0.is_none() && b_rounds[0].2.is_none(),
+        "{b_rounds:?}\n{}",
+        said_so_far()
+    );
+    let finished = turns_until(&mut e, &Go::default(), |e| over(&*e, first) && over(&*e, second));
+    let log = said_so_far();
+    assert!(finished, "{log}");
+    for item in [first, second] {
+        let paused = state(&e, item).and_then(|w| w.2);
+        assert!(paused.is_none(), "{paused:?}\n{log}");
+    }
+    // The order they came into the queue in: when each one's round before it ended, `b`'s the earlier.
+    let entered = |work: i64| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT max(ended_at) FROM rounds WHERE work = ?1 AND cell = 'M1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert!(entered(b) < entered(a), "{} {}\n{log}", entered(b), entered(a));
+    let queued = vec![b, a];
+    // Each merged once, `a` after `b`'s merge round ended; the round in which `a` said it was behind lay within it.
+    let merged_round = |work: i64| -> Vec<(i64, i64)> {
+        merge_rounds(&e, work)
+            .into_iter()
+            .filter(|r| r.0.as_deref() == Some("merged"))
+            .map(|r| (r.1, r.2.unwrap()))
+            .collect()
+    };
+    let (a_merged, b_merged) = (merged_round(a), merged_round(b));
+    assert!(
+        a_merged.len() == 1 && b_merged.len() == 1,
+        "{a_merged:?} {b_merged:?}\n{log}"
+    );
+    let (a_merged, b_merged) = (a_merged[0], b_merged[0]);
+    assert!(a_merged.0 >= b_merged.1, "{a_merged:?} {b_merged:?}\n{log}");
+    assert!(
+        a_rounds[0].1 >= b_merged.0 && a_rounds[0].2.is_some_and(|ended| ended <= b_merged.1),
+        "{a_rounds:?} {b_merged:?}\n{log}"
+    );
     // Merged onto main in the queue's order: the merges, oldest first, by the works whose pull requests they merged.
     let subjects = git(
         &s.root,
