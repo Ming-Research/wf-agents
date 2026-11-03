@@ -9350,6 +9350,531 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The nth message (from 0) a work's rounds at a cell were sent, as the round recorded it.
+fn nth_message_at(e: &Engine, work: i64, cell: &str, nth: usize) -> String {
+    let input: String =
+        e.db.conn()
+            .query_row(
+                "SELECT input FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n LIMIT 1 OFFSET ?3",
+                params![work, cell, nth as i64],
+                |r| r.get(0),
+            )
+            .unwrap();
+    db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())["message"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
+// Item #21: the review of a batch is given what the batch does, and the revision is held to what it leaves out. At its
+// first look the review is given each change by its line with what it does when the changes are made in their order (a
+// move to where the item is already does nothing; an edit of a problem and an acceptance writes both), the items they
+// name as they stand after them, with how many items wait ahead of each and how many of those are held, and the items
+// ready to start, and none of the project's other items. The revision that leaves a change out with no word, hands one
+// in as it was though the review found it wrong, and names a line that is not the batch's, is sent back with all three.
+// At its next look the review gets a change it found sound and that is the same by its line alone, the one that changed
+// with what changed, and the changes left out with why; and when nothing but changes it found sound is left, it gives
+// no row, and the batch is made. The revision that edits an item is given the item as it is now.
+#[test]
+fn the_review_is_given_what_the_batch_does_and_the_revision_is_held_to_what_it_leaves_out() {
+    let s = setup("batch-loop");
+    let mut agents = scripts();
+    let edit = || {
+        json!({ "kind": "edit_item", "item": "2", "problem": "The parser takes nothing.",
+                "acceptance": ["It takes integers."], "reason": "Its acceptance follows its problem." })
+    };
+    let hold = |item: &str, text: &str| json!({ "kind": "hold", "item": item, "text": text, "reason": "It can wait." });
+    let nothing = || json!({ "kind": "move", "item": "4", "to": { "place": "after", "item": "3" }, "reason": "Four follows three." });
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, n: usize| {
+            // The first attempt edits an item and names no field to change.
+            let changes = if n == 1 {
+                vec![json!({ "kind": "edit_item", "item": "2", "reason": "r" })]
+            } else {
+                vec![edit(), nothing(), hold("5", "Wait for item 2."), hold("6", "Not now.")]
+            };
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, n: usize| {
+            let ok = |line: i64| json!({ "change": line, "verdict": "ok", "why": "Sound." });
+            let fix = json!({ "change": 3, "verdict": "fix", "about": "constitution_and_policy",
+                              "what": "The hold's text says what the batch does.", "how": "Say what stands.",
+                              "cause": "rule_missing" });
+            let rows = match n {
+                1 => vec![
+                    ok(1),
+                    json!({ "change": 2, "verdict": "drop", "why": "It moves nothing." }),
+                    fix,
+                    ok(4),
+                ],
+                2 => vec![fix],
+                // Line 1 is the same as it was found sound: no row is needed for it.
+                _ => Vec::new(),
+            };
+            (Vec::new(), vec![("outcome.review", json!(rows))])
+        }),
+    );
+    let path = config::database(&s.data);
+    agents.insert(
+        "B3",
+        Box::new(move |_: &Request, n: usize| {
+            let c = db::open_read(&path).unwrap();
+            let matter: i64 = c
+                .query_row(
+                    "SELECT matter FROM architect_item_changes WHERE state = 'collected' LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let kept = |line: i64, change: Value| json!({ "line": line, "matter": matter, "change": change });
+            match n {
+                // Line 3 as it was, though found wrong; line 4 left out with no word; and a line that is not the batch's.
+                1 => (
+                    Vec::new(),
+                    vec![(
+                        "outcome.changes",
+                        json!([
+                            kept(1, edit()),
+                            kept(3, hold("5", "Wait for item 2.")),
+                            kept(9, hold("7", "Later."))
+                        ]),
+                    )],
+                ),
+                2 => (
+                    Vec::new(),
+                    vec![
+                        (
+                            "outcome.changes",
+                            json!([kept(1, edit()), kept(3, hold("5", "Item 5 waits for item 2's parser."))]),
+                        ),
+                        ("outcome.left", json!([{ "line": 4, "why": "Item 6 can start now." }])),
+                    ],
+                ),
+                _ => (
+                    Vec::new(),
+                    vec![
+                        ("outcome.changes", json!([kept(1, edit())])),
+                        ("outcome.left", json!([{ "line": 3, "why": "Item 5 may start." }])),
+                    ],
+                ),
+            }
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    // Thirty items in all, the first seven not held.
+    e.db.write(Actor::Owner, |tx| {
+        for i in 2..=30 {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', ?1, 'No parser.', 'Needed.', 'change', 'l')",
+                [format!("Quokka {i}")],
+            )?;
+        }
+        tx.execute("UPDATE items SET rank = id", [])?;
+        tx.execute("UPDATE items SET held = 'Later.' WHERE id > 7", [])?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Order the items.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 120, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    // An edit that names no field is sent back.
+    let edits = why_sent_back(&e, arch, "H8");
+    assert_eq!(edits.len(), 1, "{edits:?}\n{log}");
+    assert!(edits[0].contains("it changes nothing of the item"), "{edits:?}");
+    let taken: Vec<String> = cells_of(&e, arch)
+        .into_iter()
+        .filter(|c| c.1.is_some())
+        .map(|c| c.0)
+        .collect();
+    let at = taken.iter().position(|c| c == "B2").expect(&log);
+    assert_eq!(&taken[at..at + 6], ["B2", "B3", "B2", "B3", "B2", "B4"], "{log}");
+    // The revision is sent back once with all three things wrong with it.
+    let revised = why_sent_back(&e, arch, "B3");
+    assert_eq!(revised.len(), 1, "{revised:?}\n{log}");
+    for part in [
+        "line 9 is no change of the batch",
+        "line 4 is left out of the revision, and the review did not drop it",
+        "line 3 is handed in as it was, though the review found it wrong",
+    ] {
+        assert!(revised[0].contains(part), "{part}\n{revised:?}");
+    }
+    // The first look: what each change does, and the items after them, and none of the other items.
+    let looked = message_at(&e, arch, "B2", false);
+    let changes = given_value(&looked, "·engine·batch_changes").expect(&looked);
+    assert_eq!(changes[0]["state"], "new", "{changes}");
+    assert_eq!(changes[0]["effect"]["wrote"][0]["item"], 2);
+    assert_eq!(
+        changes[0]["effect"]["wrote"][0]["fields"]["problem"],
+        json!(["No parser.", "The parser takes nothing."])
+    );
+    assert_eq!(
+        changes[0]["effect"]["wrote"][0]["fields"]["wanted"],
+        json!([null, ["It takes integers."]])
+    );
+    assert_eq!(changes[1]["effect"], json!({ "result": "nothing" }));
+    assert_eq!(
+        changes[2]["effect"]["wrote"][0]["fields"]["held"],
+        json!([null, "Wait for item 2."])
+    );
+    let after = given_value(&looked, "·engine·batch_after").expect(&looked);
+    assert_eq!(after["items"]["#6"]["queue"]["ahead"], 5, "{after}");
+    assert_eq!(after["items"]["#6"]["queue"]["ahead_held"], 1, "{after}");
+    let ready: Vec<i64> = after["ready"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|x| x["item"].as_i64())
+        .collect();
+    assert_eq!(ready, [1, 2, 3, 4, 7], "{after}");
+    assert!(
+        !looked.contains("Quokka 25") && !looked.contains("Quokka 12"),
+        "{looked}"
+    );
+    // The revision is given the items the changes touch, as they are now, to write whole fields from.
+    let revising = message_at(&e, arch, "B3", false);
+    let touched = given_value(&revising, "·engine·changes_touch").expect(&revising);
+    assert_eq!(touched["#2"]["item"]["problem"], "No parser.", "{touched}");
+    assert!(touched.get("#5").is_some(), "{touched}");
+    // The next look: line 1 by its line alone, line 3 changed, lines 2 and 4 left out with why.
+    let second = nth_message_at(&e, arch, "B2", 1);
+    let changes = given_value(&second, "·engine·batch_changes").expect(&second);
+    assert_eq!(changes[0]["state"], "kept", "{changes}");
+    assert!(changes[0].get("item_change").is_none(), "{changes}");
+    assert_eq!(changes[1]["state"], "changed", "{changes}");
+    assert!(
+        changes[1]["diff"]["text"].as_str().unwrap().contains("item 2's parser"),
+        "{changes}"
+    );
+    let why = |line: i64| -> String {
+        changes
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["state"] == "removed" && c["change"] == line)
+            .map(|c| c["why"].as_str().unwrap_or_default().to_string())
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        why(2),
+        "Left out as the review dropped it: It moves nothing.",
+        "{changes}"
+    );
+    assert_eq!(why(4), "Item 6 can start now.", "{changes}");
+    // The last look has nothing but line 1, which the review gave no row for, and line 3 left out.
+    let third = message_at(&e, arch, "B2", true);
+    let changes = given_value(&third, "·engine·batch_changes").expect(&third);
+    assert_eq!(changes[0]["state"], "kept", "{changes}");
+    assert_eq!(changes[1]["why"], "Item 5 may start.", "{changes}");
+    // What was made: line 1, both its fields at once; the holds were left out.
+    let made: Vec<(i64, String)> = engine::query_json(
+        e.db.conn(),
+        "SELECT line, state FROM architect_item_changes WHERE state = 'made'",
+        &[],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| (r["line"].as_i64().unwrap(), r["state"].as_str().unwrap().to_string()))
+    .collect();
+    assert_eq!(made, [(1, "made".to_string())]);
+    let (problem, wanted): (String, String) =
+        e.db.conn()
+            .query_row("SELECT problem, wanted FROM items WHERE id = 2", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(
+        (problem.as_str(), wanted.as_str()),
+        ("The parser takes nothing.", "[\"It takes integers.\"]")
+    );
+    let held: Vec<Option<String>> = [5, 6]
+        .iter()
+        .map(|id| {
+            e.db.conn()
+                .query_row("SELECT held FROM items WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(held, [None, None]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The batch of the 47th work: six changes, of which the review finds three sound, drops one that creates an item, asks
+/// to close an observation instead of one, and gives no row for the sixth, which depends on the item the dropped one
+/// creates. `revises` has the review find the third change wrong at its first look, so that the batch is revised.
+fn r47_changes(revises: bool) -> Vec<Value> {
+    let create = |key: &str, title: &str| {
+        json!({ "kind": "create_item", "key": key, "project": "p", "title": title, "problem": "Unknown.",
+                "why": "Needed.", "acceptance": ["It is known."], "level": "l", "deliver": "change",
+                "reason": "r" })
+    };
+    let mut changes = vec![
+        json!({ "kind": "edit_item", "item": "1", "title": "Parse the input first", "reason": "Clearer." }),
+        json!({ "kind": "edit_item", "item": "1", "why": "Parsing comes first.", "reason": "Clearer." }),
+        json!({ "kind": "edit_item", "item": "1", "problem": "No parser yet.", "reason": "Clearer." }),
+        create("meas", "Measure parse"),
+        create("cover", "Cover it"),
+        json!({ "kind": "add_dependency", "item": "1", "on": "meas", "dependency": "blocking", "reason": "r" }),
+    ];
+    if revises {
+        // Three changes: the sound one, the one that asks an observation to close, and one found wrong.
+        changes = vec![
+            changes[0].clone(),
+            create("cover", "Cover it"),
+            json!({ "kind": "hold", "item": "1", "text": "Item 1 waits for change 1.", "reason": "r" }),
+        ];
+    }
+    changes
+}
+
+/// An engine with the architect's H8 handing in the changes of [`r47_changes`], its review as `review` says (by its
+/// look, from 1), and its revision as `revise` says; project p has the item and the open observation 1.
+fn r47_engine(
+    s: &Setup,
+    revises: bool,
+    review: impl Fn(usize) -> Vec<Value> + Send + Sync + 'static,
+    revise: Option<Script>,
+) -> (Engine, Arc<Mutex<Vec<String>>>) {
+    let mut agents = scripts();
+    let changes = r47_changes(revises);
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(move |_: &Request, n: usize| (Vec::new(), vec![("outcome.review", json!(review(n)))])),
+    );
+    if let Some(revise) = revise {
+        agents.insert("B3", revise);
+    }
+    let (mut e, said) = engine(s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, what, source) VALUES ('p', 'The lexer drops a token.', 'A report')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    (e, said)
+}
+
+// Item #21, R47-49: the review finds three changes sound, drops one that creates an item, asks to close an observation
+// in place of another, and gives no row for the sixth, which names the item the dropped one creates: that is a review
+// with nothing to fix. The three are made, the observation is closed with the reason the review gave, the others are
+// left out and the revision is not asked for: the batch goes from the review to the rethink.
+#[test]
+fn a_review_that_drops_and_asks_to_close_an_observation_ends_the_batch_with_no_revision() {
+    let s = setup("batch-r47");
+    let review = |_: usize| {
+        let ok = |line: i64| json!({ "change": line, "verdict": "ok", "why": "Sound." });
+        vec![
+            ok(1),
+            ok(2),
+            ok(3),
+            json!({ "change": 4, "verdict": "drop", "why": "The parse is measured already." }),
+            json!({ "change": 5, "verdict": "close_observation", "observation": 1, "closed_as": "outdated",
+                    "text": "Main reads the token already." }),
+        ]
+    };
+    let (mut e, said) = r47_engine(&s, false, review, None);
+    say(&mut e, "Order the items.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let taken: Vec<String> = path_of(&e, arch);
+    let at = taken.iter().position(|c| c == "B2").expect(&log);
+    assert_eq!(&taken[at..at + 2], ["B2", "B4"], "no revision: {log}");
+    let states: Vec<(i64, String, Option<String>)> = engine::query_json(
+        e.db.conn(),
+        "SELECT line, state, json_extract(outcome, '$.verdict') AS verdict FROM architect_item_changes ORDER BY line",
+        &[],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| {
+        (
+            r["line"].as_i64().unwrap(),
+            r["state"].as_str().unwrap().to_string(),
+            r["verdict"].as_str().map(str::to_string),
+        )
+    })
+    .collect();
+    let dropped = |line: i64, verdict: &str| (line, "dropped".to_string(), Some(verdict.to_string()));
+    assert_eq!(
+        states,
+        [
+            (1, "made".to_string(), None),
+            (2, "made".to_string(), None),
+            (3, "made".to_string(), None),
+            dropped(4, "drop"),
+            dropped(5, "close_observation"),
+            dropped(6, "drop"),
+        ],
+        "{log}"
+    );
+    // The item has the three edits; no item was made; the observation is closed as the review said.
+    let item: (String, String, String) =
+        e.db.conn()
+            .query_row("SELECT title, why, problem FROM items WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+    assert_eq!(
+        item,
+        (
+            "Parse the input first".to_string(),
+            "Parsing comes first.".to_string(),
+            "No parser yet.".to_string()
+        )
+    );
+    let items: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM items", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(items, 1);
+    let closed: (String, String) =
+        e.db.conn()
+            .query_row("SELECT closed, closed_why FROM observations WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(
+        closed,
+        ("outdated".to_string(), "Main reads the token already.".to_string()),
+        "{log}"
+    );
+    // The batch's look is gone with the batch.
+    let views: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM architect_batch_views", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(views, 0);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #21: the review that asks to close an observation in place of a change, and finds another change wrong, sends
+// the batch to its revision, which leaves the first change out as the review asked and needs no word of why; the
+// observation closes when the batch is made after the next look, not before, and that look is told why the change is
+// gone, and that the observation will close.
+#[test]
+fn an_observation_the_review_asked_to_close_is_closed_when_the_revised_batch_is_made() {
+    let s = setup("batch-close-after-fix");
+    let review = |n: usize| {
+        if n == 1 {
+            vec![
+                json!({ "change": 1, "verdict": "ok", "why": "Sound." }),
+                json!({ "change": 2, "verdict": "close_observation", "observation": 1, "closed_as": "outdated",
+                        "text": "Main reads the token already." }),
+                json!({ "change": 3, "verdict": "fix", "about": "constitution_and_policy",
+                        "what": "The hold's text names a change of the batch.", "how": "Say what stands.",
+                        "cause": "rule_missing" }),
+            ]
+        } else {
+            vec![json!({ "change": 3, "verdict": "ok", "why": "Now it says what stands." })]
+        }
+    };
+    let path = config::database(&s.data);
+    let revise: Script = Box::new(move |_: &Request, _: usize| {
+        let c = db::open_read(&path).unwrap();
+        let matter: i64 = c
+            .query_row(
+                "SELECT matter FROM architect_item_changes WHERE state = 'collected' LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        // The observation is still open while the batch waits for its next look.
+        let open: i64 = c
+            .query_row("SELECT count(*) FROM observations_open WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(open, 1);
+        let changes = r47_changes(true);
+        let hold = json!({ "kind": "hold", "item": "1", "text": "Item 1 waits for its parser.", "reason": "r" });
+        (
+            Vec::new(),
+            vec![(
+                "outcome.changes",
+                // Line 2 is left out as the review asked, and says no more.
+                json!([
+                    { "line": 1, "matter": matter, "change": changes[0] },
+                    { "line": 3, "matter": matter, "change": hold }
+                ]),
+            )],
+        )
+    });
+    let (mut e, said) = r47_engine(&s, true, review, Some(revise));
+    say(&mut e, "Order the items.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let taken: Vec<String> = path_of(&e, arch);
+    let at = taken.iter().position(|c| c == "B2").expect(&log);
+    assert_eq!(&taken[at..at + 4], ["B2", "B3", "B2", "B4"], "{log}");
+    let closed: (String, String) =
+        e.db.conn()
+            .query_row("SELECT closed, closed_why FROM observations WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(
+        closed,
+        ("outdated".to_string(), "Main reads the token already.".to_string()),
+        "{log}"
+    );
+    // The next look was told the change was left out and the observation will close.
+    let second = nth_message_at(&e, arch, "B2", 1);
+    let changes = given_value(&second, "·engine·batch_changes").expect(&second);
+    let removed = changes
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["state"] == "removed")
+        .cloned()
+        .expect(&second);
+    assert_eq!(removed["change"], 2, "{changes}");
+    assert!(
+        removed["why"]
+            .as_str()
+            .unwrap()
+            .contains("observation #1 closes when the batch is made"),
+        "{removed}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// What a script hands in: the branches it picks and the values it sets, by their paths.
 type Hands = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
 

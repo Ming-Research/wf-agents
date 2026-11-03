@@ -1483,6 +1483,121 @@ mod tests {
         assert_eq!(approaches, [json!("Cache the parse."), Value::Null]);
     }
 
+    /// A database with items 1 and 2 of project p, held neither.
+    fn two_items() -> Db {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Architect, |tx| {
+            for title in ["one", "two"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level, wanted)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l', '[\"Old.\"]')",
+                    [title],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    fn items_now(db: &Db) -> Vec<Value> {
+        query_json(
+            db.conn(),
+            "SELECT id, title, problem, why, approach, route, wanted, held FROM items ORDER BY id",
+            &[],
+            10,
+        )
+        .unwrap()
+    }
+
+    // Item #21: one change edits several fields of an item at once, each by its own name, and leaves the others as they
+    // are; the problem and the acceptance, which belong together, change in one. A hold writes its text into the item,
+    // over the text of a hold it has; the same text leaves the item as it was, which a trial of the change sees as a
+    // change that wrote nothing.
+    #[test]
+    fn an_edit_names_the_fields_it_changes_and_a_hold_over_a_hold_writes_its_text() {
+        let mut db = two_items();
+        let edit = json!({ "kind": "edit_item", "item": 1, "problem": "New problem.", "acceptance": ["New one.", "New two."],
+                           "route": " bugfix ", "reason": "r" });
+        db.write(Actor::Architect, |tx| {
+            write_all(tx, &[edit], &BTreeMap::new()).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        let items = items_now(&db);
+        assert_eq!(items[0]["problem"], "New problem.");
+        assert_eq!(items[0]["wanted"], json!(["New one.", "New two."]));
+        assert_eq!(items[0]["route"], "bugfix");
+        // What the edit did not name stands, and so does the other item.
+        assert_eq!((&items[0]["title"], &items[0]["why"]), (&json!("one"), &json!("y")));
+        assert_eq!(
+            (&items[1]["problem"], &items[1]["wanted"]),
+            (&json!("x"), &json!(["Old."]))
+        );
+        // A hold, the same hold again, and a hold with another text.
+        let holds = [
+            json!({ "kind": "hold", "item": 2, "text": "Wait.", "reason": "r" }),
+            json!({ "kind": "hold", "item": 2, "text": "Wait.", "reason": "another reason" }),
+            json!({ "kind": "hold", "item": 2, "text": "Wait for the lexer.", "reason": "r" }),
+        ];
+        let (trials, _) = db
+            .write(Actor::Architect, |tx| {
+                tried(tx, &holds, &BTreeMap::new(), |_, _| Ok(())).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        let wrote: Vec<usize> = trials.iter().map(|t| t.rows.len()).collect();
+        assert_eq!(wrote, [1, 0, 1]);
+        db.write(Actor::Architect, |tx| {
+            write_all(tx, &holds, &BTreeMap::new()).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(items_now(&db)[1]["held"], "Wait for the lexer.");
+    }
+
+    // Item #21: the shapes of the flow versions before the field-by-field edit are converted to the one shape the engine
+    // reads, and what they write is what the new shape writes: a change of a part and its text names the field, the
+    // change of the acceptance alone is an edit of the item, a hold writes the text it had as its reason. A change in
+    // the new shape stays as it is.
+    #[test]
+    fn the_old_shapes_of_a_change_write_what_the_new_ones_write() {
+        let old = [
+            json!({ "kind": "edit_item", "item": 1, "part": "problem", "text": "New problem.", "reason": "r" }),
+            json!({ "kind": "edit_acceptance", "item": 1, "acceptance": ["New wording."], "reason": "r" }),
+            json!({ "kind": "edit_item", "item": 2, "part": "route", "text": "feature", "reason": "r" }),
+            json!({ "kind": "hold", "item": 2, "reason": "Held for the lexer." }),
+        ];
+        let new = [
+            json!({ "kind": "edit_item", "item": 1, "problem": "New problem.", "reason": "r" }),
+            json!({ "kind": "edit_item", "item": 1, "acceptance": ["New wording."], "reason": "r" }),
+            json!({ "kind": "edit_item", "item": 2, "route": "feature", "reason": "r" }),
+            json!({ "kind": "hold", "item": 2, "text": "Held for the lexer.", "reason": "Held for the lexer." }),
+        ];
+        let converted: Vec<Value> = old.iter().map(upgraded).collect();
+        assert_eq!(converted, new);
+        assert_eq!(new.iter().map(upgraded).collect::<Vec<_>>(), new);
+        let written = |changes: &[Value]| {
+            let mut db = two_items();
+            db.write(Actor::Architect, |tx| {
+                write_all(tx, changes, &BTreeMap::new()).map_err(db::Error::Abort)?;
+                Ok(())
+            })
+            .unwrap();
+            items_now(&db)
+        };
+        assert_eq!(written(&converted), written(&new));
+        assert_ne!(written(&new), written(&[]), "the changes wrote something");
+        // A return of a round that ran on such a version is read in the shape of today, in what it holds of changes.
+        let held = json!({ "outcome": { "effects": { "item_changes": [old[1].clone()] },
+                                        "changes": [{ "matter": 1, "change": old[0].clone() }, { "matter": 2 }] } });
+        let read = upgraded_return(&held);
+        assert_eq!(read["outcome"]["effects"]["item_changes"], json!([new[1].clone()]));
+        assert_eq!(read["outcome"]["changes"][0]["change"], new[0]);
+        // What is no change is left as it is: no field is added to a return that lacked it.
+        let bare = json!({ "outcome": { "pick": { "matter": 4 } } });
+        assert_eq!(upgraded_return(&bare), bare);
+    }
+
     // Item #217, R232-45: an architect's edit of an item's acceptance changes the text the item was written with
     // (`wanted`), and the conditions locked after design stay as the design, the advisor or the owner's ruling left
     // them. The inputs of the engineer cells say so; this is the engine doing as they say.

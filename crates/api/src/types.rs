@@ -1710,7 +1710,7 @@ pub struct HandledAction {
     pub item: Option<i64>,
 }
 
-/// An item change an architect's batch made or dropped, with the matter it came from.
+/// An item change an architect's batch made, dropped or left out, with the matter it came from.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ItemChange {
     pub id: i64,
@@ -1722,9 +1722,9 @@ pub struct ItemChange {
     pub matter: i64,
     /// The change as handed in, with its reason.
     pub change: Value,
-    /// made, or dropped when the review still found it wrong at its third look.
+    /// made; dropped when the review still found it wrong at its third look; or revised, for a change a revision of the batch left out.
     pub state: String,
-    /// What it made, such as the item it created; for one dropped, what the review found.
+    /// What it made, such as the item it created; for one dropped, what the review found; for one left out, why.
     pub outcome: Option<Value>,
 }
 

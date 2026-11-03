@@ -1893,7 +1893,7 @@ export type ObservationChange = { kind: string, observation: number | null, };
 export type HandledAction = { kind: string, item: number | null, };
 
 /**
- * An item change an architect's batch made or dropped, with the matter it came from.
+ * An item change an architect's batch made, dropped or left out, with the matter it came from.
  */
 export type ItemChange = { id: number,
 /**
@@ -1909,11 +1909,11 @@ cell: string, matter: number,
  */
 change: JsonValue,
 /**
- * made, or dropped when the review still found it wrong at its third look.
+ * made; dropped when the review still found it wrong at its third look; or revised, for a change a revision of the batch left out.
  */
 state: string,
 /**
- * What it made, such as the item it created; for one dropped, what the review found.
+ * What it made, such as the item it created; for one dropped, what the review found; for one left out, why.
  */
 outcome: JsonValue | null, };
 

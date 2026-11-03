@@ -1495,6 +1495,8 @@ const messages = {
   change_matter: 'for matter {n}',
   change_made: 'What it made',
   change_dropped: 'What the review still found',
+  change_left_out_state: 'Left out',
+  change_left_out: 'Why it was left out',
 
   // The observations view.
   observation_head: 'Observation O{id}',

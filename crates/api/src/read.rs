@@ -2404,13 +2404,16 @@ fn holds(conn: &Connection, project: &str) -> Result<Vec<DispatchHold>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// The item changes a project's architect's batches made or dropped, newest first.
+/// The item changes a project's architect's batches made or dropped, and those a revision of a batch left out (a
+/// revised version of a change has an outcome only when the revision left the change out, saying why), newest first.
 fn item_changes(conn: &Connection, project: &str) -> Result<Vec<ItemChange>> {
     let mut st = conn.prepare(
         "SELECT c.id, c.work, c.round, c.matter, c.change, c.state, c.outcome, coalesce(r.cell, '')
          FROM architect_item_changes c JOIN works w ON w.id = c.work
          LEFT JOIN rounds r ON r.work = c.work AND r.n = c.round
-         WHERE w.project = ?1 AND c.state IN ('made', 'dropped') ORDER BY c.id DESC LIMIT 500",
+         WHERE w.project = ?1
+           AND (c.state IN ('made', 'dropped') OR (c.state = 'revised' AND c.outcome IS NOT NULL))
+         ORDER BY c.id DESC LIMIT 500",
     )?;
     let rows = st.query_map([project], |r| {
         Ok(ItemChange {

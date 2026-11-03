@@ -1644,6 +1644,80 @@ mod tests {
         old
     }
 
+    // Item #21: the item changes an architect's batches kept before version 79 are written in the shapes the engine
+    // reads now, so that nothing reads the old ones: a change of one part and its text names the part as the field that
+    // holds the text, the change of the acceptance alone is an edit of the item, and a hold has the text it wrote. A
+    // change waiting for its review is numbered by the place it had; the others have no line.
+    #[test]
+    fn item_changes_kept_before_version_79_are_written_in_the_new_shapes_and_the_waiting_ones_are_numbered() {
+        let mut old = at_version(78);
+        let kept = [
+            (
+                r#"{"kind":"edit_item","item":"1","part":"title","text":"T","reason":"r"}"#,
+                "collected",
+            ),
+            (
+                r#"{"kind":"edit_acceptance","item":"1","acceptance":["A."],"reason":"r"}"#,
+                "collected",
+            ),
+            (r#"{"kind":"hold","item":"2","reason":"Held."}"#, "collected"),
+            (
+                r#"{"kind":"edit_item","item":"1","part":"approach","text":"Do it.","reason":"r"}"#,
+                "made",
+            ),
+            (
+                r#"{"kind":"move","item":"1","to":{"place":"first"},"reason":"r"}"#,
+                "dropped",
+            ),
+        ];
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B2', 'p')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'H8', '{}', 'c', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'owner_words', 'w', '{}', 1)",
+                [],
+            )?;
+            for (change, state) in kept {
+                tx.execute(
+                    "INSERT INTO architect_item_changes (work, round, matter, change, state) VALUES (1, 1, 1, ?1, ?2)",
+                    params![change, state],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let mut st = old
+            .conn()
+            .prepare("SELECT change, line FROM architect_item_changes ORDER BY id")
+            .unwrap();
+        let rows: Vec<(Value, Option<i64>)> = st
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .map(|(c, line)| (serde_json::from_str(&c).unwrap(), line))
+            .collect();
+        let (changes, lines): (Vec<Value>, Vec<Option<i64>>) = rows.into_iter().unzip();
+        assert_eq!(
+            changes,
+            [
+                serde_json::json!({ "kind": "edit_item", "item": "1", "title": "T", "reason": "r" }),
+                serde_json::json!({ "kind": "edit_item", "item": "1", "acceptance": ["A."], "reason": "r" }),
+                serde_json::json!({ "kind": "hold", "item": "2", "text": "Held.", "reason": "Held." }),
+                serde_json::json!({ "kind": "edit_item", "item": "1", "approach": "Do it.", "reason": "r" }),
+                serde_json::json!({ "kind": "move", "item": "1", "to": { "place": "first" }, "reason": "r" }),
+            ]
+        );
+        assert_eq!(lines, [Some(1), Some(2), Some(3), None, None]);
+    }
+
     // Item #217: the comment of an observation's title is part of the table's text, which an agent reads with
     // `SELECT sql FROM sqlite_master`, and the shape comparison of a migrated and a new database does not look at it:
     // a database from version 73 comes out with the comment of the new schema and its rows, and the index.

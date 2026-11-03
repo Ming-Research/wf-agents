@@ -42,8 +42,9 @@ import { ChartPanel, RoundsList, WorkChart } from './WorkChart';
 /// The graph the architect's works run, as the flow names it.
 const GRAPH = 'architect';
 
-/// The item changes an architect's batches made or dropped, newest first: each change as handed in, with why; what it
-/// made, or for one dropped, what the review still found; the matter it came from and the round that handed it in.
+/// The item changes an architect's batches made, dropped or left out by a revision, newest first: each change as handed
+/// in, with why; what it made, or for one dropped, what the review still found, or for one left out, why; the matter it
+/// came from and the round that handed it in. A change a revision left out is marked in its own colour and words.
 function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRound }) {
   if (changes.length === 0) return <p className="muted">{t('arch_changes_none')}</p>;
   return (
@@ -54,7 +55,9 @@ function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRou
           value={c.change}
           before={
             <>
-              <Label variant={c.state === 'made' ? 'success' : 'danger'}>{words(c.state)}</Label>
+              <Label variant={c.state === 'made' ? 'success' : c.state === 'revised' ? 'attention' : 'danger'}>
+                {c.state === 'revised' ? t('change_left_out_state') : words(c.state)}
+              </Label>
               <span className="muted">{t('change_matter', { n: c.matter })}</span>
             </>
           }
@@ -62,7 +65,9 @@ function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRou
         >
           {c.outcome !== null ? (
             <div className="field">
-              <SubHeading>{t(c.state === 'made' ? 'change_made' : 'change_dropped')}</SubHeading>
+              <SubHeading>
+                {c.state === 'made' ? t('change_made') : c.state === 'revised' ? t('change_left_out') : t('change_dropped')}
+              </SubHeading>
               <Labelled value={c.outcome} />
             </div>
           ) : null}

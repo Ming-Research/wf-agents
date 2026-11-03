@@ -1022,6 +1022,36 @@ mod tests {
         }
     }
 
+    // Item #21: an architect's return that holds an item change in a shape of the flow versions before the field-by-field
+    // edit (a part and its text, the acceptance alone, a hold with only a reason) fits the version that reads the new
+    // shapes, so a work that carries it is not sent back for it; a change wrong in any other way still does not fit.
+    #[test]
+    fn an_architect_s_return_with_an_old_shape_of_an_item_change_still_fits() {
+        let g = architect();
+        let revised = |change: Value| {
+            ran(
+                2,
+                "B3",
+                "revised",
+                json!({ "outcome": { "changes": [{ "matter": 1, "change": change }] } }),
+            )
+        };
+        let current = json!({ "kind": "edit_item", "item": "1", "title": "T", "reason": "r" });
+        assert_eq!(misfit(&g, &revised(current)), None);
+        let old = [
+            json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "T", "reason": "r" }),
+            json!({ "kind": "edit_acceptance", "item": "1", "acceptance": ["It holds."], "reason": "r" }),
+            json!({ "kind": "hold", "item": "1", "reason": "Held." }),
+        ];
+        for change in old {
+            assert_eq!(misfit(&g, &revised(change.clone())), None, "{change}");
+        }
+        let wrong = json!({ "kind": "edit_item", "item": "1", "bogus": "x", "reason": "r" });
+        assert!(misfit(&g, &revised(wrong)).is_some());
+        let none = json!({ "kind": "nonsense", "reason": "r" });
+        assert!(misfit(&g, &revised(none)).is_some());
+    }
+
     // A cell done again from its start redoes the rounds of its latest stretch, its detours between them included, and
     // none before it; a cell the work never ran redoes what came after its last cell of the main way.
     #[test]

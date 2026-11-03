@@ -751,3 +751,459 @@ pub(super) fn accounting_problems(
 fn lines_text(lines: &BTreeSet<i64>) -> String {
     lines.iter().map(i64::to_string).collect::<Vec<_>>().join(", ")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use db::{Actor, Db};
+
+    use super::*;
+    use crate::architect::collect_change;
+
+    /// A database with project p's architect's work 1 at `B2`, its rounds 1 to 8, matter 1 and `n` items of p, ranked in
+    /// the order they were made.
+    fn batch_db(n: i64) -> Db {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B2', 'p')",
+                [],
+            )?;
+            for r in 1..=8 {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+                     VALUES (1, ?1, 'H8', '{}', 'c', ?1)",
+                    [r],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'owner_words', 'w', '{}', 1)",
+                [],
+            )?;
+            for i in 1..=n {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level, rank)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l', ?2)",
+                    params![format!("item {i}"), i],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    fn at(n: i64) -> RoundId {
+        RoundId::new(1, n)
+    }
+
+    /// Puts a change in the batch as round `round` hands it in; gives its line.
+    fn collect(db: &mut Db, round: i64, line: Option<i64>, change: Value) -> i64 {
+        db.write(Actor::Architect, |tx| {
+            collect_change(tx, at(round), 1, line, &change).map_err(db::Error::Abort)
+        })
+        .unwrap()
+    }
+
+    /// Tries the batch out for the review that round `round` goes to.
+    fn stage_at(db: &mut Db, round: i64) {
+        db.write(Actor::Engine, |tx| {
+            stage(tx, at(round), "p", &BTreeMap::new()).map_err(db::Error::Abort)
+        })
+        .unwrap();
+    }
+
+    fn hold(item: i64, text: &str) -> Value {
+        json!({ "kind": "hold", "item": item, "text": text, "reason": "r" })
+    }
+
+    fn put(item: i64, to: Value) -> Value {
+        json!({ "kind": "move", "item": item, "to": to, "reason": "r" })
+    }
+
+    /// The review at round `n` found each change of the lines given as the verdicts say.
+    fn reviewed(db: &mut Db, n: i64, verdicts: &[(i64, &str)]) {
+        let rows: Vec<Value> = verdicts
+            .iter()
+            .map(|(line, verdict)| json!({ "change": line, "verdict": verdict, "why": "w" }))
+            .collect();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET cell = 'B2', transition = 'fix', output = ?2, ended_at = ?1 WHERE work = 1 AND n = ?1",
+                params![n, json!({ "outcome": { "review": rows } }).to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // A change takes the batch's next line when it joins, a revised version of it keeps the line, and a line a revision
+    // left out is not given again: the review and the revision name a change by it, so a number that meant one change
+    // must never come to mean another. No two changes waiting for their review have one line.
+    #[test]
+    fn a_line_is_kept_by_every_version_of_a_change_and_never_given_twice() {
+        let mut db = batch_db(2);
+        let lines: Vec<i64> = (0..3).map(|_| collect(&mut db, 2, None, hold(1, "A"))).collect();
+        assert_eq!(lines, [1, 2, 3]);
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_item_changes SET state = 'revised' WHERE work = 1 AND line IN (2, 3)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        // Line 2 comes again as another version of the change; line 3 does not, and a new change takes line 4.
+        assert_eq!(collect(&mut db, 4, Some(2), hold(1, "B")), 2);
+        assert_eq!(collect(&mut db, 4, None, hold(1, "C")), 4);
+        // Two changes waiting for their review on one line is refused by the database.
+        let twice = db.write(Actor::Architect, |tx| {
+            collect_change(tx, at(4), 1, Some(1), &hold(1, "D")).map_err(db::Error::Abort)
+        });
+        assert!(twice.is_err());
+        let waiting: Vec<i64> = collected(db.conn(), 1).unwrap().iter().map(|r| r.line).collect();
+        assert_eq!(waiting, [1, 2, 4]);
+    }
+
+    // Item #21: the review is told how each change stands against the look before. A change whose text is the same but
+    // whose effect is not, because a change before it moved something, is not the same: a move to a place that was already
+    // the item's did nothing, and does something once an earlier change has moved it. A change left out says why.
+    #[test]
+    fn each_change_stands_against_the_look_before_and_one_left_out_says_why() {
+        let mut db = batch_db(4);
+        collect(&mut db, 2, None, put(4, json!({ "place": "first" })));
+        collect(&mut db, 2, None, put(3, json!({ "place": "after", "item": 2 })));
+        collect(&mut db, 2, None, hold(4, "A"));
+        collect(&mut db, 2, None, hold(1, "B"));
+        collect(&mut db, 2, None, hold(3, "C"));
+        stage_at(&mut db, 3);
+        let state = |s: &Stored, line: i64| s.states["lines"][line.to_string()]["state"].clone();
+        let first = stored(db.conn(), 1).unwrap().unwrap();
+        let states: Vec<Value> = (1..=5).map(|l| state(&first, l)).collect();
+        assert_eq!(states, vec![json!("new"); 5]);
+        // The second move finds item 3 right after item 2 already.
+        assert_eq!(first.lines["2"]["effect"]["result"], "nothing");
+        assert_eq!(first.lines["3"]["effect"]["result"], "changes");
+        // The review found the second wrong, the third sound, the fifth wrong, and the others sound.
+        reviewed(&mut db, 4, &[(1, "ok"), (2, "ok"), (3, "ok"), (4, "fix"), (5, "fix")]);
+        // The revision: line 1 changes, 2, 3 and 5 are as they were, 4 is left out, and a change joins.
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_item_changes SET state = 'revised' WHERE work = 1 AND state = 'collected'",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE architect_item_changes SET outcome = ?1 WHERE line = 4",
+                ["{\"what\":\"Item 1 needs no hold.\"}"],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        collect(&mut db, 5, Some(1), put(2, json!({ "place": "last" })));
+        collect(&mut db, 5, Some(2), put(3, json!({ "place": "after", "item": 2 })));
+        collect(&mut db, 5, Some(3), hold(4, "A"));
+        collect(&mut db, 5, Some(5), hold(3, "C"));
+        assert_eq!(
+            collect(&mut db, 5, None, hold(2, "E")),
+            6,
+            "a line left out is not given again"
+        );
+        stage_at(&mut db, 6);
+        let second = stored(db.conn(), 1).unwrap().unwrap();
+        let states: Vec<Value> = [1, 2, 3, 5, 6].iter().map(|l| state(&second, *l)).collect();
+        assert_eq!(
+            states,
+            [
+                json!("changed"),
+                json!("effect_changed"),
+                json!("unchanged"),
+                json!("unchanged"),
+                json!("new")
+            ]
+        );
+        assert_eq!(second.states["lines"]["1"]["diff"]["to"]["now"]["place"], "last");
+        assert_eq!(second.states["lines"]["2"]["effect_was"]["result"], "nothing");
+        assert_eq!(
+            second.states["removed"],
+            json!([{ "change": 4, "state": "removed", "kind": "hold", "why": "Item 1 needs no hold." }])
+        );
+        // The review gives a row for what is new, changed, with another effect, or was found wrong and is the same; line 3,
+        // the same as at the look it was found sound, needs none, and is given by its line, kind and items alone.
+        let rows = collected(db.conn(), 1).unwrap();
+        let needing = needing_a_row(db.conn(), 1, &rows).unwrap();
+        assert_eq!(needing, BTreeSet::from([1, 2, 5, 6]));
+        let verdicts = last_verdicts(db.conn(), 1).unwrap();
+        let given = |line: i64| {
+            let row = rows.iter().find(|r| r.line == line).unwrap();
+            described(
+                &second,
+                row,
+                &verdicts,
+                json!({ "change": line, "item_change": row.change }),
+            )
+        };
+        assert_eq!(
+            given(3),
+            json!({ "change": 3, "state": "kept", "kind": "hold", "items": [4], "found_sound_in": "R4" })
+        );
+        assert_eq!(given(1)["state"], "changed");
+        assert_eq!(given(5)["found_at_look_before"]["verdict"], "fix");
+        assert_eq!(given(2)["effect"]["result"], "changes");
+    }
+
+    // The review is given what the batch comes to: each item the changes name as it stands after them, with the fields
+    // that changed and what they were; where it stands among the items of its project that wait to start, how many stand
+    // ahead of it and how many of those are held; its neighbours; and the items ready to start. Of the project's other
+    // items it is given none: only those the changes name, and those next to them.
+    #[test]
+    fn the_review_is_given_the_items_the_changes_name_as_they_stand_after_them() {
+        let mut db = batch_db(30);
+        db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE items SET held = 'Later.' WHERE id > 7", [])?;
+            Ok(())
+        })
+        .unwrap();
+        collect(&mut db, 2, None, hold(5, "Wait for the lexer."));
+        collect(&mut db, 2, None, put(4, json!({ "place": "after", "item": 3 })));
+        collect(
+            &mut db,
+            2,
+            None,
+            json!({ "kind": "edit_item", "item": 2, "problem": "Changed.", "acceptance": ["It holds."], "reason": "r" }),
+        );
+        stage_at(&mut db, 3);
+        let seen = stored(db.conn(), 1).unwrap().unwrap();
+        // What each change did.
+        assert_eq!(seen.lines["2"]["effect"], json!({ "result": "nothing" }));
+        let wrote = &seen.lines["3"]["effect"]["wrote"][0];
+        assert_eq!(wrote["item"], 2);
+        assert_eq!(wrote["fields"]["problem"], json!(["x", "Changed."]));
+        assert_eq!(wrote["fields"]["wanted"], json!([null, ["It holds."]]));
+        // The items they name, after them.
+        let items = &seen.after["items"];
+        assert_eq!(items["#5"]["changed"]["held"], json!([null, "Wait for the lexer."]));
+        assert_eq!(items["#5"]["rank"], json!({ "was": 5, "now": 5 }));
+        assert_eq!(items["#5"]["queue"]["ahead"], 4);
+        assert_eq!(items["#5"]["queue"]["ahead_held"], 0);
+        assert_eq!(items["#5"]["queue"]["previous"]["item"], 4);
+        assert_eq!(items["#5"]["queue"]["next"]["item"], 6);
+        assert_eq!(items["#2"]["changed"]["problem"], json!(["x", "Changed."]));
+        // The items ready to start: those not held, and not item 5, which the batch holds.
+        let ready: Vec<i64> = seen.after["ready"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|x| x["item"].as_i64())
+            .collect();
+        assert_eq!(ready, [1, 2, 3, 4, 6, 7]);
+        assert_eq!(seen.after["ready"]["more"], 0);
+        // Nothing is given of the items the changes do not name, but their neighbours.
+        let all = seen.after.to_string();
+        assert!(!all.contains("item 25") && !all.contains("item 12"), "{all}");
+    }
+
+    /// The tables a batch tried out must leave as they were, each as the rows it holds.
+    fn snapshot(db: &Db) -> Vec<Value> {
+        [
+            "items",
+            "item_links",
+            "observations",
+            "works",
+            "sessions",
+            "outbox",
+            "changes",
+            "dispatch_queue",
+            "known_red_checks",
+            "engine_notices",
+            "interjections",
+            "architect_matters",
+        ]
+        .iter()
+        .map(|t| json!(query_json(db.conn(), &format!("SELECT * FROM {t} ORDER BY 1"), &[], 100_000).unwrap()))
+        .collect()
+    }
+
+    // Trying a batch out changes nothing: not an item, a dependency, an observation or a work, not the outbox, not what
+    // `changes` keeps, and the listener of the owner's page is told no row of it, though a write that takes its changes
+    // back by hand does tell the rows it touched. This holds for a cancel of an item whose work goes on, which asks the
+    // engine's loop to end the work and puts the asking in the outbox.
+    #[test]
+    fn a_batch_tried_out_leaves_nothing_and_tells_nobody() {
+        let mut db = batch_db(3);
+        let project: config::Project = serde_json::from_value(json!({
+            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple",
+            "test_paths": ["tests/"], "ci": { "fast": "ci", "full": ["ci"], "merge_checks": ["check"] }
+        }))
+        .unwrap();
+        let projects = BTreeMap::from([("p".to_string(), project)]);
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO observations (project, what, source) VALUES ('p', 'Slow.', 'A report.')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, worktree, pr) VALUES (3, 1, 'engineer', 'implement', '/w/3', 3)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO sessions (work, line, cli, cli_session) VALUES (2, 'engineer', 'claude', 's')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let told: Arc<Mutex<Vec<db::Changed>>> = Arc::default();
+        let sink = Arc::clone(&told);
+        db.on_commit(Arc::new(move |_: &Connection, rows: &[db::Changed]| {
+            sink.lock().unwrap().extend(rows.iter().cloned());
+        }))
+        .unwrap();
+        let before = snapshot(&db);
+        let changes = [
+            hold(1, "Held."),
+            put(1, json!({ "place": "last" })),
+            json!({ "kind": "create_item", "key": "cover", "project": "p", "title": "Cover it", "problem": "p", "why": "w",
+                    "acceptance": ["Covered."], "level": "l", "deliver": "change",
+                    "under": { "item": "2", "dependency": "blocking" }, "reason": "r" }),
+            json!({ "kind": "fold_observations", "item": "cover", "observations": [1], "reason": "r" }),
+            // The work on item 3 goes on: the cancel asks the loop to end it, and puts the asking in the outbox.
+            json!({ "kind": "cancel", "item": "3", "goes": "nowhere", "reason": "r" }),
+        ];
+        let (trials, queued) = db
+            .write(Actor::Architect, |tx| {
+                crate::arch_changes::tried(tx, &changes, &projects, |tx, _| {
+                    // Inside, the outbox holds the asking, so that the trial did write it.
+                    crate::architect::count(tx, "SELECT count(*) FROM outbox", &[])
+                })
+                .map_err(db::Error::Abort)
+            })
+            .unwrap();
+        assert_eq!(trials.iter().map(|t| t.result).collect::<Vec<_>>(), vec!["made"; 5]);
+        // The four changes of the items wrote rows; the cancel wrote the asking.
+        assert!(trials[..4].iter().all(|t| !t.rows.is_empty()), "{trials:?}");
+        assert!(queued > 0);
+        assert_eq!(snapshot(&db), before);
+        assert!(told.lock().unwrap().is_empty(), "{:?}", told.lock().unwrap());
+        // A write that takes its changes back to a savepoint by hand is told, which shows the listener would be told.
+        db.write(Actor::Architect, |tx| {
+            tx.execute_batch("SAVEPOINT by_hand")?;
+            tx.execute("UPDATE items SET held = 'x' WHERE id = 1", [])?;
+            tx.execute_batch("ROLLBACK TO by_hand; RELEASE by_hand")?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!told.lock().unwrap().is_empty());
+    }
+
+    fn row(line: i64, change: Value) -> Change {
+        Change {
+            id: line,
+            round: 2,
+            matter: 1,
+            line,
+            change,
+        }
+    }
+
+    fn found(round: i64, verdict: &str) -> Verdict {
+        Verdict {
+            round,
+            verdict: verdict.to_string(),
+            row: json!({ "verdict": verdict, "why": "It is done already." }),
+        }
+    }
+
+    // A revision accounts for every change of the batch: a change it leaves out has a reason unless the review dropped
+    // it, or it names an item such a change was to create; a change the review found wrong and the revision hands in as
+    // it was has one too; a line that is none of the batch's, one handed in twice and a reason for a line that is none of
+    // them are wrong. Every problem is said at once.
+    #[test]
+    fn a_revision_must_say_why_it_leaves_a_change_out_or_does_not_make_what_was_asked() {
+        let create = json!({ "kind": "create_item", "key": "new", "reason": "r" });
+        let depends = json!({ "kind": "add_dependency", "item": 3, "on": "new", "reason": "r" });
+        let before = vec![
+            row(1, create),
+            row(2, depends),
+            row(3, hold(1, "A")),
+            row(4, hold(2, "B")),
+            row(5, hold(3, "C")),
+        ];
+        let verdicts = BTreeMap::from([
+            (1, found(4, "drop")),
+            (3, found(4, "fix")),
+            (4, found(4, "ok")),
+            (5, found(4, "fix")),
+        ]);
+        let as_was = json!({ "line": 3, "matter": 1, "change": hold(1, "A") });
+        let wrongly = vec![
+            as_was.clone(),
+            as_was,
+            json!({ "line": 9, "matter": 1, "change": hold(3, "Z") }),
+        ];
+        let left = vec![json!({ "line": 7, "why": "Not a line." })];
+        let problems = accounting_problems(&before, &wrongly, &left, &verdicts);
+        let said = problems.join("\n");
+        assert!(said.contains("line 9 is no change of the batch"), "{said}");
+        assert!(said.contains("line 3 is handed in more than once"), "{said}");
+        assert!(
+            said.contains("left says of line 7, which is no change of the batch"),
+            "{said}"
+        );
+        // Line 4 was found sound and 5 wrong, and both are left out with no reason; 1 was dropped and 2 names the item
+        // it was to create, which the engine says.
+        assert!(said.contains("lines 4, 5 are left out of the revision"), "{said}");
+        assert!(
+            said.contains("line 3 is handed in as it was, though the review found it wrong"),
+            "{said}"
+        );
+        assert!(
+            !said.contains("line 1 ") && !said.contains("line 2 ") && !said.contains("lines 2"),
+            "{said}"
+        );
+        assert_eq!(problems.len(), 5, "{said}");
+        // With a reason for each, nothing is wrong.
+        let right = vec![json!({ "line": 3, "matter": 1, "change": hold(1, "A") })];
+        let left = vec![
+            json!({ "line": 3, "why": "The hold stands: nothing else keeps the item back." }),
+            json!({ "line": 4, "why": "Item 2 is held by the batch's other change." }),
+            json!({ "line": 5, "why": "Item 3 is held already." }),
+        ];
+        assert_eq!(
+            accounting_problems(&before, &right, &left, &verdicts),
+            Vec::<String>::new()
+        );
+    }
+
+    // A change that names an item a change the review drops was to create goes with it, and the change after that, which
+    // names the item the second was to create; the review gives a row for neither. What the review drops is told to the
+    // revision as it left the batch.
+    #[test]
+    fn a_change_that_names_an_item_a_dropped_change_creates_is_dropped_with_it() {
+        let create = |key: &str, under: Option<&str>| {
+            let mut c = json!({ "kind": "create_item", "key": key, "reason": "r" });
+            if let Some(u) = under {
+                c["under"] = json!({ "item": u, "dependency": "blocking" });
+            }
+            c
+        };
+        let rows = vec![
+            row(1, create("one", None)),
+            row(2, create("two", Some("one"))),
+            row(
+                3,
+                json!({ "kind": "add_dependency", "item": 5, "on": "two", "reason": "r" }),
+            ),
+            row(4, hold(5, "A")),
+        ];
+        let drop_one = [json!({ "change": 1, "verdict": "drop", "why": "It is done." })];
+        assert_eq!(dropped_with(&rows, &drop_one), BTreeSet::from([2, 3]));
+        // A change the review asks to fix leaves the others to be judged.
+        let fix_one = [json!({ "change": 1, "verdict": "fix", "what": "w", "how": "h" })];
+        assert!(dropped_with(&rows, &fix_one).is_empty());
+        let verdicts = BTreeMap::from([(1, found(4, "drop"))]);
+        let said = left_out_as_found(&rows, &BTreeSet::from([4]), &verdicts);
+        assert_eq!(said.keys().copied().collect::<Vec<_>>(), [1, 2, 3]);
+        assert!(said[&1].contains("as the review dropped it: w") || said[&1].contains("It is done already."));
+        assert!(said[&2].contains("line 1"), "{said:?}");
+        assert!(said[&3].contains("line 2"), "{said:?}");
+    }
+}

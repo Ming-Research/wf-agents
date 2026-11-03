@@ -4463,10 +4463,12 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         "changes_accounted" => {
             let before = collected(conn, c.w.id)?;
             let verdicts = batch_view::last_verdicts(conn, c.w.id)?;
+            // The check is at `left`, which it reads, and runs whether or not the return has any; the changes handed
+            // in are the return's.
             Problems::from(batch_view::accounting_problems(
                 &before,
+                &items(c.unwrapped.get("changes")),
                 &items(v),
-                &items(c.unwrapped.get("left")),
                 &verdicts,
             ))
             .into_result()
