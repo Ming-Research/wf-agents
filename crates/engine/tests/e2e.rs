@@ -7927,15 +7927,14 @@ fn a_group_goes_on_to_its_second_cell_after_the_owner_s_words_and_a_new_session(
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// What [`group_found`] gives: the engine, what it said, the work and the matter of each side report, and the work of
+/// the architect.
+type GroupFound = (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>, i64);
+
 /// The architect's work over a group of three side reports, run until the cell that finds what they are has handed in
 /// its return and the group goes on to the cell that takes it in: the engine, what it said, the matters of the three
 /// reports with the works that handed them in, and the architect's work.
-fn group_found(
-    s: &Setup,
-    ids: &Arc<Mutex<Vec<i64>>>,
-    take_in: Script,
-    on: impl FnOnce(&mut Engine),
-) -> (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>, i64) {
+fn group_found(s: &Setup, ids: &Arc<Mutex<Vec<i64>>>, take_in: Script, on: impl FnOnce(&mut Engine)) -> GroupFound {
     let (mut e, said, reports) = reported(s, ids, take_in, |agents| {
         agents.insert(
             "B2",
@@ -8056,6 +8055,16 @@ fn a_matter_withdrawn_between_the_cells_is_left_out_of_the_group_and_not_closed(
     });
     let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
     let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    // The other two were picked with the first, and are its group, before one is withdrawn.
+    let led: Vec<Option<i64>> =
+        e.db.conn()
+            .prepare("SELECT group_lead FROM architect_matters WHERE kind = 'report' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+    assert_eq!(led, [None, Some(matters[0]), Some(matters[0])]);
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE architect_matters SET withdrawn = 'Handed back.' WHERE id = ?1",
