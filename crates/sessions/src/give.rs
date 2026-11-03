@@ -733,7 +733,7 @@ mod tests {
         };
         // Never changed: the value now, the same as the first round gave.
         assert_eq!(
-            said(&[first.clone()], "R1-2·engine·slots", &a).as_deref(),
+            said(std::slice::from_ref(&first), "R1-2·engine·slots", &a).as_deref(),
             Some("the value now, the same as given in R1-2")
         );
         // Another value came between: A is the value now, and the second round's B is not.
@@ -751,7 +751,7 @@ mod tests {
             said(&[first.clone(), second.clone()], "R1-4·engine·slots", &b).as_deref(),
             Some("the value now, the same as given in R1-4")
         );
-        assert_eq!(said(&[first.clone()], "R1-6·engine·slots", &b), None);
+        assert_eq!(said(std::slice::from_ref(&first), "R1-6·engine·slots", &b), None);
         // What the engine did not compute is no value of an input.
         assert_eq!(said(&[first], "rule:ground", &json!("Facts first.")), None);
     }

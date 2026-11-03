@@ -16531,18 +16531,6 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// The numbers of a work's rounds at a cell, in order.
-fn round_numbers(e: &Engine, work: i64, cell: &str) -> Vec<i64> {
-    let mut st =
-        e.db.conn()
-            .prepare("SELECT n FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n")
-            .unwrap();
-    st.query_map(params![work, cell], |r| r.get(0))
-        .unwrap()
-        .map(|x| x.unwrap())
-        .collect()
-}
-
 /// An engineer's work on an item at a cell, with its branch, worktree and pull request, ended when `ended` says why.
 fn work_on(e: &mut Engine, item: i64, at: &str, branch: &str, worktree: &str, pr: i64, ended: Option<&str>) -> i64 {
     let v = e.flow_now;
@@ -16610,9 +16598,11 @@ fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_lon
         runs: [7].into(),
         architects: ["p".to_string()].into(),
     };
-    let rounds = |e: &Engine| cells_of(e, arch).iter().filter(|c| c.0 == "H10").count();
     let log = || said.lock().unwrap().join("\n");
-    assert!(steps_until(&mut e, 20, |e| rounds(&*e) >= 1), "{}", log());
+    let messages = || sent.lock().unwrap().len();
+    // The first message to the architect at H10: the work starts its session and plans before it, in rounds the engine
+    // takes by itself, which send the agent nothing at H10.
+    assert!(steps_until(&mut e, 40, |_| messages() >= 1), "{}", log());
     // The engine pauses, an item is renamed and an observation recorded: the second round is given all three as they are.
     e.set_global_pause(Some(paused()));
     e.db.write(Actor::Owner, |tx| {
@@ -16625,19 +16615,12 @@ fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_lon
         Ok(())
     })
     .unwrap();
-    assert!(steps_until(&mut e, 20, |e| rounds(&*e) >= 2), "{}", log());
-    // The engine runs again: the slots are the first round's value.
+    assert!(steps_until(&mut e, 40, |_| messages() >= 2), "{}", log());
+    // The engine runs again: the slots are the first message's value.
     e.set_global_pause(None);
-    assert!(steps_until(&mut e, 20, |e| rounds(&*e) >= 3), "{}", log());
-    let numbers = round_numbers(&e, arch, "H10");
-    let (first, second) = (numbers[0], numbers[1]);
+    assert!(steps_until(&mut e, 40, |_| messages() >= 3), "{}", log());
     let told = sent.lock().unwrap().clone();
-    assert!(told.len() >= 3, "{} messages were sent\n{}", told.len(), log());
     let (one, two, three) = (&told[0], &told[1], &told[2]);
-    assert_eq!(
-        given_value(one, "·engine·slots").expect(one)["engine"]["runs"],
-        "running"
-    );
     assert_eq!(
         given_value(two, "·engine·slots").expect(two)["engine"]["runs"],
         "paused",
@@ -16645,15 +16628,29 @@ fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_lon
     );
     assert!(two.contains("Parse the input first"), "{two}");
     assert!(two.contains("The slot count is stale."), "{two}");
-    let listed = work_from(three)
-        .into_iter()
-        .find(|l| l.contains("·engine·slots"))
-        .unwrap_or_else(|| panic!("{three}"));
+    // The line a message lists the slots on, and the address on it: the first message names the round that first had
+    // the running engine's slots (its own, or an earlier one's it refers to), the second the round that gave them
+    // paused.
+    let listing = |m: &str| {
+        work_from(m)
+            .into_iter()
+            .find(|l| l.contains("·engine·slots"))
+            .unwrap_or_else(|| panic!("{m}"))
+    };
+    let address = |m: &str| {
+        let line = listing(m);
+        let (_, rest) = line.split_once(". ").unwrap();
+        rest.split(" (").next().unwrap().to_string()
+    };
+    let round_of = |a: &str| a.split('·').next().unwrap().to_string();
+    let (first, second) = (address(one), address(two));
+    assert_ne!(first, second, "{one}\n{two}");
+    let (first_round, second_round) = (round_of(&first), round_of(&second));
     let want = format!(
-        "R{arch}-{first}·engine·slots (the value now, the same as given in R{arch}-{first}; R{arch}-{second} gave \
-         another value since, which is no longer current)"
+        "{first} (the value now, the same as given in {first_round}; {second_round} gave another value since, \
+         which is no longer current)"
     );
-    assert!(listed.contains(&want), "{listed}");
+    assert!(listing(three).contains(&want), "{}", listing(three));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
