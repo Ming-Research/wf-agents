@@ -680,15 +680,9 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
     }
     let crux = c.graph("architect").unwrap().cell("H2").unwrap();
     assert!(crux.rows.iter().all(|r| r.name != "ask_owner"));
-}
-
-// What is put to the owner is written for the owner, who reads it with no one to translate it: the description of the
-// question the ways (`H3`) ask the owner says so, which brings the rule for a field the owner reads to it, and no text
-// of the flow asks for a question with no answer in it, since the architect's recommendation belongs in it.
-#[test]
-fn the_question_put_to_the_owner_is_written_for_the_owner_to_decide_by() {
-    let c = compiled();
-    let ways = c.graph("architect").unwrap().cell("H3").unwrap();
+    // What they ask the owner is written for the owner, who reads it with no one to translate it: the description of
+    // the question says so, which brings the rule for a field the owner reads to it, and no text of the flow asks for a
+    // question with no answer in it, since the architect's recommendation belongs in it.
     let forms = &ways.schema.as_ref().unwrap()["properties"]["outcome"]["anyOf"];
     let to_owner = forms
         .as_array()
