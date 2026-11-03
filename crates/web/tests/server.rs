@@ -627,62 +627,6 @@ fn a_conversation_is_read_in_the_window_the_request_names() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
-// TEMPORARY: this test stands for the acceptance conditions A9, A10 and A11 until the engineer has written them. The
-// adversarial re-check deletes it, and it must be gone before the merge.
-//
-// The files `client/src/**/*.test.ts(x)` are outside the test paths of the adversarial tester, and `client/package.json`
-// is no test file, so the engineer writes them. Conditions A9 (an entry that did not change is not drawn again, counted
-// while the architect's `ran_ms` changes on every read), A10 (the gap row says "N collapsed", a click adds the next
-// window, no "Loading", no scroll to the bottom) and A11 (`useResource` with `staleOk` returns the data of the path
-// before, marked `stale`, until the new path is read; without it, `undefined`) have no test. The architect's answer to
-// the design's open question: use `happy-dom`, a pinned version in `devDependencies` of `client/package.json`; tests
-// that need a DOM start with `// @vitest-environment happy-dom`; one shared setup file holds patches such as
-// `matchMedia`; if Primer cannot draw in `happy-dom`, use `jsdom` and say why in the PR.
-#[test]
-fn the_page_has_its_dom_tests() {
-    const WHAT: &str = "A9, A10 and A11 have no test. Write them as the architect answered the open question about the DOM \
-        test environment (A11 included): add `happy-dom` (or `jsdom`, if Primer cannot draw in `happy-dom`) with a \
-        pinned version to `devDependencies` in client/package.json; start each test file that needs a DOM with \
-        `// @vitest-environment happy-dom`; keep patches such as `matchMedia` in one shared setup file. \
-        client/package-lock.json is written by hand, as `npm` cannot run here: the version, `resolved` and `integrity` of \
-        the package and of every transitive dependency are copied from the npm registry's metadata, and CI's `npm ci` \
-        checks them; if `npm ci` still fails, ask the architect. Also restore the cases the adversarial tester wrote in \
-        commit 2063314 and took back in d6ba471 (client/src/reader.test.ts and client/src/lint.test.ts: a failed read \
-        named while dirty, the last reader leaving while dirty, broken JSON, slow reads that do not pile up, sharing on \
-        random data, aliased and namespace imports); a red case among them is a finding to fix as usual. This test is \
-        temporary: the adversarial re-check deletes it, and it must be gone before the merge.";
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../client");
-    let text = std::fs::read_to_string(root.join("package.json")).expect("client/package.json");
-    let package: serde_json::Value = serde_json::from_str(&text).expect("JSON");
-    let mut pinned = false;
-    for name in ["happy-dom", "jsdom"] {
-        if let Some(version) = package["devDependencies"][name].as_str() {
-            pinned |= version.starts_with(|c: char| c.is_ascii_digit());
-        }
-    }
-    assert!(pinned, "no pinned `happy-dom` or `jsdom` in devDependencies. {WHAT}");
-    fn declares_dom(dir: &std::path::Path) -> bool {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return false;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if declares_dom(&path) {
-                    return true;
-                }
-            } else if std::fs::read_to_string(&path).is_ok_and(|t| t.starts_with("// @vitest-environment")) {
-                return true;
-            }
-        }
-        false
-    }
-    assert!(
-        declares_dom(&root.join("src")),
-        "no file under client/src starts with `// @vitest-environment`. {WHAT}"
-    );
-}
-
 /// Reads what the interface serves at a path as bytes: its status, its headers and its body.
 fn get_bytes(port: u16, path: &str) -> (u16, String, Vec<u8>) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
