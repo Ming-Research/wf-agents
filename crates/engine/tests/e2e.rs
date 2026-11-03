@@ -14439,9 +14439,11 @@ fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_a
 
 // An engineer's round makes one fetch of main, at the first cell (`G1`) and at the next (`R1`) alike: every agent's cell
 // is given the constitution through the flow's common inputs, so each reads main, and the fetch is the round's own,
-// made before its inputs are gathered. The reference is the fetch count of each step. (No agent's cell of the flow
-// declares none of the inputs that read main, so a round that makes no fetch has no cell to be shown at here; that a
-// cell reads main if and only if it declares one is held by the test of `reads_main` in `inputs.rs`.)
+// made before its inputs are gathered. The reference is the fetch count of each step. This is new behaviour: an
+// engineer's round read the checkout's files and made no fetch, so before the change both counts were 0 and the test
+// fails there. (No agent's cell of the flow declares none of the inputs that read main, so a round that makes no fetch
+// has no cell to be shown at here; that a cell reads main if and only if it declares one is held by the test of
+// `reads_main` in `inputs.rs`.)
 #[test]
 fn an_engineer_s_round_fetches_main_once_at_each_agent_cell() {
     let s = setup("main-fetch-count");
