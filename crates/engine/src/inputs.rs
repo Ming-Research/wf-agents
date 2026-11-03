@@ -871,6 +871,11 @@ pub fn engine_input(
             Some(wt) => since_adversarial(e, w, g, wt, &main)?,
             None => None,
         },
+        // The tests the engineer added or extended that the head still has, and those it took away or weakened.
+        "tests_changed" => match wt {
+            Some(wt) => tests_changed(e, w, g, item, wt, &main)?,
+            None => None,
+        },
         // A flow version stored before the records named this input `design_tree_diff`.
         "records_diff" | "design_tree_diff" => match wt {
             Some(wt) => {
@@ -979,6 +984,116 @@ fn since_adversarial(e: &Engine, w: &Work, g: &CompiledGraph, wt: &Path, main: &
     // Oldest first, as the rounds were.
     fixes.reverse();
     Ok(Some(since_json(wt, main, &base, &head, &fixes)))
+}
+
+/// The tests the engineer changed, as the head of the work has them, for adversarial testing: see
+/// [`tests_changed_json`]. The rows are those of the test changes of every return of implementing and of fixing.
+fn tests_changed(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    item: &Item,
+    wt: &Path,
+    main: &str,
+) -> Result<Option<Value>, String> {
+    let mut returns = Vec::new();
+    for cell in crate::test_tables::CELLS {
+        returns.extend(returns_holding(e, w, g, cell, "test_changes")?);
+    }
+    let test_paths = e
+        .config
+        .config
+        .projects
+        .get(&item.project)
+        .map(|p| p.test_paths.clone())
+        .unwrap_or_default();
+    Ok(tests_changed_json(wt, main, &test_paths, &returns))
+}
+
+/// The tests the engineer changed over all the rounds that wrote test changes, each row set against the head of the
+/// worktree, and the test files the work changed; none when there is nothing to give.
+///
+/// - `tests`: the tests added or extended that are still in a file the work itself changed (what merging main brought
+///   is left out), each row as the engineer wrote it with the round it came from. A test whose name leaves no word to
+///   look for is not looked for, and stays here.
+/// - `not_at_head`: the rows whose test is in no file the work changed: main may have taken the test away, or the
+///   engineer renamed it or has it made by a macro, which a name found in no file cannot tell from a test that is gone,
+///   so the reader is told no more than that it is not in the files the work changed.
+/// - `weakened`: the latest `removed`, `skipped` and `relaxed` row of each test, with its reason.
+/// - `test_files`: each file the work changed under the project's test paths, with the tests of `tests` found in it:
+///   those the engineer named; what else changed in the file is for the reader to find in its diff.
+///
+/// A head git cannot read is said so, with why, and the rows are given as they are, not set against the head.
+fn tests_changed_json(wt: &Path, main: &str, test_paths: &[String], returns: &[(RoundId, Value)]) -> Option<Value> {
+    let changed = crate::test_tables::changed(returns.iter().map(|(round, ret)| (*round, ret)));
+    let weakened = changed.weakened;
+    let mut v = Map::new();
+    match at_head(wt, main, test_paths, changed.tests.clone()) {
+        Ok(head) => {
+            if head.tests.is_empty() && head.not_at_head.is_empty() && weakened.is_empty() && head.test_files.is_empty()
+            {
+                return None;
+            }
+            v.insert("tests".into(), Value::Array(head.tests));
+            v.insert("not_at_head".into(), Value::Array(head.not_at_head));
+            v.insert("weakened".into(), Value::Array(weakened));
+            v.insert("test_files".into(), Value::Array(head.test_files));
+        }
+        Err(why) => {
+            if changed.tests.is_empty() && weakened.is_empty() {
+                return None;
+            }
+            v.insert("tests".into(), Value::Array(changed.tests));
+            v.insert("weakened".into(), Value::Array(weakened));
+            v.insert("unreadable".into(), Value::String(why));
+        }
+    }
+    Some(Value::Object(v))
+}
+
+/// The rows of the tests set against the head: see [`tests_changed_json`].
+struct AtHead {
+    tests: Vec<Value>,
+    not_at_head: Vec<Value>,
+    test_files: Vec<Value>,
+}
+
+/// Sets the rows of the tests added or extended against the files the work itself changed at HEAD, one search of those
+/// files for each test, since a search for several at once cannot say which of them a match is.
+fn at_head(wt: &Path, main: &str, test_paths: &[String], rows: Vec<Value>) -> Result<AtHead, String> {
+    let fork = git::fork_point(wt, main)?;
+    let own = git::own_changes(wt, main, &fork, "HEAD")?;
+    let test_files: Vec<&String> = own.iter().filter(|f| git::under(f, test_paths)).collect();
+    let mut listed: Vec<Vec<&str>> = vec![Vec::new(); test_files.len()];
+    let (mut tests, mut not_at_head) = (Vec::new(), Vec::new());
+    for row in &rows {
+        let name = row["test"].as_str().unwrap_or_default();
+        match crate::test_name::in_files(wt, &own, name)? {
+            // A name with no word to look for is not looked for, so it stays.
+            None => tests.push(row.clone()),
+            Some(found) if found.is_empty() => {
+                not_at_head.push(json!({ "round": row["round"], "change": row["change"], "test": row["test"] }));
+            }
+            Some(found) => {
+                for (file, tests_in) in test_files.iter().zip(&mut listed) {
+                    if found.contains(file) {
+                        tests_in.push(name);
+                    }
+                }
+                tests.push(row.clone());
+            }
+        }
+    }
+    let test_files = test_files
+        .into_iter()
+        .zip(listed)
+        .map(|(path, listed)| json!({ "path": path, "listed": listed }))
+        .collect();
+    Ok(AtHead {
+        tests,
+        not_at_head,
+        test_files,
+    })
 }
 
 /// What already exists for the item, as pointers the agent follows itself: its earlier works here, with how far each
@@ -1320,6 +1435,152 @@ mod tests {
         assert!(v["note"].as_str().is_some_and(|n| n.contains("was rewritten")), "{v}");
         assert_eq!(v["own_files"], json!(["c.txt"]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Item #274: the tests the engineer changed are set against the files the work itself changed, at the head. A test
+    // that main's merge took out of its file is not one the work has any more; a test in a file only main changed is
+    // not either; a test in a file outside the test paths is, and its file is not a test file. Every test file the work
+    // changed is listed with the tests found in it, a path with a colon in it whole, and a path pattern in the
+    // project's test paths reaches the files it matches.
+    #[test]
+    fn the_tests_the_engineer_changed_are_set_against_the_files_the_work_changed_at_head() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-tests-changed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let who = [
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "init.defaultBranch=main",
+        ];
+        let run = |args: &[&str]| git::git(&dir, &[&who[..], args].concat()).unwrap().trim().to_string();
+        let put = |file: &str, text: &str| {
+            let at = dir.join(file);
+            std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+            std::fs::write(at, text).unwrap();
+        };
+        let commit = |message: &str| {
+            run(&["add", "-A"]);
+            run(&["commit", "-q", "-m", message]);
+        };
+        let both = |check: &str| {
+            format!("fn kept_test() {{\n    assert!({check});\n}}\n\nfn doomed_test() {{\n    assert!({check});\n}}\n")
+        };
+        run(&["init", "-q"]);
+        put("tests/a.rs", &both("true"));
+        put("tests/b.rs", "fn short_longer() {}\n");
+        put("src/lib.rs", "fn unit_in_src() {}\n");
+        commit("Start");
+        run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&["checkout", "-q", "-b", "work"]);
+        // The work changes both tests of a file, a file whose only function has a longer name than the test it was told
+        // of, a file of the source, and adds a test file with a colon in its name.
+        put("tests/a.rs", &both("1 < 2"));
+        put("tests/b.rs", "fn short_longer() {}\nfn other_longer() {}\n");
+        put("src/lib.rs", "fn unit_in_src() {}\n// changed\n");
+        put("tests/odd:name.rs", "fn colon_test() {}\n");
+        commit("The work's change");
+        // Main takes one of the two tests out, and adds a test file of its own; the branch takes main in, the conflict
+        // in the file both changed resolved by leaving the test out.
+        run(&["checkout", "-q", "main"]);
+        put("tests/a.rs", "fn kept_test() {\n    assert!(true);\n}\n");
+        put("tests/main_only.rs", "fn main_only_test() {}\n");
+        commit("Main goes on");
+        run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&["checkout", "-q", "work"]);
+        let merged = git::git(&dir, &[&who[..], &["merge", "-q", "--no-edit", "origin/main"]].concat());
+        assert!(merged.is_err(), "the fixture has a conflict to resolve");
+        put("tests/a.rs", "fn kept_test() {\n    assert!(1 < 2);\n}\n");
+        run(&["add", "-A"]);
+        run(&["commit", "-q", "--no-edit"]);
+
+        let extended = |test: &str| json!({ "change": "extended", "test": test, "catches": "c", "kind": "new_behaviour", "time": "1s", "worth": "w" });
+        let first = json!({ "test_changes": [
+            extended("kept_test"),
+            extended("doomed_test"),
+            extended("colon_test"),
+            extended("unit_in_src"),
+            extended("short"),
+            extended("main_only_test"),
+            extended("ghost_test"),
+            extended("a title that ends in a stop."),
+        ] });
+        let fix = json!({ "test_changes": [
+            { "change": "removed", "test": "old_removed", "reason": "r" },
+            { "change": "relaxed", "test": "kept_test", "reason": "looser" },
+        ] });
+        let returns = [(RoundId::new(3, 1), first), (RoundId::new(3, 5), fix)];
+        let names = |v: &Value| -> Vec<String> {
+            v.as_array()
+                .unwrap_or_else(|| panic!("{v}"))
+                .iter()
+                .map(|r| r["test"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let v = tests_changed_json(&dir, "main", &["tests/".to_string()], &returns).unwrap();
+        // The tests the work still has in a file it changed, with the round of each row; the one whose name leaves no
+        // word to look for is not looked for.
+        assert_eq!(
+            names(&v["tests"]),
+            ["kept_test", "colon_test", "unit_in_src", "a title that ends in a stop."],
+            "{v}"
+        );
+        assert_eq!(v["tests"][0]["round"], "R3-1", "{v}");
+        assert_eq!(v["tests"][0]["catches"], "c", "{v}");
+        // Not in a file the work changed: taken out by main's merge, only in a file main changed, nowhere, and a name
+        // that is only the start of a longer one.
+        assert_eq!(
+            names(&v["not_at_head"]),
+            ["doomed_test", "short", "main_only_test", "ghost_test"],
+            "{v}"
+        );
+        assert_eq!(
+            v["not_at_head"][0],
+            json!({ "round": "R3-1", "change": "extended", "test": "doomed_test" })
+        );
+        assert_eq!(v["weakened"][0]["test"], "old_removed", "{v}");
+        assert_eq!(v["weakened"][1]["reason"], "looser", "{v}");
+        // The test files the work changed, not the one only main changed and not the file of the source.
+        assert_eq!(
+            v["test_files"],
+            json!([
+                { "path": "tests/a.rs", "listed": ["kept_test"] },
+                { "path": "tests/b.rs", "listed": [] },
+                { "path": "tests/odd:name.rs", "listed": ["colon_test"] },
+            ]),
+            "{v}"
+        );
+        assert!(v.get("unreadable").is_none(), "{v}");
+        // A pattern in the test paths picks the files it matches.
+        let by_pattern = tests_changed_json(&dir, "main", &["*/odd:name.rs".to_string()], &returns).unwrap();
+        assert_eq!(
+            by_pattern["test_files"],
+            json!([{ "path": "tests/odd:name.rs", "listed": ["colon_test"] }]),
+            "{by_pattern}"
+        );
+        // Nothing the engineer changed and no test file the work changed: nothing to give.
+        assert_eq!(tests_changed_json(&dir, "main", &["nowhere/".to_string()], &[]), None);
+        // A repository with no fetched main cannot say what the work changed: the rows are given as they are, and it
+        // is said why.
+        let bare = std::env::temp_dir().join(format!("wf-agents-tests-changed-bare-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&bare);
+        std::fs::create_dir_all(&bare).unwrap();
+        git::git(&bare, &[&who[..], &["init", "-q"]].concat()).unwrap();
+        std::fs::write(bare.join("a.txt"), "a\n").unwrap();
+        git::git(&bare, &[&who[..], &["add", "-A"]].concat()).unwrap();
+        git::git(&bare, &[&who[..], &["commit", "-q", "-m", "x"]].concat()).unwrap();
+        let unread = tests_changed_json(&bare, "main", &["tests/".to_string()], &returns).unwrap();
+        assert!(unread["unreadable"].as_str().is_some_and(|s| !s.is_empty()), "{unread}");
+        assert_eq!(unread["tests"].as_array().unwrap().len(), 8, "{unread}");
+        assert_eq!(unread["weakened"].as_array().unwrap().len(), 2, "{unread}");
+        assert!(
+            unread.get("not_at_head").is_none() && unread.get("test_files").is_none(),
+            "{unread}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bare);
     }
 
     // What a review reviews lists the merges that took main in and no other merge; the head the last table review

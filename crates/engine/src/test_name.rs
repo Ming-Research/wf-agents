@@ -1,7 +1,8 @@
 //! What a test is called: the one place that says which ways of writing a test's name the engine reads.
 //!
-//! An agent names a test as its test runner prints it, and the engine reads the name in two places: against the
-//! source on the work's branch ([`on_branch`], for the acceptance table), and against what a run of CI reported
+//! An agent names a test as its test runner prints it, and the engine reads the name in three places: against the
+//! source on the work's branch ([`on_branch`], for the acceptance table), against the files the work changed
+//! ([`in_files`], for the tests adversarial testing is given), and against what a run of CI reported
 //! ([`matches_run`], for the results of `ci_before`). A name is written as one of:
 //!
 //! - the bare name: `building_a_message_writes_nothing`;
@@ -43,6 +44,16 @@ pub fn on_branch(worktree: &Path, named: &str) -> Result<(), String> {
     git::git(worktree, &args)
         .map(|_| ())
         .map_err(|_| format!("the test {named} is not on the branch: {FORMS}"))
+}
+
+/// The files among `files`, as HEAD of the worktree has them, that hold a word the test `named` may stand for: the
+/// words [`on_branch`] looks for, in the files only. None for a name that leaves no word to look for, which is not
+/// looked for, as [`on_branch`] does not; some for any other, with no file in the list when no file of `files` holds it.
+pub fn in_files(worktree: &Path, files: &[String], named: &str) -> Result<Option<Vec<String>>, String> {
+    if last_segment(named).is_empty() {
+        return Ok(None);
+    }
+    git::grep_files(worktree, &source_words(named), files).map(Some)
 }
 
 /// The text after the last `:`, `/` or `.` of a name: the one word the engine first looked for, and still does, so
@@ -209,6 +220,46 @@ mod tests {
             "a round picked beside a chart > names the `cell`",
         ] {
             assert!(on_branch(&dir, named).is_ok(), "{named}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Item #274: a name is looked for in the given files with the words `on_branch` looks for in the whole branch, so
+    // the files are those that hold a word of it, and a name `on_branch` accepts is one some file holds, except the
+    // name that leaves no word to look for, which is not looked for at all.
+    #[test]
+    fn a_test_is_looked_for_in_the_given_files_by_the_words_the_whole_branch_is() {
+        let dir = repo_with_tests("in-files");
+        let rust = "crates/engine/tests/e2e.rs".to_string();
+        let page = "client/src/page.test.ts".to_string();
+        let both = [rust.clone(), page.clone()];
+        assert_eq!(
+            in_files(&dir, &both, "building_a_message_writes_nothing").unwrap(),
+            Some(vec![rust.clone()])
+        );
+        assert_eq!(
+            in_files(&dir, &both, "engine::e2e waits_for_a_slot").unwrap(),
+            Some(vec![rust.clone()])
+        );
+        let title = "a round picked beside a chart > shows on the architect's page the same way";
+        assert_eq!(in_files(&dir, &both, title).unwrap(), Some(vec![page.clone()]));
+        // Only the files given are looked in.
+        assert_eq!(in_files(&dir, &[rust.clone()], title).unwrap(), Some(Vec::new()));
+        assert_eq!(in_files(&dir, &[], title).unwrap(), Some(Vec::new()));
+        // A name that leaves no word after its last separator is not looked for, as `on_branch` does not.
+        assert_eq!(in_files(&dir, &both, "a title that ends in a stop.").unwrap(), None);
+        for named in [
+            "building_a_message_writes_nothing",
+            "engine::e2e::building_a_message_writes_nothing",
+            "a round picked beside a chart > names the `cell`",
+            "client/src/page.test.ts > a round picked beside a chart > lists the rounds (all of them)",
+            "missing_test",
+            "engine::e2e missing_test",
+            "a round picked beside a chart > shows nothing at all",
+            "a round picked beside a chart > shows the list",
+        ] {
+            let held = in_files(&dir, &both, named).unwrap().is_some_and(|f| !f.is_empty());
+            assert_eq!(held, on_branch(&dir, named).is_ok(), "{named}");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
