@@ -3649,7 +3649,7 @@ fn a_work_whose_earlier_answer_no_longer_fits_goes_back_to_that_cell_and_on_to_t
     let told = notices_of(&e, work);
     assert!(
         told.iter()
-            .any(|t| t.contains(&format!("goes back to cell R1 ")) && t.contains(why)),
+            .any(|t| t.contains("goes back to cell R1 ") && t.contains(why)),
         "{told:?}"
     );
     assert_eq!(transitions(&e, item, "R1").len(), 2, "{log}");
