@@ -596,7 +596,12 @@ fn a_conversation_is_read_in_the_window_the_request_names() {
         let (status, d) = read(limit);
         assert_eq!(status, 200, "{limit}: {d}");
         let given: Vec<_> = d["entries"].as_array().unwrap().iter().map(key).collect();
-        let left: i64 = d["gaps"].as_array().unwrap().iter().map(|g| g["count"].as_i64().unwrap()).sum();
+        let left: i64 = d["gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g["count"].as_i64().unwrap())
+            .sum();
         // The entries given and those left out are the conversation's, and the latest is given, whatever the number.
         assert_eq!(given.len() as i64 + left, all as i64, "{limit}: {d}");
         assert_eq!(given.last(), Some(&last), "{limit}");
