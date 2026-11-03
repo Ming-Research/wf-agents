@@ -1063,6 +1063,27 @@ impl Config {
                      the tests to run"
                 ));
             }
+            // The input is passed by name to the workflow it runs: an empty name is no input.
+            if p.ci.tests_input.as_deref().is_some_and(|i| i.trim().is_empty()) {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.tests_input is empty; it names the workflow's input"
+                ));
+            }
+            // The fast workflow is run by hand with the tests named, and its green means those tests passed. As one of
+            // the full CI's workflows (named alone or with this project's repository) it would give a merge a check
+            // the whole CI never ran.
+            if p.ci.on_demand
+                && p.ci
+                    .full
+                    .iter()
+                    .any(|w| *w == p.ci.fast || *w == format!("{}:{}", p.repo, p.ci.fast))
+            {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.on_demand needs ci.fast to be a workflow other than the full CI's \
+                     (ci.full names {})",
+                    p.ci.fast
+                ));
+            }
             let mut tags = BTreeSet::new();
             for t in &p.observation_tags {
                 if t.name.trim().is_empty() || t.name.trim() != t.name || !tags.insert(t.name.as_str()) {
