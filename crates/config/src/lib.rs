@@ -17,6 +17,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -225,6 +226,11 @@ pub struct Agents {
     /// `H11`) before it goes on with its queue, holding the talk until the owner says more or ends it.
     #[serde(default = "owner_reply_wait")]
     pub owner_reply_wait: u64,
+    /// The most steps a work takes in a row with no agent's round among them, at least 1: a work that goes round cells
+    /// that run no agent costs nothing a budget or a counter sees, and nothing else would stop it. The step past it
+    /// pauses the work instead, and the owner is told why; once the owner lets it go on, it may take as many again.
+    #[serde(default = "steps_without_agent")]
+    pub steps_without_agent: NonZeroU32,
 }
 
 fn context_limit() -> u64 {
@@ -245,6 +251,12 @@ fn slots_free_wait() -> u64 {
 
 fn owner_reply_wait() -> u64 {
     300
+}
+
+/// Some three times the longest run of such steps the works of the first trials took outside a loop (7): a loop that
+/// turns every few seconds stops within a minute or two.
+fn steps_without_agent() -> NonZeroU32 {
+    NonZeroU32::new(20).unwrap_or(NonZeroU32::MIN)
 }
 
 /// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine

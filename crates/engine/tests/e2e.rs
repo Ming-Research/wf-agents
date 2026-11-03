@@ -5062,6 +5062,64 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A work that took as many steps in a row with no agent's round among them as the installation allows, going round
+// cells that run no agent as work 234 of the trials went round M1, T6 and T7, is paused at its next step instead, and
+// the owner is told the cells; once the owner lets it go on, it counts afresh and takes the step.
+#[test]
+fn a_work_that_goes_round_cells_that_run_no_agent_pauses_at_the_installations_bound() {
+    let s = setup("loop");
+    agents_setting(&s, "steps_without_agent = 4");
+    git(&s.data, &["commit", "-q", "-am", "four steps without an agent"]);
+    let (mut e, said, item) = start(&s, scripts());
+    e.tick().unwrap();
+    let log = || said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap_or_else(|| panic!("no work started:\n{}", log()));
+    assert_eq!(paused, None, "{}", log());
+    for cell in ["M1", "T6", "T7", "M1"] {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', '{}', 'c', ?4, ?4)",
+                params![work, next_round(tx, work)?, cell, db::now()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+    let rounds = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    let before = rounds(&e);
+    e.tick().unwrap();
+    let (_, stays, paused) = state(&e, item).unwrap();
+    let why = paused.unwrap_or_else(|| panic!("the work did not pause:\n{}", log()));
+    assert_eq!(
+        why,
+        "4 steps in a row ran no agent, at cells M1, T6 and T7, the last at M1: the work goes round a loop that \
+         nothing else stops. Start it once its cause is found; it may then take 4 such steps again (the \
+         installation's agents.steps_without_agent)"
+    );
+    assert_eq!((stays, rounds(&e)), (at.clone(), before), "{}", log());
+    assert!(
+        notices_of(&e, work).iter().any(|n| n.ends_with(&why)),
+        "{:?}",
+        notices_of(&e, work)
+    );
+    api::resume(&mut e.db, work).unwrap();
+    for _ in 0..3 {
+        if rounds(&e) > before {
+            break;
+        }
+        e.tick().unwrap();
+    }
+    let (_, _, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{}", log());
+    assert!(rounds(&e) > before, "{}", log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// Each agent round of the item's works, oldest first: its name, its cell, and what the engine recorded it gave.
 fn agent_rounds(e: &Engine, item: i64) -> Vec<(String, String, Value)> {
     engine::query_json(

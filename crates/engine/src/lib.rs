@@ -35,6 +35,7 @@ mod decisions;
 mod failed;
 mod faults;
 mod inputs;
+mod loops;
 pub mod message;
 mod open_questions;
 mod reasoning;
@@ -1115,13 +1116,19 @@ impl Engine {
     /// Takes a work one step further, as a job the loop dispatched ([`schedule`]): a paused work only when the owner
     /// asked for its round. A work asked to stop, or on an older flow version, takes no step: the loop stops it or
     /// brings it up once this job has ended, since it does what the engine does to a work from outside its step only
-    /// while the work has no job in flight.
+    /// while the work has no job in flight. A work that took as many steps in a row with no agent's round as the
+    /// installation allows is paused instead, unless the owner asked for its round ([`loops`]).
     fn take_step(&mut self, id: i64, asked: bool) -> Result<Advance, String> {
         let w = self.work(id)?;
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
         }
         if w.flow_version != self.flow_now || db::stop_asked(self.db.conn(), id).map_err(|e| e.to_string())? {
+            return Ok(Advance::Stopped);
+        }
+        if !asked && let Some(why) = loops::past_bound(self, &w)? {
+            self.say(&format!("work {id} paused: {why}"));
+            self.pause(id, &why)?;
             return Ok(Advance::Stopped);
         }
         let g = self.graph_of(&w)?;
