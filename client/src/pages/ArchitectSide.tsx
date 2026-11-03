@@ -11,12 +11,13 @@
 import { Label } from '@primer/react';
 import { useEffect, useState } from 'react';
 
-import type { Architect, NotebookSection } from '../api';
+import type { Architect, ArchitectPanel, NotebookSection } from '../api';
 import { architectState, queueParts } from '../architect';
 import { duration, time } from '../format';
+import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { Block, By, Fold, type OpenRound, Section } from '../parts';
-import { architectHref, href, Link, navigate, type SideTab, sideHref } from '../route';
+import { architectHref, forProject, href, Link, navigate, type SideTab, sideHref } from '../route';
 import { type Key, t, tn } from '../text';
 import { joinedWords } from '../voices';
 import { PolicyText } from './ArchitectViews';
@@ -106,10 +107,10 @@ function NotebookPart({ s, onRound }: { s: NotebookSection; onRound: OpenRound }
 }
 
 /// The architect's notebook, its four sections in their order.
-function Notebook({ a, onRound }: { a: Architect; onRound: OpenRound }) {
+function Notebook({ p, onRound }: { p: ArchitectPanel; onRound: OpenRound }) {
   return (
     <>
-      {a.notebook.map((s) => (
+      {p.notebook.map((s) => (
         <NotebookPart key={s.section} s={s} onRound={onRound} />
       ))}
     </>
@@ -121,10 +122,10 @@ function Notebook({ a, onRound }: { a: Architect; onRound: OpenRound }) {
 /// round that wrote it, or that none has taken effect yet; and under it the project's constitution, which the
 /// architect judges by with the policy, as the project's own file has it in its checkout; each folded at first, as the
 /// owner asked. The owner approves the draft by replying to the architect's question in the one-to-one beside it.
-function Policy({ a, onRound }: { a: Architect; onRound: OpenRound }) {
-  const p = a.policy;
+function Policy({ a, panel, onRound }: { a: Architect; panel: ArchitectPanel; onRound: OpenRound }) {
+  const p = panel.policy;
   const draft = a.draft;
-  const law = a.constitution;
+  const law = panel.constitution;
   return (
     <>
       {draft !== null ? (
@@ -174,11 +175,11 @@ const today = (): number => {
 
 /// The architect's queue in a few words: how many matters are left, how long the oldest has waited, how many it handled
 /// today, and how many an ask of the owner holds.
-function QueueFacts({ a }: { a: Architect }) {
+function QueueFacts({ a, panel }: { a: Architect; panel: ArchitectPanel }) {
   const { waiting, held } = queueParts(a.queue);
   const oldest = waiting.reduce<number | null>((m, x) => (m === null || x.at < m ? x.at : m), null);
   const from = today();
-  const done = a.handled.filter((h) => h.at !== null && h.at >= from).length;
+  const done = panel.handled.filter((h) => h.at !== null && h.at >= from).length;
   const [now] = useState(() => Date.now());
   return (
     <p className="muted">
@@ -229,8 +230,8 @@ function QueueList({ a }: { a: Architect }) {
 
 /// The matters the architect handled with nothing to do, newest first, which leave the one-to-one once done: each its
 /// kind and what it asked, when, and why nothing came of it folded under it.
-function HandledNothing({ a }: { a: Architect }) {
-  const nothing = a.handled.filter((h) => h.nothing);
+function HandledNothing({ panel }: { panel: ArchitectPanel }) {
+  const nothing = panel.handled.filter((h) => h.nothing);
   if (nothing.length === 0) return null;
   return (
     <Section title={t('queue_handled_nothing')} n={nothing.length}>
@@ -251,8 +252,12 @@ function HandledNothing({ a }: { a: Architect }) {
 }
 
 /// The panel beside the one-to-one with an architect, in tabs: its notebook, its policy and its queue, the queue's tab
-/// counting the matters left; a tab changes the address, and the close closes the panel.
+/// counting the matters left; a tab changes the address, and the close closes the panel. The notebook, the policy and
+/// the matters handled are read here (`ArchitectPanel`), for as long as the panel is drawn, and not with the architect
+/// that the one-to-one reads on every event.
 export function ArchitectSide({ a, tab, onClose }: { a: Architect; tab: SideTab; onClose: () => void }) {
+  const read = useResource<ArchitectPanel>('architect', forProject('/api/v1/architect/panel', a.project));
+  const panel = read.data;
   const onRound: OpenRound = (work, n) => navigate(architectHref({ project: a.project, round: { work, n } }));
   const tabs: Array<{ tab: SideTab; label: string; n: number | null }> = [
     { tab: 'notebook', label: t('side_tab_notebook'), n: null },
@@ -267,13 +272,14 @@ export function ArchitectSide({ a, tab, onClose }: { a: Architect; tab: SideTab;
       onClose={onClose}
       tabs={tabs.map((x) => ({ ...x, href: sideHref(a.project, x.tab) }))}
     >
-      {tab === 'notebook' ? <Notebook a={a} onRound={onRound} /> : null}
-      {tab === 'policy' ? <Policy a={a} onRound={onRound} /> : null}
+      {panel === undefined ? <p className="muted">{read.error ?? t('loading')}</p> : null}
+      {panel !== undefined && tab === 'notebook' ? <Notebook p={panel} onRound={onRound} /> : null}
+      {panel !== undefined && tab === 'policy' ? <Policy a={a} panel={panel} onRound={onRound} /> : null}
       {tab === 'queue' ? (
         <>
-          <QueueFacts a={a} />
+          {panel !== undefined ? <QueueFacts a={a} panel={panel} /> : null}
           <QueueList a={a} />
-          <HandledNothing a={a} />
+          {panel !== undefined ? <HandledNothing panel={panel} /> : null}
         </>
       ) : null}
     </ChartPanel>

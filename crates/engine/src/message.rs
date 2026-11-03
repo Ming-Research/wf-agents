@@ -695,7 +695,9 @@ impl Context<'_> {
         let tasks = self.tasks(&mut m);
         // The columns of the cell's review table, given once in a session and after that as what changed in them: each
         // review cell's its own, so that the table review's and the check against the records's, which one session goes
-        // through in turn, are not each given as what changed in the other.
+        // through in turn, are not each given as what changed in the other. A message that does not give them whole
+        // says in a line which of them the round answers ([`columns_line`]), since the review answers all of them
+        // whatever changed.
         let columns = (!self.columns.is_empty()).then(|| {
             let text: Vec<String> = self.columns.iter().map(|(id, col)| format!("{id}. {col}")).collect();
             m.give(format!("{COLUMNS}{}", c.id), Value::String(text.join("\n")))
@@ -764,6 +766,16 @@ impl Context<'_> {
         if let Some(a) = &columns {
             out.line("## Review table: answer each column by its number\n");
             self.under_heading(&mut out, &m, a);
+            // A review whose session holds the columns is not given them whole, and must still answer every one.
+            if let Some(line) = m
+                .list
+                .iter()
+                .find(|x| x.address == *a)
+                .and_then(|x| columns_line(self.columns, x))
+            {
+                out.line(&line);
+                out.line("");
+            }
         }
         out.line(&format!("Hand in one JSON object, as format:{} says.", c.id));
         let (text, stored, mut kept) = out.finish();
@@ -985,6 +997,20 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Op
             wt.display()
         ),
         _ => main,
+    })
+}
+
+/// The line that says which columns a review answers this round, by their numbers: written when the message does not
+/// give the columns' text whole (`x`, the columns as the message holds them: referred to, or given as what changed),
+/// since the review answers every column of `columns` whether or not a change touches it, and its session cannot read
+/// them off the message. None when the message gives them whole, as at a session's first review.
+fn columns_line(columns: &[(String, String)], x: &Conditional) -> Option<String> {
+    (!x.given || x.changes).then(|| {
+        let ids: Vec<&str> = columns.iter().map(|(id, _)| id.as_str()).collect();
+        format!(
+            "Columns to answer this round, one row each, whether or not the change touches them: {}.",
+            ids.join(", ")
+        )
     })
 }
 
@@ -1245,5 +1271,34 @@ mod tests {
             "{listed}"
         );
         assert!(listed.contains(implement.inputs[0].what.as_str()), "{listed}");
+    }
+
+    // Item #216: a review whose session holds the table's columns is given them by reference or as what changed, and
+    // answers all of them; the message says which, by number, and says nothing when it gives the columns whole.
+    #[test]
+    fn a_message_that_does_not_give_the_columns_whole_says_which_to_answer() {
+        let columns: Vec<(String, String)> = [("1", "first"), ("2", "second"), ("4", "fourth")]
+            .iter()
+            .map(|(i, c)| (i.to_string(), c.to_string()))
+            .collect();
+        let held = |given: bool, changes: bool| Conditional {
+            address: "columns:T4".into(),
+            content: Value::Null,
+            hash: String::new(),
+            given,
+            changes,
+            text: None,
+        };
+        let said = "Columns to answer this round, one row each, whether or not the change touches them: 1, 2, 4.";
+        // Referred to, and given as what changed.
+        assert_eq!(columns_line(&columns, &held(false, false)).as_deref(), Some(said));
+        assert_eq!(columns_line(&columns, &held(true, true)).as_deref(), Some(said));
+        // Given whole.
+        assert_eq!(columns_line(&columns, &held(true, false)), None);
+        // One column reads as a sentence too.
+        assert_eq!(
+            columns_line(&columns[..1], &held(false, false)).as_deref(),
+            Some("Columns to answer this round, one row each, whether or not the change touches them: 1.")
+        );
     }
 }
