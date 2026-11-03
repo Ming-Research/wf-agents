@@ -65,6 +65,8 @@ pub fn typescript() -> String {
         decl::<MarkRead>(&cfg),
         decl::<ForwardFault>(&cfg),
         decl::<ForwardNew>(&cfg),
+        decl::<HoldStarts>(&cfg),
+        decl::<ReleaseHold>(&cfg),
         decl::<Answer>(&cfg),
         decl::<Ruling>(&cfg),
         decl::<Done>(&cfg),

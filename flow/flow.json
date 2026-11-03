@@ -2600,7 +2600,7 @@
         },
         {
           "value": "release_starts",
-          "desc": "New works of this project start again, if you held them",
+          "desc": "New works of this project start again, if you held them: the owner's hold, listed in your board as `starts_held`, stays until the owner releases it, however you ask",
           "fields": []
         },
         {
@@ -3873,7 +3873,7 @@
       "queue_flow_feedback": "Adds the round's flow feedback, unless it is none, under its cell to the flow feedback of the project's architect: the matter of the kind report that holds it and is not picked yet, or a new one. It starts no work of an architect; a work of the architect takes such a matter only when it came before that work started.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
       "queue_for_architect": "Queues each side report for the architect once, due at once, which starts a work of the architect when none runs; one marked urgent that comes while a work of the architect runs is also given to that work at the top of its next round.",
-      "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, with how many slots are free and which items are ready, unless one waits already, new starts of the project are held, the last was handled within the wait the configuration sets (`agents.slots_free_wait`), or the free slots and the items ready are those the last handled held.",
+      "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, with how many slots are free and which items are ready, unless one waits already, new starts of the project are held (by the owner, by the architect, or to set the project straight), the owner has paused every work (none is queued then for any project, whether the owner started its architect or steps it, since no new work can start), the last was handled within the wait the configuration sets (`agents.slots_free_wait`), or the free slots and the items ready are those the last handled held.",
       "raise_blocker": "Raises the task's blocker at the cell where its problem arose: an engineer's question, an engine tool's failure, an ask of the owner, a wait for items to deliver or for the owner's ruling, held by the holder of the cell the row leads to. A cell where the work waits raises it with its row that waits, for what it waits for.",
       "record_place": "Records where the work runs, and the PR it keeps: every later round runs there, and each push is checked against the last pushed head.",
       "record_tool_runs": "Records each run, the pushed head and the PR number under the calling cell.",
@@ -3973,7 +3973,7 @@
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
       "cited_nodes": "The files of the records the matter at hand names, in full, as the project's main has them.",
       "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and decision cards ruled, reports that came in; at the architect's first work, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items.",
+      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items; and, when there are any, the holds on the project's new starts (`starts_held`), each with its reason (owner, architect or set_straight), since when and why, so that the architect sees the owner's hold and does not plan as if new works could start.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
@@ -4099,11 +4099,14 @@
       "holds": {
         "title": "Holds on new starts",
         "layer": "project",
-        "desc": "Why no new work of the project starts for now",
+        "desc": "Why no new work of the project starts for now: the owner's hold, the architect's own, or the architect setting the project straight; works already running go on",
         "relations": [
           "dispatch_holds"
         ],
-        "inputs": []
+        "inputs": [
+          "board"
+        ],
+        "owner": "holds a project's new starts, saying why, and releases any hold, the architect's too"
       },
       "known_red_checks": {
         "title": "Known red checks",
@@ -5767,7 +5770,7 @@
               ],
               "to": "S0",
               "waits": true,
-              "note": "Until the architect releases the hold."
+              "note": "Until the hold is released: the owner's, by the owner; the architect's own, by the architect or the owner; the one to set the project straight, when the architect has done or the owner releases it."
             },
             {
               "name": "in_batch",
@@ -5826,7 +5829,7 @@
               ],
               [
                 "project_held",
-                "New starts of its project are held: the architect sets the project straight or sets a policy"
+                "New starts of its project are held: by the owner, by the architect, or while the architect sets the project straight"
               ],
               [
                 "in_batch",
@@ -14308,7 +14311,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -14753,7 +14756,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items",
+              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -16164,7 +16167,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -16667,7 +16670,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -17086,7 +17089,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -17380,7 +17383,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -17597,7 +17600,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -17900,7 +17903,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -18083,7 +18086,7 @@
             },
             {
               "name": "Items queued",
-              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
@@ -18308,7 +18311,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
                 {
                   "engine": "board"
