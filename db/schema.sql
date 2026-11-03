@@ -383,10 +383,9 @@ CREATE TABLE sessions (
   -- architect work left; account, the line's rounds run under another login account of the CLI than its session
   -- before, in another configuration directory, which does not hold that session; expired, the CLI's prompt cache
   -- let the line's session go, its last call a cache lifetime or more before, on a line the flow says expires with
-  -- it; owner, the owner asked for a new session with the round's Start or Step on the page; handover, the line's
-  -- session before was due to hand over, keeping it having cost as much as starting anew: the hand-over cell opened
-  -- this one for the cell that handed its progress over, or the line's round at another cell than that session's last
-  -- started it. Read by: the owner's interface.
+  -- it; owner, the owner asked for a new session with the round's Start or Step on the page; handover, a round of the
+  -- line's session came due, its own calls having paid as much as starting anew would cost, and handed its progress
+  -- over: the hand-over cell opened this one for the cell that handed over. Read by: the owner's interface.
   started TEXT NOT NULL DEFAULT 'line'
     CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'account', 'expired', 'owner', 'handover'))
 ) STRICT;
@@ -501,13 +500,12 @@ CREATE TABLE rounds (
   -- address and the hash of its content, and whether it was given or only referred to; and the call (the whole
   -- command line, the session it started or resumed, the engine's version and the command line's). For another step,
   -- the values of its inputs; for cell `start`, nothing. Rounds recorded before this format keep the prompt and inputs.
-  -- A round the engine may ask to hand its session's progress over records, once its session came due,
-  -- `$.engine.handover`: due_at, the call it came due at by its seq in round_calls, 0 for due when the round started;
-  -- rent and buy, what the session's calls had paid to read again what it added past its first prompt and what writing
-  -- its context to the cache again would cost then, in US dollars; at_top, whether its message asked it to hand over;
-  -- tools_after, the tool uses after it came due, after each of which the hook asked; opening, the session's first
-  -- prompt; last, as the round ended, its last call's prompt and model and the rent and the buy then. Its transition
-  -- says whether it handed over. A round never due has none.
+  -- A round the engine may ask to hand its session's progress over records, once it came due, `$.engine.handover`:
+  -- due_at, the call it came due at by its seq in round_calls, 1 or more; rent and buy, what the round's own calls had
+  -- paid to read again what the session holds past its first prompt and what writing its context to the cache again
+  -- would cost then, in US dollars; tools_after, the tool uses after it came due, after each of which the hook asked;
+  -- opening, the session's first prompt; last, as the round ended, its last call's prompt and model and the rent and
+  -- the buy then. Its transition says whether it handed over. A round never due has none.
   -- Read by: the engine, to tell what a session already holds; the owner's interface.
   input TEXT NOT NULL CHECK (json_valid(input)),
   -- The whole return, JSON: for the engine's own step what it computed, for a tool cell the tools' results, for the

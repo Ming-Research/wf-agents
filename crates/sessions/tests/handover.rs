@@ -1,9 +1,9 @@
 //! The hand-over rule at the edges its own tests leave: prices that change with the size of the prompt, a model named
 //! with its context window, a session whose model changes, a cache written for an hour after the session's first call,
 //! subagents' calls that name a model with no prices, and the ledger's rows of subagents. Each case's numbers come from
-//! the rule as the design states it (rent: what each of the session's own calls read past its opening, at that call's
-//! read price; buy: the last prompt at the write price of the cache the session kept) and from the price table the
-//! engine already has (`sessions::cost`, the command line's model catalog).
+//! the rule as the design states it (rent: what each of the session's own calls in the round under way read past the
+//! session's opening, at that call's read price; buy: the last prompt at the write price of the cache the session
+//! kept) and from the price table the engine already has (`sessions::cost`, the command line's model catalog).
 
 use db::rusqlite::params;
 use db::{Actor, Db};
@@ -136,8 +136,7 @@ fn a_subagents_call_on_a_model_with_no_prices_or_for_an_hour_changes_nothing() {
 
 // The ledger keeps a subagent's calls among the session's (`round_calls.subagent`), and a call that names its model:
 // read back for the rule, a subagent's call pays no rent, though it names a model with no prices, and the session's own
-// calls are read across its rounds, another session's round between them. Thirty calls of Sonnet 5.5 at 110,000 past
-// 10,000 pay $0.30 against a buy of $0.275.
+// calls are read across its rounds, another session's round between them, each with the round it was made in.
 #[test]
 fn the_ledgers_subagent_rows_pay_no_rent_when_read_back() {
     let mut db = Db::in_memory().unwrap();
@@ -188,10 +187,10 @@ fn the_ledgers_subagent_rows_pay_no_rent_when_read_back() {
     .unwrap();
     let calls = handover::calls(db.conn(), "own").unwrap();
     assert_eq!(calls.len(), 33);
-    assert_eq!(calls.iter().filter(|c| c.subagent).count(), 2);
+    assert_eq!(calls.iter().filter(|(_, c)| c.subagent).count(), 2);
+    assert_eq!(calls.iter().filter(|(of, _)| *of == (1, 3)).count(), 21);
+    // Round 3 pays rent for its own twenty calls only, past the session's opening in round 1: $0.20 against $0.275.
+    // Across the session's thirty calls it would have paid $0.30, and been due.
     let j = handover::of_round(db.conn(), 1, 3).unwrap();
-    assert!(
-        matches!(&j, Some(Judged::Due { rent, buy }) if (rent - 0.30).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9),
-        "{j:?}"
-    );
+    assert!(not_yet(&j, 0.20, 0.275), "{j:?}");
 }

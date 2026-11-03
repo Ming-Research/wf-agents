@@ -81,7 +81,7 @@ pub fn new_session_why(
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
         sessions::Start::Handover => {
-            "the session before was due to hand over: keeping it had cost as much as starting anew".into()
+            "the round before handed its progress over: keeping the session had cost it as much as starting anew".into()
         }
     }
 }
@@ -468,15 +468,15 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
-    // How the hand-over rule sees the round's session as it starts, for a round that may be asked to hand over: what
-    // the session paid before it, and whether its message asked.
+    // How the hand-over rule sees the round as it starts, for a round that may be asked to hand over: its session's
+    // opening from the rounds before, and nothing paid yet.
     let hand = if hands_over {
-        let paid = sessions::handover::rent_of(e.db.conn(), &new_session, &level.model).unwrap_or_else(|x| {
-            e.say(&format!("{round}: the hand-over rule has not the session's calls: {x}"));
-            sessions::handover::Rent::default()
-        });
-        let at_top = msg.text.contains(&crate::handover::ask());
-        Some(crate::handover::Watched::new(paid, &level.model, at_top))
+        let session = sessions::handover::rent_in(e.db.conn(), &new_session, &level.model, (w.id, number.n))
+            .unwrap_or_else(|x| {
+                e.say(&format!("{round}: the hand-over rule has not the session's calls: {x}"));
+                sessions::handover::Rent::default()
+            });
+        Some(crate::handover::Watched::new(session, &level.model))
     } else {
         None
     };
@@ -951,8 +951,6 @@ fn compose(
         .filter(|r| !failed::was_step(r))
         .collect();
     let number = work::next_round(e.db.conn(), w.id)?;
-    // A session due to hand over that goes on at its cell: the round's message asks it to hand over first.
-    let hand_over = matches!(plan, Plan::Going { hand_over: true, .. }) && crate::handover::takes(cell);
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
         Plan::New(_) => (Vec::new(), Held::default()),
@@ -1005,7 +1003,6 @@ fn compose(
         table: &table,
         held: &held,
         registry: &registry,
-        hand_over,
     };
     let msg = context.build();
     let nothing = Held::with_system(&held.system);

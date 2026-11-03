@@ -163,7 +163,7 @@ enum Command {
         /// The round's line; none for a cell that takes no interjections, which is handed none.
         #[arg(long)]
         line: Option<String>,
-        /// The round may be asked to hand its progress over once its session is due.
+        /// The round may be asked to hand its progress over once it is due.
         #[arg(long)]
         handover: bool,
     },

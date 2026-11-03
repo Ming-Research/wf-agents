@@ -1,9 +1,9 @@
 //! What the command line's hook gives a running round after each of the agent's tool uses, which the command line adds
 //! to the session before the agent goes on: the interjections waiting for the round's line ([`sessions::interject`]),
 //! and the engine's ask. Once the budget of the work's stretch is used up, the ask is to pause ([`crate::limits`]);
-//! otherwise, for a round that may hand its progress over, once its session is due, to hand over ([`crate::handover`]).
-//! The command `wf-agents deliver` runs it in a process of its own; the session's calls are read from the ledger, which
-//! the round's watch keeps as the stream tells them.
+//! otherwise, for a round that may hand its progress over, once its own calls have paid as much rent as a new session
+//! would cost, to hand over ([`crate::handover`]). The command `wf-agents deliver` runs it in a process of its own; the
+//! session's calls are read from the ledger, which the round's watch keeps as the stream tells them.
 
 use std::path::Path;
 

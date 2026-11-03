@@ -1,7 +1,6 @@
 //! Which session an agent's round runs in: its line's session going on, or a new one, and why. A line starts a new
 //! session at its first round in a work, at the work's first round of a cell the flow says it starts one at (a row
-//! leads there with the action `open_session`), when its session is due to hand over ([`crate::handover`]) and the round
-//! is at another cell than the session's last, when the context of its session is past the configuration's limit,
+//! leads there with the action `open_session`), when the context of its session is past the configuration's limit,
 //! when its rounds run on another model or under another login account than its session's, when the CLI's prompt cache
 //! has let the session go (for a line whose cells the flow says expire with it), and when the owner asks for one; every
 //! other round goes on in the line's session. The architect's line, at its first round in a work, takes up the session
@@ -37,9 +36,8 @@ pub enum Start {
     Carried,
     /// The owner asked for a new session with the round's Start or Step on the page.
     Owner,
-    /// The line's session was due to hand over ([`crate::handover`]): keeping it had cost as much as starting anew
-    /// would. Its next round at another cell than its last, or the first of a work that would take it up, runs in a new
-    /// one, given its cell's whole input; the hand-over cell opens one for the cell that handed its progress over.
+    /// A round of the line's session came due to hand over ([`crate::handover`]) and handed its progress over: the
+    /// hand-over cell opens a new session, which the cell that handed over carries on in.
     Handover,
 }
 
@@ -66,8 +64,7 @@ pub enum Plan {
     /// earlier works too, for the architect's line), what it holds, and whether the CLI started it, so that it is
     /// resumed; a session the CLI never started is started under the id kept for it. A session `carried` is the one
     /// the project's previous architect work left, whose row is that work's: the round takes it up for its own work
-    /// ([`carry_over`]). A session due to hand over goes on at the cell of its last round, whose round is asked to hand
-    /// its progress over first (`hand_over`), unless it only rewrites a return sent back.
+    /// ([`carry_over`]).
     Going {
         id: i64,
         cli_session: String,
@@ -75,7 +72,6 @@ pub enum Plan {
         held: Box<Held>,
         resume: bool,
         carried: bool,
-        hand_over: bool,
     },
     /// In a new session, for the reason given; it holds nothing yet.
     New(Start),
@@ -184,22 +180,14 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: O
     {
         return Ok(Plan::New(Start::Account));
     }
-    // A return sent back is rewritten in the session that wrote it; a hand-over, the limit, a new model and an expired
-    // cache take effect at the round after. A session due to hand over is replaced at once where the round has no
-    // progress to hand over: at another cell than the session's last round, or at a work's first round that would take
-    // the session up. At the same cell it goes on, and the round is asked to hand over first; the limit does not
-    // replace it then, so that the new session gets what it handed over. A model's prompt cache holds nothing of a
-    // session another model ran, so a session on another model would be written again whole: a new one is given only
-    // what its cell needs. So would a session whose cache lifetime has run out since its last call, a round's or a
-    // keep-warm ping's, when the flow says the cell's line starts a new session then.
-    let mut hand_over = false;
+    // A return sent back is rewritten in the session that wrote it; the limit, a new model and an expired cache take
+    // effect at the round after. A model's prompt cache holds nothing of a session another model ran, so a session on
+    // another model would be written again whole: a new one is given only what its cell needs. So would a session
+    // whose cache lifetime has run out since its last call, a round's or a keep-warm ping's, when the flow says the
+    // cell's line starts a new session then. A hand-over is never decided here: a round starts having paid no rent
+    // ([`crate::handover`]), and the hand-over cell opens the new session itself.
     if !rewrites(&rounds, &cell.id) {
-        hand_over = crate::handover::of_session(conn, &cli_session, on.model)?.is_some_and(|j| j.due());
-        let elsewhere = rounds.last().and_then(|r| r.cell.as_deref()) != Some(cell.id.as_str());
-        if hand_over && (carried || elsewhere) {
-            return Ok(Plan::New(Start::Handover));
-        }
-        if !hand_over && context(&rounds).is_some_and(|c| c > i64::try_from(limit).unwrap_or(i64::MAX)) {
+        if context(&rounds).is_some_and(|c| c > i64::try_from(limit).unwrap_or(i64::MAX)) {
             return Ok(Plan::New(Start::Limit));
         }
         if model(&rounds).is_some_and(|m| m != on.model) {
@@ -220,7 +208,6 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: O
         held: Box::new(held),
         resume,
         carried,
-        hand_over,
     })
 }
 

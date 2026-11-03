@@ -19433,8 +19433,8 @@ fn a_round_due_in_its_middle_hands_its_progress_over_to_a_new_session() {
     // $0.275.
     let first = &handover_rounds(&e, work, "R1")[0].2;
     assert_eq!(
-        (&first["due_at"], &first["tools_after"], &first["at_top"]),
-        (&json!(29), &json!(1), &json!(false)),
+        (&first["due_at"], &first["tools_after"]),
+        (&json!(29), &json!(1)),
         "{first}"
     );
     let last = &first["last"];
@@ -19512,11 +19512,13 @@ fn a_hand_over_gives_the_new_session_the_tools_results_and_what_was_said() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Acceptance A5: a session due between rounds goes on at the cell of its last round, whose next round is asked at the
-// top of its message to hand over, though the session's context is past the configuration's limit; the line's next
-// round at another cell starts a new session for the hand-over at once, asked nothing, and not one for the limit.
+// Acceptance A5: a round that came due in its middle and handed in tools, though the hook asked, leaves its session as
+// it is: the line's next round at the cell goes on in it, asked nothing at the top of its message, and pays its rent
+// from nothing, so that it comes due at the 29th call of its own, as the round before did, not at its first, and the
+// hook asks it again. Once the session's context is past the configuration's limit, the round after starts a new
+// session for the limit, with no hand-over.
 #[test]
-fn a_session_due_between_rounds_is_asked_at_its_cell_and_replaced_at_another() {
+fn a_round_that_did_not_hand_over_leaves_its_session_to_the_next_round_and_the_limit() {
     let s = setup_priced("handover-between");
     let mut scripts = scripts();
     let sent: Sent = Arc::default();
@@ -19525,53 +19527,69 @@ fn a_session_due_between_rounds_is_asked_at_its_cell_and_replaced_at_another() {
         "R1",
         Box::new(move |r: &Request, n: usize| {
             keep_sent(&seen, r);
-            if n > 1 {
-                return (Vec::new(), Vec::new());
+            let ignored = [json!({ "hook": "ignore" })];
+            match n {
+                1 => (
+                    vec![("outcome", "tools")],
+                    vec![a_query(), ("@stream", due_stream(1, &ignored))],
+                ),
+                2 => (
+                    vec![("outcome", "tools")],
+                    vec![
+                        a_query(),
+                        ("@stream", due_stream(2, &ignored)),
+                        ("@usage", used(1.0, 600_000)),
+                    ],
+                ),
+                _ => (Vec::new(), Vec::new()),
             }
-            let past_the_limit = ("@usage", used(1.0, 600_000));
-            (
-                vec![("outcome", "tools")],
-                vec![a_query(), ("@stream", due_stream(1, &[])), past_the_limit],
-            )
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    tick_until(&mut e, 16, |e| {
+    tick_until(&mut e, 20, |e| {
         state(e, item).is_some_and(|(w, _, _)| line_sessions(e, w, "engineer").get(1).is_some_and(|l| !l.2.is_empty()))
     });
     let log = said.lock().unwrap().join("\n");
     let (work, _, _) = state(&e, item).unwrap();
     let lines = line_sessions(&e, work, "engineer");
     assert!(lines.len() >= 2, "{lines:?}\n{log}");
-    // Both rounds at the cell ran in the session, which ended for the hand-over at the next cell's round.
+    // Both rounds that came due ran in the line's first session; the round after the second ran in one started for the
+    // limit.
     assert_eq!(
         (lines[0].0.as_str(), lines[0].1, lines[0].2.as_str()),
         ("line", true, "R1,R1"),
         "{lines:?}"
     );
-    assert_eq!(lines[1].0, "handover", "{lines:?}");
-    assert!(!lines[1].2.starts_with("R1"), "{lines:?}");
+    assert_eq!(lines[1].0, "limit", "{lines:?}");
+    assert!(lines[1].2.starts_with("R1"), "{lines:?}");
+    // Neither the round after the one that came due nor the one in the new session is asked at the top, nor is given a
+    // hand-over.
     let ask = engine::handover::ask();
-    let again = sent.lock().unwrap()[1].1.clone();
-    assert!(again.contains(&ask), "{again}");
+    let sent = sent.lock().unwrap();
+    assert!(sent.len() >= 3, "{log}");
+    for (_, message) in &sent[1..3] {
+        assert!(!message.contains(&ask), "{message}");
+        assert!(!message.contains("handed its progress over"), "{message}");
+    }
     let rounds = handover_rounds(&e, work, "R1");
-    assert_eq!(
-        (&rounds[1].2["due_at"], &rounds[1].2["at_top"]),
-        (&json!(0), &json!(true)),
-        "{rounds:?}"
-    );
-    // The next cell's round, in the new session, is asked nothing.
-    let next = lines[1].2.split(',').next().unwrap().to_string();
-    let first = input_at(&e, work, &next, false);
-    assert!(!first.to_string().contains(&ask), "{first}");
-    assert_eq!(first["engine"]["handover"], Value::Null, "{first}");
+    assert!(rounds.len() >= 3, "{rounds:?}\n{log}");
+    for r in &rounds[..2] {
+        assert_eq!(r.1.as_deref(), Some("tools"), "{rounds:?}");
+        assert_eq!(
+            (&r.2["due_at"], &r.2["tools_after"]),
+            (&json!(29), &json!(1)),
+            "{rounds:?}"
+        );
+    }
+    assert_eq!(rounds[2].2, Value::Null, "{rounds:?}");
+    assert_eq!(counted(&e, work, "handovers"), 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Acceptance A6: once the budget of the work's stretch is used up, a round of a session due to hand over is asked only
-// to pause, at the top of its message and by the hook after a tool use, and pauses.
+// Acceptance A6: once the budget of the work's stretch is used up, a round that comes due in its middle is asked by the
+// hook after its tool use only to pause, and pauses; its message asked it to pause too, and never to hand over.
 #[test]
-fn a_used_up_budget_asks_only_to_pause_though_the_session_is_due() {
+fn a_used_up_budget_asks_only_to_pause_though_the_round_is_due() {
     let s = setup_priced("handover-budget");
     limit_on(&s, &[("total_time", 1)]);
     let mut scripts = scripts();
@@ -19583,12 +19601,11 @@ fn a_used_up_budget_asks_only_to_pause_though_the_session_is_due() {
         Box::new(move |r: &Request, n: usize| {
             keep_sent(&seen, r);
             if n > 1 {
-                let stream = json!([
-                    { "call": "late", "prompt": 110_000 },
-                    { "tool": "Bash", "digest": 99 },
-                    { "hook": "obey" },
-                ]);
-                return (Vec::new(), vec![("@stream", stream)]);
+                // An agent that obeys hands over when the hook asks it to, before it would pause.
+                return (
+                    Vec::new(),
+                    vec![("@stream", due_stream(n, &[json!({ "hook": "obey" })]))],
+                );
             }
             // The round has run two minutes, past the stretch's budget of one.
             let mut db = engine::database::open(&data).unwrap();
@@ -19617,15 +19634,20 @@ fn a_used_up_budget_asks_only_to_pause_though_the_session_is_due() {
     assert!(!again.contains(&engine::handover::ask()), "{again}");
     let rounds = handover_rounds(&e, work, "R1");
     assert_eq!(rounds[1].1.as_deref(), Some("pause"), "{log}");
-    assert_eq!(rounds[1].2["at_top"], json!(false), "{rounds:?}");
+    // It was due when the hook asked.
+    assert_eq!(
+        (&rounds[1].2["due_at"], &rounds[1].2["tools_after"]),
+        (&json!(29), &json!(1)),
+        "{rounds:?}"
+    );
     assert_eq!(counted(&e, work, "handovers"), 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Acceptance A11: a round whose session came due in its middle and that went on after the hook asked, its next two tool
-// uses each asked, records the call it came due at, the rent and the buy then, that its message did not ask, and the
-// two tool uses. The rounds asked that did not hand over are found by their record and their row; the one that handed
-// over is not, and the round after it, never due, records nothing.
+// Acceptance A11: a round that came due in its middle and went on after the hook asked, its next two tool uses each
+// asked, records the call it came due at, 1 or more, the rent and the buy then, the two tool uses, the session's
+// opening, and its last call as it ended. The rounds asked that did not hand over are found by their record and their
+// row; the one that handed over is not, and the round after it, never due, records nothing.
 #[test]
 fn a_round_asked_to_hand_over_records_where_it_came_due() {
     let s = setup_priced("handover-record");
@@ -19636,7 +19658,7 @@ fn a_round_asked_to_hand_over_records_where_it_came_due() {
             1 => {
                 let after = [
                     json!({ "hook": "ignore" }),
-                    json!({ "call": "r1-d", "prompt": 110_000 }),
+                    json!({ "call": "r1-d", "prompt": 120_000 }),
                     json!({ "tool": "Bash", "digest": 100 }),
                     json!({ "hook": "ignore" }),
                 ];
@@ -19645,14 +19667,10 @@ fn a_round_asked_to_hand_over_records_where_it_came_due() {
                     vec![a_query(), ("@stream", due_stream(1, &after))],
                 )
             }
-            2 => {
-                let stream = json!([
-                    { "call": "r2-a", "prompt": 120_000 },
-                    { "tool": "Bash", "digest": 1 },
-                    { "hook": "obey" },
-                ]);
-                (Vec::new(), vec![("@stream", stream)])
-            }
+            2 => (
+                Vec::new(),
+                vec![("@stream", due_stream(2, &[json!({ "hook": "obey" })]))],
+            ),
             _ => (Vec::new(), Vec::new()),
         }),
     );
@@ -19666,15 +19684,26 @@ fn a_round_asked_to_hand_over_records_where_it_came_due() {
     assert!(rounds.len() >= 3, "{rounds:?}\n{log}");
     let first = &rounds[0].2;
     assert_eq!(
-        (&first["due_at"], &first["at_top"], &first["tools_after"]),
-        (&json!(29), &json!(false), &json!(2)),
+        (&first["due_at"], &first["tools_after"]),
+        (&json!(29), &json!(2)),
         "{first}"
     );
+    assert!(first.get("at_top").is_none(), "{first}");
     let (rent, buy) = (first["rent"].as_f64().unwrap(), first["buy"].as_f64().unwrap());
     assert!((rent - 0.28).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9, "{first}");
+    // As it ended, the session had opened at 10,000 tokens, and its last call held 120,000 on Sonnet 5.5: the round's
+    // rent $0.28 and $0.011 for that call, against a buy of $0.30.
+    let last = &first["last"];
+    assert_eq!(
+        (&first["opening"], &last["prompt"], &last["model"]),
+        (&json!(10_000), &json!(120_000), &json!("claude-sonnet-5-5")),
+        "{first}"
+    );
+    let (rent, buy) = (last["rent"].as_f64().unwrap(), last["buy"].as_f64().unwrap());
+    assert!((rent - 0.291).abs() < 1e-9 && (buy - 0.30).abs() < 1e-9, "{first}");
     assert_eq!(rounds[0].1.as_deref(), Some("tools"), "{log}");
     assert_eq!(rounds[1].1.as_deref(), Some("handover"), "{log}");
-    assert_eq!(rounds[1].2["at_top"], json!(true), "{rounds:?}");
+    assert_eq!(rounds[1].2["due_at"], json!(29), "{rounds:?}");
     assert_eq!(rounds[2].2, Value::Null, "{rounds:?}");
     let asked: Vec<i64> = {
         let mut st =

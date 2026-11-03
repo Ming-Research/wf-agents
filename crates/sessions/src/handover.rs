@@ -1,9 +1,12 @@
-//! When a line's session hands its progress over to a new one. Keeping a session costs, at each of its calls, a read
-//! of all it added past its first prompt (the rent); a new session costs at most writing its whole context to the
-//! cache again (the buy). Once the rent paid comes to the buy, the session is due to hand over: the rule of the
-//! rent-or-buy problem, which spends at most twice what the best choice in hindsight would, however much work is left.
-//! Only the session's own calls and the models' prices are read: no other session's history, and no number set by hand.
-//! The flow's sessions section says the rule for people; who asks, and when, is the engine's.
+//! When a round hands its session's progress over to a new session. Keeping a session costs, at each of its calls, a
+//! read of all it holds past its first prompt (the rent); a new session costs at most writing its whole context to the
+//! cache again (the buy). The rent is counted over the calls of the round under way only, from nothing at the round's
+//! start, and once it comes to the buy the round is due to hand over: the rule of the rent-or-buy problem within a
+//! round, so that a hand-over at most doubles what the round paid for its session's context, while a long round saves
+//! without bound. Each call a round goes on making tells that it goes on; how long the next round runs does not follow
+//! from the rounds before, so rent from them does not count. Only the session's own calls and the models' prices are
+//! read: no other session's history, and no number set by hand. The flow's rounds section says the rule for people;
+//! who asks, and when, is the engine's.
 
 use db::rusqlite::{self, Connection, OptionalExtension, params};
 
@@ -35,23 +38,32 @@ impl Judged {
     }
 }
 
-/// The rent a session has paid, taken call by call in the order the calls were made. A subagent's call is not in the
-/// session's context, and is left out.
+/// The rent a round has paid for its session, taken call by call in the order the session's calls were made: the calls
+/// of its rounds before give the session its opening, its last prompt and how long it keeps its cache, and the round's
+/// own calls the rent ([`Rent::new_round`]). A subagent's call is not in the session's context, and is left out.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Rent {
-    /// The prompt of the session's first call of its own: what it opened with, which no new session saves.
+    /// The prompt of the session's first call of its own, in whichever round: what it opened with, which no new session
+    /// saves.
     pub opening: Option<i64>,
-    /// What its calls paid to read again what it added past its opening, in US dollars.
+    /// What the round's own calls paid to read again what the session holds past its opening, in US dollars.
     pub rent: f64,
-    /// The prompt of its last call of its own, and that call's model.
+    /// The prompt of the session's last call of its own, and that call's model.
     pub last: Option<(i64, String)>,
-    /// Whether it wrote the cache to be kept an hour, which a new session of it would write the same way.
+    /// Whether the session wrote the cache to be kept an hour, which a new session of it would write the same way.
     hour: bool,
-    /// The first model of its calls with no prices.
+    /// The first model of the round's calls with no prices.
     unpriced: Option<String>,
 }
 
 impl Rent {
+    /// The session's next round starts: it has paid no rent in it yet. The opening, the last prompt and how long the
+    /// session keeps its cache stay.
+    pub fn new_round(&mut self) {
+        self.rent = 0.0;
+        self.unpriced = None;
+    }
+
     /// Takes the session's next call, on the model the call names or else `model`.
     pub fn take(&mut self, c: &Call, model: &str) {
         if c.subagent {
@@ -71,8 +83,8 @@ impl Rent {
         self.last = Some((prompt, name));
     }
 
-    /// What the calls taken say; none before the session's first call of its own. A session that has paid no rent is
-    /// not due, whatever a new one would cost.
+    /// What the calls taken say; none before the session's first call of its own. A round that has paid no rent is not
+    /// due, whatever a new session would cost.
     pub fn judged(&self) -> Option<Judged> {
         if let Some(model) = &self.unpriced {
             return Some(Judged::NoPrices { model: model.clone() });
@@ -93,7 +105,8 @@ impl Rent {
     }
 }
 
-/// What a session's calls, in the order made, say about handing it over, each on the model it names or else `model`.
+/// What the calls of a session's first round, in the order made, say about handing it over, each on the model it names
+/// or else `model`.
 pub fn judge(calls: &[Call], model: &str) -> Option<Judged> {
     let mut r = Rent::default();
     for c in calls {
@@ -102,51 +115,66 @@ pub fn judge(calls: &[Call], model: &str) -> Option<Judged> {
     r.judged()
 }
 
-/// The calls the ledger kept of a CLI session, in the order made: each of its rounds' in the order the rounds ran, the
-/// architect's across its works, subagents' included. A call that names no model is on its round's. A round from
-/// before the ledger has none.
-pub fn calls(conn: &Connection, cli_session: &str) -> Result<Vec<Call>, String> {
+/// A round, by its work and its number in the work.
+pub type RoundOf = (i64, i64);
+
+/// The calls the ledger kept of a CLI session, in the order made, each with the round it was made in: each of its
+/// rounds' in the order the rounds ran, the architect's across its works, subagents' included. A call that names no
+/// model is on its round's. A round from before the ledger has none.
+pub fn calls(conn: &Connection, cli_session: &str) -> Result<Vec<(RoundOf, Call)>, String> {
     let mut st = conn
         .prepare(
-            "SELECT c.message, coalesce(c.model, r.model), c.input, c.read, c.written_5m, c.written_1h, c.output,
-                    c.subagent
+            "SELECT c.work, c.round, c.message, coalesce(c.model, r.model), c.input, c.read, c.written_5m,
+                    c.written_1h, c.output, c.subagent
              FROM round_calls c JOIN rounds r ON r.work = c.work AND r.n = c.round JOIN sessions s ON s.id = r.session
              WHERE s.cli_session = ?1 ORDER BY c.work, c.round, c.seq",
         )
         .map_err(|e| e.to_string())?;
     st.query_map([cli_session], |r| {
-        Ok(Call {
-            id: r.get(0)?,
-            model: r.get(1)?,
-            input: r.get(2)?,
-            read: r.get(3)?,
-            written_5m: r.get(4)?,
-            written_1h: r.get(5)?,
-            output: r.get(6)?,
-            subagent: r.get::<_, i64>(7)? != 0,
-        })
+        Ok((
+            (r.get(0)?, r.get(1)?),
+            Call {
+                id: r.get(2)?,
+                model: r.get(3)?,
+                input: r.get(4)?,
+                read: r.get(5)?,
+                written_5m: r.get(6)?,
+                written_1h: r.get(7)?,
+                output: r.get(8)?,
+                subagent: r.get::<_, i64>(9)? != 0,
+            },
+        ))
     })
     .map_err(|e| e.to_string())?
     .collect::<rusqlite::Result<_>>()
     .map_err(|e| e.to_string())
 }
 
-/// The rent a CLI session has paid by its calls the ledger kept, `model` for a call whose round names none.
-pub fn rent_of(conn: &Connection, cli_session: &str, model: &str) -> Result<Rent, String> {
+/// The rent round `round` of a CLI session has paid by the calls the ledger kept so far, `model` for a call whose round
+/// names none: the session's calls in the rounds before it give it the opening, and its own the rent. A round the
+/// ledger has no call of yet, as one about to start, has paid nothing.
+pub fn rent_in(conn: &Connection, cli_session: &str, model: &str, round: RoundOf) -> Result<Rent, String> {
     let mut r = Rent::default();
-    for c in calls(conn, cli_session)? {
+    let mut at = None;
+    for (of, c) in calls(conn, cli_session)? {
+        // The ledger's order is the order of (work, round).
+        if of > round {
+            break;
+        }
+        if at != Some(of) {
+            r.new_round();
+            at = Some(of);
+        }
         r.take(&c, model);
+    }
+    if at != Some(round) {
+        r.new_round();
     }
     Ok(r)
 }
 
-/// What a CLI session's calls the ledger kept say about handing it over.
-pub fn of_session(conn: &Connection, cli_session: &str, model: &str) -> Result<Option<Judged>, String> {
-    Ok(rent_of(conn, cli_session, model)?.judged())
-}
-
 /// What the calls of the session a round runs in say about handing it over, those the ledger kept so far: the round's
-/// own as far as its watch has kept them. None for a round that runs in no session.
+/// own as far as its watch has kept them, past the session's opening. None for a round that runs in no session.
 pub fn of_round(conn: &Connection, work: i64, n: i64) -> Result<Option<Judged>, String> {
     let found: Option<(String, Option<String>)> = conn
         .query_row(
@@ -160,7 +188,7 @@ pub fn of_round(conn: &Connection, work: i64, n: i64) -> Result<Option<Judged>, 
     let Some((cli_session, model)) = found else {
         return Ok(None);
     };
-    of_session(conn, &cli_session, model.as_deref().unwrap_or_default())
+    Ok(rent_in(conn, &cli_session, model.as_deref().unwrap_or_default(), (work, n))?.judged())
 }
 
 #[cfg(test)]
@@ -205,6 +233,39 @@ mod tests {
         assert!(!before.due() && near(rent, 0.27) && near(buy, 0.275), "{before:?}");
         let (rent, buy) = at.costs().unwrap();
         assert!(at.due() && near(rent, 0.28) && near(buy, 0.275), "{at:?}");
+    }
+
+    // The rent counts the round under way only, but against the session's opening. A session that opened at 10,000 and
+    // ran a round of 39 calls at 110,000 had paid more than the buy of $0.275 by that round's 29th call; its next round
+    // starts having paid nothing, so its first call, at 110,000, is not due ($0.01). That round is due at its own 28th
+    // call ($0.28), as it pays rent for the 100,000 it holds past the session's opening, though it opened at 110,000.
+    #[test]
+    fn a_new_round_has_paid_no_rent_but_pays_it_past_the_sessions_opening() {
+        let mut r = Rent::default();
+        r.take(&read("a", 10_000), SONNET);
+        for i in 1..40 {
+            r.take(&read(&format!("c{i}"), 110_000), SONNET);
+        }
+        assert!(r.judged().unwrap().due());
+        r.new_round();
+        let mut due = None;
+        for i in 1..=40 {
+            r.take(&read(&format!("d{i}"), 110_000), SONNET);
+            let j = r.judged().unwrap();
+            let (rent, buy) = j.costs().unwrap();
+            if i == 1 {
+                assert!(!j.due() && near(rent, 0.01) && near(buy, 0.275), "{j:?}");
+            }
+            if i == 27 {
+                assert!(!j.due() && near(rent, 0.27), "{j:?}");
+            }
+            if j.due() && due.is_none() {
+                due = Some(i);
+                assert!(near(rent, 0.28), "{j:?}");
+            }
+        }
+        assert_eq!(due, Some(28));
+        assert_eq!(r.opening, Some(10_000));
     }
 
     // A subagent's calls are not in the session's context: they pay no rent, and its prompt is not the last.
@@ -343,9 +404,26 @@ mod tests {
         .unwrap();
     }
 
+    /// The round and the index of the first call at which a session's calls, read back from the ledger, are due to hand
+    /// over, each round starting having paid nothing; none when they never are.
+    fn due_in(calls: &[(RoundOf, Call)], model: &str) -> Option<(RoundOf, usize)> {
+        let mut r = Rent::default();
+        let mut at = None;
+        calls.iter().enumerate().find_map(|(i, (of, c))| {
+            if at != Some(*of) {
+                r.new_round();
+                at = Some(*of);
+            }
+            r.take(c, model);
+            r.judged().is_some_and(|j| j.due()).then_some((*of, i))
+        })
+    }
+
     // The rule reads only the session's own calls: a run of 362 calls and a hundred rounds of two calls each, at the same
     // cell in other sessions, leave the call at which a long session is due where it was. Its calls are read across its
-    // rounds in order, on the model of their round.
+    // rounds in order, on the model of their round, and each round's rent from nothing: the third, from 120,000 tokens
+    // up by 1,500 a call past an opening of 30,000, is due at its 38th call ($0.44745 against $0.43875), the 98th of
+    // the session.
     #[test]
     fn other_sessions_of_the_cell_leave_a_sessions_due_call_where_it_was() {
         let mut db = sessions_db();
@@ -355,18 +433,22 @@ mod tests {
             (0..40).map(|i| 120_000 + i * 1_500).collect(),
         ];
         add_session(&mut db, "long", &long);
-        let due = |db: &db::Db| due_at(&calls(db.conn(), "long").unwrap(), "unused");
+        let due = |db: &db::Db| due_in(&calls(db.conn(), "long").unwrap(), "unused");
         let alone = due(&db);
-        assert!(alone.is_some(), "the long session is due somewhere");
+        assert_eq!(alone, Some(((1, 3), 97)));
         add_session(&mut db, "runaway", &[(0..362).map(|i| 47_662 + i * 1_537).collect()]);
         for k in 0..100 {
             add_session(&mut db, &format!("short-{k}"), &[vec![200_000, 230_000]]);
         }
         assert_eq!(due(&db), alone);
         assert_eq!(calls(db.conn(), "long").unwrap().len(), 100);
-        // The long session's last round, the third of the work, is judged by its session's calls; the first short
-        // session's round, the fifth, by its own two.
+        // The long session's last round, the third of the work, is judged by its own calls past its session's opening;
+        // its second, by its own, is not due; the first short session's round, the fifth, by its own two.
         assert!(of_round(db.conn(), 1, 3).unwrap().is_some_and(|j| j.due()));
+        assert!(of_round(db.conn(), 1, 2).unwrap().is_some_and(|j| !j.due()));
         assert!(of_round(db.conn(), 1, 5).unwrap().is_some_and(|j| !j.due()));
+        // A round the ledger has no call of yet has paid nothing, whatever the round before it paid.
+        let next = rent_in(db.conn(), "long", SONNET, (1, 4)).unwrap();
+        assert_eq!((next.rent, next.opening), (0.0, Some(30_000)));
     }
 }

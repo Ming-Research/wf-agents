@@ -1,10 +1,9 @@
-//! Handing a line's session over to a new one once keeping it has cost as much as starting anew would
-//! ([`sessions::handover`]). The engine asks the agent to hand over its progress after its next tool use
-//! ([`crate::hook`]), or at the top of its next round at the same cell; at another cell the session manager starts the
-//! new session itself, since a round there has no progress to hand over. The agent hands in the form `handover`, and the
-//! hand-over cell's step ([`hand_over`]) ends the session, opens the new one its cell carries on in, puts back what was
-//! said to the round, and passes the hand-over on. Each round the engine may ask records, once its session came due,
-//! where and what it came to ([`Watched::record`]).
+//! Handing a line's session over to a new one once keeping it has cost the round under way as much as starting anew
+//! would ([`sessions::handover`]). A round starts having paid nothing, so it comes due only in its middle, and the
+//! engine asks the agent to hand over its progress after each tool use from then on ([`crate::hook`]). The agent hands
+//! in the form `handover`, and the hand-over cell's step ([`hand_over`]) ends the session, opens the new one its cell
+//! carries on in, puts back what was said to the round, and passes the hand-over on. Each round the engine may ask
+//! records, once it came due, where and what it came to ([`Watched::record`]).
 
 use std::collections::BTreeSet;
 
@@ -26,7 +25,7 @@ pub fn takes(cell: &flow::CompiledCell) -> bool {
     cell.forms.iter().any(|f| f.field.as_deref() == Some(FORM))
 }
 
-/// What asks the agent to hand its progress over, after a tool use or at the top of a round.
+/// What asks the agent to hand its progress over, after a tool use.
 pub fn ask() -> String {
     "Keeping this session now costs as much as starting a new one would: hand in handover, now or once the step in \
      hand is done. Write in it what you did, where it is, what is left in order, and what the next session must know \
@@ -34,39 +33,33 @@ pub fn ask() -> String {
         .to_string()
 }
 
-/// A running round's session as the hand-over rule sees it, call by call: the rent its session had paid before the
-/// round, and the round's own calls as the stream tells them; once due, the call it came due at and the tool uses
-/// after. Kept for a round the engine may ask to hand over.
+/// A running round as the hand-over rule sees it, call by call: its session's opening from the rounds before, and the
+/// round's own calls as the stream tells them; once due, the call it came due at and the tool uses after. Kept for a
+/// round the engine may ask to hand over.
 #[derive(Debug, Clone)]
 pub struct Watched {
     rent: Rent,
     model: String,
     /// The calls told so far, each once, subagents' included: the ledger numbers them in this order.
     told: BTreeSet<String>,
-    /// The call it came due at, by its number in the ledger, 0 for due before the round's first call, with the rent and
-    /// the buy then.
+    /// The call it came due at, by its number in the ledger, with the rent and the buy then.
     due: Option<(i64, f64, f64)>,
     /// The tool uses the stream told after it came due, after each of which the hook asked.
     tools_after: i64,
-    /// Whether the round's message asked it to hand over.
-    at_top: bool,
 }
 
 impl Watched {
-    /// A round's watch from what its session had paid before it (`rent`, nothing for a new session), on `model` where a
-    /// call names none; `at_top` when its message asks it to hand over.
-    pub fn new(rent: Rent, model: &str, at_top: bool) -> Watched {
-        let due = match rent.judged() {
-            Some(Judged::Due { rent, buy }) => Some((0, rent, buy)),
-            _ => None,
-        };
+    /// A round's watch from what its session's calls before it say (`session`, nothing for a new session), on `model`
+    /// where a call names none. The round starts having paid no rent.
+    pub fn new(session: Rent, model: &str) -> Watched {
+        let mut rent = session;
+        rent.new_round();
         Watched {
             rent,
             model: model.to_string(),
             told: BTreeSet::new(),
-            due,
+            due: None,
             tools_after: 0,
-            at_top,
         }
     }
 
@@ -90,9 +83,9 @@ impl Watched {
         }
     }
 
-    /// What the round's record keeps under `$.engine.handover` once its session came due; none while it never did. Its
-    /// session's first prompt and, as the round ended, its last call's prompt and model with the rent and the buy then,
-    /// by which what a hand-over cost the new session can be looked at afterwards.
+    /// What the round's record keeps under `$.engine.handover` once it came due; none while it never did. Its session's
+    /// first prompt and, as the round ended, its last call's prompt and model with the rent and the buy then, by which
+    /// what a hand-over cost the new session can be looked at afterwards.
     pub fn record(&self) -> Option<Value> {
         let (due_at, rent, buy) = self.due?;
         let (prompt, model) = self.rent.last.clone().unzip();
@@ -101,7 +94,6 @@ impl Watched {
             "due_at": due_at,
             "rent": rent,
             "buy": buy,
-            "at_top": self.at_top,
             "tools_after": self.tools_after,
             "opening": self.rent.opening,
             "last": {
@@ -190,7 +182,7 @@ mod tests {
     // calls and each call once however often it is told, and the tool uses after it; one never due records nothing.
     #[test]
     fn a_watch_records_the_call_its_session_came_due_at_and_the_tools_after() {
-        let mut w = Watched::new(Rent::default(), "m", false);
+        let mut w = Watched::new(Rent::default(), "m");
         w.see(&call("a", 10_000));
         w.see(&call("a", 10_000));
         w.see(&Seen::Call(Call {
@@ -215,15 +207,16 @@ mod tests {
             (Some(30), Some(2)),
             "{r}"
         );
-        assert_eq!(r["at_top"], false);
+        assert!(r.get("at_top").is_none(), "{r}");
         assert!((r["rent"].as_f64().unwrap() - 0.28).abs() < 1e-9, "{r}");
         assert!((r["buy"].as_f64().unwrap() - 0.275).abs() < 1e-9, "{r}");
     }
 
-    // A session due before the round's first call came due at 0, whatever the round's calls; one of a model with no
-    // prices is never due, and says which.
+    // A session whose rounds before had paid past the buy starts the round having paid nothing: its first calls are not
+    // due, and the round comes due at the call its own rent comes to the buy, against the session's opening, by its
+    // number in the round; one of a model with no prices is never due, and says which.
     #[test]
-    fn a_session_due_at_the_start_came_due_at_none_of_the_rounds_calls() {
+    fn a_round_comes_due_by_its_own_calls_whatever_its_session_paid_before() {
         let mut before = Rent::default();
         before.take(
             &Call {
@@ -243,16 +236,23 @@ mod tests {
                 "claude-sonnet-5-5",
             );
         }
-        let mut w = Watched::new(before, "claude-sonnet-5-5", true);
+        assert!(before.judged().unwrap().due());
+        let mut w = Watched::new(before, "claude-sonnet-5-5");
+        w.see(&tool());
+        for i in 1..=27 {
+            w.see(&call(&format!("d{i}"), 110_000));
+            w.see(&tool());
+        }
+        assert_eq!(w.record(), None);
+        w.see(&call("due", 110_000));
         w.see(&tool());
         let r = w.record().unwrap();
         assert_eq!(
-            (r["due_at"].as_i64(), r["tools_after"].as_i64()),
-            (Some(0), Some(1)),
+            (r["due_at"].as_i64(), r["tools_after"].as_i64(), r["opening"].as_i64()),
+            (Some(28), Some(1), Some(10_000)),
             "{r}"
         );
-        assert_eq!(r["at_top"], true);
-        let mut unpriced = Watched::new(Rent::default(), "m", false);
+        let mut unpriced = Watched::new(Rent::default(), "m");
         unpriced.see(&Seen::Call(Call {
             id: "a".into(),
             read: 10_000,

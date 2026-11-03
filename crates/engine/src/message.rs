@@ -255,9 +255,6 @@ pub struct Context<'a> {
     pub table: &'a [Value],
     pub held: &'a Held,
     pub registry: &'a HashMap<String, Vec<String>>,
-    /// The round's session is due to hand over and goes on at its cell: the message asks it to hand over first, but
-    /// when the budget of the work's stretch is used up, which asks it to pause.
-    pub hand_over: bool,
 }
 
 impl Context<'_> {
@@ -565,15 +562,12 @@ impl Context<'_> {
                 interjections.join(", ")
             ));
         }
-        // The budget of the work's stretch used up while no tool use could ask the agent to pause: this round asks. Else a
-        // session due to hand over while no tool use could ask it: this round asks it to hand over first.
+        // The budget of the work's stretch used up while no tool use could ask the agent to pause: this round asks.
         let pauses = c.forms.iter().any(|f| f.field.as_deref() == Some("pause"));
         if pauses
             && let Ok(Some(minutes)) = crate::limits::used_up(&self.e.config.config, self.e.db.conn(), self.w.id, None)
         {
             out.push(crate::limits::ask_to_pause(minutes));
-        } else if self.hand_over {
-            out.push(crate::handover::ask());
         }
         out
     }

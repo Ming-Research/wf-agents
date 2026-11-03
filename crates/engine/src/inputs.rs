@@ -469,7 +469,8 @@ fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Opti
         return Ok(Some(from));
     }
     let rounds = work::rounds(e.db.conn(), w.id)?;
-    // The rounds before the one that brought the work to the cell that handed over, through each hand-over passed.
+    // The rounds up to the one that brought the work to the cell that handed over, through each hand-over passed: that
+    // round may itself be a hand-over's, which the next pass goes through.
     let mut before = rounds.len();
     while hands_over(g, &from) {
         let Some((cell, at)) = brought(g, &rounds[..before], &from) else {
@@ -496,9 +497,9 @@ fn hands_over(g: &CompiledGraph, id: &str) -> bool {
 }
 
 /// The cell whose row brought the work to the cell that went to the hand-over cell `cell`, as the work's rounds before
-/// the hand-over's latest round have it, with how many rounds came before that row's: the cell of the latest round
-/// before the one that went to the hand-over that took a row out of its cell, as [`Work::load`] reads where a work came
-/// from. None when the rounds have no such row.
+/// the hand-over's latest round have it, with how many rounds came up to and with that row's: the cell of the latest
+/// round before the one that went to the hand-over that took a row out of its cell, as [`Work::load`] reads where a
+/// work came from. None when the rounds have no such row.
 fn brought(g: &CompiledGraph, rounds: &[Round], cell: &str) -> Option<(String, usize)> {
     let taken = |r: &Round| r.transition.is_some();
     let handed = rounds
@@ -514,7 +515,7 @@ fn brought(g: &CompiledGraph, rounds: &[Round], cell: &str) -> Option<(String, u
             .is_some_and(|y| y.to == "@self")
     };
     let at = rounds[..went].iter().rposition(|r| taken(r) && !stays(r))?;
-    Some((rounds[at].cell.clone()?, at))
+    Some((rounds[at].cell.clone()?, at + 1))
 }
 
 /// What one source of an input gives: none when it has nothing. A place is read only from the returns handed in
