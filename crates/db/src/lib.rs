@@ -105,6 +105,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0066.sql"),
     include_str!("../../../db/migrations/0067.sql"),
     include_str!("../../../db/migrations/0068.sql"),
+    include_str!("../../../db/migrations/0069.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -2770,15 +2771,17 @@ mod tests {
         (counted, asking)
     }
 
-    // The counters of a database migrated from version 67, where the views parsed the compiled flow of the version
+    // The counters of a database migrated from version 68, where the views parsed the compiled flow of the version
     // each work is on now for every round, are what those views gave before the migration, for every work: rows that
     // count nothing, a row counted as total time, rounds that took no row, a cell or a row the version does not
     // have, two graphs with a cell of one id, a work that moved to a version that counts the same row otherwise, a
-    // version no work is on, and a name two rows of a cell share when only one counts. The counts written to the
-    // rounds are those of the rows by that rule. The expected lists are worked out from the rows written.
+    // version no work is on, a name two rows of a cell share when only one counts, and rounds that ended in no
+    // return (a return sent back, a failed run, a failed run past its bound, a round cut off, a round that ended in
+    // an error), whose shared rows count by the flow's rounds section. The counts written to the rounds are those of
+    // the rows by that rule. The expected lists are worked out from the rows written.
     #[test]
-    fn counters_migrated_from_version_67_are_those_the_old_views_gave() {
-        let mut old = at_version(67);
+    fn counters_migrated_from_version_68_are_those_the_old_views_gave() {
+        let mut old = at_version(68);
         // Version 1: asks and fixes count; `pause` counts the total time; a cell has two rows named `again`, the
         // second of which counts. Version 2: the same row `ask` counts another counter, and `fix` counts none.
         let v1 = counting_flow(
@@ -2791,6 +2794,10 @@ mod tests {
                         ("pause", Some("total_time")),
                         ("again", None),
                         ("again", Some("retries")),
+                        ("sent_back", Some("sent_back")),
+                        ("transient", Some("retries")),
+                        ("transient_too_often", None),
+                        ("cut_off", None),
                     ],
                 ),
             ],
@@ -2799,7 +2806,7 @@ mod tests {
         let v2 = counting_flow(
             &[
                 ("A4", &[("ask", Some("questions")), ("go", None)]),
-                ("I1", &[("fix", None), ("pause", Some("total_time"))]),
+                ("I1", &[("fix", None), ("pause", Some("total_time")), ("sent_back", Some("sent_backs"))]),
             ],
             &[("A4", &[("ask", Some("architect_asks"))])],
         );
@@ -2859,23 +2866,46 @@ mod tests {
                  VALUES (1, 12, NULL, '{}', 'c', 0, 1), (1, 13, 'X1', '{}', 'c', 0, 120000)",
                 [],
             )?;
+            // Rounds that ended in no return its cell takes: a return sent back, a failed run, one past its bound, a
+            // round cut off, a round that ended in an error, and a return sent back at a cell the version does not
+            // have. Work 2 is on version 2, where a return sent back counts another counter.
+            for (work, n, cell, rejected) in [
+                (1, 14, "I1", r#"{"format":"x"}"#),
+                (1, 15, "I1", r#"{"failed":{"kind":"transient","what":"w"}}"#),
+                (1, 16, "I1", r#"{"failed":{"kind":"transient","what":"w","over":3}}"#),
+                (1, 17, "I1", r#"{"interrupted":"stopped"}"#),
+                (1, 18, "I1", r#"{"error":"e"}"#),
+                (1, 19, "ZZ", r#"{"format":"x"}"#),
+                (2, 4, "I1", r#"{"format":"x"}"#),
+            ] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, rejected, config_commit, started_at, ended_at)
+                     VALUES (?1, ?2, ?3, '{}', ?4, 'c', 0, 1)",
+                    params![work, n, cell, rejected],
+                )?;
+            }
             Ok(())
         })
         .unwrap();
         let before = counters(&old);
         // Worked out by hand: work 1 took `ask` 3 times (asks), `fix` 2 times (fixes) and the second `again` once
         // (retries); `pause` adds no counter of its own, and the total time is the two minutes of its round at `X1`.
-        // Work 2 is on version 2: its `ask` is a question, its `fix` counts nothing. Work 3 is the architect's: its one
-        // `ask` counts architect_asks, and it has no `I1`.
+        // Its one return sent back counts `sent_back`, and its failed run `transient` counts retries a second time;
+        // the one past its bound, the round cut off, the one that ended in an error and the one at a cell the version
+        // has not count nothing. Work 2 is on version 2: its `ask` is a question, its `fix` counts nothing, and its
+        // return sent back counts another counter. Work 3 is the architect's: its one `ask` counts architect_asks, and
+        // it has no `I1`.
         let counted = |work: i64, counter: &str, times: i64| (work, counter.to_string(), times);
         assert_eq!(
             before.0,
             [
                 counted(1, "asks", 3),
                 counted(1, "fixes", 2),
-                counted(1, "retries", 1),
+                counted(1, "retries", 2),
+                counted(1, "sent_back", 1),
                 counted(1, "total_time", 2),
                 counted(2, "questions", 2),
+                counted(2, "sent_backs", 1),
                 counted(3, "architect_asks", 1),
                 counted(5, "asks", 1),
             ]
@@ -2904,8 +2934,11 @@ mod tests {
                 kept_as(1, 6, "fixes"),
                 kept_as(1, 7, "total_time"),
                 kept_as(1, 11, "retries"),
+                kept_as(1, 14, "sent_back"),
+                kept_as(1, 15, "retries"),
                 kept_as(2, 1, "questions"),
                 kept_as(2, 2, "questions"),
+                kept_as(2, 4, "sent_backs"),
                 kept_as(3, 1, "architect_asks"),
                 kept_as(5, 1, "asks"),
             ]
@@ -2919,7 +2952,7 @@ mod tests {
     // database as it was.
     #[test]
     fn a_flow_version_with_two_counting_rows_of_a_name_stops_the_migration() {
-        let mut old = at_version(67);
+        let mut old = at_version(68);
         let flow = counting_flow(&[("A4", &[("ask", Some("asks")), ("ask", Some("other"))])], &[]);
         old.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', ?1)", [&flow])?;
@@ -2931,7 +2964,7 @@ mod tests {
         })
         .unwrap();
         assert!(old.migrate(MIGRATIONS).is_err());
-        assert_eq!(version_of(old.conn()).unwrap(), 67);
+        assert_eq!(version_of(old.conn()).unwrap(), 68);
         let has_counts: i64 = old
             .conn()
             .query_row(
@@ -2943,8 +2976,9 @@ mod tests {
         assert_eq!(has_counts, 0);
     }
 
-    // A round counts something only if it took a row: the database refuses a counter on a round that took none, when
-    // it is written and when it is ended; a round that took a row may count nothing or something.
+    // A round counts something only if it took a row, by its return (`transition`) or by ending in no return its cell
+    // takes (`rejected`): the database refuses a counter on a round that took none, when it is written and when it is
+    // ended; a round that took a row may count nothing or something.
     #[test]
     fn a_round_that_took_no_row_counts_nothing() {
         let mut db = Db::in_memory().unwrap();
@@ -2980,12 +3014,17 @@ mod tests {
             "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
              VALUES (1, 2, 'A4', '{}', 'go', 'c', 0)"
         ));
+        assert!(!refused(
+            &mut db,
+            "INSERT INTO rounds (work, n, cell, input, rejected, counts, config_commit, started_at)
+             VALUES (1, 3, 'A4', '{}', '{\"format\":\"x\"}', 'sent_back', 'c', 0)"
+        ));
     }
 
     // The counters of one work are read from the index on its counted rounds alone: the plans of the two views for
     // one work search `rounds_counts`, which holds the counter without the round's inputs and outputs, and parse no
     // JSON and scan no table of rounds. The total time in `work_counters` is its other part, found by the work's
-    // primary key. The views before version 68 parsed the compiled flow for every round with `json_each`, and
+    // primary key. The views before version 69 parsed the compiled flow for every round with `json_each`, and
     // `work_asking` scanned every round of every work.
     #[test]
     fn the_counters_of_a_work_are_read_from_the_index_of_its_counted_rounds() {

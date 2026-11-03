@@ -522,13 +522,14 @@ CREATE TABLE rounds (
   -- When the round started and ended. Read by: the views of time.
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
-  -- The counter the row this round took counts, as the row said it in the flow version the work ran on when the round
-  -- ended; NULL when the round took no row, or the row counts nothing. A round's row can be found again in the flow
-  -- only by the version it ran on, which a round does not record and a work leaves when it moves to a newer one, so
-  -- the counter is kept with the round, written in the same step as `transition`. 'total_time' is kept as the row
-  -- says it, though the views count no round for it.
+  -- The counter the row this round took counts, as the flow version the work ran on said it when the round ended; the
+  -- row is the one the return took (`transition`) or, for a round that ended in no return its cell takes, the shared
+  -- row the engine took for it (view `round_rows`). NULL when the round took no row, or the row counts nothing. A
+  -- round's row can be found again in the flow only by the version it ran on, which a round does not record and a
+  -- work leaves when it moves to a newer one, so the counter is kept with the round, written in the same step as
+  -- `transition` or `rejected`. 'total_time' is kept as the row says it, though the views count no round for it.
   -- Read by: the views of counters and of how many times a work asked, through the index `rounds_counts`.
-  counts TEXT CHECK (counts IS NULL OR transition IS NOT NULL),
+  counts TEXT CHECK (counts IS NULL OR transition IS NOT NULL OR rejected IS NOT NULL),
   PRIMARY KEY (work, n),
   CHECK (transition IS NULL OR rejected IS NULL)
 ) STRICT;
@@ -1244,6 +1245,24 @@ CREATE VIEW work_history AS
     (SELECT json_group_array(json_object('tool', t.tool, 'attempt', t.attempt, 'result', json(t.result)))
      FROM tool_runs t WHERE t.work = r.work AND t.round = r.n) AS tools
   FROM rounds r;
+
+CREATE VIEW round_rows AS
+  -- The row each round of a work took at its cell: the row its return took; for a round that ended in no return its
+  -- cell takes, the shared row the engine took for it, which the round does not record as a transition, since a
+  -- transition says the cell's own return was taken: the kind of the failed run (`<kind>_too_often` for the one past
+  -- the kind's bound), `cut_off` for a round the engine cut off, `sent_back` for a return sent back. None for a round
+  -- still open and for one that ended with the work paused. Read by: the engine, which counts how often a work took a
+  -- row in a row; work_counters.
+  SELECT work, n AS round, cell,
+    CASE
+      WHEN transition IS NOT NULL THEN transition
+      WHEN json_extract(rejected, '$.failed.over') IS NOT NULL THEN json_extract(rejected, '$.failed.kind') || '_too_often'
+      WHEN json_extract(rejected, '$.failed.kind') IS NOT NULL THEN json_extract(rejected, '$.failed.kind')
+      WHEN json_extract(rejected, '$.interrupted') IS NOT NULL THEN 'cut_off'
+      WHEN json_extract(rejected, '$.error') IS NOT NULL THEN NULL
+      WHEN rejected IS NOT NULL THEN 'sent_back'
+    END AS took
+  FROM rounds;
 
 CREATE VIEW work_counters AS
   -- How many times each work took the rows that count each counter, by the counter each round recorded when it ended

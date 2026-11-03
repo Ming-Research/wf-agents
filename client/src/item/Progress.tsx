@@ -60,7 +60,7 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
 }
 
 /// What a round under a line said: its progress note, or why it did not take a row.
-function Note({ r, work }: { r: RoundSummary; work: number }) {
+export function Note({ r, work }: { r: RoundSummary; work: number }) {
   const bad = r.outcome === 'sent_back' || r.outcome === 'failed' || r.outcome === 'interrupted';
   if (r.progress === null && !bad) return null;
   return (
@@ -68,7 +68,7 @@ function Note({ r, work }: { r: RoundSummary; work: number }) {
       <RoundLink work={work} round={r.n} />{' '}
       {bad ? (
         <>
-          <OutcomeBadge outcome={r.outcome} /> <span className="muted">{r.why ?? ''}</span>
+          <OutcomeBadge outcome={r.outcome} /> <span className="muted reason">{r.why ?? ''}</span>
         </>
       ) : (
         <MarkdownInline text={r.progress ?? ''} />

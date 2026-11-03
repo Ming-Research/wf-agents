@@ -8,17 +8,17 @@ use db::rusqlite::types::Value;
 use db::rusqlite::{Connection, params_from_iter};
 use db::{Db, MIGRATIONS};
 
-/// A database file at version 67, the one before the version that adds `rounds.counts`: made by the first version's
-/// schema and the migrations up to 67, with the foreign keys off as the migrations run.
-fn database_at_version_67(path: &Path) -> Connection {
+/// A database file at version 68, the one before the version that adds `rounds.counts`: made by the first version's
+/// schema and the migrations up to 68, with the foreign keys off as the migrations run.
+fn database_at_version_68(path: &Path) -> Connection {
     let conn = Connection::open(path).unwrap();
     conn.pragma_update(None, "foreign_keys", false).unwrap();
     conn.execute_batch(include_str!("../../../db/migrations/0001.sql"))
         .unwrap();
-    for migration in &MIGRATIONS[..66] {
+    for migration in &MIGRATIONS[..67] {
         conn.execute_batch(migration).unwrap();
     }
-    conn.pragma_update(None, "user_version", 67).unwrap();
+    conn.pragma_update(None, "user_version", 68).unwrap();
     conn
 }
 
@@ -32,11 +32,11 @@ fn rows(conn: &Connection, sql: &str) -> Vec<Vec<Value>> {
         .collect()
 }
 
-/// The columns a round has had since before version 68, in its rows' own order.
+/// The columns a round has had since before version 69, in its rows' own order.
 const ROUND_COLUMNS: &str = "rowid, work, n, cell, session, input, output, transition, rejected, config_commit, model, \
                              usage, compactions, started_at, ended_at";
 
-// A database at version 67 with rounds that fill every column, written in an order the rounds' key does not follow,
+// A database at version 68 with rounds that fill every column, written in an order the rounds' key does not follow,
 // and rows of other tables that point at them, is migrated to now: every round has every column it had, in the order
 // it had, the rows that point at rounds still do, and the database holds together. The migration makes the table of
 // rounds afresh, and which column goes to which, and whether the order and the references are kept, is not what its
@@ -49,7 +49,7 @@ fn the_migration_keeps_every_round_and_what_points_at_it() {
     let before_rounds;
     let before_children;
     {
-        let conn = database_at_version_67(&path);
+        let conn = database_at_version_68(&path);
         conn.execute_batch(
             r#"INSERT INTO flow_versions (id, digest, compiled) VALUES
                  (1, 'd', '{"graphs": [{"name": "engineer", "cells": [{"id": "A4", "rows": [{"name": "ask", "counts": "asks"}]}]}]}');
