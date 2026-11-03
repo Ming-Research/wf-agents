@@ -3836,7 +3836,11 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
         // The round done again runs in the session of I1's line in the version the engine runs: for the line, not the
         // review session its earlier rounds ran in; for the inputs, the same session as before.
         let after = session_of(&e, work, "I1");
-        assert_eq!((after, line_of(&e, after).as_str()), (engineer, "engineer"), "{what}\n{log}");
+        assert_eq!(
+            (after, line_of(&e, after).as_str()),
+            (engineer, "engineer"),
+            "{what}\n{log}"
+        );
         assert_eq!(after != before, line, "{what}\n{log}");
         let _ = std::fs::remove_dir_all(&s.root);
     }
