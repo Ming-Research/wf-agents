@@ -15570,7 +15570,7 @@ fn failures_with_a_return_between_are_not_in_a_row() {
     let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
     let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..8).map(|_| ("U1", None, transient.clone())).collect();
     past.push(("H9", Some("done"), None));
-    history(&mut e, arch, &past);
+    past_rounds(&mut e, arch, &past);
     // The next failure is the first in its row: it is run again, not paused (it would be past the bound if the eight
     // before the return were counted).
     e.advance(arch).unwrap();
@@ -15587,7 +15587,7 @@ fn failures_with_a_return_between_are_not_in_a_row() {
 
 /// Rounds already in a work's history, oldest first, each as `(cell, row taken, rejected)`; they began an hour before
 /// now, so that an owner's Start after them ends the row they are in.
-fn history(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<Value>)]) {
+fn past_rounds(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<Value>)]) {
     let first = db::now() - 3_600_000;
     e.db.write(Actor::Engine, |tx| {
         for (i, (cell, row, rejected)) in rounds.iter().enumerate() {
@@ -15640,7 +15640,7 @@ fn step_failures_before_a_return_of_an_agent_are_not_in_a_row_with_those_after_i
     let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
     let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..5).map(|_| ("U1", None, step_failed())).collect();
     past.push(("H9", Some("done"), None));
-    history(&mut e, arch, &past);
+    past_rounds(&mut e, arch, &past);
     advance_to_pause(&mut e, arch, 12);
     let log = said.lock().unwrap().join("\n");
     let mut want = vec![Some("step_network".to_string()); 5];
@@ -15668,7 +15668,7 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
         ("U1", None, step_failed()),
         ("U1", None, step_failed()),
     ];
-    history(&mut e, arch, &past);
+    past_rounds(&mut e, arch, &past);
     advance_to_pause(&mut e, arch, 12);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
@@ -15701,7 +15701,7 @@ fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
     quiet(&mut e);
     let arch = architect_work_at(&mut e, "U1");
     let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
-    history(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
+    past_rounds(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
     e.advance(arch).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
@@ -15863,7 +15863,7 @@ fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
     quiet(&mut e);
     let arch = architect_work_at(&mut e, "U1");
     // One step taken again already: the count is at the limit, not past it.
-    history(&mut e, arch, &[("U1", None, step_failed())]);
+    past_rounds(&mut e, arch, &[("U1", None, step_failed())]);
     let phrase = "passed the limit its project sets on retries";
     for _ in 0..6 {
         e.advance(arch).unwrap();
