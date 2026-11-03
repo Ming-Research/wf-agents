@@ -5208,7 +5208,7 @@
             "name": "side_reports",
             "title": "Side reports",
             "type": "list",
-            "desc": "Things you came across that do not block this work and that this work has not reported before, for the project's architect, who tells the owner what the owner must know. Go on with your work as usual; this only reports them. An empty list if none",
+            "desc": "Only what needs an item of its own to fix, for the project's architect: a defect you came across that does not block this work, or something unreasonable you found that should change. Each must be worth a real item, and be covered by no item, observation or work already, this one included, and reported by this work before; anything else, such as a note on your own design, an acknowledgement or a remark, is left out, and when in doubt it is left out. A permission or a machine needed later is asked of the architect when it is needed. Go on with your work as usual; this only reports them. An empty list if none, the usual case",
             "item": {
               "type": "obj",
               "fields": [
@@ -5219,20 +5219,12 @@
                   "desc": "Which kind",
                   "values": [
                     [
-                      "duplicate",
-                      "It duplicates another work"
-                    ],
-                    [
                       "out_of_scope_defect",
                       "A defect that does not block this work"
                     ],
                     [
-                      "machine_or_permission_later",
-                      "This work will need another machine or a permission later: a word in advance"
-                    ],
-                    [
-                      "other",
-                      "None of the kinds above"
+                      "improvement",
+                      "Something unreasonable that should change"
                     ]
                   ]
                 },
@@ -5255,7 +5247,7 @@
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each, of three things only: what only the owner can do (a permission, a credential, an account, money); a risk that cannot be undone; a boundary crossed (a rule or a check gone around, the constitution or a norm breached, something written that must not be). Everything else goes in progress, or to the architect in side_reports. They need no decision and no answer, and the work goes on; a decision for the owner goes through asking the architect, who hands it on. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each, of three things only: what only the owner can do (a permission, a credential, an account, money); a risk that cannot be undone; a boundary crossed (a rule or a check gone around, the constitution or a norm breached, something written that must not be). Everything else goes in progress, or in side_reports when it needs an item of its own. They need no decision and no answer, and the work goes on; a decision for the owner goes through asking the architect, who hands it on. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"

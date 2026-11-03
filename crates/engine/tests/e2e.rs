@@ -7642,7 +7642,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
         "R1",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "other", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
             } else {
                 json!([])
             };
@@ -7744,7 +7744,7 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
         "R1",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "other", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
             } else {
                 json!([])
             };
@@ -10356,7 +10356,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     };
     agents.insert(
         "R1",
-        reporting(json!({ "kind": "duplicate", "what": "Item 7 does the same.", "urgent": true })),
+        reporting(json!({ "kind": "out_of_scope_defect", "what": "The lexer drops a token.", "urgent": true })),
     );
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
@@ -10369,7 +10369,7 @@ fn side_reports_come_to_the_architect_as_reports() {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .unwrap();
-    assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
+    assert_eq!((detail.as_str(), urgent), ("out_of_scope_defect", 1));
     // A work of the architect starts for the report, its first step beside the work's own.
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -15156,7 +15156,7 @@ fn a_side_report_handed_in_again_is_queued_once() {
     agents.insert(
         "R1",
         Box::new(|_: &Request, n: usize| {
-            let r = |what: &str| json!({ "kind": "other", "what": what, "urgent": false });
+            let r = |what: &str| json!({ "kind": "improvement", "what": what, "urgent": false });
             let reports = if n == 1 {
                 json!([
                     r("The parser is slow."),
