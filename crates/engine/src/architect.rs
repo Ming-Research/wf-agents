@@ -2065,20 +2065,34 @@ fn numbered(reply: &Value, keys: &BTreeMap<String, i64>) -> Value {
     r
 }
 
+/// Rows of a batch that are left out, each with what was found of it: the review's row, or why the write refused it.
+type LeftOut = Vec<(Change, Value)>;
+
 /// Makes the given rows of an architect work's batch, as the architect, each in order; a key a change made the item
-/// under is given its number. Gives the keys and the numbers they were given.
+/// under is given its number. Gives the keys and the numbers they were given, and the rows the write refused, each with
+/// why, to be left out as the review's drops are: the review judged the batch whole, and a dependency one of its drops
+/// leaves open may close a cycle with a change it kept.
 fn make(
     tx: &Transaction<'_>,
     rows: &[Change],
     projects: &BTreeMap<String, config::Project>,
-) -> Result<BTreeMap<String, i64>, String> {
+) -> Result<(BTreeMap<String, i64>, LeftOut), String> {
     let changes: Vec<Value> = rows.iter().map(|r| r.3.clone()).collect();
-    let created = crate::arch_changes::write_all(tx, &changes, projects)?;
-    let keys: BTreeMap<String, i64> = created
+    let written = crate::arch_changes::write_all(tx, &changes, projects)?;
+    let keys: BTreeMap<String, i64> = written
+        .created
         .iter()
         .filter_map(|c| Some((c["key"].as_str()?.to_string(), c["id"].as_str()?.parse().ok()?)))
         .collect();
-    for (id, _, _, change) in rows {
+    let refused: BTreeMap<usize, &String> = written.refused.iter().map(|(i, why)| (*i, why)).collect();
+    let mut left_out = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        if let Some(why) = refused.get(&i) {
+            let what = format!("It was not made, as the changes the review left out leave the items: {why}");
+            left_out.push((row.clone(), json!({ "verdict": "drop", "what": what })));
+            continue;
+        }
+        let (id, _, _, change) = row;
         let outcome = match change["kind"].as_str() {
             Some("create_item") => keys.get(text(&change["key"]).trim()).map(|n| json!({ "created": n })),
             _ => None,
@@ -2089,7 +2103,7 @@ fn make(
         )
         .map_err(sql)?;
     }
-    Ok(keys)
+    Ok((keys, left_out))
 }
 
 /// The keys of items the batch was to create that a reply names, in its children and its waits: those that are no
@@ -2663,7 +2677,8 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let review = items(ctx.unwrapped.get("review"));
     let (sound, mut left_out) = sorted_by_review(collected(tx, w)?, &review);
     let sound = without_stale_approaches(tx, sound, &mut left_out)?;
-    let keys = make(tx, &sound, &ctx.projects)?;
+    let (keys, refused) = make(tx, &sound, &ctx.projects)?;
+    left_out.extend(refused);
     drop_rows(tx, &left_out)?;
     // What the review drops is left out, and what it still finds to fix is put to the owner.
     let dropped: Vec<(Change, Value)> = left_out.into_iter().filter(|(_, f)| f["verdict"] == "fix").collect();
@@ -3180,7 +3195,8 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let (_, project) = architect_work_of(ctx)?;
             let (rows, mut dropped) = sorted_by_review(collected(tx, w)?, &items(at));
             let rows = without_stale_approaches(tx, rows, &mut dropped)?;
-            let keys = make(tx, &rows, &ctx.projects)?;
+            let (keys, refused) = make(tx, &rows, &ctx.projects)?;
+            dropped.extend(refused);
             drop_rows(tx, &dropped)?;
             release_held_replies(tx, w, &keys, &BTreeSet::new())?;
             answer_batch(tx, w)?;
