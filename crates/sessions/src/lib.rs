@@ -204,8 +204,8 @@ mod tests {
         );
     }
 
-    // The flow starts the engineer's new sessions at researching, implementing and fixing, and the reader's at its
-    // first gathering.
+    // The flow starts the engineer's new sessions at researching, implementing and fixing, the reader's at its first
+    // gathering, and the reviewer's at the blind review, which no plan the reviewer reviewed before may shape.
     #[test]
     fn the_engineer_starts_new_sessions_at_researching_implementing_and_fixing() {
         let f = compiled();
@@ -216,6 +216,6 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["G1", "R1", "I1", "T6"]);
+        assert_eq!(starts, ["G1", "R1", "I1", "T3", "T6"]);
     }
 }

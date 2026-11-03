@@ -569,7 +569,17 @@ describe('the flow as the engine stores it', () => {
             return `${id} y ${Math.round(b.y)} to ${Math.round(b.y + b.height)}`;
           };
           const froms = c.edges.filter((e) => e.target === n.id).map((e) => at(e.source));
-          const said = [at(n.id), at(into.id), ...between.map((x) => at(x.id)), `from ${froms.join(', ')}`].join('; ');
+          const column = c.nodes
+            .filter((x) => x.kind === 'cell' && x.group === n.group)
+            .sort((x, y) => box(x.id).y - box(y.id).y)
+            .map((x) => at(x.id));
+          const said = [
+            at(n.id),
+            at(into.id),
+            ...between.map((x) => at(x.id)),
+            `from ${froms.join(', ')}`,
+            `the box's cells ${column.join(', ')}`,
+          ].join('; ');
           expect(between.map((x) => x.cell), said).toEqual([]);
         }
       });
