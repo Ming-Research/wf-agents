@@ -1284,7 +1284,9 @@ mod tests {
         let mut section = flow["flows"][0]["rounds"].clone();
         change(&mut section);
         let r: Rounds = serde_json::from_value(section).unwrap();
-        rounds(&r, &[]).unwrap_err()
+        // The counters the rounds section names are the flow's, and no cell is checked for its shared rows here.
+        let counters: Vec<Counter> = serde_json::from_value(flow["flows"][0]["limits"]["counters"].clone()).unwrap();
+        rounds(&r, &counters, &[]).unwrap_err()
     }
 
     // A stop with no row to take, or a row no stop leads to, would not be what the chart says; the rule's rounds are the
