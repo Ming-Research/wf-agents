@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
@@ -15,19 +15,71 @@ fn compiled() -> flow::Compiled {
     flow::compile(FLOW, &context()).unwrap_or_else(|e| panic!("{e}"))
 }
 
-// The engineer's graph compiles with no finding, and comes out as the generator the flow was designed with worked it
-// out: as many cells, rows and states. The places of the returns' fields are not held to a number: nearly every change
-// to a form moves them, and works that change forms side by side met in this file at every merge.
+/// Whether each graph of the flow compiled to the cells `source` gives it: a compiled graph has a cell for every node
+/// of the graph of its name in `source`, and no other. The source is the standard, not what the compiler once
+/// produced, and the answer names each cell that is missing or that no node gives.
+fn cells_match_nodes(c: &flow::Compiled, source: &str) -> Result<(), String> {
+    let v: Value = serde_json::from_str(source).unwrap();
+    let mut problems = Vec::new();
+    for f in v["flows"].as_array().unwrap() {
+        let name = f["name"].as_str().unwrap();
+        let nodes: BTreeSet<&str> = f["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["id"].as_str().unwrap())
+            .collect();
+        let Some(g) = c.graph(name) else {
+            problems.push(format!("{name}: the flow has no compiled graph"));
+            continue;
+        };
+        let cells: BTreeSet<&str> = g.cells.iter().map(|x| x.id.as_str()).collect();
+        for id in nodes.difference(&cells) {
+            problems.push(format!("{name}: no cell for the node {id}"));
+        }
+        for id in cells.difference(&nodes) {
+            problems.push(format!("{name}: a cell {id} that is no node"));
+        }
+    }
+    for g in &c.graphs {
+        if !v["flows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == g.name.as_str())
+        {
+            problems.push(format!("{}: a compiled graph that is no graph of the flow", g.name));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
+// The flow compiles with no finding, and each of its graphs comes out with the cells of its nodes, the engineer's and
+// the architect's. The check is shown to fail for a cell the compiler lost and for one it made up, each named.
 #[test]
-fn the_engineer_graph_compiles_as_its_reference_has_it() {
+fn each_graph_compiles_to_the_cells_of_its_nodes() {
     let c = compiled();
-    let r: Value = serde_json::from_str(include_str!("reference.json")).unwrap();
-    let s = &c.stats[0];
-    let want = |k: &str| r[k].as_u64().unwrap() as usize;
-    assert_eq!(
-        (s.cells, s.rows, s.states),
-        (want("cells"), want("rows"), want("states"))
-    );
+    cells_match_nodes(&c, FLOW).unwrap_or_else(|e| panic!("{e}"));
+    let mut lost = c.clone();
+    let gone = lost
+        .graphs
+        .iter_mut()
+        .find(|g| g.name == "engineer")
+        .and_then(|g| g.cells.pop())
+        .unwrap();
+    let e = cells_match_nodes(&lost, FLOW).unwrap_err();
+    assert_eq!(e, format!("engineer: no cell for the node {}", gone.id));
+    let mut made = c.clone();
+    let g = made.graphs.iter_mut().find(|g| g.name == "architect").unwrap();
+    let mut extra = g.cells[0].clone();
+    extra.id = "ZZ".into();
+    g.cells.push(extra);
+    let e = cells_match_nodes(&made, FLOW).unwrap_err();
+    assert_eq!(e, "architect: a cell ZZ that is no node");
 }
 
 // The cells that read the histories and the observations judge what matters in a great many records, so they think:
@@ -158,16 +210,14 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
 // changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
 // only its matter (`A3`), the tools (`X1`), the observer
-// (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, no wait
+// (`X2`) and the wait for the owner's Start after a pause (`X3`). It has no wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
 // The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
 // one.
 #[test]
-fn the_architect_graph_compiles_as_its_reference_has_it() {
+fn the_architect_graph_has_no_cell_the_design_left_out() {
     let c = compiled();
-    let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (31, 136, 197));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -1350,18 +1400,18 @@ fn every_sample_takes_its_row() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let mut n = 0;
+    // The loop below must run: a file with no cell, or a cell with no sample, would pass it having tried nothing.
+    assert!(!samples.is_empty(), "no samples");
     for (cell, xs) in &samples {
+        assert!(!xs.is_empty(), "no sample of {cell}");
         for s in xs {
             let given: Map<String, Value> = s["given"].as_object().cloned().unwrap_or_default();
             let row = g
                 .take(cell, &s["json"], &given)
                 .unwrap_or_else(|e| panic!("{cell}: {e}"));
             assert_eq!(row.name, s["row"].as_str().unwrap(), "a sample of {cell}");
-            n += 1;
         }
     }
-    assert_eq!(n, 38);
 }
 
 // The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and

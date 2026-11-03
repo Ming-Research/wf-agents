@@ -16,6 +16,11 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
   passes `wf-agents flow check`; the flow crate's tests run the same check. Such a change is an open question of its
   design, put to the owner with a link to the flow page's comparison, and the merge waits for the answer.
+- A test holds no total of a whole graph of the flow (its cells, rows, states, places or samples): every work that
+  changes the flow would rewrite it, and works that do so side by side cannot be merged, in git or in meaning. What
+  the flow must keep is held by the flow's own source (`each_graph_compiles_to_the_cells_of_its_nodes`) or by a named
+  check; what the compiler's walk must keep is held by the small graph whose states are counted by hand, in
+  `crates/flow/src/walk.rs`.
 - A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
   a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
   returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a
