@@ -5,7 +5,7 @@
 //! is the test in `rounds_counts.rs`, which migrates through every migration.
 
 use db::rusqlite::{Connection, params};
-use db::{Db, SCHEMA};
+use db::{Actor, Db, SCHEMA};
 
 /// One row of the view: work, round, cell, position, check_name, field, text.
 type Problem = (i64, i64, String, i64, String, Option<String>, String);
@@ -272,16 +272,20 @@ fn a_database_migrated_from_version_1_has_the_view_of_the_problems_of_returns_se
             .unwrap();
         conn.pragma_update(None, "user_version", 1).unwrap();
     }
-    let db = Db::open(&path).unwrap();
-    let conn = db.conn();
-    two_works(conn);
-    round(
-        conn,
-        1,
-        1,
-        None,
-        Some(r#"{"check":"c (f): t","problems":[{"check":"c","field":"f","text":"t"}]}"#),
-    );
-    assert_eq!(problems(conn), [row(1, 1, 0, "c", Some("f"), "t")]);
+    let mut db = Db::open(&path).unwrap();
+    // The state tables take writes through the database's own, as the engine makes them.
+    db.write(Actor::Engine, |tx| {
+        two_works(tx);
+        round(
+            tx,
+            1,
+            1,
+            None,
+            Some(r#"{"check":"c (f): t","problems":[{"check":"c","field":"f","text":"t"}]}"#),
+        );
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(problems(db.conn()), [row(1, 1, 0, "c", Some("f"), "t")]);
     let _ = std::fs::remove_dir_all(&dir);
 }
