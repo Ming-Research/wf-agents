@@ -42,6 +42,39 @@ function subscribe(l: () => void): () => void {
   return () => listeners.delete(l);
 }
 
+/// How long what events name waits before it is read again. A busy engine sends several events a second, and a view
+/// can take half a second to read and more to draw: read at each event, the reads pile up behind one another until the
+/// owner's page and the machine stop.
+export const FLUSH_MS = 3000;
+
+/// Gathers what is given to it and hands it to `run` at most once in `FLUSH_MS`, each key once, and not while `hidden`
+/// says so: a tab the owner is not looking at reads nothing until it is looked at.
+export function coalesced(run: (keys: string[]) => void, hidden: () => boolean): (keys: string[]) => void {
+  const pending = new Set<string>();
+  let waiting = false;
+  const flush = () => {
+    if (hidden()) {
+      setTimeout(flush, FLUSH_MS);
+      return;
+    }
+    waiting = false;
+    const keys = [...pending];
+    pending.clear();
+    run(keys);
+  };
+  return (keys) => {
+    for (const k of keys) pending.add(k);
+    if (waiting) return;
+    waiting = true;
+    setTimeout(flush, FLUSH_MS);
+  };
+}
+
+const bumpSoon = coalesced(
+  (keys) => bump(...keys),
+  () => typeof document !== 'undefined' && document.hidden,
+);
+
 function bump(...keys: string[]) {
   const versions = new Map(state.versions);
   for (const k of keys) versions.set(k, (versions.get(k) ?? 0) + 1);
@@ -149,7 +182,7 @@ export function connect(): void {
       ready = true;
       set({ epoch: state.epoch + 1 });
     } else {
-      bump(...named(e));
+      bumpSoon(named(e));
     }
   };
 }
