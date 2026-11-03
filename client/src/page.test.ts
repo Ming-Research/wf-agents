@@ -918,7 +918,7 @@ const COLOURS = coloursOf([
       { name: 'review', desc: 'The review', colour: 'teal' },
     ],
   },
-  { graph: 'architect', lines: [{ name: 'observer', desc: 'The search of observations', colour: 'lime' }] },
+  { graph: 'architect', lines: [{ name: 'observer', desc: 'The search of observations', colour: 'brown' }] },
 ]);
 
 function cell(id: string, rows: CompiledRow[], extra: Partial<CompiledCell> = {}): CompiledCell {

@@ -305,9 +305,13 @@ pub fn catch_up(dir: &Path, main: &str) -> Result<Result<String, Vec<String>>, S
 }
 
 /// A commit on `base` that has the given files as they are at `from`: the tests of a change put on the code before
-/// it. Nothing changes in the worktree.
-pub fn files_onto(dir: &Path, files: &[String], from: &str, base: &str) -> Result<String, String> {
-    let tmp = dir.join(".git-wf-agents-index");
+/// it, its message naming `tag`, so that two made at once from the same files are two commits and a run found by its
+/// commit is the run made for it. Nothing changes in the worktree.
+pub fn files_onto(dir: &Path, files: &[String], from: &str, base: &str, tag: &str) -> Result<String, String> {
+    // The index is the worktree's git directory's, named by `tag`: never a file in the worktree, which a push from it
+    // at the same time would find uncommitted, and one for each run, so that two runs at once do not share it.
+    let gitdir = git(dir, &["rev-parse", "--absolute-git-dir"])?;
+    let tmp = Path::new(gitdir.trim()).join(format!("wf-agents-index-{tag}"));
     let index = tmp.to_string_lossy().into_owned();
     let run = |args: &[&str]| -> Result<String, String> {
         let out = Command::new("git")
@@ -326,7 +330,7 @@ pub fn files_onto(dir: &Path, files: &[String], from: &str, base: &str) -> Resul
         }
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     };
-    let result = commit_with(&run, files, from, base);
+    let result = commit_with(&run, files, from, base, tag);
     let _ = std::fs::remove_file(&tmp);
     result
 }
@@ -348,6 +352,7 @@ fn commit_with(
     files: &[String],
     from: &str,
     base: &str,
+    tag: &str,
 ) -> Result<String, String> {
     run(&["read-tree", base])?;
     for f in files {
@@ -356,8 +361,8 @@ fn commit_with(
     }
     let tree = run(&["write-tree"])?;
     let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
-    let msg = "Tests of the change on the code before it";
-    run(&[&who[..], &["commit-tree", tree.as_str(), "-p", base, "-m", msg]].concat())
+    let msg = format!("Tests of the change on the code before it (wf-agents {tag})");
+    run(&[&who[..], &["commit-tree", tree.as_str(), "-p", base, "-m", &msg]].concat())
 }
 
 #[cfg(test)]

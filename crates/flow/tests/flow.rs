@@ -15,13 +15,9 @@ fn compiled() -> flow::Compiled {
     flow::compile(FLOW, &context()).unwrap_or_else(|e| panic!("{e}"))
 }
 
-// The engineer's graph compiles with no finding, and comes out as the generator the flow was designed with worked
-// it out: as many cells, rows, states and places. Item #217 moved `places` from 1233 to 1235, counted by the places of
-// the returns' fields: the test changes of I1 and T6 gained 10 places each (`on_head` and `on_base` in `added`, and
-// the branch `extended` with its place and six fields) and the two tables each of them lost (`new_tests`,
-// `guard_tests`: the field and its `name`, `by`, `on_head` and `on_base`) are 10 places each; D2's `measure` gained
-// the branch `from_records` and its field `read`, 2 places. Cells, rows and states did not change. Item #234 added the
-// light route: its three cells (`G4`, `F1`, `F2`), their rows and returns, and R1's rows and `route`.
+// The engineer's graph compiles with no finding, and comes out as the generator the flow was designed with worked it
+// out: as many cells, rows and states. The places of the returns' fields are not held to a number: nearly every change
+// to a form moves them, and works that change forms side by side met in this file at every merge.
 #[test]
 fn the_engineer_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
@@ -29,8 +25,8 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     let s = &c.stats[0];
     let want = |k: &str| r[k].as_u64().unwrap() as usize;
     assert_eq!(
-        (s.cells, s.rows, s.states, s.places),
-        (want("cells"), want("rows"), want("states"), want("places"))
+        (s.cells, s.rows, s.states),
+        (want("cells"), want("rows"), want("states"))
     );
 }
 
@@ -78,6 +74,37 @@ fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
         "cells whose works a new version takes over: changed or new {changed:?}; gone {gone:?}. Now: {}",
         serde_json::to_string(&have).unwrap()
     );
+}
+
+// The cells that read the histories and the observations judge what matters in a great many records, so they think:
+// the librarian's four cells and the architect's look-up at high effort, the search of observations at medium, and no
+// cell of any graph at low, which does not think. A line cannot hold low cells beside others, so that the librarian's
+// cell G3 goes with its line.
+#[test]
+fn the_cells_that_read_histories_and_observations_think() {
+    let c = compiled();
+    let effort = |graph: &str, cell: &str| {
+        let found = c.graph(graph).and_then(|g| g.cell(cell));
+        found
+            .unwrap_or_else(|| panic!("no cell {cell} in {graph}"))
+            .effort
+            .clone()
+    };
+    for (graph, cell) in [
+        ("engineer", "G1"),
+        ("engineer", "G2"),
+        ("engineer", "G3"),
+        ("engineer", "X5"),
+        ("architect", "X5"),
+    ] {
+        assert_eq!(effort(graph, cell).as_deref(), Some("high"), "{graph} {cell}");
+    }
+    assert_eq!(effort("architect", "X2").as_deref(), Some("medium"));
+    for g in &c.graphs {
+        for cell in &g.cells {
+            assert_ne!(cell.effort.as_deref(), Some("low"), "{} {}", g.name, cell.id);
+        }
+    }
 }
 
 // A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
@@ -211,12 +238,12 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
     assert!(c.graph("policy").is_none());
 }
 
-// Every agent's cell of the architect's line but the review of a batch and the observer's search may rewrite sections
-// of the notebook in its own answer, beside its effects, the edit made at once and its size checked; the understanding
-// and the plan must, each its own sections. Each such cell is given the four sections, each an engine input of its own,
-// but the understanding, which writes what the project is now afresh and is given only what is unclear, as questions
-// to settle, and the other section; no cell reads the state of things, the notes, the log or the last plan, which the
-// notebook took the place of.
+// Every agent's cell of the architect's line and of its pick but the review of a batch and the observer's search may
+// rewrite sections of the notebook in its own answer, beside its effects, the edit made at once and its size checked;
+// the understanding and the plan must, each its own sections. Each such cell is given the four sections, each an engine
+// input of its own, but the understanding, which writes what the project is now afresh and is given only what is
+// unclear, as questions to settle, and the other section; no cell reads the state of things, the notes, the log or the
+// last plan, which the notebook took the place of.
 #[test]
 fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let c = compiled();
@@ -226,7 +253,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let sections = ["project_now", "plan", "unclear", "other"];
     let mut keep = Vec::new();
     for cell in &g.cells {
-        if cell.kind != "agent" || cell.line.as_deref() != Some("architect") {
+        if cell.kind != "agent" || !matches!(cell.line.as_deref(), Some("architect" | "picker")) {
             continue;
         }
         keep.push(cell.id.as_str());
@@ -351,9 +378,16 @@ fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_th
         let row = g.cell(id).unwrap().rows.iter().find(|r| r.name == "ask_owner").unwrap();
         assert!(row.actions.iter().any(|d| d.name() == "dissolve_group"), "{id}");
     }
-    let ret = |outcome: Value| serde_json::json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" });
+    // The pick, on a line of its own, tells the owner nothing; the architect's own cells do.
+    let ret = |cell: &str, outcome: Value| {
+        let mut r = serde_json::json!({ "outcome": outcome, "progress": "p", "flow_feedback": "none" });
+        if cell != "Q1" {
+            r["tell_owner"] = serde_json::json!([]);
+        }
+        r
+    };
     let takes = |cell: &str, outcome: Value| -> Result<String, String> {
-        g.take(cell, &ret(outcome), &Map::new()).map(|r| r.name.clone())
+        g.take(cell, &ret(cell, outcome), &Map::new()).map(|r| r.name.clone())
     };
     let refused = |cell: &str, outcome: Value| takes(cell, outcome).unwrap_err().contains("does not fit the schema");
     // The pick names others, or none.
@@ -1580,9 +1614,9 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
 }
 
 // Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the reader of the
-// history, the review, adversarial testing, the advisor, the review of the architect's batch and the search of
-// observations) has no `tell_owner` in its
-// return, its description does not name one, and nothing is done with it or shown of it there. The helpers of a work
+// history, the review, adversarial testing, the advisor, the review of the architect's batch, the search of
+// observations and the pick of the architect's next matter) has no `tell_owner` in its return, its description does not
+// name one, and nothing is done with it or shown of it there. The helpers of a work
 // still hand in side reports, which the architect reads.
 #[test]
 fn only_the_engineer_and_the_architect_tell_the_owner() {
@@ -1611,7 +1645,7 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
     assert_eq!(
         helpers,
         [
-            "G1", "G2", "G4", "F2", "X5", "T1", "T3", "G3", "T4", "A1", "B2", "X2", "X5"
+            "G1", "G2", "G4", "F2", "X5", "T1", "T3", "G3", "T4", "A1", "Q1", "B2", "X2", "X5"
         ]
     );
 }
@@ -1955,9 +1989,9 @@ fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
     );
 }
 
-// The architect's line says its session expires with the CLI's prompt cache, so that every cell on it carries that, and
-// no cell of any other line does. A flow version stored before lines could say so has no such field in its cells, and
-// reads back with it false.
+// The architect's line and the pick of its next matter say their session expires with the CLI's prompt cache, so that
+// every cell on them carries that, and no cell of any other line does. A flow version stored before lines could say so
+// has no such field in its cells, and reads back with it false.
 #[test]
 fn only_the_architects_line_expires_with_the_cache() {
     let c = compiled();
@@ -1965,7 +1999,12 @@ fn only_the_architects_line_expires_with_the_cache() {
     for g in &c.graphs {
         for x in &g.cells {
             if x.cache_expiry {
-                assert_eq!(x.line.as_deref(), Some("architect"), "{} {}", g.name, x.id);
+                assert!(
+                    matches!(x.line.as_deref(), Some("architect" | "picker")),
+                    "{} {}",
+                    g.name,
+                    x.id
+                );
                 expiring.push((g.name.as_str(), x.id.as_str()));
             }
         }

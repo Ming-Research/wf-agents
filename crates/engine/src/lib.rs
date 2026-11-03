@@ -88,6 +88,9 @@ pub const POLICY: &str = "policy";
 /// The line of the search of observations, which runs at the observer's level.
 pub const OBSERVER: &str = "observer";
 
+/// The line of the pick of the architect's next matter, which runs at the picker's level.
+pub const PICKER: &str = "picker";
+
 /// The engine's version: the commit it was built from, which every agent's round records.
 pub const VERSION: &str = env!("WF_AGENTS_COMMIT");
 

@@ -2283,9 +2283,10 @@ page draws a colour through one lookup, a class to a colour (`role-<colour>`, `r
 display tokens of that colour: `--display-<colour>-borderColor-emphasis` a cell's edge on a chart, `-bgColor-muted` a
 cell's fill and a bubble's, `-borderColor-muted` a bubble's edge and `-bgColor-emphasis` an avatar's circle. The
 engineer is blue, the review teal, the adversarial testing auburn, the advisor pink, the architect purple, the review of
-the architect's batch indigo and the search of observations lime; orange (the owner's cells), yellow (the tools') and
-red (danger) are kept from roles, and grey is the engine's own steps'; an agent with no colour of its own is the neutral
-grey of the engine's own steps, as a box.
+the architect's batch indigo, the reader of a work's history green, the search of observations brown and the pick of the
+architect's next matter cyan; orange (the owner's cells), yellow (the tools') and red (danger) are kept from roles, and
+grey is the engine's own steps'; an agent with no colour of its own is the neutral grey of the engine's own steps, as a
+box.
 
 Instead of the chart colouring the lines of each graph by their order, so that the engineer and the architect were both
 green there, and the conversation one colour each for the engineer and the architect and one for every helper, because
@@ -2297,8 +2298,8 @@ shows its roles in the colours the flow gives them now.
 
 A role's colours are Primer's display colours, for its cells on a chart as for its avatar and bubbles (ours), instead of
 the data visualisation colours a chart's cells had, because the display colours have each of the role's colours in both
-themes and the data visualisation colours have no indigo; for blue, auburn, pink, purple and lime a cell's edge and fill
-are the same as the data colours were, and teal's edge a step darker.
+themes and the data visualisation colours have no indigo; for blue, auburn, pink and purple a cell's edge and fill are
+the same as the data colours were, and teal's edge a step darker.
 
 ### The engine's grey
 

@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, PICKER, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -856,7 +856,8 @@ pub fn cell_request(
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
 /// advisor, which is the engineer with a higher model; for the architect, the review of its item changes and the new
 /// architects that read a policy, the level the installation names for the architect; for the search of
-/// observations, the level it names for the observer.
+/// observations, the level it names for the observer; for the pick of the architect's next matter, the level it names
+/// for the picker.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -866,6 +867,7 @@ pub fn level_of(
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
         None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
+        None if cell.line.as_deref() == Some(PICKER) => e.config.config.picker_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e
@@ -1398,7 +1400,7 @@ pub fn engine(
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
-        Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
+        Some("look_at_queue") => architect::look_at_queue(e, w, g, cell, round)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };
