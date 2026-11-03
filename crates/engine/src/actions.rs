@@ -51,6 +51,9 @@ pub struct Ctx {
 /// The engineer's cell that writes the design, whose return holds its acceptance conditions.
 const DESIGN: &str = "D2";
 
+/// The engineer's cell that plans a fix on the light route, whose plan holds its acceptance conditions.
+const PLAN: &str = "F1";
+
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -324,8 +327,15 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             .map_err(sql)?;
         }
         "lock_acceptance" => {
-            let Some((round, acceptance)) = ctx.last(tx, DESIGN, &format!("{}.acceptance", ctx.within))? else {
-                return Err("no design handed in acceptance conditions to lock".into());
+            // The conditions of the work's latest design, or on the light route of its latest plan.
+            let design = ctx.last(tx, DESIGN, &format!("{}.acceptance", ctx.within))?;
+            let plan = ctx.last(tx, PLAN, &format!("{}.plan.acceptance", ctx.within))?;
+            let newest = match (design, plan) {
+                (Some(d), Some(p)) => Some(if d.0 > p.0 { d } else { p }),
+                (d, p) => d.or(p),
+            };
+            let Some((round, acceptance)) = newest else {
+                return Err("no design or plan handed in acceptance conditions to lock".into());
             };
             let item = ctx.item_id()?;
             let locked: Option<String> = tx

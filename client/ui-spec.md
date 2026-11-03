@@ -427,9 +427,9 @@ holds only if the mapping is written down and checked.
 A page's title and what it is about is a `PageHeader`: `PageHeader.Title` as the h1, a thing with a number titled by its
 number in `--fgColor-muted` then its title ("#1 Document the commands"), as an item is written everywhere (below),
 instead of "Item 1"; its facts (below) in body text, after a bar on the title's line in `PageHeader.TitleArea`, aligned
-with the title's words and wrapping under it where the line is short, an item's its project, its tier, its state's chip
-with the items it waits for after it, and its pull request ("#1 Document the commands | wf-agents | Tier 2 | working |
-PR #3"); under them, in `PageHeader.Description`, while a work goes on on it, a second line of that work's facts: the
+with the title's words and wrapping under it where the line is short, an item's its project, its tier, its route when it
+is the light route, its state's chip with the items it waits for after it, and its pull request ("#1 Document the
+commands | wf-agents | Tier 2 | working | PR #3"); under them, in `PageHeader.Description`, while a work goes on on it, a second line of that work's facts: the
 work as a link with its state's chip beside it and no bar between them, its stage, its cell, what it waits for and its
 conversation ("Work 5 ready | test and review | 16 Owner | Conversation"); a page's controls, where it has any (an
 observation's close), in `PageHeader.Actions`, an item's page, read only, having none; instead of one line of facts
@@ -1080,10 +1080,12 @@ of worded buttons too long for one line of the list's pane.
 ### An item's head
 
 An item's page is read only; its head is the item's number, muted, and its title ("#1 Document the commands"), with its
-facts after it on the title's line: its project, its tier, its state with the items it waits for, and its pull request;
-and under them, while a work goes on on it, that work once, with how it stands, its stage and cell, what it waits for
-and its group (above), instead of "Item 1", its state beside the title, the work and what it waits for on lines of their
-own, and what the item delivers, because the owner decided.
+facts after it on the title's line: its project, its tier, its route when it is the light route of a bug fix or a
+feature ("Bug fix, light route"; what that route leaves out said on hovering), its state with the items it waits for,
+and its pull request; and under them, while a work goes on on it, that work once, with how it stands, its stage and
+cell, what it waits for and its group (above), instead of "Item 1", its state beside the title, the work and what it
+waits for on lines of their own, what the item delivers, and the normal route, which most items go, because the owner
+decided, and because which items skip the design and the blind review is for the owner to see at a glance.
 
 ### An item's page
 

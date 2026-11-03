@@ -52,13 +52,13 @@ CREATE TABLE items (
   deliver TEXT NOT NULL CHECK (deliver IN ('change', 'report')),
   -- Agent level; decides which agent and model run the work. Read by: the engine at cell `S1`.
   level TEXT NOT NULL,
-  -- The locked acceptance: a JSON list of acceptance rows in the flow's acceptance shape. NULL until a first design
-  -- passes its checks. Every later design must hand in exactly this list; only the advisor can change it.
-  -- Read by: cells `D2`, `I1`, `T3`, `T4` and `T1`; the
-  -- engine, which compares each design's acceptance with it.
+  -- The locked acceptance: a JSON list of acceptance rows in the flow's acceptance shape. NULL until a first design, or
+  -- on the light route a first plan, passes its checks. Every later design or plan must hand in exactly this list;
+  -- only the advisor can change it. Read by: cells `D2`, `F1`, `F2`, `I1`, `T3`, `T4` and `T1`; the engine, which
+  -- compares each design's and each plan's acceptance with it.
   acceptance TEXT CHECK (acceptance IS NULL OR json_valid(acceptance)),
-  -- The round whose acceptance was locked, by its work and its number in the work: a design round, or an advisor
-  -- round that changed it. Read by: cell `D2`, to see whether the advisor changed it.
+  -- The round whose acceptance was locked, by its work and its number in the work: a design round, a plan round on the
+  -- light route, or an advisor round that changed it. Read by: cell `D2`, to see whether the advisor changed it.
   acceptance_work INTEGER,
   acceptance_round INTEGER,
   -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell `R1` for the items around
@@ -84,8 +84,15 @@ CREATE TABLE items (
   -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
   -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
   rank INTEGER,
+  -- The route its works go: normal; or bugfix or feature, which go the light route, a plan reviewed before it is
+  -- implemented in place of the judgment whether it stands, the design and its checks. Only an item that delivers a
+  -- change goes the light route. The architect sets it when it creates or edits the item; a work past its research
+  -- keeps the route it took. Read by: the engine's value of the route a work takes, until the work's research
+  -- answers; cells `R1`, `G4`, `F1` and `F2`, through item_body; the owner's interface.
+  route TEXT NOT NULL DEFAULT 'normal' CHECK (route IN ('normal', 'bugfix', 'feature')),
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
   CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
+  CHECK (route = 'normal' OR deliver = 'change'),
   FOREIGN KEY (acceptance_work, acceptance_round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -1178,9 +1185,9 @@ CREATE VIEW ready_items AS
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
 CREATE VIEW item_body AS
-  -- The item as its creator wrote it, the acceptance it wanted included. Read by: cells `R1` and
-  -- `T4`.
-  SELECT id AS item, project, title, problem, why, approach, deliver, wanted FROM items;
+  -- The item as its creator wrote it, the acceptance it wanted and the route its works go included. Read by: cells
+  -- `R1`, `G4`, `F1`, `F2`, `I1` and `T4`.
+  SELECT id AS item, project, title, problem, why, approach, deliver, route, wanted FROM items;
 
 CREATE VIEW item_problem AS
   -- The item's problem: the engineer's understanding once cell `R1` has run, as written before.

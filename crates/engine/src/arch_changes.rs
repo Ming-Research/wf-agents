@@ -149,6 +149,27 @@ pub fn record_decision_of(project: &str, matter: i64, decision: &Value) -> Value
     })
 }
 
+/// The route a change that creates an item gives it: the normal route when it gives none.
+fn route_of(c: &Value) -> &str {
+    match text(c, "route").trim() {
+        "" => "normal",
+        r => r,
+    }
+}
+
+/// Why a route a change gives an item does not fit it: no route there is, or the light route of a bug fix or a feature
+/// for an item that delivers a report, which only a change goes; none when it fits.
+fn route_unfit(route: &str, deliver: &str) -> Option<String> {
+    match route {
+        "normal" => None,
+        "bugfix" | "feature" if deliver == "change" => None,
+        "bugfix" | "feature" => Some(format!(
+            "it gives the route {route} to an item that delivers a {deliver}: only a change goes the light route"
+        )),
+        other => Some(format!("there is no route \"{other}\": a route is normal, bugfix or feature")),
+    }
+}
+
 /// The most characters an item's title has, spaces not counted, and an observation's.
 const TITLE_MOST: usize = 20;
 
@@ -170,12 +191,13 @@ pub(crate) fn title_fits(title: &str, bad: &mut dyn FnMut(String)) {
 
 /// Whether the changes a project's architect handed in are valid, in order: every change has its reason; an item
 /// created is of the project and has what it needs and a key no other change uses; a title an item is created or
-/// retitled with has 20 characters at most, spaces not counted; a split gives each acceptance condition of the item
-/// split to one new item at most, one of its locked conditions when its acceptance is locked; every item a change
-/// names is there, or made by an earlier change, and an item it changes is of the project (an item of the project may
-/// depend on another project's); every dependency a change makes has its kind; an item is moved first, last, under
-/// another item, or next to another item of its own project; observations folded in are the project's and open; and
-/// after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
+/// retitled with has 20 characters at most, spaces not counted; a route an item is created with or set to is one there
+/// is, the light route of a bug fix or a feature only for an item that delivers a change; a split gives each acceptance
+/// condition of the item split to one new item at most, one of its locked conditions when its acceptance is locked;
+/// every item a change names is there, or made by an earlier change, and an item it changes is of the project (an item
+/// of the project may depend on another project's); every dependency a change makes has its kind; an item is moved
+/// first, last, under another item, or next to another item of its own project; observations folded in are the
+/// project's and open; and after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     validate_from(e, project, changes, 0)
 }
@@ -192,6 +214,8 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
     let mut next_new = -1;
     // The acceptance conditions each item split gives to its new items so far.
     let mut taken: BTreeMap<i64, BTreeSet<String>> = BTreeMap::new();
+    // What each item the batch creates delivers, which the route a later change gives it must fit.
+    let mut delivers: BTreeMap<i64, String> = BTreeMap::new();
     // The items a decision of the batch is recorded in so far, and the words each has quoted.
     let mut decided: BTreeSet<i64> = BTreeSet::new();
     let mut quoted: BTreeSet<(i64, String, i64, String)> = BTreeSet::new();
@@ -257,8 +281,12 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 if texts(c, "acceptance").iter().all(|a| a.trim().is_empty()) {
                     bad("it has no acceptance".into());
                 }
+                if let Some(why) = route_unfit(route_of(c), text(c, "deliver")) {
+                    bad(why);
+                }
                 let id = next_new;
                 next_new -= 1;
+                delivers.insert(id, text(c, "deliver").to_string());
                 let under = c.get("under").filter(|v| !v.is_null());
                 if let Some(u) = under {
                     dependency(&u["dependency"], &mut bad);
@@ -358,6 +386,22 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 }
                 if text(c, "part") == "title" {
                     title_fits(text(c, "text"), &mut bad);
+                }
+                if text(c, "part") == "route"
+                    && let Some(id) = id
+                {
+                    // An item the batch creates delivers what its change says; any other, what it holds.
+                    let deliver = match delivers.get(&id) {
+                        Some(d) => d.clone(),
+                        None => e
+                            .db
+                            .conn()
+                            .query_row("SELECT deliver FROM items WHERE id = ?1", [id], |r| r.get(0))
+                            .map_err(sql)?,
+                    };
+                    if let Some(why) = route_unfit(text(c, "text").trim(), &deliver) {
+                        bad(why);
+                    }
                 }
                 if text(c, "part") == "approach" {
                     // The lines of decisions the text had stand; a line it did not have is a decision written by hand.
@@ -531,8 +575,8 @@ fn write_one(
             // How to do it, when the creator knows; none when it gave none.
             let approach = Some(text(c, "approach").trim()).filter(|a| !a.is_empty());
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted, route)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     text(c, "project"),
                     text(c, "title"),
@@ -541,7 +585,8 @@ fn write_one(
                     approach,
                     text(c, "deliver"),
                     text(c, "level"),
-                    json_of("acceptance")
+                    json_of("acceptance"),
+                    route_of(c)
                 ],
             )
             .map_err(sql)?;
@@ -658,11 +703,18 @@ fn write_one(
                 "problem" => "problem",
                 "why" => "why",
                 "approach" => "approach",
+                "route" => "route",
                 other => return Err(format!("an item has no part {other}")),
+            };
+            // A route is a word, which the check found to be one there is.
+            let value = if column == "route" {
+                text(c, "text").trim()
+            } else {
+                text(c, "text")
             };
             tx.execute(
                 &format!("UPDATE items SET {column} = ?2 WHERE id = ?1"),
-                params![item_of(&c["item"], keys)?, text(c, "text")],
+                params![item_of(&c["item"], keys)?, value],
             )
             .map_err(sql)?;
         }
@@ -826,6 +878,41 @@ mod tests {
             refused(format!("{} x", wide.repeat(20)).as_str()),
             ["the title it gives has 21 characters, spaces not counted, and a title has 20 at most: write it shorter"]
         );
+    }
+
+    // Only an item that delivers a change goes the light route of a bug fix or a feature; a report goes the normal
+    // route, and a route that is none of the three is refused saying which there are. An item made with no route goes
+    // the normal route, and the database refuses a report on the light route however it is written.
+    #[test]
+    fn only_a_change_goes_the_light_route() {
+        for route in ["normal", "bugfix", "feature"] {
+            assert_eq!(route_unfit(route, "change"), None, "{route}");
+        }
+        assert_eq!(route_unfit("normal", "report"), None);
+        assert_eq!(
+            route_unfit("bugfix", "report").as_deref(),
+            Some("it gives the route bugfix to an item that delivers a report: only a change goes the light route")
+        );
+        assert_eq!(
+            route_unfit("light", "change").as_deref(),
+            Some("there is no route \"light\": a route is normal, bugfix or feature")
+        );
+        assert_eq!(route_of(&json!({ "kind": "create_item" })), "normal");
+        assert_eq!(route_of(&json!({ "kind": "create_item", "route": "feature" })), "feature");
+        let mut db = Db::in_memory().unwrap();
+        let made = |db: &mut Db, deliver: &str, route: &str| {
+            db.write(Actor::Architect, |tx| {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level, route)
+                     VALUES ('p', 't', 'x', 'y', ?1, 'l', ?2)",
+                    params![deliver, route],
+                )?;
+                Ok(())
+            })
+        };
+        assert!(made(&mut db, "change", "bugfix").is_ok());
+        assert!(made(&mut db, "report", "normal").is_ok());
+        assert!(made(&mut db, "report", "feature").is_err());
     }
 
     #[test]

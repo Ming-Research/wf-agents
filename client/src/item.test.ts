@@ -17,6 +17,7 @@ function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummar
     title: `item ${id}`,
     deliver: 'change',
     level: '1',
+    route: 'normal',
     cancelled: null,
     state,
     queued: null,

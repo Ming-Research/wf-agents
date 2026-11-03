@@ -534,8 +534,9 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
 
 /// The item's head: its number and title, and its facts in two lines, each kind in its one look, the facts muted words,
 /// the links in the accent, joined by a bar. On the title's line after a bar, smaller, wrapping under it where the line
-/// is short: its project, its tier (how it changed said on hovering), its state as its chip with the items it waits
-/// for after it, and its pull request. Under it, while a work goes on on it: that work, once, by its number with its
+/// is short: its project, its tier (how it changed said on hovering), its route when it is the light route of a bug fix
+/// or a feature (what that route leaves out said on hovering), its state as its chip with the items it waits for after
+/// it, and its pull request. Under it, while a work goes on on it: that work, once, by its number with its
 /// state's chip, its stage, its cell, what it waits for, and its group, where the owner speaks to it and its tier is
 /// set.
 function Head({ d }: { d: ItemDetail }) {
@@ -546,6 +547,11 @@ function Head({ d }: { d: ItemDetail }) {
   const facts = factsAfter([
     i.project,
     <span title={changes.length > 0 ? changes.join('\n') : undefined}>{t('item_tier', { tier: i.level })}</span>,
+    i.route === 'normal' ? null : (
+      <span title={t('item_route_hint')}>
+        {t(i.route === 'bugfix' ? 'item_route_bugfix' : 'item_route_feature')}
+      </span>
+    ),
     <span className="item-head-pair">
       <ItemBadge state={i.state} />
       {i.blocked_by.length > 0 ? (

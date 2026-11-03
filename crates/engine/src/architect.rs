@@ -4375,7 +4375,8 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
         .map_err(sql)
 }
 
-/// A project's items running and queued, each by its number, with its rank, its cell and stage, what it waits for and
+/// A project's items running and queued, each by its number, with its rank, its level, what it delivers and the route
+/// its works go, its cell and stage, what it waits for and
 /// who waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
 /// with who paused it (the owner, the engine or the architect) and why, or why its last work stopped, as one queued
 /// again, and for one with no work running, the items not merged yet that it waits for by
@@ -4391,7 +4392,8 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
     let end = g.map(|g| g.end.clone()).unwrap_or_default();
     let rows = query_json(
         e.db.conn(),
-        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, w.id AS work, w.at, w.resume_at, w.waiting,
+        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, i.route, w.id AS work, w.at, w.resume_at,
+                w.waiting,
                 w.paused, w.paused_by, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
                 (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
                   AS waits_for,

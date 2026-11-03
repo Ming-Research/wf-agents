@@ -29,6 +29,48 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+/// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
+/// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
+/// rows' names, conditions and targets, each in their order; hashed short, one line of the reference for each cell.
+fn moves_by(c: &flow::CompiledCell) -> String {
+    let inputs: Vec<Value> = c
+        .inputs
+        .iter()
+        .map(|x| serde_json::json!([x.id, x.name, x.from]))
+        .collect();
+    let rows: Vec<Value> = c
+        .rows
+        .iter()
+        .map(|r| serde_json::json!([r.name, r.conditions, r.to]))
+        .collect();
+    let text = serde_json::json!([c.kind, c.line, inputs, rows]).to_string();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+// The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
+// are as the reference has them, so that a change of the flow shows in the reference which cells' works a new version
+// takes over when it is installed, at the cost of a work begun again.
+#[test]
+fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let r: Value = serde_json::from_str(include_str!("reference.json")).unwrap();
+    let want = r["moves"].as_object().cloned().unwrap_or_default();
+    let have: Map<String, Value> = g.cells.iter().map(|c| (c.id.clone(), Value::from(moves_by(c)))).collect();
+    let changed: Vec<&String> = have.keys().filter(|k| want.get(*k) != have.get(*k)).collect();
+    let gone: Vec<&String> = want.keys().filter(|k| !have.contains_key(*k)).collect();
+    assert!(
+        changed.is_empty() && gone.is_empty(),
+        "cells whose works a new version takes over: changed or new {changed:?}; gone {gone:?}. Now: {}",
+        serde_json::to_string(&have).unwrap()
+    );
+}
+
 // A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
 // loop to end the work, taken only at the work's turn in the queue. What depends on the order things happened in, and
 // not on a cell, no row can say, so the words the owner and the architect read say it: a cancel or a start over waits
@@ -1206,7 +1248,7 @@ fn every_sample_takes_its_row() {
             n += 1;
         }
     }
-    assert_eq!(n, 38);
+    assert_eq!(n, 47);
 }
 
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.
@@ -1468,6 +1510,166 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(l1.to, "L2");
     let l2 = g.cell("L2").unwrap();
     assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
+}
+
+/// A cell's return that takes the row `row`, from the samples, given the values of its sample and those of `more`.
+fn sampled(cell: &str, row: &str, more: &[(&str, &str)]) -> (Value, Map<String, Value>) {
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let s = samples[cell].iter().find(|s| s["row"] == row).unwrap();
+    let mut given = s["given"].as_object().cloned().unwrap_or_default();
+    given.extend(more.iter().map(|(k, v)| (k.to_string(), Value::from(*v))));
+    (s["json"].clone(), given)
+}
+
+/// The cells a work stands at from its start, each step a return and the values the cell is given, which must take a
+/// row; the item waiting to start is past.
+fn walked(g: &flow::CompiledGraph, steps: &[(Value, Map<String, Value>)]) -> Vec<String> {
+    let ready = g.cell("S0").unwrap().rows.iter().find(|r| r.name == "ready").unwrap();
+    let mut p = g.step(&g.start_position(), ready).unwrap();
+    let mut at = vec![p.at.clone()];
+    for (ret, given) in steps {
+        let row = g.take(&p.at, ret, given).unwrap_or_else(|e| panic!("{}: {e}", p.at));
+        p = g.step(&p, row).unwrap();
+        at.push(p.at.clone());
+    }
+    at
+}
+
+/// The engine's choice of what runs next with no adversarial testing, the full CI not yet green on the draft, and the
+/// review as `review_round` says.
+fn full_ci_next(review_round: &str) -> (Value, Map<String, Value>) {
+    let given = [("full_ci", "not_green"), ("review_round", review_round), ("interjection", "no")];
+    (
+        serde_json::json!({ "plan": { "review": "all", "adversarial": "skipped" } }),
+        given.iter().map(|(k, v)| (k.to_string(), Value::from(*v))).collect(),
+    )
+}
+
+/// The full CI on the draft, green, before the review as `review_round` says.
+fn full_ci_green(review_round: &str) -> (Value, Map<String, Value>) {
+    (
+        serde_json::json!({ "result": { "kind": "green", "head": "a41c0d2" } }),
+        Map::from_iter([("review_round".to_string(), Value::from(review_round))]),
+    )
+}
+
+// A work whose item is marked a bug fix or a feature goes the light route: from the research it gathers like fixes,
+// plans the fix and has the plan reviewed, then implements, runs the full CI on the draft and goes straight to the
+// table review, never standing at the judgment whether it stands, the design and its checks, adversarial testing or the
+// blind review. A work on the normal route goes through every one of them, as it did before the light route.
+#[test]
+fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_review() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let light = walked(
+        g,
+        &[
+            sampled("S1", "started", &[]),
+            sampled("G1", "done", &[]),
+            sampled("R1", "light", &[]),
+            sampled("G4", "done", &[]),
+            sampled("F1", "planned", &[]),
+            sampled("F2", "sound", &[]),
+            sampled("I1", "done", &[]),
+            full_ci_next("table"),
+            full_ci_green("table"),
+            sampled("T4", "done", &[("deliver", "change")]),
+        ],
+    );
+    assert_eq!(
+        light,
+        ["S1", "G1", "R1", "G4", "F1", "F2", "I1", "T7", "T2", "T4", "M1"]
+    );
+    let mut not_needed = sampled("D11", "needed", &[]);
+    not_needed.0["outcome"]["adversarial"]["verdict"] = "not_needed".into();
+    let gathered = (sampled("G4", "done", &[]).0, Map::new());
+    let normal = walked(
+        g,
+        &[
+            sampled("S1", "started", &[]),
+            sampled("G1", "done", &[]),
+            sampled("R1", "done", &[]),
+            sampled("R2", "stands", &[]),
+            sampled("G2", "done", &[]),
+            sampled("D1", "done", &[]),
+            sampled("D2", "first", &[]),
+            sampled("D3", "present_best", &[]),
+            sampled("D4", "no", &[]),
+            sampled("D6", "sure", &[]),
+            sampled("D7", "worth_it", &[]),
+            sampled("D8", "yes", &[]),
+            sampled("D9", "on_its_own", &[]),
+            sampled("D10", "implementation", &[]),
+            not_needed,
+            sampled("I1", "done", &[]),
+            full_ci_next("blind"),
+            full_ci_green("blind"),
+            sampled("T3", "done", &[]),
+            gathered,
+            sampled("T4", "done", &[("deliver", "change")]),
+        ],
+    );
+    assert_eq!(
+        normal,
+        [
+            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "I1", "T7", "T2",
+            "T3", "G3", "T4", "M1"
+        ]
+    );
+    // The plan the review found sound is locked as the design's acceptance is, with the implementer's new session.
+    let sound = g.cell("F2").unwrap().rows.iter().find(|r| r.name == "sound").unwrap();
+    let does: Vec<&str> = sound.actions.iter().map(|d| d.name()).collect();
+    assert_eq!(does, ["open_session", "lock_acceptance"]);
+    // The review of the plan and the table review are one line, and the table review starts no session of its own, so
+    // it goes on in the session that reviewed the plan; the blind review always starts its own.
+    let (f2, t4, t3) = (g.cell("F2").unwrap(), g.cell("T4").unwrap(), g.cell("T3").unwrap());
+    assert_eq!((f2.line.as_deref(), t4.line.as_deref()), (Some("review"), Some("review")));
+    assert!(!t4.new_session && t4.fresh_session.is_empty());
+    assert!(t3.new_session);
+    for cell in ["T1", "T2", "T7"] {
+        let row = g.cell(cell).unwrap().rows.iter().find(|r| r.name == "review_first").unwrap();
+        assert_eq!(row.to, "T3", "{cell}");
+        assert!(row.actions.iter().any(|d| d.name() == "open_session"), "{cell}");
+    }
+}
+
+// A work on the light route turns to the normal route, to be judged whether it stands, when the research, the plan or
+// the review of the plan says it needs it, or when the review sends the plan back a third time; each of these rows
+// counts `route_to_normal`. A plan sent back before that goes back to be planned again, and counts as a revision.
+#[test]
+fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    for (cell, row, more) in [
+        ("R1", "to_normal", vec![]),
+        ("F1", "to_normal", vec![]),
+        ("F2", "to_normal", vec![]),
+        ("F2", "revised_out", vec![("revisions_before", "two")]),
+    ] {
+        let (ret, given) = sampled(cell, row, &more);
+        let taken = g.take(cell, &ret, &given).unwrap();
+        assert_eq!(
+            (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
+            (row, "R2", Some("route_to_normal")),
+            "{cell}"
+        );
+    }
+    // The third time the review sends the plan back is told apart from the first two by the engine's value alone.
+    let (ret, given) = sampled("F2", "revise", &[]);
+    let taken = g.take("F2", &ret, &given).unwrap();
+    assert_eq!(
+        (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
+        ("revise", "F1", Some("plan_revisions"))
+    );
+    let (_, two) = sampled("F2", "revised_out", &[]);
+    assert_eq!(g.take("F2", &ret, &two).unwrap().name, "revised_out");
+    // The research of a work its item does not mark goes the normal route whatever it says of the route; one on the
+    // light route that says nothing of it goes on light, which the engine's check of the research sends back first.
+    let (ret, _) = sampled("R1", "light", &[]);
+    let normal = Map::from_iter([("route_taken".to_string(), Value::from("normal"))]);
+    assert_eq!(g.take("R1", &ret, &normal).unwrap().name, "done");
+    let r1 = g.cell("R1").unwrap();
+    assert!(r1.checks.iter().any(|c| c.check == "route_given" && c.at.as_deref() == Some("route")));
 }
 
 // The architect's line says its session expires with the CLI's prompt cache, so that every cell on it carries that, and

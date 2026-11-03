@@ -1298,7 +1298,11 @@ export type ItemSummary = { id: number, project: string, title: string,
 /**
  * change or report.
  */
-deliver: string, level: string, cancelled: string | null, state: ItemState,
+deliver: string, level: string,
+/**
+ * The route its works go: normal, or bugfix or feature, which go the light route.
+ */
+route: string, cancelled: string | null, state: ItemState,
 /**
  * Its place in the dispatch queue, lower first; none when it is not queued.
  */

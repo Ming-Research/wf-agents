@@ -866,6 +866,8 @@ pub struct ItemSummary {
     /// change or report.
     pub deliver: String,
     pub level: String,
+    /// The route its works go: normal, or bugfix or feature, which go the light route.
+    pub route: String,
     pub cancelled: Option<String>,
     pub state: ItemState,
     /// Its place in the dispatch queue, lower first; none when it is not queued.
