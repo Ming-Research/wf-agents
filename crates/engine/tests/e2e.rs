@@ -3817,7 +3817,23 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
 // cell `V1` and goes back to the cell that asked the advisor, as it does when the advisor stands at its cell.
 #[test]
 fn an_advisor_whose_tools_run_when_its_line_changes_is_done_again() {
-    let s = setup("advisor-tools");
+    let tools = json!([{ "tool": "query", "sql": "SELECT 1" }]);
+    advisor_waiting_when_its_line_changes("advisor-tools", "tools", tools, "X1");
+}
+
+// Item #230: the advisor's session is under way while the history it asked for is looked up, though the cell the work
+// stands at, the look-up, is an agent's cell of its own: a version that puts the advisor on another line then does
+// not move the work either, whose look-up would go back to a session of the new line that never asked for it.
+#[test]
+fn an_advisor_waiting_for_its_history_lookup_when_its_line_changes_is_done_again() {
+    advisor_waiting_when_its_line_changes("advisor-history", "history", json!("Why is it so?"), "X5");
+}
+
+/// The advisor, asked by cell R1, hands in a return of form `form` (holding `value`) and waits at cell `at` for its
+/// answer; the work is put on a version where the advisor was on another line. It must come to cell `V1` by
+/// `went_back`, back to R1, as the same work.
+fn advisor_waiting_when_its_line_changes(name: &str, form: &'static str, value: Value, at: &str) {
+    let s = setup(name);
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
     write(
         &s.data,
@@ -3837,20 +3853,28 @@ fn an_advisor_whose_tools_run_when_its_line_changes_is_done_again() {
     );
     agents.insert(
         "A1",
-        Box::new(|_: &Request, n: usize| {
+        Box::new(move |_: &Request, n: usize| {
             if n == 1 {
-                let tools = json!([{ "tool": "query", "sql": "SELECT 1" }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+                let field = if form == "tools" {
+                    "outcome.tools"
+                } else {
+                    "outcome.history"
+                };
+                return (vec![("outcome", form)], vec![(field, value.clone())]);
             }
             (Vec::new(), Vec::new())
         }),
     );
+    agents.insert(
+        "X5",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!("What was looked up."))])),
+    );
     let (mut e, said, item) = start(&s, agents);
-    step_to(&mut e, item, "X1");
+    step_to(&mut e, item, at);
     let (work, _, _) = state(&e, item).unwrap();
     let log = said.lock().unwrap().join("\n");
     let pos = e.work(work).unwrap().pos;
-    // The advisor, which R1 asked, waits for its tools.
+    // The advisor, which R1 asked, waits for what it asked.
     assert_eq!(
         (pos.stopped.as_deref(), pos.callers.last().map(String::as_str)),
         (Some("R1"), Some("A1")),
