@@ -2305,17 +2305,6 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(sql(&old), sql(&new));
-        // The view of the problems of returns sent back is in the migrated database itself, not only in what the
-        // schema has too.
-        let views: i64 = old
-            .conn()
-            .query_row(
-                "SELECT count(*) FROM sqlite_schema WHERE type = 'view' AND name = 'sent_back_problems'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(views, 1);
         let v: i64 = old
             .conn()
             .pragma_query_value(None, "user_version", |r| r.get(0))

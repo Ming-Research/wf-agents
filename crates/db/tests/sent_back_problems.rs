@@ -1,11 +1,11 @@
 //! The view `sent_back_problems`, which gives each problem of each return the engine sent back as `rounds.rejected`
 //! keeps them under `problems`. Read through the database's public interface alone, as a person or an agent queries it.
-//! That a database migrated to the version that adds it has the view and the description of `rounds` the schema writes
-//! is the test of the migrations in `src/lib.rs`; that the rounds recorded before keep every column is the test in
-//! `rounds_counts.rs`, which migrates through every migration.
+//! That a database migrated from version 1 has the view is the last test here; that it has the description of `rounds`
+//! the schema writes is the test of the migrations in `src/lib.rs`; that the rounds recorded before keep every column
+//! is the test in `rounds_counts.rs`, which migrates through every migration.
 
-use db::SCHEMA;
 use db::rusqlite::{Connection, params};
+use db::{Db, SCHEMA};
 
 /// One row of the view: work, round, cell, position, check_name, field, text.
 type Problem = (i64, i64, String, i64, String, Option<String>, String);
@@ -14,12 +14,17 @@ type Problem = (i64, i64, String, i64, String, Option<String>, String);
 fn new_database() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(SCHEMA).unwrap();
+    two_works(&conn);
+    conn
+}
+
+/// The flow version and the two works the rounds of the tests belong to.
+fn two_works(conn: &Connection) {
     conn.execute_batch(
         "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
          INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'T4'), (2, 1, 'engineer', 'T4');",
     )
     .unwrap();
-    conn
 }
 
 /// A round of a work at cell `T4` that ended with the return sent back, or with `transition` when the return was taken.
@@ -248,4 +253,35 @@ fn the_view_keeps_the_order_of_many_problems_and_reads_a_column_of_another_shape
         .map(|x| x.unwrap())
         .collect();
     assert_eq!(kinds, ["integer"]);
+}
+
+// A database made at version 1 and migrated through every migration has the view, and it reads the rounds written
+// after the migration as one made from the schema does. The schema's own test of the view cannot show that the
+// migration makes it, since the schema has it whether or not a migration does. The expected row is worked out by hand
+// from the round written; before the change the migrated database has no view, and the query fails.
+#[test]
+fn a_database_migrated_from_version_1_has_the_view_of_the_problems_of_returns_sent_back() {
+    let dir = std::env::temp_dir().join(format!("wf-agents-db-sent-back-problems-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("wf.db");
+    {
+        // The first version's schema, as the migrations start from it.
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("../../../db/migrations/0001.sql"))
+            .unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+    }
+    let db = Db::open(&path).unwrap();
+    let conn = db.conn();
+    two_works(conn);
+    round(
+        conn,
+        1,
+        1,
+        None,
+        Some(r#"{"check":"c (f): t","problems":[{"check":"c","field":"f","text":"t"}]}"#),
+    );
+    assert_eq!(problems(conn), [row(1, 1, 0, "c", Some("f"), "t")]);
+    let _ = std::fs::remove_dir_all(&dir);
 }
