@@ -513,9 +513,16 @@ CREATE TABLE rounds (
   -- The transition row the return took. NULL while the round runs, and when the return was rejected.
   -- Read by: the engine; the view of anomalies.
   transition TEXT,
-  -- Why the engine sent the return back or the run failed, JSON: a check it failed or a wrong format; or a run that
-  -- ended without a return, with its kind as the flow names them. NULL when the return was accepted.
-  -- Read by: the engine, which counts returns sent back apart from failed runs; the anomalies view.
+  -- Why the engine sent the return back or the run failed, JSON. A return sent back holds, under `check` (it failed
+  -- the engine's checks) or `format` (it does not fit its cell's schema), the text it was sent back with, and under
+  -- `problems` each problem in it, in the order found, as `{check, field, text}`: `check` is the check's name, or
+  -- `format` for a place that does not fit the schema; `field` is the check's `at` in the flow
+  -- (`columns[pass].evidence`) or, for `format`, the path in the schema with each index of a list written `[]`
+  -- (`columns[].evidence`; the text keeps the index), and null for a problem about the return as a whole: the two
+  -- kinds of path are told apart by `check`. A return sent back before `problems` was kept has none. A run that ended
+  -- without a return holds its kind as the flow names them. NULL when the return was accepted.
+  -- Read by: the engine, which counts returns sent back apart from failed runs; the anomalies view; the view
+  -- `sent_back_problems`.
   rejected TEXT CHECK (rejected IS NULL OR json_valid(rejected)),
   -- The commit of the configuration the round ran with. The engine reads only committed configuration, so this
   -- names every setting behind the round, including those that shaped the engine's own decisions and never reached
@@ -1299,6 +1306,22 @@ CREATE VIEW round_rows AS
       WHEN rejected IS NOT NULL THEN 'sent_back'
     END AS took
   FROM rounds;
+
+CREATE VIEW sent_back_problems AS
+  -- Each problem of each return the engine sent back, one row each, in the order found (`position` counts from 0):
+  -- the check that found it (`check_name`, which is `format` for a place that does not fit the cell's schema), the
+  -- field and the text, as `rounds.rejected` keeps them under `problems`. A return sent back before `problems` was
+  -- kept has no row. `field` is the check's `at` in the flow (`columns[pass].evidence`) for a check and the path in the
+  -- schema with each list index written `[]` (`columns[].evidence`) for `format`, so group by `check_name` and
+  -- `field` together. One return may hold several problems of one check and field: count returns with
+  -- `count(DISTINCT work || '-' || round)` and problems with the rows. Read by: today only people and agents who query
+  -- it, to count the returns sent back by check and by field. The architect's items on returns sent back (#198) and the
+  -- merging of like ones (#257) will read it; no code reads it yet.
+  SELECT r.work, r.n AS round, r.cell, p.key AS position,
+    json_extract(p.value, '$.check') AS check_name,
+    json_extract(p.value, '$.field') AS field,
+    json_extract(p.value, '$.text') AS text
+  FROM rounds r, json_each(r.rejected, '$.problems') p;
 
 CREATE VIEW work_counters AS
   -- How many times each work took the rows that count each counter, by the counter each round recorded when it ended

@@ -17,7 +17,7 @@
           "title": "Observation title",
           "type": "text",
           "optional": true,
-          "desc": "Only for a decision no item holds: the title of the observation it is kept as, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, with no internal name the reader does not know"
+          "desc": "Only for a decision no item holds: the title of the observation it is kept as, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in, with no internal name the reader does not know"
         },
         {
           "name": "tags",
@@ -1739,7 +1739,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What to do, as an action, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2"
+              "desc": "What to do, as an action, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in"
             },
             {
               "name": "under",
@@ -2164,7 +2164,7 @@
           ]
         }
       ],
-      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without. The owner reads the reason and an item's title, problem, why, approach and acceptance: write all of it in `owner.language`, technical terms in English, as `format:common` says a field the owner reads is written, and the title at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2. An item is given by its number, or the key of an item an earlier change of the batch creates"
+      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without. The owner reads the reason and an item's title, problem, why, approach and acceptance: write all of it in `owner.language`, technical terms in English, as `format:common` says a field the owner reads is written, and the title at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in. An item is given by its number, or the key of an item an earlier change of the batch creates"
     },
     "observation_change": {
       "type": "union",
@@ -2194,7 +2194,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What is wrong, as a short phrase, not an action (\"Stale slot count\", not \"Fix the slot count\"), in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, with no internal name the reader does not know"
+              "desc": "What is wrong, as a short phrase, not an action (\"Stale slot count\", not \"Fix the slot count\"), in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in, with no internal name the reader does not know"
             },
             {
               "name": "what",
@@ -3716,7 +3716,7 @@
       "plan_written": "The plan rewrites the notebook's plan.",
       "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
       "ask_only_on_open_question": "The ways for a question ask the owner only about an open question of an engineer's design, never about an engineer's question, whose engineer waits for the reply; and the question they pin links to the design it is about, as a markdown link to the link the matter holds.",
-      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title at most `items.title_max` wide as the owner's titles are counted (spaces not counted, a character of East Asian wide or full width counting 2), says what it is and carries the project's tags; one merged into or closed is open; one a merge makes reported three times is folded into an item moved ahead, as the revised changes say; one an item takes in is folded into it, not closed."
+      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title at most `items.title_max` wide as the owner's titles are counted (spaces not counted, a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in), says what it is and carries the project's tags; one merged into or closed is open; one a merge makes reported three times is folded into an item moved ahead, as the revised changes say; one an item takes in is folded into it, not closed."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -13195,7 +13195,7 @@
           "name": "item_writing",
           "desc": "How items and changes to them are written",
           "text": [
-            "The owner reads an item, its title first: write its title, problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font. Work for another project names the capability handed over, not the requester's wish.",
+            "The owner reads an item, its title first: write its title, problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font. Work for another project names the capability handed over, not the requester's wish.",
             "The problem says what cannot be done or is wrong in one sentence, then one smallest example, only one: the code you want to write and where it goes wrong now, or a command and its wrong output; for a risk never seen to fail, the condition under which it fails, with the smallest triggering example marked inferred and not run, or in words if none can be built. A cause inferred is marked as inferred. If it cannot be written clearly, find out more first. Why says only why the work is worth doing, in one or two sentences written as a conclusion: the cost of not doing it, which goal, who waits; only numbers that carry the conclusion, and no account of how things stand now. The approach is written only when one or two sentences can say how; otherwise the work's design finds it.",
             "The acceptance is checkable results, such as which test passes or which number is reached, usually one row: no method, no test plan, nothing CI checks anyway. A number in it was measured, or set by a study, a ruling on a decision card or the owner's words; otherwise the work's design sets it.",
             "An item is worth an engineer, a branch, the flow's design and reviews, a CI run and a merge: one too small, such as a few dozen lines, joins a related item of its project not started yet, or with none is an observation until one fits, unless it is urgent, as a severe bug, or another item waits on it and it cannot ride along with an item going anyway; one with parts that could each merge alone is split. An item others wait on takes only what they need: a follow-up they do not need is an item or an observation of its own. Its level fits the judgment it needs: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change; rework from a change of direction is no reason to raise it, only the same work coming back again for errors of reasoning. Its route is bugfix for a bug whose root can be found and fixed inside the code it touches, feature for a small feature whose behaviour is settled, and normal otherwise, always for a report and for any change to an interface, the architecture or a decision of the owner's: a bug fix or a feature goes the light route, a plan reviewed before it is implemented in place of the judgment whether it stands, the design and its checks, with no blind review and no adversarial testing, and its engineer turns it to the normal route when it needs more.",

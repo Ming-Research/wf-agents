@@ -409,11 +409,13 @@ impl Context<'_> {
         if ["interrupted", "failed", "error"].iter().any(|k| rej.get(k).is_some()) {
             return None;
         }
-        let reason = rej
-            .as_object()
-            .and_then(|o| o.values().next())
-            .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
-            .unwrap_or_default();
+        // The text under `check` or `format`, by name: `problems` follows it, and is not the reason.
+        let reason = db::sent_back_text(rej).map(str::to_string).unwrap_or_else(|| {
+            rej.as_object()
+                .and_then(|o| o.values().next())
+                .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
+                .unwrap_or_default()
+        });
         Some((r.id, reason))
     }
 

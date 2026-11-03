@@ -1,115 +1,99 @@
--- Takes a version 75 database to version 76: an item says the route its works go, normal or the light route of a bug
--- fix or a feature, which only an item that delivers a change goes; every item there is goes the normal route. The
--- items' description says who reads it, and that a plan on the light route locks the acceptance as a design does, so
--- their table is made afresh with its rows; the view of the item as its creator wrote it gives the route too, and a new
--- view gives the route each work goes. Each
--- statement below that defines something is written exactly as db/schema.sql writes it.
+-- Takes a version 75 database to version 76: the engine keeps each problem of a return it sent back as an entry of
+-- `problems` in `rounds.rejected`, with the check that found it and its field, and the new view `sent_back_problems`
+-- gives them one to a row, so that returns sent back can be counted by check and by field. The rounds already
+-- recorded have no `problems` and no row in the view. The rounds are made afresh with their rows, as the description
+-- of `rejected` changes and is part of the table's description, which agents read; a migration runs with the foreign
+-- keys off, as SQLite makes a table afresh, and every one is checked before the migration commits. Each statement
+-- below that defines something is written exactly as db/schema.sql writes it.
 
-CREATE TABLE items_version_75 AS SELECT * FROM items;
-DROP TABLE items;
+CREATE TABLE rounds_version_75 AS SELECT * FROM rounds;
+DROP TABLE rounds;
 
-CREATE TABLE items (
-  -- A piece of work to do, as its creator wrote it. Text that a work's rounds produce later (the problem as the
-  -- engineer understood it, the study, the design, progress) is not stored here: views read it from rounds. Items own
-  -- nothing; how they depend on each other is in item_links. Only cancellation is stored as a status; every other
-  -- status is derived.
-  -- Read by: every cell that reads the item or the items around it; the engine when it starts and stops works.
-
-  -- Item number, one sequence across all projects.
-  id INTEGER PRIMARY KEY,
-  -- The project the item belongs to. Picks the repository, CI and settings its works run with.
-  -- Read by: the engine; cells `D1` and `D3`, through the project's design goals.
-  project TEXT NOT NULL,
-  -- What to do, as an action. Read by: cell `R1` for the items around this one; people.
-  title TEXT NOT NULL,
-  -- What cannot be done or is wrong, and why the work is worth doing, as written at creation. The engineer's own
-  -- understanding replaces them in views once cell `R1` has run; these stay as written.
-  -- Read by: cell `R1`, for this item and the items that depend on it; cell `T3` reads the
-  -- problem only.
-  problem TEXT NOT NULL,
-  why TEXT NOT NULL,
-  -- How to do it, when the creator already knows; NULL otherwise. Read by: cell `R1`.
-  approach TEXT,
-  -- What the work hands in: a change to merge, or a report. Read by: cells `R1` and `T4`;
-  -- the engine, which runs reports without full CI on the draft.
-  deliver TEXT NOT NULL CHECK (deliver IN ('change', 'report')),
-  -- Agent level; decides which agent and model run the work. Read by: the engine at cell `S1`.
-  level TEXT NOT NULL,
-  -- The locked acceptance: a JSON list of acceptance rows in the flow's acceptance shape. NULL until a first design, or
-  -- on the light route a first plan, passes its checks. Every later design or plan must hand in exactly this list;
-  -- only the advisor can change it. Read by: cells `D2`, `F1`, `F2`, `I1`, `T3`, `T4` and `T1`; the engine, which
-  -- compares each design's and each plan's acceptance with it.
-  acceptance TEXT CHECK (acceptance IS NULL OR json_valid(acceptance)),
-  -- The round whose acceptance was locked, by its work and its number in the work: a design round, a plan round on the
-  -- light route, or an advisor round that changed it. Read by: cell `D2`, to see whether the advisor changed it.
-  acceptance_work INTEGER,
-  acceptance_round INTEGER,
-  -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell `R1` for the items around
-  -- this one.
-  cancelled TEXT,
-  -- For an item imported from outside this flow, such as an item of an earlier board: where it came from, as the import
-  -- wrote it; NULL for an item made here. Read by: cell `R1`, through what already exists for the item;
-  -- the owner's interface.
-  imported_from TEXT,
-  -- The branch and the pull request that work on the item had outside this flow, as the import recorded them; NULL when
-  -- there were none. Read by: cell `S1`, which takes them over when the item had no work here before; cell
-  -- `R1`; the owner's interface.
-  imported_branch TEXT,
-  imported_pr INTEGER,
-  -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The locked
-  -- acceptance, designed by the work, is acceptance. Read by: cell `R1`, through item_body.
-  wanted TEXT CHECK (wanted IS NULL OR json_valid(wanted)),
-  -- Why the architect holds the item, with the owner's approval: no work starts on it while it is held; NULL while it
-  -- is not. Read by: ready_items; the architect.
-  held TEXT,
-  -- Its place among its project's items in the architect's order, which works start in, lower first: the architect
-  -- sets it with its approved changes, moving an item first, last, or before or after another item of the project,
-  -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
-  -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
-  rank INTEGER,
-  -- The route its works go: normal; or bugfix or feature, which go the light route, a plan reviewed before it is
-  -- implemented in place of the judgment whether it stands, the design and its checks. Only an item that delivers a
-  -- change goes the light route. The architect sets it when it creates or edits the item; a work past its research
-  -- keeps the route it took. Read by: the engine's value of the route a work takes, until the work's research
-  -- answers; cells `R1`, `G4`, `F1` and `F2`, through item_body; the owner's interface.
-  route TEXT NOT NULL DEFAULT 'normal' CHECK (route IN ('normal', 'bugfix', 'feature')),
-  CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
-  CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
-  CHECK (route = 'normal' OR deliver = 'change'),
-  FOREIGN KEY (acceptance_work, acceptance_round) REFERENCES rounds (work, n)
+CREATE TABLE rounds (
+  -- One round: one CLI run of an agent, from the message the engine sends to the return the agent hands in, or to a
+  -- run that ends without one; or one step the engine takes itself, one run of a tool cell, one answer from the owner.
+  -- A pause, a question and a request for tools each end a round. The row is inserted when the round starts,
+  -- completed when it ends, and never changed after. A round is known by its work and its number in the work, and
+  -- named R<work>-<n>: R5-9 is the ninth round of work 5.
+  -- Read by: every cell input that names a field another cell returned; the engine, to tell what each session already
+  -- holds; the views of counters, anomalies and time; the owner's history command.
+  -- The work, and the round's number in it: the work's rounds are counted from 1 in the order they started.
+  work INTEGER NOT NULL REFERENCES works(id),
+  n INTEGER NOT NULL CHECK (n >= 1),
+  -- The cell; NULL for a round off the graph, in which a line that is not running only answers an interjection.
+  cell TEXT,
+  -- The session the agent ran in; NULL for the engine's own steps, tool cells and the owner.
+  session INTEGER REFERENCES sessions(id),
+  -- What the engine gave, JSON. For an agent's round: the message, word for word; each conditional input in it, by its
+  -- address and the hash of its content, and whether it was given or only referred to; and the call (the whole
+  -- command line, the session it started or resumed, the engine's version and the command line's). For another step,
+  -- the values of its inputs; for cell `start`, nothing. Rounds recorded before this format keep the prompt and inputs.
+  -- Read by: the engine, to tell what a session already holds; the owner's interface.
+  input TEXT NOT NULL CHECK (json_valid(input)),
+  -- The whole return, JSON: for the engine's own step what it computed, for a tool cell the tools' results, for the
+  -- owner the answer. NULL while the round runs. Read by: every input that names a returned field.
+  output TEXT CHECK (output IS NULL OR json_valid(output)),
+  -- The transition row the return took. NULL while the round runs, and when the return was rejected.
+  -- Read by: the engine; the view of anomalies.
+  transition TEXT,
+  -- Why the engine sent the return back or the run failed, JSON. A return sent back holds, under `check` (it failed
+  -- the engine's checks) or `format` (it does not fit its cell's schema), the text it was sent back with, and under
+  -- `problems` each problem in it, in the order found, as `{check, field, text}`: `check` is the check's name, or
+  -- `format` for a place that does not fit the schema; `field` is the check's `at` in the flow
+  -- (`columns[pass].evidence`) or, for `format`, the path in the schema with each index of a list written `[]`
+  -- (`columns[].evidence`; the text keeps the index), and null for a problem about the return as a whole: the two
+  -- kinds of path are told apart by `check`. A return sent back before `problems` was kept has none. A run that ended
+  -- without a return holds its kind as the flow names them. NULL when the return was accepted.
+  -- Read by: the engine, which counts returns sent back apart from failed runs; the anomalies view; the view
+  -- `sent_back_problems`.
+  rejected TEXT CHECK (rejected IS NULL OR json_valid(rejected)),
+  -- The commit of the configuration the round ran with. The engine reads only committed configuration, so this
+  -- names every setting behind the round, including those that shaped the engine's own decisions and never reached
+  -- an agent's input. Read by: people and agents tracing why a round went the way it did.
+  config_commit TEXT NOT NULL,
+  -- The model the round ran on; NULL when no model ran. Recorded each round because the configuration can change.
+  model TEXT,
+  -- Tokens and cost as the CLI reported them, JSON. Read by: the views of cost.
+  usage TEXT CHECK (usage IS NULL OR json_valid(usage)),
+  -- How many times the CLI compacted the session during the round. Read by: the anomalies view.
+  compactions INTEGER NOT NULL DEFAULT 0 CHECK (compactions >= 0),
+  -- When the round started and ended. Read by: the views of time.
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  -- The counter the row this round took counts, as the flow version the work ran on said it when the round ended; the
+  -- row is the one the return took (`transition`) or, for a round that ended in no return its cell takes, the shared
+  -- row the engine took for it (view `round_rows`). NULL when the round took no row, or the row counts nothing. A
+  -- round's row can be found again in the flow only by the version it ran on, which a round does not record and a
+  -- work leaves when it moves to a newer one, so the counter is kept with the round, written in the same step as
+  -- `transition` or `rejected`. 'total_time' is kept as the row says it, though the views count no round for it.
+  -- Read by: the views of counters and of how many times a work asked, through the index `rounds_counts`.
+  counts TEXT CHECK (counts IS NULL OR transition IS NOT NULL OR rejected IS NOT NULL),
+  PRIMARY KEY (work, n),
+  CHECK (transition IS NULL OR rejected IS NULL)
 ) STRICT;
 
-INSERT INTO items (
-  id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work, acceptance_round, cancelled,
-  imported_from, imported_branch, imported_pr, wanted, held, rank)
-SELECT
-  id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work, acceptance_round, cancelled,
-  imported_from, imported_branch, imported_pr, wanted, held, rank
-FROM items_version_75;
-DROP TABLE items_version_75;
+-- The rows keep the order they had, which the rounds' rowids follow.
+INSERT INTO rounds (work, n, cell, session, input, output, transition, rejected, config_commit, model, usage,
+    compactions, started_at, ended_at, counts)
+  SELECT work, n, cell, session, input, output, transition, rejected, config_commit, model, usage,
+    compactions, started_at, ended_at, counts
+  FROM rounds_version_75;
+DROP TABLE rounds_version_75;
 
-DROP VIEW item_body;
+CREATE INDEX rounds_counts ON rounds (work, counts) WHERE counts IS NOT NULL;
 
-CREATE VIEW item_body AS
-  -- The item as its creator wrote it, the acceptance it wanted and the route its works go included. Read by: cells
-  -- `R1`, `G4`, `F1`, `F2`, `I1` and `T4`.
-  SELECT id AS item, project, title, problem, why, approach, deliver, route, wanted FROM items;
-
-CREATE VIEW work_routes AS
-  -- The route each work of the engineer goes: light; normal; or turned, a work on the light route that took a row
-  -- counting `route_to_normal`, which goes the normal route for good. Before its research (cell `R1`) answers, a work
-  -- goes as its item is marked, the light route for a bug fix or a feature; after, as the research's latest answer took
-  -- its row (`light`, or `done` or `to_normal`), so that a change of the item's mark does not turn a work under way.
-  -- Read by: the engine's value `route_taken`; the owner's interface and the architect's board, beside the item's mark.
-  SELECT w.id AS work, w.item,
-    CASE
-      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.counts = 'route_to_normal') THEN 'turned'
-      WHEN coalesce(
-        (SELECT r.transition FROM rounds r
-         WHERE r.work = w.id AND r.cell = 'R1' AND r.transition IN ('done', 'light', 'to_normal')
-         ORDER BY r.n DESC LIMIT 1),
-        CASE WHEN i.route = 'normal' THEN 'done' ELSE 'light' END) = 'light' THEN 'light'
-      ELSE 'normal'
-    END AS route
-  FROM works w JOIN items i ON i.id = w.item
-  WHERE w.graph = 'engineer';
+CREATE VIEW sent_back_problems AS
+  -- Each problem of each return the engine sent back, one row each, in the order found (`position` counts from 0):
+  -- the check that found it (`check_name`, which is `format` for a place that does not fit the cell's schema), the
+  -- field and the text, as `rounds.rejected` keeps them under `problems`. A return sent back before `problems` was
+  -- kept has no row. `field` is the check's `at` in the flow (`columns[pass].evidence`) for a check and the path in the
+  -- schema with each list index written `[]` (`columns[].evidence`) for `format`, so group by `check_name` and
+  -- `field` together. One return may hold several problems of one check and field: count returns with
+  -- `count(DISTINCT work || '-' || round)` and problems with the rows. Read by: today only people and agents who query
+  -- it, to count the returns sent back by check and by field. The architect's items on returns sent back (#198) and the
+  -- merging of like ones (#257) will read it; no code reads it yet.
+  SELECT r.work, r.n AS round, r.cell, p.key AS position,
+    json_extract(p.value, '$.check') AS check_name,
+    json_extract(p.value, '$.field') AS field,
+    json_extract(p.value, '$.text') AS text
+  FROM rounds r, json_each(r.rejected, '$.problems') p;
