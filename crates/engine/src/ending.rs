@@ -631,7 +631,7 @@ mod tests {
                 [merged],
             )?;
             end(tx, done, End::Done, &projects()).map_err(db::Error::Abort)?;
-            end(tx, taken, End::TakenOver("stopped: a new flow"), &projects()).map_err(db::Error::Abort)?;
+            end(tx, taken, End::TakenOver("stopped: started over"), &projects()).map_err(db::Error::Abort)?;
             end(tx, merged, End::Stopped("item cancelled: late"), &projects()).map_err(db::Error::Abort)
         })
         .unwrap();

@@ -234,6 +234,10 @@ pub struct Flow {
     /// The end a work cancelled or taken over at any cell ends at: the engine ends it there, from wherever it stands,
     /// so that no row leads to it; the work keeps the cell it stopped at.
     pub cancel: Option<String>,
+    /// The cell a work on an older flow version comes to when this version cannot take it on where it stands: the
+    /// engine brings it there, from wherever it stands, so that no row leads to it, with the cell it goes back to as
+    /// where it stopped; its rows go back there or keep it where it is.
+    pub version: Option<String>,
     /// Parts of the graph: a row from one block into another goes to one of that block's entries.
     pub blocks: Vec<Block>,
     /// The lines: an agent's cell on a line resumes the session the line's earlier cells left.
@@ -965,6 +969,9 @@ pub struct RawRow {
     pub counts: Option<String>,
     /// The row waits for someone, and counts nothing.
     pub waits: Option<bool>,
+    /// The row pauses the work and tells the owner, at an engine's cell that cannot take the work on: once the owner
+    /// lets it go on, the cell runs again.
+    pub pauses: Option<bool>,
     /// For a row that waits, the installation's setting that bounds the wait: the cell takes another row once it ran
     /// out, so that a holder's own graph waits no longer than that, as the architect for the owner's reply in a talk.
     pub until: Option<String>,

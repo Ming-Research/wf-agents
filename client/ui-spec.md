@@ -329,7 +329,7 @@ flow's chart fills the window under the bar, and a second row would take its hei
 The bar holds the views, the engine's state in words (running; paused, saying which works the owner started run
 meanwhile; pausing while the last round finishes, with how many; or waiting for what stops every work, until when),
 beside it the switch of every work plainly as a button, "Pause all" while works go on and "Start all" while they are
-paused, which asks first, saying what goes on and how many works on an older flow version are taken over, the switch
+paused, which asks first, saying what goes on and how many works on an older flow version are brought up, the switch
 "Keep warm", as tall as the button beside it, that one click turns over, the slots in use and the unread messages, and
 nothing of a view: a work's facts are its row in the list of works and its line above its chart, and its own controls
 are in the head of its group (below), and the flow page's choice of version and comparison floats over the chart's top
@@ -1360,8 +1360,8 @@ on it; a work picked from the table takes the whole window under the bar in the 
 that goes back to the table,
 says which work it is (its number, its item, and its project while there is more than one), how it goes on in the list's
 words, where it is (its cell and stage, and while it is on an older flow version a chip saying so, or once it moved to
-the version the engine runs a chip saying to which, since the owner wants to see a work that went on at its cell after
-an upgrade apart from one taken over), its rounds, cost and pull request, linked, and leads to its group, with no links
+the version the engine runs a chip saying to which, since the owner wants to see a work an upgrade moved apart from one
+that started on the version it runs), its rounds, cost and pull request, linked, and leads to its group, with no links
 to the other works, which the owner found of no use; the address names the work, and going back in the browser returns
 to the table as it was. The view has no heading above its table (the bar's tab says it) and the table fills the width, and
 holds no control of a work, which is in its group's head. Where the window is narrower than the table's columns, the
@@ -1386,7 +1386,7 @@ engine for a problem, a work held only because every work is paused reading as w
 since the bar already says that nothing runs until Start all and "paused by you" there made the owner take a work for
 paused that was not; what it waits for, linked to where the owner gives it; the decision cards and asks the owner has to
 do as small chips; the engine's reason after them), beside the cell it is at that it is on an older flow version, saying
-on hovering that it is taken over when it goes on, with the link to its group beside the state, where the owner acts on
+on hovering how it moves when it goes on, with the link to its group beside the state, where the owner acts on
 it (below), because the groups are read as one table, a reason prefixed with the state its badge already shows says it
 twice, and a row that wraps makes the table slow to scan. A work's item is not followed by its project, which the group
 it is in says, instead of the project after each title, since it would say it twice.
@@ -1419,7 +1419,7 @@ ticking each second from the one clock every view shares; what holds it back, sa
 a chip that links to where the owner gives it; once what it waited for came, while it waits for a free slot, that
 state's chip in its place), the owner's asks and decision cards to do as such links, and only for a stop of the engine's
 or the architect's, why in muted words after them; that it is on an older flow version is a tag's chip "old flow" beside
-its cell (`TagChip`), saying in full on hovering what taking it over does, and a work moved to the version it is on says
+its cell (`TagChip`), saying in full on hovering how it moves, and a work moved to the version it is on says
 so ("moved to version N") as a tag's chip too; and what Start, Pause, Step and Start all do in the state the work is in
 is said on hovering each of them.
 
