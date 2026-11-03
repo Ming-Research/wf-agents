@@ -8,7 +8,7 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
 
-import { type Chart, type ChartEdge, cellNode, MAIN } from './flowModel';
+import { type Chart, type ChartEdge, type ChartNode, cellNode, MAIN } from './flowModel';
 import { attachments, landings, layUnit, type Unit } from './units';
 
 const elk = new ELK();
@@ -192,20 +192,20 @@ async function layPart(
     );
   const ends = (cell: string) => external.filter((e) => e.source === cell || e.target === cell).length;
   // Inside a stage box elkjs breaks a loop by its own measure, not by the order the flow writes the cells in, which
-  // fails it there. A row back into the actions on a line into a cell of the same box, from a cell the flow writes
-  // after that cell, is given to it already turned round, as outside the boxes, so that the actions stay just above
-  // the cell they lead into and the row comes up into them.
+  // fails it there: it turned round a row down into the actions on a line into a cell, so that a cell came between
+  // them. Each row within a box that goes back to a cell the flow writes earlier, or into the actions on a line into
+  // one, is given to it already turned round, as outside the boxes, so that the box holds no loop for elkjs to break:
+  // the cells keep the flow's order, the actions stay just above the cell they lead into, and a row back comes up.
   const order = new Map(members.map((n, i) => [n.id, i]));
+  // Where a node comes in the flow's order: a cell where the flow writes it, anything else at the cell it is drawn
+  // for, the actions on a line into a cell just before it.
+  const rank = (n: ChartNode): [number, number] => [order.get(cellNode(n.cell)) ?? 0, n.kind === 'cell' ? 1 : 0];
   const turned = (e: ChartEdge) => {
-    const a = byId.get(e.target);
+    const to = byId.get(e.target);
     const from = byId.get(e.source);
-    return (
-      a?.kind === 'action' &&
-      from?.kind === 'cell' &&
-      from.group !== null &&
-      from.group === a.group &&
-      (order.get(e.source) ?? 0) > (order.get(cellNode(a.cell)) ?? 0)
-    );
+    if (to === undefined || from === undefined || from.group === null || from.group !== to.group) return false;
+    const [a, b] = [rank(from), rank(to)];
+    return a[0] > b[0] || (a[0] === b[0] && a[1] > b[1]);
   };
   // The rows that run up the chart, found from the first layout: given to the second turned round too, so that elkjs
   // takes each as running down from its target into its source rather than as a row it turned round itself, which it
