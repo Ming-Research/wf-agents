@@ -1868,6 +1868,11 @@ fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
 // line for each of the three kinds and every column of a kind in its line; one that then leaves out a single column is
 // sent back with the one line it always had, and the third return is taken. The reference is the item's own example
 // (R246-46/47: columns 4 and 5 left out, said at once) and the text of the single miss before the change.
+//
+// Item #256, acceptance A1: the record of each return sent back keeps each problem with the check and the field. The
+// first has three problems of one check and one field. The second, besides leaving out a column, cites a file that is
+// not in the worktree: it fails two checks at once, and is recorded with exactly two problems, one for each check, in
+// the order of the checks in the flow, and the text under `check` is their lines, one to a line, in that order.
 #[test]
 fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all_of_them() {
     let s = setup("columns-misses");
@@ -1893,9 +1898,18 @@ fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all
                 2 => all[..all.len() - 1].to_vec(),
                 _ => all.clone(),
             };
+            // The second return also cites, in its first column, a file that is not in the worktree.
             let cols: Vec<Value> = ids
                 .iter()
-                .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
+                .enumerate()
+                .map(|(i, id)| {
+                    let files = if n == 2 && i == 0 {
+                        vec!["no/such/file.rs"]
+                    } else {
+                        Vec::new()
+                    };
+                    json!({ "id": id, "verdict": "pass", "evidence": { "files": files, "ran": [], "nodes": [] } })
+                })
                 .collect();
             (
                 vec![("outcome.no_adversarial", "stands")],
@@ -1957,6 +1971,73 @@ fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all
         )),
         "{}",
         why[1]
+    );
+    // What the column keeps of each return: the text, then the problems.
+    let stored: Vec<Value> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'T4' AND rejected IS NOT NULL ORDER BY n",
+        &[&work],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].clone())
+    .collect();
+    assert_eq!(stored.len(), 2);
+    for r in &stored {
+        assert_eq!(
+            r.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["check", "problems"],
+            "{r}"
+        );
+        // The text is the lines of the problems, `check (field): text`, one to a line, in their order.
+        let lines: Vec<String> = r["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                format!(
+                    "{} ({}): {}",
+                    p["check"].as_str().unwrap(),
+                    p["field"].as_str().unwrap(),
+                    p["text"].as_str().unwrap()
+                )
+            })
+            .collect();
+        assert_eq!(r["check"].as_str().unwrap(), lines.join("\n"), "{r}");
+    }
+    // The first: three problems of one check and one field, each its own entry.
+    let first = stored[0]["problems"].as_array().unwrap();
+    assert_eq!(first.len(), 3, "{}", stored[0]);
+    assert!(
+        first
+            .iter()
+            .all(|p| p["check"] == "columns_answered" && p["field"] == "columns.id"),
+        "{}",
+        stored[0]
+    );
+    // The second: exactly two problems, one of each check, with the field each check looks at.
+    let second = stored[1]["problems"].as_array().unwrap();
+    assert_eq!(second.len(), 2, "{}", stored[1]);
+    assert_eq!(
+        second[0],
+        json!({
+            "check": "columns_answered",
+            "field": "columns.id",
+            "text": format!("column {} is not answered", all[n - 1])
+        })
+    );
+    assert_eq!(
+        (&second[1]["check"], &second[1]["field"]),
+        (&json!("evidence_holds"), &json!("columns[pass].evidence"))
+    );
+    assert!(
+        second[1]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("no/such/file.rs is not in the worktree"),
+        "{}",
+        stored[1]
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -3822,6 +3903,8 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
         "{why}"
     );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
+    // The text the owner is paused with is the reason alone, without the problems the column keeps for counting.
+    assert!(!why.contains("problems"), "{why}");
     api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
         e.tick().unwrap();
@@ -4249,14 +4332,22 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// How many returns sent back pause a work is the number the flow the work runs on says.
+// How many returns sent back pause a work is the number the flow the work runs on says. The return is sent back for not
+// fitting the schema in two places, which `rounds.rejected` keeps as the text it is sent back with under `format` and as
+// two problems of check `format`, each with the path of its field; the text the owner is paused with, and the one the
+// agent is told, are that text alone, word for word as they were before the problems were kept.
 #[test]
 fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let s = setup("pause");
     let mut scripts = scripts();
     scripts.insert(
         "R1",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome", json!("not an object"))])),
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome", json!("not an object")), ("progress", json!(7))],
+            )
+        }),
     );
     let (mut e, said, item) = start(&s, scripts);
     e.step(None).unwrap();
@@ -4295,14 +4386,60 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     );
     // Each return sent back is counted, and none is a retry.
     assert_eq!((counted(&e, work, "sent_back"), counted(&e, work, "retries")), (2, 0));
+    // The column holds the text under `format`, then each place under `problems`, the check named `format`, no check of
+    // the flow being named so; the text is the sentences of the places, each on a line, and the fields are the paths.
+    let stored: String = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'R1' AND rejected IS NOT NULL ORDER BY n LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let rejected: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(
+        rejected.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["format", "problems"],
+        "{stored}"
+    );
+    let problems = rejected["problems"].as_array().unwrap();
+    assert_eq!(problems.len(), 2, "{stored}");
+    assert!(problems.iter().all(|p| p["check"] == "format"), "{stored}");
+    let mut fields: Vec<&str> = problems.iter().map(|p| p["field"].as_str().unwrap()).collect();
+    fields.sort();
+    assert_eq!(fields, ["outcome", "progress"], "{stored}");
+    let text = rejected["format"].as_str().unwrap();
+    assert_eq!(
+        text,
+        format!(
+            "the return does not fit the schema of R1 in 2 places:\n{}\n{}",
+            problems[0]["text"].as_str().unwrap(),
+            problems[1]["text"].as_str().unwrap()
+        ),
+        "{stored}"
+    );
+    assert!(text.contains("outcome must be an object, and is a string"), "{text}");
+    assert!(text.contains("progress must be a string, and is a number"), "{text}");
+    // The work is paused with that text alone, in the form the column had before the problems were kept.
+    assert_eq!(
+        paused.as_deref(),
+        Some(
+            format!(
+                "2 returns in a row were sent back, the last at cell R1: {}",
+                json!({ "format": text })
+            )
+            .as_str()
+        ),
+        "{log}"
+    );
     // After a return sent back the message only says why, and that the return is to be rewritten.
     let rounds = agent_rounds(&e, item);
     let (id, _, again) = &rounds[1];
     let m = again["message"].as_str().unwrap();
-    assert!(
-        m.starts_with(&format!("# {id} · cell R1\n\nYour return was sent back: "))
-            && m.ends_with("\nRewrite it (format:R1).\n"),
-        "{m}"
+    assert_eq!(
+        m,
+        format!("# {id} · cell R1\n\nYour return was sent back: {text}\nRewrite it (format:R1).\n")
     );
     assert_eq!(again["conditional"], json!([]));
     let _ = std::fs::remove_dir_all(&s.root);

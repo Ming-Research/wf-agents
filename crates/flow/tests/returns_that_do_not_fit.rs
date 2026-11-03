@@ -118,6 +118,54 @@ fn leaves(v: &Value, at: String, out: &mut BTreeMap<String, Value>) {
     }
 }
 
+/// A path with each index of a list written `[]`: `columns[0].evidence` as `columns[].evidence`.
+fn without_indexes(path: &str) -> String {
+    let mut out = String::new();
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        out.push(c);
+        if c == '[' {
+            let mut digits = String::new();
+            while let Some(d) = chars.next_if(char::is_ascii_digit) {
+                digits.push(d);
+            }
+            if chars.peek() != Some(&']') {
+                out.push_str(&digits);
+            }
+        }
+    }
+    out
+}
+
+/// Whether the field of a place is the one its sentence is about, read from the sentence by the words it is made of:
+/// of a field that is missing (`X has no r`) or not one of the schema's (`X has k, which is not one of its fields`),
+/// the path of that field, `X.r` or `X.k`; of any other, the path the sentence begins with. Each with the indexes of
+/// lists written `[]`, and none for the return as a whole.
+fn names_its_field(p: &flow::Misfit) -> bool {
+    let text = without_indexes(&p.text);
+    let named = match text.rsplit_once(" has no ").filter(|(_, r)| !r.contains(' ')) {
+        Some((head, name)) => Some((head.to_string(), name.to_string())),
+        None => text
+            .split_once(", which is not one of its fields: ")
+            .and_then(|(before, _)| before.rsplit_once(" has "))
+            .map(|(head, name)| (head.to_string(), name.to_string())),
+    };
+    let path = |head: &str, name: &str| {
+        if head == "the return" {
+            name.to_string()
+        } else {
+            format!("{head}.{name}")
+        }
+    };
+    match (&p.field, named) {
+        (Some(f), Some((head, name))) => *f == path(&head, &name),
+        // A field that is missing or not allowed has a path, even in the return itself.
+        (None, Some(_)) => false,
+        (Some(f), None) => text.strip_prefix(f.as_str()).is_some_and(|rest| rest.starts_with(' ')),
+        (None, None) => text.starts_with("the return "),
+    }
+}
+
 /// A sample changed in one place at a time.
 fn changed(sample: &Value, others: &BTreeSet<String>) -> Vec<Value> {
     let mut places = Vec::new();
@@ -166,7 +214,8 @@ fn changed(sample: &Value, others: &BTreeSet<String>) -> Vec<Value> {
 // The four statements the engine makes of a return, which a return may not make differ: it fits (`valid`) exactly when
 // `misfits` tells no place; `take` refuses exactly the returns that do not fit, with the places `misfits` tells, counted
 // and one to a line when there are several; and `without_null_options` takes nothing but null out of a return, leaves a
-// return that fits as it is, and tells only paths that were null and are gone.
+// return that fits as it is, and tells only paths that were null and are gone. Each place `misfits` tells is also told
+// with the field it is about, and `take_or_places` refuses as `take` does, with those places.
 #[test]
 fn the_engines_four_statements_of_a_return_agree_on_every_change_of_every_sample() {
     let c = compiled();
@@ -189,6 +238,35 @@ fn the_engines_four_statements_of_a_return_agree_on_every_change_of_every_sample
                 let places = flow::misfits(&schema, &m, "");
                 assert_eq!(valid, places.is_empty(), "{cell}: {m}\n{places:?}");
                 assert!(places.iter().all(|p| !p.is_empty()), "{cell}: {m}");
+                // Each place is told with the field it is about, in the same order and the same words.
+                let located = flow::misfit_places(&schema, &m, "");
+                assert_eq!(
+                    located.iter().map(|p| p.text.clone()).collect::<Vec<_>>(),
+                    places,
+                    "{cell}: {m}"
+                );
+                for p in &located {
+                    assert!(names_its_field(p), "{cell}: {p:?} in {m}");
+                }
+                // `take_or_places` is `take`: the same row or the same text, and for a return that does not fit the
+                // places `misfit_places` tells; for one no row takes, its sentence as its one place, of no field.
+                let by_places = g.take_or_places(cell, &m, &given);
+                assert_eq!(
+                    by_places.as_ref().map(|r| r.name.clone()).map_err(|n| n.text.clone()),
+                    g.take(cell, &m, &given).map(|r| r.name.clone()),
+                    "{cell}: {m}"
+                );
+                if let Err(n) = &by_places {
+                    if n.text.starts_with(&refusal) {
+                        assert_eq!(n.places, located, "{cell}: {m}");
+                    } else {
+                        let only = flow::Misfit {
+                            field: None,
+                            text: n.text.clone(),
+                        };
+                        assert_eq!(n.places, [only], "{cell}: {m}");
+                    }
+                }
                 // `take` refuses what does not fit, as `misfits` says, and nothing else for that reason.
                 match g.take(cell, &m, &given) {
                     Err(e) if e.starts_with(&refusal) => {
@@ -231,14 +309,13 @@ fn the_engines_four_statements_of_a_return_agree_on_every_change_of_every_sample
     assert!(all > 5_000, "{all}");
     assert!(refused > 1_000, "{refused}");
     assert!(left_out > 0, "{left_out}");
+    // The shapes of a refusal that the changes above seldom or never make, with their exact words.
+    refusals_give_their_places(g, &samples);
 }
 
-// A value is told in every place it does not fit through unions inside lists and inside unions, where the expected
-// verdict of each value is known from how it was made (the schema is written here, not read from the flow): a list of
-// objects of two forms, one of which holds a union of its own.
-#[test]
-fn a_value_is_told_in_every_place_it_does_not_fit_through_unions_inside_unions() {
-    let schema = json!({
+/// A schema written here, not read from the flow: a list of objects of two forms, one of which holds a union of its own.
+fn nested_schema() -> Value {
+    json!({
         "type": "object", "required": ["label", "items"], "additionalProperties": false,
         "properties": {
             "label": { "type": "string" },
@@ -257,7 +334,15 @@ fn a_value_is_told_in_every_place_it_does_not_fit_through_unions_inside_unions()
                     "kind": { "const": "y" }, "b": { "type": "integer" } } },
             ] } },
         },
-    });
+    })
+}
+
+// A value is told in every place it does not fit through unions inside lists and inside unions, where the expected
+// verdict of each value is known from how it was made (the schema is written here, not read from the flow): a list of
+// objects of two forms, one of which holds a union of its own.
+#[test]
+fn a_value_is_told_in_every_place_it_does_not_fit_through_unions_inside_unions() {
+    let schema = nested_schema();
     // The value, whether it fits, and the places a reader is to be told, as the names the value gives them.
     let cases: Vec<(Value, bool, Vec<&str>)> = vec![
         (json!({ "label": "l", "items": [] }), true, vec![]),
@@ -321,4 +406,178 @@ fn a_value_is_told_in_every_place_it_does_not_fit_through_unions_inside_unions()
         let unique: BTreeSet<&String> = places.iter().collect();
         assert_eq!(unique.len(), places.len(), "a place told twice: {places:?}");
     }
+}
+
+// Each place is told with the field it is about, where the expected fields are known from how each value was made, on
+// the schema above: a field that is missing or not allowed by its own path, a value of the wrong kind or not among the
+// allowed ones by its own, the index of every item of a list written `[]` (the sentence keeps it, with two digits too),
+// so that one fault in two items is one field, and none for the return as a whole.
+#[test]
+fn a_place_is_told_with_the_field_it_is_about_through_unions_inside_unions() {
+    let schema = nested_schema();
+    let item = |n: usize| json!({ "kind": "y", "b": n });
+    let eleven: Vec<Value> = (0..11).map(item).collect();
+    let twelve: Vec<Value> = eleven
+        .iter()
+        .cloned()
+        .chain([json!({ "kind": "y", "b": "s" })])
+        .collect();
+    let cases: Vec<(Value, Vec<Option<&str>>)> = vec![
+        (json!({ "label": "l", "items": eleven }), vec![]),
+        (json!(3), vec![None]),
+        (json!({ "items": [] }), vec![Some("label")]),
+        (json!({ "label": 3, "items": [] }), vec![Some("label")]),
+        (json!({ "label": "l", "items": {} }), vec![Some("items")]),
+        (json!({ "label": "l", "items": ["s"] }), vec![Some("items[]")]),
+        (
+            json!({ "label": "l", "items": [{ "kind": "x" }] }),
+            vec![Some("items[].a")],
+        ),
+        (
+            json!({ "label": "l", "items": [{ "kind": "y", "b": 1, "a": "s" }] }),
+            vec![Some("items[].a")],
+        ),
+        (
+            json!({ "label": "l", "items": [{ "kind": "z" }] }),
+            vec![Some("items[].kind")],
+        ),
+        (
+            json!({ "label": "l", "items": [{ "kind": "x", "a": "s", "inner": { "mode": "q" } }] }),
+            vec![Some("items[].inner.m")],
+        ),
+        (
+            json!({ "label": "l", "items": [{ "kind": "x", "a": "s", "inner": { "mode": "r" } }] }),
+            vec![Some("items[].inner.mode")],
+        ),
+        // The same fault in two items: two places, one field.
+        (
+            json!({ "label": "l", "items": [{ "kind": "x" }, { "kind": "y", "b": 1 }, { "kind": "x" }] }),
+            vec![Some("items[].a"), Some("items[].a")],
+        ),
+        // The twelfth item: the index has two digits in the sentence, and none in the field.
+        (json!({ "label": "l", "items": twelve }), vec![Some("items[].b")]),
+        // Everything wrong at once, in the order the places are told.
+        (
+            json!({ "label": 3, "items": [
+                { "kind": "x", "a": "s", "inner": { "mode": "q", "m": "no" } },
+                { "kind": "y", "b": "s" },
+                5,
+                { "kind": "x" },
+            ] }),
+            vec![
+                Some("label"),
+                Some("items[].inner.m"),
+                Some("items[].b"),
+                Some("items[]"),
+                Some("items[].a"),
+            ],
+        ),
+    ];
+    for (value, fields) in cases {
+        let places = flow::misfit_places(&schema, &value, "");
+        let told: Vec<Option<&str>> = places.iter().map(|p| p.field.as_deref()).collect();
+        assert_eq!(told, fields, "{value}\n{places:?}");
+        for p in &places {
+            assert!(names_its_field(p), "{p:?} in {value}");
+        }
+    }
+    // The sentence keeps the index of the item.
+    let twelve: Vec<Value> = (0..11)
+        .map(|n| json!({ "kind": "y", "b": n }))
+        .chain([json!({ "kind": "y", "b": "s" })])
+        .collect();
+    let places = flow::misfit_places(&schema, &json!({ "label": "l", "items": twelve }), "");
+    assert!(places[0].text.starts_with("items[11].b "), "{places:?}");
+    // A path given to start from is the field's, with its indexes written `[]` too.
+    let places = flow::misfit_places(&schema, &json!(5), "outcome.rows[2]");
+    assert_eq!(places[0].field.as_deref(), Some("outcome.rows[]"), "{places:?}");
+    assert!(places[0].text.starts_with("outcome.rows[2] "), "{places:?}");
+}
+
+// A field the schema does not have is told with the name the agent wrote, whatever characters it holds: the field is
+// the path of its parent and the name, and a name is an object's key, not an item of a list, so it is not written `[]`
+// where it looks like an index; a dot in it is part of it. The reference is the definition of `Misfit::field`. The
+// schema is written here: closed objects, one of which holds a list of closed objects.
+#[test]
+fn a_name_the_agent_wrote_is_the_field_as_it_wrote_it() {
+    let schema = json!({
+        "type": "object", "required": ["label", "items"], "additionalProperties": false,
+        "properties": {
+            "label": { "type": "string" },
+            "items": { "type": "array", "items": {
+                "type": "object", "required": ["a"], "additionalProperties": false,
+                "properties": { "a": { "type": "string" } } } },
+        },
+    });
+    let cases: Vec<(Value, Vec<Option<&str>>)> = vec![
+        // A name that ends like an index.
+        (json!({ "label": "l", "items": [], "x[3]": 1 }), vec![Some("x[3]")]),
+        // A name that is an index and nothing else.
+        (json!({ "label": "l", "items": [], "[7]": 1 }), vec![Some("[7]")]),
+        // A name with a dot: its parent's path and its own name, not told as two fields.
+        (json!({ "label": "l", "items": [], "a.b": 1 }), vec![Some("a.b")]),
+        // A name with a bracket that is not closed.
+        (json!({ "label": "l", "items": [], "m[": 1 }), vec![Some("m[")]),
+        // In an item of a list: the item's index is written `[]`, the name is not; the same name in two items is one field.
+        (
+            json!({ "label": "l", "items": [{ "a": "s", "k[12]": 1 }, { "a": "s", "k[12]": 2 }] }),
+            vec![Some("items[].k[12]"), Some("items[].k[12]")],
+        ),
+    ];
+    for (value, fields) in cases {
+        let places = flow::misfit_places(&schema, &value, "");
+        let told: Vec<Option<&str>> = places.iter().map(|p| p.field.as_deref()).collect();
+        assert_eq!(told, fields, "{value}\n{places:?}");
+    }
+}
+
+/// A return a cell refuses is refused with the places it is about besides the text `take` gives: a return that does not
+/// fit the schema with each place of it, one that no row takes with its sentence as its one place of no field (the row
+/// of cell D2 that takes a return is chosen by the values the engine gives it), and a cell that is not there likewise.
+/// Part of the test of the four statements, which has the flow compiled already.
+fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String, Vec<Value>>) {
+    let sample = samples["D2"]
+        .iter()
+        .find(|s| s["given"]["rethought"] == "no")
+        .expect("a sample of D2 that a row takes by what the engine gives");
+    let given: Map<String, Value> = sample["given"].as_object().cloned().unwrap();
+    // Given what the engine gives, the row is taken.
+    let row = g.take_or_places("D2", &sample["json"], &given).unwrap();
+    assert_eq!(row.name, "first");
+    // Given nothing, no row takes it: the one sentence, said as `take` says it.
+    let none = g.take_or_places("D2", &sample["json"], &Map::new()).unwrap_err();
+    assert_eq!(none.text, "no row of D2 takes the return");
+    assert_eq!(
+        none.places,
+        [flow::Misfit {
+            field: None,
+            text: none.text.clone()
+        }]
+    );
+    assert_eq!(g.take("D2", &sample["json"], &Map::new()).unwrap_err(), none.text);
+    // A cell that is not there.
+    let missing = g.take_or_places("ZZ", &json!({}), &Map::new()).unwrap_err();
+    assert_eq!(missing.text, "no such cell: ZZ");
+    assert_eq!(
+        missing.places,
+        [flow::Misfit {
+            field: None,
+            text: "no such cell: ZZ".to_string()
+        }]
+    );
+    // A return that does not fit in two places: the text names both, and each place is a field.
+    let mut wrong = sample["json"].clone();
+    wrong["progress"] = json!(7);
+    wrong["flow_feedback"] = json!(7);
+    let refused = g.take_or_places("D2", &wrong, &given).unwrap_err();
+    let fields: Vec<Option<&str>> = refused.places.iter().map(|p| p.field.as_deref()).collect();
+    assert_eq!(fields, [Some("progress"), Some("flow_feedback")], "{refused:?}");
+    assert_eq!(
+        refused.text,
+        format!(
+            "the return does not fit the schema of D2 in 2 places:\n{}\n{}",
+            refused.places[0].text, refused.places[1].text
+        )
+    );
+    assert_eq!(g.take("D2", &wrong, &given).unwrap_err(), refused.text);
 }
