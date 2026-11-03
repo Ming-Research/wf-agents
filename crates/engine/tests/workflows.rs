@@ -89,8 +89,9 @@ fn the_fast_workflow_runs_only_by_hand_and_has_no_job_a_merge_waits_for() {
     assert!(summary.contains("if: always()"), "{summary}");
 }
 
-// The full workflow keeps the job a merge waits for, and still ignores the engine's temporary branches of the code
-// before a change, which the fast workflow runs by hand.
+// The full workflow keeps the job a merge waits for, and runs on a push to main and by hand only: a push of a work's
+// branch, or of the engine's temporary branches of the code before a change, which the fast workflow runs by hand,
+// starts nothing.
 #[test]
 fn the_full_workflow_keeps_the_check_a_merge_waits_for() {
     let text = workflow("workflows/ci.yml");
@@ -102,8 +103,10 @@ fn the_full_workflow_keeps_the_check_a_merge_waits_for() {
     let check = job(&jobs, "check").join("\n");
     assert!(check.contains("needs: [lint, test]"), "{check}");
     assert!(check.contains("if: always()"), "{check}");
-    let on = block(&text, "on").join("\n");
-    assert!(on.contains("wf-agents-before/**"), "{on}");
+    let on = block(&text, "on");
+    assert_eq!(children(&on), ["push", "workflow_dispatch"]);
+    let on = on.join("\n");
+    assert!(on.contains("    branches:\n      - main"), "{on}");
 }
 
 // A run of one workflow on a branch must not cancel a run of the other on it: the engine waits for a run of each, and
