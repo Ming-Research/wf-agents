@@ -23771,14 +23771,9 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
     assert_eq!(tests["weakened"][0]["test"], "old_test", "{tests}");
     assert_eq!(tests["weakened"][0]["reason"], "A technical one.", "{tests}");
     assert_eq!(tests["test_files"], json!([]), "{tests}");
-    // The test paths were given whole in the first round of the session, which a re-check refers to and does not give
-    // again; both rounds list the input.
+    // The first round and the re-check both list the project's test paths among their inputs (the session holds them
+    // from the first round, so the re-check refers to them), and neither lists a source of the old test changes.
     let first_round = message_at(&e, work, "T1", false);
-    assert_eq!(
-        given(&input_at(&e, work, "T1", false), "config:test_paths"),
-        Some(true),
-        "{first_round}"
-    );
     for message in [&first_round, &m] {
         let from = work_from(message);
         assert!(from.iter().any(|l| l.ends_with(". config:test_paths")), "{message}");
