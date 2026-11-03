@@ -2534,11 +2534,11 @@ fn without_stale_approaches(
     let mut approaches = decisions::Approaches::default();
     for row in sound {
         let c = &row.3;
-        if c["kind"] == "merge" {
-            if let Some(keep) = item_number(&c["keep"]) {
-                for a in items(c.get("absorbed")).iter().filter_map(item_number) {
-                    approaches.merged(tx, keep, a);
-                }
+        if c["kind"] == "merge"
+            && let Some(keep) = item_number(&c["keep"])
+        {
+            for a in items(c.get("absorbed")).iter().filter_map(item_number) {
+                approaches.merged(tx, keep, a);
             }
         }
         let edit = (c["kind"] == "edit_item" && c["part"] == "approach")

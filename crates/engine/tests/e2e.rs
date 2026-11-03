@@ -15940,14 +15940,14 @@ fn a_decision_is_not_left_only_in_an_item_the_batch_merged_away_and_one_on_a_cre
                 .map(|m| json!({ "matter": m, "verdict": "decision", "why": "It settles a choice." }))
                 .collect();
             let mut decisions = Vec::new();
-            // The first time, one in the item the batch merges away; sent back, only the other.
-            if n == 1 {
-                decisions.push(decision_of(
-                    Some("2"),
-                    "Integers come first",
-                    &[(a, "the parser takes integers first")],
-                ));
-            }
+            // The first time, one in the item the batch merges away; sent back, in the item it is merged into, as the
+            // reason it was sent back says. Every matter the rows call a decision is quoted by one, both times.
+            let item = if n == 1 { "2" } else { "1" };
+            decisions.push(decision_of(
+                Some(item),
+                "Integers come first",
+                &[(a, "the parser takes integers first")],
+            ));
             decisions.push(decision_of(
                 Some("lex"),
                 "The lexer stays simple",
