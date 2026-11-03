@@ -1475,7 +1475,7 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
     }
     assert_eq!(
         helpers,
-        ["G1", "G2", "X5", "T1", "T3", "G3", "T4", "A1", "B2", "X2", "X5"]
+        ["G1", "G2", "G4", "F2", "X5", "T1", "T3", "G3", "T4", "A1", "B2", "X2", "X5"]
     );
 }
 
