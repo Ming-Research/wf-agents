@@ -335,8 +335,21 @@ pub struct Guard {
     pub samples: u32,
 }
 
+impl Rounds {
+    /// The counters the section's rows count, each once for every row that counts it.
+    pub fn counters(&self) -> impl Iterator<Item = &str> {
+        self.sent_back
+            .counts
+            .iter()
+            .chain(self.failed.kinds.iter().filter_map(|k| k.counts.as_ref()))
+            .chain(self.engine.iter().filter_map(|k| k.counts.as_ref()))
+            .map(String::as_str)
+    }
+}
+
 /// A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does
-/// not send, a work that ended meanwhile.
+/// not send, a work that ended meanwhile, a step of the engine's before the round that reached the network and could
+/// not.
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct EngineCase {
@@ -346,16 +359,43 @@ pub struct EngineCase {
     /// The work pauses, and the owner is told: a blocker the owner holds at the cell.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pauses: bool,
+    /// A case the engine takes by running its step again, as `step_network` does: how many of its runs in a row end
+    /// the running again. `backoff` and `then` go with it.
+    #[serde(default, rename = "inRow", skip_serializing_if = "Option::is_none")]
+    pub in_row: Option<u32>,
+    /// The seconds the step waits before it runs again, after its first failure, its second and so on; the last holds
+    /// for every failure after.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backoff: Vec<u32>,
+    /// What the engine does once the case has been taken `inRow` times in a row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub then: Option<Then>,
+    /// The counter that counts each time the engine takes the case, one of the flow's counters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counts: Option<String>,
+}
+
+/// What the engine does once a row that runs a round or a step again has been taken so many times in a row as its
+/// bound says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum Then {
+    /// The work pauses, and the owner is told; once the owner lets it go on, it counts afresh.
+    Pause,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct SentBack {
     pub desc: String,
-    /// How many returns of one cell in a row may be sent back before the engine pauses the work.
+    /// How many returns in a row may be sent back before the engine pauses the work: the work's returns since it last
+    /// took a row from outside the engine, whichever cells they were at.
     #[serde(rename = "pauseAfter")]
     pub pause_after: u32,
     pub pause: String,
+    /// The counter that counts each return sent back, one of the flow's counters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counts: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -374,6 +414,16 @@ pub struct Failure {
     pub when: String,
     pub handle: Handle,
     pub desc: String,
+    /// A kind handled by running again: how many of its runs in a row end the running again. Every such kind has one,
+    /// and `then`.
+    #[serde(default, rename = "inRow", skip_serializing_if = "Option::is_none")]
+    pub in_row: Option<u32>,
+    /// What the engine does once the kind has been taken `inRow` times in a row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub then: Option<Then>,
+    /// The counter that counts each time the engine takes the kind's row, one of the flow's counters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counts: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -381,7 +431,7 @@ pub struct Failure {
 pub enum Handle {
     /// No new round starts for any work until the cause passes; then each work goes on from its cell.
     Wait,
-    /// The same round runs again, waiting longer each time, until it passes.
+    /// The same round runs again, waiting longer each time, until it passes or the kind's bound is reached.
     Retry,
     /// The work pauses, and the owner is told; once the owner lets it go on, the same round runs again.
     Pause,
@@ -844,6 +894,15 @@ pub const HAND_OVER: &str = "hand_over";
 /// The row, and the engine's case it takes it on, of a cell whose numbered table it must answer has no row: where the
 /// table says the work goes then ([`Empty`]), in place of the cell's round.
 pub const NOTHING_TO_ANSWER: &str = "nothing_to_answer";
+
+/// The engine's case, and the row of every agent's cell for it, of a step of the engine's before an agent's round that
+/// reaches the network and fails the way a passing failure does: the step runs again after a wait.
+pub const STEP_NETWORK: &str = "step_network";
+
+/// The name of the row a bounded row has for being taken as often in a row as its bound says: the work pauses.
+pub fn too_often(row: &str) -> String {
+    format!("{row}_too_often")
+}
 
 /// Who may hold a blocker.
 pub const HOLDERS: [&str; 4] = ["advisor", "architect", "owner", "items"];
