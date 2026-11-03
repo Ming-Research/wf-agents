@@ -1499,7 +1499,10 @@ mod tests {
         let runs = [lint_green.clone(), green_tests.clone(), red_tests.clone()];
         assert_eq!(red_checks_of_head(&runs, "h"), Some(vec![]));
         // A head that only the lint has run is green on it; red on it, it is not.
-        assert_eq!(red_checks_of_head(&[lint_green.clone()], "h"), Some(vec![]));
+        assert_eq!(
+            red_checks_of_head(std::slice::from_ref(&lint_green), "h"),
+            Some(vec![])
+        );
         let lint_red = pushed("h", Some("lint"), &[("lint", "red")]);
         let runs = [lint_red, green_tests.clone()];
         assert_eq!(red_checks_of_head(&runs, "h"), Some(vec!["lint".to_string()]));
