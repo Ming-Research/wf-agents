@@ -11921,6 +11921,255 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The dependencies between items, each as the item and the item it depends on, in order.
+fn links_of(e: &Engine) -> Vec<(i64, i64)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// An architect's change removes a dependency, and the review of the batch lets it be made: the item no longer depends
+// on the other, the dependency it keeps stands, and the changes are made. A dependency the batch makes and removes again
+// is not there once the batch is made: each change is checked against what the earlier ones leave.
+#[test]
+fn a_batch_removes_a_dependency_and_the_review_makes_it() {
+    let s = setup("remove-dependency");
+    let mut agents = scripts();
+    // The items are made below, numbered 1 to 4 in order: the parser, the lexer, the tokens and one to do later. The
+    // parser depends on the lexer and on the tokens; the batch removes the first, and makes and removes one on item 4.
+    let changes = json!([
+        { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "The parser needs nothing the lexer hands in." },
+        { "kind": "add_dependency", "item": "1", "on": "4", "dependency": "blocking", "reason": "It seemed to need it." },
+        { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "It does not, on a second look." },
+    ]);
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes.clone() }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let later = a_ready_item(&mut e, "Do it later");
+    assert_eq!((parser, lexer, tokens, later), (1, 2, 3, 4));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "The parser needs nothing the lexer hands in.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(links_of(&e), [(parser, tokens)], "{log}");
+    let states: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT state FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(states, ["made", "made", "made"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A change that removes a dependency the items do not have then is sent back, with every other reason, and nothing is
+// made: one removed twice, one never made, one a cancel of the batch took away, and one of an item another project's
+// architect changes, which is the project's own business to remove.
+#[test]
+fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
+    let s = setup("remove-dependency-refused");
+    let mut agents = scripts();
+    // The items are numbered 1 to 5 in order: the parser, the lexer, the tokens, one to do later and one of project q.
+    // The parser depends on the lexer and the tokens, and the item of q on the lexer.
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "r" },
+                { "kind": "cancel", "item": "3", "goes": "Not needed.", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "3", "reason": "r" },
+                { "kind": "remove_dependency", "item": "5", "on": "2", "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    a_ready_item(&mut e, "Do it later");
+    let other =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('q', 'Lex too', 'Missing.', 'Needed.', 'change', 'l')",
+                [],
+            )?;
+            let other = tx.last_insert_rowid();
+            db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+            db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+            db::add_dependency(tx, other, lexer, "its lexer", "parallel")?;
+            Ok(other)
+        })
+        .unwrap();
+    assert_eq!((parser, lexer, tokens, other), (1, 2, 3, 5));
+    say(&mut e, "Take away what the parser does not need.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rejected = why_sent_back(&e, arch, "H8");
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    for reason in [
+        "item change 2 (remove_dependency): item 1 does not depend on item 2",
+        "item change 3 (remove_dependency): item 1 does not depend on item 4",
+        "item change 5 (remove_dependency): item 1 does not depend on item 3",
+        "item change 6 (remove_dependency): item 5 is not of p",
+    ] {
+        assert!(rejected[0].contains(reason), "{reason}\n{rejected:?}");
+    }
+    // The first change is sound, and the cancel is: neither is named.
+    assert!(!rejected[0].contains("item change 1 "), "{rejected:?}");
+    assert!(!rejected[0].contains("item change 4 "), "{rejected:?}");
+    // Nothing was made: the dependencies stand and the item is not cancelled.
+    assert_eq!(links_of(&e), [(1, 2), (1, 3), (5, 2)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 3", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
+// nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
+// its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes
+// the row that clears, towards the merge (`M2`), its blocker resolved.
+#[test]
+fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_is_free() {
+    let s = setup("remove-dependency-slot");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let lexer = a_ready_item(&mut e, "Make the lexer");
+    let parser = a_ready_item(&mut e, "Parse with it");
+    let other = a_ready_item(&mut e, "Keep the slot");
+    let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            db::add_dependency(tx, parser, lexer, "its tokens", "blocking")?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'M1')",
+                params![parser, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    // Only this work goes on, so that no other starts or takes the slot.
+    let go = Go {
+        pause: held_but(&[work], &[]),
+        ..Go::default()
+    };
+    let blockers = |e: &Engine| -> Vec<(String, Option<String>)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT holder, ended FROM blockers WHERE work = ?1 ORDER BY id")
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let log = || said.lock().unwrap().join("\n");
+    // It waits for the item, and its blocker is held by the items it waits for.
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // A slot is free, and the dependency stands: it stays as it is.
+    assert_eq!(e.free_slots().unwrap(), 1);
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // Another work takes the machine's one slot, and the dependency is removed.
+    let holder =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'I1')",
+                params![other, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    assert_eq!(e.free_slots().unwrap(), 0);
+    api::remove_dependency(&mut e.db, parser, lexer).unwrap();
+    // With no slot free it does not go on, though nothing holds it back: it waits for a slot, its blocker open.
+    for _ in 0..2 {
+        e.pass(&go).unwrap();
+        assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+        assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+        assert_eq!(state(&e, parser).unwrap().1, "M1", "{}", log());
+        assert_eq!(e.waiting_for_slot().unwrap(), [work], "{}", log());
+    }
+    // The slot is free: it goes on, the row that clears, and its blocker is resolved. No one said anything to it.
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [holder])?;
+        Ok(())
+    })
+    .unwrap();
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait", "clear"], "{}", log());
+    assert_eq!(
+        blockers(&e),
+        [("items".to_string(), Some("resolved".to_string()))],
+        "{}",
+        log()
+    );
+    assert_eq!(state(&e, parser).unwrap().1, "M2", "{}", log());
+    let told: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM interjections WHERE work = ?1", [work], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(told, 0, "{}", log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A cancel of an item the batch creates, named by its key, cancels the create out: the item is never made, and the
 // create, the changes that name its key and the cancel are dropped as they are collected, saying so, so that the review
 // is not given them; in the sixth trial a batch held a create, a move and a cancel of one item, which the review could

@@ -173,9 +173,10 @@ pub(crate) fn title_fits(title: &str, bad: &mut dyn FnMut(String)) {
 /// retitled with has 20 characters at most, spaces not counted; a split gives each acceptance condition of the item
 /// split to one new item at most, one of its locked conditions when its acceptance is locked; every item a change
 /// names is there, or made by an earlier change, and an item it changes is of the project (an item of the project may
-/// depend on another project's); every dependency a change makes has its kind; an item is moved first, last, under
-/// another item, or next to another item of its own project; observations folded in are the project's and open; and
-/// after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
+/// depend on another project's); every dependency a change makes has its kind; every dependency a change removes is
+/// one the items have then, stored or made by an earlier change and not removed or cancelled away since; an item is
+/// moved first, last, under another item, or next to another item of its own project; observations folded in are the
+/// project's and open; and after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     validate_from(e, project, changes, 0)
 }
@@ -299,6 +300,16 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     s.links.insert((a, b));
                 }
             }
+            "remove_dependency" => {
+                if let (Some(a), Some(b)) = (own(&c["item"], &s, &mut bad), item(&c["on"], &s, &mut bad)) {
+                    // The links are the stored ones and what the earlier changes of the batch made of them: one that
+                    // an earlier change added is there to remove, one that an earlier change removed or cancelled
+                    // away is not.
+                    if !s.links.remove(&(a, b)) {
+                        bad(format!("item {a} does not depend on item {b}"));
+                    }
+                }
+            }
             "move" => {
                 if let Some(a) = own(&c["item"], &s, &mut bad) {
                     let to = &c["to"];
@@ -348,7 +359,13 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     }
                 }
             }
-            "cancel" | "hold" | "release" | "edit_acceptance" => {
+            "cancel" => {
+                // A cancelled item no longer depends on any item or holds any back, as `cancel_now` leaves it.
+                if let Some(a) = own(&c["item"], &s, &mut bad) {
+                    s.links.retain(|(x, d)| *x != a && *d != a);
+                }
+            }
+            "hold" | "release" | "edit_acceptance" => {
                 own(&c["item"], &s, &mut bad);
             }
             "edit_item" => {
@@ -566,6 +583,15 @@ fn write_one(
             reason,
             text(c, "dependency"),
         )?,
+        // No row to remove is no fault: the review found the dependency there, and the owner may have removed it since,
+        // which leaves the state the change is to bring about.
+        "remove_dependency" => {
+            tx.execute(
+                "DELETE FROM item_links WHERE item = ?1 AND depends_on = ?2",
+                [item_of(&c["item"], keys)?, item_of(&c["on"], keys)?],
+            )
+            .map_err(sql)?;
+        }
         "move" => {
             let item = item_of(&c["item"], keys)?;
             let to = &c["to"];
@@ -894,6 +920,48 @@ mod tests {
             )
             .unwrap();
         assert_eq!(links, 1);
+    }
+
+    // A change that removes a dependency deletes that row and no other. One whose row is gone already, removed from the
+    // owner's page after the review found it, leaves the dependencies as they are and is no fault.
+    #[test]
+    fn a_dependency_is_removed_and_one_that_is_gone_already_is_no_fault() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "lexer", "tokens"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            db::add_dependency(tx, 1, 2, "its lexer", "blocking")?;
+            db::add_dependency(tx, 1, 3, "its tokens", "parallel")?;
+            db::add_dependency(tx, 3, 2, "its lexer", "parallel")?;
+            Ok(())
+        })
+        .unwrap();
+        let removed = |db: &mut Db, item: &str, on: &str| {
+            let change = json!({ "kind": "remove_dependency", "item": item, "on": on, "reason": "r" });
+            db.write(Actor::Architect, |tx| {
+                write_all(tx, &[change], &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        let links = |db: &Db| -> Vec<(i64, i64)> {
+            let mut st = db
+                .conn()
+                .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        removed(&mut db, "1", "2");
+        assert_eq!(links(&db), [(1, 3), (3, 2)]);
+        removed(&mut db, "1", "2");
+        assert_eq!(links(&db), [(1, 3), (3, 2)]);
     }
 
     // The architect's cancellation of an item, and its merge of one item into another, ask the engine's loop to cancel

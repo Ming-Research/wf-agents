@@ -1592,6 +1592,24 @@
           ]
         },
         {
+          "value": "remove_dependency",
+          "desc": "Make one item stop waiting for another: remove a dependency it has. Nobody is told, as nobody is when a dependency is made",
+          "fields": [
+            {
+              "name": "item",
+              "title": "Item",
+              "type": "text",
+              "desc": "Which item"
+            },
+            {
+              "name": "on",
+              "title": "No longer waits for",
+              "type": "text",
+              "desc": "The item it waits for now and will not wait for"
+            }
+          ]
+        },
+        {
           "value": "move",
           "desc": "Place an item elsewhere: in its project's start order; or, one others depend on, under another item, which then depends on it instead of them",
           "fields": [
