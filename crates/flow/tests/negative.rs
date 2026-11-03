@@ -792,6 +792,21 @@ case!(
     }
 );
 
+// The same for where the history is: a cell given it is given how to gather history, so that a new gatherer cannot miss
+// the rule that holds the check of paths. T4 is on no line the rule is given to, and names none.
+case!(
+    a_cell_given_where_the_history_is_without_the_rule_for_gathering_it,
+    "cell `T4` is given history_sources without the rule history that goes with it",
+    |v| {
+        let input = json!({
+            "name": "Where the history is",
+            "what": "The database's read-only address and the project's checkout",
+            "from": [{ "engine": "history_sources" }]
+        });
+        node(v, "T4")["inputs"].as_array_mut().unwrap().push(input);
+    }
+);
+
 // An owner's cell that rules by buttons has one for each value of its ruling, in order, each saying what it does and
 // what happens next, so that the owner's page shows every value the cell takes, as the flow says it; one whose answer
 // is no ruling has none.
