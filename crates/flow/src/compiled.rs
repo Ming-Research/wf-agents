@@ -1299,7 +1299,18 @@ fn rounds(r: &Rounds, counters: &[Counter], cells: &[CompiledCell]) -> Result<Ro
                 "{at} runs again, and its pause is the row for being taken too often"
             );
         }
+        // A case that runs a step again does not pause by itself, as checked above, so this one runs nothing again.
+        if let Some(n) = k.steps {
+            ensure!(
+                n > 1 && k.pauses,
+                "{at} bounds a work's steps without an agent: it needs steps, at least 2, and pauses"
+            );
+        }
     }
+    ensure!(
+        r.engine.iter().filter(|k| k.steps.is_some()).count() < 2,
+        "rounds.engine has more than one case that bounds a work's steps without an agent"
+    );
     for c in r.counters() {
         ensure!(
             counters.iter().any(|x| x.name == c && !x.time),
@@ -1508,5 +1519,32 @@ mod tests {
         );
         let one = refused(|s| s["guard"]["samples"] = 1.into());
         assert!(one.contains("rounds.guard.samples is less than 2"), "{one}");
+    }
+
+    // The bound on a work's steps without an agent pauses the work, allows a run of at least two, and is one: two would
+    // each say how far a work may go.
+    #[test]
+    fn the_bound_on_steps_without_an_agent_pauses_and_is_one() {
+        let bounded = |s: &mut Value| -> Value {
+            let cases = s["engine"].as_array().unwrap();
+            cases.iter().find(|k| k.get("steps").is_some()).unwrap().clone()
+        };
+        let changes: [fn(&mut Value); 2] = [|k| k["steps"] = 1.into(), |k| k["pauses"] = false.into()];
+        for change in changes {
+            let e = refused(|s| {
+                let cases = s["engine"].as_array_mut().unwrap();
+                change(cases.iter_mut().find(|k| k.get("steps").is_some()).unwrap());
+            });
+            assert!(
+                e.contains("bounds a work's steps without an agent: it needs steps, at least 2, and pauses"),
+                "{e}"
+            );
+        }
+        let two = refused(|s| {
+            let mut k = bounded(s);
+            k["name"] = "steps_again".into();
+            s["engine"].as_array_mut().unwrap().push(k);
+        });
+        assert!(two.contains("more than one case that bounds"), "{two}");
     }
 }

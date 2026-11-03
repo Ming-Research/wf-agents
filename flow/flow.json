@@ -5235,7 +5235,7 @@
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the work. The counters are in this work's database records and visible in the owner's interface. The limits are numbers in the project's configuration, next to the CI settings; a counter with no number is only counted, never reported.",
         "waits": "A row that waits for someone (cell `M1` waiting for items it depends on to merge, or for the answers to its open questions) counts nothing: what it waits for is the owner or another work, and this work is not turning; how long it waited is visible in the owner's interface.",
-        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one. Apart from the counters, the installation bounds the steps a work takes in a row with no agent's round among them (`agents.steps_without_agent`), a loop no counter sees: the step past the bound pauses the work instead, and the owner is told the cells it went round.",
+        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
             "name": "asks",
@@ -13550,6 +13550,13 @@
             "name": "work_ended",
             "when": "The work ended while its round ran, as when its item was cancelled",
             "desc": "What the round hands in is not taken; what it cost is kept on it."
+          },
+          {
+            "name": "steps_without_agent",
+            "when": "The work took 20 steps in a row with no agent's round among them, at whichever cells: the engine's own, the tools', those that ask someone, an agent's cell whose round the engine took itself",
+            "desc": "Nothing else stops such a run, which costs nothing a budget or a counter sees. At its next step the engine pauses the work where it stands instead, saying at which cells the steps were. The first time, the project's architect is asked to look at why, by a matter to set straight; the next time, the owner is told it is the owner's to look at. Once the work is let go on, it may take 20 such steps again.",
+            "pauses": true,
+            "steps": 20
           }
         ]
       },
@@ -13939,7 +13946,7 @@
       "limits": {
         "where": "Every loop has a counter, on the row that closes the loop: the engine adds one each time it takes the row, and never resets it during the architect's work. The counters are in the work's records, visible on the owner's interface. The limits are numbers in the configuration; a counter with no number is only counted, never reported.",
         "waits": "Matters that come while a work of the architect runs wait in its queue, for the next pick; how long each waited is visible on the owner's interface.",
-        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one. Apart from the counters, the installation bounds the steps a work takes in a row with no agent's round among them (`agents.steps_without_agent`), a loop no counter sees: the step past the bound pauses the work instead, and the owner is told the cells it went round.",
+        "over": "Past a limit, the engine still takes the row and tells the owner in the owner's interface once, as the counter passes it, without stopping: for now it only records and reports, it does not block; real problems are looked at one by one.",
         "counters": [
           {
             "name": "asks",
@@ -20208,6 +20215,13 @@
             "name": "work_ended",
             "when": "The work ended while its round ran, as when its item was cancelled",
             "desc": "What the round hands in is not taken; what it cost is kept on it."
+          },
+          {
+            "name": "steps_without_agent",
+            "when": "The work took 20 steps in a row with no agent's round among them, at whichever cells: the engine's own, the tools', those that ask the owner, an agent's cell whose round the engine took itself; a step that handled a matter of the queue is the work's progress, as an agent's round is",
+            "desc": "Nothing else stops such a run, which costs nothing a budget or a counter sees. At its next step the engine pauses the work where it stands instead, saying at which cells the steps were, and tells the owner: a work of the architect's has no architect above it to ask. Once the owner lets it go on, it may take 20 such steps again.",
+            "pauses": true,
+            "steps": 20
           }
         ]
       },
