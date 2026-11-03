@@ -1409,7 +1409,7 @@ fn every_sample_takes_its_row() {
             n += 1;
         }
     }
-    assert_eq!(n, 47);
+    assert_eq!(n, 48);
 }
 
 // The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
