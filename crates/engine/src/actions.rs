@@ -719,7 +719,8 @@ fn capitalized(text: &str) -> String {
 }
 
 /// `report_stuck`: asks the project's architect, as a place to set straight, about a work that cannot go on in flow
-/// version `now`, and why, as it waits paused: once while it stays stuck, a matter still open for it asking nothing more.
+/// version `now`, and why, as it waits paused: once for each work and version, a matter for it on that version, open or
+/// handled, asking nothing more, as the owner's Start that finds it stuck again on the same version tells nothing new.
 /// Only an engineer's work asks: a work of the architect is its own architect's, which would be the work that waits, so
 /// the owner alone is told, by its pause. A work whose merge stands is not offered a start over or a cancel, which its
 /// merge refuses.
@@ -739,7 +740,7 @@ pub(crate) fn report_stuck(tx: &Transaction<'_>, work: i64, now: i64, why: &str)
         .query_row(
             "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'
                AND json_extract(body, '$.work') = ?1 AND json_extract(body, '$.version') = ?2
-               AND handled_round IS NULL AND withdrawn IS NULL",
+               AND withdrawn IS NULL",
             params![work, now],
             |r| r.get(0),
         )
