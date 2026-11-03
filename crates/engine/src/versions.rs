@@ -440,6 +440,13 @@ fn misfit(new: &CompiledGraph, r: &Round) -> Option<String> {
         return Some(format!("cell {cell}, which the work handed a return in at, is gone"));
     };
     let (schema, output) = outcome_only(is.schema.as_ref()?, r.output.as_ref()?);
+    // An architect's return that holds an item change in a shape the version before gave is read as the engine reads it
+    // now, which converts it as it is kept: the work is not sent back for the shape of a change.
+    let output = if new.name == crate::ARCHITECT {
+        crate::arch_changes::upgraded_return(&output)
+    } else {
+        output
+    };
     let places = flow::misfits(&schema, &output, "");
     (!places.is_empty()).then(|| {
         format!(
@@ -989,7 +996,7 @@ mod tests {
         assert!(flow::valid(old.cell("Q1").unwrap().schema.as_ref().unwrap(), &pick));
         assert!(!flow::valid(new.cell("Q1").unwrap().schema.as_ref().unwrap(), &pick));
         let interjected = json!({ "actions": [{ "kind": "interject", "work": 7, "text": "Stop." }] });
-        let held = json!({ "item_changes": [{ "kind": "edit_item", "item": "1", "part": "title", "text": "T" }] });
+        let held = json!({ "item_changes": [{ "kind": "edit_item", "item": "1", "title": "T" }] });
         let cases = [
             (
                 answered(2, interjected),

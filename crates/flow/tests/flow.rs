@@ -518,8 +518,7 @@ fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_th
     // The way is the matter picked's, and `with` the others', with the changes that come of each naming it.
     let take = serde_json::json!({ "way": "merged", "why": "w" });
     let way = serde_json::json!({ "matter": 2, "way": "nothing", "why": "w" });
-    let change = serde_json::json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "t", "reason": "r",
-                                     "matter": 2 });
+    let change = serde_json::json!({ "kind": "edit_item", "item": "1", "title": "t", "reason": "r", "matter": 2 });
     assert_eq!(takes("H5", serde_json::json!({ "take": take })).unwrap(), "done");
     let both = serde_json::json!({ "take": take, "with": [way], "effects": { "item_changes": [change] } });
     assert_eq!(takes("H5", both).unwrap(), "done");

@@ -120,13 +120,14 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0076.sql"),
     include_str!("../../../db/migrations/0077.sql"),
     include_str!("../../../db/migrations/0078.sql"),
+    include_str!("../../../db/migrations/0079.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 11] = [
+const UNTRACKED: [&str; 12] = [
     "rounds",
     "tool_runs",
     "pings",
@@ -138,6 +139,7 @@ const UNTRACKED: [&str; 11] = [
     "outbox",
     "contents",
     "attachments",
+    "architect_batch_views",
 ];
 
 /// The line a table's description has when agents may not read it.
@@ -684,7 +686,33 @@ fn watch_changes(conn: &mut Connection, watch: &Arc<Mutex<Watch>>) -> Result<()>
         x.pending.clear();
         x.pending_rounds.clear();
     }))?;
+    // What a rollback to a savepoint undid is not what the rollback hook drops: the transaction goes on. A write that
+    // tries changes and takes them back asks how many rows are pending before it ([`pending_mark`]) and drops those
+    // that came after ([`forget_pending_after`]), so that the listener is told none of them.
+    let w = Arc::clone(watch);
+    conn.create_scalar_function("wf_pending_mark", 0, FunctionFlags::SQLITE_UTF8, move |_| {
+        Ok(i64::try_from(lock(&w).pending.len()).unwrap_or(i64::MAX))
+    })?;
+    let w = Arc::clone(watch);
+    conn.create_scalar_function("wf_forget_pending_after", 1, FunctionFlags::SQLITE_UTF8, move |ctx| {
+        let mark: i64 = ctx.get(0)?;
+        lock(&w).pending.truncate(usize::try_from(mark).unwrap_or_default());
+        Ok(mark)
+    })?;
     Ok(())
+}
+
+/// How many rows the transaction in progress on `conn` has changed so far, as the listener will be told them: what
+/// [`forget_pending_after`] is given. Only a connection that writes ([`Db::write`]) has it.
+pub fn pending_mark(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("SELECT wf_pending_mark()", [], |r| r.get(0))
+}
+
+/// Drops the rows the transaction in progress changed after `mark` ([`pending_mark`]) from what the listener will be
+/// told, for a write that took its changes back by rolling back to a savepoint.
+pub fn forget_pending_after(conn: &Connection, mark: i64) -> rusqlite::Result<()> {
+    conn.query_row("SELECT wf_forget_pending_after(?1)", [mark], |r| r.get::<_, i64>(0))
+        .map(|_| ())
 }
 
 /// A function the triggers call for the write in progress; outside one it fails, and so does the change.

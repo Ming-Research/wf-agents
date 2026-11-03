@@ -132,6 +132,77 @@ fn dependency(kind: &Value, bad: &mut dyn FnMut(String)) {
     }
 }
 
+/// The fields of an item a change that edits it names, each by its own: its parts' texts, the route its works go, and
+/// its acceptance as written.
+pub const EDITABLE: [&str; 6] = ["title", "problem", "why", "approach", "route", "acceptance"];
+
+/// A change in the one shape the engine reads: an `edit_item` names each field it changes by that field (a change of one
+/// `part` and its `text` names the part as the field that holds the text), `edit_acceptance` is an `edit_item` that
+/// names the acceptance, and a `hold` has the `text` that is written into the item beside the `reason` the review
+/// reads, which a hold made before that was the same text. The old shapes are those of the flow versions before the
+/// field-by-field `edit_item`. The rows the batches kept are written in the new shapes by the migration to database
+/// version 79; what is left to convert is the return of an architect's round that ran on one of those versions, which
+/// is checked and kept as it comes in ([`validate`], `architect::kept_change`) and read again when a work is brought to
+/// the version the engine runs (`versions::misfit`).
+/// Delete this function, with those calls, once no architect work that began before the version that made it is still
+/// running: no return of one holds an old shape any more.
+pub fn upgraded(change: &Value) -> Value {
+    let mut c = change.clone();
+    let Some(o) = c.as_object_mut() else { return c };
+    match o.get("kind").and_then(Value::as_str) {
+        Some("edit_item") if o.contains_key("part") => {
+            let part = o.remove("part");
+            let new = o.remove("text");
+            if let (Some(Value::String(part)), Some(new)) = (part, new) {
+                o.insert(part, new);
+            }
+        }
+        Some("edit_acceptance") => {
+            o.insert("kind".into(), json!("edit_item"));
+        }
+        Some("hold") if !o.contains_key("text") => {
+            if let Some(reason) = o.get("reason").cloned() {
+                o.insert("text".into(), reason);
+            }
+        }
+        _ => {}
+    }
+    c
+}
+
+/// A return of an architect's round with the item changes it holds in the shape the engine reads ([`upgraded`]): those
+/// of its effects, and those of a revision of the batch.
+pub fn upgraded_return(output: &Value) -> Value {
+    fn upgrade_in(outcome: &mut Value) {
+        let effects = outcome.get_mut("effects").and_then(|e| e.get_mut("item_changes"));
+        for c in effects.and_then(Value::as_array_mut).into_iter().flatten() {
+            *c = upgraded(c);
+        }
+        let revised = outcome.get_mut("changes").and_then(Value::as_array_mut);
+        for x in revised.into_iter().flatten() {
+            if let Some(c) = x.get_mut("change").filter(|c| c.is_object()) {
+                *c = upgraded(c);
+            }
+        }
+    }
+    let mut out = output.clone();
+    if let Some(outcome) = out.get_mut("outcome") {
+        upgrade_in(outcome);
+    } else {
+        upgrade_in(&mut out);
+    }
+    out
+}
+
+/// The fields of an item a change that edits it names, in the order of [`EDITABLE`].
+pub fn edits(c: &Value) -> Vec<&'static str> {
+    EDITABLE
+        .iter()
+        .copied()
+        .filter(|f| c.get(*f).is_some_and(|v| !v.is_null()))
+        .collect()
+}
+
 /// What is said of a line of a decision that a change writes by hand.
 fn hand_written(line: &str) -> String {
     format!(
@@ -206,6 +277,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
 /// item's `approach` comes after it in the batch, which would write the text over again; and no change writes a line of
 /// a decision by hand, which only a decision does.
 pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize) -> Result<(), String> {
+    let changes: Vec<Value> = changes.iter().map(upgraded).collect();
     let mut s = State::load(e.db.conn())?;
     let cfg = &e.config.config;
     let mut problems: Vec<String> = Vec::new();
@@ -396,18 +468,37 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     }
                 }
             }
-            "hold" | "release" | "edit_acceptance" => {
+            "hold" => {
+                own(&c["item"], &s, &mut bad);
+                // `text` is what the item says of the hold to whoever opens it, who knows nothing of this batch.
+                if text(c, "text").trim().is_empty() {
+                    bad("it holds the item with no text: `text` is what the item says of the hold".into());
+                }
+            }
+            "release" => {
                 own(&c["item"], &s, &mut bad);
             }
             "edit_item" => {
                 let id = own(&c["item"], &s, &mut bad);
-                if text(c, "text").trim().is_empty() {
-                    bad("it changes the text to nothing".into());
+                let fields = edits(c);
+                if fields.is_empty() {
+                    bad(format!(
+                        "it changes nothing of the item: name at least one of {}",
+                        EDITABLE.join(", ")
+                    ));
                 }
-                if text(c, "part") == "title" {
-                    title_fits(text(c, "text"), cfg.install.items.title_max as usize, &mut bad);
+                for f in fields.iter().filter(|f| **f != "acceptance") {
+                    if text(c, f).trim().is_empty() {
+                        bad(format!("it changes the {f} to nothing"));
+                    }
                 }
-                if text(c, "part") == "route"
+                if fields.contains(&"acceptance") && texts(c, "acceptance").iter().all(|a| a.trim().is_empty()) {
+                    bad("it changes the acceptance to nothing".into());
+                }
+                if fields.contains(&"title") {
+                    title_fits(text(c, "title"), cfg.install.items.title_max as usize, &mut bad);
+                }
+                if fields.contains(&"route")
                     && let Some(id) = id
                 {
                     // An item the batch creates delivers what its change says; any other, what it holds.
@@ -419,20 +510,20 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                                 .map_err(sql)?
                         }
                     };
-                    if let Some(why) = route_unfit(text(c, "text").trim(), &deliver) {
+                    if let Some(why) = route_unfit(text(c, "route").trim(), &deliver) {
                         bad(why);
                     }
                 }
-                if text(c, "part") == "approach" {
+                if fields.contains(&"approach") {
                     // The lines of decisions the text had stand; a line it did not have is a decision written by hand.
                     // The text it has now is the one the batch has made of it: a merge of an earlier change carried the
                     // lines of the absorbed item's decisions into it.
                     let now = id.map(|id| approaches.of(e.db.conn(), id)).unwrap_or_default();
                     let now = now.as_str();
-                    for l in crate::decisions::new_decision_lines(now, text(c, "text")) {
+                    for l in crate::decisions::new_decision_lines(now, text(c, "approach")) {
                         bad(hand_written(&l));
                     }
-                    for why in crate::decisions::unkept(now, text(c, "text")) {
+                    for why in crate::decisions::unkept(now, text(c, "approach")) {
                         bad(format!(
                             "{why}: the lines of the item's decisions stand letter for letter, in their order, under \
                              the head {}",
@@ -447,7 +538,7 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                         );
                     }
                     if let Some(id) = id {
-                        approaches.written(id, text(c, "text"));
+                        approaches.written(id, text(c, "approach"));
                     }
                 }
             }
@@ -592,6 +683,100 @@ pub fn write_all(
         }
     }
     Ok(written)
+}
+
+/// What one change of a batch did when it was tried in the state the earlier changes left.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trial {
+    /// How it went: `made`, `refused` (the state the earlier changes left does not take it) or `failed` (it cannot be
+    /// made at all).
+    pub result: &'static str,
+    /// For a change refused or failed, why.
+    pub why: Option<String>,
+    /// The rows it wrote, as `changes` kept them (table, key, the row before and the row after), in the order written;
+    /// none for a change that was not made, and none for one that wrote nothing: an update that changes no value is
+    /// kept by no row.
+    pub rows: Vec<Value>,
+    /// The items it created, each by its key with the number the trial gave it.
+    pub created: Vec<(String, i64)>,
+}
+
+/// Tries the changes in order exactly as [`write_all`] writes them, in a savepoint that is rolled back whatever comes of
+/// it, so that nothing of them stays: no row, nothing the outbox holds for after the commit, and no notice to the
+/// listener of the rows touched. `look` is given what each change did and sees the items as the changes leave them,
+/// before they are taken back. This is the one way to know what a batch does to the items without making it, and rests
+/// on what a change writes being rows of the database alone: whatever a write does beyond it is put in the outbox,
+/// which the rollback takes back with the rest.
+pub fn tried<T>(
+    tx: &Transaction<'_>,
+    changes: &[Value],
+    projects: &BTreeMap<String, config::Project>,
+    look: impl FnOnce(&Transaction<'_>, &[Trial]) -> Result<T, String>,
+) -> Result<(Vec<Trial>, T), String> {
+    let mark = db::pending_mark(tx).map_err(sql)?;
+    tx.execute_batch("SAVEPOINT tried").map_err(sql)?;
+    let seen = try_all(tx, changes, projects).and_then(|trials| {
+        let seen = look(tx, &trials)?;
+        Ok((trials, seen))
+    });
+    let undone = tx.execute_batch("ROLLBACK TO tried; RELEASE tried").map_err(sql);
+    db::forget_pending_after(tx, mark).map_err(sql)?;
+    undone?;
+    seen
+}
+
+/// The last row of `changes`, 0 when it has none.
+fn last_change(tx: &Transaction<'_>) -> Result<i64, String> {
+    tx.query_row("SELECT coalesce(max(id), 0) FROM changes", [], |r| r.get(0))
+        .map_err(sql)
+}
+
+fn try_all(
+    tx: &Transaction<'_>,
+    changes: &[Value],
+    projects: &BTreeMap<String, config::Project>,
+) -> Result<Vec<Trial>, String> {
+    let mut keys: BTreeMap<String, i64> = BTreeMap::new();
+    let mut created: Vec<Value> = Vec::new();
+    let mut seen = last_change(tx)?;
+    let mut out = Vec::new();
+    for c in changes {
+        let before = created.len();
+        tx.execute_batch("SAVEPOINT change").map_err(sql)?;
+        let (result, why) = match write_one(tx, c, &mut keys, &mut created, projects) {
+            Ok(()) => {
+                tx.execute_batch("RELEASE change").map_err(sql)?;
+                ("made", None)
+            }
+            Err(Fault::Refused(why)) => {
+                tx.execute_batch("ROLLBACK TO change; RELEASE change").map_err(sql)?;
+                ("refused", Some(why))
+            }
+            Err(Fault::Failed(why)) => {
+                tx.execute_batch("ROLLBACK TO change; RELEASE change").map_err(sql)?;
+                ("failed", Some(why))
+            }
+        };
+        let rows = query_json(
+            tx,
+            "SELECT table_name, row_key, old_row, new_row FROM changes WHERE id > ?1 ORDER BY id",
+            &[&seen],
+            100_000,
+        )?;
+        seen = last_change(tx)?;
+        let made: Vec<(String, i64)> = created[before..]
+            .iter()
+            .filter_map(|c| Some((c["key"].as_str()?.to_string(), c["id"].as_str()?.parse().ok()?)))
+            .collect();
+        created.truncate(before);
+        out.push(Trial {
+            result,
+            why,
+            rows,
+            created: made,
+        });
+    }
+    Ok(out)
 }
 
 /// The item a change names by its number, or by the key an earlier change created it under.
@@ -756,10 +941,12 @@ fn write_one(
             }
         }
         "cancel" => cancel(item_of(&c["item"], keys)?, text(c, "goes"))?,
+        // The item says what `text` says of the hold; the reason is the review's to read. An item held already has its
+        // text written over, which leaves it as it was when the text is the same.
         "hold" => {
             tx.execute(
                 "UPDATE items SET held = ?2 WHERE id = ?1",
-                params![item_of(&c["item"], keys)?, reason],
+                params![item_of(&c["item"], keys)?, text(c, "text")],
             )
             .map_err(sql)?;
         }
@@ -770,31 +957,27 @@ fn write_one(
             )
             .map_err(sql)?;
         }
+        // Every field the change names is written by one statement, so that the item has one change for the edit. The
+        // acceptance is the text the item was written with (`wanted`); the conditions locked after its design stay.
         "edit_item" => {
-            let column = match text(c, "part") {
-                "title" => "title",
-                "problem" => "problem",
-                "why" => "why",
-                "approach" => "approach",
-                "route" => "route",
-                other => return Err(format!("an item has no part {other}").into()),
-            };
-            // A route is a word, which the check found to be one there is.
-            let value = if column == "route" {
-                text(c, "text").trim()
-            } else {
-                text(c, "text")
-            };
+            let mut sets: Vec<String> = Vec::new();
+            let mut args: Vec<db::rusqlite::types::Value> = vec![item_of(&c["item"], keys)?.into()];
+            for field in edits(c) {
+                let (column, value) = match field {
+                    "acceptance" => ("wanted", json_of("acceptance")),
+                    // A route is a word, which the check found to be one there is.
+                    "route" => ("route", text(c, "route").trim().to_string()),
+                    other => (other, text(c, other).to_string()),
+                };
+                args.push(value.into());
+                sets.push(format!("{column} = ?{}", args.len()));
+            }
+            if sets.is_empty() {
+                return Err("an edit of an item names nothing to change".into());
+            }
             tx.execute(
-                &format!("UPDATE items SET {column} = ?2 WHERE id = ?1"),
-                params![item_of(&c["item"], keys)?, value],
-            )
-            .map_err(sql)?;
-        }
-        "edit_acceptance" => {
-            tx.execute(
-                "UPDATE items SET wanted = ?2 WHERE id = ?1",
-                params![item_of(&c["item"], keys)?, json_of("acceptance")],
+                &format!("UPDATE items SET {} WHERE id = ?1", sets.join(", ")),
+                db::rusqlite::params_from_iter(args),
             )
             .map_err(sql)?;
         }
@@ -1325,7 +1508,7 @@ mod tests {
                 "UPDATE items SET acceptance = '[{\"id\":\"A1\"}]', acceptance_work = 1, acceptance_round = 1",
                 [],
             )?;
-            let edit = json!({ "kind": "edit_acceptance", "item": 1, "acceptance": ["New wording."], "reason": "r" });
+            let edit = json!({ "kind": "edit_item", "item": 1, "acceptance": ["New wording."], "reason": "r" });
             write_all(tx, &[edit], &BTreeMap::new()).map_err(db::Error::Abort)?;
             Ok(())
         })

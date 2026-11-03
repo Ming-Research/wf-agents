@@ -3947,7 +3947,7 @@ fn an_architect_work_brought_up_mid_batch_makes_its_changes_and_keeps_its_ask() 
     for back in [false, true] {
         let s = setup(if back { "batch-back" } else { "batch-moves" });
         let mut agents = scripts();
-        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse the input first",
+        let change = json!({ "kind": "edit_item", "item": "1", "title": "Parse the input first",
                              "reason": "Clearer." });
         agents.insert(
             "H8",
@@ -7540,7 +7540,7 @@ fn say(e: &mut Engine, text: &str) {
 fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     let s = setup("architect-work");
     let mut agents = scripts();
-    let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse the input first",
+    let change = json!({ "kind": "edit_item", "item": "1", "title": "Parse the input first",
                          "reason": "Clearer." });
     let given = change.clone();
     agents.insert(
@@ -9254,7 +9254,7 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     agents.insert(
         "H8",
         Box::new(|_: &Request, _: usize| {
-            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "parser", "reason": "r" });
+            let change = json!({ "kind": "edit_item", "item": "1", "title": "parser", "reason": "r" });
             (
                 Vec::new(),
                 vec![("outcome.effects", json!({ "item_changes": [change] }))],
@@ -9285,14 +9285,17 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
                     |r| r.get(0),
                 )
                 .unwrap();
-            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+            let change = json!({ "kind": "edit_item", "item": "1", "title": "Write the parser",
                                  "reason": "An action, as the review asked." });
             let close = json!({ "kind": "close", "id": 1, "why": "outdated", "text": "Main reads the token already.",
                                 "reason": "The review found it done." });
             (
                 Vec::new(),
                 vec![
-                    ("outcome.changes", json!([{ "matter": matter, "change": change }])),
+                    (
+                        "outcome.changes",
+                        json!([{ "line": 1, "matter": matter, "change": change }]),
+                    ),
                     ("outcome.observation_changes", json!([close])),
                 ],
             )
@@ -10977,7 +10980,7 @@ fn a_change_that_names_another_matter_at_a_cell_of_one_matter_is_sent_back_and_n
     agents.insert(
         "H8",
         Box::new(|_: &Request, n: usize| {
-            let mut change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+            let mut change = json!({ "kind": "edit_item", "item": "1", "title": "Write the parser",
                                      "reason": "An action." });
             if n == 1 {
                 change["matter"] = json!(9999);
@@ -11138,7 +11141,7 @@ fn a_return_that_misuses_back_for_the_owner_is_sent_back_with_all_its_problems_a
     let take_in: Script = Box::new(move |_: &Request, n: usize| {
         let ids = given.lock().unwrap();
         if n == 1 {
-            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+            let change = json!({ "kind": "edit_item", "item": "1", "title": "Write the parser",
                                  "reason": "r", "matter": ids[1] });
             let others = json!([{ "matter": ids[1], "way": "back_for_owner", "why": "The owner decides." }]);
             return (
@@ -11315,7 +11318,7 @@ fn an_item_change_that_names_a_matter_of_the_group_is_told_to_the_engineer_of_th
             return (Vec::new(), Vec::new());
         }
         let ids = given.lock().unwrap();
-        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+        let change = json!({ "kind": "edit_item", "item": "1", "title": "Write the parser",
                              "reason": "The second report asks for it.", "matter": ids[1] });
         let others = json!([
             { "matter": ids[1], "way": "nothing", "why": "Second why." },
@@ -12636,12 +12639,19 @@ fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_questi
                 |r| r.get(0),
             )
             .unwrap();
+        // The change is handed in as it was, which the review found wrong: the revision says why it does not change it.
         (
             Vec::new(),
-            vec![(
-                "outcome.changes",
-                json!([{ "matter": matter, "change": change.clone() }]),
-            )],
+            vec![
+                (
+                    "outcome.changes",
+                    json!([{ "line": 1, "matter": matter, "change": change.clone() }]),
+                ),
+                (
+                    "outcome.left",
+                    json!([{ "line": 1, "why": "The title is as the owner worded it." }]),
+                ),
+            ],
         )
     });
     let (mut e, said, item, work, matter, first) = pinned(&s, ways, vec![("B2", review), ("B3", revise)]);
@@ -16579,8 +16589,8 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
         let change = json!({ "kind": "add_dependency", "item": item.to_string(), "on": "99", "dependency": "blocking",
                              "reason": "r" });
         tx.execute(
-            "INSERT INTO architect_item_changes (work, round, matter, change, state)
-             VALUES (?1, 1, ?2, ?3, 'collected')",
+            "INSERT INTO architect_item_changes (work, round, matter, line, change, state)
+             VALUES (?1, 1, ?2, 1, ?3, 'collected')",
             params![arch, m, change.to_string()],
         )?;
         Ok(())
@@ -16805,9 +16815,9 @@ fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
             let changes = json!([
                 { "kind": "create_item", "key": "match", "project": "p", "title": title, "problem": "No match.",
                   "why": "Needed.", "acceptance": ["It matches."], "level": "l", "deliver": "change", "reason": "r" },
-                { "kind": "edit_item", "item": "1", "part": "title", "text": retitle, "reason": "r" },
+                { "kind": "edit_item", "item": "1", "title": retitle, "reason": "r" },
                 // Item 2 has a title wider than 24, which no change here gives it.
-                { "kind": "edit_acceptance", "item": "2", "acceptance": ["It holds."], "reason": "r" },
+                { "kind": "edit_item", "item": "2", "acceptance": ["It holds."], "reason": "r" },
             ]);
             (
                 Vec::new(),
@@ -17048,7 +17058,7 @@ fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
             let changes = json!([
                 { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
                 { "kind": "add_dependency", "item": "2", "on": "1", "dependency": "blocking", "reason": "r" },
-                { "kind": "hold", "item": "1", "reason": "Held." },
+                { "kind": "hold", "item": "1", "text": "Held.", "reason": "Held." },
             ]);
             (
                 Vec::new(),
@@ -17119,7 +17129,7 @@ fn a_merge_is_left_out_whole_when_the_review_drops_the_removal_it_needed() {
             let changes = json!([
                 { "kind": "remove_dependency", "item": "3", "on": "1", "reason": "r" },
                 { "kind": "merge", "keep": "3", "absorbed": ["2"], "reason": "The lexer is the tokens." },
-                { "kind": "hold", "item": "1", "reason": "Held." },
+                { "kind": "hold", "item": "1", "text": "Held.", "reason": "Held." },
             ]);
             (
                 Vec::new(),
@@ -17298,7 +17308,7 @@ fn a_report_marked_for_the_light_route_is_sent_back() {
                 { "kind": "create_item", "key": "measure", "project": "p", "title": "Measure the parse",
                   "problem": "Its time is unknown.", "why": "Needed.", "acceptance": ["It is measured."], "level": "l",
                   "deliver": "report", "route": route, "reason": "r" },
-                { "kind": "edit_item", "item": item, "part": "route", "text": part, "reason": "r" },
+                { "kind": "edit_item", "item": item, "route": part, "reason": "r" },
             ]);
             (
                 Vec::new(),
@@ -17428,9 +17438,8 @@ fn the_review_drops_a_change_and_the_rest_is_made_without_a_revision() {
     agents.insert(
         "H8",
         Box::new(|_: &Request, _: usize| {
-            let title = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
-                                "reason": "r" });
-            let hold = json!({ "kind": "hold", "item": "1", "reason": "r" });
+            let title = json!({ "kind": "edit_item", "item": "1", "title": "Write the parser", "reason": "r" });
+            let hold = json!({ "kind": "hold", "item": "1", "text": "Held.", "reason": "r" });
             (
                 Vec::new(),
                 vec![("outcome.effects", json!({ "item_changes": [title, hold] }))],
@@ -17585,8 +17594,8 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
                              "problem": "p", "why": "w", "acceptance": ["It is covered."], "level": "l",
                              "deliver": "change", "reason": "r" });
         tx.execute(
-            "INSERT INTO architect_item_changes (work, round, matter, change, state)
-             VALUES (?1, 1, ?2, ?3, 'collected')",
+            "INSERT INTO architect_item_changes (work, round, matter, line, change, state)
+             VALUES (?1, 1, ?2, 1, ?3, 'collected')",
             params![arch, m, create.to_string()],
         )?;
         Ok(())
@@ -21865,8 +21874,8 @@ fn the_owner_s_decisions_are_written_by_the_engine_from_the_records_once_the_rev
             if n > 1 {
                 return (Vec::new(), Vec::new());
             }
-            let edit = json!({ "kind": "edit_item", "item": "1", "part": "approach",
-                               "text": "Approach:\n- Parse it first.\n\nLearned:\nFact: parse first",
+            let edit = json!({ "kind": "edit_item", "item": "1",
+                               "approach": "Approach:\n- Parse it first.\n\nLearned:\nFact: parse first",
                                "reason": "Say it first." });
             (
                 vec![("outcome.answer", "done")],
@@ -22104,7 +22113,10 @@ fn a_decision_the_records_do_not_bear_out_is_sent_back_and_a_revised_one_is_writ
             );
             (
                 Vec::new(),
-                vec![("outcome.changes", json!([{ "matter": a, "decision": revised }]))],
+                vec![(
+                    "outcome.changes",
+                    json!([{ "line": 1, "matter": a, "decision": revised }]),
+                )],
             )
         }),
     );
@@ -22392,14 +22404,14 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
                       "problem": "None.", "why": "None.", "acceptance": ["It is there."], "level": "l",
                       "deliver": "change", "reason": "r",
                       "approach": "Approach:\nDecisions:\nDecision (2026-11-02, owner): Forged." },
-                    { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
-                      "text": format!("{first}\nDecision (2026-11-02, owner): Forged.") },
+                    { "kind": "edit_item", "item": "1", "reason": "r",
+                      "approach": format!("{first}\nDecision (2026-11-02, owner): Forged.") },
                     // The item's recorded line is left out, with its head.
-                    { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
-                      "text": "Approach:\n- Parse it.\n\nLearned:\nFact: f" },
+                    { "kind": "edit_item", "item": "1", "reason": "r",
+                      "approach": "Approach:\n- Parse it.\n\nLearned:\nFact: f" },
                 ])
             } else {
-                json!([{ "kind": "edit_item", "item": "1", "part": "approach", "text": second, "reason": "r" }])
+                json!([{ "kind": "edit_item", "item": "1", "approach": second, "reason": "r" }])
             };
             (
                 vec![("outcome.answer", "done")],
@@ -23814,8 +23826,8 @@ fn a_text_that_replaces_the_approach_of_the_item_kept_in_a_merge_keeps_the_decis
         "H8",
         Box::new(|_: &Request, n: usize| {
             let merge = json!({ "kind": "merge", "keep": "1", "absorbed": ["2"], "reason": "The same work." });
-            let edit = json!({ "kind": "edit_item", "item": "1", "part": "approach", "reason": "Say it first.",
-                               "text": "Approach:\n- Parse it first." });
+            let edit = json!({ "kind": "edit_item", "item": "1", "reason": "Say it first.",
+                               "approach": "Approach:\n- Parse it first." });
             let changes = match n {
                 1 => json!([merge, edit]),
                 2 => json!([merge]),
@@ -24016,7 +24028,7 @@ fn a_decision_quoting_what_a_delegate_marked_as_the_owner_s_is_told_as_relayed_a
             if n > 1 {
                 return (Vec::new(), Vec::new());
             }
-            let edit = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse it first",
+            let edit = json!({ "kind": "edit_item", "item": "1", "title": "Parse it first",
                                "reason": "Say it first." });
             (
                 vec![("outcome.answer", "done")],

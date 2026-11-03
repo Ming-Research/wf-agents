@@ -993,8 +993,40 @@ CREATE TABLE architect_item_changes (
   -- was asked.
   state TEXT NOT NULL CHECK (state IN ('collected', 'made', 'revised', 'dropped')),
   -- For a change made, what it made, JSON, such as the number of the item it created; for one dropped, what the review
-  -- found. NULL otherwise. Read by: the owner's interface.
+  -- found; for one revised that the revision left out, what it said of it (`what`, and the observation the review asked
+  -- to close, `close_observation`). NULL otherwise. Read by: the engine, which reads why an item a change was to create
+  -- was not made, and closes the observations the review asked to close once the batch is made; the owner's interface.
   outcome TEXT CHECK (outcome IS NULL OR json_valid(outcome)),
+  -- The change's number in its work's batch: the batch's next number when the change first joined it, kept by every
+  -- revised version of it, never given twice in a batch, and not given again for one the revision left out; the review
+  -- and the architect's revision name a change by it. A batch is the rounds after the work's latest rethink. NULL only
+  -- for a change that was not waiting for its review when line was added, which no review or revision reads again.
+  -- Read by: the engine, which gives the batch to the review and the revision numbered by it; the owner's interface.
+  line INTEGER,
+  FOREIGN KEY (work, round) REFERENCES rounds (work, n)
+) STRICT;
+
+CREATE TABLE architect_batch_views (
+  -- What a project's architect's batch of item changes comes to, as the engine tried it out before each look of the
+  -- review: one row for each work, written over at every look and deleted when the batch is over. The engine tries the
+  -- changes in order in a savepoint it rolls back, so that nothing of them stays, and reads what each wrote from
+  -- `changes`. The review is given this as its inputs `batch_changes` and `batch_after`, and the next look is compared
+  -- with the row left by the one before. Not tracked in `changes`: it is the engine's bookkeeping, and gone with its
+  -- batch.
+  -- Read by: the engine, which gives it to the review at cell `B2` and compares the next look with it.
+  work INTEGER PRIMARY KEY REFERENCES works(id),
+  -- The round whose move to the review wrote it.
+  round INTEGER NOT NULL,
+  -- What each change was at this look, JSON object by line: its change and its effect, which the next look is compared
+  -- with.
+  lines TEXT NOT NULL CHECK (json_valid(lines)),
+  -- Where each change stands against the look before, JSON object by line: new, changed, effect_changed or unchanged,
+  -- and, for the changes the look before had that this one does not, removed with why. Given to the review beside each
+  -- change.
+  states TEXT NOT NULL CHECK (json_valid(states)),
+  -- What the changes make of the items, JSON: what each change did, the items they name or make as they stand after
+  -- them, where those stand in their project's order, and the items that are ready then, in the order they start.
+  after TEXT NOT NULL CHECK (json_valid(after)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -1154,8 +1186,10 @@ CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, pr
 CREATE INDEX talk_entries_by_talk ON talk_entries (matter);
 -- The open blocker of each task: one at most.
 CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
--- The item changes of a batch still waiting for its review.
-CREATE INDEX architect_item_changes_collected ON architect_item_changes (work) WHERE state = 'collected';
+-- The item changes of a batch still waiting for its review, one for each of their numbers.
+CREATE UNIQUE INDEX architect_item_changes_by_line ON architect_item_changes (work, line) WHERE state = 'collected';
+-- The item changes of a work by the round that handed them in, to find a batch's.
+CREATE INDEX architect_item_changes_by_round ON architect_item_changes (work, round);
 -- A project's observations.
 CREATE INDEX observations_by_project ON observations (project);
 -- A project's architect's notebook, by its sections.

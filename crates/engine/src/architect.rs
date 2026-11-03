@@ -15,6 +15,8 @@
 //! (`B2`); the writing of a new policy (`P2`) and where it takes effect (`P12`), which the router tells apart by the
 //! owner's reply; and the first and deciding cell of each kind's path ([`KINDS`]).
 
+mod batch_view;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,7 +41,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 33] = [
+pub const INPUTS: [&str; 34] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -61,6 +63,7 @@ pub const INPUTS: [&str; 33] = [
     "owner_answer",
     "cross_project",
     "batch_changes",
+    "batch_after",
     "changes_touch",
     "words_behind_changes",
     "batch_words",
@@ -785,28 +788,77 @@ fn handled_in_batch(conn: &Connection, work: i64) -> Result<i64, String> {
     )
 }
 
-/// An item change of a batch: its row's id, the round that handed it in, the matter it came from and the change.
-type Change = (i64, i64, i64, Value);
+/// An item change of a batch.
+#[derive(Debug, Clone)]
+pub(crate) struct Change {
+    /// Its row's id.
+    pub id: i64,
+    /// The round that handed it in.
+    pub round: i64,
+    /// The matter it came from.
+    pub matter: i64,
+    /// Its number in the batch, which the review and the revision name it by and every version of it keeps.
+    pub line: i64,
+    /// The change.
+    pub change: Value,
+}
 
 /// The item changes an architect work's batch collected, in order.
-fn collected(conn: &Connection, work: i64) -> Result<Vec<Change>, String> {
+pub(crate) fn collected(conn: &Connection, work: i64) -> Result<Vec<Change>, String> {
     let rows = query_json(
         conn,
-        "SELECT id, round, matter, change FROM architect_item_changes WHERE work = ?1 AND state = 'collected' ORDER BY id",
+        "SELECT id, round, matter, line, change FROM architect_item_changes WHERE work = ?1 AND state = 'collected'
+         ORDER BY id",
         &[&work],
         100_000,
     )?;
-    Ok(rows
-        .iter()
+    rows.iter()
         .map(|r| {
-            (
-                r["id"].as_i64().unwrap_or_default(),
-                r["round"].as_i64().unwrap_or_default(),
-                r["matter"].as_i64().unwrap_or_default(),
-                r["change"].clone(),
-            )
+            let id = r["id"].as_i64().unwrap_or_default();
+            Ok(Change {
+                id,
+                round: r["round"].as_i64().unwrap_or_default(),
+                matter: r["matter"].as_i64().unwrap_or_default(),
+                line: r["line"]
+                    .as_i64()
+                    .ok_or_else(|| format!("the item change {id}, waiting for its review, has no line"))?,
+                change: r["change"].clone(),
+            })
         })
-        .collect())
+        .collect()
+}
+
+/// The number the next change to join an architect work's batch takes: one more than the greatest the batch has had,
+/// those of changes revised or dropped included, so that no number is given twice in a batch. A batch is the rounds
+/// after the work's latest rethink.
+pub(crate) fn next_line(conn: &Connection, work: i64) -> Result<i64, String> {
+    count(
+        conn,
+        "SELECT coalesce(max(line), 0) + 1 FROM architect_item_changes WHERE work = ?1 AND round > ?2",
+        &[&work, &batch_start(conn, work)?],
+    )
+}
+
+/// Puts a change in an architect work's batch, collected, handed in by a round: under `line` when it is a version of a
+/// change the batch has, else under the batch's next number. Gives the line.
+pub(crate) fn collect_change(
+    tx: &Transaction<'_>,
+    round: RoundId,
+    matter: i64,
+    line: Option<i64>,
+    change: &Value,
+) -> Result<i64, String> {
+    let line = match line {
+        Some(line) => line,
+        None => next_line(tx, round.work)?,
+    };
+    tx.execute(
+        "INSERT INTO architect_item_changes (work, round, matter, line, change, state)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'collected')",
+        params![round.work, round.n, matter, line, change.to_string()],
+    )
+    .map_err(sql)?;
+    Ok(line)
 }
 
 /// The items a change collected in an architect work's open batch names, on which the engine starts no work until the
@@ -2233,10 +2285,11 @@ fn message_body(project: &str, m: &Value, matter: i64, work: i64) -> Value {
     json!({ "from": project, "text": m["text"], "matter": m["matter"].as_i64().unwrap_or(matter), "work": work })
 }
 
-/// An item change as the batch keeps it: the change itself, without the matter it names, which the batch keeps in the
-/// row of the change.
+/// An item change as the batch keeps it, the one way a change enters the batch: the change itself, in the shape the
+/// engine reads ([`crate::arch_changes::upgraded`]), without the matter it names, which the batch keeps in the row of
+/// the change.
 fn kept_change(change: &Value) -> Value {
-    let mut kept = change.clone();
+    let mut kept = crate::arch_changes::upgraded(change);
     if let Some(o) = kept.as_object_mut() {
         o.remove("matter");
     }
@@ -2251,17 +2304,13 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
     // A change comes of the matter of the group it names, or else of the matter picked; the batch keeps the change
     // itself, without the name.
     for c in items(effects.get("item_changes")) {
-        let change = kept_change(&c);
-        tx.execute(
-            "INSERT INTO architect_item_changes (work, round, matter, change, state) VALUES (?1, ?2, ?3, ?4, 'collected')",
-            params![
-                ctx.round.work,
-                ctx.round.n,
-                c["matter"].as_i64().unwrap_or(matter),
-                change.to_string()
-            ],
-        )
-        .map_err(sql)?;
+        collect_change(
+            tx,
+            ctx.round,
+            c["matter"].as_i64().unwrap_or(matter),
+            None,
+            &kept_change(&c),
+        )?;
     }
     cancel_within_batch(tx, w)?;
     for o in items(effects.get("observation_changes")) {
@@ -2367,7 +2416,7 @@ fn make(
     rows: &[Change],
     projects: &BTreeMap<String, config::Project>,
 ) -> Result<(BTreeMap<String, i64>, LeftOut), String> {
-    let changes: Vec<Value> = rows.iter().map(|r| r.3.clone()).collect();
+    let changes: Vec<Value> = rows.iter().map(|r| r.change.clone()).collect();
     let written = crate::arch_changes::write_all(tx, &changes, projects)?;
     let keys: BTreeMap<String, i64> = written
         .created
@@ -2382,14 +2431,15 @@ fn make(
             left_out.push((row.clone(), json!({ "verdict": "drop", "what": what })));
             continue;
         }
-        let (id, _, _, change) = row;
-        let outcome = match change["kind"].as_str() {
-            Some("create_item") => keys.get(text(&change["key"]).trim()).map(|n| json!({ "created": n })),
+        let outcome = match row.change["kind"].as_str() {
+            Some("create_item") => keys
+                .get(text(&row.change["key"]).trim())
+                .map(|n| json!({ "created": n })),
             _ => None,
         };
         tx.execute(
             "UPDATE architect_item_changes SET state = 'made', outcome = ?2 WHERE id = ?1",
-            params![id, outcome.map(|o| o.to_string())],
+            params![row.id, outcome.map(|o| o.to_string())],
         )
         .map_err(sql)?;
     }
@@ -2466,7 +2516,7 @@ fn why_not_made(tx: &Transaction<'_>, work: i64, matter: i64, key: &str) -> Resu
         1,
     )?;
     Ok(match row.first().map(|r| (r["state"].as_str(), &r["outcome"])) {
-        Some((Some("dropped"), outcome)) if !outcome.is_null() => outcome.clone(),
+        Some((Some("dropped" | "revised"), outcome)) if !outcome.is_null() => outcome.clone(),
         Some((Some("revised"), _)) => {
             json!({ "what": "The revision of the batch left out the change that creates it" })
         }
@@ -2774,9 +2824,11 @@ fn answer_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
 }
 
 /// The review of a batch made its changes or dropped them: its session ends, so that the next batch's review starts
-/// afresh, and the hold to set the project straight is let go once nothing of it is left.
+/// afresh, the look the engine took at the batch is forgotten, and the hold to set the project straight is let go once
+/// nothing of it is left.
 fn batch_over(tx: &Transaction<'_>, work: i64, project: &str) -> Result<(), String> {
     sessions::choose::end_line(tx, work, "architect_review")?;
+    batch_view::forget(tx, work)?;
     settle_hold(tx, work, project)
 }
 
@@ -2796,17 +2848,27 @@ fn names_key(c: &Value, key: &str) -> bool {
         .any(|v| v.as_str().is_some_and(|s| s.trim() == key))
 }
 
+/// The verdicts of a review's row that leave a change out of the batch: the change must change (`fix`), or should not be
+/// made at all, with or without a note that an observation closes in its place.
+fn leaves_out(verdict: &Value) -> bool {
+    matches!(verdict.as_str(), Some("fix" | "drop" | CLOSE_OBSERVATION))
+}
+
+/// The review's verdict that a change be left out and an observation closed instead.
+const CLOSE_OBSERVATION: &str = "close_observation";
+
 /// The rows of a batch the review found sound, and those it leaves out with what it found, by the review's rows,
-/// numbered as the batch was given: those it drops (`drop`) and those it found to fix (`fix`), each with the review's
-/// row; a change that names an item a dropped one creates is dropped with it, with the verdict of the change that
-/// creates it.
+/// which name a change by its line: those it drops (`drop`, or `close_observation`, which also closes an observation
+/// once the batch is made) and those it found to fix (`fix`), each with the review's row; a change with no row stands
+/// as it was found at the look before, sound; a change that names an item a dropped one creates is dropped with it, with
+/// the verdict of the change that creates it, a drop for one that closes an observation.
 fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(Change, Value)>) {
     let mut sound = Vec::new();
     let mut dropped: Vec<(Change, Value)> = Vec::new();
-    for (i, row) in rows.into_iter().enumerate() {
+    for row in rows {
         let finding = review
             .iter()
-            .find(|r| r["change"].as_i64() == Some(i as i64 + 1) && (r["verdict"] == "fix" || r["verdict"] == "drop"));
+            .find(|r| r["change"].as_i64() == Some(row.line) && leaves_out(&r["verdict"]));
         match finding {
             Some(f) => dropped.push((row, f.clone())),
             None => sound.push(row),
@@ -2815,12 +2877,19 @@ fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(C
     loop {
         let gone: Vec<(String, Value)> = dropped
             .iter()
-            .filter(|(r, _)| r.3["kind"] == "create_item")
-            .map(|(r, f)| (text(&r.3["key"]).trim().to_string(), f["verdict"].clone()))
+            .filter(|(r, _)| r.change["kind"] == "create_item")
+            .map(|(r, f)| {
+                let verdict = if f["verdict"] == CLOSE_OBSERVATION {
+                    json!("drop")
+                } else {
+                    f["verdict"].clone()
+                };
+                (text(&r.change["key"]).trim().to_string(), verdict)
+            })
             .collect();
         let Some((i, verdict)) = sound.iter().enumerate().find_map(|(i, r)| {
             gone.iter()
-                .find(|(k, _)| names_key(&r.3, k))
+                .find(|(k, _)| names_key(&r.change, k))
                 .map(|(_, v)| (i, v.clone()))
         }) else {
             break;
@@ -2848,7 +2917,7 @@ fn without_stale_approaches(
     // keeps.
     let mut approaches = decisions::Approaches::default();
     for row in sound {
-        let c = &row.3;
+        let c = &row.change;
         if c["kind"] == "merge"
             && let Some(keep) = item_number(&c["keep"])
         {
@@ -2856,15 +2925,15 @@ fn without_stale_approaches(
                 approaches.merged(tx, keep, a);
             }
         }
-        let edit = (c["kind"] == "edit_item" && c["part"] == "approach")
+        let edit = (c["kind"] == "edit_item" && !c["approach"].is_null())
             .then(|| item_number(&c["item"]))
             .flatten();
         let lost = edit
-            .map(|id| decisions::unkept(&approaches.of(tx, id), text(&c["text"])))
+            .map(|id| decisions::unkept(&approaches.of(tx, id), text(&c["approach"])))
             .unwrap_or_default();
         if lost.is_empty() {
             if let Some(id) = edit {
-                approaches.written(id, text(&c["text"]));
+                approaches.written(id, text(&c["approach"]));
             }
             kept.push(row);
         } else {
@@ -2880,12 +2949,66 @@ fn without_stale_approaches(
 
 /// Marks rows of an architect work's batch dropped, each with why.
 fn drop_rows(tx: &Transaction<'_>, rows: &[(Change, Value)]) -> Result<(), String> {
-    for ((id, _, _, _), why) in rows {
+    for (row, why) in rows {
         tx.execute(
             "UPDATE architect_item_changes SET state = 'dropped', outcome = ?2 WHERE id = ?1",
-            params![id, why.to_string()],
+            params![row.id, why.to_string()],
         )
         .map_err(sql)?;
+    }
+    Ok(())
+}
+
+/// What the review asked to close in place of a change, as its `close_observation` row says it: the observation's
+/// number, why it closes and what makes it so; none for any other row.
+fn closing(finding: &Value) -> Option<(i64, &str, &str)> {
+    (finding["verdict"] == CLOSE_OBSERVATION || finding.get("observation").is_some())
+        .then(|| {
+            Some((
+                finding["observation"].as_i64()?,
+                text(&finding["closed_as"]),
+                text(&finding["text"]),
+            ))
+        })
+        .flatten()
+}
+
+/// Closes the observations the review asked to close in place of changes it left out, now the batch is made: those of
+/// the rows left out at this look (`left_out`), and those of the changes a revision of the batch left out after an
+/// earlier look asked it, whose row keeps what was asked in its outcome. Each observation closes once, and only while
+/// it is open: one the revision closed itself stays as it closed it.
+fn close_observations(
+    ctx: &Ctx,
+    tx: &Transaction<'_>,
+    project: &str,
+    left_out: &[(Change, Value)],
+) -> Result<(), String> {
+    let work = ctx.round.work;
+    let mut asked: Vec<Value> = left_out
+        .iter()
+        .filter(|(_, f)| f["verdict"] == CLOSE_OBSERVATION)
+        .map(|(_, f)| f.clone())
+        .collect();
+    let after = batch_start(tx, work)?;
+    let revised = query_json(
+        tx,
+        "SELECT json_extract(outcome, '$.close_observation') AS asked FROM architect_item_changes
+         WHERE work = ?1 AND round > ?2 AND state = 'revised'
+           AND json_extract(outcome, '$.close_observation') IS NOT NULL ORDER BY id",
+        &[&work, &after],
+        ROWS,
+    )?;
+    asked.extend(revised.iter().map(|r| r["asked"].clone()));
+    let from = format!("R{}-{}, {}", ctx.round.work, ctx.round.n, ctx.cell.title);
+    let mut seen = BTreeSet::new();
+    for a in &asked {
+        let Some((id, why, what)) = closing(a).filter(|(id, ..)| seen.insert(*id)) else {
+            continue;
+        };
+        if open_observation(tx, project, id)? {
+            let close = json!({ "kind": "close", "id": id, "why": why, "text": what });
+            observe(tx, project, &from, &close)?;
+        }
     }
     Ok(())
 }
@@ -2899,12 +3022,15 @@ fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
     let rows = collected(tx, work)?;
     let created: BTreeSet<String> = rows
         .iter()
-        .filter(|r| r.3["kind"] == "create_item")
-        .map(|r| text(&r.3["key"]).trim().to_string())
+        .filter(|r| r.change["kind"] == "create_item")
+        .map(|r| text(&r.change["key"]).trim().to_string())
         .filter(|k| !k.is_empty())
         .collect();
     let mut gone: Vec<(Change, Value)> = Vec::new();
-    for (id, _, matter, c) in &rows {
+    for Change {
+        id, matter, change: c, ..
+    } in &rows
+    {
         let key = text(&c["item"]).trim();
         if c["kind"] != "cancel" || !created.contains(key) {
             continue;
@@ -2914,8 +3040,8 @@ fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
                              matter {matter}: it is never made"),
         });
         for r in &rows {
-            let creates = r.3["kind"] == "create_item" && text(&r.3["key"]).trim() == key;
-            if (r.0 == *id || creates || names_key(&r.3, key)) && !gone.iter().any(|(g, _)| g.0 == r.0) {
+            let creates = r.change["kind"] == "create_item" && text(&r.change["key"]).trim() == key;
+            if (r.id == *id || creates || names_key(&r.change, key)) && !gone.iter().any(|(g, _)| g.id == r.id) {
                 gone.push((r.clone(), why.clone()));
             }
         }
@@ -2924,8 +3050,8 @@ fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
     // the rest of its answer's changes go with the answer.
     let cancelled: BTreeSet<String> = rows
         .iter()
-        .filter(|r| r.3["kind"] == "cancel")
-        .map(|r| text(&r.3["item"]).trim().to_string())
+        .filter(|r| r.change["kind"] == "cancel")
+        .map(|r| text(&r.change["item"]).trim().to_string())
         .filter(|k| created.contains(k))
         .collect();
     let held = query_json(
@@ -2948,8 +3074,8 @@ fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
                 "Matter {m} is answered again: its reply named an item the batch cancelled in the same batch"
             ),
         });
-        for r in rows.iter().filter(|r| r.2 == *m) {
-            if !gone.iter().any(|(g, _)| g.0 == r.0) {
+        for r in rows.iter().filter(|r| r.matter == *m) {
+            if !gone.iter().any(|(g, _)| g.id == r.id) {
                 gone.push((r.clone(), why.clone()));
             }
         }
@@ -2972,14 +3098,15 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let (keys, refused) = make(tx, &sound, &ctx.projects)?;
     left_out.extend(refused);
     drop_rows(tx, &left_out)?;
+    close_observations(ctx, tx, &project, &left_out)?;
     // What the review drops is left out, and what it still finds to fix is put to the owner.
     let dropped: Vec<(Change, Value)> = left_out.into_iter().filter(|(_, f)| f["verdict"] == "fix").collect();
-    let held: BTreeSet<i64> = dropped.iter().map(|(r, _)| r.2).collect();
+    let held: BTreeSet<i64> = dropped.iter().map(|(r, _)| r.matter).collect();
     release_held_replies(tx, w, &keys, &held)?;
     if !dropped.is_empty() {
         let asked: Vec<Value> = dropped
             .iter()
-            .map(|((_, _, m, change), finding)| json!({ "matter": m, "change": change, "review": finding }))
+            .map(|(row, finding)| json!({ "matter": row.matter, "change": row.change, "review": finding }))
             .collect();
         let body = json!({
             "from": "architect", "project": project, "work": w, "cell": ctx.cell.id, "kind": "ask",
@@ -3495,31 +3622,11 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 observe(tx, &project, &from, &o)?;
             }
         }
-        "revise_batch" => {
+        "revise_batch" => revise_batch(ctx, tx, at)?,
+        "stage_batch_view" => {
+            // The batch is tried out for the review's next look, and what came of it kept for the review to be given.
             let (_, project) = architect_work_of(ctx)?;
-            tx.execute(
-                "UPDATE architect_item_changes SET state = 'revised' WHERE work = ?1 AND state = 'collected'",
-                [w],
-            )
-            .map_err(sql)?;
-            for x in items(at) {
-                let matter = x["matter"].as_i64();
-                // A decision is handed in as one, and the engine reads its records again as it keeps it.
-                let change = if x["decision"].is_object() {
-                    decision_change(tx, &project, matter.unwrap_or_default(), &x["decision"])?
-                } else {
-                    // The row names the matter the change comes of; the change itself, which shares its shape with the
-                    // changes of an answer, is kept without the name such a change may carry.
-                    kept_change(&x["change"])
-                };
-                tx.execute(
-                    "INSERT INTO architect_item_changes (work, round, matter, change, state)
-                     VALUES (?1, ?2, ?3, ?4, 'collected')",
-                    params![ctx.round.work, ctx.round.n, matter, change.to_string()],
-                )
-                .map_err(sql)?;
-            }
-            cancel_within_batch(tx, w)?;
+            batch_view::stage(tx, ctx.round, &project, &ctx.projects)?;
         }
         "collect_decisions" => {
             // Each decision the owner's words of the batch make joins the batch's item changes, from the first matter of
@@ -3532,12 +3639,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                     .copied()
                     .ok_or("a decision quotes no matter of the owner's words this batch handled")?;
                 let change = decision_change(tx, &project, matter, &d)?;
-                tx.execute(
-                    "INSERT INTO architect_item_changes (work, round, matter, change, state)
-                     VALUES (?1, ?2, ?3, ?4, 'collected')",
-                    params![ctx.round.work, ctx.round.n, matter, change.to_string()],
-                )
-                .map_err(sql)?;
+                collect_change(tx, ctx.round, matter, None, &change)?;
             }
         }
         "apply_batch" => {
@@ -3548,6 +3650,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let (keys, refused) = make(tx, &rows, &ctx.projects)?;
             dropped.extend(refused);
             drop_rows(tx, &dropped)?;
+            close_observations(ctx, tx, &project, &dropped)?;
             release_held_replies(tx, w, &keys, &BTreeSet::new())?;
             answer_batch(tx, w)?;
             batch_over(tx, w, &project)?;
@@ -3561,6 +3664,68 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+/// `revise_batch`: puts the revised changes in place of the batch's, for the review to look at again. A change that names
+/// a line of the batch is another version of that change and keeps its line; one that names none joins the batch under
+/// its next line. The versions it takes the place of stay, revised. A change of the batch that is not handed in again is
+/// left out: its row keeps why, as the architect said it (`left`), else as the review found it, and, when the review
+/// asked to close an observation in its place and the architect gave no other reason, the observation to close, which
+/// is closed with the batch when it is made.
+fn revise_batch(ctx: &Ctx, tx: &Transaction<'_>, at: Option<&Value>) -> Result<(), String> {
+    let (w, project) = architect_work_of(ctx)?;
+    let before = collected(tx, w)?;
+    let handed = items(at);
+    let kept: BTreeSet<i64> = handed
+        .iter()
+        .filter_map(|x| x["line"].as_i64())
+        .filter(|l| before.iter().any(|b| b.line == *l))
+        .collect();
+    let verdicts = batch_view::last_verdicts(tx, w)?;
+    let left: BTreeMap<i64, String> = items(ctx.unwrapped.get("left"))
+        .iter()
+        .filter_map(|x| Some((x["line"].as_i64()?, text(&x["why"]).trim().to_string())))
+        .filter(|(_, why)| !why.is_empty())
+        .collect();
+    let by_review = batch_view::left_out_as_found(&before, &kept, &verdicts);
+    tx.execute(
+        "UPDATE architect_item_changes SET state = 'revised' WHERE work = ?1 AND state = 'collected'",
+        [w],
+    )
+    .map_err(sql)?;
+    for gone in before.iter().filter(|b| !kept.contains(&b.line)) {
+        let what = left
+            .get(&gone.line)
+            .or_else(|| by_review.get(&gone.line))
+            .cloned()
+            .unwrap_or_else(|| "The revision left it out".to_string());
+        let mut outcome = json!({ "what": what });
+        if !left.contains_key(&gone.line)
+            && let Some(v) = verdicts.get(&gone.line).filter(|v| v.verdict == CLOSE_OBSERVATION)
+            && let Some((observation, closed_as, why)) = closing(&v.row)
+        {
+            outcome["close_observation"] = json!({ "observation": observation, "closed_as": closed_as, "text": why });
+        }
+        tx.execute(
+            "UPDATE architect_item_changes SET outcome = ?2 WHERE id = ?1",
+            params![gone.id, outcome.to_string()],
+        )
+        .map_err(sql)?;
+    }
+    for x in handed {
+        let matter = x["matter"].as_i64();
+        // A decision is handed in as one, and the engine reads its records again as it keeps it.
+        let change = if x["decision"].is_object() {
+            decision_change(tx, &project, matter.unwrap_or_default(), &x["decision"])?
+        } else {
+            // The row names the matter the change comes of; the change itself, which shares its shape with the changes
+            // of an answer, is kept without the name such a change may carry.
+            kept_change(&x["change"])
+        };
+        let line = x["line"].as_i64().filter(|l| kept.contains(l));
+        collect_change(tx, ctx.round, matter.unwrap_or_default(), line, &change)?;
+    }
+    cancel_within_batch(tx, w)
 }
 
 /// `redo_batch`: what an architect's work did from its round `n` on that has not taken effect is undone, as the work
@@ -3756,7 +3921,7 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
     let mut problems = Vec::new();
     let new = items(effects.get("item_changes"));
     // The batch's item changes once these are collected.
-    let mut all: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect();
+    let mut all: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.change).collect();
     let before = all.len();
     all.extend(new.iter().cloned());
     if !new.is_empty()
@@ -4048,7 +4213,7 @@ fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems
     let project = project_of(c.w)?;
     let batch: BTreeSet<i64> = words_of_batch(conn, c.w.id)?.into_iter().collect();
     // The batch's changes so far stand as they are, and each decision follows them as a change that records it.
-    let mut changes: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect();
+    let mut changes: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.change).collect();
     let before = changes.len();
     let mut cited: BTreeSet<i64> = BTreeSet::new();
     // The owner's rulings of the batch on where a design departs from a decision of its item, each with that item: a
@@ -4197,7 +4362,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             // decisions, stands beside the changes the batch has collected.
             let revised: Vec<Value> = match c.unwrapped.get("changes") {
                 Some(changes) => items(Some(changes)).iter().map(|x| x["change"].clone()).collect(),
-                None => collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect(),
+                None => collected(conn, c.w.id)?.into_iter().map(|r| r.change).collect(),
             };
             Problems::from(observation_problems(c, project_of(c.w)?, &items(v), &revised)?).into_result()
         }
@@ -4237,16 +4402,74 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             .into_result()
         }
         "review_covers_changes" => {
-            let n = collected(conn, c.w.id)?.len() as i64;
-            let mut seen: Vec<i64> = items(v).iter().filter_map(|r| r["change"].as_i64()).collect();
-            seen.sort_unstable();
-            if seen != (1..=n).collect::<Vec<_>>() {
-                return checks::fail(format!(
-                    "there is one row for each of the batch's {n} changes, by its number from 1, and the rows name \
-                     {seen:?}"
-                ));
+            let rows = collected(conn, c.w.id)?;
+            let review = items(v);
+            let lines: Vec<String> = rows.iter().map(|r| r.line.to_string()).collect();
+            let given: Vec<String> = review
+                .iter()
+                .filter_map(|r| r["change"].as_i64())
+                .map(|n| n.to_string())
+                .collect();
+            let misses = checks::id_misses(&lines, &given);
+            // A change that is the same as at the look before, with the same effect, and that look found sound, needs
+            // no row; nor does one dropped with a change the review drops.
+            let needs = batch_view::needing_a_row(conn, c.w.id, &rows)?;
+            let with = batch_view::dropped_with(&rows, &review);
+            let missing: Vec<String> = misses
+                .missing
+                .iter()
+                .filter(|l| l.parse::<i64>().is_ok_and(|n| needs.contains(&n) && !with.contains(&n)))
+                .cloned()
+                .collect();
+            let all = lines.join(", ");
+            let mut problems = Problems::default();
+            problems.about(
+                &misses.unknown,
+                |x| format!("change {x} is no change of the batch, whose changes are {all}"),
+                |xs| format!("changes {xs} are no changes of the batch, whose changes are {all}"),
+            );
+            problems.about(
+                &misses.twice,
+                |x| format!("change {x} has more than one row: one row for each"),
+                |xs| format!("changes {xs} have more than one row: one row for each"),
+            );
+            problems.about(
+                &missing,
+                |x| {
+                    format!(
+                        "change {x} has no row, and it is new, changed, has another effect than at the look before, or \
+                         was found wrong then and is the same: one row for it"
+                    )
+                },
+                |xs| {
+                    format!(
+                        "changes {xs} have no row, and each is new, changed, has another effect than at the look \
+                         before, or was found wrong then and is the same: one row for each"
+                    )
+                },
+            );
+            // A row that closes an observation in place of a change names one that is open.
+            for r in review.iter().filter(|r| r["verdict"] == CLOSE_OBSERVATION) {
+                let id = r["observation"].as_i64().unwrap_or_default();
+                if !open_observation(conn, project_of(c.w)?, id)? {
+                    problems.push(format!(
+                        "change {}: {id} is no open observation of the project, so it cannot close",
+                        r["change"]
+                    ));
+                }
             }
-            Ok(())
+            problems.into_result()
+        }
+        "changes_accounted" => {
+            let before = collected(conn, c.w.id)?;
+            let verdicts = batch_view::last_verdicts(conn, c.w.id)?;
+            Problems::from(batch_view::accounting_problems(
+                &before,
+                &items(v),
+                &items(c.unwrapped.get("left")),
+                &verdicts,
+            ))
+            .into_result()
         }
         "decision_words_hold" => decisions_hold(c, v),
         "learned_holds_no_decision" => {
@@ -4892,6 +5115,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str, main: Option<&
         "owner_answer" => owner_answer(e, w),
         "cross_project" => cross_project(e, project).map(Some),
         "batch_changes" => batch_changes(e, w).map(Some),
+        "batch_after" => batch_after(e, w),
         "changes_touch" => changes_touch(e, w),
         "words_behind_changes" => words_behind_changes(e, w),
         "batch_words" => batch_words(e, w),
@@ -6435,7 +6659,7 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     let at_hand_text = if review {
         collected(conn, w.id)?
             .iter()
-            .map(|r| r.3.to_string())
+            .map(|r| r.change.to_string())
             .collect::<Vec<_>>()
             .join(" ")
     } else {
@@ -6651,26 +6875,52 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Vec<Part>, Stri
     Ok(Vec::new())
 }
 
-/// The item changes of an architect work's batch, numbered from 1, each with the matter it came from and its kind.
+/// The item changes of an architect work's batch, each by its line, with the matter it came from and its kind. For the
+/// review, when the batch was tried out for this look (`stage_batch_view`), each also says how it stands against the
+/// look before and what it did, and one that is the same as the look before found it sound is given by its line, kind and
+/// items alone; the changes the look before had and this has not follow, with why each was left out.
 fn batch_changes(e: &Engine, w: &Work) -> Result<Value, String> {
     let conn = e.db.conn();
     let rows = collected(conn, w.id)?;
+    let looked = if w.pos.at == REVIEW {
+        batch_view::stored(conn, w.id)?
+    } else {
+        None
+    };
+    let verdicts = match looked {
+        Some(_) => batch_view::last_verdicts(conn, w.id)?,
+        None => BTreeMap::new(),
+    };
     let mut out = Vec::new();
-    for (i, (_, round, matter, change)) in rows.iter().enumerate() {
+    for row in &rows {
         let what: Option<String> = conn
             .query_row(
                 "SELECT kind || ': ' || what FROM architect_matters WHERE id = ?1",
-                [matter],
+                [row.matter],
                 |r| r.get(0),
             )
             .optional()
             .map_err(sql)?;
-        out.push(json!({
-            "change": i + 1, "matter": matter, "matter_is": what, "round": format!("R{}-{round}", w.id),
-            "item_change": change,
-        }));
+        let full = json!({
+            "change": row.line, "matter": row.matter, "matter_is": what, "round": format!("R{}-{}", w.id, row.round),
+            "item_change": row.change,
+        });
+        out.push(match &looked {
+            Some(stored) => batch_view::described(stored, row, &verdicts, full),
+            None => full,
+        });
+    }
+    if let Some(stored) = &looked {
+        out.extend(batch_view::removed(stored));
     }
     Ok(Value::Array(out))
+}
+
+/// What the batch comes to if it is made, as the engine tried it out for the review's look: the items the changes name
+/// or make as they stand after them, where each stands among the items of its project that wait to start, and the items
+/// ready to start. None before the batch was tried out.
+fn batch_after(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
+    Ok(batch_view::stored(e.db.conn(), w.id)?.map(|s| s.after))
 }
 
 /// The owner's words behind the batch's changes: each matter of the owner's words a change collected came from, by
@@ -6678,7 +6928,7 @@ fn batch_changes(e: &Engine, w: &Work) -> Result<Value, String> {
 /// input of its own, so that a review given them is only referred to them at its next look, while they stay the same.
 fn words_behind_changes(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
-    let matters: BTreeSet<i64> = collected(conn, w.id)?.iter().map(|r| r.2).collect();
+    let matters: BTreeSet<i64> = collected(conn, w.id)?.iter().map(|r| r.matter).collect();
     let mut out = Map::new();
     for m in matters {
         if let Some(said) = said_of(conn, m)? {
@@ -6894,7 +7144,7 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         return Ok(None);
     }
     let mut item_ids: BTreeSet<i64> = BTreeSet::new();
-    for (_, _, _, c) in &rows {
+    for Change { change: c, .. } in &rows {
         for k in ["item", "on", "keep", "fix_item"] {
             ids_of(&c[k], &mut item_ids);
         }
@@ -7144,29 +7394,25 @@ mod tests {
     // them.
     #[test]
     fn a_change_naming_a_dropped_item_is_dropped_with_it() {
+        // Each change is on the line that is its row's number.
+        let row = |id: i64, change: Value| Change {
+            id,
+            round: 5,
+            matter: 9,
+            line: id,
+            change,
+        };
         let rows = vec![
-            (1, 5, 9, json!({ "kind": "create_item", "key": "new" })),
-            (2, 5, 9, json!({ "kind": "add_dependency", "item": 3, "on": "new" })),
-            (
-                3,
-                5,
-                9,
-                json!({ "kind": "move", "item": 3, "to": { "place": "first" } }),
-            ),
-            (
+            row(1, json!({ "kind": "create_item", "key": "new" })),
+            row(2, json!({ "kind": "add_dependency", "item": 3, "on": "new" })),
+            row(3, json!({ "kind": "move", "item": 3, "to": { "place": "first" } })),
+            row(
                 4,
-                5,
-                9,
                 json!({ "kind": "fold_observations", "item": "new", "observations": [2] }),
             ),
             // A decision recorded in the item names it in its decision; a decision recorded in item 3 does not.
-            (
-                5,
-                5,
-                9,
-                json!({ "kind": "record_decision", "decision": { "item": "new" } }),
-            ),
-            (6, 5, 9, json!({ "kind": "record_decision", "decision": { "item": 3 } })),
+            row(5, json!({ "kind": "record_decision", "decision": { "item": "new" } })),
+            row(6, json!({ "kind": "record_decision", "decision": { "item": 3 } })),
         ];
         let review = vec![
             json!({ "change": 1, "verdict": "fix", "what": "w", "how": "h" }),
@@ -7177,17 +7423,17 @@ mod tests {
             json!({ "change": 6, "verdict": "ok", "why": "y" }),
         ];
         let (sound, dropped) = sorted_by_review(rows.clone(), &review);
-        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3, 6]);
-        assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4, 5]);
+        assert_eq!(sound.iter().map(|r| r.id).collect::<Vec<_>>(), [3, 6]);
+        assert_eq!(dropped.iter().map(|r| r.0.id).collect::<Vec<_>>(), [1, 2, 4, 5]);
         // A change the review drops is left out as one it finds to fix is, and what names its item goes with it,
         // dropped too.
         let mut review = review;
         review[0] = json!({ "change": 1, "verdict": "drop", "why": "Item 5 does it already." });
         let (sound, dropped) = sorted_by_review(rows, &review);
-        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3, 6]);
+        assert_eq!(sound.iter().map(|r| r.id).collect::<Vec<_>>(), [3, 6]);
         let verdicts: Vec<(i64, &str)> = dropped
             .iter()
-            .map(|r| (r.0.0, r.1["verdict"].as_str().unwrap()))
+            .map(|r| (r.0.id, r.1["verdict"].as_str().unwrap()))
             .collect();
         assert_eq!(verdicts, [(1, "drop"), (2, "drop"), (4, "drop"), (5, "drop")]);
     }
@@ -7209,12 +7455,15 @@ mod tests {
         })
         .unwrap();
         let edit = |part: &str, item: Value, text: &str| {
-            (
-                1,
-                1,
-                1,
-                json!({ "kind": "edit_item", "item": item, "part": part, "text": text }),
-            )
+            let mut change = json!({ "kind": "edit_item", "item": item });
+            change[part] = json!(text);
+            Change {
+                id: 1,
+                round: 1,
+                matter: 1,
+                line: 1,
+                change,
+            }
         };
         let rows = vec![
             // Written whole from the text the item had before the decision: it leaves the line out.
@@ -7237,7 +7486,11 @@ mod tests {
             })
             .unwrap();
         assert_eq!(sound.len(), 3);
-        assert!(!sound.iter().any(|r| r.3["text"] == "Approach:\n- Do it differently."));
+        assert!(
+            !sound
+                .iter()
+                .any(|r| r.change["approach"] == "Approach:\n- Do it differently.")
+        );
         assert_eq!(left_out.len(), 1);
         assert_eq!(left_out[0].1["verdict"], "drop");
         assert!(
@@ -7589,8 +7842,8 @@ mod tests {
                 tx.execute("UPDATE architect_matters SET withdrawn = 'gone' WHERE id = 2", [])?;
                 if collect {
                     tx.execute(
-                        "INSERT INTO architect_item_changes (work, round, matter, change, state)
-                         VALUES (1, 3, 1, '{}', 'collected')",
+                        "INSERT INTO architect_item_changes (work, round, matter, line, change, state)
+                         VALUES (1, 3, 1, 1, '{}', 'collected')",
                         [],
                     )?;
                 }
