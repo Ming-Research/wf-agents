@@ -53,7 +53,6 @@ fn names(xs: &[&str]) -> Vec<String> {
 // is told by the name it was given, which git writes in quotes with escapes for such characters unless it is told not
 // to: the engine tells the agent which file to run `ci_before` again for, and a name in escapes is not a file.
 #[test]
-#[ignore]
 fn a_changed_file_is_told_by_the_name_it_was_written_with_whatever_its_characters() {
     let dir = repo("changed-among-names");
     let wide = format!("tests/{}.rs", char::from_u32(0x4e2d).unwrap());
@@ -102,7 +101,6 @@ fn a_file_edited_and_edited_back_is_not_changed_and_one_added_or_taken_away_is()
 // And a commit the worktree does not have is an error to be told, not a list: the caller counts that as every file
 // changed, and may not mistake an empty answer for nothing changed.
 #[test]
-#[ignore]
 fn no_paths_name_no_files_and_a_missing_commit_is_an_error() {
     let dir = repo("changed-among-none");
     let start = commit(&dir, &[("t/a.rs", "one\n")], "Start");

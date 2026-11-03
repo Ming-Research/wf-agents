@@ -381,7 +381,6 @@ fn a_sample_changed_in_one_place_that_its_cell_still_takes_is_taken_on_the_line_
 // one the line may refuse because another cell has a type for a field this cell leaves open. The flow has no such
 // object now (its objects take no other field), so this holds the merge for the day one has.
 #[test]
-#[ignore]
 fn a_field_one_schema_leaves_open_is_not_typed_by_another_that_lists_it() {
     let open = json!({ "type": "object", "properties": { "kind": { "type": "string" } } });
     let typed = json!({ "type": "object", "additionalProperties": false, "required": ["p"],
