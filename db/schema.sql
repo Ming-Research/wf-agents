@@ -728,9 +728,10 @@ CREATE TABLE changes (
   -- Every change to a row of a state table: who made it, when, the row before and after. Written by triggers that the
   -- engine generates from this file, in the same transaction as the change, so no write can skip it. rounds and
   -- tool_runs are history themselves and are not tracked; neither are changes and outbox.
-  -- Read by: people and agents looking at how something got where it is; views that need when a row was created or
-  -- in what order rows came to a state (observations_all; merge_queue). Nothing deletes from it: a view that reads it
-  -- would order differently if rows were cut away, so cutting it first means changing those views.
+  -- Read by: people and agents looking at how something got where it is; views that need when a row was created, said
+  -- or came to a state, or in what order rows did (find them by searching this file for `FROM changes`). Nothing
+  -- deletes from it: such a view would answer differently if rows were cut away, so cutting it first means changing
+  -- those views.
   id INTEGER PRIMARY KEY,
   -- The transaction; the rows one write changed share it.
   tx INTEGER NOT NULL,
