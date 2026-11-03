@@ -480,22 +480,24 @@ pub fn misfits(s: &Value, x: &Value, at: &str) -> Vec<String> {
 /// schema's, that field's own path; of a value of the wrong kind or not one of the allowed values, its own.
 pub fn misfit_places(s: &Value, x: &Value, at: &str) -> Vec<Misfit> {
     let mut out = Vec::new();
-    collect(s, x, at, &mut out);
+    collect(s, x, at, &generic(at).unwrap_or_default(), &mut out);
     out
 }
 
-/// Adds a place about the field at `path` to a list of them unless it is there already, word for word.
-fn note(out: &mut Vec<Misfit>, path: &str, text: String) {
+/// Adds a place about the field `field` (its path with a list's items written `[]`, empty for the whole return) to a
+/// list of them unless it is there already, word for word.
+fn note(out: &mut Vec<Misfit>, field: &str, text: String) {
     if !out.iter().any(|m| m.text == text) {
         out.push(Misfit {
-            field: generic(path),
+            field: (!field.is_empty()).then(|| field.to_string()),
             text,
         });
     }
 }
 
-/// A path as `misfits` builds it (`columns[0].evidence`) with each index of a list written `[]`; none for the whole
-/// return, whose path is empty.
+/// The path a caller gives to `misfit_places` (`outcome.rows[2]`) with each index of a list written `[]`; none for the
+/// whole return, whose path is empty. Only a path the caller built is read so: a name the agent wrote in the return
+/// is added to the field as it is, by [`field`].
 fn generic(path: &str) -> Option<String> {
     if path.is_empty() {
         return None;
@@ -520,8 +522,10 @@ fn generic(path: &str) -> Option<String> {
     Some(out)
 }
 
-/// The places of `misfits`, added to `out`. A value that does not fit is always told by at least one.
-fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<Misfit>) {
+/// The places of `misfits`, added to `out`. A value that does not fit is always told by at least one. `at` is the path
+/// of the value as the sentences write it (`columns[0].evidence`); `g` is the same path as the field of a place writes
+/// it (`columns[].evidence`), made alongside, since a name the agent wrote that looks like an index is a name.
+fn collect(s: &Value, x: &Value, at: &str, g: &str, out: &mut Vec<Misfit>) {
     if valid(s, x) {
         return;
     }
@@ -529,46 +533,46 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<Misfit>) {
     let before = out.len();
     let here = if at.is_empty() { "the return" } else { at };
     if let Some(c) = o.get("const") {
-        note(out, at, format!("{here} is {x}, and must be {c}"));
+        note(out, g, format!("{here} is {x}, and must be {c}"));
         return;
     }
     if let Some(Value::Array(e)) = o.get("enum") {
         note(
             out,
-            at,
+            g,
             format!("{here} is {x}, and must be one of {}", joined(e.iter())),
         );
         return;
     }
     match (o.get("oneOf"), o.get("anyOf")) {
-        (Some(Value::Array(bs)), _) => return alternatives(bs, x, at, here, out),
-        (_, Some(Value::Array(bs))) if !o.contains_key("type") => return alternatives(bs, x, at, here, out),
+        (Some(Value::Array(bs)), _) => return alternatives(bs, x, at, g, here, out),
+        (_, Some(Value::Array(bs))) if !o.contains_key("type") => return alternatives(bs, x, at, g, here, out),
         _ => {}
     }
     let kind = kind_of(x);
     match o.get("type").and_then(Value::as_str).unwrap_or_default() {
         "array" => {
             let Some(xs) = x.as_array() else {
-                note(out, at, format!("{here} must be a list, and is {kind}"));
+                note(out, g, format!("{here} must be a list, and is {kind}"));
                 return;
             };
             let min = o.get("minItems").and_then(Value::as_u64).unwrap_or(0);
             if (xs.len() as u64) < min {
                 note(
                     out,
-                    at,
+                    g,
                     format!("{here} must hold at least {min}, and holds {}", xs.len()),
                 );
             }
             if let Some(it) = o.get("items") {
                 for (i, v) in xs.iter().enumerate() {
-                    collect(it, v, &format!("{at}[{i}]"), out);
+                    collect(it, v, &format!("{at}[{i}]"), &format!("{g}[]"), out);
                 }
             }
         }
         "object" => {
             let Some(xo) = x.as_object() else {
-                note(out, at, format!("{here} must be an object, and is {kind}"));
+                note(out, g, format!("{here} must be an object, and is {kind}"));
                 return;
             };
             let empty = Map::new();
@@ -579,13 +583,13 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<Misfit>) {
                 .filter_map(Value::as_str)
                 .filter(|r| !xo.contains_key(*r))
             {
-                note(out, &field(at, r), format!("{here} has no {r}"));
+                note(out, &field(g, r), format!("{here} has no {r}"));
             }
             if o.get("additionalProperties") == Some(&Value::Bool(false)) {
                 for k in xo.keys().filter(|k| !props.contains_key(*k)) {
                     note(
                         out,
-                        &field(at, k),
+                        &field(g, k),
                         format!(
                             "{here} has {k}, which is not one of its fields: {}",
                             props.keys().cloned().collect::<Vec<_>>().join(", ")
@@ -595,36 +599,36 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<Misfit>) {
             }
             for (k, v) in xo {
                 if let Some(p) = props.get(k) {
-                    collect(p, v, &field(at, k), out);
+                    collect(p, v, &field(at, k), &field(g, k), out);
                 }
             }
             if out.len() == before
                 && let Some(Value::Array(bs)) = o.get("anyOf")
             {
-                alternatives(bs, x, at, here, out);
+                alternatives(bs, x, at, g, here, out);
             }
         }
-        t => note(out, at, format!("{here} must be {}, and is {kind}", a_kind(t))),
+        t => note(out, g, format!("{here} must be {}, and is {kind}", a_kind(t))),
     }
     if out.len() == before {
-        note(out, at, format!("{here} does not fit"));
+        note(out, g, format!("{here} does not fit"));
     }
 }
 
 /// The places where `x` fits none of the alternatives `bs`, added to `out`: of those that are not told apart, the one
 /// followed.
-fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Misfit>) {
+fn alternatives(bs: &[Value], x: &Value, at: &str, g: &str, here: &str, out: &mut Vec<Misfit>) {
     if bs.iter().filter(|b| valid(b, x)).count() > 1 {
-        note(out, at, format!("{here} fits more than one of its alternatives"));
+        note(out, g, format!("{here} fits more than one of its alternatives"));
         return;
     }
     let Some(xo) = x.as_object() else {
         if bs.iter().all(|b| b["type"] == "object") {
-            note(out, at, format!("{here} must be an object, and is {}", kind_of(x)));
+            note(out, g, format!("{here} must be an object, and is {}", kind_of(x)));
         } else {
             note(
                 out,
-                at,
+                g,
                 format!("{here} is {}, and fits none of its alternatives", kind_of(x)),
             );
         }
@@ -644,7 +648,7 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Mis
             [] => {
                 note(
                     out,
-                    &field(at, k),
+                    &field(g, k),
                     format!(
                         "{} is {v}, and must be one of {}",
                         field(at, k),
@@ -655,9 +659,9 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Mis
             }
             [b] => {
                 let before = out.len();
-                collect(b, x, at, out);
+                collect(b, x, at, g, out);
                 if out.len() == before {
-                    note(out, at, format!("{here} does not fit"));
+                    note(out, g, format!("{here} does not fit"));
                 }
                 return;
             }
@@ -672,7 +676,7 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Mis
     let named: Vec<&Value> = bs.iter().filter(has_all).collect();
     if let [b] = named.as_slice() {
         let before = out.len();
-        collect(b, x, at, out);
+        collect(b, x, at, g, out);
         if out.len() > before {
             return;
         }
@@ -686,7 +690,7 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Mis
         .collect();
     note(
         out,
-        at,
+        g,
         format!(
             "{here} holds {}, and fits none of its alternatives, which hold: {}",
             xo.keys().cloned().collect::<Vec<_>>().join(", "),
