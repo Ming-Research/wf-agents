@@ -56,6 +56,16 @@ pub fn hold_starts(tx: &Transaction<'_>, project: &str, reason: HoldReason, why:
     Ok(())
 }
 
+/// The reasons a project's new starts are held for now, as the table names them and in the order they began, such as
+/// `architect`.
+pub fn holds_of(tx: &Transaction<'_>, project: &str) -> Result<Vec<String>> {
+    let mut st = tx.prepare("SELECT reason FROM dispatch_holds WHERE project = ?1 ORDER BY since, reason")?;
+    let reasons = st
+        .query_map(params![project], |r| r.get(0))?
+        .collect::<std::result::Result<Vec<String>, _>>()?;
+    Ok(reasons)
+}
+
 /// Releases a project's hold of a reason. Gives whether there was one: a release of a hold not there is no error here,
 /// since the other side may have released it just before, and what that means is the caller's to say.
 pub fn release_starts(tx: &Transaction<'_>, project: &str, reason: HoldReason) -> Result<bool> {

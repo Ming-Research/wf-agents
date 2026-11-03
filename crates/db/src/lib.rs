@@ -24,7 +24,7 @@ mod questions;
 mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
-pub use holds::{HoldReason, hold_starts, release_starts};
+pub use holds::{HoldReason, hold_starts, holds_of, release_starts};
 pub use matters::{
     Declared, FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause,
     one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,

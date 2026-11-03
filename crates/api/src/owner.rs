@@ -961,8 +961,8 @@ pub fn hold_starts(db: &mut Db, config: &config::Config, project: Option<&str>, 
 
 /// Releases a hold on a project's new starts, as the owner, who may release any of the three: their own (`owner`), the
 /// architect's (`architect`) and the architect's to set the project straight (`set_straight`). Refused, saying so, when
-/// the project has no hold of that reason, since nothing was released. Both the page and the command line release
-/// through here.
+/// the project has no hold of that reason, since nothing was released; the refusal lists the holds the project does
+/// have, for the command line has no other view of them. Both the page and the command line release through here.
 pub fn release_hold(
     db: &mut Db,
     config: &config::Config,
@@ -971,11 +971,23 @@ pub fn release_hold(
 ) -> Result<String, String> {
     let project = project_named(config, project)?;
     let reason = db::HoldReason::parse(reason)?;
-    let released = db
-        .write(Actor::Owner, |tx| db::release_starts(tx, &project, reason))
+    // The holds that remain are read in the same write as the delete, so that the refusal names what is there now.
+    let remaining = db
+        .write(Actor::Owner, |tx| {
+            if db::release_starts(tx, &project, reason)? {
+                Ok(None)
+            } else {
+                db::holds_of(tx, &project).map(Some)
+            }
+        })
         .map_err(sql)?;
-    if !released {
-        return Err(format!("{project} has no hold of the reason {}", reason.name()));
+    if let Some(held) = remaining {
+        let held = if held.is_empty() {
+            "it holds none".to_string()
+        } else {
+            format!("it holds: {}", held.join(", "))
+        };
+        return Err(format!("{project} has no hold of the reason {}; {held}", reason.name()));
     }
     Ok(format!(
         "the hold of {} on {project} is released; its new works start again unless another hold remains",

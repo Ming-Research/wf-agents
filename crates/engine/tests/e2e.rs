@@ -13430,12 +13430,12 @@ fn hold_reasons(e: &Engine) -> Vec<String> {
     st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
 }
 
-// Item #239: while the owner has paused every work no new work can start, so no matter of free slots is queued for any
-// architect, whether the owner started the project's architect or steps it by hand, which before woke the architect
-// for a round that could only end in starting nothing. A hold of the owner's on the project stops it as well. Once every
-// work goes on and the hold is released, the matter is queued as it always was.
+// Item #239 (O63): while the owner has paused every work no new work can start, so no matter of free slots is queued for
+// any architect, whether the owner started the project's architect or steps it by hand, which before woke the
+// architect for a round that could only end in starting nothing. It uses nothing of the owner's hold, so that it runs,
+// and fails, on the code before that hold existed. Once every work goes on, the matter is queued as it always was.
 #[test]
-fn no_matter_of_free_slots_is_queued_while_every_work_is_paused_or_the_owner_holds_the_project() {
+fn no_matter_of_free_slots_is_queued_while_every_work_is_paused() {
     let s = setup("slots-free-paused");
     let (mut e, said) = engine(&s, scripts());
     let works = |e: &Engine| -> i64 {
@@ -13470,6 +13470,24 @@ fn no_matter_of_free_slots_is_queued_while_every_work_is_paused_or_the_owner_hol
     })
     .unwrap();
     assert_eq!(slots_free_matters(&e), 0);
+    // With every work going on again, it is queued as before and starts a work of the architect.
+    let again = e.step(None).unwrap();
+    assert_eq!(again.cell.as_deref(), Some("S1"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(slots_free_matters(&e), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: a hold of the owner's on the project stops the matter of free slots as well, for the new starts it stops
+// are the only thing that matter could lead to. Released, the matter is queued as it always was.
+#[test]
+fn no_matter_of_free_slots_is_queued_while_the_owner_holds_the_project() {
+    let s = setup("slots-free-owner-hold");
+    let (mut e, said) = engine(&s, scripts());
+    let works = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))
+            .unwrap()
+    };
     // The owner holds the project: every work goes on, and none is queued.
     api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
     e.step(None).unwrap();
@@ -13479,7 +13497,7 @@ fn no_matter_of_free_slots_is_queued_while_every_work_is_paused_or_the_owner_hol
         "{}",
         said.lock().unwrap().join("\n")
     );
-    // Released, with every work going on, it is queued as before and starts a work of the architect.
+    // Released, it is queued as before and starts a work of the architect.
     api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
     let again = e.step(None).unwrap();
     assert_eq!(again.cell.as_deref(), Some("S1"), "{}", said.lock().unwrap().join("\n"));
