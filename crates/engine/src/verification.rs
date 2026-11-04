@@ -131,7 +131,7 @@ pub fn carries(checkout: &Path, merge: &str, build: &str) -> &'static str {
 /// The engine's value `in_effect`: whether what carries the change holds the merge commit for every condition. Main
 /// holds it as the work merges. For the installed program, a commit the checkout lacks may only not be fetched yet, so
 /// main is fetched once before it says it cannot tell, unless the build is one no fetch can bring.
-pub fn in_effect(e: &Engine, w: &Work, item: &Item) -> Result<&'static str, String> {
+pub fn carriers_hold(e: &Engine, w: &Work, item: &Item) -> Result<&'static str, String> {
     let installed = conditions(e.db.conn(), item.id)?.iter().any(|c| c["when"] == INSTALLED);
     if !installed {
         return Ok("yes");
@@ -240,7 +240,7 @@ pub fn effect(e: &Engine, w: &Work, item: &Item) -> Result<Option<Value>, String
         "merged_at": merged_at,
         "pr": w.pr,
         "carriers": carriers,
-        "in_effect": in_effect(e, w, item)?,
+        "in_effect": carriers_hold(e, w, item)?,
         "at": took_effect_at(conn, w.id, item.id)?,
     })))
 }

@@ -111,7 +111,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         } else {
             "some"
         }),
-        "in_effect" => s(crate::verification::in_effect(e, w, item)?),
+        "in_effect" => s(crate::verification::carriers_hold(e, w, item)?),
         "install_wait" => s(crate::verification::install_wait(e, w, db::now())?),
         "look_due" => s(crate::verification::look_due(e, w, g, db::now())?),
         "looks" => s(crate::verification::looks(e, w)?),
