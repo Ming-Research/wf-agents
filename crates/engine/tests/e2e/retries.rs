@@ -639,7 +639,7 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
         ("U1", None, step_failed()),
         ("U1", None, step_failed()),
         ("U1", None, step_failed()),
-        ("Q0", Some("waits"), None),
+        ("Q0", Some("plan"), None),
         ("U1", None, transient),
         ("U1", None, cut_off),
         ("U1", None, step_failed()),

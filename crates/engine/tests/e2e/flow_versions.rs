@@ -524,7 +524,8 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
         an_item(&mut e);
         say(&mut e, "Drop the parser's item.");
         let arch = e.step(None).unwrap().work.unwrap();
-        // It stands at the second eye: before it ran, or, to go back, once its first return was sent back.
+        // It stands at the second eye once its first return was sent back: the gate's step and the second eye's first
+        // round are one step of the work.
         let at_review = |e: &mut Engine| {
             let sent: i64 =
                 e.db.conn()
@@ -534,7 +535,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
                         |r| r.get(0),
                     )
                     .unwrap();
-            e.work(arch).unwrap().pos.at == "G2" && (sent > 0) == back
+            e.work(arch).unwrap().pos.at == "G2" && sent > 0
         };
         assert!(
             steps_until(&mut e, 40, at_review),

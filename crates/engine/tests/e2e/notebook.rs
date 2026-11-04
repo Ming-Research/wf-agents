@@ -214,7 +214,7 @@ fn a_notebook_past_its_size_is_sent_back_saying_which_section() {
 // section is an input of its own of the architect's cells, so that a session is given a section that changed whole and
 // one it holds already only by reference. The answer to the owner's words, with no base yet, keeps something in the
 // other section, which reading the project for the base is given whole; the check of the policy, in a session forked
-// from the base, holds every section the base was given or wrote, and is referred to each.
+// from the base, holds every section the base was given, and is referred to each.
 #[test]
 fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
     let s = setup("notebook-given");
@@ -275,12 +275,13 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
             .contains("The owner looks at the parser first."),
         "{read}"
     );
-    // The check of the policy, forked from the base, is referred to every section the base holds.
+    // The check of the policy, forked from the base, is referred to every section the base was given, and given whole
+    // the plan, which the base wrote and was never given.
     let check = input_at(&e, arch, "P1", false);
-    for section in ["project_now", "unclear", "plan", "other"] {
+    for (section, whole) in [("project_now", false), ("unclear", false), ("plan", true), ("other", false)] {
         assert_eq!(
             given_ending(&check, &format!("·engine·notebook_{section}")),
-            Some(false),
+            Some(whole),
             "{section}: {check}"
         );
     }

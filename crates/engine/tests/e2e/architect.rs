@@ -820,7 +820,11 @@ fn main_red_is_checked_by_the_engine_and_then_judged_by_the_architect() {
     }
     let queued: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM architect_matters WHERE kind = 'main_red'", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'main_red'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
     assert_eq!(queued, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);

@@ -59,8 +59,9 @@ fn input_numbered(e: &Engine, work: i64, n: i64) -> Value {
     db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
 }
 
-/// The message the first round of the understanding of project p's architect was sent, when the owner had said each of
-/// `texts` to it, oldest first, and the project's notebook holds nothing yet.
+/// The message the first round of reading project p for its first base was sent, when the owner had said each of
+/// `texts` to it, oldest first, and the project's notebook holds nothing yet. The words are no matters any longer, so
+/// that no reply of the architect's comes into the talk before the reading: a planning for slots free starts the work.
 fn first_understanding_after(name: &str, texts: &[String]) -> String {
     let s = setup(name);
     let (mut e, said) = engine(&s, scripts());
@@ -69,6 +70,24 @@ fn first_understanding_after(name: &str, texts: &[String]) -> String {
     for t in texts {
         say(&mut e, t);
     }
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET withdrawn = 'only talk in this test' WHERE kind = 'owner_words'",
+            [],
+        )?;
+        db::queue_matter(
+            tx,
+            &db::Matter {
+                project: "p".into(),
+                kind: "slots_free".into(),
+                what: "1 slot is free, and no item of p is ready to start".into(),
+                body: json!({ "free": 1, "ready": [] }),
+                ..db::Matter::default()
+            },
+        )
+        .map(|_| ())
+    })
+    .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),

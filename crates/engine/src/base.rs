@@ -318,7 +318,7 @@ pub fn due(e: &Engine, project: &str) -> Result<Due, String> {
     // A rebuild alone.
     let log = decision_log_of(conn, project, base.at)?;
     let since = since_base_of(e, project, &base)?;
-    let carried = log.to_string().chars().count() + since.to_string().chars().count();
+    let carried = carried_chars(&log, &since);
     let carried_most = e.config.config.install.architect.carried_most;
     d.facts
         .insert("carried".into(), json!({ "characters": carried, "most": carried_most }));
@@ -353,6 +353,22 @@ pub fn due(e: &Engine, project: &str) -> Result<Due, String> {
         d.rebuild.push("the architect's model is not the base's".into());
     }
     Ok(d)
+}
+
+/// How many characters a base carries since it was built: its decision log and what changed since, each part counted
+/// only when it holds something, so that a base just built carries none and is not due again at once.
+fn carried_chars(log: &Value, since: &Value) -> usize {
+    let held = |v: &Value| match v {
+        Value::Null => 0,
+        Value::Object(o) if o.is_empty() => 0,
+        Value::Array(a) if a.is_empty() => 0,
+        v => v.to_string().chars().count(),
+    };
+    held(log)
+        + ["items", "works", "merged", "owner"]
+            .iter()
+            .map(|k| held(&since[*k]))
+            .sum::<usize>()
 }
 
 /// The facts the look at the queue records with what it took, and the planning is given as why it is due.
@@ -710,6 +726,20 @@ mod tests {
 
     fn row(kind: &str, detail: Option<&str>, waits: &str) -> Value {
         json!({ "kind": kind, "detail": detail, "waits": waits, "answered": 0, "urgent": 0 })
+    }
+
+    // A base just built carries nothing: what changed since it, with its lists empty, and an empty decision log count
+    // for none of the characters that call for a rebuild; a line of the log or a change since counts whole.
+    #[test]
+    fn a_base_just_built_carries_nothing() {
+        let empty = json!({ "since": "2026-11-04 12:00 UTC", "items": {}, "works": {}, "merged": [], "owner": {},
+                            "main_then": "abc" });
+        assert_eq!(carried_chars(&json!({}), &empty), 0);
+        let log = json!({ "#3": { "kind": "owner_words", "round": "R2-3", "line": "Retitled #1." } });
+        assert_eq!(carried_chars(&log, &empty), log.to_string().chars().count());
+        let mut since = empty.clone();
+        since["merged"] = json!(["abc Merge the parser"]);
+        assert_eq!(carried_chars(&json!({}), &since), since["merged"].to_string().chars().count());
     }
 
     // The engine's order takes what waits by fact: the owner first, then main red, then a work stopped at its question;

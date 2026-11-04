@@ -227,7 +227,8 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
         "{u1}"
     );
     assert!(!u1.contains("Keep it plain.") && !u1.contains("third way"), "{u1}");
-    assert!(p1.contains("Keep it plain.") && !p1.contains("Keep it warm."), "{p1}");
+    // The check of the policy, forked from the base, is not given the constitution main moved on to while it ran.
+    assert!(!p1.contains("Keep it warm."), "{p1}");
     assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
     assert_eq!(pinned_main(&e, arch, "P1").as_deref(), Some(second.as_str()), "{log}");
     // Its check of the policy was queued under the hash of the constitution of that commit.
