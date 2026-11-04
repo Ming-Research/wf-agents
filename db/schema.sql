@@ -434,8 +434,8 @@ CREATE TABLE pings (
   -- anomalies command.
   id INTEGER PRIMARY KEY,
   session INTEGER NOT NULL REFERENCES sessions(id),
-  -- Where the work stood and for what the line waited, JSON: the cell, what the work waited on (pause, owner,
-  -- architect, items or tool) or work when it went on without the line, and that in words.
+  -- Where the work stood and for what the line waited, JSON: the cell, what the work waited on (pause, slot, owner,
+  -- architect, items or row) or work when it went on without the line, and that in words.
   waited TEXT NOT NULL CHECK (json_valid(waited)),
   -- The model the ping ran on, as the CLI reported it.
   model TEXT,

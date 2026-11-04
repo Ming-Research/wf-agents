@@ -10,7 +10,7 @@ use flow::{CompiledCell, CompiledGraph, Position};
 use sessions::warm::Waited;
 
 use crate::work::{self, Work};
-use crate::{ARCHITECT, Engine, values};
+use crate::{ARCHITECT, Engine, blockers};
 
 /// The owner's global pause, while it holds, as keeping sessions warm reads it: whether the owner keeps the sessions of
 /// waiting works warm meanwhile (the switch beside the pause, on at first), the works the owner started, which run on
@@ -76,8 +76,12 @@ pub fn coming_back(
     out
 }
 
-/// What a work waits on, where it stands: its pause, the owner's or the architect's answer, a row that waits for
-/// other items or a ruling; none when it does not wait, and so goes on by itself.
+/// What a work waits on, where it stands, as the engine judges it there: its pause (`pause`); once what it waited for
+/// came, a free slot to go on in, which the loop grants it (`slot`); else the holder of its open blocker, which the flow
+/// raises at each cell where a work waits for someone: the owner's answer to its ask (`owner`), the architect's reply
+/// to its matter (`architect`), the items it waits for (`items`), only where the flow has the items hold it; with no
+/// blocker, the owner's or the architect's answer at a cell that asks one, and else what the row it took waits for
+/// (`row`). None when it does not wait, and so goes on by itself.
 fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waited>, String> {
     let waited = |on: &str, what: String| Waited {
         cell: w.pos.at.clone(),
@@ -93,17 +97,36 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
     let Some(cell) = g.cell(&w.pos.at) else {
         return Ok(None);
     };
+    let conn = e.db.conn();
+    if db::slot_waiting(conn).map_err(|x| x.to_string())?.contains(&w.id) {
+        return Ok(Some(waited(
+            "slot",
+            format!("a free slot to go on from cell {}, what it waited for come", cell.id),
+        )));
+    }
+    if let Some(b) = blockers::open(conn, w.id)? {
+        let what = match (b.holder.as_str(), b.ask, b.matter) {
+            ("owner", Some(ask), _) => format!("the owner's answer to ask {ask}"),
+            ("architect", _, Some(matter)) => format!("the architect's reply to matter {matter}"),
+            ("items", _, _) if !b.items.is_empty() => {
+                let items: Vec<String> = b.items.iter().map(|(i, _)| i.to_string()).collect();
+                let named = if items.len() == 1 { "item" } else { "items" };
+                format!("{named} {}, which this item depends on, to be merged", items.join(", "))
+            }
+            _ => b.what.clone(),
+        };
+        return Ok(Some(waited(b.holder.as_str(), what)));
+    }
     match cell.step.as_deref() {
         Some("ask_owner") => {
-            let open = work::open_round(e.db.conn(), w.id)?.map(|r| r.id);
+            let open = work::open_round(conn, w.id)?.map(|r| r.id);
             let ask: Option<i64> = open.and_then(|r| {
-                e.db.conn()
-                    .query_row(
-                        "SELECT id FROM owner_asks WHERE work = ?1 AND round = ?2",
-                        params![r.work, r.n],
-                        |x| x.get(0),
-                    )
-                    .ok()
+                conn.query_row(
+                    "SELECT id FROM owner_asks WHERE work = ?1 AND round = ?2",
+                    params![r.work, r.n],
+                    |x| x.get(0),
+                )
+                .ok()
             });
             let what = ask.map_or_else(
                 || "the owner's answer".to_string(),
@@ -113,20 +136,12 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
         }
         Some("ask_architect") => Ok(Some(waited("architect", "the architect's reply".to_string()))),
         _ => {
-            let row = work::rounds(e.db.conn(), w.id)?
+            let row = work::rounds(conn, w.id)?
                 .pop()
                 .and_then(|r| r.transition)
                 .and_then(|t| cell.rows.iter().find(|x| x.name == t).cloned());
             let said = row.map(|r| r.note.unwrap_or(r.name)).unwrap_or_default();
-            let gate = match e.subject(w)? {
-                Some(item) => values::gates_waiting_for(e, w, &item).unwrap_or(None),
-                None => None,
-            };
-            Ok(Some(match gate {
-                Some(text) if text.starts_with("the owner's") => waited("owner", text),
-                Some(text) => waited("items", text),
-                None => waited("items", said),
-            }))
+            Ok(Some(waited("row", said)))
         }
     }
 }

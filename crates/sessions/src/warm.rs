@@ -87,7 +87,8 @@ pub const MESSAGE: &str = "# Keep-warm ping\n\nYour line waits for its next roun
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Waited {
     pub cell: String,
-    /// What the work waited on (pause, owner, architect, items or tool), or `work` when it went on without the line.
+    /// What the work waited on (pause, slot, owner, architect, items or row), or `work` when it went on without the
+    /// line.
     pub on: String,
     pub what: String,
 }
