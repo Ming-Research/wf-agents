@@ -84,6 +84,7 @@ const round = (n: number, cell: string): RoundSummary => ({
   outcome: 'took',
   transition: 'next',
   why: null,
+  set_aside: null,
   started_at: n,
   ended_at: n + 1,
   model: null,

@@ -143,6 +143,7 @@ const summary = (n: number, at: string, transition: string | null): RoundSummary
   outcome: 'took',
   transition,
   why: null,
+  set_aside: null,
   started_at: n,
   ended_at: n + 1,
   model: null,

@@ -625,6 +625,11 @@ fn source(
             origin: Origin::Engine(n.clone()),
             value: history_sources(e, w, g, cell, item)?,
         }),
+        // The findings set aside no review judged: the re-check is not given those it answers in the fix's table.
+        Src::Engine(n) if n == crate::set_aside::INPUT => crate::set_aside::input(e, w, g, cell)?.map(|v| Part {
+            origin: Origin::Engine(n.clone()),
+            value: v,
+        }),
         Src::Engine(n) => engine_input(e, w, g, item, n, main)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,

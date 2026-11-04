@@ -65,6 +65,14 @@ JUnit results the run uploads, in the artifact the project's configuration names
 tracked file that holds a letter that is not ASCII, written as itself or as an escape, but for the files
 `.config/english-exempt.txt` names, such as a document made as a translation.
 
+Besides the CI, the engine checks each return an agent hands in (`engine.checks` in the flow) and sends one that fails
+back. A work that changes one of these checks is judged by the installed engine, so by the check as it was until the
+change is merged and installed: it names the checks it changes (`checks_changed`), in the project the engine is built
+from only, and what only those find in its returns is not sent back but set aside, kept on the round
+(`rounds.set_aside`, the view `work_set_aside`) and numbered S1, S2, ... in the work. The details review and the
+re-check judge each against the diff, as the old rule's product or a real problem to fix, and the merge gate sends any
+still not judged to the fix and the re-check before the work may merge.
+
 ## Installing
 
 The program is installed on its own, never in the data directory: build the page (`npm ci` and `npm run build` in

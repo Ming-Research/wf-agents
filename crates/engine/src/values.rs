@@ -91,14 +91,17 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         "merge_failures" => s(if merge_failures(e, w)? >= 2 { "third" } else { "fewer" }),
         // Where the review of the work's latest design stands.
         "review" => s(crate::review::stage(e.db.conn(), w.id)?),
-        // What the merge gate waits for: the items it depends on while one is not merged, then the owner's approval of
-        // a change that touches a path the owner approves.
+        // What the merge gate waits for: the items it depends on while one is not merged, then the findings set aside
+        // no review judged, then the owner's approval of a change that touches a path the owner approves.
         "gates" => {
             let waits_for_items = dependencies(e, item.id)?
                 .iter()
                 .any(|d| !item_merged(e, *d).unwrap_or(false));
             if waits_for_items {
                 return s("items");
+            }
+            if !crate::set_aside::unjudged(e, w, g)?.is_empty() {
+                return s(crate::set_aside::INPUT);
             }
             s(crate::approval::gate(e.db.conn(), &e.project_of(w)?, w)?)
         }

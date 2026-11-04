@@ -574,6 +574,13 @@ CREATE TABLE rounds (
   -- `transition` or `rejected`. 'total_time' is kept as the row says it, though the views count no round for it.
   -- Read by: the views of counters and of how many times a work asked, through the index `rounds_counts`.
   counts TEXT CHECK (counts IS NULL OR transition IS NOT NULL OR rejected IS NOT NULL),
+  -- The problems of a return taken that only checks the work said it changes (`checks_changed`) found, JSON: each as
+  -- `rejected` keeps a problem under `problems`, `{check, field, text}`, with its number in the work under `id` (S1,
+  -- S2, ...), in the order found. Until a change to the engine's checks is installed, the engine judges the work that
+  -- makes it by the checks as they were; what only those checks find is kept here instead of sending the return back,
+  -- for the reviews to judge. NULL for a round with none, and for any round that took no row: a return sent back keeps
+  -- every problem in `rejected`. Read by: the view `work_set_aside`.
+  set_aside TEXT CHECK (set_aside IS NULL OR (json_valid(set_aside) AND transition IS NOT NULL)),
   PRIMARY KEY (work, n),
   CHECK (transition IS NULL OR rejected IS NULL)
 ) STRICT;
@@ -1387,6 +1394,20 @@ CREATE VIEW sent_back_problems AS
     json_extract(p.value, '$.field') AS field,
     json_extract(p.value, '$.text') AS text
   FROM rounds r, json_each(r.rejected, '$.problems') p;
+
+CREATE VIEW work_set_aside AS
+  -- Each finding set aside in each work, one row each, in the order found (`position` counts from 0 in its round): the
+  -- round whose return was taken despite it, its number in the work (`id`, S1, S2, ...), the check that found it
+  -- (`check_name`), the field and the text, as `rounds.set_aside` keeps them. A finding is judged once a round of the
+  -- details review (`T3`) or the re-check (`T4`) after it handed in its answer, which the engine works out. Read by: the
+  -- engine, which numbers each new one after those before, gives the reviews and the merge gate those no review judged
+  -- (the input `set_aside`), and has the merge gate send those to the fix.
+  SELECT r.work, r.n AS round, r.cell, p.key AS position,
+    json_extract(p.value, '$.id') AS id,
+    json_extract(p.value, '$.check') AS check_name,
+    json_extract(p.value, '$.field') AS field,
+    json_extract(p.value, '$.text') AS text
+  FROM rounds r, json_each(r.set_aside) p;
 
 CREATE VIEW work_counters AS
   -- How many times each work took the rows that count each counter, by the counter each round recorded when it ended

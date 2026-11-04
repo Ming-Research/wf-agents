@@ -83,6 +83,7 @@ const round = (work: number, n: number, at: string, extra: Partial<RoundSummary>
   outcome: 'took',
   transition: 'next',
   why: null,
+  set_aside: null,
   started_at: work * 1000 + n,
   ended_at: work * 1000 + n + 1,
   model: null,
