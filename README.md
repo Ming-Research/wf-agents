@@ -97,6 +97,40 @@ engine's tool `decision_history` gives the history of one on main: each version 
 commit that made it, its date and message and its text, a withdrawn decision's included, and for a merge the commits it
 brought. wf-agents' own are in `decisions/`, whose README.md says how one is written.
 
+## A project's dependency sources
+
+An agent that researches, designs, implements, reviews or tests a change can read the source and the types of the
+dependencies a project's lock files lock, without compiling anything: the engine's tool `dependency_sources` runs the
+command the project's file gives for a lock file, in the work's worktree, and the agent reads what it wrote. The engine
+knows no language and no lock file format, so a project of any language lists a command of its own, one
+`[[dependency_sources]]` table for each lock file (`lock`, the directory the command fills as `into`, the `command`, and
+`timeout` in seconds, 600 unless set). For wf-agents itself:
+
+```toml
+[[dependency_sources]]
+lock = "Cargo.lock"
+into = "target/dependency-sources"
+command = "cargo vendor --locked --versioned-dirs target/dependency-sources"
+
+[[dependency_sources]]
+lock = "client/package-lock.json"
+into = "client/node_modules"
+command = "npm ci --ignore-scripts --no-audit --no-fund --prefix client"
+```
+
+What a command must do: fetch each package at the version the lock file locks, as it was published, with its types;
+compile nothing and run no code of a package (`--locked` keeps cargo from changing the lock file, `--ignore-scripts`
+runs no script of a package); and write only into its `into`, a directory of its own that it may empty first. `into`
+must be ignored by the project's git: the tool checks that before it runs anything, taking the path as a directory, and
+refuses when it is not, so that what a command writes never shows as a change of the work. The command is split into
+words as a shell splits a line and run without a shell, in the worktree's root; a command that needs a shell is written
+`sh -c '...'`. A command that runs past its time limit is stopped with everything it started. `wf-agents config check`
+tells every fault of the tables at once.
+
+A project's file that has these tables is refused by an engine that does not include the tool (a field it does not know
+is an error): install the engine that includes it first, then add the tables. The tables are the owner's, in the data
+directory; the decision behind the tool is `decisions/engine-runs-outside-commands.md`.
+
 ## The agents' own configuration
 
 The engine runs every agent's command line with a configuration directory of its own (`CLAUDE_CONFIG_DIR` for

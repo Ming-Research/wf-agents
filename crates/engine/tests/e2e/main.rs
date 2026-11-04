@@ -27,6 +27,7 @@ mod batches;
 mod cancels;
 mod decisions;
 mod deep_research;
+mod dependency_sources;
 mod failures;
 mod flow_versions;
 mod guard;
