@@ -821,7 +821,7 @@ fn push_refusal(wt: &Path, head: &str, pushed: Option<&str>, main: &str) -> Opti
 }
 
 /// The title and description a pull request is opened with when the engineer has handed in none, at the first push of
-/// a commit of the work's own (`ci`) or when the full CI opens it (`full_ci`): fixed English text naming the item by
+/// a commit of the work's own (`ci`): fixed English text naming the item by
 /// its number, and none of the item's own text, which is in the owner's language, since everything in a pull request
 /// is in English. The engineer's `pr` at a later push replaces both.
 fn pr_fallback(item: &Item) -> (String, String) {
@@ -3465,31 +3465,9 @@ timeout_ms = 1000
         assert_eq!(r.runs.merges(), 0);
     }
 
-    // The full CI on the draft makes the run of the full CI the head has none of, whatever the fast CI said, and tells
-    // red as red.
-    fn the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one(r: &mut Rig) {
-        let head = r.head.clone();
-        for (holds, kind) in [
-            (vec![("check", "red")], "red"),
-            (vec![("lint", "green")], "red"),
-            (vec![("check", "green")], "green"),
-        ] {
-            r.runs.clear();
-            r.runs.has_run(&head, "fast", &[("lint", "green"), ("fast", "green")]);
-            r.runs.makes("ci", &holds);
-            let v = r.run(full_ci);
-            assert_eq!(v["result"]["kind"], kind, "full run {holds:?}: {v}");
-            assert_eq!(
-                r.runs.dispatched(),
-                [("ci".to_string(), "work".to_string(), vec![])],
-                "full run {holds:?}"
-            );
-        }
-    }
-
     // A request GitHub refuses itself, such as an input the workflow does not take, is asked once, never again: `ci`
-    // tells the engineer what GitHub said as a refusal; the full CI on the draft and the merge, which have no refusal
-    // of their own, as a tool that did not run, of the kind `other` the flow lists, and nothing is merged.
+    // tells the engineer what GitHub said as a refusal; the merge, which has no refusal of its own, as a tool that did
+    // not run, of the kind `other` the flow lists, and nothing is merged.
     fn a_request_github_refuses_is_asked_once_and_told(r: &mut Rig) {
         let why = "HTTP 422: Unexpected inputs provided: [\"tests\"]";
         r.runs.clear();
@@ -3503,7 +3481,7 @@ timeout_ms = 1000
         );
         assert_eq!(r.runs.dispatched().len(), 1, "asked again");
         type Tool = fn(&mut Engine, &Work, &Item, RoundId) -> Result<Value, String>;
-        let tools: [(Tool, &str); 2] = [(full_ci, "full_ci"), (merge, "merge")];
+        let tools: [(Tool, &str); 1] = [(merge, "merge")];
         for (tool, name) in tools {
             r.runs.clear();
             r.runs.has_run(&r.head, "fast", &[("lint", "green"), ("fast", "green")]);
@@ -3525,7 +3503,6 @@ timeout_ms = 1000
     fn the_runs_of_the_fast_and_the_full_ci_are_made_and_read_apart() {
         let mut r = rig("runs-apart");
         the_tool_ci_gives_the_fast_run_it_made_and_what_it_ran(&mut r);
-        the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one(&mut r);
         a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
         a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
         a_request_github_refuses_is_asked_once_and_told(&mut r);

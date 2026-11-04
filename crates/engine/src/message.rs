@@ -1126,7 +1126,9 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
     // At a re-review of disputes only, the columns the last table review could not verify, by number and with the
     // words they had then.
     let mut only: Option<Unverified> = None;
-    if cell.id == "T4" {
+    // Only a graph with the review table's rule has a table review: the engineer's graph reviews in two passes now.
+    let tabled = g.rules.iter().any(|r| r.name == "review_table");
+    if cell.id == "T4" && tabled {
         let review = crate::inputs::last_return(e, w, g, "T7", "plan")
             .ok()
             .flatten()
