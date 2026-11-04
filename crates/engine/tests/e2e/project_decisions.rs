@@ -23,11 +23,13 @@ fn decided(s: &Setup) {
 }
 
 /// The flow as `flow/flow.json` has it, with the cells named (each by its graph and its id) given the project's
-/// decisions, and those of them that may ask for tools the tool decision_history: compiled and stored as a version of
-/// the flow, which the engine then runs, as the flow is to give them to the cells that judge design.
+/// decisions, and those of them that may ask for tools the tool decision_history, where the flow does not give them
+/// already: compiled and stored as a version of the flow, which the engine then runs.
 fn with_decisions(e: &mut Engine, cells: &[(&str, &str)]) -> i64 {
     let mut f: Value = serde_json::from_str(flow::FLOW).unwrap();
-    f["engine"]["inputs"]["decisions"] = json!("The project's decisions in force, as its main has them.");
+    if f["engine"]["inputs"].get("decisions").is_none() {
+        f["engine"]["inputs"]["decisions"] = json!("The project's decisions in force, as its main has them.");
+    }
     for (graph, id) in cells {
         let g = f["flows"]
             .as_array_mut()
@@ -37,13 +39,22 @@ fn with_decisions(e: &mut Engine, cells: &[(&str, &str)]) -> i64 {
             .as_array_mut()
             .and_then(|ns| ns.iter_mut().find(|n| n["id"] == *id))
             .unwrap();
-        cell["inputs"].as_array_mut().unwrap().push(json!({
-            "name": "The project's decisions",
-            "what": "The decisions in force, each file by its path with its text; none when there are none",
-            "from": [{ "engine": "decisions" }],
-            "maybe": true
-        }));
-        if let Some(tools) = cell["tools"].as_array_mut() {
+        let inputs = cell["inputs"].as_array_mut().unwrap();
+        let source = json!({ "engine": "decisions" });
+        if !inputs
+            .iter()
+            .any(|x| x["from"].as_array().is_some_and(|f| f.contains(&source)))
+        {
+            inputs.push(json!({
+                "name": "The project's decisions",
+                "what": "The decisions in force, each file by its path with its text; none when there are none",
+                "from": [source],
+                "maybe": true
+            }));
+        }
+        if let Some(tools) = cell["tools"].as_array_mut()
+            && !tools.contains(&json!("decision_history"))
+        {
             tools.push(json!("decision_history"));
         }
     }
