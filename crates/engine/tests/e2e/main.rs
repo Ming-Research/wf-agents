@@ -38,6 +38,7 @@ mod holds;
 mod interjection_hook;
 mod line_sessions;
 mod lock_update;
+mod lock_update_corners;
 mod messages;
 mod notebook;
 mod observations;

@@ -116,6 +116,38 @@ fn a_project_lists_the_lock_files_the_tool_brings_in_line_and_an_agent_is_told_t
     assert!(said.contains("projects/p.toml") && said.contains("colour"), "{said}");
 }
 
+// What is no path in the repository is told whichever way it fails to be one: nothing, the root by any name, a path that
+// goes up though it comes back in, an absolute one. A lock file listed twice is told however the second is spelled, `.`,
+// doubled slashes and a trailing slash being no parts of a path. A lock file both tools list is no fault: the design has
+// a project list its lock files for `dependency_sources` and for this tool alike.
+#[test]
+fn the_check_knows_a_path_by_its_parts_and_lets_both_tools_list_a_lock_file() {
+    let bad = ["", ".", "./", "a/..", "a/../b.lock", "/b.lock"];
+    let twice = ["./a/b.lock", "a/./b.lock", "a//b.lock", "a/b.lock/"];
+    let mut tables = String::from("[[lock_updates]]\nlock = \"a/b.lock\"\ncommand = \"true\"\n");
+    for lock in bad.iter().chain(&twice) {
+        tables.push_str(&format!("[[lock_updates]]\nlock = \"{lock}\"\ncommand = \"true\"\n"));
+    }
+    let data = Data::new("parts", &tables);
+    let said = config::working(data.path())
+        .expect_err("the faults are refused")
+        .to_string();
+    for lock in bad {
+        let fault = format!("lock_updates of {lock:?}: lock is not a path in the project's repository");
+        assert!(said.contains(&fault), "{fault}\n{said}");
+    }
+    for lock in twice {
+        let fault = format!("lock_updates of {lock:?}: lock is listed twice");
+        assert!(said.contains(&fault), "{fault}\n{said}");
+    }
+    let both = Data::new(
+        "both",
+        "[[dependency_sources]]\nlock = \"Cargo.lock\"\ninto = \"target/sources\"\ncommand = \"cargo vendor\"\n\
+         [[lock_updates]]\nlock = \"Cargo.lock\"\ncommand = \"cargo update --workspace\"\n",
+    );
+    assert!(config::working(both.path()).is_ok());
+}
+
 // The check tells every fault of the tables at once, each with the file and the lock file it is in: a lock file that is
 // not a path in the repository, whether it goes up or is absolute; a command with a quote that is not closed or with no
 // words; a time limit of 0; and a lock file listed twice, however its path is spelled. A table with none of these adds
