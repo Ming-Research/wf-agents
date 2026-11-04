@@ -87,7 +87,7 @@ fn the_nearest_agent_cell_on_the_stack_gives_the_line(g: &CompiledGraph) {
     // go on to the engineer's cells.
     assert_eq!(line("A2", &[]), "engineer");
     assert_eq!(line("A2", &["M1"]), "engineer");
-    assert_eq!(line("A2", &["D5"]), "engineer");
+    assert_eq!(line("A2", &["D3"]), "engineer");
     assert_eq!(line("A2", &["A6"]), "engineer");
     // No agent on the stack and a tool cell asking: no line, however many words wait for the engineer's.
     for tool in ["M2", "X1"] {

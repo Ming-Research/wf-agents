@@ -222,6 +222,6 @@ mod tests {
             .map(|c| c.id.as_str())
             .collect();
         assert_eq!(starts, ["R0", "R1", "D1", "T2", "T1"]);
-        assert_eq!(g.cell("I1").unwrap().fresh_session, ["D4·approved"]);
+        assert_eq!(g.cell("I1").unwrap().fresh_session, ["D3·posted"]);
     }
 }

@@ -42,7 +42,6 @@ mod notebook;
 mod observations;
 mod open_questions;
 mod owner;
-mod parallel_dependencies;
 mod policy;
 mod project_decisions;
 mod questions;
@@ -1110,15 +1109,14 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         "R1",
         Box::new(|_: &Request, _: usize| {
             (
+                vec![("outcome.can_start", "yes"), ("outcome.departs", "no")],
                 vec![
-                    ("outcome.can_start", "yes"),
-                    ("outcome.departs", "no"),
-                    ("outcome.to_decide", "no"),
+                    (
+                        "outcome.can_start.acceptance",
+                        json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
+                    ),
+                    ("outcome.points", json!([])),
                 ],
-                vec![(
-                    "outcome.can_start.acceptance",
-                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
-                )],
             )
         }),
     );
@@ -1178,22 +1176,15 @@ fn scripts() -> BTreeMap<&'static str, Script> {
     s
 }
 
-/// The default scripts with the research finding that the work must be designed first.
+/// The default scripts with the research finding that it cannot settle the approach: deep research takes the work.
 fn designing() -> BTreeMap<&'static str, Script> {
     let mut s = scripts();
     s.insert(
         "R1",
         Box::new(|_: &Request, _: usize| {
             (
-                vec![
-                    ("outcome.can_start", "yes"),
-                    ("outcome.departs", "no"),
-                    ("outcome.to_decide", "designs"),
-                ],
-                vec![(
-                    "outcome.can_start.acceptance",
-                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
-                )],
+                vec![("outcome.can_start", "no"), ("outcome.departs", "no")],
+                vec![("outcome.points", json!([]))],
             )
         }),
     );
