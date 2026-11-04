@@ -1854,15 +1854,23 @@ pub fn words(line: &str) -> Result<Vec<String>, String> {
     let mut cur = String::new();
     let mut has = false;
     let mut quote: Option<char> = None;
-    let mut chars = line.chars();
+    let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {
         match (quote, c) {
             (Some(q), c) if c == q => quote = None,
-            (Some('"'), '\\') | (None, '\\') => {
-                if let Some(n) = chars.next() {
+            // A backslash escapes the next character outside quotes; in double quotes only `$`, a backtick, `"` and `\`,
+            // and before any other character it is a character of the word. Before a line break it takes the break
+            // away, and at the end of the line it is a character of the word.
+            (Some('"'), '\\') | (None, '\\') => match chars.peek().copied() {
+                Some('\n') => {
+                    chars.next();
+                }
+                Some(n) if quote.is_none() || matches!(n, '$' | '`' | '"' | '\\') => {
+                    chars.next();
                     cur.push(n);
                 }
-            }
+                _ => cur.push('\\'),
+            },
             (Some(_), c) => cur.push(c),
             (None, '\'' | '"') => {
                 quote = Some(c);

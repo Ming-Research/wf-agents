@@ -161,20 +161,37 @@ struct Ran {
     output: String,
 }
 
+/// How many seconds the process that holds a command's process group lives at most, which is far more than the longest
+/// time limit a command is given and only matters if the engine ends without ending it.
+const HOLD_SECS: &str = "86400";
+
 /// Runs a command in `dir`, without a shell, in a process group of its own and with the engine's environment, to its end
-/// or to `limit`, and gives what it left. A command that runs past `limit` is stopped with everything it started
-/// ([`stop`]). What it writes is read as it runs, beside the wait for its end, so that a command that writes more than
-/// a pipe holds is never waiting for the reader while the reader waits for it. Fails when the command cannot be
-/// started.
+/// or to `limit`, and gives what it left. Whatever the command started and left running, when it ended or ran past
+/// `limit`, is stopped with it ([`stop`]). What it writes is read as it runs, beside the wait for its end, so that a
+/// command that writes more than a pipe holds is never waiting for the reader while the reader waits for it. Fails when
+/// the command cannot be started.
+///
+/// The group is held by a process of the engine's own (`sleep`) that stays until the group has been stopped, not by the
+/// command: the command is reaped when it ends, and from then on a group it led would have no process of the engine's
+/// to keep its id from being taken by another, while a signal to the group is still to be sent.
 fn run_command(words: &[String], dir: &Path, limit: Duration) -> Result<Ran, String> {
     let (program, args) = words.split_first().ok_or("the command holds no word")?;
     let (mut reader, writer) = std::io::pipe().map_err(|x| format!("no pipe for the output: {x}"))?;
     let errors = writer.try_clone().map_err(|x| format!("no pipe for the output: {x}"))?;
+    let mut holder = Command::new("sleep")
+        .arg(HOLD_SECS)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|x| format!("sleep, which holds the command's process group: {x}"))?;
+    let group = i32::try_from(holder.id()).map_err(|x| format!("process group {}: {x}", holder.id()))?;
     let mut command = Command::new(program);
     command
         .args(args)
         .current_dir(dir)
-        .process_group(0)
+        .process_group(group)
         .stdin(Stdio::null())
         .stdout(writer)
         .stderr(errors);
@@ -182,7 +199,14 @@ fn run_command(words: &[String], dir: &Path, limit: Duration) -> Result<Ran, Str
     // The command value holds the writing ends of the pipe until it is dropped, and the reader ends only when none is
     // left open.
     drop(command);
-    let mut child = spawned.map_err(|x| format!("{program}: {x}"))?;
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(x) => {
+            let _ = holder.kill();
+            let _ = holder.wait();
+            return Err(format!("{program}: {x}"));
+        }
+    };
     let kept = Arc::new(Mutex::new(Vec::<u8>::new()));
     let (ended, ends) = mpsc::channel();
     let reading = Arc::clone(&kept);
@@ -206,13 +230,18 @@ fn run_command(words: &[String], dir: &Path, limit: Duration) -> Result<Ran, Str
             Ok(None) if began.elapsed() >= limit => break (None, true),
             Ok(None) => std::thread::sleep(POLL),
             Err(x) => {
-                stop(&mut child, &ends);
+                let _ = child.kill();
+                stop(&mut holder, &ends);
+                let _ = child.wait();
                 return Err(format!("waiting for {program}: {x}"));
             }
         }
     };
+    // The command ended, or ran out of its time: what it started and left running goes with it, whether it holds the
+    // command's output or not.
+    stop(&mut holder, &ends);
     if timed_out {
-        stop(&mut child, &ends);
+        let _ = child.wait();
     }
     let _ = ends.recv_timeout(DRAIN);
     let output = String::from_utf8_lossy(&kept.lock().unwrap_or_else(PoisonError::into_inner)).into_owned();
@@ -223,19 +252,18 @@ fn run_command(words: &[String], dir: &Path, limit: Duration) -> Result<Ran, Str
     })
 }
 
-/// Stops a command that ran out of its time, and everything it started: asks its process group to end, gives it
-/// [`STOP_WAIT`] at most (the pipe it writes to closing is the sign that all of it ended), and kills the group whatever
-/// came of that. Only then is the child reaped, so that the group's id is the child's for every signal
-/// ([`signal_group`] says why that matters); the child was not reaped before, since `try_wait` reaps a child only when
-/// it has ended.
-fn stop(child: &mut Child, ends: &Receiver<()>) {
-    let group = child.id();
+/// Stops everything in a command's process group, given the process that holds the group (`holder`): asks the group to
+/// end, gives it [`STOP_WAIT`] at most (the pipe the command writes to closing is the sign that all of it ended, and
+/// where nothing is left that is at once), and kills the group whatever came of that. Only then is the holder reaped, so
+/// that the group's id is its for every signal ([`signal_group`] says why that matters).
+fn stop(holder: &mut Child, ends: &Receiver<()>) {
+    let group = holder.id();
     signal_group(group, "TERM");
     let _ = ends.recv_timeout(STOP_WAIT);
     signal_group(group, "KILL");
-    // The child itself, in case there is no `kill` to run.
-    let _ = child.kill();
-    let _ = child.wait();
+    // The holder itself, in case there is no `kill` to run.
+    let _ = holder.kill();
+    let _ = holder.wait();
 }
 
 #[cfg(test)]
@@ -269,6 +297,39 @@ mod tests {
         assert_eq!(ran.output, "first\nsecond\nthird\n");
         let big = run_command(&sh("yes x | head -c 1000000"), &d, Duration::from_secs(30)).unwrap();
         assert_eq!((big.code, big.timed_out, big.output.len()), (Some(0), false, 1_000_000));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // What a command started and left running is stopped when the command ends, with 0 or not, whether the process holds
+    // the command's output or has it closed away: a process that outlived the result would go on writing into the
+    // directory the agents read. The result does not wait for it (the processes here would run a minute).
+    #[test]
+    fn a_process_a_command_leaves_running_is_stopped_when_the_command_ends() {
+        let d = dir("left");
+        let began = Instant::now();
+        for (script, code) in [
+            ("sleep 60 & echo $! > holding; echo done", 0),
+            ("sleep 60 >/dev/null 2>&1 & echo $! > away; exit 4", 4),
+        ] {
+            let ran = run_command(&sh(script), &d, Duration::from_secs(30)).unwrap();
+            assert_eq!((ran.code, ran.timed_out), (Some(code), false), "{script}: {ran:?}");
+        }
+        assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
+        for file in ["holding", "away"] {
+            let pid = std::fs::read_to_string(d.join(file)).unwrap().trim().to_string();
+            let gone = (0..100).any(|_| {
+                let alive = Command::new("kill")
+                    .args(["-0", &pid])
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok_and(|s| s.success());
+                if alive {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                !alive
+            });
+            assert!(gone, "process {pid} ({file}) outlived the command");
+        }
         let _ = std::fs::remove_dir_all(&d);
     }
 

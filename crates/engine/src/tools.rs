@@ -1,7 +1,7 @@
 //! The tool cells: the tools agents ask for (cell `X1`, in each graph; `dependency_sources` is in
 //! [`crate::dependency_sources`]), the full CI on the draft (`T2`), the merge queue (`M2`) and watching main (`L1`).
-//! Each attempt of a tool is a row of tool_runs under the cell's round. A tool that fails is tried twice more; a refusal is a result, not a failure, and is not tried
-//! again.
+//! Each attempt of a tool is a row of tool_runs under the cell's round. A tool that fails is tried twice more; a
+//! refusal is a result, not a failure, and is not tried again.
 
 use std::cell::Cell;
 use std::path::Path;

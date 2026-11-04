@@ -124,7 +124,8 @@ runs no script of a package); and write only into its `into`, a directory of its
 must be ignored by the project's git: the tool checks that before it runs anything, taking the path as a directory, and
 refuses when it is not, so that what a command writes never shows as a change of the work. The command is split into
 words as a shell splits a line and run without a shell, in the worktree's root; a command that needs a shell is written
-`sh -c '...'`. A command that runs past its time limit is stopped with everything it started. `wf-agents config check`
+`sh -c '...'`. A command that runs past its time limit is stopped with everything it started, and one that ends leaves nothing it
+started running (a process it left in its process group is stopped when it ends). `wf-agents config check`
 tells every fault of the tables at once.
 
 A project's file that has these tables is refused by an engine that does not include the tool (a field it does not know
