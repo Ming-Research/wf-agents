@@ -1,0 +1,497 @@
+//! What a new session of the architect is told of the talk with the owner.
+
+use super::*;
+
+/// The scripts of a test of the understanding's rounds: the project's first understanding answers at once; its second
+/// round of the understanding in the test, the first round of a later session's, asks for tools, and the round after
+/// it answers.
+fn understanding_asks_for_tools_once() -> BTreeMap<&'static str, Script> {
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 2 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    agents
+}
+
+/// The hash and whether it was given of the talk (`owner_talk`) a round's input records, if it records one.
+fn talk_recorded(input: &Value) -> Option<(String, bool)> {
+    input["conditional"]
+        .as_array()?
+        .iter()
+        .find(|m| m["address"].as_str().is_some_and(|a| a.ends_with("·engine·owner_talk")))
+        .map(|m| {
+            (
+                m["hash"].as_str().unwrap_or_default().to_string(),
+                m["given"].as_bool().unwrap_or(false),
+            )
+        })
+}
+
+/// The number of each round of a work at a cell, oldest first.
+fn rounds_numbered(e: &Engine, work: i64, cell: &str) -> Vec<i64> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT n FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n")
+            .unwrap();
+    st.query_map(params![work, cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The input a work's round of a given number was sent.
+fn input_numbered(e: &Engine, work: i64, n: i64) -> Value {
+    let input: String =
+        e.db.conn()
+            .query_row(
+                "SELECT input FROM rounds WHERE work = ?1 AND n = ?2",
+                params![work, n],
+                |r| r.get(0),
+            )
+            .unwrap();
+    db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
+}
+
+/// The message the first round of the understanding of project p's architect was sent, when the owner had said each of
+/// `texts` to it, oldest first, and the project's notebook holds nothing yet.
+fn first_understanding_after(name: &str, texts: &[String]) -> String {
+    let s = setup(name);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    for t in texts {
+        say(&mut e, t);
+    }
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, arch, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap().to_string();
+    let _ = std::fs::remove_dir_all(&s.root);
+    m
+}
+
+/// `n` characters of `fill` ending in `end`.
+fn long_words(n: usize, fill: char, end: &str) -> String {
+    format!("{}{end}", fill.to_string().repeat(n - end.len()))
+}
+
+/// The tail of a message, for a failure to show.
+fn tail(m: &str) -> &str {
+    &m[m.len().saturating_sub(2_000)..]
+}
+
+// The talk given to a new session is cut to the character: entries that together make 60,000 characters are all given,
+// one character more and the earlier of them is left out whole, and an entry that is alone longer than that is given
+// whole. The reference is the limit the design states (60,000 characters, whole entries, latest first, a line after
+// them saying how many earlier ones there are).
+#[test]
+fn the_talk_given_is_cut_at_exactly_the_limit_and_never_inside_an_entry() {
+    // Exactly the limit: both long entries are given, the short one before them is the one earlier entry.
+    let m = first_understanding_after(
+        "owner-talk-exact",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(30_000, 'g', "GAMMAEND"),
+            long_words(30_000, 'd', "DELTAEND"),
+        ],
+    );
+    assert!(
+        m.contains("GAMMAEND") && m.contains("DELTAEND"),
+        "both fit the limit exactly: {}",
+        tail(&m)
+    );
+    assert!(!m.contains("ALPHAEND"));
+    assert!(m.contains("and 1 earlier entry before these"), "{}", tail(&m));
+
+    // One character over: the earlier long entry is left out whole, with the short one.
+    let m = first_understanding_after(
+        "owner-talk-over",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(30_001, 'g', "GAMMAEND"),
+            long_words(30_000, 'd', "DELTAEND"),
+        ],
+    );
+    assert!(m.contains("DELTAEND"), "{}", tail(&m));
+    assert!(
+        !m.contains("GAMMAEND") && !m.contains("ALPHAEND"),
+        "an entry is left out whole"
+    );
+    assert!(m.contains("and 2 earlier entries before these"), "{}", tail(&m));
+
+    // The very latest entry is given whole though it alone is over the limit.
+    let m = first_understanding_after(
+        "owner-talk-alone",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(70_000, 'e', "EPSILONEND"),
+        ],
+    );
+    assert!(m.contains("EPSILONEND"), "the latest entry is given whole");
+    assert!(m.contains("and 1 earlier entry before these"), "{}", tail(&m));
+    assert!(!m.contains("ALPHAEND"));
+}
+
+/// The owner says words to project p's architect with one image.
+fn say_with_an_image(e: &mut Engine, text: &str) {
+    say(e, text);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO attachments (matter, position, media_type, size, hash, bytes)
+             VALUES ((SELECT max(id) FROM architect_matters), 1, 'image/png', 4, 'h', zeroblob(4))",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+// A new session is told the talk of the one-to-one from the first round of the session before it, the one the project's
+// latest answered understanding ran in, on: the moment itself counts, and what was said before it is not told. The
+// owner's asks are told as the page shows them: an ask asked before that moment and answered at or after it with its
+// question and answer, one asked at it, one asked and answered after it, one asked and answered before it not at all,
+// one asked after it and not yet answered with its question; and how many images came with words or with an answer,
+// not the images. The reference is the owner's page: the entries of the conversation `architect:p` from that moment.
+#[test]
+fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_asks_and_images() {
+    let s = setup("owner-talk-window");
+    understanding_each_session(&s);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Alpha talk. ALPHAEND");
+    let one = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, one)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The work's session began 100 minutes ago: its first round, the understanding's, started at `t - 30 seconds`, the
+    // later rounds after it, and what was said before that earlier still. The notebook the work wrote plays no part.
+    let t = db::now() - 100 * 60_000;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET started_at = ?1 - 30000,
+                    ended_at = ?1 - CASE WHEN cell = 'U1' THEN 20000 ELSE 0 END WHERE work = ?2",
+            params![t, one],
+        )?;
+        tx.execute("UPDATE architect_matters SET at = ?1 - 100000", [t])?;
+        Ok(())
+    })
+    .unwrap();
+    let ask = |e: &mut Engine, question: &str, asked: i64, answer: Option<(&str, i64)>, images: i64| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer) VALUES (?1, 1, ?2, ?3)",
+                params![
+                    one,
+                    json!({ "question": question }).to_string(),
+                    answer.map(|(text, at)| json!({ "by": "owner", "text": text, "at": at }).to_string())
+                ],
+            )?;
+            let id = tx.last_insert_rowid();
+            // An ask is asked when its notice says so.
+            tx.execute(
+                "INSERT INTO engine_notices (work, text, at, ask) VALUES (?1, 'An ask.', ?2, ?3)",
+                params![one, asked, id],
+            )?;
+            for position in 1..=images {
+                tx.execute(
+                    "INSERT INTO attachments (ask, position, media_type, size, hash, bytes)
+                     VALUES (?1, ?2, 'image/png', 4, 'h', zeroblob(4))",
+                    params![id, position],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    };
+    // The cut is `t - 30 seconds`. Asked and answered before it: said before the session began. One answered at it, and
+    // one asked at it and not answered: the moment itself counts. One asked before it and answered after it, and one
+    // asked and answered after it, the answer with two images, and one asked after it and not answered.
+    ask(&mut e, "QOLD?", t - 50_000, Some(("AOLD", t - 40_000)), 0);
+    ask(&mut e, "QATCUT?", t - 30_000, None, 0);
+    ask(&mut e, "QEDGE?", t - 31_000, Some(("AEDGE", t - 30_000)), 0);
+    ask(&mut e, "QMID?", t - 15_000, Some(("AMID", t - 12_000)), 0);
+    ask(&mut e, "QSTRADDLE?", t - 35_000, Some(("ASTRADDLE", t + 3_000)), 0);
+    ask(&mut e, "QOPEN?", t + 5_000, None, 0);
+    ask(&mut e, "QNEW?", t + 4_000, Some(("ANEW", t + 6_000)), 2);
+    // The owner's words now, with one image.
+    say_with_an_image(&mut e, "Beta talk. BETAEND");
+    let two = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sessions = architect_sessions(&e, one, two);
+    assert_eq!(sessions[1].0, "expired", "{sessions:?}\n{log}");
+    let u1 = input_at(&e, two, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    for gone in ["ALPHAEND", "QOLD", "AOLD"] {
+        assert!(
+            !m.contains(gone),
+            "{gone} was said before the session before began: {m}"
+        );
+    }
+    for told in [
+        "QATCUT",
+        "QEDGE",
+        "AEDGE",
+        "QMID",
+        "AMID",
+        "QSTRADDLE",
+        "ASTRADDLE",
+        "QOPEN",
+        "QNEW",
+        "ANEW",
+        "BETAEND",
+    ] {
+        assert!(m.contains(told), "{told} is told: {m}");
+    }
+    assert!(m.contains("2 images attached"), "{m}");
+    assert!(m.contains("1 image attached"), "{m}");
+    // In the order of the times an entry was made, an ask when it was answered if it was: the two at the cut, the one
+    // answered 18 seconds after it, the one answered 33 seconds after it, the one asked at 35, the one answered at 36,
+    // then the owner's words, which came now.
+    let at = |x: &str| m.find(x).unwrap();
+    let order = ["QATCUT", "QEDGE", "QMID", "QSTRADDLE", "QOPEN", "QNEW", "BETAEND"];
+    assert!(order.windows(2).all(|w| at(w[0]) < at(w[1])), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Every round of a new session's understanding is told the same talk. The understanding that asks for tools first is
+// given its inputs again at its next round, after the first round has begun the session and its row exists: the cut
+// must not move to the session's own first round, which would leave that round with almost nothing and the talk it was
+// first given held in a session that no longer matches it. The reference is the talk of the first round: the second
+// round records the same content (the same hash) and refers to it, not gives it again, and the first is told the
+// second words, not the first.
+#[test]
+fn the_rounds_of_a_new_sessions_understanding_are_all_told_the_same_talk() {
+    let (s, e, said, works) = architect_works_in(
+        "owner-talk-rounds",
+        understanding_asks_for_tools_once(),
+        &[(0, "Alpha talk. ALPHAEND"), (90 * 60_000, "Beta talk. BETAEND")],
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rounds = rounds_numbered(&e, works[1], "U1");
+    assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
+    let (first, second) = (
+        input_numbered(&e, works[1], rounds[0]),
+        input_numbered(&e, works[1], rounds[1]),
+    );
+    let m = first["message"].as_str().unwrap();
+    assert!(m.contains("BETAEND") && !m.contains("ALPHAEND"), "{m}");
+    let (before, after) = (talk_recorded(&first).expect(&log), talk_recorded(&second).expect(&log));
+    assert_eq!(
+        (before.1, after.1),
+        (true, false),
+        "given once, then referred to: {first}\n{second}"
+    );
+    assert_eq!(before.0, after.0, "the same talk at both rounds");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A session counts from its first round across the works it ran in, and a session replaced before its understanding
+// answered is no session before: a session first began in the first of three works (the later two carried it on), the
+// next work's session was replaced at the understanding's second round for its cache (an hour and a half later), and
+// that round's session is told the talk from the start of the first, not of the third work, and not from the start of
+// the replaced session; its first round, in the replaced session, was told the same.
+#[test]
+fn the_talk_is_cut_at_the_first_round_of_a_session_across_the_works_it_ran_in() {
+    let (s, mut e, said, _) = architect_works_in(
+        "owner-talk-carried",
+        understanding_asks_for_tools_once(),
+        &[
+            (0, "Alpha talk. ALPHAEND"),
+            (30 * 60_000, "Beta talk. BETAEND"),
+            (30 * 60_000, "Gamma talk. GAMMAEND"),
+        ],
+    );
+    let log = said.lock().unwrap().join("\n");
+    let started: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT started FROM sessions WHERE line = 'architect' ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(started, ["line", "carried", "carried"], "{started:?}\n{log}");
+    // The fourth work begins in a new session an hour and a half after, asks for tools, and the cache of that session
+    // is let go before its next round.
+    age_architect(&mut e, 90 * 60_000);
+    say(&mut e, "Delta talk. DELTAEND");
+    let four = e.step(None).unwrap().work.unwrap();
+    let took_tools = |e: &mut Engine| {
+        cells_of(e, four)
+            .iter()
+            .any(|c| c.0 == "U1" && c.1.as_deref() == Some("tools"))
+    };
+    assert!(
+        steps_until(&mut e, 20, took_tools),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, four)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let started: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT started FROM sessions WHERE line = 'architect' AND work = ?1 ORDER BY id")
+                .unwrap();
+        st.query_map([four], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(started, ["expired", "expired"], "{started:?}\n{log}");
+    let rounds = rounds_numbered(&e, four, "U1");
+    assert_eq!(rounds.len(), 2, "{rounds:?}\n{log}");
+    let (first, second) = (input_numbered(&e, four, rounds[0]), input_numbered(&e, four, rounds[1]));
+    // From the start of the first work on: the words of the later two works, which the first session ran in too, and
+    // the fourth's, are told, and the first work's own words, said before its first round, are not.
+    for round in [&first, &second] {
+        let m = round["message"].as_str().unwrap();
+        for told in ["BETAEND", "GAMMAEND", "DELTAEND"] {
+            assert!(m.contains(told), "{told} is told: {m}");
+        }
+        assert!(!m.contains("ALPHAEND"), "{m}");
+    }
+    // The session the second round began is given the talk whole.
+    assert!(talk_recorded(&second).expect(&log).1, "{second}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// With no previous session there is no lower bound, at any round of the project's first understanding: the round after
+// tools, which runs when the session's own row exists, is told the very talk the first round was, the owner's words
+// from before the session began included, and refers to it. The reference is the design: no answered understanding of
+// the project, no cut.
+#[test]
+fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bound() {
+    // The first round of the understanding, the project's first, asks for tools; the round after answers.
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (s, e, said, works) = architect_works_in("owner-talk-first-rounds", agents, &[(0, "Alpha talk. ALPHAEND")]);
+    let log = said.lock().unwrap().join("\n");
+    let rounds = rounds_numbered(&e, works[0], "U1");
+    assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
+    let (first, second) = (
+        input_numbered(&e, works[0], rounds[0]),
+        input_numbered(&e, works[0], rounds[1]),
+    );
+    let m = first["message"].as_str().unwrap();
+    assert!(m.contains("ALPHAEND"), "said before the session began, and told: {m}");
+    let (before, after) = (talk_recorded(&first).expect(&log), talk_recorded(&second).expect(&log));
+    assert_eq!(
+        (before.1, after.1),
+        (true, false),
+        "given once, then referred to: {first}\n{second}"
+    );
+    assert_eq!(before.0, after.0, "the same talk at both rounds");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Every kind of entry of the one-to-one is told from the first round of the session before on, and none from before it:
+// the owner's interjection with its images counted, and an entry of a talk, which the page shows in the conversation.
+// The reference is the owner's page, which shows these entries in the conversation `architect:p`, and the design: at or
+// after the session before began.
+#[test]
+fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
+    let s = setup("owner-talk-kinds");
+    understanding_each_session(&s);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Alpha talk. ALPHAEND");
+    // Said clearly before the work's first round.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE architect_matters SET at = at - 5000", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let one = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, one)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    // The session began with the first round of the work, whatever it was.
+    let cut: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND session IS NOT NULL",
+                [one],
+                |r| r.get(0),
+            )
+            .unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        let matter: i64 = tx.query_row("SELECT min(id) FROM architect_matters", [], |r| r.get(0))?;
+        for (text, at) in [("TALKOLD", cut - 1_000), ("TALKNEW", cut + 1_000)] {
+            tx.execute(
+                "INSERT INTO talk_entries (matter, text, at) VALUES (?1, ?2, ?3)",
+                params![matter, text, at],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text, delivered_round)
+             VALUES (?1, 'architect', 'owner', 'INTERJECTEND', 1)",
+            [one],
+        )?;
+        let id = tx.last_insert_rowid();
+        for position in 1..=3 {
+            tx.execute(
+                "INSERT INTO attachments (interjection, position, media_type, size, hash, bytes)
+                 VALUES (?1, ?2, 'image/png', 4, 'h', zeroblob(4))",
+                params![id, position],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Beta talk. BETAEND");
+    let two = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, two, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    assert!(!m.contains("TALKOLD"), "said before the session before began: {m}");
+    assert!(!m.contains("ALPHAEND"), "{m}");
+    for told in ["TALKNEW", "INTERJECTEND", "BETAEND"] {
+        assert!(m.contains(told), "{told} is told: {m}");
+    }
+    assert!(m.contains("3 images attached"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}

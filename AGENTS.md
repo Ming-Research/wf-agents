@@ -10,7 +10,7 @@ What an agent needs to know for this repository, beyond the rules every agent is
   for every crate.
 - A new crate goes under `crates/` and takes its version, edition and lints from the workspace.
 - `db/schema.sql` is the only definition of the database: change the database by changing it, with the migration in
-  the same pull request.
+  the same pull request, a file of `db/migrations/` named by the minute it was written and what it does.
 - A change to the owner's page follows its UI spec, [client/ui-spec.md](client/ui-spec.md), and passes its check,
   `npm run check:ui` in `client/`.
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
@@ -22,6 +22,8 @@ What an agent needs to know for this repository, beyond the rules every agent is
   check; what the compiler's walk must keep is held by the small graph whose states are counted by hand, in
   `crates/flow/src/walk.rs`. A test that must keep a snapshot for each cell keeps one file for each cell
   (`crates/flow/tests/moves/`), never a line of one file: git's merge takes changes to neighbouring lines for a conflict.
+- Two works that add at one place conflict at the merge: add a test to the module of what it tests or a new one (as in
+  `crates/engine/tests/e2e/`), never at the end of a file or a list that every work appends to.
 - A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
   a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
   returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a
