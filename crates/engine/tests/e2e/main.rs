@@ -26,6 +26,7 @@ mod asks;
 mod batches;
 mod cancels;
 mod decisions;
+mod deep_research;
 mod failures;
 mod flow_versions;
 mod groups;

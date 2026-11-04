@@ -100,7 +100,7 @@ fn an_engineer_s_cell_is_given_the_decisions_main_has_and_on_asking_one_s_histor
     let (mut e, said, item) = start(&s, agents);
     with_decisions(&mut e, &[("engineer", "R1"), ("engineer", "I1")]);
     // Main takes the decisions once research is done, before implementing: the round's fetch brings them.
-    step_to(&mut e, item, "D1");
+    step_to(&mut e, item, "I1");
     decided(&s);
     let ran = |e: &Engine| -> Option<String> {
         e.db.conn()
