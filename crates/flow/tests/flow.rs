@@ -1411,7 +1411,8 @@ fn every_sample_takes_its_row() {
 }
 
 // Item #270: adversarial testing goes on, past the engineer's tests, when a guard test cannot be built before the change
-// (the review judges it), and goes back to the engineer only when one fails there, whoever wrote it.
+// (the review judges it), and goes back to the engineer only when one fails there. The route reads the result alone: a
+// guard test of the adversarial tester that cannot be built is stopped earlier, by the check `test_kinds_match`.
 #[test]
 fn a_guard_test_that_cannot_be_built_before_the_change_does_not_send_testing_back() {
     let c = compiled();

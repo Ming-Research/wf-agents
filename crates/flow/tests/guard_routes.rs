@@ -68,7 +68,7 @@ fn a_red_guard_row_among_unbuilt_ones_sends_testing_back_wherever_it_stands() {
     let all_unjudged = json!([
         unbuilt("a"),
         skipped("b"),
-        guard("c", "adversarial", "green", "cannot_run")
+        guard("c", "engineer", "green", "cannot_run")
     ]);
     assert_eq!(route(all_unjudged, None, "no"), "clear");
 }

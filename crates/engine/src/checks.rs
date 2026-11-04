@@ -1715,8 +1715,8 @@ fn verdict_problems(refuted: &[String], verdict: Option<&str>) -> Problems {
 
 /// What is wrong with the kinds of the tests in a table of new tests (`new`) or of guard tests: each test the engineer
 /// added under the other kind (`kinds`, each added test's name and kind), and each adversarial test whose result before
-/// the change does not fit the table, every row once. A guard that cannot be built before the change fits: the review
-/// judges it, as it judges one not run.
+/// the change does not fit the table, every row once. An adversarial guard that cannot be built before the change does
+/// not fit: it has no reason to give and no review after it, and it can be written against what exists before the change.
 fn kind_problems(rows: &[Value], kinds: &[(String, String)], new: bool) -> Problems {
     let want = if new { "new_behaviour" } else { "old_behaviour" };
     let mut problems = Problems::default();
@@ -1735,7 +1735,7 @@ fn kind_problems(rows: &[Value], kinds: &[(String, String)], new: bool) -> Probl
             let wrong = if new {
                 base == "green"
             } else {
-                !matches!(base, "green" | "not_run" | "cannot_run")
+                !matches!(base, "green" | "not_run")
             };
             if wrong {
                 problems.push(format!(
@@ -3723,18 +3723,18 @@ mod tests {
         assert!(result_problems(&[new], true).is_empty());
     }
 
-    // Item #270: an adversarial guard test that cannot be built before the change fits the table of guard tests, as
-    // one not run does; one that fails before the change is still wrong.
+    // Item #270: the relaxation is the engineer's alone: an adversarial guard test that cannot be built before the
+    // change is still sent back, since it has no place for a reason and no review after it.
     #[test]
-    fn an_adversarial_guard_test_that_cannot_be_built_fits_its_table() {
+    fn an_adversarial_guard_test_that_cannot_be_built_is_still_sent_back() {
         let rows = vec![
             json!({ "name": "built", "by": "adversarial", "on_base": "green" }),
             json!({ "name": "not_built", "by": "adversarial", "on_base": "cannot_run" }),
-            json!({ "name": "fails", "by": "adversarial", "on_base": "red" }),
+            json!({ "name": "not_run", "by": "adversarial", "on_base": "not_run" }),
         ];
         assert_eq!(
             said(kind_problems(&rows, &[], false)),
-            ["fails: its result before the change does not fit its kind; fix it in this round and run it again"]
+            ["not_built: its result before the change does not fit its kind; fix it in this round and run it again"]
         );
     }
 
