@@ -770,7 +770,21 @@ fn the_architect_the_owner_starts_works_and_goes_on_while_every_work_is_paused()
 #[test]
 fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let s = setup("own-new-session");
-    let (mut e, said, item) = start(&s, scripts());
+    // Implementing asks for ci twice before it hands in, so that the work's next three rounds are all the engineer's.
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 2 {
+                let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+                let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"] }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
     agent_rounds_to(&mut e, item, 1);
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "I1", "{}", said.lock().unwrap().join("\n"));
