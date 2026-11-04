@@ -2691,7 +2691,8 @@ export type ToolUse = { name: string, runs: string, };
 
 export type CompiledGraph = { name: string, start: string, end: string,
 /**
- * The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
+ * The end a work stopped before its end ends at: cancelled or taken over, from wherever it stands, or brought
+ * there by a row of the cell for a work on an older flow version; none in a graph without one.
  */
 cancel?: string | null,
 /**
