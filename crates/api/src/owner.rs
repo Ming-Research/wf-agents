@@ -643,11 +643,10 @@ fn relayed_words(conn: &Connection, ask: i64, body: &Value, text: &str) -> Resul
         )
         .optional()
         .map_err(sql)?;
-    let taken_in = match (*kind, held_at.as_deref()) {
-        ("change", Some(_)) => true,
-        ("design_review", Some("D3")) => true,
-        _ => false,
-    };
+    let taken_in = matches!(
+        (*kind, held_at.as_deref()),
+        ("change", Some(_)) | ("design_review", Some("D3"))
+    );
     if ended || taken_in {
         return Ok(None);
     }

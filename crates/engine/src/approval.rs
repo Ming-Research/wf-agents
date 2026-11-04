@@ -68,9 +68,12 @@ fn design_approved(conn: &Connection, work: i64) -> Result<bool, String> {
             .any(|r| r.transition.as_deref() == Some("approved")))
 }
 
-/// The latest ask of the change: its id, the number of the round that put it, the owner's answer once it came, and
-/// whether the answer went to the engineer as the owner's words when it came.
-fn latest_ask(conn: &Connection, work: i64) -> Result<Option<(i64, i64, Option<Value>, bool)>, String> {
+/// An ask of the change: its id, the number of the round that put it, the owner's answer once it came, and whether the
+/// answer went to the engineer as the owner's words when it came.
+type ChangeAsk = (i64, i64, Option<Value>, bool);
+
+/// The latest ask of the change.
+fn latest_ask(conn: &Connection, work: i64) -> Result<Option<ChangeAsk>, String> {
     let row: Option<(i64, i64, Option<String>, bool)> = conn
         .query_row(
             &format!(
