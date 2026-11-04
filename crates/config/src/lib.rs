@@ -796,6 +796,17 @@ pub struct Ci {
     /// the input at white space still reads every name that holds no space as it did before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
+    /// The checks of the fast CI besides the tests, such as the lint, that it runs only when the ci tool names them,
+    /// each by the name of its job in the fast workflow: the full CI runs every check once, at the merge, and a check
+    /// it found red is run so while it is fixed. Each needs `checks_input`, and the CI on demand. None, and the ci tool
+    /// runs the tests only and refuses a check named.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named_checks: Vec<String>,
+    /// The input of the fast CI's workflow that takes the checks to run (`named_checks`): the engine gives the names
+    /// asked for as a JSON array of strings, such as `["lint"]`, and gives the input only when one is asked for, so
+    /// that a run with none, and a workflow made before the input, take its default, which runs none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks_input: Option<String>,
     /// Whether the fast CI runs when the engine pushes the temporary ref (`wf-agents-before/...`) that ci_before puts
     /// the code before the change on. Read only where `tests_input` is none: ci_before then waits for the run the push
     /// makes, and for it to end it reads each listed test's result from the run's results (`results`). Set to false
@@ -813,9 +824,10 @@ pub struct Ci {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_artifact: Option<String>,
     /// Whether the fast CI runs only when the engine asks for it: the ci tool then runs the fast workflow by hand on
-    /// the work's branch with the tests named (`tests_input`, which must be set), and the full CI, which no push of a
-    /// work's branch is to run, is run by hand too, by the tools that need it, when the commit has no run of it yet.
-    /// Off, the pushes of a work's branch run both, and the tools only wait for those runs.
+    /// the work's branch with the tests named (`tests_input`, which must be set) and the checks named
+    /// (`named_checks`), and nothing when it names neither, and the full CI, which no push of a work's branch is to
+    /// run, is run by hand too, at the merge, when the commit has no run of it yet. Off, the pushes of a work's branch
+    /// run both, and the tools only wait for those runs.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_demand: bool,
     /// The workflows the measure tool may run, each with what it takes and gives; none when the project has no
@@ -1390,6 +1402,30 @@ impl Config {
             if p.ci.tests_input.as_deref().is_some_and(|i| i.trim().is_empty()) {
                 problems.push(format!(
                     "projects/{name}.toml: ci.tests_input is empty; it names the workflow's input"
+                ));
+            }
+            // A check named is run by hand, by the input that takes the checks; each is named by its job.
+            match (p.ci.named_checks.is_empty(), p.ci.checks_input.as_deref()) {
+                (false, None) => problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks needs ci.checks_input, the input of the fast workflow that \
+                     takes the checks to run"
+                )),
+                (true, Some(_)) => problems.push(format!(
+                    "projects/{name}.toml: ci.checks_input is set and ci.named_checks lists no check to run by it"
+                )),
+                (_, Some(i)) if i.trim().is_empty() => problems.push(format!(
+                    "projects/{name}.toml: ci.checks_input is empty; it names the workflow's input"
+                )),
+                _ => {}
+            }
+            if !p.ci.named_checks.is_empty() && !p.ci.on_demand {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks needs ci.on_demand: only a run by hand runs a check by name"
+                ));
+            }
+            if p.ci.named_checks.iter().any(|c| c.trim().is_empty()) {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks holds an empty name; each is the name of a job"
                 ));
             }
             if let Some(r) = &p.ci.results {

@@ -3652,8 +3652,8 @@
   "tools": [
     {
       "name": "ci",
-      "desc": "Pushes your local commits and runs the repository's fast CI on the commit (where the project runs its CI on demand: the tests you list and the lint); when it is done, gives you the result of each check, and puts in your worktree, uncommitted, the files a red run generated that differ from yours, such as the files as the formatter makes them",
-      "runs": "The engine checks the head and pushes. On the first push of a commit beyond main it opens a draft PR with the title and description handed in, and updates them when new ones come; GitHub opens none for a branch with no commit beyond main, so a push of such a branch opens none and only runs the fast CI. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the lint, or the lint only when none is listed, and it takes only the run it made, never one made before. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. GitHub runs a workflow by hand on a branch by the file of it the branch holds; where it refuses to, as on a branch made before main's workflow took the request, and main's CI files (.github/) differ from the branch's, the engine runs it on a temporary ref holding the head with main's CI files, those the work changed itself kept as the work has them, gives that run as the head's and deletes the ref. The engine waits for the run to finish and downloads the logs of red checks. When tests are listed, it downloads the results the run reported, JUnit XML in the artifact the configuration names (`project.ci.results`), and reads from them what became of each test each listed name names and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
+      "desc": "Pushes your local commits and runs the repository's fast CI on the commit; where the project runs its CI on demand, it runs only what you name: the tests you list, and the checks you name. When it is done, it gives you the result of each check and of each test you listed, and puts in your worktree, uncommitted, the files a red run generated that differ from yours, such as the files as the formatter makes them. The full CI, every check and every test, runs once, at the merge",
+      "runs": "The engine checks the request and the head, telling everything wrong with them at once, and pushes. On the first push of a commit beyond main it opens a draft PR with the title and description handed in, and updates them when new ones come; GitHub opens none for a branch with no commit beyond main, so a push of such a branch opens none and only runs the fast CI. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the checks named, among those the configuration lists (named_checks), given by the input it names (checks_input), and it takes only the run it made, never one made before; a job the run skipped, as the lint when it is not named, is not among the checks it gives. When no test is listed and no check named, it runs nothing and gives no check. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. GitHub runs a workflow by hand on a branch by the file of it the branch holds; where it refuses to, as on a branch made before main's workflow took the request, and main's CI files (.github/) differ from the branch's, the engine runs it on a temporary ref holding the head with main's CI files, those the work changed itself kept as the work has them, gives that run as the head's and deletes the ref. The engine waits for the run to finish and downloads the logs of red checks. When tests are listed, it downloads the results the run reported, JUnit XML in the artifact the configuration names (`project.ci.results`), and reads from them what became of each test each listed name names and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
       "in": [
         {
           "name": "head",
@@ -3665,10 +3665,21 @@
           "name": "tests",
           "title": "Tests to run",
           "type": "list",
-          "desc": "The tests to read the results and times of, by their names. Where the project runs its CI on demand, these are also the only tests that run, beside the lint: naming none runs the lint only. Leave it out only when you hand in just the PR title and description, which still runs the lint and waits for it",
+          "desc": "The tests to run and read the results and times of, by their names. Where the project runs its CI on demand, these are the only tests that run, and nothing else runs but the checks you name: naming no test and no check runs nothing. Leave it out only when you hand in just the PR title and description, or run a check alone",
           "optional": true,
           "item": {
             "$ref": "test_name"
+          }
+        },
+        {
+          "name": "checks",
+          "title": "Checks to run",
+          "type": "list",
+          "desc": "Checks of the fast CI to run beside the tests, by their names, among those the project runs by name, `project.ci.named_checks`, such as the lint. The full CI runs every check once, at the merge: name one only to fix what it found red there, and run it until it is green. Leave it out otherwise",
+          "optional": true,
+          "item": {
+            "type": "text",
+            "desc": "The check's name, as the full CI's run names its job"
           }
         },
         {
@@ -3703,7 +3714,7 @@
           "branches": [
             {
               "value": "pushed",
-              "desc": "Pushed, and the fast CI has finished",
+              "desc": "Pushed, and the fast CI has finished, or nothing was asked of it",
               "fields": [
                 {
                   "name": "head",
@@ -3719,12 +3730,20 @@
                   "optional": true,
                   "values": [
                     [
-                      "named_and_lint",
-                      "The tests you named, each to its end, and the lint"
+                      "named",
+                      "The tests you named, each to its end, and nothing else"
                     ],
                     [
-                      "lint",
-                      "The lint only, since you named no test"
+                      "named_and_checks",
+                      "The tests you named, each to its end, and the checks you named"
+                    ],
+                    [
+                      "checks",
+                      "The checks you named only, since you named no test"
+                    ],
+                    [
+                      "none",
+                      "Nothing, since you named no test and no check: the push ran no CI, and there is no check"
                     ],
                     [
                       "whole",
@@ -3787,7 +3806,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI where the project's CI runs on demand: the head is not the one handed in, it does not follow the last push, it carries another branch, or a test's name holds a line break"
+                  "desc": "Every check that failed, told at once, or what GitHub said in refusing to run the fast CI where the project's CI runs on demand: the head is not the one handed in, it does not follow the last push, it carries another branch, a test's name holds a line break, or a check named is not one the project's fast CI runs by name"
                 }
               ]
             }
@@ -3797,7 +3816,7 @@
     },
     {
       "name": "ci_before",
-      "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch",
+      "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch. Only files in the test paths go there: a test written in a file of the implementation cannot, since that file's change is the change itself, so write it in a file of its own in the test paths. A test that cannot run on the code before the change, as one that needs what only the change adds to be built or to reach what it tests, is not run there: say so where you report the test, and why, and the review judges it",
       "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end. Otherwise the push runs the whole fast CI, which stops a job at its first red test, where the project's configuration says its CI runs on those branches (runs_on_before_branches, true unless set); where it says it does not, nothing is pushed, and the tool refuses, saying so. Where GitHub refuses to run the workflow by hand with the CI files (.github/) of the code before the change, as those of a branch made before main's took the request, and main's differ, the engine puts main's CI files on that code and runs it again. It waits for the run to finish, downloads the logs of red checks, deletes the temporary branch, and reads what became of each test each listed name names from the results the run reported, JUnit XML in the artifact the configuration names (`project.ci.results`). A unit of tests that could not be built on the code before the change, as one that uses what the change adds, is reported as not built, and the tests of every other unit still run",
       "in": [
         {
@@ -3879,7 +3898,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, a file is outside the test paths, a test's name holds a line break, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
+                  "desc": "Every check that failed, told at once, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, a file is outside the test paths, with what to do about a test written in a file of the implementation, a test's name holds a line break, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
                 }
               ]
             }

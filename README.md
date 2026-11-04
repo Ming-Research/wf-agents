@@ -24,9 +24,9 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `constitution.md`: the lasting values designs are judged by, which the owner sets.
 - `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
-- `.github/workflows/ci.yml`: the full CI, the checks every pushed commit runs; `.github/workflows/fast.yml`: the fast
-  CI the engine runs by hand on a work's branch, with the tests to run; `.github/actions/lint`: the lint steps both
-  run; `.config/nextest.toml`: how they run the tests; `.config/english-exempt.txt`: the files the check that the
+- `.github/workflows/ci.yml`: the full CI, every check, which each push to main runs and a work's head runs once, at
+  the merge; `.github/workflows/fast.yml`: the fast CI the engine runs by hand on a work's branch, with the tests to
+  run and the checks named; `.github/actions/lint`: the lint steps both run; `.config/nextest.toml`: how they run the tests; `.config/english-exempt.txt`: the files the check that the
   repository is in English leaves out.
 - `.github/workflows/measure.yml`: the measurement workflow the engine's tool `measure` runs for a project that lists it
   (`[[ci.measure]]` in the project's configuration): it times a command on the code to compare with, a twin of it and
@@ -35,17 +35,22 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 
 ## Checks
 
-Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as errors, and the tests, on the toolchain
+The full CI, `ci`, runs on each push to main, and on a work's branch when the engine runs it by hand: rustfmt, clippy
+with warnings as errors, and the tests, on the toolchain
 `rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
 build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
 flow as the engine stores it, which the page's tests read and git leaves out). Its job `check` is red whenever another
 of its jobs is. A red format check leaves the files as rustfmt makes them, and a stale `client/src/api.ts` the file as
 generated, in the artifact `page-types`, for the engine to put in the work's worktree. The workflow `fast` runs only
-when asked, by hand, with the tests to run (its input `tests`): those tests beside the lint, in a few minutes; it has
-no job `check`, so that a head only it has run cannot be merged. Where a project's configuration sets `ci.on_demand`,
-the engine's tool `ci` runs it so, and runs the full CI by hand on a head that has no run of it yet, before the full
-CI on the draft and the merge; else a push runs the full CI and the engine only waits for it. The tool `ci_before` runs the tests it is given on the
+when asked, by hand, and only what it is asked for: it compiles and runs the tests named (its input `tests`), and runs
+the lint only when that is named (its input `checks`), in a few minutes; it has no job `check`, so that a head only
+it has run cannot be merged. Where a project's configuration sets `ci.on_demand`, the engine's tool `ci` runs it so,
+with the tests listed and the checks named among those the configuration runs by name (`ci.named_checks`, given by
+`ci.checks_input`), and runs nothing when it names neither; the full CI runs by hand once, at the merge, on a head that
+has no run of it yet, and what it finds red goes back to the work, which fixes it with the fast CI, the lint named
+while it fixes the lint, until it hands a head in to the merge again; else a push runs the full CI and the engine only
+waits for it. The tool `ci_before` runs the tests it is given on the
 code before the change by hand with the same input; a project with no such input (`ci.tests_input`) has it push a
 temporary branch and wait for the whole run, unless the project's configuration sets `ci.runs_on_before_branches` to
 false, which says its CI does not run on those branches and has the tool refuse at once. GitHub runs a workflow by hand
