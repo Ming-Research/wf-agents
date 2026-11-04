@@ -5,6 +5,8 @@
 
 use super::*;
 
+mod edges;
+
 /// A merge condition on the item, recorded as the owner's tick does, resting on the owner's words in a matter that is
 /// kept out of the architect's queue; gives its number.
 fn condition_on(db: &mut db::Db, item: i64, what: &str, quote: &str) -> i64 {
