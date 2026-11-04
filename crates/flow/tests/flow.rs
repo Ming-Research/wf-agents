@@ -1410,6 +1410,28 @@ fn every_sample_takes_its_row() {
     }
 }
 
+// Item #270: adversarial testing goes on, past the engineer's tests, when a guard test cannot be built before the change
+// (the review judges it), and goes back to the engineer only when one fails there, whoever wrote it.
+#[test]
+fn a_guard_test_that_cannot_be_built_before_the_change_does_not_send_testing_back() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let clear = samples["T1"].iter().find(|s| s["row"] == "clear").expect("a sample of the row clear");
+    let given: Map<String, Value> = clear["given"].as_object().cloned().unwrap_or_default();
+    let row_with = |by: &str, base: &str| {
+        let mut x = clear["json"].clone();
+        x["outcome"]["guard_tests"][0]["by"] = by.into();
+        x["outcome"]["guard_tests"][0]["on_base"] = base.into();
+        g.take("T1", &x, &given).unwrap().name.clone()
+    };
+    for by in ["engineer", "adversarial"] {
+        assert_eq!(row_with(by, "green"), "clear", "{by}");
+        assert_eq!(row_with(by, "cannot_run"), "clear", "{by}");
+        assert_eq!(row_with(by, "red"), "for_engineer", "{by}");
+    }
+}
+
 // The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
 // the conditions table takes a row of either kind beside the others; a kind that is none of these, a row of the CI
 // naming no job, and a reading naming neither where nor what fit no schema.
