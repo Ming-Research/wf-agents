@@ -808,6 +808,14 @@ pub struct Project {
     /// [`RESEARCH_ROUNDS`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub research_rounds: Option<u64>,
+    /// How many hours a merged work whose acceptance holds a condition written in_effect waits for its change to take
+    /// effect before it reports the condition unverified and ends; none, and [`INSTALL_WAIT_HOURS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_wait_hours: Option<u64>,
+    /// How many times the check of such a condition may find its evidence not there yet and send the work back to wait,
+    /// before it reports the condition unverified and ends; none, and [`VERIFICATION_LOOKS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_looks: Option<u64>,
     /// The lock files whose dependencies' source an agent may have put in its worktree to read, each with the command
     /// that does it ([`DependencySources`]); none, and the tool `dependency_sources` refuses and says so. Left out of
     /// the settings an agent is shown when empty, which they read as `none`. An engine that does not include the tool
@@ -900,6 +908,19 @@ impl DependencySources {
 /// How many rounds the initial research runs before it is asked whether the work can be started directly, where the
 /// project sets no other bound: on the trial board the research took 3 rounds at the median, 5 at p90 and 8 at most.
 pub const RESEARCH_ROUNDS: u64 = 6;
+
+/// How many hours a merged work waits for its change to take effect, where the project sets no other limit. Measured on
+/// 2026-11-04 over the 39 merges of this flow that an installed build has taken in, each from its merge to the first
+/// round of a build holding it: 17 minutes at least, 2.3 hours at the median, 23 hours at p90 and 26.6 hours at most;
+/// the longest two installed builds were ever apart is 60 hours. Installing is done by hand, so the limit stays above
+/// the longest of these.
+pub const INSTALL_WAIT_HOURS: u64 = 72;
+
+/// How many times the check of a condition written in_effect may send the work back to wait, where the project sets no
+/// other limit. Taken with its wait of two days at most, the work ends within 16 days of the change taking effect, and
+/// within 19 of its merge with the limit of the wait above: the longest a work ran on the trial board, as far as the
+/// evidence "a work that ran after the change" could need, was 6.2 days (measured on 2026-11-04).
+pub const VERIFICATION_LOOKS: u64 = 8;
 
 /// Where a project keeps its records, and how they are checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

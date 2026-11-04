@@ -35,6 +35,7 @@ mod flow_versions;
 mod guard;
 mod history;
 mod holds;
+mod in_effect;
 mod line_sessions;
 mod messages;
 mod notebook;

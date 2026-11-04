@@ -47,7 +47,7 @@ pub enum Plan {
 /// What the version whose graph is `new` does with a work standing at `pos` on the same graph `old` of the version it
 /// is on, having run `rounds`, oldest first. Both graphs are as the work's project's agents are asked them, which its
 /// returns were checked against. A work never goes back past a round whose effect took hold and cannot be undone, as
-/// `in_effect` says of each round in words (a merge, a reply that went out): it is stuck instead, for the owner to
+/// `took_hold` says of each round in words (a merge, a reply that went out): it is stuck instead, for the owner to
 /// decide. An engineer's work whose merge stands is judged by the rounds after its merge alone ([`after_merge`]), so
 /// that no plan, and no Start of the owner's, takes it back before its merge.
 pub fn plan(
@@ -55,7 +55,7 @@ pub fn plan(
     new: &CompiledGraph,
     pos: &Position,
     rounds: &[Round],
-    in_effect: impl Fn(&Round) -> Option<String>,
+    took_hold: impl Fn(&Round) -> Option<String>,
 ) -> Plan {
     // A merged work is judged by the rounds after its merge alone: their returns, the cells they walked and those they
     // would do again. Those before are never done again, and later cells read their returns as they are.
@@ -65,7 +65,7 @@ pub fn plan(
             let from = redone_from(old, rounds, &to);
             match rounds[from..]
                 .iter()
-                .find_map(|r| in_effect(r).map(|what| (r.id, what)))
+                .find_map(|r| took_hold(r).map(|what| (r.id, what)))
             {
                 Some((round, what)) => Plan::Stuck {
                     why: format!("{why}; going back to cell {to} would do round {round} again, which {what}"),
@@ -486,7 +486,7 @@ mod tests {
 
     /// The plan for a work, each round weighed as the engine weighs it, by the graph of the work's own version.
     fn plan(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, rounds: &[Round]) -> Plan {
-        super::plan(old, new, pos, rounds, |r| crate::in_effect(old, r))
+        super::plan(old, new, pos, rounds, |r| crate::took_hold(old, r))
     }
 
     fn compiled(graph: &str) -> CompiledGraph {
@@ -976,6 +976,33 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    // A merged work that waits for its change to take effect moves where it stands to a version that keeps the cell it
+    // waits at, in its sessions, even one that changes that cell's rows. On a version without that cell it goes back no
+    // further than writing what it learned, the latest cell it walked since its merge, and never does the merge again.
+    #[test]
+    fn a_work_waiting_for_its_change_to_take_effect_moves_or_goes_back_no_further_than_its_merge() {
+        let old = engineer();
+        let rounds = [
+            ran(1, "M2", "merged", sample("M2", "merged")),
+            ran(2, "L2", "verify", sample("L2", "verify")),
+            ran(3, "W1", "not_carried", json!({})),
+        ];
+        assert_eq!(plan(&old, &old.clone(), &at("W1"), &rounds), Plan::Move);
+        let mut other_rows = old.clone();
+        cell(&mut other_rows, "W1").rows.retain(|r| r.name != "cannot_tell");
+        assert_eq!(plan(&old, &other_rows, &at("W1"), &rounds), Plan::Move);
+
+        let mut gone = old.clone();
+        gone.cells.retain(|c| c.id != "W1");
+        assert_eq!(
+            plan(&old, &gone, &at("W1"), &rounds),
+            Plan::GoBack {
+                to: "L2".into(),
+                why: "cell W1, which the work handed a return in at, is gone".into()
+            }
+        );
     }
 
     /// A return of an architect's cell that answers an engineer's question, as a round stores it, with `effects`.

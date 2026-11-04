@@ -10,7 +10,7 @@ const CHANGED: &str = "conditions_cover_acceptance";
 
 /// Makes project p the one the engine is built from, by the repository its configuration names: the engine's own,
 /// which the fake GitHub names only in what it reports.
-fn the_engine_s_own(s: &Setup) {
+pub(super) fn the_engine_s_own(s: &Setup) {
     let path = s.data.join("projects/p.toml");
     let text = std::fs::read_to_string(&path).unwrap();
     let own = env!("CARGO_PKG_REPOSITORY").trim_start_matches("https://github.com/");
