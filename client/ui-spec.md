@@ -2305,7 +2305,8 @@ colours (`GET /api/v1/flows/lines`), which the page reads once, as it starts, fo
 page draws a colour through one lookup, a class to a colour (`role-<colour>`, `roles.css`) setting four of Primer's
 display tokens of that colour: `--display-<colour>-borderColor-emphasis` a cell's edge on a chart, `-bgColor-muted` a
 cell's fill and a bubble's, `-borderColor-muted` a bubble's edge and `-bgColor-emphasis` an avatar's circle. The
-engineer is blue, the review teal, the adversarial testing auburn, the advisor pink, the architect purple, the review of
+engineer is blue, the deep research plum, the review teal, the adversarial testing auburn, the advisor pink, the
+architect purple, the review of
 the architect's batch indigo, the reader of a work's history green, the search of observations brown and the pick of the
 architect's next matter cyan; orange (the owner's cells), yellow (the tools') and red (danger) are kept from roles, and
 grey is the engine's own steps'; an agent with no colour of its own is the neutral grey of the engine's own steps, as a

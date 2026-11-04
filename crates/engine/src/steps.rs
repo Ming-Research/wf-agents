@@ -1345,7 +1345,7 @@ pub fn engine(
         }
     }
     let commit = e.config.commit.clone();
-    let mut input = if starts {
+    let input = if starts {
         json!({})
     } else {
         json!({ "inputs": recorded_inputs(&gathered), "given": given })
@@ -1421,7 +1421,7 @@ pub fn engine(
     };
     if cell.rows.is_empty() {
         let output = match step.as_deref() {
-            Some("end_work") => end_work(e, w, cell)?,
+            Some("end_work") => end_work(e, w, g, cell)?,
             _ => output,
         };
         return finish_end(e, w, round, output, &|_| Ok(()));
@@ -1674,8 +1674,9 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
 /// the cell named what it does did too. What was said to the work and never handed in stays so: no round runs off the
 /// graph to answer it, the way on no longer changes, and the owner's page marks it on the words themselves as not
 /// received, in place of the notice a flow version's `tell_undelivered` named, which tells nothing now.
-fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
+fn end_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Value, String> {
     let project = e.project_of(w)?;
+    let numbers = numbers(e, w, g)?;
     let follows = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "queue_followup");
     let followup = if follows {
         report_followup(e, w, &project)?
@@ -1691,7 +1692,70 @@ fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, Stri
         Ok(())
     })
     .map_err(sql)?;
-    Ok(json!({}))
+    Ok(json!({ "numbers": numbers }))
+}
+
+/// What the engine records of a work as it ends (cell `E1`'s `numbers`), the data the flow's convergence is judged by:
+/// for each stage its rounds went through, in the graph's order, how long they ran, what they cost and how many ran,
+/// a round at a cell of no stage (running tools, asking) counting to the stage the work was at; and each time the work
+/// went back to an earlier stage, the round, the cell it left, the cell it went to and why, as the row it took counts
+/// it, or by the row's name where it counts nothing.
+fn numbers(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
+    let mut order: Vec<String> = Vec::new();
+    for c in &g.cells {
+        if let Some(s) = &c.stage
+            && !order.contains(s)
+        {
+            order.push(s.clone());
+        }
+    }
+    let at = |s: &str| order.iter().position(|x| x == s);
+    let mut stages: Vec<(String, i64, f64, i64)> = Vec::new();
+    let mut went_back = Vec::new();
+    let mut current: Option<String> = None;
+    for r in work::rounds(e.db.conn(), w.id)? {
+        let Some(c) = r.cell.as_deref().and_then(|id| g.cell(id)) else {
+            continue;
+        };
+        if c.stage.is_some() {
+            current.clone_from(&c.stage);
+        }
+        let Some(stage) = current.clone() else { continue };
+        let ms = r.ended_at.map_or(0, |end| (end - r.started_at).max(0));
+        let cost = r.usage.as_ref().and_then(|u| u["cost_usd"].as_f64()).unwrap_or(0.0);
+        match stages.iter_mut().find(|x| x.0 == stage) {
+            Some(x) => {
+                x.1 += ms;
+                x.2 += cost;
+                x.3 += 1;
+            }
+            None => stages.push((stage.clone(), ms, cost, 1)),
+        }
+        let row = r
+            .transition
+            .as_deref()
+            .and_then(|t| c.rows.iter().find(|x| x.name == t));
+        let Some(row) = row else { continue };
+        let to = g.cell(&row.to).and_then(|t| t.stage.clone());
+        if let (Some(to), Some(from)) = (to.as_deref().and_then(at), at(&stage))
+            && to < from
+        {
+            went_back.push(json!({
+                "round": r.id.to_string(),
+                "from": c.id,
+                "to": row.to,
+                "why": row.counts.clone().unwrap_or_else(|| row.name.clone()),
+            }));
+        }
+    }
+    stages.sort_by_key(|x| at(&x.0));
+    let stages: Vec<Value> = stages
+        .into_iter()
+        .map(|(stage, ms, cost, n)| {
+            json!({ "stage": stage, "minutes": ms / 60_000, "cost": format!("{cost:.2}"), "rounds": n })
+        })
+        .collect();
+    Ok(json!({ "stages": stages, "went_back": went_back }))
 }
 
 /// What to do next that a work which delivered a report handed in, as a matter for the architect: the latest the work
