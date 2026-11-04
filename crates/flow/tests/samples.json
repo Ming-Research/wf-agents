@@ -14,7 +14,7 @@
    "given": {}
   }
  ],
- "G1": [
+ "R0": [
   {
    "row": "done",
    "json": {
@@ -30,89 +30,42 @@
  ],
  "R1": [
   {
-   "row": "done",
+   "row": "start",
    "json": {
     "outcome": {
      "understanding": {
-      "problem": "outcome.understanding.problem",
-      "why": "outcome.understanding.why",
-      "cause": "outcome.understanding.cause",
-      "vs_item": "outcome.understanding.vs_item",
+      "problem": "understanding.problem",
+      "why": "understanding.why",
+      "cause": "understanding.cause",
+      "vs_item": "understanding.vs_item",
       "grounds": [
        {
         "kind": "verified",
-        "claim": "outcome.understanding.grounds.claim",
-        "where": "outcome.understanding.grounds.where"
-       },
-       {
-        "kind": "inferred",
-        "claim": "outcome.understanding.grounds.claim",
-        "from": "outcome.understanding.grounds.from",
-        "confirm": "outcome.understanding.grounds.confirm"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "route_taken": "normal"
-   }
-  },
-  {
-   "row": "light",
-   "json": {
-    "outcome": {
-     "understanding": {
-      "problem": "outcome.understanding.problem",
-      "why": "outcome.understanding.why",
-      "cause": "outcome.understanding.cause",
-      "vs_item": "outcome.understanding.vs_item",
-      "grounds": [
-       {
-        "kind": "verified",
-        "claim": "outcome.understanding.grounds.claim",
-        "where": "outcome.understanding.grounds.where"
+        "claim": "understanding.grounds.claim",
+        "where": "understanding.grounds.where"
        }
       ]
      },
-     "route": {
-      "verdict": "light",
-      "why": "outcome.route.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "route_taken": "light"
-   }
-  },
-  {
-   "row": "to_normal",
-   "json": {
-    "outcome": {
-     "understanding": {
-      "problem": "outcome.understanding.problem",
-      "why": "outcome.understanding.why",
-      "cause": "outcome.understanding.cause",
-      "vs_item": "outcome.understanding.vs_item",
-      "grounds": [
+     "can_start": {
+      "verdict": "yes",
+      "why": "can_start.why",
+      "change": "can_start.change",
+      "verify": "can_start.verify",
+      "acceptance": [
        {
-        "kind": "verified",
-        "claim": "outcome.understanding.grounds.claim",
-        "where": "outcome.understanding.grounds.where"
+        "by": "test",
+        "id": "can_start.acceptance.id",
+        "condition": "can_start.acceptance.condition"
        }
       ]
      },
-     "route": {
-      "verdict": "to_normal",
-      "why": "outcome.route.why"
+     "departs": {
+      "verdict": "no",
+      "why": "departs.why"
+     },
+     "to_decide": {
+      "verdict": "no",
+      "why": "to_decide.why"
      }
     },
     "side_reports": [],
@@ -121,7 +74,198 @@
     "flow_feedback": "none"
    },
    "given": {
-    "route_taken": "light"
+    "decision_points": "no",
+    "research_rounds": "within"
+   }
+  },
+  {
+   "row": "cannot_start",
+   "json": {
+    "outcome": {
+     "understanding": {
+      "problem": "understanding.problem",
+      "why": "understanding.why",
+      "cause": "understanding.cause",
+      "vs_item": "understanding.vs_item",
+      "grounds": [
+       {
+        "kind": "verified",
+        "claim": "understanding.grounds.claim",
+        "where": "understanding.grounds.where"
+       }
+      ]
+     },
+     "can_start": {
+      "verdict": "no",
+      "why": "can_start.why",
+      "stuck": "can_start.stuck"
+     },
+     "departs": {
+      "verdict": "no",
+      "why": "departs.why"
+     },
+     "to_decide": {
+      "verdict": "no",
+      "why": "to_decide.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "decision_points": "no",
+    "research_rounds": "within"
+   }
+  },
+  {
+   "row": "departs",
+   "json": {
+    "outcome": {
+     "understanding": {
+      "problem": "understanding.problem",
+      "why": "understanding.why",
+      "cause": "understanding.cause",
+      "vs_item": "understanding.vs_item",
+      "grounds": [
+       {
+        "kind": "verified",
+        "claim": "understanding.grounds.claim",
+        "where": "understanding.grounds.where"
+       }
+      ]
+     },
+     "can_start": {
+      "verdict": "yes",
+      "why": "can_start.why",
+      "change": "can_start.change",
+      "verify": "can_start.verify",
+      "acceptance": [
+       {
+        "by": "test",
+        "id": "can_start.acceptance.id",
+        "condition": "can_start.acceptance.condition"
+       }
+      ]
+     },
+     "departs": {
+      "verdict": "yes",
+      "decision": "departs.decision",
+      "why": "departs.why",
+      "otherwise": "departs.otherwise"
+     },
+     "to_decide": {
+      "verdict": "no",
+      "why": "to_decide.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "decision_points": "no",
+    "research_rounds": "within"
+   }
+  },
+  {
+   "row": "designs",
+   "json": {
+    "outcome": {
+     "understanding": {
+      "problem": "understanding.problem",
+      "why": "understanding.why",
+      "cause": "understanding.cause",
+      "vs_item": "understanding.vs_item",
+      "grounds": [
+       {
+        "kind": "verified",
+        "claim": "understanding.grounds.claim",
+        "where": "understanding.grounds.where"
+       }
+      ]
+     },
+     "can_start": {
+      "verdict": "yes",
+      "why": "can_start.why",
+      "change": "can_start.change",
+      "verify": "can_start.verify",
+      "acceptance": [
+       {
+        "by": "test",
+        "id": "can_start.acceptance.id",
+        "condition": "can_start.acceptance.condition"
+       }
+      ]
+     },
+     "departs": {
+      "verdict": "no",
+      "why": "departs.why"
+     },
+     "to_decide": {
+      "verdict": "designs",
+      "what": "to_decide.what"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "decision_points": "no",
+    "research_rounds": "within"
+   }
+  },
+  {
+   "row": "decision_point",
+   "json": {
+    "outcome": {
+     "understanding": {
+      "problem": "understanding.problem",
+      "why": "understanding.why",
+      "cause": "understanding.cause",
+      "vs_item": "understanding.vs_item",
+      "grounds": [
+       {
+        "kind": "verified",
+        "claim": "understanding.grounds.claim",
+        "where": "understanding.grounds.where"
+       }
+      ]
+     },
+     "can_start": {
+      "verdict": "yes",
+      "why": "can_start.why",
+      "change": "can_start.change",
+      "verify": "can_start.verify",
+      "acceptance": [
+       {
+        "by": "test",
+        "id": "can_start.acceptance.id",
+        "condition": "can_start.acceptance.condition"
+       }
+      ]
+     },
+     "departs": {
+      "verdict": "no",
+      "why": "departs.why"
+     },
+     "to_decide": {
+      "verdict": "no",
+      "why": "to_decide.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "decision_points": "yes",
+    "research_rounds": "within"
    }
   },
   {
@@ -143,203 +287,10 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
-  }
- ],
- "G4": [
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "brief": "outcome.brief"
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "F1": [
-  {
-   "row": "planned",
-   "json": {
-    "outcome": {
-     "plan": {
-      "verdict": "planned",
-      "cause": "outcome.plan.cause",
-      "change": "outcome.plan.change",
-      "tests": "outcome.plan.tests",
-      "acceptance": [
-       {
-        "by": "test",
-        "id": "A1",
-        "condition": "outcome.plan.acceptance.condition"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  },
-  {
-   "row": "to_normal",
-   "json": {
-    "outcome": {
-     "plan": {
-      "verdict": "to_normal",
-      "why": "outcome.plan.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "F2": [
-  {
-   "row": "sound",
-   "json": {
-    "outcome": {
-     "review": {
-      "verdict": "sound",
-      "why": "outcome.review.why"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
    "given": {
-    "revisions_before": "fewer"
+    "decision_points": "no",
+    "research_rounds": "within"
    }
-  },
-  {
-   "row": "revise",
-   "json": {
-    "outcome": {
-     "review": {
-      "verdict": "revise",
-      "findings": [
-       {
-        "fid": "P1",
-        "where": "outcome.review.findings.where",
-        "what": "outcome.review.findings.what",
-        "fix": "outcome.review.findings.fix"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "revisions_before": "fewer"
-   }
-  },
-  {
-   "row": "revised_out",
-   "json": {
-    "outcome": {
-     "review": {
-      "verdict": "revise",
-      "findings": [
-       {
-        "fid": "P1",
-        "where": "outcome.review.findings.where",
-        "what": "outcome.review.findings.what",
-        "fix": "outcome.review.findings.fix"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "revisions_before": "two"
-   }
-  },
-  {
-   "row": "to_normal",
-   "json": {
-    "outcome": {
-     "review": {
-      "verdict": "to_normal",
-      "why": "outcome.review.why"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "revisions_before": "fewer"
-   }
-  }
- ],
- "R2": [
-  {
-   "row": "stands",
-   "json": {
-    "outcome": {
-     "answer": {
-      "verdict": "stands",
-      "why": "outcome.answer.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  },
-  {
-   "row": "ask_architect",
-   "json": {
-    "outcome": {
-     "ask": {
-      "to": "architect",
-      "points": [
-       {
-        "what": "outcome.ask.points.what"
-       },
-       {
-        "what": "outcome.ask.points.what"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "G2": [
-  {
-   "row": "done",
-   "json": {
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none",
-    "outcome": {
-     "brief": "outcome.brief"
-    }
-   },
-   "given": {}
   }
  ],
  "D1": [
@@ -365,98 +316,71 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
+   "given": {
+    "work": "implementation"
+   }
   },
   {
    "row": "done",
    "json": {
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none",
-    "tell_owner": [],
     "outcome": {
-     "options": [
-      {
-       "name": "outcome.options.name.1",
-       "how": "outcome.options.how",
-       "good": "outcome.options.good",
-       "bad": "outcome.options.bad"
-      },
-      {
-       "name": "outcome.options.name.2",
-       "how": "outcome.options.how",
-       "good": "outcome.options.good",
-       "bad": "outcome.options.bad"
-      },
-      {
-       "name": "outcome.options.name.3",
-       "how": "outcome.options.how",
-       "good": "outcome.options.good",
-       "bad": "outcome.options.bad"
-      }
-     ]
-    }
-   },
-   "given": {}
-  }
- ],
- "D2": [
-  {
-   "row": "first",
-   "json": {
-    "outcome": {
-     "chosen": "outcome.chosen",
-     "why": "outcome.why",
      "measure": {
-      "verdict": "measured",
-      "effect": "outcome.measure.effect"
+      "verdict": "not_measured",
+      "why": "measure.why"
      },
      "design": {
-      "solution": "outcome.design.solution",
-      "where": "outcome.design.where",
-      "excluded": "outcome.design.excluded",
-      "pitfalls": "outcome.design.pitfalls"
-     },
-     "acceptance": [
-      {
-       "by": "test",
-       "id": "A1",
-       "condition": "outcome.acceptance.condition"
-      },
-      {
-       "by": "test",
-       "id": "A2",
-       "condition": "outcome.acceptance.condition"
-      },
-      {
-       "by": "measurement",
-       "id": "A3",
-       "condition": "outcome.acceptance.condition",
-       "criterion": "outcome.acceptance.criterion"
-      }
-     ],
-     "estimate": "outcome.estimate",
-     "articles": [
-      {
-       "article": "outcome.articles.article",
-       "verdict": "keeps",
-       "claim": "outcome.articles.claim"
-      }
-     ],
-     "item_decisions": [
-      {
-       "decision": "outcome.item_decisions.decision",
-       "verdict": "follows",
-       "passage": "outcome.item_decisions.passage"
-      }
-     ],
-     "open_questions": [
-      {
-       "question": "outcome.open_questions.question",
-       "options": "outcome.open_questions.options",
-       "recommended": "outcome.open_questions.recommended"
-      }
-     ]
+      "chosen": "design.chosen",
+      "why": "design.why",
+      "solution": "design.solution",
+      "where": "design.where",
+      "excluded": "design.excluded",
+      "pitfalls": "design.pitfalls",
+      "others": "design.others",
+      "decisions": [
+       {
+        "verdict": "departs",
+        "decision": "design.decisions.decision",
+        "why": "design.decisions.why"
+       }
+      ],
+      "articles": [
+       {
+        "article": "design.articles.article",
+        "how": "design.articles.how"
+       }
+      ],
+      "acceptance": [
+       {
+        "by": "test",
+        "id": "design.acceptance.id",
+        "condition": "design.acceptance.condition"
+       }
+      ],
+      "points": [
+       {
+        "point": "design.points.point",
+        "question": "design.points.question",
+        "options": [
+         {
+          "option": "design.points.options.option",
+          "does": "design.points.options.does",
+          "good": "design.points.options.good",
+          "bad": "design.points.options.bad"
+         },
+         {
+          "option": "design.points.options.option",
+          "does": "design.points.options.does",
+          "good": "design.points.options.good",
+          "bad": "design.points.options.bad"
+         }
+        ],
+        "recommended": "design.points.recommended",
+        "confidence": "design.points.confidence",
+        "uncertain": "design.points.uncertain"
+       }
+      ],
+      "estimate": "design.estimate"
+     }
     },
     "side_reports": [],
     "tell_owner": [],
@@ -464,87 +388,125 @@
     "flow_feedback": "none"
    },
    "given": {
-    "rethought": "no",
-    "deliver": "change"
+    "work": "implementation"
    }
-  },
+  }
+ ],
+ "D2": [
   {
-   "row": "ask_advisor",
+   "row": "done",
    "json": {
     "outcome": {
-     "ask": {
-      "to": "advisor",
+     "examined": [
+      {
+       "verdict": "dead_end",
+       "premise": "p",
+       "broken": "b",
+       "dies": "d"
+      },
+      {
+       "verdict": "holds",
+       "premise": "q",
+       "broken": "b",
+       "why": "w"
+      }
+     ],
+     "changed": "changed",
+     "design": {
+      "chosen": "design.chosen",
+      "why": "design.why",
+      "solution": "design.solution",
+      "where": "design.where",
+      "excluded": "design.excluded",
+      "pitfalls": "design.pitfalls",
+      "others": "design.others",
+      "decisions": [
+       {
+        "verdict": "departs",
+        "decision": "design.decisions.decision",
+        "why": "design.decisions.why"
+       }
+      ],
+      "articles": [
+       {
+        "article": "design.articles.article",
+        "how": "design.articles.how"
+       }
+      ],
+      "acceptance": [
+       {
+        "by": "test",
+        "id": "design.acceptance.id",
+        "condition": "design.acceptance.condition"
+       }
+      ],
       "points": [
        {
-        "what": "outcome.ask.points.what"
+        "point": "design.points.point",
+        "question": "design.points.question",
+        "options": [
+         {
+          "option": "design.points.options.option",
+          "does": "design.points.options.does",
+          "good": "design.points.options.good",
+          "bad": "design.points.options.bad"
+         },
+         {
+          "option": "design.points.options.option",
+          "does": "design.points.options.does",
+          "good": "design.points.options.good",
+          "bad": "design.points.options.bad"
+         }
+        ],
+        "recommended": "design.points.recommended",
+        "confidence": "design.points.confidence",
+        "uncertain": "design.points.uncertain"
        }
-      ]
+      ],
+      "estimate": "design.estimate"
      }
     },
     "side_reports": [],
     "tell_owner": [],
     "progress": "progress",
     "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "D3": [
-  {
-   "row": "present_best",
-   "json": {
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none",
-    "tell_owner": [],
-    "outcome": {
-     "better": {
-      "verdict": "present_best",
-      "considered": [
-       "outcome.better.considered"
-      ],
-      "why": "outcome.better.why"
-     },
-     "claims": {
-      "articles": [
-       {
-        "article": "outcome.claims.articles.article",
-        "verdict": "holds",
-        "passage": "outcome.claims.articles.passage",
-        "why": "outcome.claims.articles.why"
-       }
-      ],
-      "decisions": [
-       {
-        "decision": "outcome.claims.decisions.decision",
-        "verdict": "holds",
-        "passage": "outcome.claims.decisions.passage",
-        "why": "outcome.claims.decisions.why"
-       }
-      ]
-     }
-    }
    },
    "given": {}
   }
  ],
  "D4": [
   {
-   "row": "no",
-   "json": {},
+   "row": "approved",
+   "json": {
+    "outcome": {
+     "verdict": {
+      "verdict": "approved",
+      "choices": [
+       {
+        "point": "verdict.choices.point",
+        "chosen": "verdict.choices.chosen",
+        "words": "verdict.choices.words"
+       }
+      ]
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
    "given": {
-    "under_test": "no"
+    "split": "not_split"
    }
-  }
- ],
- "D5": [
+  },
   {
-   "row": "no_gap",
+   "row": "revise",
    "json": {
     "outcome": {
-     "answer": {
-      "verdict": "no_gap",
-      "why": "outcome.answer.why"
+     "verdict": {
+      "verdict": "revise",
+      "what": "verdict.what",
+      "whose": "verdict.whose"
      }
     },
     "side_reports": [],
@@ -552,80 +514,18 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
-  }
- ],
- "D6": [
-  {
-   "row": "sure",
-   "json": {
-    "outcome": {
-     "answer": {
-      "verdict": "sure",
-      "why": "outcome.answer.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "D7": [
-  {
-   "row": "worth_it",
-   "json": {
-    "outcome": {
-     "answer": {
-      "verdict": "worth_it",
-      "why": "outcome.answer.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "D8": [
-  {
-   "row": "yes",
-   "json": {},
    "given": {
-    "other_projects": "yes"
+    "split": "not_split"
    }
-  }
- ],
- "D9": [
+  },
   {
-   "row": "on_its_own",
+   "row": "to_split",
    "json": {
     "outcome": {
-     "answer": {
-      "verdict": "on_its_own",
-      "why": "outcome.answer.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "D10": [
-  {
-   "row": "implementation",
-   "json": {
-    "outcome": {
-     "answer": {
-      "verdict": "one_pr",
-      "why": "outcome.answer.why"
+     "verdict": {
+      "verdict": "split",
+      "keeps": "verdict.keeps",
+      "items": "verdict.items"
      }
     },
     "side_reports": [],
@@ -634,18 +534,22 @@
     "flow_feedback": "none"
    },
    "given": {
-    "deliver": "change"
+    "split": "not_split"
    }
-  }
- ],
- "D11": [
+  },
   {
-   "row": "needed",
+   "row": "all_to_sub_items",
    "json": {
     "outcome": {
-     "adversarial": {
-      "verdict": "needed",
-      "why": "outcome.adversarial.why"
+     "verdict": {
+      "verdict": "approved",
+      "choices": [
+       {
+        "point": "verdict.choices.point",
+        "chosen": "verdict.choices.chosen",
+        "words": "verdict.choices.words"
+       }
+      ]
      }
     },
     "side_reports": [],
@@ -653,16 +557,8 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
-  }
- ],
- "D12": [
-  {
-   "row": "clear",
-   "json": {},
    "given": {
-    "departures": "none",
-    "interjection": "no"
+    "split": "all_split"
    }
   }
  ],
@@ -681,7 +577,7 @@
        ],
        "pr": {
         "title": "Lower integer match to an LLVM switch (match-int)",
-        "body": "…"
+        "body": "\u2026"
        }
       }
      ]
@@ -691,7 +587,10 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
+   "given": {
+    "work": "implementation",
+    "designed": "no"
+   }
   },
   {
    "row": "ask_architect",
@@ -711,81 +610,238 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
+   "given": {
+    "work": "implementation",
+    "designed": "no"
+   }
   },
   {
    "row": "done",
    "json": {
     "outcome": {
-     "head": "3f9c2e1",
+     "head": "head",
      "test_changes": [
       {
        "change": "added",
-       "test": "match_int_range",
-       "catches": "outcome.test_changes.catches",
-       "kind": "new_behaviour",
-       "on_head": "green",
-       "on_base": "cannot_run",
-       "time": "outcome.test_changes.time",
-       "worth": "outcome.test_changes.worth"
-      },
-      {
-       "change": "extended",
-       "test": "every_sample_takes_its_row",
-       "catches": "outcome.test_changes.catches",
-       "kind": "old_behaviour",
-       "on_head": "green",
-       "on_base": "green",
-       "time": "outcome.test_changes.time",
-       "worth": "outcome.test_changes.worth"
+       "test": "test_changes.test",
+       "catches": "test_changes.catches",
+       "kind": "new_behaviour"
       }
      ],
      "deviations": [
       {
        "kind": "surprise",
-       "what": "outcome.deviations.what"
+       "what": "deviations.what"
       }
-     ]
+     ],
+     "conditions": [
+      {
+       "how": "tested",
+       "id": "conditions.id",
+       "tests": [
+        "conditions.tests"
+       ]
+      }
+     ],
+     "decisions_written": [
+      {
+       "point": "decisions_written.point",
+       "file": "decisions_written.file"
+      }
+     ],
+     "holds": {
+      "verdict": "yes",
+      "why": "holds.why"
+     },
+     "departs": {
+      "verdict": "no",
+      "why": "departs.why"
+     }
     },
     "side_reports": [],
     "tell_owner": [],
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
-  }
- ],
- "T7": [
+   "given": {
+    "work": "implementation",
+    "designed": "no"
+   }
+  },
   {
-   "row": "adversarial",
+   "row": "shallow_research",
    "json": {
-    "plan": {
-     "review": "changed",
-     "adversarial": "changed"
-    }
+    "outcome": {
+     "head": "head",
+     "test_changes": [
+      {
+       "change": "added",
+       "test": "test_changes.test",
+       "catches": "test_changes.catches",
+       "kind": "new_behaviour"
+      }
+     ],
+     "deviations": [
+      {
+       "kind": "surprise",
+       "what": "deviations.what"
+      }
+     ],
+     "conditions": [
+      {
+       "how": "tested",
+       "id": "conditions.id",
+       "tests": [
+        "conditions.tests"
+       ]
+      }
+     ],
+     "decisions_written": [
+      {
+       "point": "decisions_written.point",
+       "file": "decisions_written.file"
+      }
+     ],
+     "holds": {
+      "verdict": "no",
+      "where": "holds.where"
+     },
+     "departs": {
+      "verdict": "no",
+      "why": "departs.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
    },
    "given": {
-    "interjection": "no"
+    "work": "implementation",
+    "designed": "no"
+   }
+  },
+  {
+   "row": "not_holding",
+   "json": {
+    "outcome": {
+     "head": "head",
+     "test_changes": [
+      {
+       "change": "added",
+       "test": "test_changes.test",
+       "catches": "test_changes.catches",
+       "kind": "new_behaviour"
+      }
+     ],
+     "deviations": [
+      {
+       "kind": "surprise",
+       "what": "deviations.what"
+      }
+     ],
+     "conditions": [
+      {
+       "how": "tested",
+       "id": "conditions.id",
+       "tests": [
+        "conditions.tests"
+       ]
+      }
+     ],
+     "decisions_written": [
+      {
+       "point": "decisions_written.point",
+       "file": "decisions_written.file"
+      }
+     ],
+     "holds": {
+      "verdict": "no",
+      "where": "holds.where"
+     },
+     "departs": {
+      "verdict": "no",
+      "why": "departs.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "work": "implementation",
+    "designed": "yes"
+   }
+  },
+  {
+   "row": "departs",
+   "json": {
+    "outcome": {
+     "head": "head",
+     "test_changes": [
+      {
+       "change": "added",
+       "test": "test_changes.test",
+       "catches": "test_changes.catches",
+       "kind": "new_behaviour"
+      }
+     ],
+     "deviations": [
+      {
+       "kind": "surprise",
+       "what": "deviations.what"
+      }
+     ],
+     "conditions": [
+      {
+       "how": "tested",
+       "id": "conditions.id",
+       "tests": [
+        "conditions.tests"
+       ]
+      }
+     ],
+     "decisions_written": [
+      {
+       "point": "decisions_written.point",
+       "file": "decisions_written.file"
+      }
+     ],
+     "holds": {
+      "verdict": "yes",
+      "why": "holds.why"
+     },
+     "departs": {
+      "verdict": "yes",
+      "decision": "departs.decision",
+      "why": "departs.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "work": "implementation",
+    "designed": "no"
    }
   }
  ],
- "T3": [
+ "T2": [
   {
    "row": "done",
    "json": {
     "outcome": {
      "findings": [
       {
-       "fid": "R1",
-       "where": "outcome.findings.where",
-       "what": "outcome.findings.what",
-       "fix": "outcome.findings.fix"
-      },
-      {
-       "fid": "R2",
-       "where": "outcome.findings.where",
-       "what": "outcome.findings.what",
-       "fix": "outcome.findings.fix"
+       "fid": "findings.fid",
+       "where": "findings.where",
+       "what": "findings.what",
+       "impact": "findings.impact",
+       "basis": "findings.basis",
+       "fix": "findings.fix"
       }
      ]
     },
@@ -796,79 +852,84 @@
    "given": {}
   }
  ],
- "T4": [
+ "T3": [
   {
-   "row": "done",
+   "row": "adversarial",
    "json": {
     "outcome": {
-     "columns": [
+     "findings": [
       {
-       "verdict": "pass",
-       "id": "outcome.columns.id",
-       "evidence": {
-        "files": [
-         "outcome.columns.evidence.files"
-        ],
-        "ran": [],
-        "nodes": [
-         "design/match.md"
-        ]
-       }
-      },
-      {
-       "verdict": "findings",
-       "id": "outcome.columns.id",
-       "evidence": {
-        "files": [
-         "outcome.columns.evidence.files"
-        ],
-        "ran": [],
-        "nodes": []
-       },
-       "findings": [
-        {
-         "fid": "R1",
-         "where": "outcome.columns.findings.where",
-         "what": "outcome.columns.findings.what",
-         "fix": "outcome.columns.findings.fix"
-        }
-       ]
-      },
-      {
-       "verdict": "findings",
-       "id": "outcome.columns.id",
-       "evidence": {
-        "files": [],
-        "ran": [],
-        "nodes": []
-       },
-       "findings": [
-        {
-         "fid": "R3",
-         "where": "outcome.columns.findings.where",
-         "what": "outcome.columns.findings.what",
-         "fix": "outcome.columns.findings.fix"
-        }
-       ]
-      },
-      {
-       "verdict": "not_applicable",
-       "id": "outcome.columns.id"
+       "fid": "findings.fid",
+       "where": "findings.where",
+       "what": "findings.what",
+       "impact": "findings.impact",
+       "basis": "findings.basis",
+       "fix": "findings.fix"
       }
      ],
-     "withdrawn": [
-      {
-       "fid": "R2"
-      }
-     ]
+     "must_fix": {
+      "verdict": "yes",
+      "why": "must_fix.why"
+     },
+     "silent": {
+      "verdict": "yes",
+      "why": "silent.why"
+     }
     },
     "side_reports": [],
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {
-    "records": "none"
-   }
+   "given": {}
+  },
+  {
+   "row": "fix",
+   "json": {
+    "outcome": {
+     "findings": [
+      {
+       "fid": "findings.fid",
+       "where": "findings.where",
+       "what": "findings.what",
+       "impact": "findings.impact",
+       "basis": "findings.basis",
+       "fix": "findings.fix"
+      }
+     ],
+     "must_fix": {
+      "verdict": "yes",
+      "why": "must_fix.why"
+     },
+     "silent": {
+      "verdict": "no",
+      "why": "silent.why"
+     }
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {}
+  },
+  {
+   "row": "clear",
+   "json": {
+    "outcome": {
+     "findings": [],
+     "must_fix": {
+      "verdict": "no",
+      "why": "must_fix.why"
+     },
+     "silent": {
+      "verdict": "no",
+      "why": "silent.why"
+     }
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {}
   }
  ],
  "T1": [
@@ -956,7 +1017,103 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
+   "given": {
+    "@must": {
+     "verdict": "no",
+     "why": "w"
+    }
+   }
+  },
+  {
+   "row": "clear",
+   "json": {
+    "outcome": {
+     "conditions": [
+      {
+       "how": "tested",
+       "id": "A1",
+       "tests": [
+        "match_int_range"
+       ]
+      },
+      {
+       "how": "tested",
+       "id": "A2",
+       "tests": [
+        "match_int_missing_default"
+       ]
+      },
+      {
+       "how": "measured",
+       "id": "A3",
+       "run": "outcome.conditions.run",
+       "criterion": "outcome.conditions.criterion"
+      }
+     ],
+     "directions": [
+      "outcome.directions",
+      "outcome.directions",
+      "outcome.directions"
+     ],
+     "wrote": {
+      "verdict": "wrote",
+      "head": "7a01b4c",
+      "tests": [
+       {
+        "name": "match_int_overlap",
+        "checks": "outcome.wrote.tests.checks",
+        "oracle": "outcome.wrote.tests.oracle",
+        "time": "outcome.wrote.tests.time",
+        "worth": "outcome.wrote.tests.worth"
+       }
+      ]
+     },
+     "new_tests": [
+      {
+       "name": "match_int_range",
+       "by": "engineer",
+       "on_head": "green",
+       "on_base": "red"
+      },
+      {
+       "name": "match_int_overlap",
+       "by": "adversarial",
+       "on_head": "green",
+       "on_base": "red"
+      }
+     ],
+     "guard_tests": [
+      {
+       "name": "match_str_unchanged",
+       "by": "adversarial",
+       "on_head": "green",
+       "on_base": "green"
+      },
+      {
+       "name": "match_bool_unchanged",
+       "by": "adversarial",
+       "on_head": "green",
+       "on_base": "green"
+      }
+     ],
+     "suspects": [
+      {
+       "where": "outcome.suspects.where",
+       "what": "outcome.suspects.what",
+       "why": "outcome.suspects.why"
+      }
+     ]
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "@must": {
+     "verdict": "no",
+     "why": "w"
+    }
+   }
   }
  ],
  "T6": [
@@ -994,7 +1151,6 @@
        "test": "match_int_overlap_fixed",
        "catches": "outcome.test_changes.catches",
        "kind": "new_behaviour",
-       "time": "outcome.test_changes.time",
        "worth": "outcome.test_changes.worth"
       }
      ],
@@ -1002,6 +1158,49 @@
     },
     "side_reports": [],
     "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {}
+  }
+ ],
+ "T4": [
+  {
+   "row": "clear",
+   "json": {
+    "outcome": {
+     "rows": [
+      {
+       "verdict": "holds",
+       "id": "F1"
+      }
+     ],
+     "brought": {
+      "verdict": "none"
+     }
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {}
+  },
+  {
+   "row": "fix_again",
+   "json": {
+    "outcome": {
+     "rows": [
+      {
+       "verdict": "not_fixed",
+       "id": "F1",
+       "why": "w"
+      }
+     ],
+     "brought": {
+      "verdict": "none"
+     }
+    },
+    "side_reports": [],
     "progress": "progress",
     "flow_feedback": "none"
    },
@@ -1018,19 +1217,9 @@
     }
    },
    "given": {
-    "turn": "first"
+    "turn": "first",
+    "merge_failures": "fewer"
    }
-  }
- ],
- "L1": [
-  {
-   "row": "green",
-   "json": {
-    "main": {
-     "kind": "green"
-    }
-   },
-   "given": {}
   }
  ],
  "A4": [
@@ -1050,7 +1239,6 @@
    "given": {
     "stage": "design_on",
     "split": "not_split",
-    "design_card_disputed": "no",
     "must_wait": "no"
    }
   },
@@ -1074,7 +1262,6 @@
    "given": {
     "stage": "code",
     "split": "not_split",
-    "design_card_disputed": "no",
     "must_wait": "no",
     "came_by": "interjection_at_engine"
    }

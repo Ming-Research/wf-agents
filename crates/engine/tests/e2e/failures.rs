@@ -10,8 +10,10 @@ use super::*;
 fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let s = setup("repeat");
     let (mut e, said, item) = start(&s, scripts());
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    // The start, the gathering of the background and the research, whose round is the third.
+    for _ in 0..3 {
+        e.step(None).unwrap();
+    }
     let (work, _, _) = state(&e, item).unwrap();
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -26,11 +28,11 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R2", "{log}");
+    assert_eq!(at, "I1", "{log}");
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(
         paused.starts_with(&format!(
-            "cell R2: the message of R{work}-4 was not sent, since it would repeat what its session holds: \
+            "cell I1: the message of R{work}-4 was not sent, since it would repeat what its session holds: \
              rule:ground (12 characters) would be given whole again, though the session got the same content in \
              R{work}-3 as rule:elsewhere"
         )),
@@ -41,7 +43,7 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let notices: i64 =
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM engine_notices WHERE work = ?1 AND text LIKE '%is paused: cell R2: the message%'",
+                "SELECT count(*) FROM engine_notices WHERE work = ?1 AND text LIKE '%is paused: cell I1: the message%'",
                 [work],
                 |r| r.get(0),
             )
@@ -72,7 +74,7 @@ fn a_usage_limit_stops_every_work_until_it_resets() {
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     assert_eq!(failed_kinds(&e), ["usage_limit"]);
     assert_eq!(sent_back(&e), 0);
     assert_eq!(told(&s, "usage_limit"), 1);
@@ -98,7 +100,7 @@ fn no_network_stops_every_work_until_it_is_back() {
     e.tick().unwrap();
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None);
-    assert_ne!(at, "R1");
+    assert_ne!(at, "R0");
     assert_eq!(failed_kinds(&e), ["offline"]);
     assert_eq!(sent_back(&e), 0);
     assert_eq!(told(&s, "offline"), 1);
@@ -113,7 +115,7 @@ fn no_network_is_looked_at_without_running_a_round() {
     let s = setup("offline-look");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             let fail = vec![("@error", json!(report))];
             (Vec::new(), if n <= 1 { fail } else { Vec::new() })
@@ -144,7 +146,7 @@ fn no_network_is_looked_at_without_running_a_round() {
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     assert_eq!(failed_kinds(&e), ["offline"]);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -158,21 +160,21 @@ fn a_refused_run_goes_on_in_a_new_session_and_pauses_when_refused_again() {
     let (s, mut e, said, item) = failing("flagged-once", report.clone(), 1);
     for _ in 0..6 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     assert_eq!(failed_kinds(&e), ["flagged"]);
     let sessions: Vec<(i64, Option<i64>)> = {
         let conn = e.db.conn();
         let mut st = conn
             .prepare(
                 "SELECT r.session, s.ended FROM rounds r JOIN sessions s ON s.id = r.session
-                 WHERE r.work = ?1 AND r.cell = 'R1' ORDER BY r.n",
+                 WHERE r.work = ?1 AND r.cell = 'R0' ORDER BY r.n",
             )
             .unwrap();
         st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -198,7 +200,7 @@ fn a_run_refused_twice_pauses_its_work() {
     }
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R1", "{log}");
+    assert_eq!(at, "R0", "{log}");
     assert!(
         paused.as_deref().is_some_and(|p| p.contains("refused the agent's run")),
         "{paused:?}\n{log}"
@@ -214,13 +216,13 @@ fn a_passing_failure_runs_again_until_it_passes() {
     let (s, mut e, said, item) = failing("transient", "API Error: 529 Overloaded".to_string(), 3);
     for _ in 0..10 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     assert_eq!(paused, None, "{log}");
     assert_eq!(failed_kinds(&e), ["transient", "transient", "transient"]);
     assert_eq!(sent_back(&e), 0);
@@ -229,14 +231,14 @@ fn a_passing_failure_runs_again_until_it_passes() {
     let (work, _, _) = state(&e, item).unwrap();
     // Each run again is a retry; none is a return sent back.
     assert_eq!((counted(&e, work, "retries"), counted(&e, work, "sent_back")), (3, 0));
-    let again = message_at(&e, work, "R1", true);
+    let again = message_at(&e, work, "R0", true);
     assert!(
         again.contains("ended without a return (transient)") && !again.contains("529 Overloaded"),
         "{again}"
     );
     // The session holds the message of the run that failed, which the command line wrote there: the round run again
     // is not given it once more.
-    let first = message_at(&e, work, "R1", false);
+    let first = message_at(&e, work, "R0", false);
     assert!(
         again.len() * 2 < first.len(),
         "{} of {}\n{again}",
@@ -267,7 +269,7 @@ fn an_expired_login_stops_every_work_until_a_round_runs_again() {
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     assert_eq!(failed_kinds(&e), ["cannot_run"]);
     assert_eq!(sent_back(&e), 0);
     let asks: i64 =
@@ -291,7 +293,7 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     }
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R1", "{log}");
+    assert_eq!(at, "R0", "{log}");
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(paused.contains("prompt_too_long"), "{paused}");
     // The owner is told when the outbox is carried out, at the start of the next pass; the paused work stays.
@@ -302,13 +304,13 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
     api::resume(&mut e.db, work).unwrap();
     for _ in 0..5 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

@@ -49,30 +49,28 @@ CREATE TABLE items (
   -- Item number, one sequence across all projects.
   id INTEGER PRIMARY KEY,
   -- The project the item belongs to. Picks the repository, CI and settings its works run with.
-  -- Read by: the engine; cells `D1` and `D3`, through the project's design goals.
+  -- Read by: the engine; cells `R1` and `D1`, through the project's design goals.
   project TEXT NOT NULL,
   -- What to do, as an action. Read by: cell `R1` for the items around this one; people.
   title TEXT NOT NULL,
   -- What cannot be done or is wrong, and why the work is worth doing, as written at creation. The engineer's own
   -- understanding replaces them in views once cell `R1` has run; these stay as written.
-  -- Read by: cell `R1`, for this item and the items that depend on it; cell `T3` reads the
-  -- problem only.
+  -- Read by: cell `R1`, for this item and the items that depend on it.
   problem TEXT NOT NULL,
   why TEXT NOT NULL,
   -- How to do it, when the creator already knows; NULL otherwise. Read by: cell `R1`.
   approach TEXT,
-  -- What the work hands in: a change to merge, or a report. Read by: cells `R1` and `T4`;
-  -- the engine, which runs reports without full CI on the draft.
+  -- What the work hands in: a change to merge, or a report. Read by: cells `R1`, `D1` and `I1`; the engine.
   deliver TEXT NOT NULL CHECK (deliver IN ('change', 'report')),
   -- Agent level; decides which agent and model run the work. Read by: the engine at cell `S1`.
   level TEXT NOT NULL,
-  -- The locked acceptance: a JSON list of acceptance rows in the flow's acceptance shape. NULL until a first design, or
-  -- on the light route a first plan, passes its checks. Every later design or plan must hand in exactly this list;
-  -- only the advisor can change it. Read by: cells `D2`, `F1`, `F2`, `I1`, `T3`, `T4` and `T1`; the engine, which
-  -- compares each design's and each plan's acceptance with it.
+  -- The acceptance: a JSON list of acceptance rows in the flow's acceptance shape, as the research's plan or the design
+  -- the owner approved gave them when the work went on to implement, and as the implementation, a fix or the advisor
+  -- changed them since, each saying why; NULL until then. Read by: cells `I1`, `T2`, `T3`, `T1` and `T6`; the engine,
+  -- which checks the conditions met against it.
   acceptance TEXT CHECK (acceptance IS NULL OR json_valid(acceptance)),
-  -- The round whose acceptance was locked, by its work and its number in the work: a design round, a plan round on the
-  -- light route, or an advisor round that changed it. Read by: cell `D2`, to see whether the advisor changed it.
+  -- The round that gave the acceptance, by its work and its number in the work: the research's, the design's, or the
+  -- round of the implementation, a fix or the advisor that changed it. Read by: people following a condition back.
   acceptance_work INTEGER,
   acceptance_round INTEGER,
   -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell `R1` for the items around
@@ -87,8 +85,8 @@ CREATE TABLE items (
   -- `R1`; the owner's interface.
   imported_branch TEXT,
   imported_pr INTEGER,
-  -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The locked
-  -- acceptance, designed by the work, is acceptance. Read by: cell `R1`, through item_body.
+  -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The acceptance
+  -- the work goes by is acceptance. Read by: cell `R1`, through item_body.
   wanted TEXT CHECK (wanted IS NULL OR json_valid(wanted)),
   -- Why the architect holds the item, with the owner's approval: no work starts on it while it is held; NULL while it
   -- is not. Read by: ready_items; the architect.
@@ -98,12 +96,17 @@ CREATE TABLE items (
   -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
   -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
   rank INTEGER,
-  -- The route its works go: normal; or bugfix or feature, which go the light route, a plan reviewed before it is
-  -- implemented in place of the judgment whether it stands, the design and its checks. Only an item that delivers a
-  -- change goes the light route. The architect sets it when it creates or edits the item; a work past its research
-  -- keeps the route it took. Read by: the engine's value of the route a work takes, until the work's research
-  -- answers; cells `R1`, `G4`, `F1` and `F2`, through item_body; the owner's interface.
+  -- The mark of a bug fix or a feature, which a flow version before took for the light route its works went; normal
+  -- otherwise. Only an item that delivers a change carries a mark. The architect sets it when it creates or edits the
+  -- item. The flow no longer reads it: every work's research judges whether it can be started directly. Read by: the
+  -- views of the routes works of a flow version before went (work_routes); the owner's interface.
   route TEXT NOT NULL DEFAULT 'normal' CHECK (route IN ('normal', 'bugfix', 'feature')),
+  -- The decision points the item carries, JSON list in the flow's decision point shape, each with the option the owner
+  -- chose and why: what a discussion settled that goes into the project's decisions/ once deep research confirms it.
+  -- NULL when it carries none. An item that carries one goes to deep research, whatever its research finds. The
+  -- architect writes them as it creates or edits the item. Read by: the engine's value `decision_points`; cells `R1`,
+  -- `D1` and `T2`, through item_body.
+  decision_points TEXT CHECK (decision_points IS NULL OR json_valid(decision_points)),
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
   CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
   CHECK (route = 'normal' OR deliver = 'change'),
@@ -1268,9 +1271,9 @@ CREATE VIEW ready_items AS
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
 CREATE VIEW item_body AS
-  -- The item as its creator wrote it, the acceptance it wanted and the route its works go included. Read by: cells
-  -- `R1`, `G4`, `F1`, `F2`, `I1` and `T4`.
-  SELECT id AS item, project, title, problem, why, approach, deliver, route, wanted FROM items;
+  -- The item as its creator wrote it, the acceptance it wanted and the decision points it carries included. Read by:
+  -- cells `R1`, `D1`, `I1`, `T2`, `T3` and `T6`.
+  SELECT id AS item, project, title, problem, why, approach, deliver, wanted, decision_points FROM items;
 
 CREATE VIEW item_problem AS
   -- The item's problem: the engineer's understanding once cell `R1` has run, as written before.
@@ -1284,9 +1287,8 @@ CREATE VIEW item_problem AS
   FROM items i;
 
 CREATE VIEW item_acceptance AS
-  -- The item's locked acceptance, and the round that locked it, by its work and its number in the work; NULL until a
-  -- first design passes its checks. Read by: cells `D2`, `I1`, `T3`,
-  -- `T4` and `T1`.
+  -- The item's acceptance, and the round that gave it, by its work and its number in the work; NULL until the work
+  -- goes on to implement. locked says only whether there is one. Read by: cells `I1`, `T2`, `T3`, `T1` and `T6`.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_work, acceptance_round FROM items;
 
 CREATE VIEW item_design_cards AS

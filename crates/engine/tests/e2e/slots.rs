@@ -12,9 +12,8 @@ use super::*;
 fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     let s = setup("back-to-a-slot");
     let mut agents = scripts();
-    // The first work to research asks the architect; the first to weigh whether the problem stands, the second work,
-    // too.
-    for cell in ["R1", "R2"] {
+    // The first work to research asks the architect; the first to implement, the second work, too.
+    for cell in ["R1", "I1"] {
         agents.insert(
             cell,
             Box::new(|_: &Request, n: usize| {

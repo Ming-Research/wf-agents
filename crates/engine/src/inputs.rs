@@ -805,6 +805,19 @@ pub fn engine_input(
         ));
     }
     let Some(item) = item else { return Ok(None) };
+    match name {
+        // What taking main in brought before this round, as the step took it in ([`crate::catch_up`]).
+        crate::catch_up::INPUT => {
+            return Ok(e
+                .caught_up
+                .as_ref()
+                .filter(|(work, _)| *work == w.id)
+                .and_then(|(_, v)| v.clone()));
+        }
+        "owner_approval" => return crate::approval::input(e.db.conn(), &e.project_of(w)?, w),
+        "design_review" => return crate::review::input(e.db.conn(), w.id),
+        _ => {}
+    }
     let wt = w.worktree.as_deref();
     let main = main_of(e, item);
     Ok(match name {
@@ -842,7 +855,10 @@ pub fn engine_input(
                 returns.extend(returns_holding(e, w, g, cell, "test_changes")?);
             }
             returns.sort_by_key(|(round, _)| *round);
-            engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name)
+            match engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name) {
+                Some(Value::Array(rows)) => Some(Value::Array(crate::checks::engineer_results(e, w, &rows)?)),
+                other => other,
+            }
         }
         // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
         // commit of main the branch was cut from or last took main in at, the head under review, the merges of main

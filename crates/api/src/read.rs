@@ -3809,41 +3809,49 @@ mod tests {
                  'stopped: the flow moved to version 2, and a new work on it takes the item over')",
             )?;
             run("INSERT INTO works (id, item, flow_version, graph, at) VALUES (5, 4, 1, 'engineer', 'R1')")?;
-            for (id, work, line) in [(2, 2, "engineer"), (3, 2, "review"), (4, 2, "adversarial"), (5, 4, "engineer")] {
+            for (id, work, line) in [
+                (2, 2, "engineer"),
+                (3, 2, "review"),
+                (4, 2, "designer"),
+                (5, 4, "engineer"),
+                (6, 2, "librarian"),
+            ] {
                 tx.execute(
                     "INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (?1, ?2, ?3, 'claude', 's')",
                     db::rusqlite::params![id, work, line],
                 )?;
             }
             let found_two = json!({ "progress": "Two findings.", "outcome": {
-                "columns": [{ "id": "1", "verdict": "findings", "findings": [{ "fid": "R1" }, { "fid": "R2" }] },
-                            { "id": "2", "verdict": "pass" }],
-                "previous": [{ "id": "F1", "verdict": "withdraw" }] } });
-            let found_one = json!({ "progress": "The tree has a gap.", "outcome": {
-                "columns": [{ "id": "1", "verdict": "cannot_verify" }] } });
-            let clean = json!({ "progress": "No findings.", "outcome": { "columns": [{ "id": "1", "verdict": "pass" }] } });
+                "findings": [{ "fid": "U1" }, { "fid": "U2" }] } });
+            let found_one = json!({ "progress": "A detail is wrong.", "outcome": {
+                "findings": [{ "fid": "D1" }],
+                "must_fix": { "verdict": "yes", "why": "w" }, "silent": { "verdict": "no", "why": "w" } } });
+            let clean = json!({ "progress": "No findings.", "outcome": {
+                "rows": [{ "id": "F1", "verdict": "holds" }], "brought": { "verdict": "none" } } });
             let said = |p: &str| json!({ "progress": p });
-            let rounds: [GroupRound; 22] = [
+            let rounds: [GroupRound; 24] = [
                 (2, 1, "S1", None, "started", json!({}), 100, 101),
-                (2, 2, "R1", Some(2), "done", said("Looked at the problem."), 110, 120),
-                (2, 3, "R2", Some(2), "stands", said("It stands."), 121, 130),
-                (2, 4, "D1", Some(2), "done", said("Compared two ways."), 131, 140),
-                (2, 5, "D2", Some(2), "first", said("Chose one table."), 141, 150),
-                (2, 6, "D11", Some(2), "needed", said("Adversarial testing is needed."), 151, 160),
-                (2, 7, "I1", Some(2), "done", said("Implemented it."), 161, 170),
-                (2, 8, "T7", None, "adversarial", json!({}), 171, 171),
-                (2, 9, "T1", Some(4), "for_engineer", said("Found one gap."), 172, 180),
-                (2, 10, "T6", Some(2), "done", said("Fixed the gap."), 181, 190),
-                (2, 11, "T3", Some(3), "done", found_one, 191, 200),
-                (2, 12, "T4", Some(3), "done", found_two, 201, 210),
-                (2, 13, "M1", None, "fix", json!({}), 211, 211),
-                (2, 14, "T6", Some(2), "done", said("Fixed R1 to R3."), 220, 230),
-                (2, 15, "T3", Some(3), "done", clean.clone(), 231, 240),
-                (2, 16, "T4", Some(3), "done", clean, 241, 250),
-                (2, 17, "M1", None, "wait_questions", json!({}), 251, 252),
+                (2, 2, "R0", Some(6), "done", said("Gathered the background."), 102, 109),
+                (2, 3, "R1", Some(2), "decision_point", said("It carries a decision point."), 110, 130),
+                (2, 4, "D1", Some(4), "done", said("Compared two ways."), 131, 140),
+                (2, 5, "D2", Some(4), "done", said("Nothing outside the frame."), 141, 150),
+                (2, 6, "D3", None, "architect", json!({}), 151, 151),
+                (2, 7, "D3", None, "owner", json!({}), 152, 153),
+                (2, 8, "D3", None, "reviewed", json!({}), 154, 155),
+                (2, 9, "D4", Some(4), "done", said("Took in the review."), 156, 160),
+                (2, 10, "I1", Some(2), "done", said("Implemented it."), 161, 170),
+                (2, 11, "T2", Some(3), "done", found_two, 171, 180),
+                (2, 12, "T3", Some(3), "fix", found_one, 181, 190),
+                (2, 13, "T6", Some(2), "done", said("Fixed the findings."), 191, 200),
+                (2, 14, "T4", Some(3), "clear", clean.clone(), 201, 210),
+                (2, 15, "M1", None, "clear", json!({}), 211, 211),
+                (2, 16, "M2", None, "for_engineer", json!({ "result": { "kind": "red" } }), 212, 219),
+                (2, 17, "T6", Some(2), "done", said("Fixed the failing test."), 220, 230),
+                (2, 18, "T4", Some(3), "clear", clean, 231, 240),
+                (2, 19, "M1", None, "wait", json!({}), 251, 252),
                 (3, 1, "M1", None, "clear", json!({}), 300, 300),
                 (3, 2, "M2", None, "merged", json!({ "result": { "kind": "merged", "merge_commit": "abc123" } }), 301, 310),
-                (3, 3, "L1", None, "green", json!({}), 311, 320),
+                (3, 3, "L2", None, "done", said("Wrote what was learned."), 311, 320),
                 (3, 4, "E1", None, "done", json!({}), 321, 321),
                 (4, 1, "R1", Some(5), "tools", said("Started reading."), 400, 410),
             ];
@@ -3860,7 +3868,7 @@ mod tests {
                 "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
                  VALUES ('p', 'report', 'A side report', '{}', 2, 2, 10, 190)",
             )?;
-            run("INSERT INTO design_cards (work, round, key, body, status) VALUES (2, 6, 'card-1', '[]', 'open')")?;
+            run("INSERT INTO design_cards (work, round, key, body, status) VALUES (2, 5, 'card-1', '[]', 'open')")?;
             run(
                 "INSERT INTO engine_notices (work, text, at) VALUES
                  (2, 'Design card 1 of work 2 (item 2: Second) waits for your ruling; the architect looks at it too.', 160),
@@ -3909,43 +3917,49 @@ mod tests {
             seen,
             [
                 ("message", 130, "It stands, as I read it.".to_string()),
-                ("stage", 130, "research 0 Some(\"stands\") R2-R3".to_string()),
-                ("stage", 160, "design 0 Some(\"done\") R4-R6".to_string()),
-                ("stage", 170, "implement 0 Some(\"done\") R7-R7".to_string()),
-                ("stage", 210, "test 0 Some(\"sent_back\") R8-R12".to_string()),
-                ("stage", 250, "test 1 Some(\"no_findings\") R14-R16".to_string()),
-                ("stage", 252, "merge 0 None R17-R17".to_string()),
+                ("stage", 130, "research 0 Some(\"done\") R2-R3".to_string()),
+                ("stage", 160, "design 0 Some(\"done\") R4-R9".to_string()),
+                ("stage", 170, "implement 0 Some(\"done\") R10-R10".to_string()),
+                ("stage", 210, "test 0 Some(\"no_findings\") R11-R14".to_string()),
+                ("stage", 219, "merge 0 Some(\"sent_back\") R15-R16".to_string()),
+                ("stage", 240, "test 1 Some(\"no_findings\") R17-R18".to_string()),
+                ("stage", 252, "merge 1 None R19-R19".to_string()),
             ]
         );
         let stage = |n: usize| d.entries.iter().filter_map(|e| e.stage.as_ref()).nth(n).unwrap();
-        // The merge's judge sent the testing back for what its reviews found, which says why.
-        let sent = stage(3);
+        // The testing fixed what its reviews found within its own stage; its notes say each round.
         assert_eq!(
-            sent.findings
+            stage(3)
+                .notes
                 .iter()
-                .map(|f| (f.review.as_str(), f.round, f.findings))
+                .map(|n| (n.round, n.line.as_deref(), n.text.as_deref()))
                 .collect::<Vec<_>>(),
-            [("Blind review", 11, 1), ("Table review", 12, 2)]
+            [
+                (11, Some("review"), Some("Two findings.")),
+                (12, Some("review"), Some("A detail is wrong.")),
+                (13, Some("engineer"), Some("Fixed the findings.")),
+                (14, Some("review"), Some("No findings.")),
+            ]
         );
-        assert_eq!(sent.why, None);
+        // The full CI failing sent the work back to the engineer's fix, which says why.
+        let sent = stage(4);
+        assert!(sent.findings.is_empty());
         assert_eq!(
-            sent.notes
-                .last()
-                .map(|n| (n.round, n.line.as_deref(), n.text.as_deref())),
-            Some((12, Some("review"), Some("Two findings.")))
+            sent.why.as_deref(),
+            Some("Back to the engineer's session, which fixes it all with the fast CI before the full CI runs again.")
         );
         // The decision card is in the bubble of the stage that handed it in.
-        assert_eq!(stage(1).design_cards.iter().map(|c| c.round).collect::<Vec<_>>(), [6]);
+        assert_eq!(stage(1).design_cards.iter().map(|c| c.round).collect::<Vec<_>>(), [5]);
         // What the engine told of the work while it was at a stage is said on its bubble without naming the work; its
         // pause is how it stands, and the decision card waiting is pinned.
         assert_eq!(
-            stage(4).events,
+            stage(5).events,
             ["Passed the limit its project sets on fixes: 3 times, the limit 2. It goes on; look at it."]
         );
         assert!(stage(0).events.is_empty() && stage(1).events.is_empty());
-        let now = stage(5);
+        let now = stage(6);
         assert!(now.current && now.ended_at.is_none() && now.outcome.is_none());
-        // A merge says its pull request and commit; watching main says how main stands.
+        // A merge says its pull request and commit; writing what was learned follows it.
         let merged = group(3);
         let ends: Vec<Ended> = merged
             .entries
@@ -3957,7 +3971,7 @@ mod tests {
             ends,
             [
                 ("merge", Some("merged"), Some(9), Some("abc123")),
-                ("watch_main", Some("green"), None, None)
+                ("learn", Some("done"), None, None)
             ]
         );
         // A work taken over ends its last bubble with why, and the work that took it over.

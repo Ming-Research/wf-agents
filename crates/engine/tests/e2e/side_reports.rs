@@ -10,10 +10,10 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
     let s = setup("side-report-answered");
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "harm_now": false }])
             } else {
                 json!([])
             };
@@ -55,7 +55,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
             .query_row("SELECT id FROM observations", [], |r| r.get(0))
             .unwrap();
     let line = format!(
-        "About your side report at cell R1 (\"There is no `jq` on the machine\"): recorded as observation O{id} \
+        "About your side report at cell R0 (\"There is no `jq` on the machine\"): recorded as observation O{id} \
          \"No jq on the machine\". You need not report it again."
     );
     assert_eq!(lines_told(&e, work), std::slice::from_ref(&line), "{log}");
@@ -95,7 +95,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
             .unwrap();
     let given = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap()).to_string();
     assert!(
-        given.contains("From the architect: About your side report at cell R1"),
+        given.contains("From the architect: About your side report at cell R0"),
         "{given}"
     );
     // A word that needs no answer turns nothing: the work is not taken to choose its way on.
@@ -112,10 +112,10 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
     let s = setup("gap-recurs");
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "harm_now": false }])
             } else {
                 json!([])
             };
@@ -211,7 +211,7 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
     assert_eq!(
         lines_told(&e, work),
         [format!(
-            "About your side report at cell R1 (\"There is no `jq` on the machine\"): reported once more on \
+            "About your side report at cell R0 (\"There is no `jq` on the machine\"): reported once more on \
              observation O1 \"No jq\", 3 times now; taken into new item #{fix} \"Install jq\". You need not report \
              it again."
         )],
@@ -233,8 +233,8 @@ fn side_reports_come_to_the_architect_as_reports() {
         })
     };
     agents.insert(
-        "R1",
-        reporting(json!({ "kind": "out_of_scope_defect", "what": "The lexer drops a token.", "urgent": true })),
+        "R0",
+        reporting(json!({ "kind": "out_of_scope_defect", "what": "The lexer drops a token.", "harm_now": true })),
     );
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
@@ -278,14 +278,14 @@ fn flow_feedback_stays_in_its_round_and_comes_to_no_architect() {
             (Vec::new(), vec![("flow_feedback", said)])
         })
     };
-    agents.insert("R1", saying("The problem and the why say the same."));
-    agents.insert("R2", saying("No outcome fits a report."));
+    agents.insert("R0", saying("The problem and the why say the same."));
+    agents.insert("R1", saying("No outcome fits a report."));
     let (mut e, said, item) = start(&s, agents);
     for _ in 0..4 {
         e.step(None).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(ended_at(&e, item, "R2").len(), 1, "{log}");
+    assert_eq!(ended_at(&e, item, "R1").len(), 1, "{log}");
     assert!(architect_works(&e).is_empty(), "{log}");
     assert!(matters(&e).is_empty(), "{log}");
     let kept: Vec<(String, String)> = {
@@ -293,7 +293,7 @@ fn flow_feedback_stays_in_its_round_and_comes_to_no_architect() {
             e.db.conn()
                 .prepare(
                     "SELECT cell, output ->> '$.flow_feedback' FROM rounds
-                 WHERE cell IN ('R1', 'R2') AND output ->> '$.flow_feedback' <> 'none' ORDER BY work, n",
+                 WHERE cell IN ('R0', 'R1') AND output ->> '$.flow_feedback' <> 'none' ORDER BY work, n",
                 )
                 .unwrap();
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -304,8 +304,8 @@ fn flow_feedback_stays_in_its_round_and_comes_to_no_architect() {
     assert_eq!(
         kept,
         [
-            ("R1".to_string(), "The problem and the why say the same.".to_string()),
-            ("R2".to_string(), "No outcome fits a report.".to_string())
+            ("R0".to_string(), "The problem and the why say the same.".to_string()),
+            ("R1".to_string(), "No outcome fits a report.".to_string())
         ],
         "{log}"
     );
@@ -326,7 +326,7 @@ fn a_project_with_flow_feedback_off_is_not_asked_for_it() {
     git(&s.data, &["commit", "-q", "-am", "no flow feedback"]);
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("flow_feedback", json!("Said anyway."))])),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -334,9 +334,9 @@ fn a_project_with_flow_feedback_off_is_not_asked_for_it() {
     let w = e.work(work).unwrap();
     let g = e.graph_of(&w).unwrap();
     let subject = e.subject(&w).unwrap();
-    let r1 = g.cell("R1").unwrap();
-    assert!(r1.schema.as_ref().unwrap()["properties"].get("flow_feedback").is_none());
-    let req = engine::cell_request(&e, &w, &g, r1, subject.as_ref()).unwrap();
+    let r0 = g.cell("R0").unwrap();
+    assert!(r0.schema.as_ref().unwrap()["properties"].get("flow_feedback").is_none());
+    let req = engine::cell_request(&e, &w, &g, r0, subject.as_ref()).unwrap();
     assert!(
         req.envelope["properties"].get("flow_feedback").is_none(),
         "{}",
@@ -344,7 +344,7 @@ fn a_project_with_flow_feedback_off_is_not_asked_for_it() {
     );
     e.step(Some(work)).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(ended_at(&e, item, "R1"), [(Some("done".to_string()), None)], "{log}");
+    assert_eq!(ended_at(&e, item, "R0"), [(Some("done".to_string()), None)], "{log}");
     assert!(matters(&e).is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -420,9 +420,9 @@ fn a_side_report_handed_in_again_is_queued_once() {
     let s = setup("report-again");
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| {
-            let r = |what: &str| json!({ "kind": "improvement", "what": what, "urgent": false });
+            let r = |what: &str| json!({ "kind": "improvement", "what": what, "harm_now": false });
             let reports = if n == 1 {
                 json!([
                     r("The parser is slow."),

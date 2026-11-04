@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(context(&rs[1..]), None);
     }
 
-    // A round runs at its cell's effort whatever the model: implementing at xhigh, the first look at a design at medium.
+    // A round runs at its cell's effort whatever the model: implementing at xhigh, choosing the way on at medium.
     #[test]
     fn a_round_runs_at_its_cells_effort() {
         let relations = db::relations(db::SCHEMA).unwrap();
@@ -571,7 +571,7 @@ mod tests {
         let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
         let g = f.graph("engineer").unwrap();
         assert_eq!(effort(g.cell("I1").unwrap()).as_deref(), Some("xhigh"));
-        assert_eq!(effort(g.cell("R2").unwrap()).as_deref(), Some("medium"));
+        assert_eq!(effort(g.cell("A4").unwrap()).as_deref(), Some("medium"));
         let mut older = g.cell("I1").unwrap().clone();
         older.effort = None;
         assert_eq!(effort(&older), None);

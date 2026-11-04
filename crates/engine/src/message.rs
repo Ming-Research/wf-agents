@@ -1126,7 +1126,9 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
     // At a re-review of disputes only, the columns the last table review could not verify, by number and with the
     // words they had then.
     let mut only: Option<Unverified> = None;
-    if cell.id == "T4" {
+    // Only a graph with the review table's rule has a table review: the engineer's graph reviews in two passes now.
+    let tabled = g.rules.iter().any(|r| r.name == "review_table");
+    if cell.id == "T4" && tabled {
         let review = crate::inputs::last_return(e, w, g, "T7", "plan")
             .ok()
             .flatten()
@@ -1365,13 +1367,6 @@ fn last_unverified(e: &Engine, w: &Work, g: &CompiledGraph) -> Unverified {
     }
 }
 
-/// The numbers of the columns the last table review that handed in a table could not verify.
-pub(crate) fn unverified_last(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
-    last_table(e, w, g)
-        .map(|(_, table)| cannot_verify(&table))
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1387,128 +1382,6 @@ mod tests {
         )
         .unwrap();
         f.graph(crate::ENGINEER).unwrap().clone()
-    }
-
-    // The review table's fixed columns are the lines of its rule up to the project's review list, the column of cost
-    // under load before the column of tests and checks changed without one of their own, which is the last, and a
-    // report has its own table without the column of cost under load; a flow version with a column fewer before the
-    // review list still gives its own columns and its report's table.
-    #[test]
-    fn the_review_table_gives_its_columns_by_their_words() {
-        let g = graph();
-        let table = g
-            .rules
-            .iter()
-            .find(|r| r.name == "review_table")
-            .map(|r| r.text.clone())
-            .unwrap();
-        let change = fixed_columns(&table, false);
-        assert_eq!(change.len(), 8, "{change:?}");
-        assert!(change[0].starts_with("The change matches the design"), "{}", change[0]);
-        assert!(change[6].starts_with("Cost under load"), "{}", change[6]);
-        assert!(
-            change[7].starts_with("Tests and checks changed without"),
-            "{}",
-            change[7]
-        );
-        let report = fixed_columns(&table, true);
-        assert_eq!(report.len(), 1);
-        assert!(report[0].starts_with("A work that delivers a report"), "{}", report[0]);
-        assert!(!report[0].contains("Cost under load"), "{}", report[0]);
-        // A flow version before the column of tests changed, and one before the column of cost under load.
-        let mut older = table.clone();
-        older.remove(9);
-        assert_eq!(fixed_columns(&older, false), change[..7].to_vec());
-        assert_eq!(fixed_columns(&older, true), report);
-        let mut oldest = table.clone();
-        oldest.remove(8);
-        let no_load = fixed_columns(&oldest, false);
-        assert_eq!(no_load.len(), 7, "{no_load:?}");
-        assert!(
-            no_load[6].starts_with("Tests and checks changed without"),
-            "{}",
-            no_load[6]
-        );
-        assert_eq!(fixed_columns(&oldest, true), report);
-    }
-
-    // What the flow's texts promise the review and the design check to do, read from the compiled flow once:
-    // - the rule and the field of the table review's answer say alike that a re-review after a change lists all the
-    //   columns, each answered whether or not the change touches it, and neither says the engine lists only the columns
-    //   a change concerns;
-    // - the column of cost under load asks how the cost grows when the number of runs and the data they touch double,
-    //   reaches the hot paths outside the diff, asks for no measurement and names no project, and the design check
-    //   asks the same question;
-    // - the column of an acceptance condition and the rule tell the review how to judge the rows the engine can only
-    //   look up by text: for a CI job, its result, and whether each command runs in the job named, not merely is
-    //   written in a file of the branch; for a reading of the diff, to read it; and for either, whether a test could
-    //   have proved the condition.
-    #[test]
-    fn the_flows_texts_say_what_the_review_and_the_design_check_do() {
-        let g = graph();
-        let table = g.rules.iter().find(|r| r.name == "review_table").unwrap().text.clone();
-        let rule = table.join("\n");
-        let field = g.cell("T4").unwrap().schema.as_ref().unwrap().to_string();
-        for (place, text) in [("the review_table rule", &rule), ("the field", &field)] {
-            assert!(
-                text.contains("lists all the columns, and each is answered whether or not the change touches it"),
-                "{place}: {text}"
-            );
-            assert!(
-                !text.contains("the columns the changed part concerns"),
-                "{place}: {text}"
-            );
-            assert!(
-                !text.contains("only the columns to review this time"),
-                "{place}: {text}"
-            );
-        }
-        for want in [
-            "(`ci_job`), read that job's result on this head",
-            "each command in its `steps` runs in the job it names, not only that the command is written in a file of the branch; one that does not is a finding",
-            "(`read_diff`), read the diff at its `where` yourself",
-            "For either, if a test could prove the condition instead, that is a finding.",
-        ] {
-            assert!(ACCEPTANCE_PROOFS.contains(want), "{want}: {ACCEPTANCE_PROOFS}");
-        }
-        for want in [
-            "that job's result on the head to be merged",
-            "each command in its steps runs in the job it names",
-            "for either, if a test could prove the condition instead, that is a finding",
-        ] {
-            assert!(rule.contains(want), "{want}: {rule}");
-        }
-        let column = fixed_columns(&table, false)
-            .into_iter()
-            .find(|c| c.starts_with("Cost under load"))
-            .unwrap();
-        for word in [
-            "per event",
-            "per round",
-            "per work",
-            "per request",
-            "outside the diff",
-            "double",
-            "No measurement",
-        ] {
-            assert!(column.contains(word), "{word}: {column}");
-        }
-        let design = g.cell("D3").unwrap().prompt.join("\n");
-        for word in [
-            "per event",
-            "per round",
-            "per work",
-            "per request",
-            "double",
-            "without measuring",
-        ] {
-            assert!(design.contains(word), "{word}: {design}");
-        }
-        for text in [&column, &design] {
-            for project in ["wf-agents", "whitefoot", "Whitefoot", "SQLite", "sqlite"] {
-                assert!(!text.contains(project), "{project}: {text}");
-            }
-        }
     }
 
     // A change's column of an acceptance condition tells the review how to judge a job of the CI and a reading of the
@@ -1578,9 +1451,12 @@ mod tests {
             implement.contains("`tools` (of ci, ci_before, measure, gh, query)"),
             "{implement}"
         );
-        assert!(implement.contains("`ask` (to advisor, architect)"), "{implement}");
+        assert!(
+            implement.contains("`ask` (to advisor, architect, owner)"),
+            "{implement}"
+        );
         let advisor = cell_format(&g, g.cell("A1").unwrap());
-        assert!(advisor.contains("`ask` (to architect)"), "{advisor}");
+        assert!(advisor.contains("`ask` (to architect, owner)"), "{advisor}");
         assert!(!advisor.contains("`redirect`"), "{advisor}");
     }
 

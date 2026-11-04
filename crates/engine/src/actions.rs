@@ -48,11 +48,15 @@ pub struct Ctx {
     pub blockers: Option<flow::format::Blockers>,
 }
 
-/// The engineer's cell that writes the design, whose return holds its acceptance conditions.
+/// The engineer's cell that hands in the design the owner reviews, whose return holds its acceptance conditions.
 const DESIGN: &str = "D2";
 
-/// The engineer's cell that plans a fix on the light route, whose plan holds its acceptance conditions.
-const PLAN: &str = "F1";
+/// The cell that splits a design along its parts, whose reply, as an engineer's question's, names the sub-items.
+const SPLIT: &str = "D5";
+
+/// The engineer's cell of the initial research, whose plan holds its acceptance conditions when the work goes straight
+/// to implement.
+const PLAN: &str = "R1";
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -359,19 +363,31 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             )
             .map_err(sql)?;
         }
-        "lock_acceptance" => {
-            // The conditions of the work's latest design, or on the light route of its latest plan.
-            let design = ctx.last(tx, DESIGN, &format!("{}.acceptance", ctx.within))?;
-            let plan = ctx.last(tx, PLAN, &format!("{}.plan.acceptance", ctx.within))?;
+        "record_acceptance" => {
+            // The acceptance the implementation or a fix changed, with why; or else that of the plan or the design the
+            // work implements: the research's plan when it went straight to implement, the design otherwise.
+            if let Some(changed) = at_value
+                .as_ref()
+                .and_then(|v| v.get("acceptance"))
+                .filter(|a| a.is_array())
+            {
+                return lock_designed(tx, ctx.item_id()?, ctx.round, changed);
+            }
+            let design = ctx.last(tx, DESIGN, &format!("{}.design.acceptance", ctx.within))?;
+            let plan = ctx.last(tx, PLAN, &format!("{}.can_start.acceptance", ctx.within))?;
             let newest = match (design, plan) {
                 (Some(d), Some(p)) => Some(if d.0 > p.0 { d } else { p }),
                 (d, p) => d.or(p),
             };
             let Some((round, acceptance)) = newest else {
-                return Err("no design or plan handed in acceptance conditions to lock".into());
+                return Err("no plan or design handed in acceptance conditions to record".into());
             };
             lock_designed(tx, ctx.item_id()?, round, &acceptance)?;
         }
+        "post_design_review" => crate::review::post(ctx, tx)?,
+        "ask_owner_review" => crate::review::ask_owner(ctx, tx)?,
+        "ask_owner_approval" => crate::approval::ask(ctx, tx)?,
+        "relay_owner_answer" => crate::approval::relay(ctx, tx)?,
         "lock_new_acceptance" => {
             let new = at_value.or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance"));
             lock_advised(tx, ctx.item_id()?, ctx.round, new)?;
@@ -468,10 +484,15 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "hand_over_to_sub_items" => {
             let Some(pr) = ctx.work.pr else { return Ok(()) };
-            let children = ctx
-                .last(tx, "A2", "reply.children")?
-                .map(|(_, v)| v)
-                .unwrap_or(Value::Null);
+            // The architect's latest reply that split the work: to a question, or to the split of its design.
+            let asked = ctx.last(tx, "A2", "reply.children")?;
+            let split = ctx.last(tx, SPLIT, "reply.children")?;
+            let children = match (asked, split) {
+                (Some(a), Some(b)) => Some(if a.0 > b.0 { a } else { b }),
+                (a, b) => a.or(b),
+            }
+            .map(|(_, v)| v)
+            .unwrap_or(Value::Null);
             // Each by its number alone: its title is in the owner's language, and everything in a pull request is in
             // English.
             let list: Vec<String> = children
@@ -520,7 +541,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 if queued > 0 || before > 0 {
                     continue;
                 }
-                let urgent = r["urgent"] == true;
+                // A report of harm done now is urgent; one from before the question of harm says so itself.
+                let urgent = r["harm_now"] == true || r["urgent"] == true;
                 // The line that handed it in: the engineer's, or a line that helps it and tells the owner nothing.
                 let line = line_of(ctx);
                 let what = format!(

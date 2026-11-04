@@ -3,9 +3,9 @@
 
 use super::*;
 
-/// A work whose cell `R1` breaks its first return as `fault` says, the script `@repair` answering a repair of it as
-/// `repair` says, if given, and every later return of `R1` as `later` says, if given.
-fn unparsed_at_r1(
+/// A work whose cell `R0` breaks its first return as `fault` says, the script `@repair` answering a repair of it as
+/// `repair` says, if given, and every later return of `R0` as `later` says, if given.
+fn unparsed_at_r0(
     name: &str,
     fault: &'static str,
     repair: Option<Script>,
@@ -14,7 +14,7 @@ fn unparsed_at_r1(
     let s = setup(name);
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| match (n, later) {
             (1, _) => (Vec::new(), vec![("@unparsed", json!(fault))]),
             (_, Some(f)) => (Vec::new(), vec![("@unparsed", json!(f))]),
@@ -28,12 +28,12 @@ fn unparsed_at_r1(
     (s, e, said, item)
 }
 
-/// What the record of a work's first round at `R1` keeps of the repair of its return, with its contents put back.
+/// What the record of a work's first round at `R0` keeps of the repair of its return, with its contents put back.
 fn repair_record(e: &Engine, work: i64) -> (Value, Value) {
     let (input, usage): (String, Option<String>) =
         e.db.conn()
             .query_row(
-                "SELECT input, usage FROM rounds WHERE work = ?1 AND cell = 'R1' ORDER BY n LIMIT 1",
+                "SELECT input, usage FROM rounds WHERE work = ?1 AND cell = 'R0' ORDER BY n LIMIT 1",
                 [work],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -43,11 +43,11 @@ fn repair_record(e: &Engine, work: i64) -> (Value, Value) {
     (input["engine"]["unparsed"].clone(), usage)
 }
 
-/// Takes steps until the work on the item has left `R1` or paused.
-fn past_r1(e: &mut Engine, item: i64) {
+/// Takes steps until the work on the item has left `R0` or paused.
+fn past_r0(e: &mut Engine, item: i64) {
     for _ in 0..6 {
         e.step(None).unwrap();
-        if state(e, item).is_some_and(|(_, at, paused)| at != "R1" || paused.is_some()) {
+        if state(e, item).is_some_and(|(_, at, paused)| at != "R0" || paused.is_some()) {
             break;
         }
     }
@@ -58,12 +58,12 @@ fn past_r1(e: &mut Engine, item: i64) {
 // and no repair is asked of a model.
 #[test]
 fn a_return_that_lacks_only_its_last_brace_is_closed_within_its_round() {
-    let (s, mut e, said, item) = unparsed_at_r1("unparsed-close", "drop_last_brace", None, None);
-    past_r1(&mut e, item);
+    let (s, mut e, said, item) = unparsed_at_r0("unparsed-close", "drop_last_brace", None, None);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
-    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R0"), ["done"], "{log}");
     assert!(failed_kinds(&e).is_empty(), "{log}");
     let (record, _) = repair_record(&e, work);
     assert_eq!(record["closed"]["added"], "}", "{record}");
@@ -74,18 +74,18 @@ fn a_return_that_lacks_only_its_last_brace_is_closed_within_its_round() {
     assert!(
         record["attempts"][0]["text"]
             .as_str()
-            .is_some_and(|t| t.contains("\"tell_owner\"")),
+            .is_some_and(|t| t.contains("\"progress\"")),
         "{record}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// What the first round of a work at `R1` records of a form taken from the JSON text of it: the field it was.
+/// What the first round of a work at `R0` records of a form taken from the JSON text of it: the field it was.
 fn taken_from_text(e: &Engine, work: i64) -> Option<String> {
     e.db.conn()
         .query_row(
             "SELECT json_extract(input, '$.engine.taken_from_text') FROM rounds
-             WHERE work = ?1 AND cell = 'R1' ORDER BY n LIMIT 1",
+             WHERE work = ?1 AND cell = 'R0' ORDER BY n LIMIT 1",
             [work],
             |r| r.get(0),
         )
@@ -99,29 +99,29 @@ fn an_outcome_handed_in_as_its_json_text_is_taken_as_the_object() {
     let s = setup("outcome-text");
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| match n {
             1 => (Vec::new(), vec![("@outcome_text", json!(true))]),
             _ => (Vec::new(), Vec::new()),
         }),
     );
     let (mut e, said, item) = start(&s, agents);
-    past_r1(&mut e, item);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
-    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R0"), ["done"], "{log}");
     assert_eq!(sent_back(&e), 0, "{log}");
     assert_eq!(taken_from_text(&e, work).as_deref(), Some("outcome"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// What the first round of a work at `R1` keeps under `engine` in its record.
+/// What the first round of a work at `R0` keeps under `engine` in its record.
 fn engine_record(e: &Engine, work: i64) -> Value {
     let text: String =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(input, '$.engine') FROM rounds WHERE work = ?1 AND cell = 'R1'
+                "SELECT json_extract(input, '$.engine') FROM rounds WHERE work = ?1 AND cell = 'R0'
                  ORDER BY n LIMIT 1",
                 [work],
                 |r| r.get(0),
@@ -131,8 +131,8 @@ fn engine_record(e: &Engine, work: i64) -> Value {
 }
 
 // A round records where its return was read from: the tool's input, which the command line checked, or the text of the
-// run's result, which no check of it saw. A null a return holds in a field of another form than its own (`ask` beside
-// the understanding) is taken as left out, the round takes its row with nothing sent back, and the round records the
+// run's result, which no check of it saw. A null a return holds in a field of another form than its own (`pause` beside
+// the brief) is taken as left out, the round takes its row with nothing sent back, and the round records the
 // path of the null; a return with no such null records none.
 #[test]
 fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out() {
@@ -140,28 +140,28 @@ fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out(
         let s = setup(&format!("return-from-{from}"));
         let mut agents = scripts();
         agents.insert(
-            "R1",
+            "R0",
             Box::new(move |_: &Request, n: usize| match n {
                 1 if nulls => (
                     Vec::new(),
-                    vec![("@from", json!(from)), ("@foreign_null", json!("ask"))],
+                    vec![("@from", json!(from)), ("@foreign_null", json!("pause"))],
                 ),
                 1 => (Vec::new(), vec![("@from", json!(from))]),
                 _ => (Vec::new(), Vec::new()),
             }),
         );
         let (mut e, said, item) = start(&s, agents);
-        past_r1(&mut e, item);
+        past_r0(&mut e, item);
         let log = said.lock().unwrap().join("\n");
         let (work, at, paused) = state(&e, item).unwrap();
-        assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
-        assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+        assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+        assert_eq!(rows_at(&e, work, "R0"), ["done"], "{log}");
         assert_eq!(sent_back(&e), 0, "{log}");
         let record = engine_record(&e, work);
         assert_eq!(record["return_from"], from, "{record}");
         assert_eq!(
             record.get("foreign_nulls").cloned(),
-            nulls.then(|| json!(["outcome.ask"])),
+            nulls.then(|| json!(["outcome.pause"])),
             "{record}"
         );
         let _ = std::fs::remove_dir_all(&s.root);
@@ -173,12 +173,12 @@ fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out(
 // round records both the attempt and that its outcome was taken from the text.
 #[test]
 fn an_attempt_refused_for_its_outcome_as_json_text_is_taken_within_its_round() {
-    let (s, mut e, said, item) = unparsed_at_r1("unparsed-outcome-text", "outcome_text", None, None);
-    past_r1(&mut e, item);
+    let (s, mut e, said, item) = unparsed_at_r0("unparsed-outcome-text", "outcome_text", None, None);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
-    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R0"), ["done"], "{log}");
     assert!(failed_kinds(&e).is_empty(), "{log}");
     let (record, _) = repair_record(&e, work);
     assert_eq!(record["as_it_is"], true, "{record}");
@@ -197,12 +197,12 @@ fn an_attempt_refused_for_its_outcome_as_json_text_is_taken_within_its_round() {
 // from the text, as for a string that holds the JSON alone.
 #[test]
 fn an_attempt_refused_for_its_outcome_as_json_text_with_a_brace_too_many_is_taken_within_its_round() {
-    let (s, mut e, said, item) = unparsed_at_r1("unparsed-outcome-brace", "outcome_text_brace", None, None);
-    past_r1(&mut e, item);
+    let (s, mut e, said, item) = unparsed_at_r0("unparsed-outcome-brace", "outcome_text_brace", None, None);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
-    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R0"), ["done"], "{log}");
     assert_eq!(sent_back(&e), 0, "{log}");
     let (record, _) = repair_record(&e, work);
     assert_eq!(record["as_it_is"], true, "{record}");
@@ -220,16 +220,16 @@ fn a_repair_whose_outcome_is_its_json_text_is_taken_as_any_return() {
         let fixed = text.replacen(" \"at\" ", " \\\"at\\\" ", 1);
         (Vec::new(), vec![("@result", json!(fixed))])
     });
-    let (s, mut e, said, item) = unparsed_at_r1(
+    let (s, mut e, said, item) = unparsed_at_r0(
         "unparsed-repair-text",
         "unescaped_quote_outcome_text",
         Some(escapes),
         None,
     );
-    past_r1(&mut e, item);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
     assert_eq!(sent_back(&e), 0, "{log}");
     let (record, _) = repair_record(&e, work);
     assert_eq!(record["repair"]["taken"], true, "{record}");
@@ -247,19 +247,19 @@ fn the_attempts_the_command_line_refused_before_it_took_a_return_are_recorded() 
     let why = "Output does not match required schema: /outcome: must NOT have additional properties ('tell_owner' is \
                not allowed)";
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| match n {
             1 => (Vec::new(), vec![("@refused", json!([why]))]),
             _ => (Vec::new(), Vec::new()),
         }),
     );
     let (mut e, said, item) = start(&s, agents);
-    past_r1(&mut e, item);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
     assert_eq!(sent_back(&e), 0, "{log}");
-    let sql = "SELECT json_extract(input, '$.engine.refused') FROM rounds WHERE work = ?1 AND cell = 'R1' ORDER BY n";
+    let sql = "SELECT json_extract(input, '$.engine.refused') FROM rounds WHERE work = ?1 AND cell = 'R0' ORDER BY n";
     let refused: Option<String> = e.db.conn().query_row(sql, [work], |r| r.get(0)).unwrap();
     let refused = refused.map(|r| serde_json::from_str::<Value>(&r).unwrap());
     assert_eq!(refused, Some(json!([why])), "{log}");
@@ -271,12 +271,12 @@ fn the_attempts_the_command_line_refused_before_it_took_a_return_are_recorded() 
 // moved up beside `outcome`: the round takes its row, and nothing is repaired, handed in again or sent back.
 #[test]
 fn an_attempt_refused_for_its_shape_is_taken_as_it_is_within_its_round() {
-    let (s, mut e, said, item) = unparsed_at_r1("unparsed-inside", "inside", None, None);
-    past_r1(&mut e, item);
+    let (s, mut e, said, item) = unparsed_at_r0("unparsed-inside", "inside", None, None);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
-    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R0"), ["done"], "{log}");
     assert!(failed_kinds(&e).is_empty(), "{log}");
     assert_eq!(sent_back(&e), 0, "{log}");
     let (record, _) = repair_record(&e, work);
@@ -303,11 +303,11 @@ fn a_repair_that_keeps_the_content_is_taken_within_the_round() {
             ],
         )
     });
-    let (s, mut e, said, item) = unparsed_at_r1("unparsed-repair", "unescaped_quote", Some(escapes), None);
-    past_r1(&mut e, item);
+    let (s, mut e, said, item) = unparsed_at_r0("unparsed-repair", "unescaped_quote", Some(escapes), None);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "R2", "{log}");
+    assert_eq!(at, "R1", "{log}");
     let (record, usage) = repair_record(&e, work);
     assert_eq!(record["repair"]["taken"], true, "{record}");
     assert_eq!(record["repair"]["cost_usd"], 0.002, "{record}");
@@ -329,11 +329,11 @@ fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again()
             vec![("@result", json!(text.replacen(" \"at\" ", " in ", 1)))],
         )
     });
-    let (s, mut e, said, item) = unparsed_at_r1("unparsed-again", "unescaped_quote", Some(rewords), None);
-    past_r1(&mut e, item);
+    let (s, mut e, said, item) = unparsed_at_r0("unparsed-again", "unescaped_quote", Some(rewords), None);
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "R2", "{log}");
+    assert_eq!(at, "R1", "{log}");
     let (record, _) = repair_record(&e, work);
     assert!(
         record["repair"]["refused"]
@@ -348,7 +348,7 @@ fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again()
             .is_some_and(|m| m.contains("could not be parsed as JSON")),
         "{record}"
     );
-    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert_eq!(rows_at(&e, work, "R0"), ["done"], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -356,11 +356,11 @@ fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again()
 // the work pauses, the owner is told, and the round is closed as a failed run of its kind.
 #[test]
 fn a_return_neither_repaired_nor_handed_in_again_pauses_the_work() {
-    let (s, mut e, said, item) = unparsed_at_r1("unparsed-pause", "cut_off", None, Some("cut_off"));
-    past_r1(&mut e, item);
+    let (s, mut e, said, item) = unparsed_at_r0("unparsed-pause", "cut_off", None, Some("cut_off"));
+    past_r0(&mut e, item);
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R1", "{log}");
+    assert_eq!(at, "R0", "{log}");
     assert!(
         paused.is_some_and(|p| p.contains("could not be parsed as JSON")),
         "{log}"

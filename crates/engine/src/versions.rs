@@ -308,11 +308,12 @@ fn read_later<'r>(
 }
 
 /// The cells whose returns the engine's own code reads by their id, beside any input, by graph, whatever cell the work
-/// is at: the engineer's start (where its branch came from), its understanding, its design, its merge, its watch of
-/// main and its end; the architect's look at its queue and its pick, its understanding of the project, the owner's
-/// talk, its policy written and taken into effect, and the cells whose answers say what a matter became.
+/// is at: the engineer's start (where its branch came from), its research and its plan, its design, the review of it
+/// taken in and the split of it, the first pass of the review, the fix, its merge and its end; the architect's look at
+/// its queue and its pick, its understanding of the project, the owner's talk, its policy written and taken into
+/// effect, and the cells whose answers say what a matter became.
 const READ_BY_CODE: [(&str, &[&str]); 2] = [
-    (crate::ENGINEER, &["S1", "R1", "D2", "M2", "L1", "E1"]),
+    (crate::ENGINEER, &["S1", "R1", "D2", "D4", "D5", "T2", "T6", "M2", "E1"]),
     (crate::ARCHITECT, &["Q0", "Q1", "U1", "H8", "H12", "E1", "P2", "P12"]),
 ];
 
@@ -549,7 +550,7 @@ mod tests {
     /// Where a work stands, by name, at each point of cell `I1` under way and before it, with the rounds that brought
     /// it there and whether it has begun `I1` there.
     fn positions() -> Vec<(&'static str, Position, Vec<Round>, bool)> {
-        let d11 = ran(1, "D11", "needed", sample("D11", "needed"));
+        let gathered = ran(1, "R0", "done", sample("R0", "done"));
         let tools = ran(2, "I1", "tools", sample("I1", "tools"));
         let results = ran(3, "X1", "ran", sample("X1", "ran"));
         let done = ran(4, "I1", "done", sample("I1", "done"));
@@ -566,20 +567,25 @@ mod tests {
             ..Position::default()
         };
         vec![
-            ("just come", at("I1"), vec![d11.clone()], false),
-            ("asked for tools", at_x1, vec![d11.clone(), tools.clone()], true),
+            ("just come", at("I1"), vec![gathered.clone()], false),
+            ("asked for tools", at_x1, vec![gathered.clone(), tools.clone()], true),
             (
                 "tools ran",
                 at("I1"),
-                vec![d11.clone(), tools.clone(), results.clone()],
+                vec![gathered.clone(), tools.clone(), results.clone()],
                 true,
             ),
-            ("sent back", at("I1"), vec![d11.clone(), took_none(2, "I1")], true),
-            ("asking", asking, vec![d11.clone(), asked, took_none(3, "A2")], true),
+            ("sent back", at("I1"), vec![gathered.clone(), took_none(2, "I1")], true),
+            (
+                "asking",
+                asking,
+                vec![gathered.clone(), asked, took_none(3, "A2")],
+                true,
+            ),
             (
                 "at an engine's cell not run",
-                at("T7"),
-                vec![d11, tools, results, done],
+                at("M1"),
+                vec![gathered, tools, results, done],
                 false,
             ),
         ]
@@ -632,7 +638,7 @@ mod tests {
         cell(&mut kind, "I1").kind = "engine".into();
         let mut inputs = old.clone();
         let own = cell(&mut inputs, "I1").inputs.iter_mut().find(|x| !x.common).unwrap();
-        own.from = vec![Src::Place("R2".into(), "answer".into())];
+        own.from = vec![Src::Place("R0".into(), "brief".into())];
         for (new, what) in [
             (line, "is on another line"),
             (kind, "is of another kind"),
@@ -693,7 +699,7 @@ mod tests {
         assert!(!flow::valid(&schema(&new), &tools));
         let mut all = positions();
         let (_, _, before, _) = all.pop().unwrap();
-        assert_eq!(plan(&old, &new, &at("T7"), &before), Plan::Move);
+        assert_eq!(plan(&old, &new, &at("M1"), &before), Plan::Move);
         let (_, at_x1, now, _) = all.swap_remove(1);
         match plan(&old, &new, &at_x1, &now) {
             Plan::GoBack { to, why } => {
@@ -767,14 +773,14 @@ mod tests {
         let mut new = old.clone();
         needs_after(&mut new, "R1", "understanding");
         needs_after(&mut new, "X1", "results");
-        let understood = sample("R1", "done");
+        let understood = sample("R1", "start");
         let results = sample("X1", "ran");
-        let d11 = ran(4, "D11", "needed", sample("D11", "needed"));
+        let gathered = ran(4, "R0", "done", sample("R0", "done"));
         let rounds = [
-            ran(1, "R1", "done", understood.clone()),
+            ran(1, "R1", "start", understood.clone()),
             ran(2, "I1", "tools", sample("I1", "tools")),
             ran(3, "X1", "ran", results.clone()),
-            d11.clone(),
+            gathered.clone(),
         ];
         match plan(&old, &new, &at("I1"), &rounds) {
             Plan::GoBack { to, why } => {
@@ -798,10 +804,10 @@ mod tests {
         let took = old_too.cell("R1").unwrap().schema.as_ref().unwrap();
         assert!(flow::valid(took, &fits) && flow::valid(took, &understood));
         let again = [
-            ran(1, "R1", "done", understood),
-            ran(2, "R1", "done", fits),
+            ran(1, "R1", "start", understood),
+            ran(2, "R1", "start", fits),
             ran(3, "X1", "ran", results.clone()),
-            d11,
+            gathered,
         ];
         assert_eq!(plan(&old_too, &new, &at("I1"), &again), Plan::Move);
         // The tools' results as the last return: the cell they answered is done again.
@@ -841,88 +847,6 @@ mod tests {
         assert_eq!(plan(&old, &now, &at("Q0"), &[ran(1, "G2", "sound", told)]), Plan::Move);
     }
 
-    /// The version before item #247, as the design's cells took their returns then: the design's articles in a text,
-    /// with no answers to the item's decisions, and its review with no claims tried.
-    fn before_247() -> CompiledGraph {
-        let mut g = engineer();
-        let design = own_form(cell(&mut g, "D2").schema.as_mut().unwrap(), "design");
-        design["properties"]["articles"] = json!({ "type": "string" });
-        design["properties"].as_object_mut().unwrap().remove("item_decisions");
-        without_required(design, "item_decisions");
-        let review = own_form(cell(&mut g, "D3").schema.as_mut().unwrap(), "better");
-        review["properties"].as_object_mut().unwrap().remove("claims");
-        without_required(review, "claims");
-        for id in ["D2", "D3"] {
-            cell(&mut g, id).carried = None;
-        }
-        g
-    }
-
-    /// A design as one handed in before item #247: its articles in a text, and no answers to the item's decisions.
-    fn design_before_247() -> Value {
-        let mut design = sample("D2", "first");
-        design["outcome"]["articles"] = json!("It keeps Article 1: it names no project.");
-        design["outcome"].as_object_mut().unwrap().remove("item_decisions");
-        design
-    }
-
-    // Whether a round handed in a return is judged by what its cell took in the work's own version, as one handed in
-    // then or carried from a version before it: a design that version took only as carried still counts, and the work
-    // goes back to design again when the version the engine runs no longer takes it.
-    #[test]
-    fn a_return_its_own_version_took_only_as_carried_counts() {
-        let mut old = engineer();
-        let mut new = old.clone();
-        cell(&mut old, "D2").carried = before_247().cell("D2").unwrap().schema.clone();
-        cell(&mut new, "D2").carried = None;
-        let design = design_before_247();
-        let took = old.cell("D2").unwrap();
-        assert!(!flow::valid(took.schema.as_ref().unwrap(), &design));
-        assert!(flow::valid(took.carried_schema().unwrap(), &design));
-        match plan(&old, &new, &at("D3"), &[ran(1, "D2", "first", design)]) {
-            Plan::GoBack { to, .. } => assert_eq!(to, "D2"),
-            other => panic!("{other:?}"),
-        }
-    }
-
-    // Item #247 had the design answer the constitution's articles in rows and each decision of its item, and its review
-    // try each claim. A work under way carries a design and a review handed in before: it moves where it stands, at the
-    // review or past it, its design not done again. A version that took them only as they are handed in now would send
-    // it back to its design. This holds the flow's own marks of D2 and D3 (`earlier`), and is removed with them.
-    #[test]
-    fn a_work_carrying_a_design_from_before_its_rows_moves() {
-        let old = before_247();
-        let new = engineer();
-        let design = design_before_247();
-        let mut review = sample("D3", "present_best");
-        review["outcome"].as_object_mut().unwrap().remove("claims");
-        for (id, ret) in [("D2", &design), ("D3", &review)] {
-            assert!(flow::valid(old.cell(id).unwrap().schema.as_ref().unwrap(), ret), "{id}");
-        }
-        let at_review = [ran(1, "D2", "first", design.clone())];
-        assert_eq!(plan(&old, &new, &at("D3"), &at_review), Plan::Move);
-        let past = [
-            ran(1, "D2", "first", design),
-            ran(2, "D3", "present_best", review),
-            ran(3, "D11", "needed", sample("D11", "needed")),
-        ];
-        assert_eq!(plan(&old, &new, &at("I1"), &past), Plan::Move);
-        let mut strict = new.clone();
-        for id in ["D2", "D3"] {
-            cell(&mut strict, id).carried = None;
-        }
-        match plan(&old, &strict, &at("I1"), &past) {
-            Plan::GoBack { to, why } => {
-                assert_eq!(to, "D2");
-                assert!(
-                    why.starts_with("the return of cell D2 in round R1-1 no longer fits it ("),
-                    "{why}"
-                );
-            }
-            other => panic!("{other:?}"),
-        }
-    }
-
     // What the engine records of a row it took itself, which its cell's schema does not take, is no return: the work
     // moves whatever the new version says of that cell, even that it is gone.
     #[test]
@@ -935,10 +859,10 @@ mod tests {
             &json!({})
         ));
         let rounds = [
-            ran(1, "R1", "done", sample("R1", "done")),
+            ran(1, "R1", "start", sample("R1", "start")),
             ran(2, "A2", "holder_gone", json!({})),
         ];
-        assert_eq!(plan(&old, &new, &at("R2"), &rounds), Plan::Move);
+        assert_eq!(plan(&old, &new, &at("I1"), &rounds), Plan::Move);
     }
 
     // A work whose cell is gone goes back to the latest cell of its main way the version has; with none, it is stuck.
@@ -948,12 +872,12 @@ mod tests {
     fn a_work_whose_cell_is_gone_goes_back_to_the_latest_it_walked() {
         let now = engineer();
         let mut old = now.clone();
-        let mut gone = old.cell("T7").unwrap().clone();
+        let mut gone = old.cell("M1").unwrap().clone();
         gone.id = "Z1".into();
         old.cells.push(gone);
         let rounds = vec![
-            ran(1, "R1", "done", sample("R1", "done")),
-            ran(2, "D11", "needed", sample("D11", "needed")),
+            ran(1, "R1", "start", sample("R1", "start")),
+            ran(2, "R0", "done", sample("R0", "done")),
             ran(3, "I1", "done", sample("I1", "done")),
         ];
         let back_to = |to: &str, why: &str| Plan::GoBack {
@@ -962,7 +886,7 @@ mod tests {
         };
         assert_eq!(plan(&old, &now, &at("Z1"), &rounds), back_to("I1", "cell Z1 is gone"));
         let mut none = now.clone();
-        none.cells.retain(|c| !["R1", "D11", "I1"].contains(&c.id.as_str()));
+        none.cells.retain(|c| !["R1", "R0", "I1"].contains(&c.id.as_str()));
         // Its last return is of a cell gone too, which the cell after it would read.
         assert_eq!(
             plan(&old, &none, &at("Z1"), &rounds),
@@ -973,17 +897,17 @@ mod tests {
                 back_to: None,
             }
         );
-        let mut r2_gone = now.clone();
-        r2_gone.cells.retain(|c| c.id != "R2");
+        let mut d1_gone = now.clone();
+        d1_gone.cells.retain(|c| c.id != "D1");
         let asking = Position {
             at: "A2".into(),
-            stopped: Some("R2".into()),
-            callers: vec!["R2".into()],
+            stopped: Some("D1".into()),
+            callers: vec!["D1".into()],
             ..Position::default()
         };
         assert_eq!(
-            plan(&now, &r2_gone, &asking, &rounds[..1]),
-            back_to("R1", "cell R2, which the work goes back to, is gone or of another kind")
+            plan(&now, &d1_gone, &asking, &rounds[..1]),
+            back_to("R1", "cell D1, which the work goes back to, is gone or of another kind")
         );
         let stuck = [rounds[0].clone(), ran(2, "V1", "stuck", json!({}))];
         assert_eq!(
@@ -998,24 +922,23 @@ mod tests {
     // Item #230, A12: an engineer's work whose merge stands is judged by the rounds after its merge alone, so that
     // neither the engine nor the owner's Start ever takes it back before its merge: an answer from before the merge
     // that no longer fits moves it, a cell after the merge it had begun and the version changed is done again, and with
-    // no cell walked since the merge it is stuck with nowhere to go back to. Once watching main took the merge back,
-    // going back past the merge is stuck, with that cell for the owner's Start.
+    // no cell walked since the merge it is stuck with nowhere to go back to. Once watching main took the merge back, as a
+    // flow version before watched it, going back past the merge is stuck, with that cell for the owner's Start.
     #[test]
     fn a_merged_work_never_goes_back_before_its_merge() {
         let old = engineer();
         let rounds = [
-            ran(1, "R1", "done", sample("R1", "done")),
-            ran(2, "D2", "first", sample("D2", "first")),
+            ran(1, "R1", "start", sample("R1", "start")),
+            ran(2, "D2", "done", sample("D2", "done")),
             ran(3, "M2", "merged", sample("M2", "merged")),
-            ran(4, "L1", "green", sample("L1", "green")),
         ];
-        // An answer from before the merge that no longer fits, the understanding at L1 or the design L2 reads, moves
-        // the work: the cells before its merge are never done again, and later ones read those answers as they are.
+        // An answer from before the merge that no longer fits, the understanding or the design L2 reads, moves the
+        // work: the cells before its merge are never done again, and later ones read those answers as they are.
         let mut r1 = old.clone();
         needs_after(&mut r1, "R1", "understanding");
-        assert_eq!(plan(&old, &r1, &at("L1"), &rounds[..3]), Plan::Move);
+        assert_eq!(plan(&old, &r1, &at("L2"), &rounds), Plan::Move);
         let mut d2 = old.clone();
-        needs_after(&mut d2, "D2", "chosen");
+        needs_after(&mut d2, "D2", "examined");
         assert!(read_from(&d2, &at("L2")).contains("D2"));
         assert_eq!(plan(&old, &d2, &at("L2"), &rounds), Plan::Move);
         // A cell after the merge it had begun, on another line, is done again.
@@ -1032,13 +955,13 @@ mod tests {
         // The cell it stands at gone, with no cell walked since the merge, it is stuck with nowhere to go back to,
         // though the version has every cell from before the merge.
         let mut gone = old.clone();
-        gone.cells.retain(|c| c.id != "L1");
-        match plan(&old, &gone, &at("L1"), &rounds[..3]) {
+        gone.cells.retain(|c| c.id != "L2");
+        match plan(&old, &gone, &at("L2"), &rounds) {
             Plan::Stuck { back_to, .. } => assert_eq!(back_to, None),
             other => panic!("{other:?}"),
         }
-        // Once watching main took the merge back, the merge no longer stands: going back past it is stuck, for the
-        // owner's Start, as for any round that cannot be undone.
+        // Once watching main took the merge back, as a flow version before watched it, the merge no longer stands: going
+        // back past it is stuck, for the owner's Start, as for any round that cannot be undone.
         let broken = json!({ "main": { "kind": "broken_by_merge", "checks": [] } });
         let reverted = [&rounds[..], &[ran(5, "L1", "broken_by_merge", broken)]].concat();
         match plan(&old, &d2, &at("T6"), &reverted) {
@@ -1109,8 +1032,8 @@ mod tests {
     fn the_rounds_done_again_are_the_cell_s_latest_stretch() {
         let g = engineer();
         let rounds = [
-            ran(1, "R1", "done", sample("R1", "done")),
-            ran(2, "D11", "needed", sample("D11", "needed")),
+            ran(1, "R1", "start", sample("R1", "start")),
+            ran(2, "R0", "done", sample("R0", "done")),
             ran(3, "I1", "tools", sample("I1", "tools")),
             ran(4, "X1", "ran", sample("X1", "ran")),
             took_none(5, "I1"),
@@ -1118,7 +1041,7 @@ mod tests {
         ];
         assert_eq!(redone_from(&g, &rounds, "I1"), 2);
         assert_eq!(redone_from(&g, &rounds, "R1"), 0);
-        assert_eq!(redone_from(&g, &rounds[..4], "T7"), 3);
-        assert_eq!(redone_from(&g, &rounds[..2], "T7"), 2);
+        assert_eq!(redone_from(&g, &rounds[..4], "M1"), 3);
+        assert_eq!(redone_from(&g, &rounds[..2], "M1"), 2);
     }
 }

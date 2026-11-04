@@ -549,23 +549,10 @@ mod tests {
     fn a_form_written_as_its_json_text_is_taken_with_the_closing_brackets_after_it_dropped() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let cell = g.cell("D2").unwrap();
+        let cell = g.cell("L2").unwrap();
         let schema = cell.schema.clone().unwrap();
         let answer = json!({
-            "chosen": "One SQL statement with a total row",
-            "why": "The total and the rows come from one read of the data",
-            "measure": { "verdict": "not_measured", "why": "Nothing here is slow" },
-            "design": {
-                "solution": "Add a total row to the query",
-                "where": "The cost command",
-                "excluded": "A second query",
-                "pitfalls": "The row limit must not cut the total",
-            },
-            "articles": [{ "article": "Article 1", "verdict": "untouched", "why": "It touches no project's settings" }],
-            "item_decisions": [],
-            "open_questions": [],
-            "acceptance": [{ "by": "test", "id": "A1", "condition": "The total row is shown past the limit" }],
-            "estimate": "One test file and one query",
+            "learned": "Fact (2026-11-04): one read of the data gives the rows and the total (R1-2)",
         });
         let with = |text: String| {
             json!({

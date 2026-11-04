@@ -578,11 +578,16 @@ fn write_one(
     let json_of = |k: &str| c.get(k).cloned().unwrap_or(Value::Null).to_string();
     match text(c, "kind") {
         "create_item" => {
-            // How to do it, when the creator knows; none when it gave none.
+            // How to do it, when the creator knows; none when it gave none. The decision points a discussion settled,
+            // each with the owner's choice, which take the item to deep research; none when it carries none.
             let approach = Some(text(c, "approach").trim()).filter(|a| !a.is_empty());
+            let points = c["decision_points"]
+                .as_array()
+                .filter(|p| !p.is_empty())
+                .map(|p| Value::Array(p.clone()).to_string());
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted, route)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted, route, decision_points)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     text(c, "project"),
                     text(c, "title"),
@@ -592,7 +597,8 @@ fn write_one(
                     text(c, "deliver"),
                     text(c, "level"),
                     json_of("acceptance"),
-                    route_of(c)
+                    route_of(c),
+                    points
                 ],
             )
             .map_err(sql)?;

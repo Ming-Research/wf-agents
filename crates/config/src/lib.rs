@@ -797,7 +797,22 @@ pub struct Project {
     /// takes in to improve the flow: on unless set to false; off, no agent is asked for it.
     #[serde(default = "on", skip_serializing_if = "is_on")]
     pub flow_feedback: bool,
+    /// The paths whose change merges only once the owner approved it, each matched as a test path is (a directory with
+    /// its trailing slash, `*` within a segment, `**` across segments), such as `flow/flow.json` for wf-agents: a work
+    /// whose change touches one waits before the merge queue for the owner's approval, unless the owner approved its
+    /// design at the review. None, and every change merges without it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owner_approves: Vec<String>,
+    /// How many rounds the initial research runs since it last handed in its answer before the engine asks it, at the
+    /// top of its next round, whether the work can be started directly or goes to deep research; none, and
+    /// [`RESEARCH_ROUNDS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub research_rounds: Option<u64>,
 }
+
+/// How many rounds the initial research runs before it is asked whether the work can be started directly, where the
+/// project sets no other bound: on the trial board the research took 3 rounds at the median, 5 at p90 and 8 at most.
+pub const RESEARCH_ROUNDS: u64 = 6;
 
 /// Where a project keeps its records, and how they are checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1656,10 +1671,11 @@ impl Config {
         }
     }
 
-    /// The level a line's agents run at for an item of the given level: the advisor one level above the item's, the
-    /// reader of a work's history at its own level whatever the item's, every other line at the item's.
+    /// The level a line's agents run at for an item of the given level: the advisor and the deep research (the
+    /// designer) one level above the item's, the reader of a work's history at its own level whatever the item's, every
+    /// other line at the item's.
     pub fn level_of_line(&self, item_level: &str, line: &str) -> String {
-        if line == "advisor" {
+        if line == "advisor" || line == "designer" {
             self.level_above(item_level)
         } else if line == "librarian" {
             self.librarian_level()

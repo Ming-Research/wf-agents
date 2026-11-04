@@ -89,9 +89,23 @@ fn random_events(seed: u64, events: usize) {
     );
     let dice = Arc::new(Dice::new(seed));
     let mut agents = scripts();
+    // The research, the deep research and the review's details ask at random, and otherwise answer as usual.
     for cell in ["R1", "D1", "T3"] {
         let d = dice.clone();
-        agents.insert(cell, Box::new(move |_: &Request, _: usize| random_ask(&d)));
+        let usual = agents
+            .remove(cell)
+            .unwrap_or_else(|| Box::new(|_: &Request, _: usize| (Vec::new(), Vec::new())));
+        agents.insert(
+            cell,
+            Box::new(move |r: &Request, n: usize| {
+                let asked = random_ask(&d);
+                if asked.0.is_empty() && asked.1.is_empty() {
+                    usual(r, n)
+                } else {
+                    asked
+                }
+            }),
+        );
     }
     // The advisor answers, or hands the question to the architect.
     let d = dice.clone();

@@ -30,19 +30,19 @@ fn guard_events(e: &Engine) -> Vec<(String, String)> {
         .collect()
 }
 
-/// An item whose `R1` goes past both lines of growth in its first `times` rounds, then runs as usual.
+/// An item whose `R0` goes past both lines of growth in its first `times` rounds, then runs as usual.
 fn growing(name: &str, times: usize) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64) {
     let s = setup(name);
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             let stream = vec![("@stream", calls_of(&[10_000, 30_000]))];
             (Vec::new(), if n <= times { stream } else { Vec::new() })
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R0", 19, &usual);
     (s, e, said, item)
 }
 
@@ -55,14 +55,14 @@ fn a_round_the_run_guard_stops_under_a_cancel_is_not_run_again() {
     let h = hold.clone();
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, _: usize| {
             h.pass();
             (Vec::new(), vec![("@stream", calls_of(&[10_000, 30_000]))])
         }),
     );
     let (mut e, said, item) = start(&s, agents);
-    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R0", 19, &usual);
     hold.shut();
     let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
     let log = said.lock().unwrap().join("\n");
@@ -95,14 +95,14 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
     let (s, mut e, said, item) = growing("guard-once", 1);
     for _ in 0..8 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
     assert_eq!(guard_events(&e), [("growth".to_string(), "stopped".to_string())]);
     let sessions: Vec<(i64, Option<i64>)> = {
@@ -110,7 +110,7 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
         let mut st = conn
             .prepare(
                 "SELECT r.session, s.ended FROM rounds r JOIN sessions s ON s.id = r.session
-                 WHERE r.work = ?1 AND r.cell = 'R1' ORDER BY r.n",
+                 WHERE r.work = ?1 AND r.cell = 'R0' ORDER BY r.n",
             )
             .unwrap();
         st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -122,7 +122,7 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
     assert_ne!(sessions[0].0, sessions[1].0, "{sessions:?}");
     assert!(sessions[0].1.is_some(), "{sessions:?}");
     // Told why, with the signal, its value and its line, and to look at the worktree first.
-    let again = input_at(&e, work, "R1", true);
+    let again = input_at(&e, work, "R0", true);
     let told = again["message"].as_str().unwrap_or_default();
     assert!(
         told.contains("The run guard stopped") && told.contains("look at the worktree"),
@@ -135,7 +135,7 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
         "{told}"
     );
     // The round's record keeps the lines it was judged by, where the owner's page reads them.
-    let judged = input_at(&e, work, "R1", false);
+    let judged = input_at(&e, work, "R0", false);
     assert_eq!(judged["engine"]["guard"]["added"]["value"], 2800.0, "{judged}");
     // The owner is told the first time too.
     let notices = number(
@@ -174,17 +174,17 @@ fn a_long_round_at_the_usual_pace_is_not_stopped() {
     let s = setup("guard-long");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, _: usize| {
             let prompts: Vec<i64> = (0..12).map(|i| 10_000 + i * 270).collect();
             (Vec::new(), vec![("@stream", calls_of(&prompts))])
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 19, &|i| (i * 100, 11, 0, 1000));
+    history(&mut e, "R0", 19, &|i| (i * 100, 11, 0, 1000));
     for _ in 0..4 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
@@ -192,11 +192,11 @@ fn a_long_round_at_the_usual_pace_is_not_stopped() {
     assert!(failed_kinds(&e).is_empty(), "{log}");
     assert_eq!(guard_events(&e), [("calls".to_string(), "noted".to_string())], "{log}");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_ne!(at, "R1", "{log}");
+    assert_ne!(at, "R0", "{log}");
     let (added, calls): (i64, i64) =
         e.db.conn()
             .query_row(
-                "SELECT added, calls FROM round_measures WHERE work = ?1 AND cell = 'R1' AND ledger = 1",
+                "SELECT added, calls FROM round_measures WHERE work = ?1 AND cell = 'R0' AND ledger = 1",
                 [work],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -212,27 +212,26 @@ fn a_long_round_at_the_usual_pace_is_not_stopped() {
 fn a_jump_nothing_given_explains_stops_the_round_at_its_first_call() {
     let s = setup("guard-jump");
     let mut scripts = scripts();
+    let research = scripts.remove("R1").unwrap();
     scripts.insert(
         "R1",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@stream", calls_of(&[10_000]))])),
+        Box::new(move |r: &Request, n: usize| {
+            let (pick, mut set) = research(r, n);
+            set.push(("@stream", calls_of(&[10_000])));
+            (pick, set)
+        }),
     );
+    let implement = scripts.remove("I1").unwrap();
     scripts.insert(
-        "R2",
-        Box::new(|_: &Request, n: usize| {
-            let failing = vec![("@error", json!("API Error: 529 Overloaded"))];
-            let jumping = vec![("@stream", calls_of(&[9_000_000, 9_000_100]))];
-            (
-                Vec::new(),
-                match n {
-                    1 => failing,
-                    2 => jumping,
-                    _ => Vec::new(),
-                },
-            )
+        "I1",
+        Box::new(move |r: &Request, n: usize| match n {
+            1 => (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))]),
+            2 => (Vec::new(), vec![("@stream", calls_of(&[9_000_000, 9_000_100]))]),
+            _ => implement(r, n - 2),
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R2", 19, &usual);
+    history(&mut e, "I1", 19, &usual);
     for _ in 0..12 {
         e.tick().unwrap();
         if !guard_events(&e).is_empty() {
@@ -259,21 +258,21 @@ fn with_too_few_rounds_nothing_is_judged() {
     let s = setup("guard-few");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@stream", calls_of(&[10_000, 900_000]))])),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 18, &usual);
+    history(&mut e, "R0", 18, &usual);
     for _ in 0..4 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     assert!(guard_events(&e).is_empty(), "{log}");
     assert!(failed_kinds(&e).is_empty(), "{log}");
-    assert_ne!(state(&e, item).unwrap().1, "R1", "{log}");
+    assert_ne!(state(&e, item).unwrap().1, "R0", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -284,7 +283,7 @@ fn a_round_run_again_is_given_its_cell_whole_and_the_last_tools_of_the_one_stopp
     let s = setup("guard-tools");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| {
             let stream = json!([
                 { "tool": "Bash", "on": "cargo build", "digest": 1 },
@@ -296,24 +295,24 @@ fn a_round_run_again_is_given_its_cell_whole_and_the_last_tools_of_the_one_stopp
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R0", 19, &usual);
     for _ in 0..8 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
     let (work, _, _) = state(&e, item).unwrap();
-    let again = input_at(&e, work, "R1", true);
+    let again = input_at(&e, work, "R0", true);
     let told = again["message"].as_str().unwrap_or_default();
     assert!(
         told.contains(r#""last_tools":[{"tool":"Bash","on":"cargo build"},{"tool":"Read","on":"src/a.rs"}]"#),
         "{told}"
     );
     assert!(told.contains(r#""also":{"value":20000.0,"line":280.0}"#), "{told}");
-    let first = input_at(&e, work, "R1", false);
+    let first = input_at(&e, work, "R0", false);
     let task = first["message"]
         .as_str()
         .and_then(|m| m.split("## Task\n").nth(1))
@@ -331,7 +330,7 @@ fn a_round_run_again_and_stopped_after_a_passing_failure_still_pauses_the_work()
     let s = setup("guard-retry");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| {
             (
                 Vec::new(),
@@ -344,18 +343,18 @@ fn a_round_run_again_and_stopped_after_a_passing_failure_still_pauses_the_work()
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R0", 19, &usual);
     for _ in 0..12 {
         e.tick().unwrap();
         let (_, at, paused) = state(&e, item).unwrap();
-        if paused.is_some() || at != "R1" {
+        if paused.is_some() || at != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     assert_eq!(failed_kinds(&e), ["guarded", "transient", "guarded"], "{log}");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R1", "{log}");
+    assert_eq!(at, "R0", "{log}");
     let why = paused.unwrap_or_default();
     assert!(why.contains("the run guard stopped"), "{why}\n{log}");
     let told = number(&e, "SELECT count(*) FROM engine_notices WHERE text LIKE '%is paused%'");
@@ -371,7 +370,7 @@ fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
     let s = setup("guard-after");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| {
             let past = || ("@stream", calls_of(&[10_000, 30_000]));
             (
@@ -387,15 +386,15 @@ fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
         }),
     );
     scripts.insert(
-        "R2",
+        "R1",
         Box::new(|_: &Request, n: usize| {
             let past = vec![("@stream", calls_of(&[10_000, 30_000]))];
             (Vec::new(), if n == 1 { past } else { Vec::new() })
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R0", 19, &usual);
     history(&mut e, "R1", 19, &usual);
-    history(&mut e, "R2", 19, &usual);
     for _ in 0..8 {
         e.tick().unwrap();
         if state(&e, item).unwrap().2.is_some() {
@@ -420,7 +419,7 @@ fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
         .map(|(_, a)| a)
         .collect();
     assert_eq!(actions, ["stopped", "stopped", "waived", "waived", "stopped"], "{log}");
-    // R1 stopped twice, its failure in passing, and R2's stop: no third stop of R1 after the Start.
+    // R0 stopped twice, its failure in passing, and R1's stop: no third stop of R0 after the Start.
     let kinds = ["guarded", "guarded", "transient", "guarded"];
     assert_eq!(failed_kinds(&e), kinds, "{log}");
     assert_eq!(state(&e, item).unwrap().2, None, "{log}");
@@ -435,7 +434,7 @@ fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
     let mut scripts = scripts();
     let path = config::database(&s.data);
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -444,7 +443,7 @@ fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
             let (work, round): (i64, i64) = db
                 .conn()
                 .query_row(
-                    "SELECT work, n FROM rounds WHERE cell = 'R1' AND ended_at IS NULL",
+                    "SELECT work, n FROM rounds WHERE cell = 'R0' AND ended_at IS NULL",
                     [],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
@@ -452,34 +451,34 @@ fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
             db.write(Actor::Owner, |tx| {
                 tx.execute(
                     "INSERT INTO interjections (work, line, speaker, text)
-                     VALUES (?1, 'engineer', 'owner', 'Look at the log.')",
+                     VALUES (?1, 'librarian', 'owner', 'Look at the log.')",
                     [work],
                 )?;
                 Ok(())
             })
             .unwrap();
-            sessions::interject::deliver(&mut db, work, round, "engineer")
+            sessions::interject::deliver(&mut db, work, round, "librarian")
                 .unwrap()
                 .unwrap();
             (Vec::new(), vec![("@stream", calls_of(&[10_000, 30_000]))])
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R0", 19, &usual);
     for _ in 0..8 {
         e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_ne!(at, "R1", "{log}");
-    let again = input_at(&e, work, "R1", true);
+    assert_ne!(at, "R0", "{log}");
+    let again = input_at(&e, work, "R0", true);
     let told = again["message"].as_str().unwrap_or_default();
     assert!(told.contains("Look at the log."), "{told}");
-    let stopped = input_at(&e, work, "R1", false);
+    let stopped = input_at(&e, work, "R0", false);
     assert_eq!(stopped["engine"]["interjections"], json!([]), "{stopped}");
     let taken: i64 = number(&e, "SELECT count(*) FROM interjections WHERE delivered_round IS NULL");
     assert_eq!(taken, 0, "{log}");
@@ -493,7 +492,7 @@ fn a_run_that_never_wrote_its_message_leaves_the_guards_reason_to_the_next() {
     let s = setup("guard-login");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, n: usize| {
             (
                 Vec::new(),
@@ -506,21 +505,21 @@ fn a_run_that_never_wrote_its_message_leaves_the_guards_reason_to_the_next() {
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R0", 19, &usual);
     for _ in 0..8 {
         e.tick().unwrap();
         if let Some(h) = e.halt() {
             e.set_halt(Some(engine::Halt { until: 0, ..h }));
         }
-        if state(&e, item).unwrap().1 != "R1" {
+        if state(&e, item).unwrap().1 != "R0" {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     assert_eq!(failed_kinds(&e), ["guarded", "cannot_run"], "{log}");
     let (work, at, _) = state(&e, item).unwrap();
-    assert_ne!(at, "R1", "{log}");
-    let again = input_at(&e, work, "R1", true);
+    assert_ne!(at, "R0", "{log}");
+    let again = input_at(&e, work, "R0", true);
     let told = again["message"].as_str().unwrap_or_default();
     assert!(told.contains("The run guard stopped"), "{told}");
     assert!(told.contains(r#""also":{"value":20000.0,"line":280.0}"#), "{told}");

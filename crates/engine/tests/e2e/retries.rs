@@ -498,7 +498,7 @@ fn a_passing_failure_pauses_the_work_past_its_bound() {
     }
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R1", "{log}");
+    assert_eq!(at, "R0", "{log}");
     assert!(
         paused
             .as_deref()
@@ -790,7 +790,7 @@ fn three_returns_sent_back_in_a_row_pause_the_work() {
 fn returns_sent_back_either_side_of_a_return_taken_are_not_in_a_row() {
     let s = setup("sent-back-apart");
     let mut scripts = scripts();
-    for cell in ["R1", "R2"] {
+    for cell in ["R0", "R1"] {
         scripts.insert(
             cell,
             Box::new(|_: &Request, n: usize| {
@@ -803,14 +803,14 @@ fn returns_sent_back_either_side_of_a_return_taken_are_not_in_a_row() {
     for _ in 0..20 {
         e.tick().unwrap();
         let (_, at, paused) = state(&e, item).unwrap();
-        if paused.is_some() || !matches!(at.as_str(), "R1" | "R2") {
+        if paused.is_some() || !matches!(at.as_str(), "R0" | "R1") {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
-    assert!(!matches!(at.as_str(), "R1" | "R2"), "{at}\n{log}");
+    assert!(!matches!(at.as_str(), "R0" | "R1"), "{at}\n{log}");
     assert_eq!(sent_back(&e), 4, "{log}");
     assert_eq!(
         (counted(&e, work, "sent_back"), counted(&e, work, "retries")),

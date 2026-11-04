@@ -199,7 +199,7 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
     assert!(
         stdout.contains("engineer: format:common ")
             && stdout.contains("engineer ")
-            && stdout.contains("new sessions at R1, I1, T6"),
+            && stdout.contains("new sessions at R1, a new session each time at I1"),
         "{stdout}"
     );
     let out = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
@@ -971,14 +971,14 @@ fn history_in_full_gives_every_round_of_a_work() {
 /// The flows of the data directory `dir`'s database for `flow cost`: version 1, the flow built into the command with a
 /// cell `Z1` its engineer's graph lacks and a graph `policy` it lacks, and version 2, the flow built into the command;
 /// and the works on them, as the engine leaves them. Work 1 stands at `Z1` after a round at `R1`; work 2, paused by
-/// the owner, at `Z1` with no round; work 3 at `R2` with no round; work 4 of the graph `policy`; work 5, the
+/// the owner, at `Z1` with no round; work 3 at `R0` with no round; work 4 of the graph `policy`; work 5, the
 /// architect's, at its first cell on version 2; work 6 ended, and work 7 done.
 fn flows_and_works(dir: &Path) {
     let committed = config::committed(dir).unwrap();
     let built = engine::compile_for(&committed.config).unwrap();
     let mut older = built.clone();
     let engineer = older.graphs.iter_mut().find(|g| g.name == "engineer").unwrap();
-    let mut gone = engineer.cell("R2").unwrap().clone();
+    let mut gone = engineer.cell("R0").unwrap().clone();
     gone.id = "Z1".into();
     engineer.cells.push(gone);
     let mut policy = older.graph("architect").unwrap().clone();
@@ -997,7 +997,7 @@ fn flows_and_works(dir: &Path) {
                INSERT INTO works (id, item, flow_version, graph, at, project, paused, paused_by, ended) VALUES
                    (1, 1, 1, 'engineer', 'Z1', NULL, NULL, NULL, NULL),
                    (2, 2, 1, 'engineer', 'Z1', NULL, 'Held.', 'owner', NULL),
-                   (3, 3, 1, 'engineer', 'R2', NULL, NULL, NULL, NULL),
+                   (3, 3, 1, 'engineer', 'R0', NULL, NULL, NULL, NULL),
                    (4, NULL, 1, 'policy', 'P1', 'p', NULL, NULL, NULL),
                    (5, NULL, 2, 'architect', 'Q0', 'p', NULL, NULL, NULL),
                    (6, 4, 1, 'engineer', 'Z1', NULL, NULL, NULL, 'over'),
@@ -1042,7 +1042,7 @@ or Start it once a flow version that has a cell it walked is installed, and it l
 Ends (1):
   work 4 (the architect's policy setting for p), on version 1 at P1: the version has no graph policy
 Moves where it stands (1):
-  work 3 (item 3: Moves), on version 1 at R2
+  work 3 (item 3: Moves), on version 1 at R0
 On version 2 already (1):
   work 5 (the architect of p), on version 2 at Q0
 ",
@@ -1066,9 +1066,9 @@ On version 2 already (1):
     let before = (entries(&dir), std::fs::read(&path).unwrap());
     // A branch's flow, as `git show` writes it.
     let flow = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../flow/flow.json")).unwrap();
-    let title = "\"title\": \"Whether something is under test\"";
+    let title = "\"title\": \"Whether it can go wrong silently\"";
     assert!(flow.contains(title));
-    let branch = flow.replacen(title, "\"title\": \"Whether anything is under test\"", 1);
+    let branch = flow.replacen(title, "\"title\": \"Whether it may go wrong silently\"", 1);
     let mut child = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
         .args(["flow", "cost", "-", "--data"])
         .arg(&dir)
@@ -1099,7 +1099,7 @@ Cannot be worked out, and the engine stops with that error when it brings it up 
     );
     assert!(
         out.contains(
-            "Moves where it stands (2):\n  work 3 (item 3: Moves), on version 1 at R2\n  work 5 (the architect of p), \
+            "Moves where it stands (2):\n  work 3 (item 3: Moves), on version 1 at R0\n  work 5 (the architect of p), \
              on version 2 at Q0\n"
         ),
         "{out}"

@@ -546,31 +546,22 @@ fn a_dispatch_github_refuses_for_ci_before_is_a_refusal_and_not_a_failed_tool() 
 #[test]
 fn a_project_that_lists_no_measurement_workflow_is_told_to_answer_not_measured() {
     let s = setup("measure-none");
-    let mut agents = scripts();
+    let mut agents = designing();
     agents.insert(
-        "D2",
-        Box::new(|r: &Request, n: usize| {
-            let acceptance = json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]);
-            match n {
-                1 => {
-                    let head = git(&r.worktree, &["rev-parse", "HEAD"]);
-                    let tools = json!([measure_request(&head, "measure.yml", "command=true")]);
-                    (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
-                }
-                2 => (
-                    vec![("outcome.measure", "measured")],
-                    vec![("outcome.acceptance", acceptance)],
-                ),
-                _ => (
-                    vec![("outcome.measure", "not_measured")],
-                    vec![("outcome.acceptance", acceptance)],
-                ),
+        "D1",
+        Box::new(|r: &Request, n: usize| match n {
+            1 => {
+                let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+                let tools = json!([measure_request(&head, "measure.yml", "command=true")]);
+                (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
             }
+            2 => (vec![("outcome.measure", "measured")], Vec::new()),
+            _ => (vec![("outcome.measure", "not_measured")], Vec::new()),
         }),
     );
     let (mut e, said, item) = start(&s, agents);
     for _ in 0..40 {
-        if ended_at(&e, item, "D2").len() >= 3 {
+        if ended_at(&e, item, "D1").len() >= 3 {
             break;
         }
         e.step(None).unwrap();
@@ -584,18 +575,18 @@ fn a_project_that_lists_no_measurement_workflow_is_told_to_answer_not_measured()
     assert!(s.by_hand.lock().unwrap().is_empty());
     assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
     // The answer of measured is sent back, saying why; the answer of not_measured is taken.
-    let d2 = ended_at(&e, item, "D2");
-    assert_eq!(d2.len(), 3, "{d2:?}\n{log}");
-    assert_eq!(d2[0], (Some("tools".to_string()), None), "{d2:?}");
+    let d1 = ended_at(&e, item, "D1");
+    assert_eq!(d1.len(), 3, "{d1:?}\n{log}");
+    assert_eq!(d1[0], (Some("tools".to_string()), None), "{d1:?}");
     assert!(
-        d2[1].0.is_none()
-            && d2[1]
+        d1[1].0.is_none()
+            && d1[1]
                 .1
                 .as_deref()
                 .is_some_and(|why| why.contains("measured, but this work has no measure run")),
-        "{d2:?}\n{log}"
+        "{d1:?}\n{log}"
     );
-    assert!(d2[2].0.is_some() && d2[2].1.is_none(), "{d2:?}\n{log}");
+    assert!(d1[2].0.is_some() && d1[2].1.is_none(), "{d1:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

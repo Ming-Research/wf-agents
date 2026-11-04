@@ -28,10 +28,12 @@ pub mod hub;
 pub mod limits;
 
 mod actions;
+mod approval;
 mod arch_changes;
 mod architect;
 mod base;
 mod cards;
+mod catch_up;
 mod checks;
 mod decisions;
 mod failed;
@@ -44,6 +46,7 @@ mod open_questions;
 mod reasoning;
 mod reminders;
 mod results;
+mod review;
 pub mod schedule;
 mod steps;
 mod test_name;
@@ -292,6 +295,9 @@ pub struct Engine {
     /// How long a second of the flow's backoff for a step of the engine's that failed in passing lasts: one second,
     /// which a test shortens so that it does not wait.
     pub backoff_unit: Duration,
+    /// What taking main in brought before the round the step is about to run, for the engine's input
+    /// `main_changes`: the work, and what it brought ([`catch_up`]); none when the step took nothing in.
+    pub(crate) caught_up: Option<(i64, Option<Value>)>,
 }
 
 // A thread that takes a step owns its context, and every thread shares one `Shared`: a field added to either that may
@@ -360,6 +366,7 @@ impl Engine {
             flow_now,
             retry_wait: Duration::from_secs(10),
             backoff_unit: Duration::from_secs(1),
+            caught_up: None,
         }
     }
 
@@ -379,6 +386,7 @@ impl Engine {
             flow_now: self.flow_now,
             retry_wait: self.retry_wait,
             backoff_unit: self.backoff_unit,
+            caught_up: None,
         })
     }
 

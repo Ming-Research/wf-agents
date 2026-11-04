@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use db::Actor;
 use db::rusqlite::params;
-use flow::CompiledGraph;
 use serde_json::{Value, json};
 
 use crate::hub::{self, CheckRun, Failure};
@@ -844,7 +843,7 @@ fn push_refusal(wt: &Path, head: &str, pushed: Option<&str>, main: &str) -> Opti
 }
 
 /// The title and description a pull request is opened with when the engineer has handed in none, at the first push of
-/// a commit of the work's own (`ci`) or when the full CI opens it (`full_ci`): fixed English text naming the item by
+/// a commit of the work's own (`ci`): fixed English text naming the item by
 /// its number, and none of the item's own text, which is in the owner's language, since everything in a pull request
 /// is in English. The engineer's `pr` at a later push replaces both.
 fn pr_fallback(item: &Item) -> (String, String) {
@@ -1578,82 +1577,6 @@ fn named_columns(sql: &str, error: &str) -> Option<String> {
     (!said.is_empty()).then(|| said.join(". "))
 }
 
-// Cell `T2`.
-
-/// Catches the branch up with main, pushes it, and runs the full CI on it; a red check is run again once.
-pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Value, String> {
-    let project = e.project_of(w)?;
-    let wt = w.worktree.clone().ok_or("the work has no worktree")?;
-    if !git::is_clean(&wt)? {
-        return Ok(not_run(
-            "result",
-            (
-                Failure::other("the worktree has uncommitted changes; the engine does not catch up over them"),
-                String::new(),
-            ),
-        ));
-    }
-    let head = match git::catch_up(&wt, &project.main)? {
-        Ok(h) => h,
-        Err(files) => return Ok(json!({ "result": { "kind": "conflict", "files": files } })),
-    };
-    let branch = w.branch.clone().unwrap_or_default();
-    let pr = Cell::new(w.pr);
-    let args = json!({ "head": head });
-    let got = attempts(e, round, "full_ci", &args, |e| {
-        if w.pushed_head.as_deref() != Some(head.as_str()) {
-            hub::push(&wt, &head, &format!("refs/heads/{branch}"), false)?;
-        }
-        if pr.get().is_none() {
-            let (title, body) = pr_fallback(item);
-            let n = e.github().pull_request(
-                &repo(&project),
-                &branch,
-                &project.main,
-                Some((title.as_str(), body.as_str())),
-                None,
-            )?;
-            // Known only once written, as in `ci`.
-            record_push(e, w, None, Some(n)).map_err(Failure::other)?;
-            pr.set(Some(n));
-            // The pull request found open from the branch, when a run that stopped had opened it, keeps its base.
-            hub::ensure_base(e.github(), &repo(&project), n, &project.main)?;
-        }
-        let first = work_full_checks(e, &project, &branch, &head)?;
-        Ok(json!({ "first": checks_json(&first) }))
-    });
-    record_push(e, w, Some(&head), None)?;
-    let first: Vec<CheckRun> = match got {
-        Ok(v) => serde_json::from_value(v["first"].clone()).unwrap_or_default(),
-        Err(x) => return Ok(not_run("result", x)),
-    };
-    let known = known_red(e, &item.project)?;
-    if reds(&counted(&first, &project, &known)).is_empty() {
-        // A run that lacks a check a merge needs is red, and running it again does not give it the check.
-        let lacking = missing_checks(&first, &project, &known);
-        if lacking.is_empty() {
-            return Ok(json!({ "result": { "kind": "green", "head": head } }));
-        }
-        let all: Vec<CheckRun> = first.iter().cloned().chain(lacking).collect();
-        return Ok(json!({ "result": { "kind": "red", "checks": checks_json(&all) } }));
-    }
-    let again = match attempts(e, round, "full_ci", &args, |e| {
-        rerun_full(e, &project, &head, &first).map(|cs| checks_json(&cs))
-    }) {
-        Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),
-        Err(x) => return Ok(not_run("result", x)),
-    };
-    // What a rerun does not give is a check the run never had.
-    let lacking = missing_checks(&again, &project, &known);
-    let kind = if reds(&counted(&again, &project, &known)).is_empty() && lacking.is_empty() {
-        "flaky"
-    } else {
-        "red"
-    };
-    let all: Vec<CheckRun> = again.into_iter().chain(lacking).collect();
-    Ok(json!({ "result": { "kind": kind, "checks": checks_json(&all) } }))
-}
-
 // Cell `M2`.
 
 /// Catches the PR up with main, runs the full CI on the head, the one run of it a head has, and merges it when the run
@@ -1717,74 +1640,6 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
         Ok(other) => Err(format!("the merge gave {other}")),
         Err(x) => Ok(not_run("result", x)),
     }
-}
-
-// Cell `L1`.
-
-/// Watches the full CI on the merge commit. On red it runs the red checks again, looks in the table of known red
-/// checks, and runs them on main's commit before the merge, in that order.
-pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, round: RoundId) -> Result<Value, String> {
-    let project = e.project_of(w)?;
-    if project.deploy.is_some() {
-        return Ok(not_run(
-            "main",
-            (
-                Failure::other("this version of the engine does not watch deployments, and this project deploys"),
-                String::new(),
-            ),
-        ));
-    }
-    let merged = crate::inputs::last_return(e, w, g, "M2", "result")?
-        .and_then(|r| r["result"]["merge_commit"].as_str().map(str::to_string))
-        .ok_or("the work has no merge commit")?;
-    let wt = w.worktree.clone().unwrap_or_else(|| project.checkout.clone());
-    let args = json!({ "merge_commit": merged });
-    let first = match attempts(e, round, "watch_main", &args, |e| {
-        full_checks(e, &project, &merged).map(|c| checks_json(&c))
-    }) {
-        Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),
-        Err(x) => return Ok(not_run("main", x)),
-    };
-    let required = |cs: &[CheckRun]| counted(cs, &project, &[]);
-    if reds(&required(&first)).is_empty() {
-        return Ok(json!({ "main": { "kind": "green" } }));
-    }
-    let again = match attempts(e, round, "watch_main", &args, |e| {
-        rerun_full(e, &project, &merged, &first).map(|c| checks_json(&c))
-    }) {
-        Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),
-        Err(x) => return Ok(not_run("main", x)),
-    };
-    let red = reds(&required(&again));
-    if red.is_empty() {
-        return Ok(json!({ "main": { "kind": "flaky" } }));
-    }
-    let known = known_red(e, &item.project)?;
-    if red.iter().all(|c| known.contains(c)) {
-        return Ok(json!({ "main": { "kind": "known_red" } }));
-    }
-    let _ = git::git(&wt, &["fetch", "-q", "origin", &config::main_refspec(&project.main)]);
-    let before = git::resolve(&wt, &format!("{merged}^1")).ok_or("main's commit before the merge is not known here")?;
-    let earlier = match attempts(e, round, "watch_main", &json!({ "before": before }), |e| {
-        full_checks(e, &project, &before).map(|c| checks_json(&c))
-    }) {
-        Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),
-        Err(x) => return Ok(not_run("main", x)),
-    };
-    let red_before: Vec<&CheckRun> = earlier
-        .iter()
-        .filter(|c| red.contains(&c.name) && c.result != "green")
-        .collect();
-    if !red_before.is_empty() {
-        let link = red_before.iter().map(|c| c.run.as_str()).collect::<Vec<_>>().join(" ");
-        return Ok(json!({ "main": {
-            "kind": "environment_changed",
-            "checks": checks_json(&again),
-            "before": format!("{before} {link}")
-        } }));
-    }
-    let latest: Vec<CheckRun> = again.into_iter().filter(|c| red.contains(&c.name)).collect();
-    Ok(json!({ "main": { "kind": "broken_by_merge", "checks": checks_json(&latest) } }))
 }
 
 #[cfg(test)]
@@ -3781,31 +3636,9 @@ timeout_ms = 1000
         assert_eq!(r.runs.merges(), 0);
     }
 
-    // The full CI on the draft makes the run of the full CI the head has none of, whatever the fast CI said, and tells
-    // red as red.
-    fn the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one(r: &mut Rig) {
-        let head = r.head.clone();
-        for (holds, kind) in [
-            (vec![("check", "red")], "red"),
-            (vec![("lint", "green")], "red"),
-            (vec![("check", "green")], "green"),
-        ] {
-            r.runs.clear();
-            r.runs.has_run(&head, "fast", &[("lint", "green"), ("fast", "green")]);
-            r.runs.makes("ci", &holds);
-            let v = r.run(full_ci);
-            assert_eq!(v["result"]["kind"], kind, "full run {holds:?}: {v}");
-            assert_eq!(
-                r.runs.dispatched(),
-                [("ci".to_string(), "work".to_string(), vec![])],
-                "full run {holds:?}"
-            );
-        }
-    }
-
     // A request GitHub refuses itself, such as an input the workflow does not take, is asked once, never again: `ci`
-    // tells the engineer what GitHub said as a refusal; the full CI on the draft and the merge, which have no refusal
-    // of their own, as a tool that did not run, of the kind `other` the flow lists, and nothing is merged.
+    // tells the engineer what GitHub said as a refusal; the merge, which has no refusal of its own, as a tool that did
+    // not run, of the kind `other` the flow lists, and nothing is merged.
     fn a_request_github_refuses_is_asked_once_and_told(r: &mut Rig) {
         let why = "HTTP 422: Unexpected inputs provided: [\"tests\"]";
         r.runs.clear();
@@ -3819,7 +3652,7 @@ timeout_ms = 1000
         );
         assert_eq!(r.runs.dispatched().len(), 1, "asked again");
         type Tool = fn(&mut Engine, &Work, &Item, RoundId) -> Result<Value, String>;
-        let tools: [(Tool, &str); 2] = [(full_ci, "full_ci"), (merge, "merge")];
+        let tools: [(Tool, &str); 1] = [(merge, "merge")];
         for (tool, name) in tools {
             r.runs.clear();
             r.runs.has_run(&r.head, "fast", &[("lint", "green"), ("fast", "green")]);
@@ -3841,7 +3674,6 @@ timeout_ms = 1000
     fn the_runs_of_the_fast_and_the_full_ci_are_made_and_read_apart() {
         let mut r = rig("runs-apart");
         the_tool_ci_gives_the_fast_run_it_made_and_what_it_ran(&mut r);
-        the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one(&mut r);
         a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
         a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
         a_request_github_refuses_is_asked_once_and_told(&mut r);
