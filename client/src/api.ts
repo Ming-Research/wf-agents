@@ -1141,7 +1141,8 @@ ended: number | null, };
 export type Ping = { id: number, session: number, line: string,
 /**
  * The cell the work waited at, what it waited on (pause, slot, owner, architect, items or row) or `work` when it
- * went on without the line, and that in words.
+ * went on without the line, or `fork` when the ping warmed an architect's base before a fork of it, and that in
+ * words.
  */
 cell: string, on: string, what: string, started_at: number, ended_at: number | null, model: string | null,
 /**

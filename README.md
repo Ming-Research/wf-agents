@@ -13,7 +13,8 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `crates/config`: the configuration's types, read from the data directory (`--data`), which lives outside this
   repository.
 - `crates/sessions`: the session manager: the session each agent's round runs in, what the session holds and costs,
-  the command line it runs in, keeping a waiting session's prompt cache warm, and telling a round that missed it.
+  the command line it runs in, keeping a waiting session's prompt cache warm, and an architect's base for its forks,
+  and telling a round that missed it.
 - `crates/api`: the owner's interface apart from serving it: its types (the page's TypeScript types are generated from
   them), the reads that fill them, the bus its live events go through, and what the owner asks of the running engine.
 - `crates/web`: the interface as `wf-agents run` serves it on the loopback address: HTTP and JSON under `/api/v1`, the
@@ -187,7 +188,20 @@ same base on the same model, finds it sound. A fork reads the base from the prom
 because it shares with the base all that comes before the base's messages in the prompt: the model, the base's system
 prompt, the same tools, and one schema of the return for the base, each matter's session and the second eye, made from
 the forms of all their cells (the engine then checks each return against its own cell's schema); only the messages and
-the reasoning effort differ, and their cells all think, none running at `low`, or none does. The engine watches main's CI for each project once a minute: when the
+the reasoning effort differ, and their cells all think, none running at `low`, or none does. A fork reads the base from
+the cache only up to the end of a call the cache keeps under what the fork puts before its messages, and each fork
+writes only its own end, so the session manager keeps the base's end in the cache for the forks
+(`crates/sessions/src/warm.rs`). Before a fork is made it warms the base with one keep-warm ping that runs the fork's
+command line, resuming the base, unless the base's last call is such a ping less than 55 minutes old: once after the
+base is built, whose last round's call ends before the return it handed in; once after an install changed what comes
+before the messages; and once after the cache may have let it go. While the project's architect has a work running, it
+pings the base 55 minutes after its last call, as it does a waiting session; with no work running no fork comes, and
+the first fork after the wait warms the base itself. These pings count among the most a wait is worth at the model's
+prices (39 on Opus 5.5, whose write for an hour costs forty reads). On the trial's board a ping of a session of that size
+on Opus 5.5 cost about $0.03, while a second eye that found the base's end not cached under its command line wrote again
+72,713 of the base's 106,594 tokens, $0.57 beyond reading them, and every fork after it did the same. A fork holds the
+pings its base was sent before it was made, for its last call and its cost, and a fork that misses the cache after such
+a ping is compared with the ping's call, which the ping records. The engine watches main's CI for each project once a minute: when the
 full CI of main's latest commit is red, it stops the merge queue, runs the red checks again, reads the known red
 checks and the run before the merge, and only when those do not clear it gives the architect the matter of which merge
 made it red, and whether to have it fixed or to revert it.
