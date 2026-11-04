@@ -147,10 +147,7 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
             )
             .unwrap();
     assert!(took.is_some(), "{log}");
-    assert_eq!(
-        *busy.lock().unwrap(),
-        [vec![work], vec![], vec![work], vec![], vec![work], vec![]]
-    );
+    assert_eq!(*busy.lock().unwrap(), [vec![work], vec![], vec![work], vec![]]);
     // Paused, it takes no step by itself.
     let n = rounds_count(&e);
     assert_eq!(e.step(Some(work)).unwrap().work, None);
@@ -572,19 +569,30 @@ fn owner_pauses(e: &mut Engine, c: &api::Control, work: i64) {
     api::pause(&mut e.db, work, None).unwrap();
 }
 
-/// A setup whose one machine has two slots, and an engine over it with two items in the queue.
-fn two_works(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>) {
-    let (s, e, said, _, _) = two_works_with(name, scripts(), Hooks::default());
-    (s, e, said)
-}
-
 // Each work follows the global pause and start unless the owner started or paused it, and the later action wins: a
 // work the owner starts goes on while every work is paused, and follows the global pause again once every work is
 // paused after; a work the owner pauses stays paused through Start all, until the owner starts it; a work the owner
 // takes one round of is paused by the owner after it.
 #[test]
 fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
-    let (s, mut e, said) = two_works("own-start");
+    // Implementing asks for ci round after round, so that neither work comes to its end while the test steps them.
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            let made = git(&r.worktree, &["log", "--format=%s"])
+                .lines()
+                .any(|l| l == "Add the feature");
+            if !made {
+                return implement(r, n);
+            }
+            let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+            let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"] }]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (s, mut e, said, _, _) = two_works_with("own-start", agents, Hooks::default());
     let c = api::Control::default();
     // Every work paused, as the engine starts: nothing moves.
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
@@ -775,7 +783,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         lines,
         [
             ("line".to_string(), true, "R1".to_string()),
-            ("owner".to_string(), false, "I1".to_string())
+            ("owner".to_string(), false, "I1,I1".to_string())
         ],
         "{log}"
     );

@@ -13,7 +13,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
         "R0",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "harm_now": false }])
             } else {
                 json!([])
             };
@@ -115,7 +115,7 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
         "R0",
         Box::new(|_: &Request, n: usize| {
             let reports = if n == 1 {
-                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "urgent": false }])
+                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "harm_now": false }])
             } else {
                 json!([])
             };
@@ -241,7 +241,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     };
     agents.insert(
         "R0",
-        reporting(json!({ "kind": "out_of_scope_defect", "what": "The lexer drops a token.", "urgent": true })),
+        reporting(json!({ "kind": "out_of_scope_defect", "what": "The lexer drops a token.", "harm_now": true })),
     );
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
@@ -303,10 +303,7 @@ fn flow_feedback_waits_for_the_architect_by_cell_and_starts_no_work_of_it() {
             )
             .unwrap();
     assert_eq!(detail, "flow_feedback");
-    assert_eq!(
-        what,
-        "Flow feedback of 2 rounds, at cells R0 (librarian), R1 (engineer)"
-    );
+    assert_eq!(what, "Flow feedback of 2 rounds, at cells R0 (engineer), R1 (engineer)");
     let body: Value = serde_json::from_str(&body).unwrap();
     let by_cell = &body["feedback"]["engineer"];
     assert_eq!(by_cell.as_object().unwrap().len(), 2, "{body}");
@@ -521,7 +518,7 @@ fn a_side_report_handed_in_again_is_queued_once() {
     agents.insert(
         "R0",
         Box::new(|_: &Request, n: usize| {
-            let r = |what: &str| json!({ "kind": "improvement", "what": what, "urgent": false });
+            let r = |what: &str| json!({ "kind": "improvement", "what": what, "harm_now": false });
             let reports = if n == 1 {
                 json!([
                     r("The parser is slow."),
