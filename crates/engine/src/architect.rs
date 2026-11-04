@@ -2854,6 +2854,9 @@ fn merged(conn: &Connection, item: i64) -> Result<bool, String> {
     )? > 0)
 }
 
+/// An item as an item change finds it: its title, why it was cancelled, why it is held and its acceptance.
+type ItemState = (String, Option<String>, Option<String>, Option<String>);
+
 /// How the situation has changed under an item change since it was drafted, every way at once: an item it changes
 /// merged or was cancelled; a text it changes is at another version than the one it was drafted on, the item as it is
 /// now said; an acceptance it changes is locked by a work's design; an item a work runs on is changed from outside that
@@ -2870,7 +2873,7 @@ fn changed_under(c: &checks::Ctx<'_>, project: &str, matter: Option<i64>, ch: &V
             .map_err(sql)?,
         None => None,
     };
-    let state = |id: i64| -> Result<Option<(String, Option<String>, Option<String>, Option<String>)>, String> {
+    let state = |id: i64| -> Result<Option<ItemState>, String> {
         conn.query_row(
             "SELECT title, cancelled, held, acceptance FROM items WHERE id = ?1",
             [id],
