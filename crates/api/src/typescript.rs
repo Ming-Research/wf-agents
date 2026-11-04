@@ -169,6 +169,10 @@ pub fn typescript() -> String {
         decl::<Change>(&cfg),
         decl::<FlowSource>(&cfg),
         decl::<FlowAt>(&cfg),
+        decl::<FlowCost>(&cfg),
+        decl::<WorkCost>(&cfg),
+        decl::<WorkStands>(&cfg),
+        decl::<CostEffect>(&cfg),
         // The flow's lines, which every part of the page that shows a role reads.
         decl::<GraphLines>(&cfg),
         decl::<LineView>(&cfg),
