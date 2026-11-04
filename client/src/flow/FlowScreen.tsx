@@ -13,7 +13,8 @@
 
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import type { Compiled, FlowDiff, RoundSummary } from '../api';
+import type { Compiled, FlowCost, FlowDiff, RoundSummary } from '../api';
+import type { Resource } from '../live';
 import type { RoundKey } from '../route';
 import { FlowChart, type FlowChartHandle, type Graph, type Pick } from '../graph/FlowChart';
 import { roundName } from '../format';
@@ -24,6 +25,7 @@ import { useColours } from '../roles';
 import { t } from '../text';
 import { CellPanel, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
+import { CostSection } from './Cost';
 import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
 import { coverOf, Dock, DockContext, type Fold, FoldButton, foldIn, foldOnClick, useMinimised } from './Dock';
@@ -80,6 +82,9 @@ export type FlowScreenProps = {
   startGraph?: string | null;
   /// When two flows are compared: what changed, which the panel opens on.
   diff?: FlowDiff | null;
+  /// When the flow shown is one that is not installed, compared: what installing it would do with the works going on,
+  /// which the panel of the comparison opens with.
+  cost?: Resource<FlowCost> | null;
   /// On a work's page and the architect's: the rounds placed on the chart, of one work or of the architect's works, a
   /// round's panel, and the round the address names, each round by its work and its number in the work. The works run
   /// on the first graph.
@@ -175,6 +180,7 @@ export function FlowScreen(props: FlowScreenProps) {
     start,
     startGraph,
     diff,
+    cost,
     rounds,
     round,
     onRound,
@@ -272,10 +278,10 @@ export function FlowScreen(props: FlowScreenProps) {
   }, [now]);
   // A comparison opens on what changed.
   useEffect(() => {
-    if (diff && cell === null && round == null) open({ kind: 'changes' });
+    if ((diff || cost) && cell === null && round == null) open({ kind: 'changes' });
     // Only when the comparison changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [diff]);
+  }, [diff, cost != null]);
   // Brings a cell into view once the window that opens with it is drawn, in the part of the chart the window leaves.
   const into = (c: string, keep: boolean, graph: string) =>
     window.setTimeout(() => chartRef.current?.focus(c, keep, graph), 0);
@@ -348,6 +354,9 @@ export function FlowScreen(props: FlowScreenProps) {
     }
   };
   const several = graphs.length > 1;
+  // The title of a cell of a graph shown, for the works a comparison's cost names by their cells.
+  const cellTitle = (graph: string, id: string) =>
+    graphs.find((x) => x.g.name === graph)?.g.cells.find((c) => c.id === id)?.title;
   const panel = (() => {
     if (now === null) return null;
     switch (now.kind) {
@@ -421,14 +430,21 @@ export function FlowScreen(props: FlowScreenProps) {
           flow: flowFor(undefined),
           title: t('panel_changes'),
           who: null,
-          body: diff
-            ? graphs.map((x) => (
-                <FlowContext.Provider key={x.g.name} value={flowFor(x.g.name)}>
-                  {several ? <h3 className="sub-heading diff-graph">{t('chart_graph', { graph: x.g.name })}</h3> : null}
-                  <DiffPanel diff={diff} graph={x.g.name} />
-                </FlowContext.Provider>
-              ))
-            : null,
+          body: (
+            <>
+              {cost ? <CostSection cost={cost} titleOf={cellTitle} /> : null}
+              {diff
+                ? graphs.map((x) => (
+                    <FlowContext.Provider key={x.g.name} value={flowFor(x.g.name)}>
+                      {several ? (
+                        <h3 className="sub-heading diff-graph">{t('chart_graph', { graph: x.g.name })}</h3>
+                      ) : null}
+                      <DiffPanel diff={diff} graph={x.g.name} />
+                    </FlowContext.Provider>
+                  ))
+                : null}
+            </>
+          ),
         };
       case 'round': {
         // The round at its cell, which opens on the chart.

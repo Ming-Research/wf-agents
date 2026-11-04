@@ -11,6 +11,9 @@ api = { path = "../api" }
 config = { path = "../config" }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
 db = { path = "../db" }
+# Only to ask what installing a flow would do with the works that go on (`/api/v1/flows/cost`): the engine's own
+# judgment, made on a read-only engine, which the page shows as the command `wf-agents flow cost` tells it.
+engine = { path = "../engine" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "sync"] }

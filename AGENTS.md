@@ -14,8 +14,12 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - A change to the owner's page follows its UI spec, [client/ui-spec.md](client/ui-spec.md), and passes its check,
   `npm run check:ui` in `client/`.
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
-  passes `wf-agents flow check`; the flow crate's tests run the same check. Such a change is an open question of its
-  design, put to the owner with a link to the flow page's comparison, and the merge waits for the answer.
+  passes `wf-agents flow check`; the flow crate's tests run the same check. Such a change merges once the owner
+  approved it at the merge (M1), with a link to the flow page's comparison; it is no reason by itself to go to deep
+  research. The pull request says which works going on the change sends back, and to which cell: the comparison at the branch lists them (Works
+  going on), as `wf-agents flow cost <the branch's flow/flow.json> --data <dir>` does. Where the change can leave
+  earlier returns passing (a new field an earlier return may lack, optional), it is made so, since every tightening of an
+  early cell's output sends each work that went past it back to do the cell again.
 - A test holds no total of a whole graph of the flow (its cells, rows, states, places or samples): every work that
   changes the flow would rewrite it, and works that do so side by side cannot be merged, in git or in meaning. What
   the flow must keep is held by the flow's own source (`each_graph_compiles_to_the_cells_of_its_nodes`) or by a named

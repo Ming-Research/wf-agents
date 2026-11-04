@@ -2580,6 +2580,73 @@ rev: string, commit: string, digest: string,
 version: number | null, compiled: Compiled, view: FlowView, };
 
 /**
+ * What installing a flow would do with each work that is neither ended nor done, as `wf-agents flow cost` tells it: the
+ * version the flow would be stored as, and the works.
+ */
+export type FlowCost = {
+/**
+ * The flow version the flow would be stored as.
+ */
+version: number,
+/**
+ * Whether the database has that version already.
+ */
+stored: boolean,
+/**
+ * The works, those paused included, in the order the command lists them: by what happens to them (what cannot be
+ * worked out first, then those that go back, those stuck, those that end, those that move and those on the version
+ * already), and by id within each.
+ */
+works: Array<WorkCost>, };
+
+/**
+ * A work that is neither ended nor done, with what installing the flow does with it.
+ */
+export type WorkCost = { work: number,
+/**
+ * What the work is and where it stands; none when it cannot be read.
+ */
+stands: WorkStands | null, effect: CostEffect, };
+
+/**
+ * What a work is and where it stands now.
+ */
+export type WorkStands = {
+/**
+ * The item it works on; none for a work of a project's architect.
+ */
+item: number | null,
+/**
+ * The item's title.
+ */
+title: string | null,
+/**
+ * For a work of a project's architect, its project.
+ */
+project: string | null,
+/**
+ * The graph it runs through.
+ */
+graph: string,
+/**
+ * The flow version it is on, and the cell it stands at.
+ */
+version: number, at: string,
+/**
+ * Who paused it, while it is.
+ */
+paused: PausedBy | null, };
+
+/**
+ * What installing a flow does with a work when the work next goes on (one that is paused, once it is started).
+ */
+export type CostEffect = { "kind": "unreadable", why: string, } | { "kind": "goes_back", through: string, to: string, why: string,
+/**
+ * The number, in the work, of the first round done again; none when no round is.
+ */
+from: number | null, redone: number, } | { "kind": "stuck", at: string, pause: string, } | { "kind": "ends", why: string, taken_over: boolean, } | { "kind": "moves" } | { "kind": "stays" };
+
+/**
  * The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
  * are.
  */
