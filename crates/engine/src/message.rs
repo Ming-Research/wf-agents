@@ -442,6 +442,20 @@ impl Context<'_> {
         Some((r.id, r.rejected.as_ref()?["failed"].get("guard")?))
     }
 
+    /// Whether the interjection at an address (`ij:<id>`) needs no answer (`informs`).
+    fn needs_no_answer(&self, address: &str) -> bool {
+        let Some(id) = address.strip_prefix("ij:").and_then(|n| n.parse::<i64>().ok()) else {
+            return false;
+        };
+        self.e
+            .db
+            .conn()
+            .query_row("SELECT informs = 1 FROM interjections WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap_or(false)
+    }
+
     /// Why this round happens, and the conditional inputs it says it with.
     fn why(&self, m: &mut Giver<'_>, interjections: &[String]) -> Vec<String> {
         let c = self.cell;
@@ -551,11 +565,17 @@ impl Context<'_> {
                 "Your session was compacted {when}: what this round needs is given again."
             ));
         }
-        if !interjections.is_empty() {
+        // What needs no answer (`informs`) is told apart from what may need one.
+        let (told, said): (Vec<&String>, Vec<&String>) = interjections.iter().partition(|a| self.needs_no_answer(a));
+        let list = |a: &[&String]| a.iter().map(|a| a.as_str()).collect::<Vec<_>>().join(", ");
+        if !said.is_empty() {
             out.push(format!(
                 "Said to you: {}. Answer in this round what needs an answer.",
-                interjections.join(", ")
+                list(&said)
             ));
+        }
+        if !told.is_empty() {
+            out.push(format!("Told to you, needing no answer: {}.", list(&told)));
         }
         // The budget of the work's stretch used up while no tool use could ask the agent to pause: this round asks.
         let pauses = c.forms.iter().any(|f| f.field.as_deref() == Some("pause"));
