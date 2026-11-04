@@ -1016,9 +1016,11 @@ const messages = {
   condition_line_hint:
     'One sentence that reads alone: the engineer reports on it, and you judge it before the work merges. Your words above go as they are.',
   merge_conditions: 'Merge conditions',
-  condition_status_open: 'waits for you',
+  condition_status_open: 'not judged yet',
   condition_status_met: 'met',
+  condition_status_met_delegate: 'met, by the delegate',
   condition_status_withdrawn: 'withdrawn',
+  condition_status_withdrawn_delegate: 'withdrawn, by the delegate',
   condition_words: 'The words it rests on',
   condition_recorded: 'Recorded',
   condition_report: "The engineer's report",

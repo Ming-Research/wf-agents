@@ -47,8 +47,8 @@ struct Tick<'a> {
 }
 
 impl Tick<'_> {
-    /// Records it in the write of the words: the record they are kept in, those words, and who the caller declares to
-    /// have said them and ticked it.
+    /// Records it in the write of the words: the record they are kept in, those words, who said them as that record says,
+    /// and who the caller declares to have ticked it.
     fn record(
         &self,
         tx: &db::rusqlite::Transaction<'_>,
@@ -65,7 +65,7 @@ impl Tick<'_> {
                 source,
                 source_id,
                 quote,
-                said_by: speaker.speaker.as_str(),
+                said_by: speaker.said_by(quote),
                 recorded_by: speaker.speaker.as_str(),
                 round: None,
             },
@@ -85,13 +85,24 @@ fn sentence(condition: Option<&str>) -> Result<Option<&str>, String> {
     }
 }
 
+/// A merge condition ticked on an item; refused once the item's merge stands on main, where it could hold nothing and
+/// would stay open for good.
+fn tick_on_item<'a>(db: &Db, item: i64, what: &'a str) -> Result<Option<Tick<'a>>, String> {
+    if db::merge_stands(db.conn(), item).map_err(sql)? {
+        return Err(format!(
+            "item {item} has merged, so a merge condition can hold nothing: say what is to be done without the tick"
+        ));
+    }
+    Ok(Some(Tick { item, what }))
+}
+
 /// A merge condition ticked on words said in a work's group, which goes on the work's item.
 fn tick_on_work<'a>(db: &Db, work: i64, condition: Option<&'a str>) -> Result<Option<Tick<'a>>, String> {
     let Some(what) = sentence(condition)? else {
         return Ok(None);
     };
     match item_of(db, work)? {
-        (Some(item), _) => Ok(Some(Tick { item, what })),
+        (Some(item), _) => tick_on_item(db, item, what),
         (None, _) => Err(format!("work {work} is on no item, so no merge condition goes on it")),
     }
 }
@@ -103,7 +114,7 @@ fn tick_on_ask<'a>(db: &Db, ask: i64, condition: Option<&'a str>) -> Result<Opti
         return Ok(None);
     };
     match db::item_of_ask(db.conn(), ask).map_err(sql)? {
-        Some(item) => Ok(Some(Tick { item, what })),
+        Some(item) => tick_on_item(db, item, what),
         None => Err(format!(
             "ask {ask} is about no one item, so no merge condition can be ticked on its answer: the architect records \
              it from your words"
@@ -666,7 +677,7 @@ fn architect_answer(
 /// Answers an ask of the owner that waits for an answer. An ask an earlier engine put for the architect, whose answer
 /// the owner gave for it, is the architect's reply too; an ask the architect put is answered by its kind. The merge
 /// gate's ask of a merge condition takes the option chosen, kept with the answer as it was chosen, and needs no words
-/// with it; it cannot be handed to the architect, since only the owner judges a condition. A merge condition ticked on
+/// with it; it cannot be handed to the architect, who does not judge a condition. A merge condition ticked on
 /// the answer is recorded in the same write.
 pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     let asked: Option<(String, Option<String>)> = db
@@ -692,6 +703,9 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     if says_nothing(&a.text, &images) && a.choice.is_none() {
         return Err("an answer says something".into());
     }
+    if says_nothing(&a.text, &images) && tick.is_some() {
+        return Err("a merge condition rests on the words said: an option with no words takes no tick".into());
+    }
     let speaker = Declared::parse(&a.speaker, a.relayed.as_deref().unwrap_or_default())?;
     let mut answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": a.text }), &a.text)?;
     if let Some(choice) = &a.choice {
@@ -713,6 +727,7 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
         );
         answer["reply"] = reply;
     }
+    let relay = relayed_words(db.conn(), ask, &body, &a.text)?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
             "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
@@ -722,10 +737,76 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
         if let Some(t) = &tick {
             t.record(tx, "ask", ask, a.text.trim(), &speaker)?;
         }
+        if let Some((work, text)) = &relay {
+            let declared = answer["speaker"]
+                .as_str()
+                .filter(|s| matches!(*s, "owner" | "delegate"));
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, declared, text) VALUES (?1, 'engineer', 'owner', ?2, ?3)",
+                params![work, declared, text],
+            )?;
+            tx.execute(
+                "UPDATE owner_asks SET body = json_set(body, '$.relayed', ?2) WHERE id = ?1",
+                params![ask, db::now()],
+            )?;
+        }
         Ok(())
     })
     .map_err(sql)?;
     Ok(format!("ask {ask} answered"))
+}
+
+/// The kinds of ask a work goes on past, and what the owner was asked in each: their answers reach the engineer at
+/// once, unless they approve exactly.
+const GONE_ON_PAST: [(&str, &str); 3] = [
+    ("design_review", "the review of the design the work goes on by"),
+    (
+        "points",
+        "the decision points and departures the research left, which the work goes on by as it recommended",
+    ),
+    ("change", "whether the change may merge"),
+];
+
+/// What an answer to an ask its work goes on past says to the engineer, and to which work: none for an answer of
+/// exactly approved, for an ask of another kind, for a work that ended, or where the cell the work waits at takes the
+/// answer in itself: the merge gate the answer of the change it asked, the review's cell on an older version of the
+/// flow the answer of the review.
+fn relayed_words(conn: &Connection, ask: i64, body: &Value, text: &str) -> Result<Option<(i64, String)>, String> {
+    let Some((kind, what)) = GONE_ON_PAST.iter().find(|(k, _)| body["kind"] == *k) else {
+        return Ok(None);
+    };
+    if text.trim() == "approved" {
+        return Ok(None);
+    }
+    let Some(work) = body["work"].as_i64() else {
+        return Ok(None);
+    };
+    let ended: bool = conn
+        .query_row("SELECT ended IS NOT NULL FROM works WHERE id = ?1", [work], |r| {
+            r.get(0)
+        })
+        .optional()
+        .map_err(sql)?
+        .unwrap_or(true);
+    let held_at: Option<String> = conn
+        .query_row(
+            "SELECT cell FROM blockers WHERE ask = ?1 AND ended IS NULL",
+            [ask],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?;
+    let taken_in = matches!(
+        (*kind, held_at.as_deref()),
+        ("change", Some(_)) | ("design_review", Some("D3"))
+    );
+    if ended || taken_in {
+        return Ok(None);
+    }
+    Ok(Some((
+        work,
+        format!("Asked about {what}, the owner answered (ask {ask}): {}", text.trim()),
+    )))
 }
 
 /// Rules on a decision card that is current: the owner confirms the option it recommends, chooses another of its

@@ -11,9 +11,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AskPicking } from './answer';
-import type { Conversation, OwnerAsk } from './api';
+import type { Conversation, MergeCondition, OwnerAsk, WorkSummary } from './api';
 import { forgetMemory } from './drafts';
+import { conditionRecorded, conditionReport, conditionStatus } from './pages/Item';
 import { AskAnswer, Composer, QuestionAnswer } from './pages/Messages';
+import { workHref } from './route';
 import { t } from './text';
 
 let root: Root | null = null;
@@ -196,5 +198,56 @@ describe('the tick of a merge condition', () => {
     await click(button(h, t('conv_send')));
     await settle();
     expect(posts[1].body).toMatchObject({ reply_to: 2, condition: 'Keep the old path.' });
+  });
+
+  it('is not on the box of a work group once the work is past its merge, where it could hold nothing', async () => {
+    const work = { key: 'work:5', kind: 'work', work: 5, project: 'p' } as unknown as Conversation;
+    const at = (cell: string) => ({ at: cell, state: 'running' }) as unknown as WorkSummary;
+    let h = await show(<Composer c={work} w={at('M2')} />);
+    expect(tick(h)).not.toBeNull();
+    await leave();
+    for (const cell of ['L2', 'L1']) {
+      h = await show(<Composer c={work} w={at(cell)} />);
+      expect(tick(h)).toBeNull();
+      await leave();
+    }
+  });
+});
+
+// How the item's page tells a merge condition: "not judged yet" names no one, since no ask may wait for the owner yet; a
+// judgment says when the delegate gave it; a round in a report or a record is the link to it.
+describe('a merge condition on the item page', () => {
+  const condition = (extra: Partial<MergeCondition>): MergeCondition => ({
+    id: 1,
+    what: 'Run it twice.',
+    source: 'ask',
+    source_id: 2,
+    quote: 'OK',
+    said_by: 'owner',
+    recorded_by: 'owner',
+    recorded_work: null,
+    recorded_round: null,
+    at: 1,
+    status: 'open',
+    judged: null,
+    judged_by: null,
+    report: null,
+    ...extra,
+  });
+
+  it('says where it stands, and that the delegate judged it when it did', () => {
+    expect(conditionStatus(condition({}))).toBe(t('condition_status_open'));
+    expect(t('condition_status_open')).not.toContain('you');
+    expect(conditionStatus(condition({ status: 'met', judged_by: 'owner' }))).toBe('met');
+    expect(conditionStatus(condition({ status: 'met', judged_by: 'delegate' }))).toBe('met, by the delegate');
+    expect(conditionStatus(condition({ status: 'withdrawn', judged_by: 'owner' }))).toBe('withdrawn');
+    expect(conditionStatus(condition({ status: 'withdrawn', judged_by: 'delegate' }))).toBe('withdrawn, by the delegate');
+  });
+
+  it('links the round of a report and of the architect that recorded it', () => {
+    const report = { answer: 'done', words: 'Ran it.', work: 9, round: 3 };
+    expect(conditionReport(condition({ report }))).toContain(`[R9-3](${workHref(9, { round: 3 })})`);
+    const recorded = condition({ recorded_by: 'architect', recorded_work: 4, recorded_round: 7 });
+    expect(conditionRecorded(recorded)).toContain(`[R4-7](${workHref(4, { round: 7 })})`);
   });
 });

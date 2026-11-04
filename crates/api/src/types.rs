@@ -1004,8 +1004,9 @@ pub struct MergeCondition {
     pub at: i64,
     /// Where it stands: open, met or withdrawn.
     pub status: String,
-    /// The ask of the merge gate the owner judged it on; none while it is open.
+    /// The ask of the merge gate it was judged on, and who judged it, owner or delegate; none while it is open.
     pub judged: Option<i64>,
+    pub judged_by: Option<String>,
     /// The latest report of the engineer on it: done or not_done, in its words, and the round that handed it in; none
     /// when it has not reported.
     pub report: Option<MergeConditionReport>,

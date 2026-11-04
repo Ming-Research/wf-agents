@@ -1036,7 +1036,7 @@ pub fn ask_owner(
 
 /// The cells of the engineer's graph that put a question of their own kind to the architect, each with its kind (the
 /// matter's detail): the review of a design at the project's level, and its split along its parts.
-pub const DESIGN_QUESTIONS: [(&str, &str); 2] = [("D3", "design_review"), ("D5", "split_design")];
+pub const DESIGN_QUESTIONS: [(&str, &str); 1] = [("D3", "design_review")];
 
 /// The engineer's merge queue, whose third failure in a row comes to the architect.
 const MERGE_CELL: &str = "M2";
@@ -1794,7 +1794,8 @@ fn send_reply(tx: &Transaction<'_>, work: i64, matter: i64, reply: &Value) -> Re
     {
         crate::blockers::say(tx, b.id, "architect", "late", &reply)?;
     }
-    Ok(())
+    // The review of a design whose work went on goes to the owner now.
+    crate::review::after_reply(tx, matter)
 }
 
 /// Puts the reply to the owner's words, as the architect's message, in the conversation they were said in.

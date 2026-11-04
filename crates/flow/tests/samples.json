@@ -1,1439 +1,1262 @@
 {
- "S1": [
-  {
-   "row": "started",
-   "json": {
-    "place": {
-     "machine": "machine-1",
-     "worktree": "worktrees/match-int",
-     "branch": "match-int",
-     "head": "a41c0d2",
-     "session": "place.session"
-    }
-   },
-   "given": {}
-  }
- ],
- "R0": [
-  {
-   "row": "done",
-   "json": {
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none",
-    "outcome": {
-     "brief": "outcome.brief"
-    }
-   },
-   "given": {}
-  }
- ],
- "R1": [
-  {
-   "row": "start",
-   "json": {
-    "outcome": {
-     "understanding": {
-      "problem": "understanding.problem",
-      "why": "understanding.why",
-      "cause": "understanding.cause",
-      "vs_item": "understanding.vs_item",
-      "grounds": [
-       {
-        "kind": "verified",
-        "claim": "understanding.grounds.claim",
-        "where": "understanding.grounds.where"
-       }
-      ]
-     },
-     "can_start": {
-      "verdict": "yes",
-      "why": "can_start.why",
-      "change": "can_start.change",
-      "verify": "can_start.verify",
-      "acceptance": [
-       {
-        "by": "test",
-        "id": "can_start.acceptance.id",
-        "condition": "can_start.acceptance.condition"
-       }
-      ]
-     },
-     "departs": {
-      "verdict": "no",
-      "why": "departs.why"
-     },
-     "to_decide": {
-      "verdict": "no",
-      "why": "to_decide.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "decision_points": "no",
-    "research_rounds": "within"
-   }
-  },
-  {
-   "row": "cannot_start",
-   "json": {
-    "outcome": {
-     "understanding": {
-      "problem": "understanding.problem",
-      "why": "understanding.why",
-      "cause": "understanding.cause",
-      "vs_item": "understanding.vs_item",
-      "grounds": [
-       {
-        "kind": "verified",
-        "claim": "understanding.grounds.claim",
-        "where": "understanding.grounds.where"
-       }
-      ]
-     },
-     "can_start": {
-      "verdict": "no",
-      "why": "can_start.why",
-      "stuck": "can_start.stuck"
-     },
-     "departs": {
-      "verdict": "no",
-      "why": "departs.why"
-     },
-     "to_decide": {
-      "verdict": "no",
-      "why": "to_decide.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "decision_points": "no",
-    "research_rounds": "within"
-   }
-  },
-  {
-   "row": "departs",
-   "json": {
-    "outcome": {
-     "understanding": {
-      "problem": "understanding.problem",
-      "why": "understanding.why",
-      "cause": "understanding.cause",
-      "vs_item": "understanding.vs_item",
-      "grounds": [
-       {
-        "kind": "verified",
-        "claim": "understanding.grounds.claim",
-        "where": "understanding.grounds.where"
-       }
-      ]
-     },
-     "can_start": {
-      "verdict": "yes",
-      "why": "can_start.why",
-      "change": "can_start.change",
-      "verify": "can_start.verify",
-      "acceptance": [
-       {
-        "by": "test",
-        "id": "can_start.acceptance.id",
-        "condition": "can_start.acceptance.condition"
-       }
-      ]
-     },
-     "departs": {
-      "verdict": "yes",
-      "decision": "departs.decision",
-      "why": "departs.why",
-      "otherwise": "departs.otherwise"
-     },
-     "to_decide": {
-      "verdict": "no",
-      "why": "to_decide.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "decision_points": "no",
-    "research_rounds": "within"
-   }
-  },
-  {
-   "row": "designs",
-   "json": {
-    "outcome": {
-     "understanding": {
-      "problem": "understanding.problem",
-      "why": "understanding.why",
-      "cause": "understanding.cause",
-      "vs_item": "understanding.vs_item",
-      "grounds": [
-       {
-        "kind": "verified",
-        "claim": "understanding.grounds.claim",
-        "where": "understanding.grounds.where"
-       }
-      ]
-     },
-     "can_start": {
-      "verdict": "yes",
-      "why": "can_start.why",
-      "change": "can_start.change",
-      "verify": "can_start.verify",
-      "acceptance": [
-       {
-        "by": "test",
-        "id": "can_start.acceptance.id",
-        "condition": "can_start.acceptance.condition"
-       }
-      ]
-     },
-     "departs": {
-      "verdict": "no",
-      "why": "departs.why"
-     },
-     "to_decide": {
-      "verdict": "designs",
-      "what": "to_decide.what"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "decision_points": "no",
-    "research_rounds": "within"
-   }
-  },
-  {
-   "row": "decision_point",
-   "json": {
-    "outcome": {
-     "understanding": {
-      "problem": "understanding.problem",
-      "why": "understanding.why",
-      "cause": "understanding.cause",
-      "vs_item": "understanding.vs_item",
-      "grounds": [
-       {
-        "kind": "verified",
-        "claim": "understanding.grounds.claim",
-        "where": "understanding.grounds.where"
-       }
-      ]
-     },
-     "can_start": {
-      "verdict": "yes",
-      "why": "can_start.why",
-      "change": "can_start.change",
-      "verify": "can_start.verify",
-      "acceptance": [
-       {
-        "by": "test",
-        "id": "can_start.acceptance.id",
-        "condition": "can_start.acceptance.condition"
-       }
-      ]
-     },
-     "departs": {
-      "verdict": "no",
-      "why": "departs.why"
-     },
-     "to_decide": {
-      "verdict": "no",
-      "why": "to_decide.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "decision_points": "yes",
-    "research_rounds": "within"
-   }
-  },
-  {
-   "row": "ask_advisor",
-   "json": {
-    "outcome": {
-     "ask": {
-      "to": "advisor",
-      "points": [
-       {
-        "what": "outcome.ask.points.what",
-        "tried": "outcome.ask.points.tried"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "decision_points": "no",
-    "research_rounds": "within"
-   }
-  }
- ],
- "D1": [
-  {
-   "row": "tools",
-   "json": {
-    "outcome": {
-     "tools": [
-      {
-       "tool": "measure",
-       "head": "51be0a3",
-       "workflow": "bench-dispatch",
-       "inputs": "outcome.tools.inputs",
-       "minutes": 20,
-       "question": "outcome.tools.question",
-       "compare": "outcome.tools.compare",
-       "decide": "outcome.tools.decide"
-      }
-     ]
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation"
-   }
-  },
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "measure": {
-      "verdict": "not_measured",
-      "why": "measure.why"
-     },
-     "design": {
-      "chosen": "design.chosen",
-      "why": "design.why",
-      "solution": "design.solution",
-      "where": "design.where",
-      "excluded": "design.excluded",
-      "pitfalls": "design.pitfalls",
-      "others": "design.others",
-      "decisions": [
-       {
-        "verdict": "departs",
-        "decision": "design.decisions.decision",
-        "why": "design.decisions.why"
-       }
-      ],
-      "articles": [
-       {
-        "article": "design.articles.article",
-        "how": "design.articles.how"
-       }
-      ],
-      "acceptance": [
-       {
-        "by": "test",
-        "id": "design.acceptance.id",
-        "condition": "design.acceptance.condition"
-       }
-      ],
-      "points": [
-       {
-        "point": "design.points.point",
-        "question": "design.points.question",
-        "options": [
-         {
-          "option": "design.points.options.option",
-          "does": "design.points.options.does",
-          "good": "design.points.options.good",
-          "bad": "design.points.options.bad"
-         },
-         {
-          "option": "design.points.options.option",
-          "does": "design.points.options.does",
-          "good": "design.points.options.good",
-          "bad": "design.points.options.bad"
-         }
-        ],
-        "recommended": "design.points.recommended",
-        "confidence": "design.points.confidence",
-        "uncertain": "design.points.uncertain"
-       }
-      ],
-      "estimate": "design.estimate"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation"
-   }
-  }
- ],
- "D2": [
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "examined": [
-      {
-       "verdict": "dead_end",
-       "premise": "p",
-       "broken": "b",
-       "dies": "d"
-      },
-      {
-       "verdict": "holds",
-       "premise": "q",
-       "broken": "b",
-       "why": "w"
-      }
-     ],
-     "changed": "changed",
-     "design": {
-      "chosen": "design.chosen",
-      "why": "design.why",
-      "solution": "design.solution",
-      "where": "design.where",
-      "excluded": "design.excluded",
-      "pitfalls": "design.pitfalls",
-      "others": "design.others",
-      "decisions": [
-       {
-        "verdict": "departs",
-        "decision": "design.decisions.decision",
-        "why": "design.decisions.why"
-       }
-      ],
-      "articles": [
-       {
-        "article": "design.articles.article",
-        "how": "design.articles.how"
-       }
-      ],
-      "acceptance": [
-       {
-        "by": "test",
-        "id": "design.acceptance.id",
-        "condition": "design.acceptance.condition"
-       }
-      ],
-      "points": [
-       {
-        "point": "design.points.point",
-        "question": "design.points.question",
-        "options": [
-         {
-          "option": "design.points.options.option",
-          "does": "design.points.options.does",
-          "good": "design.points.options.good",
-          "bad": "design.points.options.bad"
-         },
-         {
-          "option": "design.points.options.option",
-          "does": "design.points.options.does",
-          "good": "design.points.options.good",
-          "bad": "design.points.options.bad"
-         }
-        ],
-        "recommended": "design.points.recommended",
-        "confidence": "design.points.confidence",
-        "uncertain": "design.points.uncertain"
-       }
-      ],
-      "estimate": "design.estimate"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "D4": [
-  {
-   "row": "approved",
-   "json": {
-    "outcome": {
-     "verdict": {
-      "verdict": "approved",
-      "choices": [
-       {
-        "point": "verdict.choices.point",
-        "chosen": "verdict.choices.chosen",
-        "words": "verdict.choices.words"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "split": "not_split"
-   }
-  },
-  {
-   "row": "revise",
-   "json": {
-    "outcome": {
-     "verdict": {
-      "verdict": "revise",
-      "what": "verdict.what",
-      "whose": "verdict.whose"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "split": "not_split"
-   }
-  },
-  {
-   "row": "to_split",
-   "json": {
-    "outcome": {
-     "verdict": {
-      "verdict": "split",
-      "keeps": "verdict.keeps",
-      "items": "verdict.items"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "split": "not_split"
-   }
-  },
-  {
-   "row": "all_to_sub_items",
-   "json": {
-    "outcome": {
-     "verdict": {
-      "verdict": "approved",
-      "choices": [
-       {
-        "point": "verdict.choices.point",
-        "chosen": "verdict.choices.chosen",
-        "words": "verdict.choices.words"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "split": "all_split"
-   }
-  }
- ],
- "I1": [
-  {
-   "row": "tools",
-   "json": {
-    "outcome": {
-     "tools": [
-      {
-       "tool": "ci",
-       "head": "3f9c2e1",
-       "tests": [
-        "match_int",
-        "match_range"
-       ],
-       "pr": {
-        "title": "Lower integer match to an LLVM switch (match-int)",
-        "body": "\u2026"
-       }
-      }
-     ]
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation",
-    "designed": "no"
-   }
-  },
-  {
-   "row": "ask_architect",
-   "json": {
-    "outcome": {
-     "ask": {
-      "to": "architect",
-      "points": [
-       {
-        "what": "outcome.ask.points.what"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation",
-    "designed": "no"
-   }
-  },
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "head": "head",
-     "test_changes": [
-      {
-       "change": "added",
-       "test": "test_changes.test",
-       "catches": "test_changes.catches",
-       "kind": "new_behaviour"
-      }
-     ],
-     "deviations": [
-      {
-       "kind": "surprise",
-       "what": "deviations.what"
-      }
-     ],
-     "conditions": [
-      {
-       "how": "tested",
-       "id": "conditions.id",
-       "tests": [
-        "conditions.tests"
-       ]
-      }
-     ],
-     "decisions_written": [
-      {
-       "point": "decisions_written.point",
-       "file": "decisions_written.file"
-      }
-     ],
-     "holds": {
-      "verdict": "yes",
-      "why": "holds.why"
-     },
-     "departs": {
-      "verdict": "no",
-      "why": "departs.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation",
-    "designed": "no"
-   }
-  },
-  {
-   "row": "shallow_research",
-   "json": {
-    "outcome": {
-     "head": "head",
-     "test_changes": [
-      {
-       "change": "added",
-       "test": "test_changes.test",
-       "catches": "test_changes.catches",
-       "kind": "new_behaviour"
-      }
-     ],
-     "deviations": [
-      {
-       "kind": "surprise",
-       "what": "deviations.what"
-      }
-     ],
-     "conditions": [
-      {
-       "how": "tested",
-       "id": "conditions.id",
-       "tests": [
-        "conditions.tests"
-       ]
-      }
-     ],
-     "decisions_written": [
-      {
-       "point": "decisions_written.point",
-       "file": "decisions_written.file"
-      }
-     ],
-     "holds": {
-      "verdict": "no",
-      "where": "holds.where"
-     },
-     "departs": {
-      "verdict": "no",
-      "why": "departs.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation",
-    "designed": "no"
-   }
-  },
-  {
-   "row": "not_holding",
-   "json": {
-    "outcome": {
-     "head": "head",
-     "test_changes": [
-      {
-       "change": "added",
-       "test": "test_changes.test",
-       "catches": "test_changes.catches",
-       "kind": "new_behaviour"
-      }
-     ],
-     "deviations": [
-      {
-       "kind": "surprise",
-       "what": "deviations.what"
-      }
-     ],
-     "conditions": [
-      {
-       "how": "tested",
-       "id": "conditions.id",
-       "tests": [
-        "conditions.tests"
-       ]
-      }
-     ],
-     "decisions_written": [
-      {
-       "point": "decisions_written.point",
-       "file": "decisions_written.file"
-      }
-     ],
-     "holds": {
-      "verdict": "no",
-      "where": "holds.where"
-     },
-     "departs": {
-      "verdict": "no",
-      "why": "departs.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation",
-    "designed": "yes"
-   }
-  },
-  {
-   "row": "departs",
-   "json": {
-    "outcome": {
-     "head": "head",
-     "test_changes": [
-      {
-       "change": "added",
-       "test": "test_changes.test",
-       "catches": "test_changes.catches",
-       "kind": "new_behaviour"
-      }
-     ],
-     "deviations": [
-      {
-       "kind": "surprise",
-       "what": "deviations.what"
-      }
-     ],
-     "conditions": [
-      {
-       "how": "tested",
-       "id": "conditions.id",
-       "tests": [
-        "conditions.tests"
-       ]
-      }
-     ],
-     "decisions_written": [
-      {
-       "point": "decisions_written.point",
-       "file": "decisions_written.file"
-      }
-     ],
-     "holds": {
-      "verdict": "yes",
-      "why": "holds.why"
-     },
-     "departs": {
-      "verdict": "yes",
-      "decision": "departs.decision",
-      "why": "departs.why"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "work": "implementation",
-    "designed": "no"
-   }
-  }
- ],
- "T2": [
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "findings": [
-      {
-       "fid": "findings.fid",
-       "where": "findings.where",
-       "what": "findings.what",
-       "impact": "findings.impact",
-       "basis": "findings.basis",
-       "fix": "findings.fix"
-      }
-     ]
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "T3": [
-  {
-   "row": "adversarial",
-   "json": {
-    "outcome": {
-     "findings": [
-      {
-       "fid": "findings.fid",
-       "where": "findings.where",
-       "what": "findings.what",
-       "impact": "findings.impact",
-       "basis": "findings.basis",
-       "fix": "findings.fix"
-      }
-     ],
-     "must_fix": {
-      "verdict": "yes",
-      "why": "must_fix.why"
-     },
-     "silent": {
-      "verdict": "yes",
-      "why": "silent.why"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  },
-  {
-   "row": "fix",
-   "json": {
-    "outcome": {
-     "findings": [
-      {
-       "fid": "findings.fid",
-       "where": "findings.where",
-       "what": "findings.what",
-       "impact": "findings.impact",
-       "basis": "findings.basis",
-       "fix": "findings.fix"
-      }
-     ],
-     "must_fix": {
-      "verdict": "yes",
-      "why": "must_fix.why"
-     },
-     "silent": {
-      "verdict": "no",
-      "why": "silent.why"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  },
-  {
-   "row": "clear",
-   "json": {
-    "outcome": {
-     "findings": [],
-     "must_fix": {
-      "verdict": "no",
-      "why": "must_fix.why"
-     },
-     "silent": {
-      "verdict": "no",
-      "why": "silent.why"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "T1": [
-  {
-   "row": "for_engineer",
-   "json": {
-    "outcome": {
-     "conditions": [
-      {
-       "how": "tested",
-       "id": "A1",
-       "tests": [
-        "match_int_range"
-       ]
-      },
-      {
-       "how": "tested",
-       "id": "A2",
-       "tests": [
-        "match_int_missing_default"
-       ]
-      },
-      {
-       "how": "measured",
-       "id": "A3",
-       "run": "outcome.conditions.run",
-       "criterion": "outcome.conditions.criterion"
-      }
-     ],
-     "directions": [
-      "outcome.directions",
-      "outcome.directions",
-      "outcome.directions"
-     ],
-     "wrote": {
-      "verdict": "wrote",
-      "head": "7a01b4c",
-      "tests": [
-       {
-        "name": "match_int_overlap",
-        "checks": "outcome.wrote.tests.checks",
-        "oracle": "outcome.wrote.tests.oracle",
-        "time": "outcome.wrote.tests.time",
-        "worth": "outcome.wrote.tests.worth"
-       }
-      ]
-     },
-     "new_tests": [
-      {
-       "name": "match_int_range",
-       "by": "engineer",
-       "on_head": "green",
-       "on_base": "cannot_run"
-      },
-      {
-       "name": "match_int_overlap",
-       "by": "adversarial",
-       "on_head": "red",
-       "on_base": "cannot_run"
-      }
-     ],
-     "guard_tests": [
-      {
-       "name": "match_str_unchanged",
-       "by": "adversarial",
-       "on_head": "green",
-       "on_base": "green"
-      },
-      {
-       "name": "match_bool_unchanged",
-       "by": "adversarial",
-       "on_head": "green",
-       "on_base": "not_run"
-      }
-     ],
-     "suspects": [
-      {
-       "where": "outcome.suspects.where",
-       "what": "outcome.suspects.what",
-       "why": "outcome.suspects.why"
-      }
-     ]
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "@must": {
-     "verdict": "no",
-     "why": "w"
-    }
-   }
-  },
-  {
-   "row": "clear",
-   "json": {
-    "outcome": {
-     "conditions": [
-      {
-       "how": "tested",
-       "id": "A1",
-       "tests": [
-        "match_int_range"
-       ]
-      },
-      {
-       "how": "tested",
-       "id": "A2",
-       "tests": [
-        "match_int_missing_default"
-       ]
-      },
-      {
-       "how": "measured",
-       "id": "A3",
-       "run": "outcome.conditions.run",
-       "criterion": "outcome.conditions.criterion"
-      }
-     ],
-     "directions": [
-      "outcome.directions",
-      "outcome.directions",
-      "outcome.directions"
-     ],
-     "wrote": {
-      "verdict": "wrote",
-      "head": "7a01b4c",
-      "tests": [
-       {
-        "name": "match_int_overlap",
-        "checks": "outcome.wrote.tests.checks",
-        "oracle": "outcome.wrote.tests.oracle",
-        "time": "outcome.wrote.tests.time",
-        "worth": "outcome.wrote.tests.worth"
-       }
-      ]
-     },
-     "new_tests": [
-      {
-       "name": "match_int_range",
-       "by": "engineer",
-       "on_head": "green",
-       "on_base": "red"
-      },
-      {
-       "name": "match_int_overlap",
-       "by": "adversarial",
-       "on_head": "green",
-       "on_base": "red"
-      }
-     ],
-     "guard_tests": [
-      {
-       "name": "match_str_unchanged",
-       "by": "adversarial",
-       "on_head": "green",
-       "on_base": "green"
-      },
-      {
-       "name": "match_bool_unchanged",
-       "by": "adversarial",
-       "on_head": "green",
-       "on_base": "green"
-      }
-     ],
-     "suspects": [
-      {
-       "where": "outcome.suspects.where",
-       "what": "outcome.suspects.what",
-       "why": "outcome.suspects.why"
-      }
-     ]
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "@must": {
-     "verdict": "no",
-     "why": "w"
-    }
-   }
-  }
- ],
- "T6": [
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "rows": [
-      {
-       "answer": "fixed",
-       "id": "F1",
-       "commit": "9d2c7aa"
-      },
-      {
-       "answer": "fixed",
-       "id": "F2",
-       "commit": "9d2c7aa"
-      },
-      {
-       "answer": "not_caused_by_change",
-       "id": "F3",
-       "reason": "outcome.rows.reason",
-       "evidence": "outcome.rows.evidence"
-      },
-      {
-       "answer": "fixed_outside_commit",
-       "id": "F4",
-       "where": "outcome.rows.where"
-      }
-     ],
-     "head": "9d2c7aa",
-     "test_changes": [
-      {
-       "change": "added",
-       "test": "match_int_overlap_fixed",
-       "catches": "outcome.test_changes.catches",
-       "kind": "new_behaviour",
-       "worth": "outcome.test_changes.worth"
-      }
-     ],
-     "deviations": []
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "T4": [
-  {
-   "row": "clear",
-   "json": {
-    "outcome": {
-     "rows": [
-      {
-       "verdict": "holds",
-       "id": "F1"
-      }
-     ],
-     "brought": {
-      "verdict": "none"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  },
-  {
-   "row": "fix_again",
-   "json": {
-    "outcome": {
-     "rows": [
-      {
-       "verdict": "not_fixed",
-       "id": "F1",
-       "why": "w"
-      }
-     ],
-     "brought": {
-      "verdict": "none"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "M2": [
-  {
-   "row": "merged",
-   "json": {
-    "result": {
-     "kind": "merged",
-     "merge_commit": "c0ffee1"
-    }
-   },
-   "given": {
-    "turn": "first",
-    "merge_failures": "fewer"
-   }
-  }
- ],
- "A4": [
-  {
-   "row": "carry_on",
-   "json": {
-    "outcome": {
-     "next": {
-      "way": "carry_on"
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "stage": "design_on",
-    "split": "not_split",
-    "must_wait": "no"
-   }
-  },
-  {
-   "row": "fix",
-   "json": {
-    "outcome": {
-     "next": {
-      "way": "fix",
-      "change": {
-       "what": "outcome.next.change.what",
-       "asked_in": "outcome.next.change.asked_in"
-      }
-     }
-    },
-    "side_reports": [],
-    "tell_owner": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {
-    "stage": "code",
-    "split": "not_split",
-    "must_wait": "no",
-    "came_by": "interjection_at_engine"
-   }
-  }
- ],
- "A1": [
-  {
-   "row": "answered",
-   "json": {
-    "outcome": {
-     "reply": {
-      "decision": "outcome.reply.decision",
-      "why": "outcome.reply.why"
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  },
-  {
-   "row": "to_architect",
-   "json": {
-    "outcome": {
-     "ask": {
-      "to": "architect",
-      "points": [
-       {
-        "what": "outcome.ask.points.what"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "A2": [
-  {
-   "row": "answered",
-   "json": {
-    "reply": {
-     "text": "reply.text",
-     "why": "reply.why",
-     "children": [
-      {
-       "key": "match-int-cover",
-       "title": "reply.children.title",
-       "takes": [
-        "A2"
-       ]
-      }
-     ],
-     "rest": "kept"
-    }
-   },
-   "given": {
-    "held": "answered"
-   }
-  }
- ],
- "X1": [
-  {
-   "row": "ran",
-   "json": {
-    "results": [
-     {
-      "tool": "ci",
-      "push": {
-       "verdict": "pushed",
-       "head": "3f9c2e1",
-       "checks": [
-        {
-         "name": "match_int",
-         "result": "green",
-         "run": "results.push.checks.run"
-        },
-        {
-         "name": "match_range",
-         "result": "red",
-         "run": "results.push.checks.run",
-         "log_tail": "expected 3, got 2",
-         "log_path": "results.push.checks.log_path"
+  "S1": [
+    {
+      "row": "started",
+      "json": {
+        "place": {
+          "machine": "machine-1",
+          "worktree": "worktrees/match-int",
+          "branch": "match-int",
+          "head": "a41c0d2",
+          "session": "place.session"
         }
-       ],
-       "tests": [
-        {
-         "test": "match_int",
-         "result": "passed",
-         "time": "results.push.tests.time",
-         "matched": [
-          {
-           "unit": "results.push.tests.matched.unit",
-           "name": "match_int",
-           "result": "passed",
-           "time": "results.push.tests.matched.time"
+      },
+      "given": {}
+    }
+  ],
+  "R0": [
+    {
+      "row": "done",
+      "json": {
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none",
+        "outcome": {
+          "brief": "outcome.brief"
+        }
+      },
+      "given": {}
+    }
+  ],
+  "R1": [
+    {
+      "row": "start",
+      "json": {
+        "outcome": {
+          "understanding": {
+            "problem": "understanding.problem",
+            "why": "understanding.why",
+            "cause": "understanding.cause",
+            "vs_item": "understanding.vs_item",
+            "grounds": [
+              {
+                "kind": "verified",
+                "claim": "understanding.grounds.claim",
+                "where": "understanding.grounds.where"
+              }
+            ]
+          },
+          "can_start": {
+            "verdict": "yes",
+            "why": "can_start.why",
+            "change": "can_start.change",
+            "verify": "can_start.verify",
+            "acceptance": [
+              {
+                "by": "test",
+                "id": "can_start.acceptance.id",
+                "condition": "can_start.acceptance.condition"
+              }
+            ]
+          },
+          "departs": {
+            "verdict": "no",
+            "why": "departs.why"
+          },
+          "points": []
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "research_rounds": "within"
+      }
+    },
+    {
+      "row": "cannot_start",
+      "json": {
+        "outcome": {
+          "understanding": {
+            "problem": "understanding.problem",
+            "why": "understanding.why",
+            "cause": "understanding.cause",
+            "vs_item": "understanding.vs_item",
+            "grounds": [
+              {
+                "kind": "verified",
+                "claim": "understanding.grounds.claim",
+                "where": "understanding.grounds.where"
+              }
+            ]
+          },
+          "can_start": {
+            "verdict": "no",
+            "why": "can_start.why",
+            "stuck": "can_start.stuck"
+          },
+          "departs": {
+            "verdict": "no",
+            "why": "departs.why"
+          },
+          "points": []
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "research_rounds": "within"
+      }
+    },
+    {
+      "row": "start",
+      "json": {
+        "outcome": {
+          "understanding": {
+            "problem": "understanding.problem",
+            "why": "understanding.why",
+            "cause": "understanding.cause",
+            "vs_item": "understanding.vs_item",
+            "grounds": [
+              {
+                "kind": "verified",
+                "claim": "understanding.grounds.claim",
+                "where": "understanding.grounds.where"
+              }
+            ]
+          },
+          "can_start": {
+            "verdict": "yes",
+            "why": "can_start.why",
+            "change": "can_start.change",
+            "verify": "can_start.verify",
+            "acceptance": [
+              {
+                "by": "test",
+                "id": "can_start.acceptance.id",
+                "condition": "can_start.acceptance.condition"
+              }
+            ]
+          },
+          "departs": {
+            "verdict": "yes",
+            "decision": "departs.decision",
+            "why": "departs.why",
+            "otherwise": "departs.otherwise"
+          },
+          "points": [
+            {
+              "point": "P1",
+              "question": "points.question",
+              "options": [
+                {
+                  "option": "a",
+                  "does": "a.does",
+                  "good": "a.good",
+                  "bad": "a.bad"
+                },
+                {
+                  "option": "b",
+                  "does": "b.does",
+                  "good": "b.good",
+                  "bad": "b.bad"
+                }
+              ],
+              "recommended": "a",
+              "confidence": "points.confidence",
+              "uncertain": "points.uncertain"
+            }
+          ]
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "research_rounds": "within"
+      }
+    },
+    {
+      "row": "ask_advisor",
+      "json": {
+        "outcome": {
+          "ask": {
+            "to": "advisor",
+            "points": [
+              {
+                "what": "outcome.ask.points.what",
+                "tried": "outcome.ask.points.tried"
+              }
+            ]
           }
-         ]
         },
-        {
-         "test": "match_range",
-         "result": "failed",
-         "time": "results.push.tests.time",
-         "ended": "results.push.tests.ended",
-         "matched": [
-          {
-           "unit": "results.push.tests.matched.unit",
-           "name": "match_range",
-           "result": "failed"
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "research_rounds": "within"
+      }
+    }
+  ],
+  "D1": [
+    {
+      "row": "tools",
+      "json": {
+        "outcome": {
+          "tools": [
+            {
+              "tool": "measure",
+              "head": "51be0a3",
+              "workflow": "bench-dispatch",
+              "inputs": "outcome.tools.inputs",
+              "minutes": 20,
+              "question": "outcome.tools.question",
+              "compare": "outcome.tools.compare",
+              "decide": "outcome.tools.decide"
+            }
+          ]
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation"
+      }
+    },
+    {
+      "row": "done",
+      "json": {
+        "outcome": {
+          "measure": {
+            "verdict": "not_measured",
+            "why": "measure.why"
+          },
+          "design": {
+            "chosen": "design.chosen",
+            "why": "design.why",
+            "solution": "design.solution",
+            "where": "design.where",
+            "excluded": "design.excluded",
+            "pitfalls": "design.pitfalls",
+            "others": "design.others",
+            "decisions": [
+              {
+                "verdict": "departs",
+                "decision": "design.decisions.decision",
+                "why": "design.decisions.why"
+              }
+            ],
+            "articles": [
+              {
+                "article": "design.articles.article",
+                "how": "design.articles.how"
+              }
+            ],
+            "acceptance": [
+              {
+                "by": "test",
+                "id": "design.acceptance.id",
+                "condition": "design.acceptance.condition"
+              }
+            ],
+            "points": [
+              {
+                "point": "design.points.point",
+                "question": "design.points.question",
+                "options": [
+                  {
+                    "option": "design.points.options.option",
+                    "does": "design.points.options.does",
+                    "good": "design.points.options.good",
+                    "bad": "design.points.options.bad"
+                  },
+                  {
+                    "option": "design.points.options.option",
+                    "does": "design.points.options.does",
+                    "good": "design.points.options.good",
+                    "bad": "design.points.options.bad"
+                  }
+                ],
+                "recommended": "design.points.recommended",
+                "confidence": "design.points.confidence",
+                "uncertain": "design.points.uncertain"
+              }
+            ],
+            "estimate": "design.estimate"
           }
-         ]
         },
-        {
-         "test": "match_new",
-         "result": "not_built",
-         "matched": [],
-         "why": "results.push.tests.why"
-        }
-       ]
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation"
       }
-     },
-     {
-      "tool": "query",
-      "ran": {
-       "verdict": "ran",
-       "rows": [
-        {
-         "id": 4,
-         "title": "Missing data directory",
-         "acceptance": null
-        }
-       ],
-       "cut": false
+    }
+  ],
+  "D2": [
+    {
+      "row": "done",
+      "json": {
+        "outcome": {
+          "examined": [
+            {
+              "verdict": "dead_end",
+              "premise": "p",
+              "broken": "b",
+              "dies": "d"
+            },
+            {
+              "verdict": "holds",
+              "premise": "q",
+              "broken": "b",
+              "why": "w"
+            }
+          ],
+          "changed": "changed",
+          "design": {
+            "chosen": "design.chosen",
+            "why": "design.why",
+            "solution": "design.solution",
+            "where": "design.where",
+            "excluded": "design.excluded",
+            "pitfalls": "design.pitfalls",
+            "others": "design.others",
+            "decisions": [
+              {
+                "verdict": "departs",
+                "decision": "design.decisions.decision",
+                "why": "design.decisions.why"
+              }
+            ],
+            "articles": [
+              {
+                "article": "design.articles.article",
+                "how": "design.articles.how"
+              }
+            ],
+            "acceptance": [
+              {
+                "by": "test",
+                "id": "design.acceptance.id",
+                "condition": "design.acceptance.condition"
+              }
+            ],
+            "points": [
+              {
+                "point": "design.points.point",
+                "question": "design.points.question",
+                "options": [
+                  {
+                    "option": "design.points.options.option",
+                    "does": "design.points.options.does",
+                    "good": "design.points.options.good",
+                    "bad": "design.points.options.bad"
+                  },
+                  {
+                    "option": "design.points.options.option",
+                    "does": "design.points.options.does",
+                    "good": "design.points.options.good",
+                    "bad": "design.points.options.bad"
+                  }
+                ],
+                "recommended": "design.points.recommended",
+                "confidence": "design.points.confidence",
+                "uncertain": "design.points.uncertain"
+              }
+            ],
+            "estimate": "design.estimate"
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    }
+  ],
+  "I1": [
+    {
+      "row": "tools",
+      "json": {
+        "outcome": {
+          "tools": [
+            {
+              "tool": "ci",
+              "head": "3f9c2e1",
+              "tests": [
+                "match_int",
+                "match_range"
+              ],
+              "pr": {
+                "title": "Lower integer match to an LLVM switch (match-int)",
+                "body": "…"
+              }
+            }
+          ]
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation",
+        "designed": "no"
       }
-     }
-    ],
-    "failed": []
-   },
-   "given": {}
-  }
- ],
- "X5": [
-  {
-   "row": "found",
-   "json": {
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none",
-    "outcome": {
-     "brief": "outcome.brief"
+    },
+    {
+      "row": "ask_architect",
+      "json": {
+        "outcome": {
+          "ask": {
+            "to": "architect",
+            "points": [
+              {
+                "what": "outcome.ask.points.what"
+              }
+            ]
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation",
+        "designed": "no"
+      }
+    },
+    {
+      "row": "done",
+      "json": {
+        "outcome": {
+          "head": "head",
+          "test_changes": [
+            {
+              "change": "added",
+              "test": "test_changes.test",
+              "catches": "test_changes.catches",
+              "kind": "new_behaviour"
+            }
+          ],
+          "deviations": [
+            {
+              "kind": "surprise",
+              "what": "deviations.what"
+            }
+          ],
+          "conditions": [
+            {
+              "how": "tested",
+              "id": "conditions.id",
+              "tests": [
+                "conditions.tests"
+              ]
+            }
+          ],
+          "decisions_written": [
+            {
+              "point": "decisions_written.point",
+              "file": "decisions_written.file"
+            }
+          ],
+          "holds": {
+            "verdict": "yes",
+            "why": "holds.why"
+          },
+          "departs": {
+            "verdict": "no",
+            "why": "departs.why"
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation",
+        "designed": "no"
+      }
+    },
+    {
+      "row": "shallow_research",
+      "json": {
+        "outcome": {
+          "head": "head",
+          "test_changes": [
+            {
+              "change": "added",
+              "test": "test_changes.test",
+              "catches": "test_changes.catches",
+              "kind": "new_behaviour"
+            }
+          ],
+          "deviations": [
+            {
+              "kind": "surprise",
+              "what": "deviations.what"
+            }
+          ],
+          "conditions": [
+            {
+              "how": "tested",
+              "id": "conditions.id",
+              "tests": [
+                "conditions.tests"
+              ]
+            }
+          ],
+          "decisions_written": [
+            {
+              "point": "decisions_written.point",
+              "file": "decisions_written.file"
+            }
+          ],
+          "holds": {
+            "verdict": "no",
+            "where": "holds.where"
+          },
+          "departs": {
+            "verdict": "no",
+            "why": "departs.why"
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation",
+        "designed": "no"
+      }
+    },
+    {
+      "row": "not_holding",
+      "json": {
+        "outcome": {
+          "head": "head",
+          "test_changes": [
+            {
+              "change": "added",
+              "test": "test_changes.test",
+              "catches": "test_changes.catches",
+              "kind": "new_behaviour"
+            }
+          ],
+          "deviations": [
+            {
+              "kind": "surprise",
+              "what": "deviations.what"
+            }
+          ],
+          "conditions": [
+            {
+              "how": "tested",
+              "id": "conditions.id",
+              "tests": [
+                "conditions.tests"
+              ]
+            }
+          ],
+          "decisions_written": [
+            {
+              "point": "decisions_written.point",
+              "file": "decisions_written.file"
+            }
+          ],
+          "holds": {
+            "verdict": "no",
+            "where": "holds.where"
+          },
+          "departs": {
+            "verdict": "no",
+            "why": "departs.why"
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation",
+        "designed": "yes"
+      }
+    },
+    {
+      "row": "departs",
+      "json": {
+        "outcome": {
+          "head": "head",
+          "test_changes": [
+            {
+              "change": "added",
+              "test": "test_changes.test",
+              "catches": "test_changes.catches",
+              "kind": "new_behaviour"
+            }
+          ],
+          "deviations": [
+            {
+              "kind": "surprise",
+              "what": "deviations.what"
+            }
+          ],
+          "conditions": [
+            {
+              "how": "tested",
+              "id": "conditions.id",
+              "tests": [
+                "conditions.tests"
+              ]
+            }
+          ],
+          "decisions_written": [
+            {
+              "point": "decisions_written.point",
+              "file": "decisions_written.file"
+            }
+          ],
+          "holds": {
+            "verdict": "yes",
+            "why": "holds.why"
+          },
+          "departs": {
+            "verdict": "yes",
+            "decision": "departs.decision",
+            "why": "departs.why"
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "work": "implementation",
+        "designed": "no"
+      }
     }
-   },
-   "given": {}
-  }
- ],
- "L2": [
-  {
-   "row": "done",
-   "json": {
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none",
-    "tell_owner": [],
-    "outcome": {
-     "learned": "outcome.learned"
+  ],
+  "T2": [
+    {
+      "row": "done",
+      "json": {
+        "outcome": {
+          "findings": [
+            {
+              "fid": "findings.fid",
+              "where": "findings.where",
+              "what": "findings.what",
+              "impact": "findings.impact",
+              "basis": "findings.basis",
+              "fix": "findings.fix"
+            }
+          ]
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
     }
-   },
-   "given": {}
-  }
- ]
+  ],
+  "T3": [
+    {
+      "row": "adversarial",
+      "json": {
+        "outcome": {
+          "findings": [
+            {
+              "fid": "findings.fid",
+              "where": "findings.where",
+              "what": "findings.what",
+              "impact": "findings.impact",
+              "basis": "findings.basis",
+              "fix": "findings.fix"
+            }
+          ],
+          "must_fix": {
+            "verdict": "yes",
+            "why": "must_fix.why"
+          },
+          "silent": {
+            "verdict": "yes",
+            "why": "silent.why"
+          }
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    },
+    {
+      "row": "fix",
+      "json": {
+        "outcome": {
+          "findings": [
+            {
+              "fid": "findings.fid",
+              "where": "findings.where",
+              "what": "findings.what",
+              "impact": "findings.impact",
+              "basis": "findings.basis",
+              "fix": "findings.fix"
+            }
+          ],
+          "must_fix": {
+            "verdict": "yes",
+            "why": "must_fix.why"
+          },
+          "silent": {
+            "verdict": "no",
+            "why": "silent.why"
+          }
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    },
+    {
+      "row": "clear",
+      "json": {
+        "outcome": {
+          "findings": [],
+          "must_fix": {
+            "verdict": "no",
+            "why": "must_fix.why"
+          },
+          "silent": {
+            "verdict": "no",
+            "why": "silent.why"
+          }
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    }
+  ],
+  "T1": [
+    {
+      "row": "for_engineer",
+      "json": {
+        "outcome": {
+          "conditions": [
+            {
+              "how": "tested",
+              "id": "A1",
+              "tests": [
+                "match_int_range"
+              ]
+            },
+            {
+              "how": "tested",
+              "id": "A2",
+              "tests": [
+                "match_int_missing_default"
+              ]
+            },
+            {
+              "how": "measured",
+              "id": "A3",
+              "run": "outcome.conditions.run",
+              "criterion": "outcome.conditions.criterion"
+            }
+          ],
+          "directions": [
+            "outcome.directions",
+            "outcome.directions",
+            "outcome.directions"
+          ],
+          "wrote": {
+            "verdict": "wrote",
+            "head": "7a01b4c",
+            "tests": [
+              {
+                "name": "match_int_overlap",
+                "checks": "outcome.wrote.tests.checks",
+                "oracle": "outcome.wrote.tests.oracle",
+                "time": "outcome.wrote.tests.time",
+                "worth": "outcome.wrote.tests.worth"
+              }
+            ]
+          },
+          "new_tests": [
+            {
+              "name": "match_int_range",
+              "by": "engineer",
+              "on_head": "green",
+              "on_base": "cannot_run"
+            },
+            {
+              "name": "match_int_overlap",
+              "by": "adversarial",
+              "on_head": "red",
+              "on_base": "cannot_run"
+            }
+          ],
+          "guard_tests": [
+            {
+              "name": "match_str_unchanged",
+              "by": "adversarial",
+              "on_head": "green",
+              "on_base": "green"
+            },
+            {
+              "name": "match_bool_unchanged",
+              "by": "adversarial",
+              "on_head": "green",
+              "on_base": "not_run"
+            }
+          ],
+          "suspects": [
+            {
+              "where": "outcome.suspects.where",
+              "what": "outcome.suspects.what",
+              "why": "outcome.suspects.why"
+            }
+          ]
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "@must": {
+          "verdict": "no",
+          "why": "w"
+        }
+      }
+    },
+    {
+      "row": "clear",
+      "json": {
+        "outcome": {
+          "conditions": [
+            {
+              "how": "tested",
+              "id": "A1",
+              "tests": [
+                "match_int_range"
+              ]
+            },
+            {
+              "how": "tested",
+              "id": "A2",
+              "tests": [
+                "match_int_missing_default"
+              ]
+            },
+            {
+              "how": "measured",
+              "id": "A3",
+              "run": "outcome.conditions.run",
+              "criterion": "outcome.conditions.criterion"
+            }
+          ],
+          "directions": [
+            "outcome.directions",
+            "outcome.directions",
+            "outcome.directions"
+          ],
+          "wrote": {
+            "verdict": "wrote",
+            "head": "7a01b4c",
+            "tests": [
+              {
+                "name": "match_int_overlap",
+                "checks": "outcome.wrote.tests.checks",
+                "oracle": "outcome.wrote.tests.oracle",
+                "time": "outcome.wrote.tests.time",
+                "worth": "outcome.wrote.tests.worth"
+              }
+            ]
+          },
+          "new_tests": [
+            {
+              "name": "match_int_range",
+              "by": "engineer",
+              "on_head": "green",
+              "on_base": "red"
+            },
+            {
+              "name": "match_int_overlap",
+              "by": "adversarial",
+              "on_head": "green",
+              "on_base": "red"
+            }
+          ],
+          "guard_tests": [
+            {
+              "name": "match_str_unchanged",
+              "by": "adversarial",
+              "on_head": "green",
+              "on_base": "green"
+            },
+            {
+              "name": "match_bool_unchanged",
+              "by": "adversarial",
+              "on_head": "green",
+              "on_base": "green"
+            }
+          ],
+          "suspects": [
+            {
+              "where": "outcome.suspects.where",
+              "what": "outcome.suspects.what",
+              "why": "outcome.suspects.why"
+            }
+          ]
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "@must": {
+          "verdict": "no",
+          "why": "w"
+        }
+      }
+    }
+  ],
+  "T6": [
+    {
+      "row": "done",
+      "json": {
+        "outcome": {
+          "rows": [
+            {
+              "answer": "fixed",
+              "id": "F1",
+              "commit": "9d2c7aa"
+            },
+            {
+              "answer": "fixed",
+              "id": "F2",
+              "commit": "9d2c7aa"
+            },
+            {
+              "answer": "not_caused_by_change",
+              "id": "F3",
+              "reason": "outcome.rows.reason",
+              "evidence": "outcome.rows.evidence"
+            },
+            {
+              "answer": "fixed_outside_commit",
+              "id": "F4",
+              "where": "outcome.rows.where"
+            }
+          ],
+          "head": "9d2c7aa",
+          "test_changes": [
+            {
+              "change": "added",
+              "test": "match_int_overlap_fixed",
+              "catches": "outcome.test_changes.catches",
+              "kind": "new_behaviour",
+              "worth": "outcome.test_changes.worth"
+            }
+          ],
+          "deviations": []
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    }
+  ],
+  "T4": [
+    {
+      "row": "clear",
+      "json": {
+        "outcome": {
+          "rows": [
+            {
+              "verdict": "holds",
+              "id": "F1"
+            }
+          ],
+          "brought": {
+            "verdict": "none"
+          }
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    },
+    {
+      "row": "fix_again",
+      "json": {
+        "outcome": {
+          "rows": [
+            {
+              "verdict": "not_fixed",
+              "id": "F1",
+              "why": "w"
+            }
+          ],
+          "brought": {
+            "verdict": "none"
+          }
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    }
+  ],
+  "M2": [
+    {
+      "row": "merged",
+      "json": {
+        "result": {
+          "kind": "merged",
+          "merge_commit": "c0ffee1"
+        }
+      },
+      "given": {
+        "turn": "first",
+        "merge_failures": "fewer"
+      }
+    }
+  ],
+  "A4": [
+    {
+      "row": "carry_on",
+      "json": {
+        "outcome": {
+          "next": {
+            "way": "carry_on"
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "stage": "design_on",
+        "split": "not_split",
+        "must_wait": "no"
+      }
+    },
+    {
+      "row": "fix",
+      "json": {
+        "outcome": {
+          "next": {
+            "way": "fix",
+            "change": {
+              "what": "outcome.next.change.what",
+              "asked_in": "outcome.next.change.asked_in"
+            }
+          }
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "stage": "code",
+        "split": "not_split",
+        "must_wait": "no",
+        "came_by": "interjection_at_engine"
+      }
+    }
+  ],
+  "A1": [
+    {
+      "row": "answered",
+      "json": {
+        "outcome": {
+          "reply": {
+            "decision": "outcome.reply.decision",
+            "why": "outcome.reply.why"
+          }
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    },
+    {
+      "row": "to_architect",
+      "json": {
+        "outcome": {
+          "ask": {
+            "to": "architect",
+            "points": [
+              {
+                "what": "outcome.ask.points.what"
+              }
+            ]
+          }
+        },
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {}
+    }
+  ],
+  "A2": [
+    {
+      "row": "answered",
+      "json": {
+        "reply": {
+          "text": "reply.text",
+          "why": "reply.why",
+          "children": [
+            {
+              "key": "match-int-cover",
+              "title": "reply.children.title",
+              "takes": [
+                "A2"
+              ]
+            }
+          ],
+          "rest": "kept"
+        }
+      },
+      "given": {
+        "held": "answered"
+      }
+    }
+  ],
+  "X1": [
+    {
+      "row": "ran",
+      "json": {
+        "results": [
+          {
+            "tool": "ci",
+            "push": {
+              "verdict": "pushed",
+              "head": "3f9c2e1",
+              "checks": [
+                {
+                  "name": "match_int",
+                  "result": "green",
+                  "run": "results.push.checks.run"
+                },
+                {
+                  "name": "match_range",
+                  "result": "red",
+                  "run": "results.push.checks.run",
+                  "log_tail": "expected 3, got 2",
+                  "log_path": "results.push.checks.log_path"
+                }
+              ],
+              "tests": [
+                {
+                  "test": "match_int",
+                  "result": "passed",
+                  "time": "results.push.tests.time",
+                  "matched": [
+                    {
+                      "unit": "results.push.tests.matched.unit",
+                      "name": "match_int",
+                      "result": "passed",
+                      "time": "results.push.tests.matched.time"
+                    }
+                  ]
+                },
+                {
+                  "test": "match_range",
+                  "result": "failed",
+                  "time": "results.push.tests.time",
+                  "ended": "results.push.tests.ended",
+                  "matched": [
+                    {
+                      "unit": "results.push.tests.matched.unit",
+                      "name": "match_range",
+                      "result": "failed"
+                    }
+                  ]
+                },
+                {
+                  "test": "match_new",
+                  "result": "not_built",
+                  "matched": [],
+                  "why": "results.push.tests.why"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "query",
+            "ran": {
+              "verdict": "ran",
+              "rows": [
+                {
+                  "id": 4,
+                  "title": "Missing data directory",
+                  "acceptance": null
+                }
+              ],
+              "cut": false
+            }
+          }
+        ],
+        "failed": []
+      },
+      "given": {}
+    }
+  ],
+  "X5": [
+    {
+      "row": "found",
+      "json": {
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none",
+        "outcome": {
+          "brief": "outcome.brief"
+        }
+      },
+      "given": {}
+    }
+  ],
+  "L2": [
+    {
+      "row": "done",
+      "json": {
+        "side_reports": [],
+        "progress": "progress",
+        "flow_feedback": "none",
+        "tell_owner": [],
+        "outcome": {
+          "learned": "outcome.learned"
+        }
+      },
+      "given": {}
+    }
+  ]
 }

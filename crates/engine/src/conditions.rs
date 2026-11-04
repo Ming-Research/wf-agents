@@ -155,6 +155,12 @@ pub fn asked(conn: &Connection, item: i64, work: i64) -> Result<bool, String> {
     Ok(matches!(latest_ask(conn, work, first.id)?, Some((_, _, None))))
 }
 
+/// Whether the item has a merge condition not judged, which the merge step reads last of all: one recorded after the gate
+/// was passed holds the merge too, and goes back to the gate.
+pub fn any_open(conn: &Connection, item: i64) -> Result<bool, String> {
+    Ok(!open(conn, item)?.is_empty())
+}
+
 /// The latest report of the engineer on a condition, by its number: the round, and the row it handed in; none when it
 /// has not reported on it.
 fn report(conn: &Connection, work: i64, within: &str, number: &str) -> Result<Option<Value>, String> {
@@ -226,7 +232,7 @@ fn record_link(conn: &Connection, source: &str, id: i64) -> Result<String, Strin
 
 /// The ask of a condition: its sentence, the words it rests on and who said them, the link to the record they are in, who
 /// recorded it and when, the engineer's latest report and the pull request, for the owner to judge it with the two
-/// options; the same in words and as a value. Words alone, or an answer that is not the owner's own, go to the engineer.
+/// options; the same in words and as a value. Words alone go to the engineer.
 fn put(ctx: &Ctx, tx: &Transaction<'_>, item: &Item, c: &Condition) -> Result<i64, String> {
     let w = &ctx.work;
     let number = c.number();
@@ -356,7 +362,7 @@ pub fn answered(ctx: &Ctx, tx: &Transaction<'_>) -> Result<Option<(i64, Value, S
         return Ok(None);
     };
     let asked = format!(
-        "Asked to judge merge condition {} (\"{}\") before the work merges, which stays open until the owner judges it",
+        "Asked to judge merge condition {} (\"{}\") before the work merges, which stays open until it is judged",
         first.number(),
         first.what
     );

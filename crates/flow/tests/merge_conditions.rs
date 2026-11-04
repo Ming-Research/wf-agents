@@ -78,10 +78,13 @@ fn the_merge_gate_holds_a_condition_on_rows_of_its_own() {
             "{cell}"
         );
     }
-    // The four levels are said in one order wherever the flow says them.
+    // A condition recorded after the gate was passed goes back to it from the merge.
+    let late = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "condition_set").unwrap();
+    assert_eq!(late.to, "M1");
+    // The levels are said in one order.
     let v: Value = serde_json::from_str(FLOW).unwrap();
     let values = v["engine"]["values"]["gates"].as_str().unwrap();
-    let levels = ["items", "set_aside", "conditions", "owner"];
+    let levels = ["items", "set_aside", "approvals", "conditions", "owner"];
     let at: Vec<usize> = levels.iter().map(|l| values.find(&format!("{l},")).unwrap()).collect();
     assert!(at.windows(2).all(|w| w[0] < w[1]), "{values}");
 }

@@ -1468,9 +1468,9 @@ recorded_by: string, recorded_work: number | null, recorded_round: number | null
  */
 status: string,
 /**
- * The ask of the merge gate the owner judged it on; none while it is open.
+ * The ask of the merge gate it was judged on, and who judged it, owner or delegate; none while it is open.
  */
-judged: number | null,
+judged: number | null, judged_by: string | null,
 /**
  * The latest report of the engineer on it: done or not_done, in its words, and the round that handed it in; none
  * when it has not reported.

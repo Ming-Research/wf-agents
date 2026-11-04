@@ -1,7 +1,7 @@
 //! What the owner set to be done before an item's work merges: the merge gate holds the work and asks the owner of each
-//! condition still open, and only the owner's own choice of an option judges one; words, and a delegate's answer, go to
-//! the engineer, and the gate asks again with what it reports next. The implementation and the fix report on each they
-//! are given.
+//! condition still open, and a choice of an option, the owner's or the delegate's for the owner, judges one; words with no
+//! option go to the engineer, and the gate asks again with what it reports next. The implementation and the fix report on
+//! each they are given.
 
 use super::*;
 
@@ -357,10 +357,12 @@ fn words_with_no_option_go_to_the_engineer_and_the_gate_asks_again_with_the_new_
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A delegate's answer judges nothing, whichever option it chose: the condition stays open, the work does not merge, and
-// the answer goes to the engineer saying the delegate gave it. The owner's own choice then judges it.
+// The owner chose that the delegate's answer counts when it is marked as the delegate's: an option a delegate chose judges
+// the condition as the owner's does, and the work merges with nothing sent to the engineer. The view keeps that it was the
+// delegate. Words a delegate says with no option judge nothing, as the owner's do, and go to the engineer saying who said
+// them.
 #[test]
-fn a_delegate_s_choice_judges_no_condition_and_only_the_owner_s_own_does() {
+fn a_delegate_s_choice_judges_a_condition_marked_as_the_delegate_s_and_its_words_alone_do_not() {
     let s = setup("condition-delegate");
     let mut agents = scripts();
     agents.insert(
@@ -371,7 +373,7 @@ fn a_delegate_s_choice_judges_no_condition_and_only_the_owner_s_own_does() {
     let (mut e, said, item) = start(&s, agents);
     let c = condition_on(&mut e.db, item, "Run it twice before the merge.", "Run it twice.");
     let (work, ask, _) = at_the_gate_asking(&mut e, item, &said, None);
-    answers(&mut e, ask, "delegate", Some("met"), "");
+    answers(&mut e, ask, "delegate", None, "Not yet.");
     let (_, again, _) = at_the_gate_asking(&mut e, item, &said, Some(ask));
     assert_eq!(status(&e, c), "open");
     assert!(transitions(&e, item, "M2").is_empty());
@@ -384,15 +386,24 @@ fn a_delegate_s_choice_judges_no_condition_and_only_the_owner_s_own_does() {
             )
             .unwrap();
     assert!(
-        relayed.ends_with("the delegate that speaks for the owner replied: chose met"),
+        relayed.ends_with("the delegate that speaks for the owner replied: Not yet."),
         "{relayed}"
     );
     assert_eq!(declared, "delegate");
-    answers(&mut e, again, "owner", Some("met"), "");
+    answers(&mut e, again, "delegate", Some("met"), "");
     step_until(&mut e, item, &said, "the merge", |e| {
         transitions(e, item, "M2").iter().any(|t| t == "merged")
     });
     assert_eq!(status(&e, c), "met");
+    let judged_by: String =
+        e.db.conn()
+            .query_row(
+                "SELECT judged_by FROM item_merge_conditions WHERE id = ?1",
+                [c],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(judged_by, "delegate");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

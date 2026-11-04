@@ -34,7 +34,7 @@ import { postJson } from '../http';
 import { reread, useResource, useStatus } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { By, HeadingLevel, ItemRef, PrLink, RoundLink, Section, SubHeading } from '../parts';
-import { href, Link } from '../route';
+import { href, Link, workHref } from '../route';
 import { t, tn } from '../text';
 import { factsAfter, joined } from '../voices';
 import { AskView, bringIntoView, cardOfKey, currentCard, DesignCardView } from './Decide';
@@ -362,32 +362,46 @@ function conditionWords(c: MergeCondition): string {
   }
 }
 
+/// A round as a link inside a document's text, which is read as Markdown: the same link as `RoundLink`.
+function roundInText(work: number, round: number): string {
+  return `[${roundName(work, round)}](${workHref(work, { round })})`;
+}
+
 /// Who recorded a merge condition, and when.
-function conditionRecorded(c: MergeCondition): string {
+export function conditionRecorded(c: MergeCondition): string {
   const at = time(c.at);
   if (c.recorded_work !== null && c.recorded_round !== null) {
-    return t('condition_recorded_architect', { round: roundName(c.recorded_work, c.recorded_round), at });
+    return t('condition_recorded_architect', { round: roundInText(c.recorded_work, c.recorded_round), at });
   }
   return t(c.recorded_by === 'delegate' ? 'condition_recorded_delegate' : 'condition_recorded_owner', { at });
 }
 
 /// The engineer's latest report on a merge condition, or that it has not reported.
-function conditionReport(c: MergeCondition): string {
+export function conditionReport(c: MergeCondition): string {
   const r = c.report;
   if (r === null) return t('condition_no_report');
-  const of = { round: roundName(r.work, r.round), words: r.words };
+  const of = { round: roundInText(r.work, r.round), words: r.words };
   return t(r.answer === 'done' ? 'condition_report_done' : 'condition_report_not_done', of);
+}
+
+/// Where a merge condition stands, in words: judged and by whom, the delegate's judgment marked as such; or not judged
+/// yet, which says nothing of who it waits on, since the merge gate's ask of it comes only once the work gets there.
+export function conditionStatus(c: MergeCondition): string {
+  const delegate = c.judged_by === 'delegate';
+  if (c.status === 'met') return t(delegate ? 'condition_status_met_delegate' : 'condition_status_met');
+  if (c.status === 'withdrawn') {
+    return t(delegate ? 'condition_status_withdrawn_delegate' : 'condition_status_withdrawn');
+  }
+  return t('condition_status_open');
 }
 
 /// What the owner set to be done before the work merges, under the acceptance: each by its sentence, where it stands, the
 /// words it rests on and who said them, who recorded it, and what the engineer reported; nothing for an item with none.
 function MergeConditions({ d }: { d: ItemDetail }) {
   if (d.merge_conditions.length === 0) return null;
-  const mark = (c: MergeCondition) => {
-    if (c.status === 'met') return <Label variant="success">{t('condition_status_met')}</Label>;
-    if (c.status === 'withdrawn') return <Label variant="secondary">{t('condition_status_withdrawn')}</Label>;
-    return <Label variant="attention">{t('condition_status_open')}</Label>;
-  };
+  const mark = (c: MergeCondition) => (
+    <Label variant={c.status === 'met' ? 'success' : 'secondary'}>{conditionStatus(c)}</Label>
+  );
   return (
     <Block title={t('merge_conditions')}>
       <DocList

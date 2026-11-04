@@ -1721,7 +1721,8 @@ fn verdict_problems(refuted: &[String], verdict: Option<&str>) -> Problems {
 
 /// What is wrong with the kinds of the tests in a table of new tests (`new`) or of guard tests: each test the engineer
 /// added under the other kind (`kinds`, each added test's name and kind), and each adversarial test whose result before
-/// the change does not fit the table, every row once.
+/// the change does not fit the table, every row once. An adversarial guard that cannot be built before the change does
+/// not fit: it has no reason to give and no review after it, and it can be written against what exists before the change.
 fn kind_problems(rows: &[Value], kinds: &[(String, String)], new: bool) -> Problems {
     let want = if new { "new_behaviour" } else { "old_behaviour" };
     let mut problems = Problems::default();
@@ -1753,9 +1754,10 @@ fn kind_problems(rows: &[Value], kinds: &[(String, String)], new: bool) -> Probl
 }
 
 /// What is wrong with the results a table of new or guard tests gives on its own: each row that is red on the head, and
-/// each that does not fit its kind before the change (a new test that passes, a guard that does not pass), the three
-/// kinds of problem independent of each other and of the other rows. A result a row lacks is judged by nothing here:
-/// the check of the engineer's tests says it.
+/// each that does not fit its kind before the change (a new test that passes, a guard that does not pass), the problems
+/// independent of each other and of the other rows. A guard that cannot be built before the change (`cannot_run`) fits
+/// its kind when its row says why in `not_before`, which the review judges; with no reason it is said once. A result a
+/// row lacks is judged by nothing here: the check of the engineer's tests says it.
 fn result_problems(rows: &[Value], new: bool) -> Problems {
     let mut problems = Problems::default();
     for t in rows {
@@ -1769,7 +1771,13 @@ fn result_problems(rows: &[Value], new: bool) -> Problems {
                 "{name} passes before the change: it does not test new behaviour; fix it in this round"
             ));
         }
-        if !new && base.is_some_and(|b| !matches!(b, "green" | "not_run")) {
+        if !new && base == Some("cannot_run") {
+            if !t["not_before"].as_str().is_some_and(|x| !x.trim().is_empty()) {
+                problems.push(format!(
+                    "{name} cannot be built before the change: say why in not_before, and the review judges it"
+                ));
+            }
+        } else if !new && base.is_some_and(|b| !matches!(b, "green" | "not_run")) {
             problems.push(format!(
                 "{name} does not pass before the change: it does not guard old behaviour; fix it in this round"
             ));
@@ -3692,6 +3700,48 @@ mod tests {
         assert!(result_problems(&fine, true).is_empty());
         let fine = vec![json!({ "name": "d", "on_head": "green", "on_base": "not_run" })];
         assert!(result_problems(&fine, false).is_empty());
+    }
+
+    // Item #270: a guard test that cannot be built before the change is reported cannot_run by ci_before; with its
+    // reason in not_before the review judges it, as it judges one not run, and it is not sent back. With no reason it is
+    // sent back to give one, and a guard that fails before the change is still sent back with or without a reason.
+    #[test]
+    fn a_guard_test_that_cannot_be_built_before_the_change_is_judged_by_its_reason() {
+        let said_row = |base: &str, why: Option<&str>| {
+            let mut row = json!({ "name": "g", "by": "engineer", "on_head": "green", "on_base": base });
+            if let Some(why) = why {
+                row["not_before"] = json!(why);
+            }
+            said(result_problems(&[row], false))
+        };
+        assert!(said_row("cannot_run", Some("the function is extracted by this change")).is_empty());
+        let ask = ["g cannot be built before the change: say why in not_before, and the review judges it"];
+        assert_eq!(said_row("cannot_run", None), ask);
+        assert_eq!(said_row("cannot_run", Some("  ")), ask);
+        for why in [None, Some("a reason")] {
+            assert_eq!(
+                said_row("red", why),
+                ["g does not pass before the change: it does not guard old behaviour; fix it in this round"]
+            );
+        }
+        // The table of new tests is as it was: cannot_run is right there, with or without a reason.
+        let new = json!({ "name": "n", "by": "engineer", "on_head": "green", "on_base": "cannot_run" });
+        assert!(result_problems(&[new], true).is_empty());
+    }
+
+    // Item #270: the relaxation is the engineer's alone: an adversarial guard test that cannot be built before the
+    // change is still sent back, since it has no place for a reason and no review after it.
+    #[test]
+    fn an_adversarial_guard_test_that_cannot_be_built_is_still_sent_back() {
+        let rows = vec![
+            json!({ "name": "built", "by": "adversarial", "on_base": "green" }),
+            json!({ "name": "not_built", "by": "adversarial", "on_base": "cannot_run" }),
+            json!({ "name": "not_run", "by": "adversarial", "on_base": "not_run" }),
+        ];
+        assert_eq!(
+            said(kind_problems(&rows, &[], false)),
+            ["not_built: its result before the change does not fit its kind; fix it in this round and run it again"]
+        );
     }
 
     // Item #217: a result a row lacks is said once, by the check of the engineer's tests, and not also judged as a

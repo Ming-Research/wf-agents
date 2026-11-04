@@ -713,6 +713,12 @@ fn write_one(
                     tx.execute("UPDATE items SET approach = ?2 WHERE id = ?1", params![keep, carried])
                         .map_err(sql)?;
                 }
+                // So do the owner's merge conditions on it, which only a judgment takes away.
+                tx.execute(
+                    "UPDATE merge_conditions SET item = ?1 WHERE item = ?2",
+                    params![keep, a],
+                )
+                .map_err(sql)?;
                 cancel(a, &format!("merged into item {keep}: {reason}"))?;
             }
         }

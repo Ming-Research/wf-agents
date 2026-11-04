@@ -105,6 +105,7 @@ import {
   asksApproval,
   cardTalk,
   closedWhy,
+  pastTheMerge,
   CONVERSATION_WINDOW,
   CONVERSATION_WINDOW_MOST,
   conversationTitle,
@@ -1035,7 +1036,8 @@ export function Composer({ c, w, reply = null, onSent }: {
   const condition = useConditionTick(
     `conv:${c.key}`,
     text,
-    closed === null && (c.kind === 'work' || (c.kind === 'architect' && reply !== null && reply.aboutOneItem)),
+    closed === null &&
+      ((c.kind === 'work' && !pastTheMerge(w)) || (c.kind === 'architect' && reply !== null && reply.aboutOneItem)),
   );
   if (choices.length === 0) return null;
   const busy = draft.busy;

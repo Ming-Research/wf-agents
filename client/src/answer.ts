@@ -88,7 +88,7 @@ export function askAnswer(pick: string, text: string, back: boolean, images = fa
 }
 
 /// Whether an ask of an engineer's that the owner holds can be handed back to the architect with the owner's answer: not
-/// a merge condition, which only the owner judges.
+/// a merge condition, which the architect does not judge.
 export const handsBack = (a: OwnerAsk): boolean => isObj(a.body) && a.body.to === 'owner' && !judgesCondition(a);
 
 /// Whether a key pressed in a box of the owner's words sends them: Enter sends and Shift with Enter starts a new line;

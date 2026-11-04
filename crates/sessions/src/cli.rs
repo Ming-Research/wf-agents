@@ -2217,25 +2217,26 @@ mod tests {
         );
     }
 
-    // `what` belongs to the branch `revise` of the review taken in: the command line refuses it with `approved`, naming
-    // it, and takes it with `revise`.
+    // `stuck` belongs to the branch `no` of whether the research settles the approach: the command line refuses it with
+    // `yes`, naming it, and takes it with `no`.
     #[test]
-    fn a_field_of_another_branch_of_the_review_taken_in_is_refused_by_the_command_line() {
+    fn a_field_of_another_branch_of_the_research_s_answer_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let s = envelope(g, Some("designer"));
-        let schema = g.cell("D4").unwrap().schema.clone().unwrap();
-        let mut ret = samples()["D4"][0]["json"].clone();
-        assert_eq!(ret["outcome"]["verdict"]["verdict"], "approved");
+        let s = envelope(g, Some("engineer"));
+        let schema = g.cell("R1").unwrap().schema.clone().unwrap();
+        let mut ret = samples()["R1"][0]["json"].clone();
+        assert_eq!(ret["outcome"]["can_start"]["verdict"], "yes");
         assert_eq!(refused(&s, &ret, ""), None);
         assert!(flow::valid(&schema, &ret));
-        ret["outcome"]["verdict"] = json!({ "verdict": "approved", "choices": [], "what": "Change the cache" });
+        ret["outcome"]["can_start"]["stuck"] = json!("Two approaches to compare");
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome/verdict: must NOT have additional properties ('what' is not allowed)")
+            Some("/outcome/can_start: must NOT have additional properties ('stuck' is not allowed)")
         );
-        ret["outcome"]["verdict"] = json!({ "verdict": "revise", "what": "Change the cache", "whose": "The owner's" });
+        ret["outcome"]["can_start"] =
+            json!({ "verdict": "no", "why": "Unchecked", "stuck": "Two approaches to compare" });
         assert!(flow::valid(&schema, &ret));
         assert_eq!(refused(&s, &ret, ""), None);
     }

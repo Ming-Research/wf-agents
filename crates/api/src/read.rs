@@ -867,9 +867,13 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
     for a in out.iter_mut().filter(|a| a.answer.is_some()) {
         a.answer_images = db::attachments::of(conn, db::attachments::Words::Ask(a.id))?;
     }
-    // Only an ask that waits takes a tick on its answer.
+    // Only an ask that waits takes a tick on its answer, and only while the merge of its item does not stand.
     for a in out.iter_mut().filter(|a| a.answer.is_none()) {
-        a.condition_item = db::item_of_ask(conn, a.id).map_err(|e| Error::Failed(e.to_string()))?;
+        let item = db::item_of_ask(conn, a.id).map_err(|e| Error::Failed(e.to_string()))?;
+        a.condition_item = match item {
+            Some(i) if !db::merge_stands(conn, i).map_err(|e| Error::Failed(e.to_string()))? => Some(i),
+            _ => None,
+        };
     }
     Ok(out)
 }
@@ -879,7 +883,7 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
 fn merge_conditions(conn: &Connection, item: i64) -> Result<Vec<MergeCondition>> {
     let mut st = conn.prepare(
         "SELECT id, what, source, source_id, quote, said_by, recorded_by, recorded_work, recorded_round, at, status,
-           judged
+           judged, judged_by
          FROM item_merge_conditions WHERE item = ?1 ORDER BY id",
     )?;
     let mut out = st
@@ -897,6 +901,7 @@ fn merge_conditions(conn: &Connection, item: i64) -> Result<Vec<MergeCondition>>
                 at: r.get(9)?,
                 status: r.get(10)?,
                 judged: r.get(11)?,
+                judged_by: r.get(12)?,
                 report: None,
             })
         })?

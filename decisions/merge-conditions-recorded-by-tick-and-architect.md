@@ -21,9 +21,11 @@ long a question goes on waiting and goes back to the cell that asked it, where i
 **The merge gate holds what is recorded, and nothing else.** Words that set a condition, neither ticked by the owner nor
 recorded by the architect, hold nothing at the gate. So the architect's rules and the description of its change say: when
 words of the owner's you are given make something a thing to be done before a merge, record it in this round; and the
-engineer's rules say to ask the architect as above. A condition the architect records after the work has passed the gate
-does not hold that merge; the owner's words are the first thing in its queue, so the window is minutes, and a tick has none,
-since its row is written with the words. This is accepted.
+engineer's rules say to ask the architect as above. A condition recorded after the work has passed the gate, while the merge
+step waits its turn or for its full CI, holds the merge all the same: that step reads the conditions last of all, just before
+the merge call, and goes back to the gate (the merge step's row `condition_set`). Only one recorded during the merge call
+itself comes too late, the window of a tick and of the architect alike, and this is accepted. Once the item's merge stands,
+both are refused, since nothing is left to hold.
 
 ## Why
 
@@ -34,7 +36,8 @@ cell too late. Delivering what the owner did not let through is worse than stopp
 Recording and judging are kept apart because their mistakes cost differently. A condition recorded by mistake, or too
 strictly, only holds the work once more, and the owner withdraws it; so the way in is wide: whoever records it, a delegate's
 relayed words included, and the sentence written by whoever records it. A condition judged by mistake merges wrongly; so the
-way of judging is narrow (`decisions/merge-conditions-judged-by-the-owner-alone.md`).
+way of judging is narrow: a chosen option at the merge gate's ask, kept with who chose it
+(`decisions/merge-conditions-judged-by-an-option-at-the-gate.md`).
 
 Article 7: each step from words to a held merge is a row or a record the owner can follow. Article 2: the sentence and the
 record of the words are there wherever the condition is read. Article 8: the tick is one part in each box where the owner
@@ -53,6 +56,7 @@ None yet.
 
 ## How it was decided
 
-The owner's assistant kept this option at the review of the design of item #261, on the owner's behalf: "P1、P2 维持上次的选择。"
-(the earlier words: "P1 选「主人勾选，架构师记」，两条路并列写"), with the owner's requirement that the gate's limit above be written
-down. A different choice by the owner replaces this file.
+The owner's assistant kept this option at the review of the design of item #261, on the owner's behalf. In translation, from
+the review's answer in the work's round R309-19: "P1 and P2 stay as chosen last time" (the earlier words: "P1 is the owner's
+tick and the architect's record, the two ways side by side"), with the owner's requirement that the gate's limit above be
+written down. A different choice by the owner replaces this file.

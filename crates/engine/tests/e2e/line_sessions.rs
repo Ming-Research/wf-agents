@@ -432,6 +432,154 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// What the engineer is given of an interjection depends on whether it needs an answer (`informs`), in the round's
+// message and in the hook alike: a word that needs none is told as such, apart from what may need one. What the message
+// gave the hook does not give again; what comes while the round runs it does give. The round's record lists all four,
+// and each is recorded as delivered in that round.
+#[test]
+fn an_interjection_is_given_once_and_asks_for_an_answer_only_where_one_may_be_needed() {
+    let s = setup("informs");
+    let mut scripts = scripts();
+    let data = s.data.clone();
+    let research = scripts.remove("R1").unwrap();
+    // Said while the research runs: the line's next round, at I1, is given both by its message.
+    scripts.insert(
+        "R1",
+        Box::new(move |r: &Request, n: usize| {
+            let mut db = engine::database::open(&data).unwrap();
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text, informs)
+                     VALUES (?1, 'engineer', 'owner', 'Why this size?', 0)",
+                    [r.work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            db.write(Actor::Architect, |tx| {
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text, informs)
+                     VALUES (?1, 'engineer', 'architect', 'Your question became an item.', 1)",
+                    [r.work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            research(r, n)
+        }),
+    );
+    let sent: Sent = Arc::default();
+    let seen = sent.clone();
+    let hooked: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
+    let hooks = hooked.clone();
+    let data = s.data.clone();
+    scripts.insert(
+        "I1",
+        Box::new(move |r: &Request, _: usize| {
+            keep_sent(&seen, r);
+            // The hook after a tool use, first with nothing new and then with a word of each kind that came since.
+            let mut db = engine::database::open(&data).unwrap();
+            let n: i64 = db
+                .conn()
+                .query_row("SELECT max(n) FROM rounds WHERE work = ?1", [r.work], |x| x.get(0))
+                .unwrap();
+            let hook = |db: &mut db::Db| {
+                let out = sessions::interject::deliver(db, r.work, n, "engineer").unwrap();
+                hooks.lock().unwrap().push(out);
+            };
+            hook(&mut db);
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text, informs) VALUES
+                     (?1, 'engineer', 'architect', 'Nothing changes for you.', 1),
+                     (?1, 'engineer', 'owner', 'Look at the log.', 0)",
+                    [r.work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            hook(&mut db);
+            (
+                vec![("outcome", "answers")],
+                vec![(
+                    "outcome.answers",
+                    json!([{ "to": "owner", "text": "Because the log says so." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let log = said.lock().unwrap().join("\n");
+    let id = |text: &str| -> i64 {
+        e.db.conn()
+            .query_row("SELECT id FROM interjections WHERE text = ?1", [text], |r| r.get(0))
+            .unwrap()
+    };
+    let (asked, told, later_told, later_asked) = (
+        id("Why this size?"),
+        id("Your question became an item."),
+        id("Nothing changes for you."),
+        id("Look at the log."),
+    );
+    // The message tells the two kinds apart.
+    let sent = sent.lock().unwrap();
+    let (cell, prompt, _) = sent.first().unwrap_or_else(|| panic!("no round at I1:\n{log}"));
+    assert_eq!(cell, "I1");
+    assert!(
+        prompt.contains(&format!(
+            "Said to you: ij:{asked}. Answer in this round what needs an answer."
+        )),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains(&format!("Told to you, needing no answer: ij:{told}.")),
+        "{prompt}"
+    );
+    // The hook gave nothing the message had given, and each kind of what came since under its own lead.
+    let hooked = hooked.lock().unwrap();
+    assert_eq!(hooked[0], None, "{log}");
+    let second = hooked[1]
+        .as_ref()
+        .unwrap_or_else(|| panic!("the hook gave nothing:\n{log}"));
+    assert!(
+        !second.contains(&format!("ij:{asked}")) && !second.contains(&format!("ij:{told}")),
+        "{second}"
+    );
+    let at = |text: &str| second.find(text).unwrap_or_else(|| panic!("no {text} in {second}"));
+    assert!(
+        at("answer in this round's return") < at(&format!("### ij:{later_asked}"))
+            && at(&format!("### ij:{later_asked}")) < at("none of it needs an answer")
+            && at("none of it needs an answer") < at(&format!("### ij:{later_told}")),
+        "{second}"
+    );
+    // The round records all four, and each as delivered in it.
+    let rounds = agent_rounds(&e, item);
+    let (round_id, _, input) = &rounds[1];
+    let mut listed: Vec<i64> = input["engine"]["interjections"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{input}"))
+        .iter()
+        .filter_map(Value::as_i64)
+        .collect();
+    listed.sort();
+    assert_eq!(listed, [asked, told, later_told, later_asked], "{input}");
+    let delivered: Vec<Option<i64>> = [asked, told, later_told, later_asked]
+        .iter()
+        .map(|j| {
+            e.db.conn()
+                .query_row("SELECT delivered_round FROM interjections WHERE id = ?1", [j], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        })
+        .collect();
+    let (work, _, _) = state(&e, item).unwrap();
+    let round: i64 = round_id.rsplit('-').next().unwrap().parse().unwrap();
+    assert_eq!(delivered, vec![Some(round); 4], "R{work}-{round}:\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// What scripted rounds were sent, in order: each one's cell, its message's text, and each image given after the text,
 /// by its address, its media type and its bytes.
 type Sent = Arc<Mutex<Vec<(String, String, Vec<(String, String, Vec<u8>)>)>>>;

@@ -1122,9 +1122,11 @@ locked it, each condition with how the work said it was met.
 
 Under the acceptance, only on an item that has any, the merge conditions, what the owner set to be done before its work
 merges: a list of the document's shape (`DocList`), each with its sentence as its lead, where it stands as a `Label` beside
-it (waits for you attention, met success, withdrawn neutral), then the words it rests on and who said them, who recorded it
-and when, and the engineer's latest report or that it has not reported. It is read here; it is judged in the work's group,
-where the merge gate's ask of it waits.
+it (not judged yet neutral, since the merge gate's ask of it comes only once the work gets there, and what waits for the
+owner is told by that ask and the waiting bar; met success; withdrawn neutral; each judged by the delegate saying so), then
+the words it rests on and who said them, who recorded it and when, with the architect's round as a link, and the engineer's
+latest report, with its round as a link, or that it has not reported. It is read here; it is judged in the work's group,
+where the merge gate's ask of it comes.
 
 ### Fields drawn by their shape
 
@@ -2019,7 +2021,7 @@ its points say the condition's sentence, the words it rests on and who said them
 who recorded it and when, the engineer's latest report on it or that it has not reported, and the pull request; its two
 options on their boxes are met and withdrawn. The option picked is sent apart from the words, since the engine reads which
 was chosen, and needs no words with it; words with no option go to the engineer, and the gate asks again. It takes neither
-the hand-back to the architect, since only the owner judges a condition, nor the tick below.
+the hand-back to the architect, who does not judge a condition, nor the tick below.
 
 ### The tick of a merge condition
 
@@ -2027,7 +2029,8 @@ Every box where the owner's words can set something to be done before a work mer
 (ours, `ConditionLine`, a Primer `Checkbox` and `FormControl` under the box): the box at the bottom of a work's group, the
 small box that answers an engineer's ask or question in its bubble, and the box at the bottom of the one-to-one while it
 replies to a question of the architect's about one item. A question about no item or about several takes no tick, and the
-architect records the condition from the words. Ticked, "Must be met before it merges" adds one line under it, "The
+architect records the condition from the words; neither does a box once the merge of the item stands, since nothing is left
+to hold, and the engine refuses one then. Ticked, "Must be met before it merges" adds one line under it, "The
 condition", a `DraftInput` holding the box's words until the owner writes in it, because the owner's words may be only "OK",
 and a condition must read alone; a line left empty keeps the words from being sent. The words go as they would have gone;
 the line goes with them, and the engine records it with the record the words are kept in. Instead of a form of its own, or

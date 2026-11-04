@@ -74,20 +74,20 @@ CREATE INDEX merge_conditions_by_item ON merge_conditions (item);
 
 CREATE VIEW item_merge_conditions AS
   -- Each merge condition of each item with where it stands: open, or as the merge gate's ask of it was judged, met or
-  -- withdrawn, with that ask (`judged`). This is the one place that says whose answer judges a condition: an answer the
-  -- owner declared as the owner (`speaker` owner) that chose an option. A delegate's answer, or words with no option,
-  -- leave it open, and go to the engineer as words. Read by: the engine, for the merge gate's value `gates` and for what
-  -- cells `R1`, `D1`, `I1`, `T6` and `M1` are given; the owner's interface, on the item's page.
+  -- withdrawn, with that ask (`judged`) and who judged it (`judged_by`, owner or delegate). This is the one place that
+  -- says whose answer judges a condition: an answer declared as the owner's or as a delegate's that chose an option.
+  -- Words with no option leave it open, and go to the engineer as words. Read by: the engine, for the merge gate's value
+  -- `gates` and for what cells `R1`, `D1`, `I1`, `T6` and `M1` are given; the owner's interface, on the item's page.
   SELECT c.item, c.id, c.what, c.source, c.source_id, c.quote, c.said_by, c.recorded_by, c.recorded_work,
     c.recorded_round, c.at,
-    coalesce(j.choice, 'open') AS status, j.ask AS judged
+    coalesce(j.choice, 'open') AS status, j.ask AS judged, j.judged_by
   FROM merge_conditions c
   LEFT JOIN (
     SELECT json_extract(a.body, '$.condition') AS condition, max(a.id) AS ask,
-      json_extract(a.answer, '$.choice') AS choice
+      json_extract(a.answer, '$.choice') AS choice, json_extract(a.answer, '$.speaker') AS judged_by
     FROM owner_asks a
     WHERE json_extract(a.body, '$.condition') IS NOT NULL
-      AND json_extract(a.answer, '$.speaker') = 'owner'
+      AND json_extract(a.answer, '$.speaker') IN ('owner', 'delegate')
       AND json_extract(a.answer, '$.choice') IN ('met', 'withdrawn')
     GROUP BY 1
   ) j ON j.condition = c.id;

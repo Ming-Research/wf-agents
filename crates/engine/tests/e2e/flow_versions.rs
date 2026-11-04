@@ -25,7 +25,7 @@ fn at_i1_on_an_older_version(
 #[test]
 fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
     let s = setup("moves");
-    let (mut e, said, item, work) = at_i1_on_an_older_version(&s, |g| renamed(g, "D4"));
+    let (mut e, said, item, work) = at_i1_on_an_older_version(&s, |g| renamed(g, "D3"));
     let v: i64 =
         e.db.conn()
             .query_row("SELECT flow_version FROM works WHERE id = ?1", [work], |r| r.get(0))
@@ -1240,7 +1240,7 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
     let mut other = flow::Compiled::clone(&e.flow(now).unwrap());
     renamed(
         other.graphs.iter_mut().find(|g| g.name == engine::ENGINEER).unwrap(),
-        "D4",
+        "D3",
     );
     let next = trying(&s, other.clone()).flow_cost().unwrap();
     assert_eq!((next.version, next.stored), (last + 1, false));

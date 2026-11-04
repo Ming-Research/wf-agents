@@ -370,6 +370,12 @@ export function closedWhy(c: Conversation, w: WorkSummary | null): string | null
   return null;
 }
 
+/// Whether a work stands where its merge is done, writing what was learned or watching main, which take no merge condition
+/// any more; the engine refuses one then, whichever way it comes.
+export function pastTheMerge(w: WorkSummary | null): boolean {
+  return w !== null && (w.at === 'L1' || w.at === 'L2');
+}
+
 /// The name of each stage the engineer's graph has, as the owner reads it.
 const STAGES: Record<string, Key> = {
   research: 'stage_research',
