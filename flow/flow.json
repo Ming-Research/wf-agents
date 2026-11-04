@@ -4569,7 +4569,7 @@
       "new_tests": "The engineer's tests of new behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind new_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "guard_tests": "The engineer's tests of old behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind old_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for.",
-      "history_sources": "The database's read-only address and the project's checkout, for the gatherer's `sqlite3` and git.",
+      "history_sources": "The database's read-only address with the command that reads it, for the gatherer's `sqlite3`; and for its git the directory its own round runs in, a worktree of the project's repository, with the project's main as git has it there (`origin/<main>`).",
       "main_changes": "Before the first round of cells `R1`, `D1` and `I1` each time the work comes to them, the engine merges the latest main into the work's branch when its worktree is clean: the files main changed since the branch last took it, or the files in conflict when it could not merge cleanly, the merge then undone; none when main changed nothing since.",
       "decisions": "The project's decisions in force, as its main has them at the commit the round is pinned to: every file of the directory its configuration names as decisions (decisions unless set) but a README.md, each by its path with its text; none when there are none. A decision a work writes or changes on its own branch is not here until it merges; it is in the work's diff.",
       "owner_approval": "The files of the work's change against main that match a path of the project's `owner_approves`, with the pull request and, for the flow, the flow page that compares it with main; whether the owner approved the work's design at its review, or replied exactly approved to the ask of this change since its last fix; none when the change touches none.",
@@ -6458,7 +6458,7 @@
             },
             {
               "name": "Where the history is",
-              "what": "The database's read-only address and the project's checkout",
+              "what": "The database's read-only address, and the directory your git runs in, with the project's main there",
               "from": [
                 {
                   "engine": "history_sources"
@@ -8250,7 +8250,7 @@
             },
             {
               "name": "Where the history is",
-              "what": "The database's read-only address and the project's checkout",
+              "what": "The database's read-only address, and the directory your git runs in, with the project's main there",
               "from": [
                 {
                   "engine": "history_sources"
@@ -18314,7 +18314,7 @@
             },
             {
               "name": "Where the history is",
-              "what": "The database's read-only address and the project's checkout",
+              "what": "The database's read-only address, and the directory your git runs in, with the project's main there",
               "from": [
                 {
                   "engine": "history_sources"

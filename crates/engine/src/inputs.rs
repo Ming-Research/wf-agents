@@ -620,6 +620,11 @@ fn source(
             origin: Origin::Engine(n.clone()),
             value: v,
         }),
+        // Where the history is read from: it names the directory the round runs in, which is the cell's to know.
+        Src::Engine(n) if n == HISTORY_SOURCES => Some(Part {
+            origin: Origin::Engine(n.clone()),
+            value: history_sources(e, w, g, cell, item)?,
+        }),
         Src::Engine(n) => engine_input(e, w, g, item, n, main)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,
@@ -793,10 +798,6 @@ pub fn engine_input(
             return Ok(None);
         };
         return crate::reasoning::input(e, project, name);
-    }
-    if name == HISTORY_SOURCES {
-        let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
-        return Ok(Some(history_sources(e, named)));
     }
     if name == "free_slots" {
         let hosts = &e.config.config.install.machines.hosts;
@@ -1075,20 +1076,35 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
 /// The input that says where the history a gatherer reads is.
 const HISTORY_SOURCES: &str = "history_sources";
 
-/// Where the history is, for the agents that gather it: the database's address, with the command that reads it, and the
-/// project's checkout, for git. The database is live, in WAL mode, and the engine holds it open while a round runs: a
-/// plain read-only open sees what its write-ahead log holds, where an immutable open would miss it, and needs the log's
-/// files that the engine's connection keeps there.
-fn history_sources(e: &Engine, project: Option<&str>) -> Value {
+/// Where the history is, for the agents that gather it: the database's address, with the command that reads it, and
+/// where git runs, the directory the round itself runs in ([`crate::steps::round_directory`]), with the project's main
+/// as that directory's git has it. That directory is a worktree of the project's repository, which shares the
+/// checkout's objects and refs, so it holds all the history the checkout does; the checkout itself is no place for an
+/// agent to run git: the permission check lets git run in the round's own directory and refuses a `cd` out of it, and
+/// the checkout's own `main` branch is not updated. The database is live, in WAL mode, and the engine holds it open
+/// while a round runs: a plain read-only open sees what its write-ahead log holds, where an immutable open would miss
+/// it, and needs the log's files that the engine's connection keeps there.
+fn history_sources(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    item: Option<&Item>,
+) -> Result<Value, String> {
+    let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
+    let project = named.and_then(|p| e.config.config.projects.get(p)).ok_or_else(|| {
+        format!(
+            "work {}: no project in the configuration to say where its git runs",
+            w.id
+        )
+    })?;
+    let directory = crate::steps::round_directory(e, w, g, cell, item.map(|_| project))?;
     let database = config::database(&e.data);
-    let checkout = project
-        .and_then(|p| e.config.config.projects.get(p))
-        .map(|p| p.checkout.display().to_string());
-    json!({
+    Ok(json!({
         "database": database.display().to_string(),
         "read": format!("sqlite3 -safe -readonly '{}' \"<query>\"", database.display()),
-        "checkout": checkout,
-    })
+        "git": { "directory": directory.display().to_string(), "main": project.main_ref() },
+    }))
 }
 
 /// The branch of the project the flow calls main.

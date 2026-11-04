@@ -940,7 +940,7 @@ case!(
     |v| {
         let input = json!({
             "name": "Where the history is",
-            "what": "The database's read-only address and the project's checkout",
+            "what": "The database's read-only address and the directory your git runs in",
             "from": [{ "engine": "history_sources" }]
         });
         node(v, "T4")["inputs"].as_array_mut().unwrap().push(input);

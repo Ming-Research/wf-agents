@@ -816,6 +816,24 @@ fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
     call
 }
 
+/// The directory a cell's round runs in, which the command line's tools and git work in: the work's worktree; for a
+/// work on an item that has none yet, the project's checkout; for a project's architect, its graph's worktree, and for
+/// a cell of the architect's on no line an empty directory of its own ([`architect::workdir`]). What tells an agent
+/// where git runs (`history_sources`, in [`crate::inputs`]) reads it here, so that it is where the round really runs.
+pub fn round_directory(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    project: Option<&config::Project>,
+) -> Result<std::path::PathBuf, String> {
+    match (&w.worktree, project) {
+        (Some(wt), _) => Ok(wt.clone()),
+        (None, Some(p)) => Ok(p.checkout.clone()),
+        (None, None) => Ok(architect::workdir(&e.data, g, cell, architect::project_of(w)?)),
+    }
+}
+
 /// What an agent's round at a cell is sent with, but for its message, its session and its hooks: the CLI and the model
 /// of the level the cell runs at, the CLI's configuration directory, the effort, the structured-output schemas, the
 /// tools and commands its line refuses, the directories outside where it runs that it may read, and where it runs: a
@@ -837,11 +855,7 @@ pub fn cell_request(
         Some(_) => Some(e.project_of(w)?),
         None => None,
     };
-    let worktree = match (&w.worktree, &project) {
-        (Some(wt), _) => wt.clone(),
-        (None, Some(p)) => p.checkout.clone(),
-        (None, None) => architect::workdir(&e.data, g, cell, architect::project_of(w)?),
-    };
+    let worktree = round_directory(e, w, g, cell, project.as_ref())?;
     let readable = readable_dirs(e);
     let permissions = &e.config.config.install.agents.permissions;
     let (allowed, refused) = (permissions.allowed(&line, &cli), permissions.refused(&line, &cli));
