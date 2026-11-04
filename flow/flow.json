@@ -6026,6 +6026,10 @@
             "desc": "The times the merge queue found a conflict or a red check and sent the work back: to the engineer, or the third time in a row to the architect"
           },
           {
+            "name": "late_merge_conditions",
+            "desc": "The times the merge queue found a merge condition recorded after the merge gate was passed and sent the work back to the gate"
+          },
+          {
             "name": "redesigns",
             "desc": "The times the work went back to deep research once it had been there: the design did not hold, the change departed from a decision, or the way on chosen after a reply or an interjection was to change the design"
           },
@@ -10871,6 +10875,7 @@
                 ]
               ],
               "to": "M1",
+              "counts": "late_merge_conditions",
               "note": "A merge condition was recorded while the merge waited its turn or for its full CI: nothing merges, and the merge gate asks of it. The full CI on this head is read again, not run again."
             },
             {

@@ -397,11 +397,9 @@ fn a_delegate_s_choice_judges_a_condition_marked_as_the_delegate_s_and_its_words
     assert_eq!(status(&e, c), "met");
     let judged_by: String =
         e.db.conn()
-            .query_row(
-                "SELECT judged_by FROM item_merge_conditions WHERE id = ?1",
-                [c],
-                |r| r.get(0),
-            )
+            .query_row("SELECT judged_by FROM item_merge_conditions WHERE id = ?1", [c], |r| {
+                r.get(0)
+            })
             .unwrap();
     assert_eq!(judged_by, "delegate");
     let _ = std::fs::remove_dir_all(&s.root);
