@@ -131,10 +131,23 @@ exactly as on main, never read from the checkout's files) and its architect chec
 level-two headings that start with "Article"), and the tags its observations may carry, each with what it covers:
 `observation_tags = [{ name = "ui", desc = "What the owner sees on the page" }]`.
 
-Every agent hands in flow feedback, what was wrong with its round's cell, which goes to its project's architect and
-never to the owner; the architect of the project that is wf-agents itself, the one whose repository wf-agents is built
-from, takes in what of it belongs to wf-agents. A project's file turns it off with `flow_feedback = false`, and its
-agents are then not asked for it.
+The architect works from a base: a session that read the project and planned what to do next, built anew when a fact
+calls for it (no base yet, a new policy, slots free, enough matters gathered for a planning, a matter that said the plan
+changes or the base is wrong, a merge that deleted or moved files or changed the guide, a decision log and changes since
+past `[architect] carried_most` characters, or another model). The engine takes what comes next in a fixed order, by
+fact: the owner's words and replies, main's CI red, a matter a work waits on, the planning, what the plan queued, and
+what waited for the planning, which it gathers until `[architect] gathered_most` matters wait. Each matter is handled
+alone in a session forked from the base (where the agent's command line cannot fork one, a new session given whole what
+it reads), which ends with one line of the decision log; a change that can lose something (a cancel, a merge, a split, a
+rewritten or removed acceptance, a change to an item a work runs on) is made only once a second eye, forked from the
+same base on the same model, finds it sound. The engine watches main's CI for each project once a minute: when the
+full CI of main's latest commit is red, it stops the merge queue, runs the red checks again, reads the known red
+checks and the run before the merge, and only when those do not clear it gives the architect the matter of which merge
+made it red, and whether to have it fixed or to revert it.
+
+Every agent hands in flow feedback, what was wrong with its round's cell, which stays in the round's return for the
+owner and the assistant to go through later and goes to no agent. A project's file turns it off with
+`flow_feedback = false`, and its agents are then not asked for it.
 
 ## The owner's page
 
@@ -174,7 +187,7 @@ branch had it, its graphs side by side, and compares two of them, so that a chan
 The Works view is one table with a group of rows for each project: the project's name and, at the right end of the same
 row, the buttons that show or hide its works by state, then its architect, then its works. The architect's row opens its
 architect's page, read only, with a switch to another project's when there are several: what it does now, its rounds on
-its graph, the item changes its batches made, what to do next and the policy in force, each a tab of the column at its
+its graph, the item changes its matters made, what to do next and the policy in force, each a tab of the column at its
 right. Its conversation with the owner, its queue with a card for each matter, and its Start, Pause and Step are in its
 one-to-one in the Messages view. The Observations view shows each project's
 observations, what its architect recorded and no item does yet, filtered by their tags, those taken in by an item or

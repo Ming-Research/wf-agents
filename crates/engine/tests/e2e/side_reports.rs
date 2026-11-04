@@ -272,10 +272,11 @@ fn side_reports_come_to_the_architect_as_reports() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// What a round says was wrong with its cell is flow feedback: it joins its project's architect's flow feedback, one
-// matter of the kind report that holds it by graph and cell, and starts no work of an architect; none adds nothing.
+// What a round says was wrong with its cell is flow feedback: it stays in the round's return, for the owner and the
+// assistant to go through later, and comes to no architect: it is no matter of any queue and starts no work of an
+// architect.
 #[test]
-fn flow_feedback_waits_for_the_architect_by_cell_and_starts_no_work_of_it() {
+fn flow_feedback_stays_in_its_round_and_comes_to_no_architect() {
     let s = setup("flow-feedback");
     let mut agents = scripts();
     let saying = |text: &'static str| -> Script {
@@ -293,118 +294,29 @@ fn flow_feedback_waits_for_the_architect_by_cell_and_starts_no_work_of_it() {
     let log = said.lock().unwrap().join("\n");
     assert_eq!(ended_at(&e, item, "R2").len(), 1, "{log}");
     assert!(architect_works(&e).is_empty(), "{log}");
-    assert_eq!(matters(&e), [("report".to_string(), true, false)], "{log}");
-    let (detail, what, body): (String, String, String) =
-        e.db.conn()
-            .query_row(
-                "SELECT detail, what, body FROM architect_matters WHERE kind = 'report'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    assert!(matters(&e).is_empty(), "{log}");
+    let kept: Vec<(String, String)> = {
+        let mut st = e
+            .db
+            .conn()
+            .prepare(
+                "SELECT cell, output ->> '$.flow_feedback' FROM rounds
+                 WHERE cell IN ('R1', 'R2') AND output ->> '$.flow_feedback' <> 'none' ORDER BY work, n",
             )
             .unwrap();
-    assert_eq!(detail, "flow_feedback");
-    assert_eq!(what, "Flow feedback of 2 rounds, at cells R1 (engineer), R2 (engineer)");
-    let body: Value = serde_json::from_str(&body).unwrap();
-    let by_cell = &body["feedback"]["engineer"];
-    assert_eq!(by_cell.as_object().unwrap().len(), 2, "{body}");
-    assert_eq!(by_cell["R1"][0]["said"], "The problem and the why say the same.");
-    assert_eq!(by_cell["R1"][0]["item"], item);
-    assert_eq!(by_cell["R2"][0]["said"], "No outcome fits a report.");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// Flow feedback one project's architect forwards to another's is marked as flow feedback: it waits in the other's queue
-// and starts no work of an architect, as the project's own does.
-#[test]
-fn flow_feedback_forwarded_to_another_architect_starts_no_work_of_it() {
-    let s = setup("forwarded-feedback");
-    let q = s.root.join("q-checkout");
-    git(
-        &s.root,
-        &["clone", "-q", &s.origin.to_string_lossy(), &q.to_string_lossy()],
-    );
-    let p_file = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
-    let checkout = s.root.join("checkout");
-    write(
-        &s.data,
-        "projects/q.toml",
-        &p_file
-            .replace("o/p", "o/q")
-            .replace(&checkout.display().to_string(), &q.display().to_string()),
-    );
-    git(&s.data, &["add", "-A"]);
-    git(&s.data, &["commit", "-q", "-m", "a second project"]);
-    let mut agents = scripts();
-    picks_first(&s, &mut agents);
-    agents.insert(
-        "H5",
-        Box::new(|r: &Request, _: usize| {
-            if project_of(r) != "p" {
-                return (Vec::new(), Vec::new());
-            }
-            let message = json!({ "project": "q", "text": "Cell R1's problem and why say the same." });
-            (
-                vec![("outcome.take.way", "forwarded")],
-                vec![("outcome.effects", json!({ "messages": [message] }))],
-            )
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    let feedback =
-        json!({ "feedback": { "engineer": { "R1": [{ "said": "The problem and the why say the same." }] } } });
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO dispatch_holds (project, reason, since) VALUES ('q', 'architect', 1)",
-            [],
-        )?;
-        tx.execute(
-            "INSERT INTO architect_matters (project, kind, detail, what, body, at)
-             VALUES ('p', 'report', 'flow_feedback', 'Flow feedback of 1 round, at cell R1 (engineer)', ?1, 1)",
-            [feedback.to_string()],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    say(&mut e, "Look at the flow feedback too.");
-    let p_done = |e: &mut Engine| match architect_works(e).first().copied() {
-        Some(w) => architect_work_done(e, w),
-        None => false,
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
     };
-    assert!(steps_until(&mut e, 80, p_done), "{}", said.lock().unwrap().join("\n"));
-    for _ in 0..5 {
-        e.step(None).unwrap();
-    }
-    let log = said.lock().unwrap().join("\n");
-    let started: Vec<String> = {
-        let mut st =
-            e.db.conn()
-                .prepare(
-                    "SELECT project FROM works WHERE graph = 'architect' AND ended IS NOT 'over before the test'
-                     ORDER BY id",
-                )
-                .unwrap();
-        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
-    };
-    assert_eq!(started, ["p"], "{log}");
-    let (detail, from): (String, String) = e
-        .db
-        .conn()
-        .query_row(
-            "SELECT detail, body ->> 'from' FROM architect_matters WHERE kind = 'other_architect' AND project = 'q'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap();
-    assert_eq!((detail.as_str(), from.as_str()), ("flow_feedback", "p"), "{log}");
-    let waiting: i64 =
-        e.db.conn()
-            .query_row("SELECT count(*) FROM architect_queue WHERE project = 'q'", [], |r| {
-                r.get(0)
-            })
-            .unwrap();
-    assert_eq!(waiting, 1, "{log}");
+    assert_eq!(
+        kept,
+        [
+            ("R1".to_string(), "The problem and the why say the same.".to_string()),
+            ("R2".to_string(), "No outcome fits a report.".to_string())
+        ],
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

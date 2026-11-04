@@ -645,7 +645,16 @@ fn each_matter_ends_with_its_log_line_and_the_second_eye_where_a_change_can_lose
     );
     let problems = eye("problems");
     assert_eq!(problems.to, "Q2");
-    assert!(problems.actions.iter().any(|d| d.name() == "return_checked"));
+    // What it found goes back as its return is taken, before the way back is read: done at what it found, not by the
+    // row, so that only a return that found problems does it.
+    assert!(problems.actions.is_empty());
+    assert!(
+        g.cell("G2")
+            .unwrap()
+            .always
+            .iter()
+            .any(|a| a.action.as_deref() == Some("return_checked") && a.at == "check[problems].problems")
+    );
     // The second eye runs on the architect's level as the matter's session does, and never asks, searches or looks up
     // the history.
     let g2 = g.cell("G2").unwrap();

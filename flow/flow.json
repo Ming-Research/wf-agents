@@ -19175,9 +19175,6 @@
               ],
               "to": "Q2",
               "counts": "sent_to_revise",
-              "do": [
-                "return_checked"
-              ],
               "note": "The changes go back to the matter's session, at the cell that handed them in, with every problem found: it revises them there, with all it holds, and the second eye looks again at what changed."
             }
           ],
@@ -19188,6 +19185,12 @@
           ],
           "shown": [
             "check"
+          ],
+          "always": [
+            {
+              "at": "check[problems].problems",
+              "do": "return_checked"
+            }
           ]
         },
         {

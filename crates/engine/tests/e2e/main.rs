@@ -28,7 +28,6 @@ mod cancels;
 mod decisions;
 mod failures;
 mod flow_versions;
-mod groups;
 mod guard;
 mod history;
 mod holds;
@@ -351,14 +350,8 @@ impl Agents for Scripted {
             Some(f) => f(r, n),
             None => (Vec::new(), Vec::new()),
         };
-        let mut pick: BTreeMap<String, String> =
+        let pick: BTreeMap<String, String> =
             pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        // The answer to the owner's words ends the talk, so that the architect waits for no more words, unless the
-        // script says otherwise.
-        if r.cell == "H8" {
-            pick.entry("outcome.answer.talk".into())
-                .or_insert_with(|| "over".into());
-        }
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         // The understanding and the plan rewrite their sections of the notebook, unless the script says otherwise.
         let sections: &[&str] = match r.cell.as_str() {
@@ -373,7 +366,12 @@ impl Agents for Scripted {
                 .collect();
             set.entry("outcome.notebook".into()).or_insert(json!(edits));
         }
-        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+        // A fork of a session goes on as the new session it was named, as the CLI's fork does.
+        let session = match &r.resume {
+            Some(_) if r.fork => r.new_session.clone(),
+            Some(s) => s.clone(),
+            None => r.new_session.clone(),
+        };
         let stream = set
             .remove("@stream")
             .and_then(|s| s.as_array().cloned())
@@ -2207,90 +2205,6 @@ fn side_report(e: &mut Engine, text: &str) -> (i64, i64) {
         Ok((work, db::queue_matter(tx, &m)?))
     })
     .unwrap()
-}
-
-/// The scripts of an architect's work over three side reports (`ids` are their matters, once they are queued): `Q1`
-/// picks the first with the other two, `H4` finds what each is in its one round, and `H5` is `take_in`, the architect's
-/// first rounds only: later rounds, on matters alone, hand in what the engine fills in.
-fn grouping(ids: &Arc<Mutex<Vec<i64>>>, take_in: Script) -> BTreeMap<&'static str, Script> {
-    let mut agents = scripts();
-    let given = ids.clone();
-    agents.insert(
-        "Q1",
-        Box::new(move |_: &Request, n: usize| {
-            let ids = given.lock().unwrap();
-            if n > 1 {
-                return (Vec::new(), vec![("outcome.pick.matter", json!(ids[1]))]);
-            }
-            (
-                Vec::new(),
-                vec![
-                    ("outcome.pick.matter", json!(ids[0])),
-                    ("outcome.pick.with", json!(&ids[1..])),
-                ],
-            )
-        }),
-    );
-    let given = ids.clone();
-    agents.insert(
-        "H4",
-        Box::new(move |_: &Request, n: usize| {
-            let ids = given.lock().unwrap();
-            if n > 1 {
-                return (Vec::new(), Vec::new());
-            }
-            let others: Vec<Value> = ids[1..]
-                .iter()
-                .map(|m| json!({ "matter": m, "what": format!("What {m} is."), "grounds": "Read it.", "sure": "checked" }))
-                .collect();
-            (
-                Vec::new(),
-                vec![
-                    ("outcome.finding.what", json!(format!("What {} is.", ids[0]))),
-                    ("outcome.with", json!(others)),
-                ],
-            )
-        }),
-    );
-    agents.insert("H5", take_in);
-    agents
-}
-
-/// What [`reported`] gives: the engine, what it said, and the work and the matter of each side report.
-type Reported = (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>);
-
-/// Project p's architect over three side reports of three works, held so that nothing runs them, with an observation
-/// to merge into: the engine, what it said and the works of the reports with their matters. The scripts are those of
-/// [`grouping`] with `take_in` and the changes `on` makes to them; the numbers of the matters are put in `ids` for them.
-fn reported(
-    s: &Setup,
-    ids: &Arc<Mutex<Vec<i64>>>,
-    take_in: Script,
-    on: impl FnOnce(&mut BTreeMap<&'static str, Script>),
-) -> Reported {
-    let mut agents = grouping(ids, take_in);
-    on(&mut agents);
-    let (mut e, said) = engine(s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    e.db.write(Actor::Architect, |tx| {
-        tx.execute(
-            "INSERT INTO observations (project, what, source) VALUES ('p', 'Parsing large files is slow.', 'A report.')",
-            [],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    let reports: Vec<(i64, i64)> = [
-        "The parser is slow on large files.",
-        "The lexer is slow on large files.",
-        "The parser lacks a link to its documentation.",
-    ]
-    .iter()
-    .map(|text| side_report(&mut e, text))
-    .collect();
-    *ids.lock().unwrap() = reports.iter().map(|r| r.1).collect();
-    (e, said, reports)
 }
 
 /// A design that is not sure of one thing: it hands in an open question, with the options and the one it recommends.
