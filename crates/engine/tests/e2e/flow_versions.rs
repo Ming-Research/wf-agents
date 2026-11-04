@@ -854,7 +854,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
     let now = e.flow_now;
     let why = engine::stopped_why(
         now,
-        "cell Z1 is gone, and the version has none of the cells the work walked",
+        "cell Z0, which the work handed a return in at, is gone, and the version has none of the cells the work walked",
     );
     let cost = trying(&s, flow::Compiled::clone(&e.flow(now).unwrap()))
         .flow_cost()
