@@ -1792,12 +1792,19 @@ impl Config {
         }
     }
 
-    /// The level a line's agents run at for an item of the given level: the advisor and the deep research (the
-    /// designer) one level above the item's, the reader of a work's history at its own level whatever the item's, every
-    /// other line at the item's.
+    /// The level a line's agents run at for an item of the given level: the advisor one level above the item's, the
+    /// deep research (the designer) too but never above the highest level for items, the reader of a work's history at
+    /// its own level whatever the item's, every other line at the item's.
     pub fn level_of_line(&self, item_level: &str, line: &str) -> String {
-        if line == "advisor" || line == "designer" {
+        if line == "advisor" {
             self.level_above(item_level)
+        } else if line == "designer" {
+            let above = self.level_above(item_level);
+            if self.item_level(&above).is_ok() {
+                above
+            } else {
+                item_level.to_string()
+            }
         } else if line == "librarian" {
             self.librarian_level()
         } else {
@@ -2654,9 +2661,10 @@ asks = 9
     }
 
     // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level
-    // above. The advisor runs one level above the item's, every other line at the item's.
+    // above. The advisor and the designer run one level above the item's, the designer never above the highest level
+    // for items, every other line at the item's.
     #[test]
-    fn the_advisor_runs_one_level_up() {
+    fn the_advisor_and_the_designer_run_one_level_up() {
         let mut c = read(&files(&[])).unwrap();
         let senior = c.install.agents.levels["senior"].clone();
         c.install.agents.levels = ["1", "2", "10"]
@@ -2670,6 +2678,8 @@ asks = 9
         assert_eq!(c.level_of_line("1", "advisor"), "2");
         assert_eq!(c.level_of_line("1", "engineer"), "1");
         assert_eq!(c.level_of_line("10", "advisor"), "10");
+        assert_eq!(c.level_of_line("1", "designer"), "2");
+        assert_eq!(c.level_of_line("10", "designer"), "10");
         // The architect runs at the top level unless the installation names another, and the search of observations
         // at the lowest.
         assert_eq!(c.architect_level(), "10");
@@ -2693,6 +2703,8 @@ asks = 9
             Err("level 10 is above 2, the highest an item may be at (items.highest_level)".into())
         );
         assert_eq!(c.level_of_line("2", "advisor"), "10");
+        assert_eq!(c.level_of_line("1", "designer"), "2");
+        assert_eq!(c.level_of_line("2", "designer"), "2");
         // The levels an item may be at are those up to the highest, lowest first.
         let names: Vec<&String> = c.item_levels().into_iter().map(|l| l.0).collect();
         assert_eq!(names, ["1", "2"]);

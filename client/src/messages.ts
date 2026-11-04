@@ -13,7 +13,7 @@ const messages = {
   settings_bad_language: 'The language is a name on one line, such as English.',
   settings_tiers: 'Tiers',
   settings_advisor_note:
-    "Each tier is a model; an item's agents run at its tier, and its advisor one tier above (an item at tier 3 has its advisor at tier 4). Each cell's reasoning effort is the flow's.",
+    "Each tier is a model; an item's agents run at its tier, and its advisor one tier above (an item at tier 3 has its advisor at tier 4), its design too but never above the highest tier an item may be at. Each cell's reasoning effort is the flow's.",
   settings_col_tier: 'Tier',
   settings_col_model: 'Model',
   settings_model_of: "Tier {tier}'s model",
