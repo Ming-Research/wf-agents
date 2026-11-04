@@ -16,8 +16,8 @@ use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
 use crate::{
-    Branch, CellInput, CellInputOf, CellView, Field, FieldKind, FlowView, GraphLines, GraphView, LineView, ReturnForm,
-    Returns, RowRef, Use,
+    Branch, CellInput, CellInputOf, CellView, Field, FieldEarlier, FieldKind, FlowView, GraphLines, GraphView,
+    LineView, ReturnForm, Returns, RowRef, Use,
 };
 
 /// The targets the engine keeps track of, as rows and inputs name them.
@@ -618,44 +618,60 @@ fn attach(fields: &mut [Field], segs: &[Seg<'_>], u: &Use) -> bool {
 }
 
 /// A cell's return as a tree of fields, from its schema: for an agent's cell, each form it may hand in, then the
-/// fields every return holds beside the form.
+/// fields every return holds beside the form; each field with what a return handed in on an earlier flow version may
+/// hold there instead, from the schema such a return is held to (`carried`).
 pub(crate) fn returns(g: &CompiledGraph, c: &CompiledCell) -> Returns {
     let mut out = Returns::empty();
     let Some(schema) = c.schema.as_ref() else {
         return out;
     };
+    let carried = c.carried.as_ref();
     if c.kind != AGENT {
-        out.every = fields(schema, "");
+        out.every = fields(schema, carried, "");
         return out;
     }
     out.within = Some(g.within.clone());
-    let alternatives = schema["properties"][&g.within]["anyOf"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    for (f, alt) in c.forms.iter().zip(&alternatives) {
+    let forms = |s: &Value| {
+        s["properties"][&g.within]["anyOf"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    };
+    let alternatives = forms(schema);
+    let carried_forms = carried.map(forms).unwrap_or_default();
+    for (i, (f, alt)) in c.forms.iter().zip(&alternatives).enumerate() {
         out.forms.push(ReturnForm {
             field: f.field.clone(),
-            fields: fields(alt, ""),
+            fields: fields(alt, carried_forms.get(i), ""),
             used_by: Vec::new(),
         });
     }
-    let mut beside = schema.clone();
-    if let Some(p) = beside.get_mut("properties").and_then(Value::as_object_mut) {
-        p.remove(&g.within);
-    }
-    out.every = fields(&beside, "");
+    let beside = |s: &Value| {
+        let mut s = s.clone();
+        if let Some(p) = s.get_mut("properties").and_then(Value::as_object_mut) {
+            p.remove(&g.within);
+        }
+        s
+    };
+    out.every = fields(&beside(schema), carried.map(beside).as_ref(), "");
     out
 }
 
-/// The fields of an object's schema, under `prefix`.
-fn fields(schema: &Value, prefix: &str) -> Vec<Field> {
-    let required: BTreeSet<&str> = schema["required"]
+/// The names of the fields an object's schema requires.
+fn required(schema: &Value) -> BTreeSet<&str> {
+    schema["required"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .collect();
+        .collect()
+}
+
+/// The fields of an object's schema, under `prefix`, each with what it was earlier by the same object as a return
+/// carried from an earlier version is held to (`carried`), when there is such a schema.
+fn fields(schema: &Value, carried: Option<&Value>, prefix: &str) -> Vec<Field> {
+    let now = required(schema);
+    let then = carried.map(required);
     let empty = Map::new();
     let props = schema["properties"].as_object().unwrap_or(&empty);
     props
@@ -666,7 +682,25 @@ fn fields(schema: &Value, prefix: &str) -> Vec<Field> {
             } else {
                 format!("{prefix}.{name}")
             };
-            field(name, s, path, !required.contains(name.as_str()))
+            let c = carried.and_then(|c| c["properties"].get(name));
+            // A field the schema of a carried return gives as either what it is now, as a carried return holds it, or
+            // what it was earlier; the compiler writes no field's own schema as alternatives of that kind.
+            let (was, inner) = match c.and_then(|c| c["anyOf"].as_array()) {
+                Some(alts) if alts.len() == 2 && s.get("anyOf").is_none() => (Some(&alts[1]), Some(&alts[0])),
+                _ => (None, c),
+            };
+            let absent = now.contains(name.as_str()) && then.as_ref().is_some_and(|t| !t.contains(name.as_str()));
+            let earlier = match was {
+                Some(w) => Some(FieldEarlier::Kind {
+                    kind: kind(w),
+                    item: (kind(w) == FieldKind::List).then(|| kind(&w["items"])),
+                    absent,
+                }),
+                None => absent.then_some(FieldEarlier::Absent),
+            };
+            let mut f = field(name, s, inner, path, !now.contains(name.as_str()));
+            f.earlier = earlier;
+            f
         })
         .collect()
 }
@@ -698,7 +732,7 @@ fn text(s: &Value, key: &str) -> Option<String> {
     s.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
-fn field(name: &str, s: &Value, path: String, optional: bool) -> Field {
+fn field(name: &str, s: &Value, carried: Option<&Value>, path: String, optional: bool) -> Field {
     let k = kind(s);
     let mut f = Field {
         name: name.to_string(),
@@ -707,6 +741,7 @@ fn field(name: &str, s: &Value, path: String, optional: bool) -> Field {
         item: None,
         desc: text(s, "description"),
         optional,
+        earlier: None,
         min: None,
         values: Vec::new(),
         used_by: Vec::new(),
@@ -716,20 +751,20 @@ fn field(name: &str, s: &Value, path: String, optional: bool) -> Field {
         common: Vec::new(),
         branches: Vec::new(),
     };
-    let shape = if k == FieldKind::List {
+    let (shape, carried) = if k == FieldKind::List {
         f.min = s["minItems"].as_u64();
         let items = &s["items"];
         f.item = Some(kind(items));
         if f.desc.is_none() {
             f.desc = text(items, "description");
         }
-        items
+        (items, carried.map(|c| &c["items"]))
     } else {
-        s
+        (s, carried)
     };
     match kind(shape) {
-        FieldKind::Object => f.fields = fields(shape, &path),
-        FieldKind::Union => union(&mut f, shape, &path),
+        FieldKind::Object => f.fields = fields(shape, carried, &path),
+        FieldKind::Union => union(&mut f, shape, carried, &path),
         FieldKind::Enum => {
             let values: Vec<String> = match shape.get("const") {
                 Some(Value::String(v)) => vec![v.clone()],
@@ -756,8 +791,10 @@ fn field(name: &str, s: &Value, path: String, optional: bool) -> Field {
 
 /// One of several object shapes: the field every shape names with a fixed value tells them apart; the fields every
 /// shape has alike are given once.
-fn union(f: &mut Field, s: &Value, path: &str) {
+fn union(f: &mut Field, s: &Value, carried: Option<&Value>, path: &str) {
     let alts: Vec<&Value> = s["oneOf"].as_array().into_iter().flatten().collect();
+    // Each shape as a return carried from an earlier version is held to, by its place.
+    let carried_alt = |i: usize| carried.and_then(|c| c["oneOf"].get(i));
     let consts = |a: &Value| -> BTreeSet<String> {
         a["properties"]
             .as_object()
@@ -784,7 +821,7 @@ fn union(f: &mut Field, s: &Value, path: &str) {
                 path: bp.clone(),
                 desc: text(a, "description"),
                 used_by: Vec::new(),
-                fields: fields(a, &bp),
+                fields: fields(a, carried_alt(i), &bp),
             });
         }
         return;
@@ -799,28 +836,31 @@ fn union(f: &mut Field, s: &Value, path: &str) {
         .filter(|(k, v)| **k != disc && alts.iter().all(|a| props(a).get(*k) == Some(*v)))
         .map(|(k, _)| k.clone())
         .collect();
-    if let Some(a) = alts.first() {
-        let mut shared = (*a).clone();
-        if let Some(p) = shared.get_mut("properties").and_then(Value::as_object_mut) {
-            p.retain(|k, _| common.contains(k));
+    let only = |a: &Value, keep: &dyn Fn(&str) -> bool| {
+        let mut a = a.clone();
+        if let Some(p) = a.get_mut("properties").and_then(Value::as_object_mut) {
+            p.retain(|k, _| keep(k));
         }
-        f.common = fields(&shared, path);
+        a
+    };
+    let shared = |k: &str| common.iter().any(|c| c == k);
+    if let Some(a) = alts.first() {
+        let carried = carried_alt(0).map(|c| only(c, &shared));
+        f.common = fields(&only(a, &shared), carried.as_ref(), path);
     }
-    for a in &alts {
+    for (i, a) in alts.iter().enumerate() {
         let value = a["properties"][&disc]["const"]
             .as_str()
             .map_or_else(|| a["properties"][&disc]["const"].to_string(), str::to_string);
         let bp = format!("{path}[{value}]");
-        let mut own = (*a).clone();
-        if let Some(p) = own.get_mut("properties").and_then(Value::as_object_mut) {
-            p.retain(|k, _| *k != disc && !common.contains(k));
-        }
+        let mine = |k: &str| k != disc && !shared(k);
+        let carried = carried_alt(i).map(|c| only(c, &mine));
         f.branches.push(Branch {
             value,
             path: bp.clone(),
             desc: text(&a["properties"][&disc], "description"),
             used_by: Vec::new(),
-            fields: fields(&own, &bp),
+            fields: fields(&only(a, &mine), carried.as_ref(), &bp),
         });
     }
     f.disc = Some(disc);

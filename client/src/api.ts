@@ -2437,6 +2437,12 @@ used_by: Array<Use>, };
 export type FieldKind = "text" | "integer" | "number" | "boolean" | "enum" | "object" | "list" | "union" | "any";
 
 /**
+ * What a return handed in on an earlier flow version may hold at a field instead, which a work carrying such a return
+ * still moves with to the version that says so.
+ */
+export type FieldEarlier = { "was": "absent" } | { "was": "kind", kind: FieldKind, item: FieldKind | null, absent: boolean, };
+
+/**
  * A field of a return, with whatever reads it.
  */
 export type Field = { name: string,
@@ -2448,6 +2454,10 @@ path: string, kind: FieldKind,
  * For a list, the kind of its items.
  */
 item: FieldKind | null, desc: string | null, optional: boolean,
+/**
+ * What a return handed in on an earlier flow version may hold here instead; none when only what it is now.
+ */
+earlier: FieldEarlier | null,
 /**
  * For a list, the fewest items it holds.
  */
@@ -2915,7 +2925,14 @@ rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null, for
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */
-schema?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>,
+schema?: JsonValue | null,
+/**
+ * What a return a work carries from an earlier flow version must be for the work to move to this one without
+ * doing the cell again: the schema, with what each field names as it was earlier (`earlier`) taken too; none when
+ * no field names it, and the schema is that, and in a flow version stored before fields named it. No agent is
+ * given it.
+ */
+carried?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>,
 /**
  * What an engine's cell does besides its step and its rows, in order: at an end, how the work ends.
  */

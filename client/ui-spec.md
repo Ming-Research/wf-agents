@@ -2677,8 +2677,9 @@ beside the other.
 The flow page compares two flows: two stored versions, a stored version and the flow as `flow/flow.json` is at a git ref
 of a project's checkout, which the interface reads with git and compiles with the flow's compiler without writing
 anything, or a stored version and the flow a decision card carries, read from the database; the chart of the newer is
-drawn with the cells added and changed marked, and a panel lists what changed in each cell, because a proposed change to
-the flow is reviewed against the flow it changes, on the page the flow is read on.
+drawn with the cells added and changed marked, and a panel lists what changed in each cell, a return field's change
+saying of each side what earlier returns may hold there as the pattern does, because a proposed change to the flow is
+reviewed against the flow it changes, on the page the flow is read on.
 
 ### The policy's stage on the architect's chart
 
@@ -2957,8 +2958,11 @@ same look, in the sheet of what is sent to an agent, since the agent is sent it 
 page): what each round fills in as its placeholder (a kind, such as "text"), a field of fixed values its values joined
 by " | ", each saying on hovering what it means, the forms an agent's cell may hand in one under another after "one of"
 in the field that holds one, as the shapes a field may take are, a field that may be left out followed by "optional", a
-key saying on hovering what the agent is told it is and what reads it; open at first to the fields of each form and one
-level inside them, and the checks the engine makes on a return listed under it.
+field that a return handed in on an earlier flow version may lack or hold otherwise followed by what it may ("earlier
+returns may lack it", "earlier returns may hold text"), since a work carrying such a return moves to the version all the
+same and the owner rules on that with the flow, a key saying on hovering what the agent is told it is and what reads it;
+open at first to the fields of each form and one level inside them, and the checks the engine makes on a return listed
+under it.
 
 Instead of each field of the return under its title, its value in a box of its own, with the JSON folded at the bottom,
 and a cell's fields as a tree of titles opening to what the agent is told, because the owner found the field-by-field

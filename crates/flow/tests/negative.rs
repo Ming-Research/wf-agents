@@ -35,6 +35,16 @@ fn row<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
     rows(v, id).iter_mut().find(|r| r["name"] == name).unwrap()
 }
 
+/// The field `name` of what cell `id` hands in.
+fn out_field<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
+    node(v, id)["out"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["name"] == name)
+        .unwrap()
+}
+
 fn obj(v: &mut Value) -> &mut serde_json::Map<String, Value> {
     v.as_object_mut().unwrap()
 }
@@ -92,6 +102,63 @@ case!(an_input_said_to_be_in_the_session, "fits none of the forms", |v| {
 case!(an_unknown_key, "unknown field", |v| {
     node(v, "D1")["colour"] = json!("red");
 });
+// What a field was in a return handed in on an earlier version is a shape, which names none earlier in turn and whose
+// faults name the field, or `absent` for a field a return handed in now may not leave out and that is no list's item.
+// It is a field of a cell's own answer, which a work moving to the version compares, never one every agent's return
+// has; and no row's condition reads it, since a row takes a return as it is handed in now.
+case!(
+    an_earlier_field_named_by_no_known_word,
+    "no such earlier shape: gone, in field options",
+    |v| {
+        out_field(v, "D1", "options")["earlier"] = json!("gone");
+    }
+);
+case!(
+    an_earlier_absence_of_a_field_a_return_may_leave_out,
+    "a field a return may leave out names no earlier absence: options",
+    |v| {
+        let f = out_field(v, "D1", "options");
+        f["optional"] = json!(true);
+        f["earlier"] = json!("absent");
+    }
+);
+case!(
+    an_earlier_absence_of_a_list_s_item,
+    "a list's item names no earlier absence, as an item is never absent: options",
+    |v| {
+        out_field(v, "D1", "options")["item"]["earlier"] = json!("absent");
+    }
+);
+case!(
+    a_fault_of_an_earlier_shape,
+    "a list with no item: , in what field options was earlier",
+    |v| {
+        out_field(v, "D1", "options")["earlier"] = json!({ "type": "list" });
+    }
+);
+case!(
+    an_earlier_shape_that_names_one_earlier_still,
+    "a field names what it was earlier only once, in what field options was earlier",
+    |v| {
+        out_field(v, "D1", "options")["earlier"] = json!({ "type": "text", "earlier": "absent" });
+    }
+);
+case!(
+    an_earlier_shape_of_a_field_every_agent_return_has,
+    "a field every agent's return has names what it was earlier: tell_owner",
+    |v| {
+        let out = graph(v)["agentCommon"]["out"].as_array_mut().unwrap();
+        let told = out.iter_mut().find(|f| f["name"] == "tell_owner").unwrap();
+        told["earlier"] = json!("absent");
+    }
+);
+case!(
+    an_earlier_shape_a_row_s_condition_reads,
+    "a row's condition reads a field that names what it was earlier: D3 found better.verdict (better)",
+    |v| {
+        out_field(v, "D3", "better")["earlier"] = json!("absent");
+    }
+);
 case!(a_line_with_no_colour, "a line with no colour: engineer", |v| {
     obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
 });

@@ -157,6 +157,7 @@ pub fn typescript() -> String {
         decl::<Returns>(&cfg),
         decl::<ReturnForm>(&cfg),
         decl::<FieldKind>(&cfg),
+        decl::<FieldEarlier>(&cfg),
         decl::<Field>(&cfg),
         decl::<Branch>(&cfg),
         decl::<Use>(&cfg),

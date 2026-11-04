@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
+use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, earlier_on, head, is_path, resolve};
 use crate::format::{
     Always, Atom, Branches, Check, Choice, Do, Empty, FRESH_SESSION, Flow, Form, Input, Kind, NOTHING_TO_ANSWER, Node,
     NodeKind, OPEN_SESSION, PromptBy, RawBranch, RawField, RawRow, ReadBy, Role, Rule, Source, Src,
@@ -378,6 +378,16 @@ impl<'s> Graph<'s> {
 
         // The forms one return may hold.
         let common_out: Vec<RawField> = common.out.iter().map(|f| shapes.merged(f)).collect::<Result<_, _>>()?;
+        // A return in a form every return shares, or what every return holds beside its form, is never compared when
+        // a work moves to another version but as the last return of the cell that asked: none of it names what it
+        // was earlier.
+        for f in &common_out {
+            ensure!(
+                !names_earlier(&shapes, f)?,
+                "a field every agent's return has names what it was earlier: {}",
+                f.name.as_deref().unwrap_or_default()
+            );
+        }
         let common_names: Vec<String> = common_out.iter().map(|f| f.name.clone().unwrap_or_default()).collect();
         ensure!(
             ret.forms.iter().filter(|f| f.own).count() == 1,
@@ -1417,6 +1427,18 @@ impl<'s> Graph<'s> {
             let mut sw = c.out.clone();
             sw.extend(pseudo);
             let paths = c.paths_named(false);
+            // A row takes a return as it is handed in now: a field that names what it was earlier, which a return a
+            // work carries from then may hold otherwise, is read by no row's condition.
+            for r in &c.rows {
+                let mut read = Vec::new();
+                atom_paths(&r.atoms, false, &mut read);
+                if let Some((p, f)) = read.iter().find_map(|p| earlier_on(&sw, p).map(|f| (p, f))) {
+                    return Err(format!(
+                        "a row's condition reads a field that names what it was earlier: {} {} {p} ({f})",
+                        c.id, r.name
+                    ));
+                }
+            }
             let c = &mut self.cells[ci];
             c.sw = sw;
             c.reads_all = reads_all;
@@ -1571,6 +1593,31 @@ fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result
 /// The step of the cell that waits for the owner's Start after a pause, which is the owner's control over running and
 /// no stop on a blocker.
 const WAIT_FOR_START: &str = "wait_for_start";
+
+/// Whether a field, or one it holds at any depth, names what it was earlier.
+fn names_earlier(shapes: &Shapes, x: &RawField) -> Result<bool, String> {
+    let x = shapes.merged(x)?;
+    if x.earlier.is_some() {
+        return Ok(true);
+    }
+    let branches = match &x.branches {
+        Some(crate::format::Branches::List(bs)) => bs.iter().flat_map(|b| &b.fields).collect(),
+        _ => Vec::new(),
+    };
+    for y in x
+        .fields
+        .iter()
+        .flatten()
+        .chain(x.common.iter().flatten())
+        .chain(x.item.as_deref())
+        .chain(branches)
+    {
+        if names_earlier(shapes, y)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 
 /// Whether a field holds, at any depth, a union whose branches are `what`.
 fn asks_for(shapes: &Shapes, x: &RawField, what: &str) -> Result<bool, String> {

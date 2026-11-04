@@ -8417,49 +8417,6 @@ fn a_new_session_goes_on_from_the_notebook_while_the_understanding_holds() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect's session past the architect's limit ends at the look at the queue before a matter taken afresh, whose
-// round records it: the matter is taken in a new session, which goes on from the notebook while the understanding holds.
-#[test]
-fn a_long_session_of_the_architect_s_ends_before_a_matter_taken_afresh() {
-    let s = setup("architect-limit");
-    agents_setting(&s, "architect_context_limit = 1000");
-    git(&s.data, &["commit", "-q", "-am", "a small limit for the architect"]);
-    let mut agents = scripts();
-    agents.insert(
-        "U1",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 200_000))])),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    say(&mut e, "One.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let log = said.lock().unwrap().join("\n");
-    let path = path_of(&e, arch);
-    assert_eq!(path.iter().filter(|c| *c == "U1").count(), 1, "{path:?}\n{log}");
-    let lines = line_sessions(&e, arch, "architect");
-    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
-    assert_eq!((lines[0].1, lines[0].2.as_str()), (true, "U1"), "{lines:?}");
-    assert!(lines[1].2.starts_with("H8"), "{lines:?}");
-    let ended: Value =
-        e.db.conn()
-            .query_row(
-                "SELECT json_extract(input, '$.session_ended') FROM rounds WHERE work = ?1 AND cell = 'Q0'
-                 AND json_extract(input, '$.session_ended') IS NOT NULL",
-                [arch],
-                |r| r.get::<_, String>(0),
-            )
-            .map(|t| serde_json::from_str(&t).unwrap())
-            .expect(&log);
-    assert_eq!(ended, json!({ "context": 200_503, "limit": 1000 }), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // An engineer's question to its project's architect is a matter of its queue, which starts a work of the architect; the
 // engineer's work waits at its question, holding no slot. The architect finds the crux, the question going back to the
 // queue between, weighs the ways and replies, and the reply takes the work on from there unchanged.
@@ -13334,6 +13291,72 @@ fn a_design_true_to_its_item_s_decisions_goes_on_past_the_wait_for_a_ruling() {
             { "decision": "L2", "line": "Decision (2026-11-02, owner): Blue buttons.", "by": "owner" },
         ])
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The design's cells as a flow version before item #247 had them: the design's articles in a text, with no answers to
+/// the item's decisions, and its review with no claims tried.
+fn design_before_247(g: &mut flow::CompiledGraph) {
+    for (id, own, added) in [("D2", "design", "item_decisions"), ("D3", "better", "claims")] {
+        let c = g.cells.iter_mut().find(|c| c.id == id).unwrap();
+        c.carried = None;
+        let forms = c.schema.as_mut().unwrap()["properties"]["outcome"]["anyOf"]
+            .as_array_mut()
+            .unwrap();
+        let form = forms.iter_mut().find(|f| f["properties"].get(own).is_some()).unwrap();
+        form["properties"].as_object_mut().unwrap().remove(added);
+        form["required"].as_array_mut().unwrap().retain(|r| r != added);
+        if id == "D2" {
+            form["properties"]["articles"] = json!({ "type": "string" });
+        }
+    }
+}
+
+// Item #247 had the design answer the constitution's articles in rows and each decision of its item, which its review
+// and the wait for a ruling read. A work under way when it came carries a design handed in before: it moves to the
+// version the engine runs where it stands, at the review, and does not come to cell V1 to design again; the review
+// tries the item's decision against the design as it is, and the wait finds no departure in it and lets the work go on
+// to implement. This holds the flow's own marks of D2 and D3 (`earlier`), and is removed with them.
+#[test]
+fn a_work_carrying_a_design_from_before_its_rows_moves_and_goes_on_to_implement() {
+    let s = setup("design-before-rows");
+    let mut agents = scripts();
+    let row = json!({ "decision": "L1", "verdict": "follows", "passage": ON_THE_MAIN_PATH });
+    agents.insert("D2", designs_answering(json!([row])));
+    agents.insert("D3", tries_the_answers(&["L1"]));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(
+        &mut e,
+        item,
+        "Decisions:\n- Decision (2026-11-01, owner): Keep it on the main path.",
+    );
+    step_to(&mut e, item, "D3");
+    let (work, _, _) = state(&e, item).unwrap();
+    let v = older(&mut e, &[work], design_before_247);
+    // The design as one handed in before: its articles in a text, and no decisions given or answered.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET output = json_set(json_remove(output, '$.outcome.item_decisions'),
+                                                 '$.outcome.articles', 'It keeps every article it touches.'),
+                               input = json_remove(input, '$.engine.decisions')
+             WHERE work = ?1 AND cell = 'D2' AND transition IS NOT NULL",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    step_to(&mut e, item, "I1");
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+    assert!(brought(&e, work).is_empty(), "{log}");
+    assert_eq!(transitions(&e, item, "D2"), ["first"], "{log}");
+    assert_eq!(
+        ended_at(&e, item, "D3"),
+        [(Some("present_best".to_string()), None)],
+        "{log}"
+    );
+    assert_eq!(ended_at(&e, item, "D12"), [(Some("clear".to_string()), None)], "{log}");
+    assert!(blockers_of(&e, work).is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

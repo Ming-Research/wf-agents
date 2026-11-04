@@ -1054,50 +1054,8 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<St
 /// either; a flow version before waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
 /// of two cells come from all the work can take ([`queued`]), never held back by the hold to set the project straight,
 /// which holds back only the matters from the head of the queue on ([`pickable`]).
-pub fn look_at_queue(
-    e: &mut Engine,
-    w: &Work,
-    g: &CompiledGraph,
-    cell: &CompiledCell,
-    round: RoundId,
-) -> Result<Value, String> {
-    let out = look(e.db.conn(), project_of(w)?, w.id, cell, reply_wait(e), db::now())?;
-    end_long_session(e, w, g, &out, round)?;
-    Ok(out)
-}
-
-/// The verdicts of the look at the queue that take a matter afresh: its first cell, or the pick before it.
-const AFRESH: [&str; 4] = ["owner_words", "head", "one", "many"];
-
-/// Before a matter taken afresh, ends the session the architect would take it in when its context is past the
-/// architect's limit (`agents.architect_context_limit`), so that the matter is taken in a new session, which goes on
-/// from the notebook: every round of a session reads the whole session again. A matter of two cells going on at its
-/// second, or back with the owner's reply, keeps its session. The round of the look records the context and the limit
-/// when it ended one (`session_ended`).
-fn end_long_session(e: &mut Engine, w: &Work, g: &CompiledGraph, out: &Value, round: RoundId) -> Result<(), String> {
-    if !AFRESH.contains(&out["queue"]["verdict"].as_str().unwrap_or_default()) {
-        return Ok(());
-    }
-    let sessions::Plan::Going { id, rounds, .. } = plan_at_understanding(e, w, g, db::now())? else {
-        return Ok(());
-    };
-    let limit = e.config.config.install.agents.architect_context_limit;
-    let Some(context) = sessions::choose::context(&rounds) else {
-        return Ok(());
-    };
-    if context <= i64::try_from(limit).unwrap_or(i64::MAX) {
-        return Ok(());
-    }
-    let ended = json!({ "context": context, "limit": limit }).to_string();
-    e.db.write(Actor::Engine, |tx| {
-        sessions::choose::end(tx, id).map_err(db::Error::Abort)?;
-        tx.execute(
-            "UPDATE rounds SET input = json_set(input, '$.session_ended', json(?3)) WHERE work = ?1 AND n = ?2",
-            params![round.work, round.n, ended],
-        )?;
-        Ok(())
-    })
-    .map_err(sql)
+pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
+    look(e.db.conn(), project_of(w)?, w.id, cell, reply_wait(e), db::now())
 }
 
 /// What the look at the queue of the architect's work `work` finds at `now`, `wait_ms` being the installation's wait

@@ -16,8 +16,9 @@
 //! goes to reads by where it came from. Earlier returns of the detours, and an agent's earlier returns in a form every
 //! return shares (asking, running tools), are read only so and are not counted. A return is what the cell's schema in
 //! the work's own version takes: what the engine records of a row it took itself, with no return (an ask withdrawn, a
-//! turn waited for, a session begun afresh), is none. Each counts by what its cell takes in the new version: its
-//! outcome alone for an agent's ([`outcome_only`]).
+//! turn waited for, a session begun afresh), is none. Each counts by what its cell takes in the new version from a
+//! return handed in on an earlier one ([`CompiledCell::carried_schema`]): its outcome alone for an agent's
+//! ([`outcome_only`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
@@ -407,7 +408,8 @@ static NAMED: LazyLock<BTreeMap<String, BTreeSet<String>>> = LazyLock::new(|| {
     named
 });
 
-/// Whether a round handed in a return: it took a row and its cell's schema in the work's own version takes its output.
+/// Whether a round handed in a return: it took a row and its cell in the work's own version takes its output, as one
+/// handed in on that version or carried from an earlier one.
 fn is_return(old: &CompiledGraph, r: &Round) -> bool {
     let (Some(cell), Some(output)) = (r.cell.as_deref(), r.output.as_ref()) else {
         return false;
@@ -415,7 +417,7 @@ fn is_return(old: &CompiledGraph, r: &Round) -> bool {
     r.transition.is_some()
         && old
             .cell(cell)
-            .is_none_or(|c| c.schema.as_ref().is_none_or(|s| flow::valid(s, output)))
+            .is_none_or(|c| c.carried_schema().is_none_or(|s| flow::valid(s, output)))
 }
 
 /// Whether a return is its cell's own answer, not a form every return shares, by the cell as the work's own version
@@ -432,14 +434,14 @@ fn own_answer(old: &CompiledGraph, new: &CompiledGraph, r: &Round) -> bool {
     c.kind != "agent" || r.output.as_ref().is_none_or(|o| crate::form_of(g, c, o).is_none())
 }
 
-/// Why a return does not fit its cell in the new version, in words: its cell is gone, or the places it does not fit;
-/// none when it fits.
+/// Why a return does not fit its cell in the new version, as a return carried from an earlier one, in words: its cell
+/// is gone, or the places it does not fit; none when it fits.
 fn misfit(new: &CompiledGraph, r: &Round) -> Option<String> {
     let cell = r.cell.as_deref()?;
     let Some(is) = new.cell(cell) else {
         return Some(format!("cell {cell}, which the work handed a return in at, is gone"));
     };
-    let (schema, output) = outcome_only(is.schema.as_ref()?, r.output.as_ref()?);
+    let (schema, output) = outcome_only(is.carried_schema()?, r.output.as_ref()?);
     let places = flow::misfits(&schema, &output, "");
     (!places.is_empty()).then(|| {
         format!(
@@ -705,11 +707,15 @@ mod tests {
         }
     }
 
-    /// The version with a field `after` that every return of cell `id` must hold, in its own answer for an agent's.
+    /// The version with a field `after` that every return of cell `id` must hold, in its own answer for an agent's, one
+    /// handed in now and one carried from an earlier version alike.
     fn needs_after(g: &mut CompiledGraph, id: &str, own: &str) {
-        let form = own_form(cell(g, id).schema.as_mut().unwrap(), own);
-        form["properties"]["after"] = json!({ "type": "string" });
-        require(form, "after");
+        let c = cell(g, id);
+        for schema in [&mut c.schema, &mut c.carried].into_iter().flatten() {
+            let form = own_form(schema, own);
+            form["properties"]["after"] = json!({ "type": "string" });
+            require(form, "after");
+        }
     }
 
     /// The part of a cell's schema that takes its own answer: the form of its outcome whose fields hold `field`, its
@@ -833,6 +839,88 @@ mod tests {
         assert!(flow::valid(taken, &told), "{:?}", flow::misfits(taken, &told, ""));
         assert!(!flow::valid(now.cell("Q1").unwrap().schema.as_ref().unwrap(), &told));
         assert_eq!(plan(&old, &now, &at("Q2"), &[ran(1, "Q1", "picked", told)]), Plan::Move);
+    }
+
+    /// The version before item #247, as the design's cells took their returns then: the design's articles in a text,
+    /// with no answers to the item's decisions, and its review with no claims tried.
+    fn before_247() -> CompiledGraph {
+        let mut g = engineer();
+        let design = own_form(cell(&mut g, "D2").schema.as_mut().unwrap(), "design");
+        design["properties"]["articles"] = json!({ "type": "string" });
+        design["properties"].as_object_mut().unwrap().remove("item_decisions");
+        without_required(design, "item_decisions");
+        let review = own_form(cell(&mut g, "D3").schema.as_mut().unwrap(), "better");
+        review["properties"].as_object_mut().unwrap().remove("claims");
+        without_required(review, "claims");
+        for id in ["D2", "D3"] {
+            cell(&mut g, id).carried = None;
+        }
+        g
+    }
+
+    /// A design as one handed in before item #247: its articles in a text, and no answers to the item's decisions.
+    fn design_before_247() -> Value {
+        let mut design = sample("D2", "first");
+        design["outcome"]["articles"] = json!("It keeps Article 1: it names no project.");
+        design["outcome"].as_object_mut().unwrap().remove("item_decisions");
+        design
+    }
+
+    // Whether a round handed in a return is judged by what its cell took in the work's own version, as one handed in
+    // then or carried from a version before it: a design that version took only as carried still counts, and the work
+    // goes back to design again when the version the engine runs no longer takes it.
+    #[test]
+    fn a_return_its_own_version_took_only_as_carried_counts() {
+        let mut old = engineer();
+        let mut new = old.clone();
+        cell(&mut old, "D2").carried = before_247().cell("D2").unwrap().schema.clone();
+        cell(&mut new, "D2").carried = None;
+        let design = design_before_247();
+        let took = old.cell("D2").unwrap();
+        assert!(!flow::valid(took.schema.as_ref().unwrap(), &design));
+        assert!(flow::valid(took.carried_schema().unwrap(), &design));
+        match plan(&old, &new, &at("D3"), &[ran(1, "D2", "first", design)]) {
+            Plan::GoBack { to, .. } => assert_eq!(to, "D2"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // Item #247 had the design answer the constitution's articles in rows and each decision of its item, and its review
+    // try each claim. A work under way carries a design and a review handed in before: it moves where it stands, at the
+    // review or past it, its design not done again. A version that took them only as they are handed in now would send
+    // it back to its design. This holds the flow's own marks of D2 and D3 (`earlier`), and is removed with them.
+    #[test]
+    fn a_work_carrying_a_design_from_before_its_rows_moves() {
+        let old = before_247();
+        let new = engineer();
+        let design = design_before_247();
+        let mut review = sample("D3", "present_best");
+        review["outcome"].as_object_mut().unwrap().remove("claims");
+        for (id, ret) in [("D2", &design), ("D3", &review)] {
+            assert!(flow::valid(old.cell(id).unwrap().schema.as_ref().unwrap(), ret), "{id}");
+        }
+        let at_review = [ran(1, "D2", "first", design.clone())];
+        assert_eq!(plan(&old, &new, &at("D3"), &at_review), Plan::Move);
+        let past = [
+            ran(1, "D2", "first", design),
+            ran(2, "D3", "present_best", review),
+            ran(3, "D11", "needed", sample("D11", "needed")),
+        ];
+        assert_eq!(plan(&old, &new, &at("I1"), &past), Plan::Move);
+        let mut strict = new.clone();
+        for id in ["D2", "D3"] {
+            cell(&mut strict, id).carried = None;
+        }
+        match plan(&old, &strict, &at("I1"), &past) {
+            Plan::GoBack { to, why } => {
+                assert_eq!(to, "D2");
+                assert!(
+                    why.starts_with("the return of cell D2 in round R1-1 no longer fits it ("),
+                    "{why}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     // What the engine records of a row it took itself, which its cell's schema does not take, is no return: the work
