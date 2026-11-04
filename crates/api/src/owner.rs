@@ -577,16 +577,83 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
         );
         answer["reply"] = reply;
     }
+    let relay = relayed_words(db.conn(), ask, &body, &a.text)?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
             "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
             params![ask, answer.to_string()],
         )?;
         attachments::attach(tx, Words::Ask(ask), &images)?;
+        if let Some((work, text)) = &relay {
+            let declared = answer["speaker"]
+                .as_str()
+                .filter(|s| matches!(*s, "owner" | "delegate"));
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, declared, text) VALUES (?1, 'engineer', 'owner', ?2, ?3)",
+                params![work, declared, text],
+            )?;
+            tx.execute(
+                "UPDATE owner_asks SET body = json_set(body, '$.relayed', ?2) WHERE id = ?1",
+                params![ask, db::now()],
+            )?;
+        }
         Ok(())
     })
     .map_err(sql)?;
     Ok(format!("ask {ask} answered"))
+}
+
+/// The kinds of ask a work goes on past, and what the owner was asked in each: their answers reach the engineer at
+/// once, unless they approve exactly.
+const GONE_ON_PAST: [(&str, &str); 3] = [
+    ("design_review", "the review of the design the work goes on by"),
+    (
+        "points",
+        "the decision points and departures the research left, which the work goes on by as it recommended",
+    ),
+    ("change", "whether the change may merge"),
+];
+
+/// What an answer to an ask its work goes on past says to the engineer, and to which work: none for an answer of
+/// exactly approved, for an ask of another kind, for a work that ended, or where the cell the work waits at takes the
+/// answer in itself: the merge gate the answer of the change it asked, the review's cell on an older version of the
+/// flow the answer of the review.
+fn relayed_words(conn: &Connection, ask: i64, body: &Value, text: &str) -> Result<Option<(i64, String)>, String> {
+    let Some((kind, what)) = GONE_ON_PAST.iter().find(|(k, _)| body["kind"] == *k) else {
+        return Ok(None);
+    };
+    if text.trim() == "approved" {
+        return Ok(None);
+    }
+    let Some(work) = body["work"].as_i64() else {
+        return Ok(None);
+    };
+    let ended: bool = conn
+        .query_row("SELECT ended IS NOT NULL FROM works WHERE id = ?1", [work], |r| {
+            r.get(0)
+        })
+        .optional()
+        .map_err(sql)?
+        .unwrap_or(true);
+    let held_at: Option<String> = conn
+        .query_row(
+            "SELECT cell FROM blockers WHERE ask = ?1 AND ended IS NULL",
+            [ask],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?;
+    let taken_in = matches!(
+        (*kind, held_at.as_deref()),
+        ("change", Some(_)) | ("design_review", Some("D3"))
+    );
+    if ended || taken_in {
+        return Ok(None);
+    }
+    Ok(Some((
+        work,
+        format!("Asked about {what}, the owner answered (ask {ask}): {}", text.trim()),
+    )))
 }
 
 /// Rules on a decision card that is current: the owner confirms the option it recommends, chooses another of its

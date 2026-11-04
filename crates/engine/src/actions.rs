@@ -388,6 +388,9 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         "ask_owner_review" => crate::review::ask_owner(ctx, tx)?,
         "ask_owner_approval" => crate::approval::ask(ctx, tx)?,
         "relay_owner_answer" => crate::approval::relay(ctx, tx)?,
+        "ask_owner_points" => crate::approval::ask_points(ctx, tx)?,
+        "ask_change_approval" => crate::approval::ask_early(ctx, tx)?,
+        "hold_for_approvals" => crate::approval::hold(ctx, tx)?,
         "lock_new_acceptance" => {
             let new = at_value.or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance"));
             lock_advised(tx, ctx.item_id()?, ctx.round, new)?;
