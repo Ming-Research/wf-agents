@@ -1238,7 +1238,7 @@ pub fn forked_together(g: &flow::CompiledGraph, line: Option<&str>) -> Vec<Optio
         }
         at
     };
-    let Some(root) = line.map(&base) else {
+    let Some(root) = line.map(base) else {
         return vec![None];
     };
     let mut out: Vec<Option<String>> = Vec::new();
