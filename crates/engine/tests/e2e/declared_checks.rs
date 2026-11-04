@@ -296,3 +296,281 @@ fn a_return_that_breaks_another_check_too_is_sent_back_with_its_problems_only_an
     assert_eq!(judged["outcome"]["findings"][0]["fid"], "D1", "{judged}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// A declaration of the check the tests' work changes and of `other` besides.
+fn declaring_too(other: &str) -> Value {
+    json!([declaration()[0].clone(), { "check": other, "why": "The branch changes this check as well." }])
+}
+
+/// The numbers of the findings set aside in a list, as a review's `set_aside` answers them, the merge gate returns them
+/// or a round keeps them.
+fn ids_in(v: &Value) -> Vec<String> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|x| x["id"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// What the merge gate did the first time it judged the item's work, past waiting for items: the row it took, and the
+/// findings set aside before it that it let through, those neither answered in the `set_aside` of a details review's
+/// or a re-check's return the engine took before it, nor among those it returned for the fix to answer.
+fn left_unjudged_at_the_gate(e: &Engine, item: i64) -> (String, Vec<String>) {
+    let (work, _, _) = state(e, item).unwrap();
+    let conn = e.db.conn();
+    let (gate, took, output): (i64, String, String) = conn
+        .query_row(
+            "SELECT n, transition, output FROM rounds WHERE work = ?1 AND cell = 'M1' AND transition IS NOT NULL
+             AND transition != 'wait' ORDER BY n LIMIT 1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    let mut st = conn
+        .prepare("SELECT id FROM work_set_aside WHERE work = ?1 AND round < ?2 ORDER BY round, position")
+        .unwrap();
+    let recorded: Vec<String> = st
+        .query_map(params![work, gate], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    let mut st = conn
+        .prepare(
+            "SELECT output FROM rounds WHERE work = ?1 AND cell IN ('T3', 'T4') AND transition IS NOT NULL AND n < ?2",
+        )
+        .unwrap();
+    let mut judged: BTreeSet<String> = st
+        .query_map(params![work, gate], |r| r.get::<_, String>(0))
+        .unwrap()
+        .flat_map(|o| ids_in(&serde_json::from_str::<Value>(&o.unwrap()).unwrap()["outcome"]["set_aside"]))
+        .collect();
+    judged.extend(ids_in(&serde_json::from_str::<Value>(&output).unwrap()["set_aside"]));
+    (took, recorded.into_iter().filter(|id| !judged.contains(id)).collect())
+}
+
+// The details review's own return can hold a finding set aside, when the work says it changes a check of that cell.
+// The review that handed it in has not judged it: no review came after it, so the merge gate must send it to the fix
+// and the re-check rather than let the work through. The finding set aside earlier, which the review answered, is
+// judged, and the numbers go on across the rounds: S1 at the implementation, S2 at the review.
+#[test]
+fn a_finding_set_aside_in_the_details_review_s_own_return_waits_for_a_review_after_it() {
+    let s = setup("declared-review-own");
+    the_engine_s_own(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        adding("I1", |n| {
+            if n < 2 {
+                return Vec::new();
+            }
+            vec![
+                ("outcome.checks_changed", declaring_too("must_fix_fits_findings")),
+                ("outcome.conditions", conditions_with_a_test_never_run()),
+            ]
+        }),
+    );
+    // The review finds a problem but says nothing must be fixed, which only must_fix_fits_findings refuses.
+    agents.insert(
+        "T3",
+        Box::new(|_: &Request, _: usize| {
+            let finding = json!([{ "fid": "D1", "where": "src/lib.txt", "what": "The feature is not described.",
+                                   "impact": "A reader cannot tell what it does.", "basis": "The design.",
+                                   "fix": "Describe it." }]);
+            let answer = json!([{ "answer": "old_rule", "id": "S1", "why": "The branch reads ci_before's runs too." }]);
+            (
+                vec![("outcome.silent", "no"), ("outcome.must_fix", "no")],
+                vec![("outcome.findings", finding), ("outcome.set_aside", answer)],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the merge gate's judgment", |e| {
+        transitions(e, item, "M1").iter().any(|t| t != "wait")
+    });
+    let log = said.lock().unwrap().join("\n");
+    let implemented = ended_with(&e, item, "I1");
+    let aside = implemented.last().and_then(|r| r.2.clone()).unwrap_or_default();
+    assert_eq!(
+        (ids_in(&aside), &aside[0]["check"]),
+        (vec!["S1".to_string()], &json!(CHANGED)),
+        "{implemented:?}\n{log}"
+    );
+    let reviewed = ended_with(&e, item, "T3");
+    assert_eq!(reviewed.len(), 1, "{reviewed:?}\n{log}");
+    let (took, _, aside) = &reviewed[0];
+    let aside = aside.clone().unwrap_or_default();
+    assert_eq!(
+        (took.as_deref(), ids_in(&aside), &aside[0]["check"]),
+        (Some("clear"), vec!["S2".to_string()], &json!("must_fix_fits_findings")),
+        "{log}"
+    );
+    let (gate, left) = left_unjudged_at_the_gate(&e, item);
+    assert_eq!((gate.as_str(), left), ("set_aside", Vec::<String>::new()), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The check that holds the reviews to answering each finding set aside is what makes a finding judged; a work that
+// says it changes that check too must not get its findings through the merge gate with no review answering them.
+// Whether the declaration is refused or the gate sends them to the fix, every finding set aside before the gate is
+// answered by a review or sent on by the gate.
+#[test]
+fn saying_the_work_changes_the_check_of_the_reviews_answers_lets_no_finding_set_aside_through_unanswered() {
+    let s = setup("declared-answers");
+    the_engine_s_own(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        adding("I1", |n| {
+            let declared = match n {
+                0 | 1 => return Vec::new(),
+                2 => declaring_too("set_aside_answered"),
+                _ => declaration(),
+            };
+            vec![
+                ("outcome.checks_changed", declared),
+                ("outcome.conditions", conditions_with_a_test_never_run()),
+            ]
+        }),
+    );
+    // The review answers nothing set aside the first time, and the implementation's finding when it is sent back.
+    agents.insert(
+        "T3",
+        Box::new(|_: &Request, n: usize| {
+            let pick = vec![("outcome.silent", "no"), ("outcome.must_fix", "no")];
+            if n == 1 {
+                return (pick, Vec::new());
+            }
+            let answer = json!([{ "answer": "old_rule", "id": "S1", "why": "The branch reads ci_before's runs too." }]);
+            (pick, vec![("outcome.set_aside", answer)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the merge gate's judgment", |e| {
+        transitions(e, item, "M1").iter().any(|t| t != "wait")
+    });
+    let log = said.lock().unwrap().join("\n");
+    let (gate, left) = left_unjudged_at_the_gate(&e, item);
+    assert_eq!(left, Vec::<String>::new(), "the gate took {gate}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A declaration its own check refuses holds nothing in the return that makes it: what the check it names finds there
+// is sent back with the refusal, and nothing is set aside. A fix's declaration adds to the implementation's and holds
+// for the fix's own return: what it finds there is set aside and given to the re-check, which is not given the finding
+// the fix answered as a row of its table, and answers only the other. Once it has, the gate lets the work through.
+#[test]
+fn a_refused_declaration_holds_nothing_and_a_fix_s_declaration_holds_for_its_own_return_which_the_re_check_judges() {
+    let s = setup("declared-refused-and-fixed");
+    the_engine_s_own(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        adding("I1", |n| {
+            let declared = match n {
+                0 | 1 => return Vec::new(),
+                2 => declaring_too("no_such_check"),
+                _ => declaration(),
+            };
+            vec![
+                ("outcome.checks_changed", declared),
+                ("outcome.conditions", conditions_with_a_test_never_run()),
+            ]
+        }),
+    );
+    agents.insert(
+        "T3",
+        Box::new(|_: &Request, _: usize| {
+            let answer = json!([{ "answer": "old_rule", "id": "S1", "why": "The branch reads ci_before's runs too." }]);
+            (
+                vec![("outcome.silent", "yes"), ("outcome.must_fix", "no")],
+                vec![("outcome.set_aside", answer)],
+            )
+        }),
+    );
+    agents.insert(
+        "T1",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.wrote", "none")],
+                vec![("outcome.conditions", conditions_with_a_test_never_run())],
+            )
+        }),
+    );
+    // The fix answers its one row, and a row there is not, which only table_answered refuses, a check it names.
+    agents.insert(
+        "T6",
+        Box::new(|r: &Request, _: usize| {
+            let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+            let rows = json!([
+                { "answer": "old_rule", "id": "F1", "why": "The branch's check reads the run that named it." },
+                { "answer": "old_rule", "id": "F9", "why": "The branch's check reads the run that named it." }
+            ]);
+            let declared = json!([{ "check": "table_answered", "why": "The branch lets a fix answer more rows." }]);
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.rows", rows),
+                    ("outcome.head", json!(head)),
+                    ("outcome.checks_changed", declared),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "T4",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([{ "verdict": "holds", "id": "F1" }, { "verdict": "holds", "id": "F9" }]);
+            let answer =
+                json!([{ "answer": "old_rule", "id": "S3", "why": "The branch lets a fix answer more rows." }]);
+            (Vec::new(), vec![("outcome.rows", rows), ("outcome.set_aside", answer)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the merge", |e| {
+        transitions(e, item, "M2").iter().any(|t| t == "merged")
+    });
+    let log = said.lock().unwrap().join("\n");
+    // The refused declaration: sent back with the refusal and the problem of the check it named, nothing set aside.
+    let implemented = ended_with(&e, item, "I1");
+    assert_eq!(implemented.len(), 3, "{implemented:?}\n{log}");
+    let (_, rejected, aside) = &implemented[1];
+    let rejected = rejected.clone().unwrap_or_default();
+    let checks = checks_of(&rejected);
+    assert!(
+        checks.iter().any(|c| c == "checks_changed_known") && checks.iter().any(|c| c == CHANGED),
+        "{rejected}"
+    );
+    assert!(
+        db::sent_back_text(&rejected)
+            .unwrap_or_default()
+            .contains("no_such_check"),
+        "{rejected}"
+    );
+    assert_eq!(aside, &None, "{log}");
+    // Each cell's finding set aside, numbered on across the rounds, by the check that found it.
+    let first = |cell: &str| {
+        let rounds = ended_with(&e, item, cell);
+        let aside = rounds.iter().find_map(|r| r.2.clone()).unwrap_or_default();
+        (
+            ids_in(&aside),
+            aside[0]["check"].as_str().unwrap_or_default().to_string(),
+        )
+    };
+    assert_eq!(first("I1"), (vec!["S1".to_string()], CHANGED.to_string()), "{log}");
+    assert_eq!(first("T1"), (vec!["S2".to_string()], CHANGED.to_string()), "{log}");
+    assert_eq!(
+        first("T6"),
+        (vec!["S3".to_string()], "table_answered".to_string()),
+        "{log}"
+    );
+    // The re-check was given S3 alone: answering it alone, it was never sent back.
+    let rechecked = ended_with(&e, item, "T4");
+    assert!(
+        !rechecked.is_empty() && rechecked.iter().all(|r| r.1.is_none()),
+        "{rechecked:?}\n{log}"
+    );
+    let mut gate = transitions(&e, item, "M1");
+    gate.dedup();
+    assert_eq!(gate, ["set_aside", "clear"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
