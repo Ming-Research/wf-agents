@@ -1396,9 +1396,11 @@ mod tests {
         assert_eq!(starts, every_five);
     }
 
-    // What the wait took before it looked at runs this way: a run numbered at or below the point is never the one; a
-    // finished run is the one only at an attempt above `after`; and a run that does not appear in the first, or finish
-    // in the second, of the times allowed ends the wait with the failure of that kind.
+    // The rules of the wait that the loop kept when it was taken out into `wait_for_run`: a run numbered at or below the
+    // point is never the one; a finished run is the one only at an attempt above `after`; and a run that does not appear
+    // in the first, or finish in the second, of the times allowed ends the wait with the failure of that kind. The
+    // function is new, so this test cannot run before the change; the old wait as a whole is held by the tests of
+    // `tests/gh_runs.rs`, which pass before it too.
     #[test]
     fn a_wait_for_a_run_takes_the_run_asked_for_and_ends_at_its_times() {
         let wait = |after, run_above| Wanted {

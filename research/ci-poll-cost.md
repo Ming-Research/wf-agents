@@ -1,8 +1,10 @@
 # What a look at a CI run costs GitHub's rate limit, measured on 2026-11-04
 
-Item #289. This note measures; it changes no engine, CI or flow file. Whom it serves: the implementation of #289 and the
-reviews that judge its claim of calls an hour below GitHub's limit. It is kept until the engine's way of looking at a
-run changes again, and then replaced by the numbers of that change.
+Item #289. These are numbers measured before #289 changed the engine, and the ones it rests on: #289 made a look at a
+run one request, sent with the ETag of the last answer, every 5 s instead of every 20 s with `gh run list`. Where this
+note says "before #289" it means the engine of that time. Whom it serves: the implementation of #289 and the reviews that
+judge its claim of calls an hour below GitHub's limit. It is kept until the engine's way of looking at a run changes
+again, and then replaced by the numbers of that change.
 
 Each claim says how it is known: (measured) on the data of the day, (read) from source or documentation, (inferred)
 from measurements, not tried. This is exploratory: the comparison and the result that would reject the proposal were
@@ -12,7 +14,8 @@ not written down before the measuring, so nothing here is a test of a prediction
 
 | Question | Answer |
 |---|---|
-| What does one look cost now? | 2 requests of the `core` limit: `gh run list --workflow <w> --commit <sha>` first resolves the workflow (`GET .../actions/workflows/<w>`), then lists its runs (read: gh source, `pkg/cmd/run/list/list.go`, `pkg/cmd/workflow/shared/shared.go`). 10 of them moved the counter by 20 (measured, section 3). |
+| What did one look cost before #289? | 2 requests of the `core` limit: `gh run list --workflow <w> --commit <sha>` first resolves the workflow (`GET .../actions/workflows/<w>`), then lists its runs (read: gh source, `pkg/cmd/run/list/list.go`, `pkg/cmd/workflow/shared/shared.go`). 10 of them moved the counter by 20 (measured, section 3). |
+| What does one look cost since #289? | One request, sent with the ETag of the last answer, every 5 s: charged to the limit only when GitHub answers `200` (the run changed), not when it answers `304` (section 5, last row). The rows below are the measurements it rests on. |
 | Can one look cost 1? | Yes: `GET .../actions/workflows/<file name or id>/runs?head_sha=<sha>&per_page=20&exclude_pull_requests=true` moved the counter by 1 (measured). It takes a file name or an id, not the workflow's display name, which the project's configuration may hold (read: `crates/config/tests/on_demand.rs`, `fast = "fast"`). |
 | Can a look cost nothing? | Yes while nothing changed: 8 requests with `If-None-Match` set to the ETag of the last answer got `304` and left the counter where it was (measured, section 3). The documentation says the same, for requests made with an `Authorization` header (read: "Best practices for using the REST API"). |
 | What is the limit? | 5000 requests an hour on `core`, for the token the engine's `gh` uses (an OAuth token of the gh CLI app); secondary: 900 points a minute for REST, a `GET` is 1 point; the documentation does not say whether a `304` counts toward the secondary limit (read; measured for `X-Ratelimit-Limit: 5000`). |
@@ -78,16 +81,17 @@ Requests an hour (arithmetic on sections 3 and 4; the last row is inferred for t
 
 | Way of looking | One poller | 6 at once | 12 at once (6 slots, `ci` and `ci_before`) | At the load measured (2.5 at once) plus the other 855 an hour |
 |---|---|---|---|---|
-| now: `gh run list`, every 20 s | 360 | 2160 | 4320 | 898 + 855 = 1753 (measured: 1752) |
+| before #289: `gh run list`, every 20 s | 360 | 2160 | 4320 | 898 + 855 = 1753 (measured: 1752) |
 | `gh run list`, every 5 s | 1440 | 8640 | 17280 | 3600 + 855 = 4455 |
 | `gh api` of the runs, every 5 s, 1 request | 720 | 4320 | 8640 | 1800 + 855 = 2655 |
-| `gh api` with `If-None-Match`, every 5 s | 720 made, charged only when the answer changed | | 8640 made, about 1200 to 2400 charged | 470 charged at most + 855 = 1325 |
+| `gh api` with `If-None-Match`, every 5 s (what #289 made) | 720 made, charged only when the answer changed | | 8640 made, about 1200 to 2400 charged | 470 charged at most + 855 = 1325 |
 
 The charged count of the last row is the answers that are `200`: the first look, the appearance of the run, and each
 change of the run (queued, started, finished, and a change of its `updated_at`), at most 10 for a run of a few jobs
-(inferred: the run object's fields; not counted on a real run). A poller is in about 16 runs an hour at most
-(a `ci` lasts about 216 s) or 22 (a `ci_before`, about 160 s); 6 of each is 235 runs, 10 changes each is 2350 charged,
-5 each is 1175. If the ETag never matched, the last row would cost what the one above it does.
+(inferred: the run object's fields; not counted on a real run). A poller is in at most about 17 runs an hour
+(a `ci` lasts about 216 s, 3600 / 216 = 16.7) or 23 (a `ci_before`, about 160 s, 3600 / 160 = 22.5); 6 of each is 240
+runs, 10 changes each is 2400 charged, 5 each is 1200. If the ETag never matched, the last row would cost what the one
+above it does.
 
 ## 6. The wait the change saves
 
