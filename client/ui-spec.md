@@ -2682,6 +2682,25 @@ drawn with the cells added and changed marked, and a panel lists what changed in
 saying of each side what earlier returns may hold there as the pattern does, because a proposed change to the flow is
 reviewed against the flow it changes, on the page the flow is read on.
 
+When the newer flow is read at a git ref, which no work runs on, the panel opens with a section above what changed,
+Works going on: what installing that flow would do with each work that is neither ended nor done, as the engine judges
+it (`GET /api/v1/flows/cost`, the judgment `wf-agents flow cost` prints for the same file), under a line saying which
+flow version the flow would be. The works are in runs by what happens to them, in the order the engine gives: those that
+cannot be worked out, those that go back through a cell and do work again, those stuck, those that end, those that move
+where they stand, and those already on the version. Each run is a `Fold` headed by how many works it holds and what
+happens to them, open for the first four and folded for the last two, since the owner reads the works that cost
+something and has nothing to read in those that go on as they are. Each work is a row: its name, a link to its page,
+the item (by its number and title) or the graph it works on, the flow version and cell it stands at and who paused it,
+muted, and under it, set in by a line, what happens to it: the cell it goes back through and the cell it goes to, the
+round it does again, or the cell it is stuck at and what the owner can do, or why it ends, with the engine's own words.
+A flow this engine cannot judge, because it does not compile against the engine's database definition or does not fit
+the configuration, shows the reason in a warning in place of the runs, and says what judges it instead, because a cost
+that is missing must not read as no cost. The section is read once as the comparison opens, as the works stand then, and
+no event keeps it current: the owner rules on one moment's list, and a list that changed under the owner's eyes would
+not be the list ruled on. The owner rules a change to the flow with its cost before it, which only the command line
+gave, and an owner who must ask for a command does not see it. A comparison of two stored versions, or with a decision
+card's flow, has no such section: what it would cost to install is asked of a flow that is not installed.
+
 ### The policy's stage on the architect's chart
 
 The architect's chart draws the check of the policy in force, the writing of a new one and its taking effect as a stage

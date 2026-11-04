@@ -1010,6 +1010,171 @@ fn flows_and_works(dir: &Path) {
     .unwrap();
 }
 
+/// What the owner's page reads at `/api/v1/flows/cost` with `query`: the answer's status and its JSON.
+fn page_cost(port: u16, query: &str) -> (u16, serde_json::Value) {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(std::time::Duration::from_secs(60))).unwrap();
+    let request = format!(
+        "GET /api/v1/flows/cost?{query} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    s.write_all(request.as_bytes()).unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).unwrap();
+    let status = out.split(' ').nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
+    let body = out.split_once("\r\n\r\n").map_or("", |(_, body)| body);
+    (status, serde_json::from_str(body).unwrap_or(serde_json::Value::Null))
+}
+
+// The owner's page tells what installing a flow does with each work that goes on from the engine's own judgment, the
+// judgment `flow cost` prints for the same file: for the flow at a git ref of a project's checkout, `GET
+// /api/v1/flows/cost` lists the same works in the same order, each under the kind the command's heading gives it, with
+// the same standing, cells, rounds done again and reasons, the work on a version that cannot be read among them, as
+// `flows_and_works` and that work leave them. A project or a ref that is not there is a 404, and a flow that does not
+// compile is a 422 with the words the command fails with; nothing is written. Each flow is compiled by the engine here
+// (the fixture's, the page's, the command's), which takes some 3 s each, so the test takes some 12 s: it is the one
+// that holds the page to the command through the socket, git's ref and the command itself, which no smaller test does.
+#[test]
+fn the_page_tells_what_installing_a_flow_does_as_the_command_does() {
+    let dir = temp("flow-cost-page");
+    let checkout = temp("flow-cost-page-checkout");
+    // The project's checkout: the flow built into the command at its first commit, and a branch where the flow is none.
+    std::fs::create_dir_all(checkout.join("flow")).unwrap();
+    let flow_file = checkout.join("flow/flow.json");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../flow/flow.json"), &flow_file).unwrap();
+    commit_all(&checkout);
+    git(&checkout, &["checkout", "-q", "-b", "broken"]);
+    std::fs::write(&flow_file, "{}").unwrap();
+    git(&checkout, &["commit", "-q", "-a", "-m", "broken"]);
+    git(&checkout, &["checkout", "-q", "-"]);
+    write_config(&dir, INSTALL);
+    std::fs::write(
+        dir.join("projects/p.toml"),
+        PROJECT.replace("/tmp/p", &checkout.display().to_string()),
+    )
+    .unwrap();
+    commit_all(&dir);
+    engine::database::create(&dir).unwrap();
+    flows_and_works(&dir);
+    fill(
+        &dir,
+        r#"INSERT INTO flow_versions (id, digest, compiled) VALUES (3, 'broken', '{}');
+           INSERT INTO items (id, project, title, problem, why, deliver, level)
+           VALUES (5, 'p', 'Broken', 'x', 'y', 'change', 'l');
+           INSERT INTO works (id, item, flow_version, graph, at) VALUES (8, 5, 3, 'engineer', 'R1');"#,
+    );
+    let path = config::database(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let port = web::start(web::Options {
+        data: dir.clone(),
+        db: path.clone(),
+        port: 0,
+        bus: std::sync::Arc::new(api::Bus::new(5)),
+        control: std::sync::Arc::new(api::Control::default()),
+    })
+    .unwrap();
+
+    let (status, page) = page_cost(port, "project=p&ref=HEAD");
+    assert_eq!(status, 200, "{page}");
+    // The command, given the flow the ref holds: it fails because of the work that cannot be worked out, after printing.
+    let out = wf_args(&dir, &["flow", "cost", flow_file.to_str().unwrap()]);
+    assert!(failed(&out), "{:?}: {}", out.status, stderr(&out));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(page["version"], 2, "{page}");
+    assert_eq!(page["stored"], true, "{page}");
+    assert!(text.contains("it is flow version 2, which the database has."), "{text}");
+    // Each work the command lists, in its order, with the heading of its group above it.
+    let mut heading = "";
+    let mut listed: Vec<(&str, &str)> = Vec::new();
+    for l in text.lines() {
+        if l.starts_with("  work ") {
+            listed.push((heading, l));
+        } else if l.ends_with("):") {
+            heading = l;
+        }
+    }
+    let works = page["works"].as_array().unwrap();
+    assert_eq!(works.len(), 6, "{page}");
+    assert_eq!(works.len(), listed.len(), "{text}");
+    for (w, (heading, line)) in works.iter().zip(listed) {
+        let id = w["work"].as_i64().unwrap();
+        let stands = &w["stands"];
+        assert!(stands.is_object(), "work {id}: {page}");
+        let on = match stands["item"].as_i64() {
+            Some(item) => format!("item {item}: {}", stands["title"].as_str().unwrap()),
+            None => {
+                let project = stands["project"].as_str().unwrap();
+                match stands["graph"].as_str().unwrap() {
+                    "architect" => format!("the architect of {project}"),
+                    "policy" => format!("the architect's policy setting for {project}"),
+                    graph => panic!("work {id} of the graph {graph}"),
+                }
+            }
+        };
+        let paused = match stands["paused"].as_str() {
+            None => "",
+            Some("owner") => ", paused by the owner",
+            Some("architect") => ", stopped by the architect",
+            Some(_) => ", paused by the engine",
+        };
+        let at = format!(
+            "work {id} ({on}), on version {} at {}{paused}",
+            stands["version"],
+            stands["at"].as_str().unwrap()
+        );
+        let e = &w["effect"];
+        let s = |k: &str| e[k].as_str().unwrap().to_string();
+        let (group, tail) = match e["kind"].as_str().unwrap() {
+            "unreadable" => ("Cannot be worked out", format!(": {}", s("why"))),
+            "goes_back" => {
+                let again = match (e["from"].as_i64(), e["redone"].as_i64().unwrap()) {
+                    (Some(n), 1) => format!("doing round R{id}-{n} again"),
+                    (Some(n), r) => format!("doing round R{id}-{n} and the {} after it again", r - 1),
+                    (None, _) => "doing no round again".to_string(),
+                };
+                (
+                    "Goes back through",
+                    format!(": through {} back to {}, {again}: {}", s("through"), s("to"), s("why")),
+                )
+            }
+            "stuck" => ("Stays stuck", format!(": stays at {}, paused: {}", s("at"), s("pause"))),
+            "ends" => {
+                let then = if e["taken_over"] == true {
+                    "; a new work takes its item over"
+                } else {
+                    ""
+                };
+                ("Ends", format!(": {}{then}", s("why")))
+            }
+            "moves" => ("Moves where it stands", String::new()),
+            "stays" => ("On version", String::new()),
+            kind => panic!("work {id}: {kind}"),
+        };
+        assert!(heading.starts_with(group), "work {id} is under {heading:?}, not {group:?}: {text}");
+        assert_eq!(line, format!("  {at}{tail}"), "work {id}: {page}");
+    }
+
+    // What the page is refused: no such project, no such ref, and a flow that is none, with the command's words for it.
+    assert_eq!(page_cost(port, "project=nope&ref=HEAD").0, 404);
+    assert_eq!(page_cost(port, "project=p&ref=nothing").0, 404);
+    let (status, refused) = page_cost(port, "project=p&ref=broken");
+    assert_eq!(status, 422, "{refused}");
+    let none = checkout.join("none.json");
+    std::fs::write(&none, "{}").unwrap();
+    let out = wf_args(&dir, &["flow", "cost", none.to_str().unwrap()]);
+    assert!(failed(&out), "{:?}", out.status);
+    assert_eq!(
+        refused["error"].as_str().unwrap().trim_end(),
+        stderr(&out).trim_end(),
+        "{refused}"
+    );
+    // Nothing was written.
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    for d in [&dir, &checkout] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 // `flow cost` tells what installing a flow would do with each work that is neither ended nor done, the works told by
 // what happens to them and the paused marked, and writes nothing: the database's file stays as it was, and the side
 // files SQLite reads it through come back beside it, empty. Worked out by hand from `flows_and_works`: work 1 goes back

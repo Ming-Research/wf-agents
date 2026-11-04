@@ -7,7 +7,7 @@
 import { ActionList, ActionMenu, Button, Flash, Heading, Label, Radio, Select } from '@primer/react';
 import { useMemo, useState } from 'react';
 
-import type { Compiled, FlowAt, FlowDiff, FlowSnapshot, FlowSource, FlowVersion, FlowView } from '../api';
+import type { Compiled, FlowAt, FlowCost, FlowDiff, FlowSnapshot, FlowSource, FlowVersion, FlowView } from '../api';
 import { Loaded } from '../components';
 import { useDraft } from '../drafts';
 import { FlowScreen } from '../flow/FlowScreen';
@@ -218,7 +218,13 @@ export function diffMarks(graphs: Graph[], diff: FlowDiff | null) {
 }
 
 /// Every graph of the flow, side by side on the one chart.
-function Shown({ r, compiled, view, diff }: { r: FlowRoute; compiled: Compiled; view: FlowView; diff: FlowDiff | null }) {
+function Shown({ r, compiled, view, diff, cost = null }: {
+  r: FlowRoute;
+  compiled: Compiled;
+  view: FlowView;
+  diff: FlowDiff | null;
+  cost?: Resource<FlowCost> | null;
+}) {
   const graphs = useMemo(
     () =>
       compiled.graphs.flatMap((g) => {
@@ -242,6 +248,7 @@ function Shown({ r, compiled, view, diff }: { r: FlowRoute; compiled: Compiled; 
       start={r.cell}
       startGraph={r.graph}
       diff={diff}
+      cost={cost}
     />
   );
 }
@@ -261,12 +268,24 @@ function Stored({ r, version }: { r: FlowRoute; version: number }) {
   );
 }
 
+/// The flow at a ref, which no work runs on, compared with a stored version: the comparison's panel also says what
+/// installing the flow would do with each work going on, which the engine judges (`/api/v1/flows/cost`). It is read
+/// once as the comparison opens, as the works stand then.
 function AtRef({ r, at }: { r: FlowRoute; at: Resource<FlowAt> }) {
   const q = `project=${encodeURIComponent(r.project ?? '')}&ref=${encodeURIComponent(r.ref ?? '')}`;
   const diff = useResource<FlowDiff>(null, r.from !== null ? `/api/v1/flows/diff?from=${r.from}&${q}` : null);
+  const cost = useResource<FlowCost>(null, r.from !== null ? `/api/v1/flows/cost?${q}` : null);
   return (
     <Loaded r={at}>
-      {(a) => <Shown r={r} compiled={a.compiled} view={a.view} diff={r.from !== null ? (diff.data ?? null) : null} />}
+      {(a) => (
+        <Shown
+          r={r}
+          compiled={a.compiled}
+          view={a.view}
+          diff={r.from !== null ? (diff.data ?? null) : null}
+          cost={r.from !== null ? cost : null}
+        />
+      )}
     </Loaded>
   );
 }

@@ -418,12 +418,13 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
 }
 
 /// Prints what installing a flow would do with each work of the data directory `d` that is neither ended nor done
-/// ([`engine::Engine::flow_cost`]): the flow `flow`, or the one built into the command, compiled and checked against
-/// the committed configuration as the engine would at its start, and each work judged on the database opened only to
-/// read. The works are told by what happens to them: first those that cannot be worked out, since the engine stops when
-/// it brings one up, which fails the command once they are printed; then those that do work again.
+/// ([`engine::flow_cost::of_text`], which the owner's page reads too): the flow `flow`, or the one built into the
+/// command, compiled and checked against the committed configuration as the engine would at its start, and each work
+/// judged on the database opened only to read. The works are told by what happens to them, in the order of
+/// [`engine::flow_cost::Group`]: first those that cannot be worked out, since the engine stops when it brings one up,
+/// which fails the command once they are printed; then those that do work again.
 fn flow_cost(d: &Path, flow: Option<&Path>) -> Result<(), String> {
-    use engine::flow_cost::Effect;
+    use engine::flow_cost::{Costed, Effect, Group};
     let (text, named) = match flow {
         None => (flow::FLOW.to_string(), "the flow built into this command".to_string()),
         Some(p) if p == Path::new("-") => {
@@ -435,17 +436,7 @@ fn flow_cost(d: &Path, flow: Option<&Path>) -> Result<(), String> {
         }
         Some(p) => (read(p)?, p.display().to_string()),
     };
-    let committed = config::committed(d).map_err(|e| e.to_string())?;
-    let compiled = engine::compile_flow_for(&text, &committed.config)?;
-    let github = engine::hub::Gh::new(d.join("logs"));
-    let (mut e, at) = engine::Engine::trying(
-        d,
-        committed,
-        compiled,
-        Box::new(engine::agent::Claude),
-        Box::new(github),
-    )?;
-    let cost = e.flow_cost()?;
+    let Costed { cost, database_at: at } = engine::flow_cost::of_text(d, &text).map_err(|e| e.to_string())?;
     let v = cost.version;
     let mut out = if cost.stored {
         format!(
@@ -463,21 +454,22 @@ fn flow_cost(d: &Path, flow: Option<&Path>) -> Result<(), String> {
         ));
     }
     out.push_str("Each work that is neither ended nor done, as it next goes on (one paused, once it is started):\n");
-    let mut groups: [(String, Vec<String>); 6] = [
-        (
-            "Cannot be worked out, and the engine stops with that error when it brings it up".into(),
-            Vec::new(),
-        ),
-        ("Goes back through a cell to a cell it does again".into(), Vec::new()),
-        ("Stays stuck at a cell, paused".into(), Vec::new()),
-        ("Ends".into(), Vec::new()),
-        ("Moves where it stands".into(), Vec::new()),
-        (format!("On version {v} already"), Vec::new()),
-    ];
+    let heading = |g: Group| match g {
+        Group::Unreadable => {
+            "Cannot be worked out, and the engine stops with that error when it brings it up".to_string()
+        }
+        Group::GoesBack => "Goes back through a cell to a cell it does again".to_string(),
+        Group::Stuck => "Stays stuck at a cell, paused".to_string(),
+        Group::Ends => "Ends".to_string(),
+        Group::Moves => "Moves where it stands".to_string(),
+        Group::Stays => format!("On version {v} already"),
+    };
+    // The groups in the order the engine gives them, each with the works of it by id.
+    let mut groups: std::collections::BTreeMap<Group, Vec<String>> = std::collections::BTreeMap::new();
     for c in &cost.works {
         let who = work_named(c);
-        let (group, line) = match &c.effect {
-            Err(why) => (0, format!("{who}: {why}")),
+        let line = match &c.effect {
+            Err(why) => format!("{who}: {why}"),
             Ok(Effect::GoesBack {
                 through,
                 to,
@@ -490,33 +482,32 @@ fn flow_cost(d: &Path, flow: Option<&Path>) -> Result<(), String> {
                     (Some(from), n) => format!("doing round {from} and the {} after it again", n - 1),
                     (None, _) => "doing no round again".to_string(),
                 };
-                (1, format!("{who}: through {through} back to {to}, {again}: {why}"))
+                format!("{who}: through {through} back to {to}, {again}: {why}")
             }
-            Ok(Effect::Stuck { at, pause, .. }) => (2, format!("{who}: stays at {at}, paused: {pause}")),
+            Ok(Effect::Stuck { at, pause, .. }) => format!("{who}: stays at {at}, paused: {pause}"),
             Ok(Effect::Ends { why, taken_over }) => {
                 let then = if *taken_over {
                     "; a new work takes its item over"
                 } else {
                     ""
                 };
-                (3, format!("{who}: {why}{then}"))
+                format!("{who}: {why}{then}")
             }
-            Ok(Effect::Moves) => (4, who),
-            Ok(Effect::Stays) => (5, who),
+            Ok(Effect::Moves | Effect::Stays) => who,
         };
-        groups[group].1.push(line);
+        groups.entry(c.group()).or_default().push(line);
     }
     if cost.works.is_empty() {
         out.push_str("(none)\n");
     }
-    for (heading, lines) in groups.iter().filter(|(_, lines)| !lines.is_empty()) {
-        out.push_str(&format!("{heading} ({}):\n", lines.len()));
+    for (g, lines) in &groups {
+        out.push_str(&format!("{} ({}):\n", heading(*g), lines.len()));
         for l in lines {
             out.push_str(&format!("  {l}\n"));
         }
     }
     print!("{out}");
-    match groups[0].1.len() {
+    match groups.get(&Group::Unreadable).map_or(0, Vec::len) {
         0 => Ok(()),
         n => Err(format!(
             "{n} of the works cannot be worked out, and the engine stops when it brings one up"
