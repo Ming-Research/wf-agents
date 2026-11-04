@@ -592,7 +592,7 @@ fn a_project_that_lists_no_measurement_workflow_is_told_to_answer_not_measured()
 
 /// The form of a tool in the schema of the common format, as an agent is given it: the object that holds its
 /// properties.
-fn tool_form(schema: &Value, tool: &str) -> Option<Value> {
+pub(super) fn tool_form(schema: &Value, tool: &str) -> Option<Value> {
     match schema {
         Value::Object(o) => {
             if o.get("properties")

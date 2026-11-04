@@ -533,12 +533,14 @@ impl Agents for Claude {
 
 /// How long a stopped command line has, from the polite signal, to end by itself and what it started, before it and
 /// its process group are killed. It is what the command line's own clean-up may take, and a stopped round holds a slot.
-const STOP_WAIT: Duration = Duration::from_secs(3);
+/// The engine's tool `dependency_sources` gives a command it stops for its time limit the same.
+pub const STOP_WAIT: Duration = Duration::from_secs(3);
 
 /// Sends a signal to a process group, by the `kill` command, which needs no `unsafe`. Only the engine's own child's
 /// group is ever named, while that child is not reaped: a group's id cannot be taken by another while its leader's
-/// process entry stands, so the signal cannot reach anyone else's.
-fn signal_group(group: u32, signal: &str) {
+/// process entry stands, so the signal cannot reach anyone else's. The engine's tool `dependency_sources` stops the
+/// command it runs the same way.
+pub fn signal_group(group: u32, signal: &str) {
     let _ = Command::new("kill")
         .args(["-s", signal, "--", &format!("-{group}")])
         .stdin(Stdio::null())
