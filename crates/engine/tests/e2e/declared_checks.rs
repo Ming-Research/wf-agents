@@ -538,13 +538,22 @@ fn saying_the_work_changes_the_check_of_the_reviews_answers_lets_no_finding_set_
     // The declaration of that check is refused, and the review held to answering.
     let implemented = ended_with(&e, item, "I1");
     let refused = implemented[1].1.clone().unwrap_or_default();
-    assert!(checks_of(&refused).iter().any(|c| c == "checks_changed_known"), "{refused}");
     assert!(
-        db::sent_back_text(&refused).unwrap_or_default().contains("set_aside_answered"),
+        checks_of(&refused).iter().any(|c| c == "checks_changed_known"),
+        "{refused}"
+    );
+    assert!(
+        db::sent_back_text(&refused)
+            .unwrap_or_default()
+            .contains("set_aside_answered"),
         "{refused}"
     );
     let reviewed = ended_with(&e, item, "T3");
-    assert_eq!(checks_of(&reviewed[0].1.clone().unwrap_or_default()), ["set_aside_answered"], "{log}");
+    assert_eq!(
+        checks_of(&reviewed[0].1.clone().unwrap_or_default()),
+        ["set_aside_answered"],
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
