@@ -2871,7 +2871,12 @@ then?: Then | null,
 /**
  * The counter that counts each time the engine takes the case, one of the flow's counters.
  */
-counts?: string | null, };
+counts?: string | null,
+/**
+ * A case that bounds the steps a work takes in a row with no agent's round among them, at whichever cells of its
+ * graph: how many it may take. Its next step takes the case instead, which pauses it.
+ */
+steps?: number | null, };
 
 /**
  * What the engine does once a row that runs a round or a step again has been taken so many times in a row as its

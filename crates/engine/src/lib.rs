@@ -36,6 +36,7 @@ mod decisions;
 mod failed;
 mod faults;
 mod inputs;
+mod loops;
 pub mod message;
 mod open_questions;
 mod reasoning;
@@ -113,7 +114,7 @@ pub enum Advance {
     /// there, or the page shows the work as running while it only waits.
     Waits(String),
     /// What the work waited for came, and it waits on, holding no slot, since the loop granted its step none: its
-    /// machine had no slot free.
+    /// machine had no slot free. The loop records the wait for a slot as it reaps the step (`slot_waits`).
     Held(String),
     /// The work is done, was ended or taken over, or is paused.
     Stopped,
@@ -197,10 +198,6 @@ struct Shared {
     /// The works taken over, each with the new work that took its item over, until the engine's loop has read them
     /// ([`Engine::replaced`]): the owner's Start of a work goes on in the work that replaced it.
     replaced: Mutex<Vec<(i64, i64)>>,
-    /// The works whose last step found what they waited for come and waited on, holding no slot, since the loop granted
-    /// it none ([`Advance::Held`]); a work leaves it when the loop grants its step a slot or reaps its next step. Only
-    /// the loop changes it.
-    held_for_slot: Mutex<BTreeSet<i64>>,
     /// The jobs the loop dispatched and has not reaped yet, by their works: one at most for each work. Only the loop
     /// adds and removes them; a job's thread only marks its own as over ([`schedule`]).
     jobs: Mutex<BTreeMap<i64, schedule::Job>>,
@@ -232,7 +229,6 @@ impl Shared {
             looked: Mutex::default(),
             global_pause: Mutex::default(),
             replaced: Mutex::default(),
-            held_for_slot: Mutex::default(),
             jobs: Mutex::default(),
             job_over: Condvar::new(),
             idle: Mutex::default(),
@@ -507,13 +503,24 @@ impl Engine {
 
     /// Brings a work on an older flow version to the version the engine runs, as its plan says ([`Engine::plan`]): it
     /// moves where it stands ([`Engine::move_up`]), or comes to its graph's cell for a work on an older version, to go
-    /// back from there or stay there stuck ([`Engine::bring_back`]). Gives the plan.
+    /// back from there or stay there stuck ([`Engine::bring_back`]). A work brought so no longer waits where it waited:
+    /// its wait for a free slot, if one is open, ends, as gone on, or as ended when the version could not run it at all.
+    /// Gives the plan.
     fn bring(&mut self, w: &Work) -> Result<versions::Plan, String> {
         let plan = self.plan(w)?;
         match &plan {
             versions::Plan::Move => self.move_up(w)?,
             versions::Plan::GoBack { to, why } => self.bring_back(w, Some(to), why, false)?,
             versions::Plan::Stuck { why, back_to } => self.bring_back(w, back_to.as_deref(), why, true)?,
+        }
+        if !matches!(plan, versions::Plan::Move) {
+            let how = match self.ended(w.id)? {
+                Some(_) => db::SlotWaitEnd::Ended,
+                None => db::SlotWaitEnd::GoneOn,
+            };
+            self.db
+                .write(Actor::Engine, |tx| db::close_slot_wait(tx, w.id, how, db::now()))
+                .map_err(|e| e.to_string())?;
         }
         Ok(plan)
     }
@@ -1155,13 +1162,17 @@ impl Engine {
     /// Takes a work one step further, as a job the loop dispatched ([`schedule`]): a paused work only when the owner
     /// asked for its round. A work asked to stop, or on an older flow version, takes no step: the loop stops it or
     /// brings it up once this job has ended, since it does what the engine does to a work from outside its step only
-    /// while the work has no job in flight.
+    /// while the work has no job in flight. A work that took as many steps in a row with no agent's round as the flow's
+    /// case for it allows takes that case instead, which pauses it, unless the owner asked for its round ([`loops`]).
     fn take_step(&mut self, id: i64, asked: bool) -> Result<Advance, String> {
         let w = self.work(id)?;
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
         }
         if w.flow_version != self.flow_now || db::stop_asked(self.db.conn(), id).map_err(|e| e.to_string())? {
+            return Ok(Advance::Stopped);
+        }
+        if !asked && loops::take_if_past(self, &w)? {
             return Ok(Advance::Stopped);
         }
         let g = self.graph_of(&w)?;
@@ -1351,10 +1362,10 @@ impl Engine {
     /// which the loop grants its next step, is not among them. With them, the paused works whose pause is asked to be
     /// lifted while their machine has none free. The owner's page shows them so, since a work whose answer came and
     /// that does not move, or whose resume was asked and that stays paused, would otherwise look stuck. It only reads:
-    /// which works wait on for a slot changes only as the loop reaps their steps and grants them slots.
+    /// which works wait on for a slot (`slot_waits`) changes only as the loop reaps their steps and grants them slots.
     pub fn waiting_for_slot(&mut self) -> Result<Vec<i64>, String> {
         let mut out = BTreeSet::new();
-        let held = lock(&self.shared.held_for_slot).clone();
+        let held = db::slot_waiting(self.db.conn()).map_err(|e| e.to_string())?;
         for id in held {
             let w = self.work(id)?;
             if w.ended.is_none() && w.paused.is_none() && self.waiting(&w)? && !self.room_for(&w)? {

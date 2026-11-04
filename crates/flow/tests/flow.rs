@@ -1269,7 +1269,8 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "step_network_too_often",
                 "step_network",
                 "repeats",
-                "work_ended"
+                "work_ended",
+                "steps_without_agent"
             ],
             "{}",
             cell.id
@@ -1300,7 +1301,8 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "unparsed",
                 "cannot_step",
                 "step_network_too_often",
-                "repeats"
+                "repeats",
+                "steps_without_agent"
             ]
         );
         let waits: Vec<&str> = shared.iter().filter(|x| x.waits).map(|x| x.name.as_str()).collect();

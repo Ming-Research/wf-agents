@@ -13573,6 +13573,13 @@
             "name": "work_ended",
             "when": "The work ended while its round ran, as when its item was cancelled",
             "desc": "What the round hands in is not taken; what it cost is kept on it."
+          },
+          {
+            "name": "steps_without_agent",
+            "when": "The work took 20 steps in a row with no agent's round among them, at whichever cells: the engine's own, the tools', those that ask someone, an agent's cell whose round the engine took itself",
+            "desc": "Nothing else stops such a run, which costs nothing a budget or a counter sees. At its next step the engine pauses the work where it stands instead, saying at which cells the steps were. The first time, the project's architect is asked to look at why, by a matter to set straight; the next time, the owner is told it is the owner's to look at. Once the work is let go on, it may take 20 such steps again.",
+            "pauses": true,
+            "steps": 20
           }
         ]
       },
@@ -20231,6 +20238,13 @@
             "name": "work_ended",
             "when": "The work ended while its round ran, as when its item was cancelled",
             "desc": "What the round hands in is not taken; what it cost is kept on it."
+          },
+          {
+            "name": "steps_without_agent",
+            "when": "The work took 20 steps in a row with no agent's round among them, at whichever cells: the engine's own, the tools', those that ask the owner, an agent's cell whose round the engine took itself; a step that handled a matter of the queue is the work's progress, as an agent's round is",
+            "desc": "Nothing else stops such a run, which costs nothing a budget or a counter sees. At its next step the engine pauses the work where it stands instead, saying at which cells the steps were, and tells the owner: a work of the architect's has no architect above it to ask. Once the owner lets it go on, it may take 20 such steps again.",
+            "pauses": true,
+            "steps": 20
           }
         ]
       },
