@@ -1097,9 +1097,12 @@ fn history_sources(
     item: Option<&Item>,
 ) -> Result<Value, String> {
     let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
-    let project = named
-        .and_then(|p| e.config.config.projects.get(p))
-        .ok_or_else(|| format!("work {}: no project in the configuration to say where its git runs", w.id))?;
+    let project = named.and_then(|p| e.config.config.projects.get(p)).ok_or_else(|| {
+        format!(
+            "work {}: no project in the configuration to say where its git runs",
+            w.id
+        )
+    })?;
     let directory = crate::steps::round_directory(e, w, g, cell, item.map(|_| project))?;
     let database = config::database(&e.data);
     Ok(json!({
