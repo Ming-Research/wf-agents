@@ -2627,7 +2627,7 @@ pub fn stop_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCel
     let closed_by = match in_hand {
         Some(_) => work::rounds(conn, w.id)?
             .iter()
-            .filter(|r| r.id.n > taken && hands_in(*r) && in_effect(&old, r).is_some())
+            .filter(|r| r.id.n > taken && hands_in(r) && in_effect(&old, r).is_some())
             .map(|r| r.id.n)
             .max(),
         None => None,
