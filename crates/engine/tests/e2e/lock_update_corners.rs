@@ -391,8 +391,8 @@ fn a_lock_file_that_is_a_directory_fails_the_tool_and_no_command_runs() {
 }
 
 // A command that cannot be started, as where the engine's PATH lacks the program, is a fault of the configuration and no
-// result of the command: as the design says, the tool fails, is tried three times and goes to the architect, whose
-// question names the program, and the agent is not told the lock file was brought in line.
+// result of the command: as the design says, the tool fails, is tried three times and goes to the architect. The tool
+// cell's return names the program, and holds no result that would tell the agent the lock file was brought in line.
 #[test]
 fn a_command_that_cannot_be_started_fails_the_tool_and_goes_to_the_architect() {
     let s = setup("lock-update-no-program");
@@ -415,15 +415,27 @@ fn a_command_that_cannot_be_started_fails_the_tool_and_goes_to_the_architect() {
         let what = run.1["failed"]["what"].as_str().unwrap();
         assert!(what.starts_with("wf-agents-no-such-program: "), "{what}");
     }
-    let asked: String =
+    // The blocker the architect holds says a tool failed; the return of the round that raised it holds the rest.
+    let holds: (String, String, String) =
         e.db.conn()
             .query_row(
-                "SELECT what FROM blockers WHERE work = ?1 AND ended IS NULL",
+                "SELECT kind, holder, what FROM blockers WHERE work = ?1 AND ended IS NULL",
                 [work],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-    assert!(asked.contains("wf-agents-no-such-program"), "{asked}");
+    assert_eq!(
+        (holds.0.as_str(), holds.1.as_str()),
+        ("tool_failure", "architect"),
+        "{holds:?}"
+    );
+    assert!(holds.2.contains("lock_update"), "{holds:?}");
+    let output = tool_cell_output(&e, item);
+    assert_eq!(output["results"], json!([]), "{output}");
+    assert_eq!(output["failed"][0]["tool"], "lock_update", "{output}");
+    let what = output["failed"][0]["what"].as_str().unwrap();
+    assert!(what.starts_with("wf-agents-no-such-program: "), "{output}");
+    assert!(fits_the_flow(&mut e, work, &output), "{output}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
