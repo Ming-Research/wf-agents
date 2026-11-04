@@ -4435,10 +4435,11 @@
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. The engine watches main's CI for every project first (`queue_main_red`).",
       "end_architect_work": "Ends the architect's work.",
+      "stop_architect_work": "An architect's work that the flow version the engine runs cannot take on ends here, at once, as the row of the cell for a work on an older version brings it: the work records why it ended (the version it cannot go on in, and why), and a project's architect runs one work at a time, so that the next look starts a new one when a matter is due. Its asks of the owner stay the owner's to answer, the matters they hold coming back with the answer, and its project's hold of new starts for setting it straight stays while a place to set straight is left open.",
       "look_at_queue": "Looks at the project's queue and the base, and takes what comes next in a fixed order, without a round, as facts decide and no agent: first the owner's words and the matters back with the owner's reply, the one that came first; then main's CI red; then a matter a work stopped waits on (an engineer's question, an open question of a design, a failure, a report marked as harming now, another architect's message a work waits on), the one that came first; then a planning, when the project has no base yet, the policy changed since the base, slots are free with nothing of the project to start, the matters waiting for the planning reached the installation's amount (`architect.gathered_most`) or a matter handled since the base said it changes the plan; else a rebuild of the base alone, when the decision log and what changed since the base reached the installation's amount (`architect.carried_most`), a merge since it deleted or moved files or changed the guide, a matter handled since said the base is wrong, or the architect's model is not the base's; then what the plan queued, the one that came first; then a matter that waited for the planning and came before the base was built. A matter parked by a question the owner has not answered is not taken; nothing waits for the owner's reply.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. This pause withdraws a resume that still waits for a free slot, as `resume_work` says. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
-      "bring_up": "A work on an older flow version, when it next goes on with no step under way, is brought to the version the engine runs by what it carries now: where it stands, what rows recorded, the returns later cells will read and, in the middle of a cell, the session that cell has open. A new version ends a work only when it has no graph for it (below). The cell it serves is the one it is doing: where it stopped, else the first of the cells that wait for an answer, else the cell it stands at; it has begun that cell once a round ran there since the work last took a row of a cell that is not one of those every agent's cell shares (the tools, the search, the owner's Start, the answers to who interjected) or of the asking part: a round that asked for tools and got their results, or a return sent back, has begun it, and coming to a cell, or standing at an engine's cell that has not run, has not. The returns later cells will read are the newest own answer of each cell the version reads from where the work stands, and the work's last return, which the cell after it reads by where it came from: the cells the work can still come to by the version's rows, from the cell it stands at and the cells it goes back to; each cell those cells read by its id, through an input's place or a database view that names it; and each cell the engine's own code reads by its id. An answer that no cell the work can still come to reads takes no part. An engineer's work whose merge stands (its merge cell took `merged`, and watching main has not taken `broken_by_merge` since) is judged by the rounds after its merge alone: only their returns count, only the cells they walked are gone back to, and only they are done again; its answers from before the merge take no part, later cells reading them as they are, so that neither the engine nor the owner's Start ever takes it back before its merge. Earlier returns of the cells every agent's cell shares and of the asking part are read only so, and are not counted. Each is compared by what its cell takes now, its outcome alone for an agent's, a field taking too what the flow names as it was earlier (`earlier`): absent, or in its shape then, which no return handed in now may be. It moves where it stands, in the same sessions, its version changed and no round recorded, when the version has the graph, every return counted still fits its cell, the cell it stands at is there, the cell it serves (and the agent's cell of the asking part whose session is open: the one it stands at, or the one whose tools are running) has not changed since it began it its kind, its line or the inputs of its own (their names and sources; those every agent's cell has come with what every return shares), and the cells it goes back to are there as cells of the same kind; a session in the middle of a cell is given what the version changed of its format, task and rows, and a return that does not fit them is sent back. Otherwise it comes here, its version changed, with where it goes back to as where it stopped: the first cell of the work's main way whose return does not fit, or the cell it serves when that changed or a cell it goes back to did not hold, or, when the cell it stands at or serves is gone, the latest cell it walked that the version has. It does that cell again from its start: the round it was in is cut off, the question it had out is withdrawn, as the cell that asked does it again, and what it answered, asked and was told stays. A work never goes back past a round that did what cannot be undone: an engineer's merge, once watching main took it back; and what an architect's round does at once: an action on a work or on new starts (a pause, a resume, a start over, new starts held or let go, an interjection), a word to the owner, a message to another project's architect, a change to observations, a reply that went out to an engineer or to the work that reported, and the item changes made. What has not taken effect is done again: what waits for a second eye is dropped, to be handed in again, its reply with it, the matters closed whose reply has not gone out go back to the queue, and the notebook is written again. A work that would go back past such a round stays here instead, paused, with the cell as where it stopped, for the owner to decide: the owner's Start takes it there all the same. When the version has none of the cells it walked, it stays here, paused, with nowhere to go back to: once a later flow version that has one is installed, the owner's Start looks again, a paused work not being brought to a new version until it goes on; an engineer's work whose merge does not stand may be started over, or its item cancelled, meanwhile. An engineer's work that stays here asks its project's architect to set it straight, once for each version; an architect's tells the owner alone, by its pause, since the architect it would ask is that work. A work whose graph the version lacks ends, as no cell of the version can run it, and the owner is told why: an architect's work, or a policy setting's of a version before, leaves no hold of its project's new starts for setting it straight, and a policy setting's worktree is removed; an engineer's item gets a new work on the version, at once when a slot is free, else at the head of the queue.",
+      "bring_up": "A work on an older flow version, when it next goes on with no step under way, is brought to the version the engine runs by what it carries now: where it stands, what rows recorded, the returns later cells will read and, in the middle of a cell, the session that cell has open. A new version ends a work when it has no graph for it, and an architect's work that can go on from none of its cells (below). The cell it serves is the one it is doing: where it stopped, else the first of the cells that wait for an answer, else the cell it stands at; it has begun that cell once a round ran there since the work last took a row of a cell that is not one of those every agent's cell shares (the tools, the search, the owner's Start, the answers to who interjected) or of the asking part: a round that asked for tools and got their results, or a return sent back, has begun it, and coming to a cell, or standing at an engine's cell that has not run, has not. The returns later cells will read are the newest own answer of each cell the version reads from where the work stands, and the work's last return, which the cell after it reads by where it came from: the cells the work can still come to by the version's rows, from the cell it stands at and the cells it goes back to; each cell those cells read by its id, through an input's place or a database view that names it; and each cell the engine's own code reads by its id. An answer that no cell the work can still come to reads takes no part. An engineer's work whose merge stands (its merge cell took `merged`, and watching main has not taken `broken_by_merge` since) is judged by the rounds after its merge alone: only their returns count, only the cells they walked are gone back to, and only they are done again; its answers from before the merge take no part, later cells reading them as they are, so that neither the engine nor the owner's Start ever takes it back before its merge. Earlier returns of the cells every agent's cell shares and of the asking part are read only so, and are not counted. Each is compared by what its cell takes now, its outcome alone for an agent's, a field taking too what the flow names as it was earlier (`earlier`): absent, or in its shape then, which no return handed in now may be. It moves where it stands, in the same sessions, its version changed and no round recorded, when the version has the graph, every return counted still fits its cell, the cell it stands at is there, the cell it serves (and the agent's cell of the asking part whose session is open: the one it stands at, or the one whose tools are running) has not changed since it began it its kind, its line or the inputs of its own (their names and sources; those every agent's cell has come with what every return shares), and the cells it goes back to are there as cells of the same kind; a session in the middle of a cell is given what the version changed of its format, task and rows, and a return that does not fit them is sent back. Otherwise it comes here, its version changed, with where it goes back to as where it stopped: the first cell of the work's main way whose return does not fit, or the cell it serves when that changed or a cell it goes back to did not hold, or, when the cell it stands at or serves is gone, the latest cell it walked that the version has. It does that cell again from its start: the round it was in is cut off, the question it had out is withdrawn, as the cell that asked does it again, and what it answered, asked and was told stays. A work never goes back past a round that did what cannot be undone: an engineer's merge, once watching main took it back; and what an architect's round does at once: an action on a work or on new starts (a pause, a resume, a start over, new starts held or let go, an interjection), a word to the owner, a message to another project's architect, a change to observations, a reply that went out to an engineer or to the work that reported, and the item changes made. What has not taken effect is done again: what waits for a second eye is dropped, to be handed in again, its reply with it, the matters closed whose reply has not gone out go back to the queue, and the notebook is written again. An engineer's work that would go back past such a round stays here instead, paused, with the cell as where it stopped, for the owner to decide: the owner's Start takes it there all the same. When the version has none of the cells it walked, it stays here, paused, with nowhere to go back to: once a later flow version that has one is installed, the owner's Start looks again, a paused work not being brought to a new version until it goes on; one whose merge does not stand may be started over, or its item cancelled, meanwhile. An engineer's work that stays here asks its project's architect to set it straight, once for each version. An architect's work that would stay here ends instead, at once (`stop_architect_work`): it has no item to start over or cancel, and waiting here it would hold its project's architect for good. A work whose graph the version lacks ends, as no cell of the version can run it, and the owner is told why: an architect's work, or a policy setting's of a version before, leaves no hold of its project's new starts for setting it straight, and a policy setting's worktree is removed; an engineer's item gets a new work on the version, at once when a slot is free, else at the head of the queue.",
       "stop_work": "A work cancelled, or started over by the owner or its project's architect, which a new work on the version the engine runs takes over, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request.",
       "check_main": "Checks main's red CI mechanically, holding the project's merge queue stopped: runs each red check again on the same commit, looks in the table of known red checks, and runs the red checks on main's commit before the merges since main was last green, in that order, and lists those merges. A later commit of main that is green clears it."
     },
@@ -4493,6 +4494,7 @@
       "queue_main_red": "Watches main's CI for every project, at most once a minute each: when the full CI of main's latest commit has finished and a check that counts against a merge is red, and no matter of main red was queued for that commit, queues one, with the commit, the red checks and their runs. While a matter of main red is open, the project's merge queue is stopped: no work merges onto a red main.",
       "close_planning": "Marks the matters the planning answers as handled by this round: slots free with nothing of the project to start, and a plan of what to do next a flow version before queued.",
       "log_matter": "Keeps the matter's line of the decision log and its two answers, whether it changes the plan and whether the base is wrong, as the session hands them in: the latest hand-in of the matter stands.",
+      "return_matters": "What the architect's work that ends held and did not finish goes back to the project's queue, not handled, for the next work to take afresh: what waits for a second eye is dropped, its item changes marked revised and its reply held dropped, and the matters it closed whose reply has not gone out go back; the matter in hand goes back too, to start its path again, unless a cell of its path that hands in took effect, which closes it as handled by that round. Each matter that goes back or is closed so leaves its sessions, the fork's and the second eye's; one held by an ask of the owner keeps its session, to be taken up again with the answer.",
       "redo_matters": "Undoes what the rounds the architect's work goes back to do again did that has not taken effect: what waits for a second eye is dropped, to be handed in again, and the matters they closed whose reply has not gone out go back to the queue, a reply held dropped, to be written again.",
       "keep_flow_feedback": "Keeps the round's flow feedback where it is, in the round's return the engine keeps with the round, for the owner and the assistant to go through later. It goes to no agent's queue and starts nothing."
     },
@@ -5120,6 +5122,12 @@
       "redo_matters": [
         "batch",
         "architect_queue"
+      ],
+      "return_matters": [
+        "batch",
+        "architect_queue",
+        "sessions",
+        "holds"
       ],
       "check_main": [
         "tool_runs"
@@ -12747,6 +12755,7 @@
       "name": "architect",
       "start": "S0",
       "end": "E2",
+      "cancel": "C2",
       "version": "V1",
       "blocks": [
         {
@@ -12879,10 +12888,12 @@
         {
           "name": "end",
           "nodes": [
-            "E2"
+            "E2",
+            "C2"
           ],
           "entries": [
-            "E2"
+            "E2",
+            "C2"
           ]
         },
         {
@@ -13040,6 +13051,13 @@
             "desc": "The architect's work ends",
             "nodes": [
               "E2"
+            ]
+          },
+          {
+            "name": "ended",
+            "desc": "The flow moved to a version this work cannot go on in: it ended before its end, the matters it had not finished back in the queue, and the architect's next work starts afresh",
+            "nodes": [
+              "C2"
             ]
           }
         ]
@@ -18343,6 +18361,17 @@
           "out": []
         },
         {
+          "id": "C2",
+          "kind": "engine",
+          "title": "Ended: the flow moved on",
+          "step": "stop_architect_work",
+          "do": [
+            "withdraw_blockers",
+            "return_matters"
+          ],
+          "inputs": []
+        },
+        {
           "id": "V1",
           "kind": "engine",
           "title": "Bring the work to the new version",
@@ -18380,7 +18409,7 @@
               "note": "The same work does that cell again from its start, by the new version, in the architect's session."
             },
             {
-              "name": "stuck",
+              "name": "ends",
               "if": [
                 [
                   "inp",
@@ -18390,9 +18419,8 @@
                   ]
                 ]
               ],
-              "to": "@self",
-              "pauses": true,
-              "note": "The work waits here, paused, and the owner is told why, by the pause: the architect it would ask is this work. With a cell to go back to, the owner's Start takes it there all the same; with none, it stays here until the owner starts it once a flow version that has a cell it walked is installed, which looks again."
+              "to": "C2",
+              "note": "The work ends at once, saying why: an architect's work has no item to start over or cancel, and one left waiting here would hold its project's architect for good, every matter in the queue waiting with it. It loses nothing by ending: the base, the notebook, the decision log and the matters are in the records, and the next look starts a new work of the architect when a matter is due."
             }
           ],
           "inenums": {

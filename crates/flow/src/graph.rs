@@ -155,7 +155,8 @@ pub(crate) struct Graph<'s> {
     pub at: BTreeMap<String, usize>,
     pub start: usize,
     pub end: usize,
-    /// The end a work cancelled or taken over ends at, which no row leads to.
+    /// The end a work stopped before its end ends at, which no row leads to but one of the cell for a work on an older
+    /// flow version.
     pub cancel: Option<usize>,
     /// The cell a work on an older flow version comes to when this version cannot take it on where it stands, which
     /// no row leads to.
@@ -1016,8 +1017,10 @@ impl<'s> Graph<'s> {
             .map(idx)
             .transpose()
             .map_err(|e| format!("no such cell for a work on an older flow version: {e}"))?;
-        // The engine brings a work there from wherever it stands, and the rows take it back to the cell it goes back to
-        // or keep it where it is: no row leads in, so the walk never reaches it, and these are all its rows say.
+        // The engine brings a work there from wherever it stands, and the rows take it back to the cell it goes back
+        // to, keep it where it is or end it at the end for a work stopped before its end: no row leads in, so the walk
+        // never reaches it, and these are all its rows say.
+        let cancel_id = cancel.map(|x| cells[x].id.clone());
         if let Some(v) = version {
             let c = &cells[v];
             ensure!(
@@ -1027,9 +1030,11 @@ impl<'s> Graph<'s> {
                     && c.kind == CellKind::Engine
                     && c.step.is_some()
                     && !c.rows.is_empty()
-                    && c.rows.iter().all(|r| r.to == "@stopped" || r.to == "@self"),
+                    && c.rows
+                        .iter()
+                        .all(|r| r.to == "@stopped" || r.to == "@self" || Some(&r.to) == cancel_id.as_ref()),
                 "the cell for a work on an older flow version is an engine's step of its own, whose rows go back to \
-                 where the work stopped or keep it there: {}",
+                 where the work stopped, keep it there or end it at the end for a work stopped before its end: {}",
                 c.id
             );
             let into: Vec<String> = cells
@@ -1044,6 +1049,27 @@ impl<'s> Graph<'s> {
             ensure!(
                 into.is_empty(),
                 "no row leads to the cell for a work on an older flow version: {into:?}"
+            );
+        }
+        // The engine ends a work at the end for a work stopped before its end from wherever it stands, and the cell for
+        // a work on an older flow version brings one there by a row, whose step the engine runs at once: no other row
+        // leads in, since a work brought there by another would stand at an end that did not end it.
+        if let Some(x) = cancel {
+            let into: Vec<String> = cells
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| Some(*i) != version)
+                .flat_map(|(_, m)| {
+                    m.rows
+                        .iter()
+                        .filter(|r| r.to == cells[x].id)
+                        .map(move |r| format!("{} {}", m.id, r.name))
+                })
+                .collect();
+            ensure!(
+                into.is_empty(),
+                "no row leads to the end for a work stopped before its end but one of the cell for a work on an older \
+                 flow version: {into:?}"
             );
         }
         for (i, c) in cells.iter_mut().enumerate() {

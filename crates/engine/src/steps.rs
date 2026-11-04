@@ -1234,6 +1234,9 @@ pub fn engine(
     if step.as_deref() == Some("bring_up") {
         return bring_up(e, w, g, cell, None);
     }
+    if step.as_deref() == Some(architect::STOP) {
+        return architect::stop_work(e, w, g, cell);
+    }
     match step.as_deref() {
         Some("ask_owner") if w.graph == ARCHITECT => {
             return architect::ask_owner(e, w, g, cell, open);
@@ -1434,9 +1437,11 @@ pub struct Brought {
 
 /// The step of the cell a work on an older flow version comes to (a graph's `version`, `bring_up`): its round records
 /// the versions, the cell the work goes back to and why, and the rounds the work does again from (`redoes_from`), and
-/// takes `went_back`, to that cell, or `stuck`, which keeps the work there and pauses it. The engine's loop runs it as
-/// it brings the work there (`brought`); a work there again, as when the owner started one stuck, runs it as its step,
-/// by what its last round there said: one with a cell to go back to goes back, the owner's Start being the word to.
+/// takes `went_back`, to that cell, or, given `stuck`, the row that keeps the work there and pauses it, or the one that
+/// ends it at the graph's end for a work stopped before its end, whose step then runs at once, whatever holds the work
+/// otherwise: that step is how it ends. The engine's loop runs it as it brings the work there (`brought`); a work there
+/// again, as when the owner started one stuck, runs it as its step, by what its last round there said: one with a cell
+/// to go back to goes back, the owner's Start being the word to.
 pub fn bring_up(
     e: &mut Engine,
     w: &Work,
@@ -1476,6 +1481,10 @@ pub fn bring_up(
     let moved = finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)?;
     if let Some(pause) = pause {
         e.pause(w.id, &pause)?;
+    }
+    let now = e.work(w.id)?;
+    if let Some(end) = g.cancel.as_deref().filter(|c| *c == now.pos.at).and_then(|c| g.cell(c)) {
+        return engine(e, &now, g, end, false);
     }
     Ok(moved)
 }

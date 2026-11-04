@@ -761,20 +761,75 @@ fn a_merged_work_the_version_can_take_on_nowhere_is_offered_only_the_start_and_a
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Item #230, A8: an architect's work that the version the engine runs can take on at none of the cells it walked stays
-// at cell `V1`, paused, as an engineer's does; it asks no architect to set it straight, since that architect is this
-// work, and its pause alone tells the owner, saying what the owner's Start will do.
+// An architect's work that the version the engine runs can take on at none of the cells it walked ends at once, at its
+// graph's end for a work stopped before its end, saying why, as what installing the version does told beforehand: it
+// has no item to start over or cancel, and waiting at `V1` it would hold its project's architect for good. What it
+// handed in that waited for the second eye is dropped and the matter goes back to the queue, not handled; it asks no
+// architect to set anything straight, its ask of the owner stays the owner's to answer, and a new work of the
+// architect starts, takes the matter afresh and handles it.
 #[test]
-fn an_architect_work_the_version_can_take_on_nowhere_stays_at_v1_and_asks_no_one() {
+fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_its_matter() {
     let s = setup("nowhere-architect");
-    let (mut e, said) = engine(&s, scripts());
+    let mut agents = scripts();
+    let change = json!({ "kind": "cancel", "item": "1", "goes": "Not needed.", "reason": "Done elsewhere." });
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("I cancel it.")),
+                    (
+                        "outcome.effects",
+                        json!({ "item_changes": [change.clone()], "observation_changes": null }),
+                    ),
+                ],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    say(&mut e, "Look at the item.");
+    say(&mut e, "Drop the parser's item.");
     let arch = e.step(None).unwrap().work.unwrap();
+    // It stands at the second eye, the cancel the owner's words had it hand in waiting there, and it asked the owner.
+    for _ in 0..40 {
+        if e.work(arch).unwrap().pos.at == "G2" {
+            break;
+        }
+        e.advance(arch).unwrap();
+    }
+    assert_eq!(e.work(arch).unwrap().pos.at, "G2", "{}", said.lock().unwrap().join("\n"));
+    let matter: i64 =
+        e.db.conn()
+            .query_row("SELECT id FROM architect_matters WHERE kind = 'owner_words'", [], |r| r.get(0))
+            .unwrap();
+    let held = |e: &Engine| -> (bool, i64, bool) {
+        e.db.conn()
+            .query_row(
+                "SELECT effects_held IS NOT NULL,
+                   (SELECT count(*) FROM architect_item_changes WHERE matter = ?1 AND state = 'collected'),
+                   ?1 IN (SELECT matter FROM architect_queue)
+                 FROM architect_matters WHERE id = ?1",
+                [matter],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap()
+    };
+    assert_eq!(held(&e), (true, 1, true));
+    let ask =
+        e.db.write(Actor::Engine, |tx| {
+            let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [arch], |r| r.get(0))?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                [arch, round],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
     // On the version before, it stood at a cell the version the engine runs lacks, having walked only such a cell.
     older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
-        for (id, like) in [("Z0", "Q0"), ("Z1", "Q2")] {
+        for (id, like) in [("Z0", "Q0"), ("Z1", "G2")] {
             let mut c = g.cell(like).unwrap().clone();
             c.id = id.into();
             g.cells.push(c);
@@ -789,38 +844,154 @@ fn an_architect_work_the_version_can_take_on_nowhere_stays_at_v1_and_asks_no_one
         Ok(())
     })
     .unwrap();
+    let now = e.flow_now;
+    let why = engine::stopped_why(
+        now,
+        "cell Z1 is gone, and the version has none of the cells the work walked",
+    );
+    let cost = trying(&s, flow::Compiled::clone(&e.flow(now).unwrap()))
+        .flow_cost()
+        .unwrap();
+    assert_eq!(
+        cost.works.iter().find(|c| c.id == arch).unwrap().effect,
+        Ok(Effect::Ends {
+            why: why.clone(),
+            taken_over: false,
+        })
+    );
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let w = e.work(arch).unwrap();
     assert_eq!(
-        (w.pos.at.as_str(), w.paused_by.as_deref()),
-        ("V1", Some("engine")),
+        (w.pos.at.as_str(), w.ended.as_deref(), w.paused.as_deref()),
+        ("C2", Some(why.as_str()), None),
         "{log}"
-    );
-    let paused = w.paused.unwrap_or_default();
-    assert!(
-        paused.starts_with(&format!("it cannot go on in flow version {}: ", e.flow_now))
-            && paused
-                .ends_with("Start it once a flow version that has a cell it walked is installed, and it looks again"),
-        "{paused}"
     );
     let v1 = brought(&e, arch);
     assert_eq!(
         v1.iter()
             .map(|(row, out)| (row.as_str(), &out["back_to"]))
             .collect::<Vec<_>>(),
-        [("stuck", &Value::Null)],
+        [("ends", &Value::Null)],
         "{log}"
     );
-    let asked: i64 =
+    let out: Value =
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'",
-                [],
-                |r| r.get(0),
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'C2'",
+                [arch],
+                |r| r.get::<_, String>(0),
+            )
+            .map(|o| serde_json::from_str(&o).unwrap())
+            .unwrap();
+    assert_eq!(
+        (&out["why"], &out["returned"], &out["closed"]),
+        (&json!(why), &json!([matter]), &Value::Null),
+        "{log}"
+    );
+    // The matter is back in the queue, what waited for the second eye dropped.
+    assert_eq!(held(&e), (false, 0, true), "{log}");
+    let count = |e: &Engine, sql: &str| -> i64 { e.db.conn().query_row(sql, [], |r| r.get(0)).unwrap() };
+    assert_eq!(
+        count(&e, "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'"),
+        0,
+        "{log}"
+    );
+    let answer: Option<String> =
+        e.db.conn()
+            .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+            .unwrap();
+    assert_eq!(answer, None, "{log}");
+    // A new work of the architect takes it and handles it: the item is cancelled, once.
+    let cancelled = |e: &mut Engine| -> bool {
+        e.db.conn()
+            .query_row("SELECT cancelled IS NOT NULL FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert!(steps_until(&mut e, 40, cancelled), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let (by, revised, made): (i64, i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT m.handled_work,
+                   (SELECT count(*) FROM architect_item_changes WHERE matter = m.id AND state = 'revised'),
+                   (SELECT count(*) FROM architect_item_changes WHERE matter = m.id AND state = 'made')
+                 FROM architect_matters m WHERE m.id = ?1",
+                [matter],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-    assert_eq!(asked, 0, "{log}");
+    assert!(by > arch, "{log}");
+    assert_eq!((revised, made), (1, 1), "{log}");
+    assert_eq!(path_of(&e, by).first().map(String::as_str), Some("Q0"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An architect's work that ends so, whose matter in hand had its reply go out at the cell that hands it in before the
+// work came to close it, closes it as handled by that round instead of putting it back: handling it again would reply
+// twice. Going back to that cell would do that round again, which is what leaves the work with no cell to go on from.
+#[test]
+fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
+    let s = setup("ended-architect-replied");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look at the item.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    // It stands at the cell after the answer, which replied to the owner, and has not closed the matter.
+    for _ in 0..40 {
+        if e.work(arch).unwrap().pos.at == "G1" {
+            break;
+        }
+        e.advance(arch).unwrap();
+    }
+    assert_eq!(e.work(arch).unwrap().pos.at, "G1", "{}", said.lock().unwrap().join("\n"));
+    let (matter, replied): (i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT m.id, (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = 'H8')
+                 FROM architect_matters m WHERE m.kind = 'owner_words' AND m.handled_round IS NULL",
+                [arch],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    // On the version before, the cell after the answer was one the version the engine runs lacks.
+    older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
+        let mut c = g.cell("G1").unwrap().clone();
+        c.id = "Z1".into();
+        g.cells.push(c);
+    });
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET at = 'Z1' WHERE id = ?1", [arch])?;
+        Ok(())
+    })
+    .unwrap();
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let why = engine::stopped_why(
+        e.flow_now,
+        &format!(
+            "cell Z1 is gone; going back to cell H8 would do round {} again, which ",
+            engine::RoundId::new(arch, replied)
+        ),
+    );
+    let w = e.work(arch).unwrap();
+    assert_eq!(w.pos.at, "C2", "{log}");
+    assert!(w.ended.as_deref().is_some_and(|x| x.starts_with(&why)), "{:?}\n{log}", w.ended);
+    let handled: (Option<i64>, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT handled_work, handled_round FROM architect_matters WHERE id = ?1",
+                [matter],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(handled, (Some(arch), Some(replied)), "{log}");
+    let replies: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds WHERE cell = 'H8'", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(replies, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

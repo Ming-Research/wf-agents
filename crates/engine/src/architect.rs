@@ -189,6 +189,10 @@ const TALK: &str = "H8";
 /// The value the rows of the cell a project's architect waits at to start (`S0`) switch on: whether a matter is due.
 const DUE: &str = "due";
 
+/// The step of the architect's end for a work stopped before its end (its graph's `cancel`), which ends a work the flow
+/// version the engine runs cannot take on ([`stop_work`]).
+pub const STOP: &str = "stop_architect_work";
+
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const ENGINEER_END: &str = "E1";
 
@@ -2564,6 +2568,187 @@ pub fn redo(tx: &Transaction<'_>, work: i64, n: i64) -> Result<(), String> {
     )
     .map_err(sql)?;
     Ok(())
+}
+
+// An architect's work the flow version the engine runs cannot take on.
+
+/// Why an architect's work that flow version `now` cannot take on ends, for the reason `why` its graph's cell for a
+/// work on an older flow version gave, as the work's end records it.
+pub fn stopped_why(now: i64, why: &str) -> String {
+    format!(
+        "the flow moved to version {now}, which this architect work cannot go on in, and the architect starts afresh: \
+         {why}"
+    )
+}
+
+/// The step of the architect's end for a work stopped before its end ([`STOP`], its graph's `cancel`), to which the row
+/// of its graph's cell for a work on an older flow version brings a work the version the engine runs cannot take on,
+/// and which runs at once ([`crate::steps::bring_up`]). In one write its round records why the work ends and what
+/// became of the matters it held; those it held and did not finish go back to the queue ([`return_matters`]); and the
+/// work ends, saying why ([`crate::ending::end`]), so that the next look starts a new work of the project's architect
+/// when a matter is due. Why is what that cell's latest round recorded: the version the work cannot go on in, and why.
+/// The matter in hand is closed instead when a round of its path that hands in took effect since it was taken, as the
+/// graph of the version those rounds ran on has it ([`in_effect`]): handling it again would repeat what went out.
+pub fn stop_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
+    let version = g
+        .version
+        .clone()
+        .ok_or("the architect's graph has no cell for a work on an older flow version")?;
+    let brought = work::rounds_at(e.db.conn(), w.id, &version)?
+        .into_iter()
+        .find_map(|r| r.output)
+        .ok_or_else(|| format!("work {}: no round brought it to cell {version}", w.id))?;
+    let from = brought["from"].as_i64().unwrap_or(w.flow_version);
+    let why = stopped_why(brought["to"].as_i64().unwrap_or(e.flow_now), text(&brought["why"]));
+    let old = e.graph_of(&Work {
+        flow_version: from,
+        ..w.clone()
+    })?;
+    let conn = e.db.conn();
+    let in_hand = match picked(conn, w.id)? {
+        Some(m) => conn
+            .query_row(
+                "SELECT handled_round IS NULL AND withdrawn IS NULL AND asked IS NULL FROM architect_matters
+                 WHERE id = ?1",
+                [m],
+                |r| r.get::<_, bool>(0),
+            )
+            .map_err(sql)?
+            .then_some(m),
+        None => None,
+    };
+    let taken = taken_at(conn, w.id)?;
+    let hands_in = |r: &Round| {
+        r.cell
+            .as_deref()
+            .and_then(|c| db::code_of(ARCHITECT, c))
+            .is_some_and(|c| HANDING_IN.contains(&c))
+    };
+    let closed_by = match in_hand {
+        Some(_) => work::rounds(conn, w.id)?
+            .iter()
+            .filter(|r| r.id.n > taken && hands_in(*r) && in_effect(&old, r).is_some())
+            .map(|r| r.id.n)
+            .max(),
+        None => None,
+    };
+    let project = project_of(w)?.to_string();
+    let projects = e.config.config.projects.clone();
+    let commit = e.config.commit.clone();
+    e.db.write(Actor::Engine, |tx| {
+        let round = work::start_round(tx, w.id, &cell.id, None, &json!({}), &commit, None).map_err(db::Error::Abort)?;
+        let returned = return_matters(tx, w.id, &project, in_hand, closed_by).map_err(db::Error::Abort)?;
+        let output = json!({ "why": why, "returned": returned, "closed": closed_by.and(in_hand) });
+        let ended = Ended {
+            output: Some(output),
+            ..Ended::default()
+        };
+        work::finish_round(tx, round, &ended).map_err(db::Error::Abort)?;
+        crate::ending::end(tx, w.id, crate::ending::End::Stopped(&why), &projects).map_err(db::Error::Abort)
+    })
+    .map_err(sql)?;
+    e.say(&format!("work {} ended: {why}", w.id));
+    Ok(Advance::Moved)
+}
+
+/// The ids a query gives, each its first column.
+fn ids(conn: &Connection, q: &str, args: impl db::rusqlite::Params) -> Result<Vec<i64>, String> {
+    let mut st = conn.prepare(q).map_err(sql)?;
+    st.query_map(args, |r| r.get(0))
+        .map_err(sql)?
+        .collect::<Result<_, _>>()
+        .map_err(sql)
+}
+
+/// The round of a work of the architect in which its latest look at the queue took the matter it has in hand
+/// ([`picked`]); 0 before any.
+fn taken_at(conn: &Connection, work: i64) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT coalesce(max(n), 0) FROM rounds WHERE work = ?1 AND transition IS NOT NULL
+           AND (cell = ?2 OR (cell = 'Q1' AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL))",
+        params![work, LOOK],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
+/// `return_matters`: what an architect's work that ends held and did not finish goes back to its project's queue, not
+/// handled, for the next work to take afresh. What its rounds handed in that waits for the second eye is dropped: its
+/// item changes are marked revised, which lets go of the items they held ([`held_by_checks`]), and the effects and the
+/// reply held are dropped; the matters it closed whose reply has not gone out go back. The matter in hand (`in_hand`,
+/// neither handled nor held by an ask of the owner) goes back too, to start its path again, or, when a round of its
+/// path that hands in took effect (`closed_by`), is closed as handled by that round. Each matter that goes back or is
+/// closed so leaves its sessions; one an ask of the owner holds keeps its own, to be taken up again with the answer. A
+/// hold of the project's new starts to set it straight is then released once nothing keeps it ([`settle_hold`]). Gives
+/// the matters that went back.
+pub fn return_matters(
+    tx: &Transaction<'_>,
+    work: i64,
+    project: &str,
+    in_hand: Option<i64>,
+    closed_by: Option<i64>,
+) -> Result<Vec<i64>, String> {
+    let held = ids(
+        tx,
+        "SELECT id FROM architect_matters
+         WHERE withdrawn IS NULL
+           AND (handled_work = ?1 OR id IS ?2 OR id IN (SELECT matter FROM architect_item_changes WHERE work = ?1))
+           AND (effects_held IS NOT NULL OR reply_held IS NOT NULL
+             OR id IN (SELECT matter FROM architect_item_changes WHERE work = ?1 AND state = 'collected'))
+         ORDER BY id",
+        params![work, in_hand],
+    )?;
+    let list = json!(held).to_string();
+    tx.execute(
+        "UPDATE architect_item_changes SET state = 'revised' WHERE work = ?1 AND state = 'collected'",
+        [work],
+    )
+    .map_err(sql)?;
+    tx.execute(
+        "UPDATE architect_matters SET effects_held = NULL, reply_held = NULL
+         WHERE id IN (SELECT value FROM json_each(?1))",
+        [&list],
+    )
+    .map_err(sql)?;
+    tx.execute(
+        "UPDATE architect_matters SET handled_work = NULL, handled_round = NULL, goes_on_at = NULL
+         WHERE id IN (SELECT value FROM json_each(?1)) AND handled_work = ?2 AND reply IS NULL",
+        params![list, work],
+    )
+    .map_err(sql)?;
+    let mut back = ids(
+        tx,
+        "SELECT id FROM architect_matters WHERE id IN (SELECT value FROM json_each(?1)) AND handled_round IS NULL",
+        [&list],
+    )?;
+    let mut left = back.clone();
+    if let Some(m) = in_hand {
+        match closed_by {
+            Some(n) => {
+                tx.execute(
+                    "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3, goes_on_at = NULL
+                     WHERE id = ?1 AND handled_round IS NULL",
+                    params![m, work, n],
+                )
+                .map_err(sql)?;
+            }
+            None => {
+                tx.execute("UPDATE architect_matters SET goes_on_at = NULL WHERE id = ?1", [m])
+                    .map_err(sql)?;
+                back.push(m);
+            }
+        }
+        left.push(m);
+    }
+    back.sort_unstable();
+    back.dedup();
+    left.sort_unstable();
+    left.dedup();
+    for m in left {
+        sessions::choose::end_matter(tx, m)?;
+    }
+    settle_hold(tx, project)?;
+    Ok(back)
 }
 
 /// What a round of an architect's work did that took effect as it ended and cannot be undone, in words, by its cell

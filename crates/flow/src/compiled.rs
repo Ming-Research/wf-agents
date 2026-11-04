@@ -53,7 +53,8 @@ pub struct CompiledGraph {
     pub name: String,
     pub start: String,
     pub end: String,
-    /// The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
+    /// The end a work stopped before its end ends at: cancelled or taken over, from wherever it stands, or brought
+    /// there by a row of the cell for a work on an older flow version; none in a graph without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel: Option<String>,
     /// The cell a work on an older flow version comes to when this version cannot take it on where it stands, from

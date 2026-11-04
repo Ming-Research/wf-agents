@@ -72,6 +72,7 @@ use serde_json::Value;
 /// The command line agents run in, which the session manager starts.
 pub use sessions::cli as agent;
 
+pub use architect::stopped_why;
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, network_reachable, utc};
 pub use schedule::{Ask, Go, Passed};
@@ -514,8 +515,10 @@ impl Engine {
     }
 
     /// Brings works on an older flow version to the version the engine runs, which the loop does when each next goes
-    /// on with no job in flight, before it dispatches its step ([`Engine::bring`]). A new version ends a work only when
-    /// it has no graph for it, where no cell can run it ([`Engine::bring_back`]).
+    /// on with no job in flight, before it dispatches its step ([`Engine::bring`]). A new version ends a work when it
+    /// has no graph for it, where no cell can run it, and when the row its graph's cell for a work on an older version
+    /// takes leads to the graph's end for a work stopped before its end, as an architect's work that can go on from
+    /// none of its cells ([`Engine::bring_back`]).
     fn bring_up(&mut self, works: &[Work]) -> Result<(), String> {
         for w in works {
             self.bring(w)?;
@@ -581,9 +584,10 @@ impl Engine {
     /// graph's cell for that ([`Engine::version_cell`]), in one write: on the new version, standing there, with the cell
     /// it goes back to (`to`; none when it can go back to none) as where it stopped, and no cell waiting for an answer;
     /// the round it was in cut off, and the question it had out withdrawn, saying why. What it answered, asked and was
-    /// told stays. Then that cell's step runs at once ([`steps::bring_up`]), which keeps it there when it is `stuck`. A
-    /// work whose graph the version lacks, or lacks that cell, ends instead, as no cell of the version can run it, and is
-    /// taken over as a work started over is ([`Engine::take_over`]).
+    /// told stays. Then that cell's step runs at once ([`steps::bring_up`]), which, when it is `stuck`, keeps it there or
+    /// ends it at the graph's end for a work stopped before its end, as the row its graph draws says. A work whose
+    /// graph the version lacks, or lacks that cell, ends instead, as no cell of the version can run it, and is taken
+    /// over as a work started over is ([`Engine::take_over`]).
     fn bring_back(&mut self, w: &Work, to: Option<&str>, why: &str, stuck: bool) -> Result<(), String> {
         let (id, from, now) = (w.id, w.flow_version, self.flow_now);
         let Some(cell) = self.version_cell(w)? else {

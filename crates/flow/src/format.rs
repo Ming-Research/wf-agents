@@ -246,12 +246,15 @@ pub struct Flow {
     /// The cell a work starts at, and the one it ends at.
     pub start: String,
     pub end: String,
-    /// The end a work cancelled or taken over at any cell ends at: the engine ends it there, from wherever it stands,
-    /// so that no row leads to it; the work keeps the cell it stopped at.
+    /// The end a work stopped before its end ends at. A work cancelled or taken over at any cell ends there: the engine
+    /// ends it, from wherever it stands, and the work keeps the cell it stopped at. A row of the cell for a work on an
+    /// older flow version (`version`) may bring one there, and no other row: the engine runs its step at once, which
+    /// ends the work.
     pub cancel: Option<String>,
     /// The cell a work on an older flow version comes to when this version cannot take it on where it stands: the
     /// engine brings it there, from wherever it stands, so that no row leads to it, with the cell it goes back to as
-    /// where it stopped; its rows go back there or keep it where it is.
+    /// where it stopped; its rows go back there, keep it where it is or end it at the end for a work stopped before its
+    /// end (`cancel`).
     pub version: Option<String>,
     /// Parts of the graph: a row from one block into another goes to one of that block's entries.
     pub blocks: Vec<Block>,

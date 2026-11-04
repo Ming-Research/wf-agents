@@ -715,8 +715,8 @@ case!(an_interjection_at_an_engine_step_with_no_counter, "no counter", |v| {
 });
 
 // The cell a work on an older flow version comes to is a cell of the graph, which the engine brings a work to and no
-// row does, and whose rows only take it back to where it stopped or keep it there; only an engine's cell pauses a work
-// by a row.
+// row does, and whose rows only take it back to where it stopped, keep it there or end it at the end for a work stopped
+// before its end, which no other row leads to; only an engine's cell pauses a work by a row.
 case!(
     a_cell_for_an_older_version_that_is_not_there,
     "no such cell for a work on an older flow version",
@@ -726,9 +726,16 @@ case!(
 );
 case!(
     a_row_from_the_cell_for_an_older_version_to_another_cell,
-    "whose rows go back to where the work stopped or keep it there: V1",
+    "keep it there or end it at the end for a work stopped before its end: V1",
     |v| {
         row(v, "V1", "went_back")["to"] = json!("T1");
+    }
+);
+case!(
+    a_row_into_the_end_for_a_work_stopped_before_its_end,
+    "no row leads to the end for a work stopped before its end but one of the cell for a work on an older flow version",
+    |v| {
+        row(v, "T6", "done")["to"] = json!("C1");
     }
 );
 case!(

@@ -38,7 +38,9 @@ pub enum Plan {
     /// does again from its start, for the reason `why`.
     GoBack { to: String, why: String },
     /// The work stays at that cell, paused, for the reason `why`: the version has no cell it can go on from, or going
-    /// back to `back_to` would do again a round whose effect cannot be undone, where the owner's Start takes it.
+    /// back to `back_to` would do again a round whose effect cannot be undone, where the owner's Start takes it. Where
+    /// the row that cell takes then leads to the graph's end for a work stopped before its end, as the architect's does,
+    /// the work ends there instead.
     Stuck { why: String, back_to: Option<String> },
 }
 

@@ -4,14 +4,15 @@
 //! brings a work on an older version up when the work next goes on: the plan ([`Engine::plan`]), the cell a work comes
 //! to when it cannot move ([`Engine::version_cell`]), and that cell's step without its writes ([`steps::arrival`]): the
 //! row it takes there by what it is given, where that row leads, and whether it pauses the work. So a work moves where
-//! it stands, goes from that cell to the cell its row leads to, stays there stuck, or ends. Nothing is written, and the
-//! whole is read as one moment of the database.
+//! it stands, goes from that cell to the cell its row leads to, stays there stuck, or ends: where the version has no
+//! graph for it, or where that row leads to its graph's end for a work stopped before its end. Nothing is written, and
+//! the whole is read as one moment of the database.
 
 use db::rusqlite::OptionalExtension;
 
 use crate::versions::Plan;
 use crate::work::{RoundId, Work};
-use crate::{ENGINEER, Engine, steps};
+use crate::{ENGINEER, Engine, architect, steps};
 
 /// What installing a flow version does with a work when the work next goes on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,8 +38,9 @@ pub enum Effect {
         back_to: Option<String>,
         pause: String,
     },
-    /// It ends, as no cell of the version can run it, for the reason `why`; a new work takes its item over when it is
-    /// an engineer's work on an item (`taken_over`).
+    /// It ends, for the reason `why`: no cell of the version can run it, or the row the version's cell for it takes
+    /// leads to the graph's end for a work stopped before its end; a new work takes its item over when it is an
+    /// engineer's work on an item whose graph the version lacks (`taken_over`).
     Ends { why: String, taken_over: bool },
 }
 
@@ -170,6 +172,15 @@ impl Engine {
             .ok_or_else(|| format!("work {id}: flow version {} has no cell {through}", self.flow_now))?;
         let a = steps::arrival(self, &there, &g, &cell, w.flow_version, &why, stuck)?;
         let next = g.step(&there.pos, &a.row)?;
+        // A row to the graph's end for a work stopped before its end ends the work there at once, as that end's step
+        // says why.
+        if let Some(end) = g.cancel.as_deref().filter(|c| *c == next.at).and_then(|c| g.cell(c)) {
+            let why = match end.step.as_deref() {
+                Some(architect::STOP) => architect::stopped_why(self.flow_now, &why),
+                _ => why,
+            };
+            return Ok(Some(Effect::Ends { why, taken_over: false }));
+        }
         Ok(Some(match a.pause {
             Some(pause) => Effect::Stuck {
                 at: next.at,
