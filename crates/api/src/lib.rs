@@ -40,7 +40,7 @@ pub use read::{
     inputs_now, item, items, observations_by_project, round, snapshot_compiled, version_of, work, works,
 };
 pub use settings::{accounts, save_settings, set_level, settings, switch_account};
-pub use source::{Sources, refs};
+pub use source::{Sources, flow_text, refs};
 pub use system::{SystemAsk, system};
 pub use talk::{CONVERSATION_WINDOW, CONVERSATION_WINDOW_MOST, Talks, conversation, conversations};
 pub use types::*;

@@ -2518,6 +2518,73 @@ pub struct FlowAt {
     pub view: FlowView,
 }
 
+/// What installing a flow would do with each work that is neither ended nor done, as `wf-agents flow cost` tells it: the
+/// version the flow would be stored as, and the works.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct FlowCost {
+    /// The flow version the flow would be stored as.
+    pub version: i64,
+    /// Whether the database has that version already.
+    pub stored: bool,
+    /// The works, those paused included, in the order the command lists them: by what happens to them (what cannot be
+    /// worked out first, then those that go back, those stuck, those that end, those that move and those on the version
+    /// already), and by id within each.
+    pub works: Vec<WorkCost>,
+}
+
+/// A work that is neither ended nor done, with what installing the flow does with it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WorkCost {
+    pub work: i64,
+    /// What the work is and where it stands; none when it cannot be read.
+    pub stands: Option<WorkStands>,
+    pub effect: CostEffect,
+}
+
+/// What a work is and where it stands now.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WorkStands {
+    /// The item it works on; none for a work of a project's architect.
+    pub item: Option<i64>,
+    /// The item's title.
+    pub title: Option<String>,
+    /// For a work of a project's architect, its project.
+    pub project: Option<String>,
+    /// The graph it runs through.
+    pub graph: String,
+    /// The flow version it is on, and the cell it stands at.
+    pub version: i64,
+    pub at: String,
+    /// Who paused it, while it is.
+    pub paused: Option<PausedBy>,
+}
+
+/// What installing a flow does with a work when the work next goes on (one that is paused, once it is started).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CostEffect {
+    /// It cannot be worked out, and the engine stops with this error when it brings the work up.
+    Unreadable { why: String },
+    /// It comes to cell `through` for the reason `why` and goes from there to cell `to`; the rounds from `from` on, a
+    /// count of `redone` in all, are done again.
+    GoesBack {
+        through: String,
+        to: String,
+        why: String,
+        /// The number, in the work, of the first round done again; none when no round is.
+        from: Option<i64>,
+        redone: i64,
+    },
+    /// It stays at cell `at`, paused for `pause`, which gives the reason and says what the owner can do.
+    Stuck { at: String, pause: String },
+    /// It ends, for the reason `why`; a new work takes its item over when `taken_over`.
+    Ends { why: String, taken_over: bool },
+    /// It moves where it stands: the same work at the same cell, in the same sessions.
+    Moves,
+    /// It is on that version already.
+    Stays,
+}
+
 /// The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
 /// are.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]

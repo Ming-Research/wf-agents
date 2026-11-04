@@ -32,6 +32,8 @@ mod built {
     include!(concat!(env!("OUT_DIR"), "/page.rs"));
 }
 
+mod cost;
+
 /// The most of a kept file the interface hands out.
 const FILE_MAX: u64 = 4 * 1024 * 1024;
 
@@ -140,6 +142,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/flows/sources", get(flow_sources))
         .route("/api/v1/flows/lines", get(flow_lines))
         .route("/api/v1/flows/at", get(flow_at))
+        .route("/api/v1/flows/cost", get(flow_cost))
         .route("/api/v1/flows/diff", get(flow_diff))
         .route("/api/v1/flows/{id}", get(flow))
         .route("/api/v1/flows/{id}/view", get(flow_view))
@@ -463,6 +466,24 @@ async fn flow_at(State(app): State<App>, Query(q): Query<At>) -> Result<Json<api
             view: api::view(&compiled),
             compiled: (*compiled).clone(),
         })
+    })
+    .await
+    .map(Json)
+}
+
+/// What installing the flow as `flow/flow.json` is at a git ref of a project's checkout would do with each work that is
+/// neither ended nor done, as `wf-agents flow cost` tells it for the same file: judged by this program's engine and its
+/// database definition, not the ones of the commit the flow is read at, so a flow that does not compile against them,
+/// or does not fit the committed configuration, is refused with the compiler's words (422).
+async fn flow_cost(State(app): State<App>, Query(q): Query<At>) -> Result<Json<api::FlowCost>, Fail> {
+    read(&app, move |_, a| {
+        let checkout = checkout_of(&a.data, &q.project)?;
+        let text = api::flow_text(&checkout, &q.rev)?;
+        let costed = engine::flow_cost::of_text(&a.data, &text).map_err(|e| match e {
+            engine::flow_cost::Refused::Flow(why) => api::Error::Invalid(why),
+            engine::flow_cost::Refused::Data(why) => api::Error::Failed(why),
+        })?;
+        Ok(cost::flow_cost(&costed.cost))
     })
     .await
     .map(Json)
