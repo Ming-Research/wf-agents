@@ -75,13 +75,13 @@ fn asked(conn: &Connection, work: i64, since: i64) -> Result<Option<Asked>, Stri
     }))
 }
 
-/// The latest ask of the owner that put the design to the owner after round `since`, with its answer if it came.
+/// The latest ask of the owner that put the design to the owner at round `since` or after, with its answer if it came.
 fn owner_ask(conn: &Connection, work: i64, since: i64) -> Result<Option<(i64, Option<Value>)>, String> {
     let row: Option<(i64, Option<String>)> = conn
         .query_row(
             &format!(
                 "SELECT a.id, a.answer FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round
-                 WHERE a.work = ?1 AND r.cell IN {} AND a.round > ?2 ORDER BY a.id DESC LIMIT 1",
+                 WHERE a.work = ?1 AND r.cell IN {} AND a.round >= ?2 ORDER BY a.id DESC LIMIT 1",
                 db::cells_sql(ENGINEER, &[CELL])
             ),
             params![work, since],
