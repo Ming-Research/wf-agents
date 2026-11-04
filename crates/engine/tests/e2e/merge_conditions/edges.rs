@@ -343,18 +343,16 @@ fn a_start_over_at_the_gate_closes_its_ask_and_the_condition_holds_the_new_work(
     let (old, ask, _) = at_the_gate_asking(&mut e, item, &said, None);
 
     api::start_over(&mut e.db, old).unwrap();
-    let over = turns_until(&mut e, &Go::default(), |e| works_of(e, item).len() == 2);
-    assert!(over, "{}", said.lock().unwrap().join("\n"));
+    step_until(&mut e, item, &said, "the new work", |e| works_of(e, item).len() == 2);
     let closed = api::answer(&mut e.db, ask, &answer_of("owner", Some("met"), "", None));
     assert!(closed.is_err(), "{closed:?}");
     assert_eq!(status(&e, c), "open");
 
     let new = works_of(&e, item).into_iter().map(|w| w.0).max().unwrap();
     assert_ne!(new, old);
-    let asked = turns_until(&mut e, &Go::default(), |e| {
+    step_until(&mut e, item, &said, "the new work's ask at the gate", |e| {
         works_of(e, item).last().is_some_and(|w| w.0 == new && w.1 == "M1") && open_ask(e, new).is_some()
     });
-    assert!(asked, "{}", said.lock().unwrap().join("\n"));
     assert!(transitions_at(&e, new, "M2").is_empty());
     let (again, body) = open_ask(&e, new).unwrap();
     assert_eq!(body["condition"], json!(c), "{body}");
@@ -366,7 +364,6 @@ fn a_start_over_at_the_gate_closes_its_ask_and_the_condition_holds_the_new_work(
 
     answers(&mut e, again, "owner", Some("met"), "");
     assert_eq!(status(&e, c), "met");
-    e.drain().unwrap();
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
