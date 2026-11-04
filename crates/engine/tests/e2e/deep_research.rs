@@ -3,31 +3,6 @@
 
 use super::*;
 
-/// The latest matter that asks the architect to review the work's design.
-fn review_matter(e: &Engine, work: i64) -> Option<i64> {
-    e.db.conn()
-        .query_row(
-            "SELECT id FROM architect_matters WHERE work = ?1 AND kind = 'engineer_question' AND detail = 'design_review'
-             ORDER BY id DESC LIMIT 1",
-            [work],
-            |r| r.get(0),
-        )
-        .ok()
-}
-
-/// The architect's reply to a matter, taken off the queue as if a work of the architect had it in hand.
-fn architect_replies(e: &mut Engine, matter: i64, text: &str) {
-    e.db.write(Actor::Architect, |tx| {
-        tx.execute(
-            "UPDATE architect_matters SET handled_work = (SELECT min(id) FROM works WHERE graph = 'architect'),
-               handled_round = 1, reply = ?2 WHERE id = ?1",
-            params![matter, json!({ "text": text, "why": "It fits the plan." }).to_string()],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-}
-
 /// The line of the session a work's first round at a cell ran in.
 fn line_at(e: &Engine, work: i64, cell: &str) -> String {
     e.db.conn()

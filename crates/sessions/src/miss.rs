@@ -6,7 +6,11 @@
 //! came up in, so the engine tells the owner of it, with the parts of the command line and of its environment that
 //! differ from the session's round before, where a cause most often shows, or that none does; but a miss after what
 //! comes before the session's messages in the prompt changed since that round (the model, the tools the envelope is
-//! given with, the command line's own version) is what the command line does by design, and is no fault.
+//! given with, the command line's own version) is what the command line does by design, and is no fault. Where a
+//! keep-warm ping that recorded its call came after that round, as one that warms an architect's base for its forks
+//! does, the round is compared with the ping's call instead, which is what the cache kept the session under last: a fork
+//! that misses its base after such a ping is a fault, though what it puts before the messages differs from the base's
+//! own last round.
 
 use std::collections::BTreeSet;
 
@@ -52,8 +56,12 @@ pub struct Differs {
 /// A round's miss of its session's prompt cache.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Miss {
-    /// The session's round before, whose command line this round's is compared with.
+    /// The session's round before, whose command line this round's is compared with unless a ping came after it.
     pub before: RoundId,
+    /// The keep-warm ping since the round before whose call this round's is compared with, the latest that recorded
+    /// one: it ran the command line the session's forks run with, not the round's ([`crate::warm::before_fork`]), and
+    /// what the cache kept is what it put before the messages. None when no such ping came since the round before.
+    pub ping: Option<i64>,
     /// How long after the session's last call the round started, in milliseconds.
     pub after_ms: i64,
     /// The tokens the round's first call read from the cache.
@@ -176,14 +184,24 @@ pub fn missed(
         return Ok(None);
     }
     let written = held - read;
+    // The call the cache kept the session's prompt under last: a ping's since the round before, when it recorded one,
+    // as a ping that warms an architect's base for its forks does, with what a fork puts before the messages.
+    let since = prev.ended_at.unwrap_or(prev.started_at);
+    let pinged = warm::held_pings(conn, cli_session)?
+        .into_iter()
+        .filter(|p| p.usage.is_some() && p.started_at >= since && p.started_at <= started)
+        .filter_map(|p| Some((p.id, p.call?)))
+        .next_back();
+    let compared = pinged.as_ref().map_or(&prev.input["call"], |(_, c)| c);
     Ok(Some(Miss {
         before: prev.id,
+        ping: pinged.as_ref().map(|(id, _)| *id),
         after_ms,
         read,
         written,
         held,
         cost_usd: model.and_then(|m| cost::rewritten(m, usage, written)),
-        differs: differs(&prev.input["call"], call),
+        differs: differs(compared, call),
     }))
 }
 
@@ -353,6 +371,7 @@ mod tests {
         let before_messages = |now: &Value| -> Vec<String> {
             let miss = Miss {
                 before: RoundId::new(1, 1),
+                ping: None,
                 after_ms: 0,
                 read: 0,
                 written: 1,

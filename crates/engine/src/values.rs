@@ -314,18 +314,6 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
     Ok(n > 0)
 }
 
-/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the owner's
-/// approval given where the change needs it.
-pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<String>, String> {
-    for d in dependencies(e, item.id)? {
-        if !item_merged(e, d)? {
-            return Ok(Some(format!("item {d}, which this item depends on, to be merged")));
-        }
-    }
-    Ok((crate::approval::gate(e.db.conn(), &e.project_of(w)?, w)? == "owner")
-        .then(|| "the owner's approval of the change".to_string()))
-}
-
 /// The head the last review started from; none before the first review: of its re-check, or of its second pass.
 pub fn reviewed_head(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
     let recheck = answered(e, w, g, "T4")?.into_iter().next();
