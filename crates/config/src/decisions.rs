@@ -62,8 +62,8 @@ pub fn in_force(p: &Project, commit: &str) -> Result<Vec<(String, String)>, Stri
 }
 
 /// The path from the repository's root of the decision's file an agent names: by that path, as the decisions in force
-/// are given (`decisions/one.md`), or by its path in the directory of decisions (`one.md`), which is put under it. A path
-/// that leaves the repository or starts from outside it, and one that names no file of the directory or its
+/// are given (`decisions/one.md`), or by its path in the directory of decisions (`one.md`), which is put under it. A
+/// path that leaves the repository or starts from outside it, and one that names no file of the directory or its
 /// [`README`], name no decision: the error says so.
 pub fn named(p: &Project, path: &str) -> Result<String, String> {
     let dir = dir(p);
@@ -177,8 +177,8 @@ pub fn history(p: &Project, path: &str) -> Result<Vec<Version>, String> {
     let mut merges = Vec::new();
     for record in log.split(RECORD).filter(|r| !r.trim_matches(['\0', '\n']).is_empty()) {
         let (made_by, parents, rest) = commit_of(record)?;
-        // After the fields, the status of the file and its paths, each closed by a NUL: `M`, `A` or `D` and the path, or
-        // `R<score>` or `C<score>` and the path it came from and the path it went to.
+        // After the fields, the status of the file and its paths, each closed by a NUL: `M`, `A` or `D` and the path,
+        // or `R<score>` or `C<score>` and the path it came from and the path it went to.
         let status: Vec<&str> = rest
             .split('\0')
             .map(|s| s.trim_start_matches('\n'))
@@ -454,9 +454,9 @@ mod tests {
     }
 
     // The history of a decision is each version main's first-parent line had of it, newest first: made, rewritten,
-    // moved, rewritten on a branch merged in, whose commits stand beside the merge, and withdrawn; each with its commit,
-    // date and whole message, and its text but for the deletion. A commit of the checkout's own, not on main, is none
-    // of it, and a path main never had has none.
+    // moved, rewritten on a branch merged in, whose commits stand beside the merge, and withdrawn; each with its
+    // commit, date and whole message, and its text but for the deletion. A commit of the checkout's own, not on main,
+    // is none of it, and a path main never had has none.
     #[test]
     fn a_decision_s_history_is_each_version_main_had_with_the_commit_that_made_it() {
         let r = Repos::new("history");

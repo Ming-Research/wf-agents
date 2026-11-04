@@ -1488,8 +1488,8 @@ fn query(e: &mut Engine, round: RoundId, n: usize, req: &Value) -> Result<Value,
     })
 }
 
-/// The history of one of the project's decisions on its main ([`config::decisions::history`]), for the work's project, a
-/// work of an architect's included. A path that names no decision's file is told so, and nothing runs.
+/// The history of one of the project's decisions on its main ([`config::decisions::history`]), for the work's project,
+/// a work of an architect's included. A path that names no decision's file is told so, and nothing runs.
 fn decision_history(
     e: &mut Engine,
     w: &Work,
@@ -1518,8 +1518,8 @@ fn decision_history(
 }
 
 /// What the tool decision_history gives for the versions of the decision's file at `path`, newest first: each one, or,
-/// when they are too long to give here, none and what `save` gives for them written one JSON object per line, which says
-/// where they were saved ([`rows_given`]); and when there are none, that main never had the file.
+/// when they are too long to give here, none and what `save` gives for them written one JSON object per line, which
+/// says where they were saved ([`rows_given`]); and when there are none, that main never had the file.
 fn history_given(
     path: &str,
     main: &str,
