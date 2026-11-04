@@ -262,7 +262,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     };
     let main = pin.commit.clone();
     // The branch takes the latest main in before the cell's first round each time the work comes to it, for a cell
-    // told what that brought (`main_changes`).
+    // told what that brought (`main_changes`): the commit the round is pinned to, with no fetch of its own.
     e.caught_up = None;
     if crate::catch_up::reads(cell)
         && let Some(wt) = w.worktree.as_deref()
@@ -270,7 +270,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         && crate::catch_up::first_round(e, w, g, cell)?
     {
         let project = e.project_of(w)?;
-        e.caught_up = Some((w.id, crate::catch_up::bring(wt, &project.main)));
+        e.caught_up = Some((w.id, crate::catch_up::bring(wt, &project.main, main.as_deref())));
     }
     let line_of_cell = crate::line_of(g, cell);
     let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;

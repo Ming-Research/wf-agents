@@ -79,8 +79,7 @@ fn an_imported_item_takes_over_its_branch_and_pull_request() {
         Ok(())
     })
     .unwrap();
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    agent_rounds_to(&mut e, item, 1);
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(

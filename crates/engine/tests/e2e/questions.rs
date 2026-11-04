@@ -118,18 +118,15 @@ fn questions_of_engineers(e: &Engine) -> Vec<(bool, bool)> {
 }
 
 /// The engine of a test whose item's work asks its architect from adversarial testing (`T1`), a cell of the adversarial
-/// line, while words wait for the engineer's line: the design chooses adversarial testing, so the work goes on to it
-/// after its implementation; when it stands at `T1`, `words` says the words to it, and the engine takes steps until the
+/// line, while words wait for the engineer's line: the review's details ask for adversarial testing, so the work goes
+/// on to it after the review; when it stands at `T1`, `words` says the words to it, and the engine takes steps until the
 /// question's cell (`A2`) has had its first turn. Gives the engine, what it said and the work.
 fn t1_asks_with_words_waiting(
     s: &Setup,
     words: impl FnOnce(&mut Engine, i64),
 ) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
     let mut agents = scripts();
-    agents.insert(
-        "D11",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "needed")], Vec::new())),
-    );
+    agents.insert("T3", adversarial());
     agents.insert("T1", asks_about_a_gap("The test paths do not name the page's tests."));
     let reply = json!({ "text": "Leave the page's tests out.", "why": "They are another work's." });
     agents.insert(

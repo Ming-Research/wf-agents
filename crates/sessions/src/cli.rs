@@ -2028,10 +2028,10 @@ mod tests {
         let reader = envelope(g, Some("librarian"));
         let brief_schema = g.cell("R0").unwrap().schema.clone().unwrap();
         let mut brief = samples()["R0"][0]["json"].clone();
-        brief["outcome"]["ask"] = Value::Null;
-        assert!(refused(&reader, &brief, "").is_some_and(|r| r.contains("ask")));
+        brief["outcome"]["pause"] = Value::Null;
+        assert!(refused(&reader, &brief, "").is_some_and(|r| r.contains("pause")));
         assert!(!flow::valid(&brief_schema, &brief));
-        assert_eq!(flow::without_null_options(&brief_schema, &mut brief), ["outcome.ask"]);
+        assert_eq!(flow::without_null_options(&brief_schema, &mut brief), ["outcome.pause"]);
         assert!(flow::valid(&brief_schema, &brief), "{brief}");
         // What the form requires is not left out.
         let mut required = done_with(json!([{ "kind": "workaround", "what": "A thing", "why": null }]));
@@ -2040,7 +2040,7 @@ mod tests {
         assert!(!flow::valid(&schema, &required));
         // A value of nothing but nulls is no form's.
         let mut only = samples()["R0"][0]["json"].clone();
-        only["outcome"] = json!({ "ask": null });
+        only["outcome"] = json!({ "pause": null });
         assert_eq!(
             flow::without_null_options(&brief_schema, &mut only),
             Vec::<String>::new()

@@ -982,49 +982,6 @@ impl FakeHub {
     }
 }
 
-/// What the message says before the numbers of the columns a review answers this round, when it does not give the
-/// columns whole.
-const COLUMNS_TO_ANSWER: &str = "Columns to answer this round, one row each, whether or not the change touches them: ";
-
-/// What the message says first when a review of disputes only is given every column, since a number it was to look at
-/// stands for other words than it did.
-const COLUMNS_CHANGED: &str = "The columns changed since your last review, so all of them are listed";
-
-/// The ids of the columns a review answers, as a reviewer that has only the message reads them: the line that lists
-/// them, which a message that does not give the columns whole has; otherwise the table given whole under its address.
-/// A table given as what changed, or referred to, with no such line says nothing a reader could answer by, and gives
-/// none.
-fn columns(prompt: &str) -> Vec<String> {
-    let Some(start) = prompt.find("## Review table") else {
-        return Vec::new();
-    };
-    let section = &prompt[start..];
-    // The line may begin with what is said of columns that changed.
-    if let Some(line) = section
-        .lines()
-        .find_map(|l| l.find(COLUMNS_TO_ANSWER).map(|at| &l[at + COLUMNS_TO_ANSWER.len()..]))
-    {
-        return line.trim_end_matches('.').split(", ").map(str::to_string).collect();
-    }
-    let body: Vec<&str> = section.lines().skip(1).skip_while(|l| l.trim().is_empty()).collect();
-    if !body.first().is_some_and(|l| l.starts_with("### ")) {
-        return Vec::new();
-    }
-    let lines: Vec<&str> = body[1..]
-        .iter()
-        .skip_while(|l| l.trim().is_empty())
-        .take_while(|l| !l.trim().is_empty())
-        .copied()
-        .collect();
-    if lines.first().is_some_and(|l| l.starts_with("What changed since")) {
-        return Vec::new();
-    }
-    lines
-        .iter()
-        .filter_map(|l| l.split_once(". ").map(|(id, _)| id.to_string()))
-        .collect()
-}
-
 struct Setup {
     root: PathBuf,
     data: PathBuf,
@@ -1215,6 +1172,34 @@ fn scripts() -> BTreeMap<&'static str, Script> {
     s
 }
 
+/// The default scripts with the research finding that the work must be designed first.
+fn designing() -> BTreeMap<&'static str, Script> {
+    let mut s = scripts();
+    s.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![
+                    ("outcome.can_start", "yes"),
+                    ("outcome.departs", "no"),
+                    ("outcome.to_decide", "designs"),
+                ],
+                vec![(
+                    "outcome.can_start.acceptance",
+                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
+                )],
+            )
+        }),
+    );
+    s
+}
+
+/// The review's details finding nothing to fix and a change of the kinds that go wrong silently: adversarial testing
+/// runs next.
+fn adversarial() -> Script {
+    Box::new(|_: &Request, _: usize| (vec![("outcome.silent", "yes"), ("outcome.must_fix", "no")], Vec::new()))
+}
+
 /// The default script of `cell`, setting besides what `extra` gives for its `n`th round, such as what the round used.
 fn adding(cell: &str, extra: impl Fn(usize) -> Vec<(&'static str, Value)> + Send + Sync + 'static) -> Script {
     let base = scripts()
@@ -1224,19 +1209,6 @@ fn adding(cell: &str, extra: impl Fn(usize) -> Vec<(&'static str, Value)> + Send
         let (pick, mut set) = base(r, n);
         set.extend(extra(n));
         (pick, set)
-    })
-}
-
-/// A review that answers every column its message tells it to as passing, and only those: it reads the message alone,
-/// as a review that holds nothing of its session's earlier prompts would. `also` gives the choices beside the table
-/// for the review's `n`th round: the first review judges the skipping of adversarial testing, a re-review does not.
-fn answers_columns(also: impl Fn(usize) -> Vec<(&'static str, &'static str)> + Send + Sync + 'static) -> Script {
-    Box::new(move |r: &Request, n: usize| {
-        let cols: Vec<Value> = columns(&r.prompt)
-            .into_iter()
-            .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
-            .collect();
-        (also(n), vec![("outcome.columns", json!(cols))])
     })
 }
 
@@ -1474,51 +1446,6 @@ fn step_until(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>, what: &
         rounds.join("; "),
         said.lock().unwrap().join("\n")
     );
-}
-
-/// A table review that gives the last column of its table a finding, R1, and answers the others as passing; at each
-/// later round it hands in only `later`, its answers to its earlier findings, one list for each round.
-fn review_with_a_finding(later: Vec<Value>) -> Script {
-    Box::new(move |r: &Request, n: usize| {
-        if n > 1 {
-            return (Vec::new(), vec![("outcome.previous", later[n - 2].clone())]);
-        }
-        let ids = columns(&r.prompt);
-        let evidence = json!({ "files": [], "ran": [], "nodes": [] });
-        let cols: Vec<Value> = ids
-            .iter()
-            .enumerate()
-            .map(|(i, id)| {
-                if i + 1 < ids.len() {
-                    json!({ "id": id, "verdict": "pass", "evidence": evidence })
-                } else {
-                    json!({ "id": id, "verdict": "findings", "evidence": evidence, "findings": [
-                        { "fid": "R1", "where": "the pull request", "what": "It says too little.", "fix": "Say more." }
-                    ] })
-                }
-            })
-            .collect();
-        (
-            vec![("outcome.no_adversarial", "stands")],
-            vec![("outcome.columns", json!(cols))],
-        )
-    })
-}
-
-/// A fix that answers its one row in each round with `rows`, one list for each round, and makes no commit: the head it
-/// hands in is the one the work pushed already. The string `HEAD` in a row stands for that head.
-fn fix_answering(rows: Vec<Value>) -> Script {
-    Box::new(move |r: &Request, n: usize| {
-        let head = git(&r.worktree, &["rev-parse", "HEAD"]);
-        let rows = rows[n - 1].to_string().replace("HEAD", &head);
-        (
-            Vec::new(),
-            vec![
-                ("outcome.head", json!(head)),
-                ("outcome.rows", serde_json::from_str(&rows).unwrap()),
-            ],
-        )
-    })
 }
 
 /// What the latest round of choosing what runs next planned for the review, and for adversarial testing.
@@ -2363,17 +2290,6 @@ fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
         }
         e.advance(work).unwrap();
     }
-}
-
-/// A matter's body.
-fn matter_body(e: &Engine, matter: i64) -> Value {
-    let body: String =
-        e.db.conn()
-            .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| {
-                r.get(0)
-            })
-            .unwrap();
-    serde_json::from_str(&body).unwrap()
 }
 
 /// The ask of the owner that parks a matter, with the cell the matter goes back to with the owner's reply; none while

@@ -3,28 +3,6 @@
 
 use super::*;
 
-/// The default scripts with the research finding that the work must be designed first.
-fn designing() -> BTreeMap<&'static str, Script> {
-    let mut s = scripts();
-    s.insert(
-        "R1",
-        Box::new(|_: &Request, _: usize| {
-            (
-                vec![
-                    ("outcome.can_start", "yes"),
-                    ("outcome.departs", "no"),
-                    ("outcome.to_decide", "designs"),
-                ],
-                vec![(
-                    "outcome.can_start.acceptance",
-                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
-                )],
-            )
-        }),
-    );
-    s
-}
-
 /// The latest matter that asks the architect to review the work's design.
 fn review_matter(e: &Engine, work: i64) -> Option<i64> {
     e.db.conn()

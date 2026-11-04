@@ -10,8 +10,10 @@ use super::*;
 fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let s = setup("repeat");
     let (mut e, said, item) = start(&s, scripts());
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    // The start, the gathering of the background and the research, whose round is the third.
+    for _ in 0..3 {
+        e.step(None).unwrap();
+    }
     let (work, _, _) = state(&e, item).unwrap();
     e.db.write(Actor::Engine, |tx| {
         tx.execute(

@@ -70,9 +70,9 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
     let s = setup("own_rounds");
     let path = config::database(&s.data);
     let mut scripts = scripts();
-    // While the round of cell `R1` runs, another connection writes a round of the architect's work over before.
+    // While the round of cell `R0` runs, another connection writes a round of the architect's work over before.
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, _: usize| {
             let mut db = db::Db::open(&path).unwrap();
             db.write(Actor::Engine, |tx| {
@@ -106,7 +106,7 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
                 |r| r.get(0),
             )
             .unwrap();
-    assert_eq!(r1.cell.as_deref(), Some("R1"), "{r1:?}\n{log}");
+    assert_eq!(r1.cell.as_deref(), Some("R0"), "{r1:?}\n{log}");
     assert_eq!(architects, 2, "{log}");
     assert_eq!(r1.rounds, [engine::RoundId::new(work, n)], "{log}");
     // A round of the work left open, as by an engine that stopped while it ran: the next step cuts it off, and reports
@@ -189,7 +189,7 @@ fn a_forked_context_shares_what_lasts_between_steps() {
 }
 
 // Two works on two ready items of one project, with two slots free on the machine, run their agents' rounds side by
-// side: each round of `R1` waits until the other's has come, or ten seconds, so that rounds taken one after the other
+// side: each round of `R0` waits until the other's has come, or ten seconds, so that rounds taken one after the other
 // do not overlap. While both run, the engine says both works' rounds run, which the owner's page shows as running.
 #[test]
 fn two_works_run_their_agents_rounds_side_by_side() {
@@ -197,7 +197,7 @@ fn two_works_run_their_agents_rounds_side_by_side() {
     let at = met.clone();
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, _: usize| {
             at.meet(2);
             (Vec::new(), Vec::new())
@@ -210,7 +210,7 @@ fn two_works_run_their_agents_rounds_side_by_side() {
         ..Hooks::default()
     };
     let (s, mut e, said, first, second) = two_works_with("side-by-side", agents, hooks);
-    // The first pass starts both works; the second runs the round of `R1` of each.
+    // The first pass starts both works; the second runs the round of `R0` of each.
     e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -218,7 +218,7 @@ fn two_works_run_their_agents_rounds_side_by_side() {
         e.db.conn()
             .query_row(
                 "SELECT r.started_at, r.ended_at FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND r.cell = 'R1'",
+                 WHERE w.item = ?1 AND r.cell = 'R0'",
                 [item],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -452,9 +452,9 @@ fn a_work_paused_beside_another_stops_after_its_round_and_the_other_goes_on() {
     let hold = Gate::default();
     let (p, h) = (pausing.clone(), hold.clone());
     let mut agents = scripts();
-    // The round of `R1` of the work to pause waits at the gate while the test pauses the work.
+    // The round of `R0` of the work to pause waits at the gate while the test pauses the work.
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |r: &Request, _: usize| {
             if r.work == p.load(Ordering::SeqCst) {
                 h.pass();
@@ -478,7 +478,7 @@ fn a_work_paused_beside_another_stops_after_its_round_and_the_other_goes_on() {
     let took: Option<String> =
         e.db.conn()
             .query_row(
-                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R0'",
                 [a],
                 |r| r.get(0),
             )
@@ -571,9 +571,9 @@ fn a_halt_dispatches_no_step_and_lets_the_step_under_way_end() {
     let hold = Gate::default();
     let (f, h) = (failing.clone(), hold.clone());
     let mut agents = scripts();
-    // The round of `R1` of the work to fail fails once, when the other's round has come to the gate, where it waits.
+    // The round of `R0` of the work to fail fails once, when the other's round has come to the gate, where it waits.
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |r: &Request, _: usize| {
             if f.compare_exchange(r.work, 0, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
@@ -610,7 +610,7 @@ fn a_halt_dispatches_no_step_and_lets_the_step_under_way_end() {
     let took: Option<String> =
         e.db.conn()
             .query_row(
-                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R0'",
                 [b],
                 |r| r.get(0),
             )
@@ -643,7 +643,7 @@ fn a_step_whose_thread_panics_pauses_its_work_and_lets_it_go_on_later() {
     let p = panicking.clone();
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |r: &Request, _: usize| {
             if r.work == p.load(Ordering::SeqCst) {
                 panic!("a scripted fault in the agent's round");
@@ -658,7 +658,7 @@ fn a_step_whose_thread_panics_pauses_its_work_and_lets_it_go_on_later() {
     let paused = turns_until(&mut e, &Go::default(), |e| {
         paused_by(e, a).is_some()
             && !e.in_flight().contains(&a)
-            && transitions_at(e, b, "R1").iter().any(Option::is_some)
+            && transitions_at(e, b, "R0").iter().any(Option::is_some)
     });
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -677,11 +677,11 @@ fn a_step_whose_thread_panics_pauses_its_work_and_lets_it_go_on_later() {
     assert!(e.in_flight().is_empty(), "{log}");
     // The paused work holds no slot: the other holds one of the two at most.
     assert!(e.free_slots().unwrap() >= 1, "{log}");
-    // The owner lets it go on: its next round of `R1` runs and ends.
+    // The owner lets it go on: its next round of `R0` runs and ends.
     panicking.store(0, Ordering::SeqCst);
     api::resume(&mut e.db, a).unwrap();
     let again = turns_until(&mut e, &Go::default(), |e| {
-        transitions_at(e, a, "R1").iter().any(Option::is_some)
+        transitions_at(e, a, "R0").iter().any(Option::is_some)
     });
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -700,7 +700,7 @@ fn the_owner_s_step_of_a_work_whose_step_runs_waits_until_that_step_ends() {
     let h = hold.clone();
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             if n == 1 {
                 h.pass();
@@ -714,7 +714,7 @@ fn the_owner_s_step_of_a_work_whose_step_runs_waits_until_that_step_ends() {
     let log = said.lock().unwrap().join("\n");
     assert!(came, "{log}");
     let work = state(&e, item).unwrap().0;
-    // The round of `R1` under way is among them.
+    // The round of `R0` under way is among them.
     let rounds = rounds_after(&e, work, 0).0;
     let step = Go {
         pause: held_but(&[], &[]),
@@ -730,7 +730,7 @@ fn the_owner_s_step_of_a_work_whose_step_runs_waits_until_that_step_ends() {
     let mine: Vec<&Stepped> = reaped.iter().filter(|s| s.work == Some(work)).collect();
     assert_eq!(mine.len(), 1, "{reaped:?}\n{log}");
     assert_eq!(mine[0].asked, None, "{reaped:?}\n{log}");
-    assert_eq!(transitions_at(&e, work, "R1").len(), 1, "{log}");
+    assert_eq!(transitions_at(&e, work, "R0").len(), 1, "{log}");
     assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
     assert_eq!(paused_by(&e, work), None, "{log}");
     // The Step, still asked, is the next turn's: one round, and the work is the owner's, paused.
@@ -801,7 +801,7 @@ fn of_two_waits_set_together_the_one_that_ends_later_holds() {
     two_waits_set_together("later-wait-first", offline, limit, reset);
 }
 
-/// Two works whose rounds of `R1` run side by side and fail, the first to come with `first` and the other, once that
+/// Two works whose rounds of `R0` run side by side and fail, the first to come with `first` and the other, once that
 /// wait stands, with `second`; the wait for the usage limit that resets at `reset`, in seconds, is the one that holds.
 fn two_waits_set_together(name: &str, first: String, second: String, reset: i64) {
     let at = Gate::default();
@@ -809,7 +809,7 @@ fn two_waits_set_together(name: &str, first: String, second: String, reset: i64)
     let after = then.clone();
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             let report = match n {
                 1 => first.clone(),
@@ -825,7 +825,7 @@ fn two_waits_set_together(name: &str, first: String, second: String, reset: i64)
         }),
     );
     let (s, mut e, said, a, b) = two_works_with(name, agents, Hooks::default());
-    // The first pass starts both works; the next dispatches the round of `R1` of each.
+    // The first pass starts both works; the next dispatches the round of `R0` of each.
     e.tick().unwrap();
     then.shut();
     e.dispatch(&Go::default()).unwrap();
@@ -854,7 +854,7 @@ fn two_waits_set_together(name: &str, first: String, second: String, reset: i64)
     for item in [a, b] {
         let (_, at, paused) = state(&e, item).unwrap();
         assert_eq!(paused, None, "{log}");
-        assert_ne!(at, "R1", "{log}");
+        assert_ne!(at, "R0", "{log}");
     }
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -873,7 +873,7 @@ fn a_cause_told_once_is_not_told_again_after_another_cause_between() {
     let (g2, g3) = (second.clone(), third.clone());
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             let report = match n {
                 1 | 3 => limit.clone(),
@@ -910,7 +910,7 @@ fn a_cause_told_once_is_not_told_again_after_another_cause_between() {
         Ok(())
     })
     .unwrap();
-    // The first pass starts the three works; the next dispatches the round of `R1` of each.
+    // The first pass starts the three works; the next dispatches the round of `R0` of each.
     e.tick().unwrap();
     second.shut();
     third.shut();
@@ -948,7 +948,7 @@ fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
     let reset = db::now() / 1000 + 3600;
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             if n == 1 {
                 let report = format!("Claude AI usage limit reached|{reset}");
@@ -972,7 +972,7 @@ fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
         ..Hooks::default()
     };
     let (s, mut e, said, first, second) = two_works_with("halt-before-a-round", agents, hooks);
-    // The first pass starts both works; the next dispatches the round of `R1` of each.
+    // The first pass starts both works; the next dispatches the round of `R0` of each.
     e.tick().unwrap();
     let b = state(&e, second).unwrap().0;
     stop.shut();
@@ -992,7 +992,7 @@ fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
     let rounds_at = |e: &Engine, work: i64| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R0'",
                 [work],
                 |r| r.get(0),
             )
@@ -1000,7 +1000,7 @@ fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
     };
     assert_eq!(rounds_at(&e, b), 0, "{log}");
     let (_, at, paused) = state(&e, second).unwrap();
-    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!((at.as_str(), paused), ("R0", None), "{log}");
     assert_eq!(failed_kinds(&e), ["usage_limit"], "{log}");
     // Once the limit resets, both works go on from their cell.
     e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
@@ -1009,7 +1009,7 @@ fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
     for item in [first, second] {
         let (_, at, paused) = state(&e, item).unwrap();
         assert_eq!(paused, None, "{log}");
-        assert_ne!(at, "R1", "{log}");
+        assert_ne!(at, "R0", "{log}");
     }
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -1023,7 +1023,7 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     let reset = db::now() / 1000 + 3600;
     let mut agents = scripts();
     agents.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             if n == 1 {
                 let report = format!("Claude AI usage limit reached|{reset}");
@@ -1073,7 +1073,7 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     let rounds_at = |e: &Engine| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R0'",
                 [b],
                 |r| r.get(0),
             )

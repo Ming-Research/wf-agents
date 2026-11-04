@@ -6616,6 +6616,18 @@
               "desc": "Whether the change departs from a decision in force or from an option the owner chose for a decision point of the item, with one sentence of why",
               "branches": [
                 {
+                  "value": "no",
+                  "desc": "It departs from none",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "Why, in one sentence"
+                    }
+                  ]
+                },
+                {
                   "value": "yes",
                   "desc": "It departs: deep research takes it, where a decision may change",
                   "fields": [
@@ -6638,18 +6650,6 @@
                       "desc": "What happens if it is followed"
                     }
                   ]
-                },
-                {
-                  "value": "no",
-                  "desc": "It departs from none",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Why, in one sentence"
-                    }
-                  ]
                 }
               ]
             },
@@ -6661,18 +6661,6 @@
               "desc": "Whether a choice between reasonable designs is left, which is not yours to make alone, with one sentence of why. What is the project's or the owner's you ask instead",
               "branches": [
                 {
-                  "value": "designs",
-                  "desc": "A choice between reasonable designs is left: deep research takes it",
-                  "fields": [
-                    {
-                      "name": "what",
-                      "title": "The choice",
-                      "type": "text",
-                      "desc": "The reasonable designs to choose between, and why the choice is not plain"
-                    }
-                  ]
-                },
-                {
                   "value": "no",
                   "desc": "Nothing is left to choose",
                   "fields": [
@@ -6681,6 +6669,18 @@
                       "title": "Why",
                       "type": "text",
                       "desc": "Why, in one sentence"
+                    }
+                  ]
+                },
+                {
+                  "value": "designs",
+                  "desc": "A choice between reasonable designs is left: deep research takes it",
+                  "fields": [
+                    {
+                      "name": "what",
+                      "title": "The choice",
+                      "type": "text",
+                      "desc": "The reasonable designs to choose between, and why the choice is not plain"
                     }
                   ]
                 }
@@ -8348,6 +8348,18 @@
               "desc": "Whether the change departs from a decision in force or from an option the owner chose, with one sentence of why",
               "branches": [
                 {
+                  "value": "no",
+                  "desc": "It departs from none",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "Why, in one sentence"
+                    }
+                  ]
+                },
+                {
                   "value": "yes",
                   "desc": "It departs: deep research takes it, where a decision may change",
                   "fields": [
@@ -8362,18 +8374,6 @@
                       "title": "Why",
                       "type": "text",
                       "desc": "Why it departs"
-                    }
-                  ]
-                },
-                {
-                  "value": "no",
-                  "desc": "It departs from none",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Why, in one sentence"
                     }
                   ]
                 }
@@ -8931,8 +8931,8 @@
               "desc": "Whether anything must be fixed before the change can merge, with one sentence of why",
               "branches": [
                 {
-                  "value": "yes",
-                  "desc": "Something must be fixed: the engineer answers each finding",
+                  "value": "no",
+                  "desc": "Nothing must be fixed",
                   "fields": [
                     {
                       "name": "why",
@@ -8943,8 +8943,8 @@
                   ]
                 },
                 {
-                  "value": "no",
-                  "desc": "Nothing must be fixed",
+                  "value": "yes",
+                  "desc": "Something must be fixed: the engineer answers each finding",
                   "fields": [
                     {
                       "name": "why",
@@ -8964,18 +8964,6 @@
               "desc": "Whether the change is of the kinds that go wrong silently (a compiler, a checker, a runtime, a data format, concurrency, security, parsing), with one sentence of why",
               "branches": [
                 {
-                  "value": "yes",
-                  "desc": "It is: an adversary tests it next",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Which kind, and where an adversary should attack"
-                    }
-                  ]
-                },
-                {
                   "value": "no",
                   "desc": "It is not",
                   "fields": [
@@ -8984,6 +8972,18 @@
                       "title": "Why",
                       "type": "text",
                       "desc": "Why, in one sentence"
+                    }
+                  ]
+                },
+                {
+                  "value": "yes",
+                  "desc": "It is: an adversary tests it next",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "Which kind, and where an adversary should attack"
                     }
                   ]
                 }

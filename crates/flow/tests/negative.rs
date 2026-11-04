@@ -761,7 +761,7 @@ case!(
     a_row_into_the_receiving_cell_not_marked_as_taking_an_interjection,
     "side entry",
     |v| {
-        obj(row(v, "M1", "interjection")).remove("interject");
+        obj(row(v, "M1", "cancelled")).remove("interject");
     }
 );
 
@@ -861,33 +861,14 @@ case!(
         graph(v)["agentCommon"]["lines"] = json!({ "ask": ["engineer"] });
     }
 );
-// The fix reads of the re-check's rows those it found not fixed and those it insists on; reading one drops the other.
+// The fix reads what adversarial testing did: the directions it took, what it wrote and what it suspects. Reading only
+// part of it drops the rest.
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
-    drop_source(v, "T6", json!(["T4", "rows[not_fixed]"]));
-});
-case!(a_reason_for_bringing_in_nothing_nobody_reads, "dropped", |v| {
-    let brought = out_field(v, "T4", "brought");
-    let branch = brought["branches"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find(|b| b["value"] == "none")
-        .unwrap();
-    branch["fields"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({ "name": "reason", "title": "Reason", "type": "text", "desc": "x" }));
+    drop_source(v, "T6", json!(["T1", "directions"]));
 });
 case!(what_adversarial_testing_suspects_read_by_nobody, "nobody reads", |v| {
     drop_source(v, "T6", json!(["T1", "suspects"]));
 });
-case!(
-    a_fix_that_never_hears_the_full_ci_failed,
-    "dropped M2 for_engineer",
-    |v| {
-        drop_source(v, "T6", json!(["M2", "result[red]"]));
-    }
-);
 case!(
     an_answer_to_an_engine_step_that_the_step_does_not_read,
     "nobody reads reply.text",

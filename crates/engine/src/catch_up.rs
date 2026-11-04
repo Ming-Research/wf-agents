@@ -40,16 +40,19 @@ pub fn first_round(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell)
     Ok(latest.is_none_or(|r| r.cell.as_deref() != Some(cell.id.as_str())))
 }
 
-/// Takes main in the worktree's branch: what it brought, as the input gives it. None when main changed nothing since
-/// the branch last took it.
-pub fn bring(wt: &Path, main: &str) -> Option<Value> {
-    match try_bring(wt, main) {
+/// Takes main in the worktree's branch, at `commit`, the commit of main the round is pinned to, which the round's one
+/// fetch brought into the project's checkout, whose objects and refs the worktree shares; with none, `origin/<main>` as
+/// the worktree has it. What it brought, as the input gives it; none when main changed nothing since the branch last
+/// took it.
+pub fn bring(wt: &Path, main: &str, commit: Option<&str>) -> Option<Value> {
+    let theirs = commit.map_or_else(|| format!("origin/{main}"), str::to_string);
+    match try_bring(wt, &theirs) {
         Ok(v) => v,
         Err(why) => Some(json!({ "merged": false, "why": format!("main could not be taken in: {why}") })),
     }
 }
 
-fn try_bring(wt: &Path, main: &str) -> Result<Option<Value>, String> {
+fn try_bring(wt: &Path, theirs: &str) -> Result<Option<Value>, String> {
     let dirty = crate::git::git(wt, &["status", "--porcelain"])?;
     if !dirty.trim().is_empty() {
         return Ok(Some(json!({
@@ -58,22 +61,33 @@ fn try_bring(wt: &Path, main: &str) -> Result<Option<Value>, String> {
                     main yourself",
         })));
     }
-    crate::git::git(wt, &["fetch", "-q", "origin", &config::main_refspec(main)])?;
-    let theirs = format!("origin/{main}");
-    let base = crate::git::git(wt, &["merge-base", "HEAD", &theirs])?
-        .trim()
-        .to_string();
-    let changed = crate::git::changed(wt, &base, &theirs)?;
+    let base = crate::git::git(wt, &["merge-base", "HEAD", theirs])?.trim().to_string();
+    let changed = crate::git::changed(wt, &base, theirs)?;
     if changed.is_empty() {
         return Ok(None);
     }
-    Ok(Some(match crate::git::catch_up(wt, main)? {
+    let merge = [
+        "-c",
+        "user.name=wf-agents",
+        "-c",
+        "user.email=wf-agents@localhost",
+        "merge",
+        "--no-edit",
+        "-q",
+        theirs,
+    ];
+    let merged = crate::git::git(wt, &merge);
+    Ok(Some(match merged {
         Ok(_) => json!({ "merged": true, "files": changed }),
-        Err(conflicts) => json!({
-            "merged": false,
-            "why": "taking main in met conflicts, and was undone: merge main yourself before you change code",
-            "conflicts": conflicts,
-            "files": changed,
-        }),
+        Err(_) => {
+            let conflicts = crate::git::git(wt, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
+            let _ = crate::git::git(wt, &["merge", "--abort"]);
+            json!({
+                "merged": false,
+                "why": "taking main in met conflicts, and was undone: merge main yourself before you change code",
+                "conflicts": conflicts.lines().filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+                "files": changed,
+            })
+        }
     }))
 }

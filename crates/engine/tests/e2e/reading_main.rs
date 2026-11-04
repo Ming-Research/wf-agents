@@ -110,8 +110,8 @@ fn an_engineer_s_round_is_given_the_constitution_main_has_and_the_checkout_stays
     let before = checkout_state(&s);
     let (root, mut agents) = (s.root.clone(), scripts());
     // Main moves on while the first round runs, after its message was made.
-    let seen = keeps_prompts(&mut agents, &["G1", "R1"], move |r: &Request, _: usize| {
-        if r.cell == "G1" {
+    let seen = keeps_prompts(&mut agents, &["R0", "R1"], move |r: &Request, _: usize| {
+        if r.cell == "R0" {
             main_moves_on(&root, &[("CONSTITUTION.md", smaller)], "A stricter constitution");
         }
         (Vec::new(), Vec::new())
@@ -135,13 +135,13 @@ fn an_engineer_s_round_is_given_the_constitution_main_has_and_the_checkout_stays
     let seen = seen.lock().unwrap();
     assert_eq!(
         seen.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(),
-        ["G1", "R1"],
+        ["R0", "R1"],
         "{log}"
     );
     assert!(seen[0].1.contains("Keep it small."), "{}", seen[0].1);
     assert!(seen[1].1.contains("Keep it smaller, always."), "{}", seen[1].1);
     let work = state(&e, item).unwrap().0;
-    assert_eq!(pinned_main(&e, work, "G1").as_deref(), Some(first.as_str()), "{log}");
+    assert_eq!(pinned_main(&e, work, "R0").as_deref(), Some(first.as_str()), "{log}");
     assert_eq!(pinned_main(&e, work, "R1").as_deref(), Some(second.as_str()), "{log}");
     // The checkout fetched main, and nothing else of it changed: the constitution is in none of its files.
     let checkout = s.root.join("checkout");
@@ -301,7 +301,7 @@ fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_a
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// An engineer's round makes one fetch of main, at the first cell (`G1`) and at the next (`R1`) alike: every agent's cell
+// An engineer's round makes one fetch of main, at the first cell (`R0`) and at the next (`R1`) alike: every agent's cell
 // is given the constitution through the flow's common inputs, so each reads main, and the fetch is the round's own,
 // made before its inputs are gathered. The reference is the fetch count of each step. This is new behaviour: an
 // engineer's round read the checkout's files and made no fetch, so before the change both counts were 0 and the test
@@ -319,17 +319,17 @@ fn an_engineer_s_round_now_fetches_main_once_at_each_agent_cell() {
     );
     let fetches = Fetches::watching(&s);
     let mut agents = scripts();
-    keeps_prompts(&mut agents, &["G1", "R1"], |_: &Request, _: usize| {
+    keeps_prompts(&mut agents, &["R0", "R1"], |_: &Request, _: usize| {
         (Vec::new(), Vec::new())
     });
-    let (mut e, said, item, _) = stands_at_g1(&s, agents, true);
+    let (mut e, said, item, _) = stands_at_r0(&s, agents, true);
     let work = state(&e, item).unwrap().0;
     let mut made: BTreeMap<String, usize> = BTreeMap::new();
     for _ in 0..12 {
         let Some((_, cell, _)) = state(&e, item) else { break };
         let before = fetches.so_far();
         e.advance(work).unwrap();
-        if cell == "G1" || cell == "R1" {
+        if cell == "R0" || cell == "R1" {
             made.insert(cell, fetches.so_far() - before);
         }
         if made.len() == 2 {
@@ -339,7 +339,7 @@ fn an_engineer_s_round_now_fetches_main_once_at_each_agent_cell() {
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         made,
-        BTreeMap::from([("G1".to_string(), 1), ("R1".to_string(), 1)]),
+        BTreeMap::from([("R0".to_string(), 1), ("R1".to_string(), 1)]),
         "{log}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
@@ -406,7 +406,7 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
     names_a_constitution(&s);
     let main = git(&s.origin, &["rev-parse", "main"]);
     let mut agents = scripts();
-    let seen = keeps_prompts(&mut agents, &["G1", "U1"], |_: &Request, _: usize| {
+    let seen = keeps_prompts(&mut agents, &["R0", "U1"], |_: &Request, _: usize| {
         (Vec::new(), Vec::new())
     });
     let (mut e, said, item) = start(&s, agents);
@@ -421,7 +421,7 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
             .query_row("SELECT paused FROM works WHERE id = ?1", [work], |r| r.get(0))
             .unwrap()
     };
-    for (work, cell) in [(state(&e, item).unwrap().0, "G1"), (arch, "U1")] {
+    for (work, cell) in [(state(&e, item).unwrap().0, "R0"), (arch, "U1")] {
         let why = paused(work).unwrap_or_else(|| panic!("work {work} is not paused\n{log}"));
         assert!(
             why.starts_with(&format!("cell {cell}: project p: constitution: ")),
@@ -437,7 +437,7 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
     // The rounds did not start: none of the cells has one.
     let started: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM rounds WHERE cell IN ('G1', 'U1')", [], |r| {
+            .query_row("SELECT count(*) FROM rounds WHERE cell IN ('R0', 'U1')", [], |r| {
                 r.get(0)
             })
             .unwrap();
@@ -461,14 +461,14 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
     let seen = seen.lock().unwrap();
     let mut cells: Vec<&str> = seen.iter().map(|x| x.0.as_str()).collect();
     cells.sort_unstable();
-    assert_eq!(cells, ["G1", "U1"], "{log}");
+    assert_eq!(cells, ["R0", "U1"], "{log}");
     assert!(seen.iter().all(|x| x.1.contains("Keep it small.")), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
 /// An engine whose network the test sets to up or down, over a setup with the scripts given, whose item's work stands at
 /// the cell that gathers the history, before any round of it. Gives the engine, what it says, the item and the network.
-fn stands_at_g1(
+fn stands_at_r0(
     s: &Setup,
     scripts: BTreeMap<&'static str, Script>,
     up: bool,
@@ -481,13 +481,13 @@ fn stands_at_g1(
     };
     let (mut e, said, item) = start_with(s, scripts, hooks);
     for _ in 0..6 {
-        if state(&e, item).is_some_and(|x| x.1 == "G1") {
+        if state(&e, item).is_some_and(|x| x.1 == "R0") {
             break;
         }
         e.pass(&Go::default()).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("G1"), "{log}");
+    assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("R0"), "{log}");
     (e, said, item, net)
 }
 
@@ -516,10 +516,10 @@ fn a_failed_fetch_of_main_goes_on_at_the_commit_the_checkout_has_and_says_so() {
         let new = "## Article 1. Small\n\nKeep it smaller, always.\n";
         main_moves_on(&s.root, &[("CONSTITUTION.md", old)], "A constitution");
         let mut agents = scripts();
-        let seen = keeps_prompts(&mut agents, &["G1", "R1"], |_: &Request, _: usize| {
+        let seen = keeps_prompts(&mut agents, &["R0", "R1"], |_: &Request, _: usize| {
             (Vec::new(), Vec::new())
         });
-        let (mut e, said, item, net) = stands_at_g1(&s, agents, up);
+        let (mut e, said, item, net) = stands_at_r0(&s, agents, up);
         // The checkout has fetched the old constitution; main moves on, and the remote is then away.
         let checkout = s.root.join("checkout");
         let had = git(&checkout, &["rev-parse", "origin/main"]);
@@ -536,8 +536,8 @@ fn a_failed_fetch_of_main_goes_on_at_the_commit_the_checkout_has_and_says_so() {
             assert!(seen[0].1.contains("Keep it small."), "{}", seen[0].1);
             assert!(!seen[0].1.contains("Keep it smaller, always."), "{}", seen[0].1);
         }
-        assert_eq!(pinned_main(&e, work, "G1").as_deref(), Some(had.as_str()), "{log}");
-        let why = main_fetch_failed(&e, work, "G1").unwrap_or_else(|| panic!("no failure recorded\n{log}"));
+        assert_eq!(pinned_main(&e, work, "R0").as_deref(), Some(had.as_str()), "{log}");
+        let why = main_fetch_failed(&e, work, "R0").unwrap_or_else(|| panic!("no failure recorded\n{log}"));
         assert!(why.starts_with("project p: main of o/p could not be fetched"), "{why}");
         assert!(log.contains(&format!("the round goes on at {had}")), "{log}");
         assert_eq!(state(&e, item).unwrap().2, None, "{log}");
@@ -568,7 +568,7 @@ fn a_failed_fetch_of_main_goes_on_at_the_commit_the_checkout_has_and_says_so() {
 fn a_round_does_not_start_when_main_cannot_be_fetched_and_the_checkout_has_none() {
     for up in [true, false] {
         let s = setup(&format!("main-gone-{up}"));
-        let (mut e, said, item, net) = stands_at_g1(&s, scripts(), up);
+        let (mut e, said, item, net) = stands_at_r0(&s, scripts(), up);
         git(
             &s.root.join("checkout"),
             &["update-ref", "-d", "refs/remotes/origin/main"],
@@ -578,21 +578,21 @@ fn a_round_does_not_start_when_main_cannot_be_fetched_and_the_checkout_has_none(
         e.pass(&Go::default()).unwrap();
         let log = said.lock().unwrap().join("\n");
         let work = state(&e, item).unwrap().0;
-        let rounds_at_g1 = |e: &Engine| -> i64 {
+        let rounds_at_r0 = |e: &Engine| -> i64 {
             e.db.conn()
                 .query_row(
-                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'G1'",
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R0'",
                     [work],
                     |r| r.get(0),
                 )
                 .unwrap()
         };
-        assert_eq!(rounds_at_g1(&e), 0, "{log}");
+        assert_eq!(rounds_at_r0(&e), 0, "{log}");
         let (_, _, paused) = state(&e, item).unwrap();
         if up {
             let why = paused.unwrap_or_else(|| panic!("not paused\n{log}"));
             assert!(
-                why.starts_with("cell G1: project p: main of o/p could not be fetched"),
+                why.starts_with("cell R0: project p: main of o/p could not be fetched"),
                 "{why}"
             );
             assert!(why.contains("origin/main is not in the checkout"), "{why}");
@@ -605,7 +605,7 @@ fn a_round_does_not_start_when_main_cannot_be_fetched_and_the_checkout_has_none(
             e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
             e.pass(&Go::default()).unwrap();
             let log = said.lock().unwrap().join("\n");
-            assert_eq!(rounds_at_g1(&e), 1, "{log}");
+            assert_eq!(rounds_at_r0(&e), 1, "{log}");
             assert_eq!(state(&e, item).unwrap().2, None, "{log}");
         }
         let _ = std::fs::remove_dir_all(&s.root);

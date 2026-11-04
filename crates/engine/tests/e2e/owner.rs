@@ -113,7 +113,7 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
     let path = config::database(&s.data);
     // The owner pauses the work on the page while the round of cell `R1` runs.
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, _: usize| {
             let mut db = db::Db::open(&path).unwrap();
             let work: i64 = db
@@ -135,13 +135,13 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
     e.step(first.work).unwrap();
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R2", "{log}");
+    assert_eq!(at, "R1", "{log}");
     assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER), "{log}");
     assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
     let took: Option<String> =
         e.db.conn()
             .query_row(
-                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R0'",
                 [work],
                 |r| r.get(0),
             )
@@ -633,8 +633,9 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     c.set_paused(true);
     c.ask_step(one, false).unwrap();
     let stepped = turn(&mut e, &c);
+    let log = said.lock().unwrap().join("\n");
     assert_eq!((stepped.work, stepped.rounds.len()), (Some(one), 1), "{stepped:?}");
-    assert_eq!(paused_by(&e, one).as_deref(), Some("owner"));
+    assert_eq!(paused_by(&e, one).as_deref(), Some("owner"), "{stepped:?}\n{log}");
     c.set_paused(false);
     let moved = turns(&mut e, &c, 3);
     assert!(!moved.contains(&one), "{moved:?}");
@@ -762,9 +763,9 @@ fn the_architect_the_owner_starts_works_and_goes_on_while_every_work_is_paused()
 fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let s = setup("own-new-session");
     let (mut e, said, item) = start(&s, scripts());
-    agent_rounds_to(&mut e, item, 2);
+    agent_rounds_to(&mut e, item, 1);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(at, "I1", "{}", said.lock().unwrap().join("\n"));
     let c = api::Control::default();
     c.ask_step(work, true).unwrap();
     turn(&mut e, &c);
@@ -773,14 +774,14 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     assert_eq!(
         lines,
         [
-            ("line".to_string(), true, "R1,R2".to_string()),
-            ("owner".to_string(), false, "D1".to_string())
+            ("line".to_string(), true, "R1".to_string()),
+            ("owner".to_string(), false, "I1".to_string())
         ],
         "{log}"
     );
     let rounds = agent_rounds(&e, item);
-    let two = &rounds[2].2;
-    assert_eq!(given(two, "format:D1"), Some(true));
+    let two = &rounds[1].2;
+    assert_eq!(given(two, "format:I1"), Some(true));
     for a in ["format:common", "rule:ground"] {
         assert!(in_system(two, a), "{a}: {two}");
     }
@@ -855,14 +856,11 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
 fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_it_off() {
     let s = setup_priced("warm-paused");
     let mut scripts = scripts();
-    scripts.insert(
-        "R2",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
-    );
+    scripts.insert("R1", adding("R1", |_| vec![("@usage", used(1.0, 9_000))]));
     let (mut e, said, item) = start(&s, scripts);
-    agent_rounds_to(&mut e, item, 2);
+    agent_rounds_to(&mut e, item, 1);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(at, "I1", "{}", said.lock().unwrap().join("\n"));
     let from = last_call(&e, work);
     let due = from + 55 * 60_000 + 1_000;
     let paused = |warm: bool, runs: &[i64]| engine::GlobalPause {
@@ -879,13 +877,13 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     );
     assert_eq!(
         pings_of(&e, work)[0].0,
-        json!({ "cell": "D1", "on": "pause", "what": "the owner paused every work" })
+        json!({ "cell": "I1", "on": "pause", "what": "the owner paused every work" })
     );
     // A work the owner started runs on, as every work does with no pause: the line it comes back to is kept warm
     // for its going on.
     let later = due + 55 * 60_000 + 1_000;
     assert_eq!(warm_now(&mut e, later, Some(&paused(true, &[work]))).unwrap(), 1);
-    let going_on = json!({ "cell": "D1", "on": "work", "what": "the work goes on" });
+    let going_on = json!({ "cell": "I1", "on": "work", "what": "the work goes on" });
     assert_eq!(pings_of(&e, work)[1].0, going_on);
     assert_eq!(warm_now(&mut e, later + 55 * 60_000 + 1_000, None).unwrap(), 1);
     assert_eq!(pings_of(&e, work)[2].0, going_on);
