@@ -337,6 +337,27 @@ fn a_condition_judged_before_a_fix_is_not_asked_again_and_the_one_the_fix_is_for
 fn a_start_over_at_the_gate_closes_its_ask_and_the_condition_holds_the_new_work() {
     let s = setup("condition-start-over");
     let mut agents = scripts();
+    let base = agents.remove("I1").unwrap();
+    let pushed = AtomicI64::new(0);
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            let (pick, set) = base(r, n);
+            if pick.iter().any(|(p, v)| *p == "outcome" && *v == "tools") {
+                pushed.store(r.work, Ordering::SeqCst);
+                return (pick, set);
+            }
+            // The new work goes on from the branch the old one pushed, whose commit the script finds there: it asks for
+            // ci on that head itself, as each work must.
+            if pushed.swap(r.work, Ordering::SeqCst) != r.work {
+                let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+                let pr = json!({ "title": "Add the feature", "body": "It adds it." });
+                let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"], "pr": pr }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (pick, set)
+        }),
+    );
     reporting_each_condition(&mut agents, &config::database(&s.data));
     let (mut e, said, item) = start(&s, agents);
     let c = condition_on(&mut e.db, item, "Run it twice before the merge.", "Run it twice.");
