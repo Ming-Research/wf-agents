@@ -38,7 +38,10 @@ fn research_asks(locks: &[&str]) -> BTreeMap<&'static str, Script> {
         "R1",
         Box::new(move |r: &Request, n: usize| {
             if n == 1 {
-                return (vec![("outcome", "tools")], vec![("outcome.tools", json!(requests.clone()))]);
+                return (
+                    vec![("outcome", "tools")],
+                    vec![("outcome.tools", json!(requests.clone()))],
+                );
             }
             research(r, n - 1)
         }),
@@ -66,7 +69,12 @@ fn a_process_a_command_leaves_behind_when_it_ends_is_stopped() {
     write(&s.data, "projects/p.toml", &format!("{project}\n{LISTED}"));
     git(
         &s.data,
-        &["commit", "-q", "-am", "the lock files whose dependencies' source is read"],
+        &[
+            "commit",
+            "-q",
+            "-am",
+            "the lock files whose dependencies' source is read",
+        ],
     );
     let (mut e, said, item) = start(&s, research_asks(&["left.lock", "left-failed.lock"]));
     step_to(&mut e, item, "X1");
