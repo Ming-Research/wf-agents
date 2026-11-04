@@ -612,7 +612,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 interjections: &interjections,
                 main: main.as_deref(),
             };
-            checks::run(&ctx).map_err(|problems| checks::reason(&problems))
+            checks::run(&ctx)
+                .map(|_| ())
+                .map_err(|problems| checks::reason(&problems))
         };
         let r = crate::unparsed::recover(e, &req, &reply, round, cell, &accepts);
         let mut record = r.record;
@@ -781,19 +783,32 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         interjections: &interjections,
         main: main.as_deref(),
     };
-    if let Err(problems) = checks::run(&ctx) {
-        return reject(
-            e,
-            w,
-            &section,
-            round,
-            Ended {
-                output: Some(output),
-                ..ended
-            },
-            checks::record("check", checks::reason(&problems), &problems),
-        );
+    let aside = match checks::run(&ctx) {
+        Ok(aside) => aside,
+        Err(problems) => {
+            return reject(
+                e,
+                w,
+                &section,
+                round,
+                Ended {
+                    output: Some(output),
+                    ..ended
+                },
+                checks::record("check", checks::reason(&problems), &problems),
+            );
+        }
+    };
+    // What only the checks the work says it changes found is kept on the round, for the reviews to judge.
+    let set_aside = crate::set_aside::record(e.db.conn(), w.id, &aside)?;
+    if !aside.is_empty() {
+        e.say(&format!(
+            "{round}: taken with {} problems set aside, found only by checks the work says it changes:\n{}",
+            aside.len(),
+            checks::reason(&aside)
+        ));
     }
+    let ended = Ended { set_aside, ..ended };
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after, &given)
 }
 
@@ -1374,7 +1389,8 @@ pub fn engine(
     // for whether a matter is due for its project.
     let quick = matches!(step.as_deref(), None | Some("wait_for_start") | Some("wait_for_matter"));
     if quick {
-        let output = json!({});
+        // What such a step returns is nothing but at the merge gate, which hands the fix the findings set aside.
+        let output = crate::set_aside::gate_return(cell, &gathered, &given);
         let row = g.take(&cell.id, &output, &given)?.clone();
         if row.waits && waits_again(e, w, cell, &row)? {
             return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));

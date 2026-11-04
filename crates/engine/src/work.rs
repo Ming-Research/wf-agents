@@ -333,6 +333,9 @@ pub struct Ended {
     /// ([`finish_round`]) is not given one: its shared row is read when it ends.
     pub counts: Option<String>,
     pub rejected: Option<Value>,
+    /// The problems of a return taken that only checks the work says it changes found, numbered in the work
+    /// ([`crate::set_aside`]); none for any other end.
+    pub set_aside: Option<Value>,
     pub usage: Option<Value>,
     pub model: Option<String>,
     pub compactions: i64,
@@ -361,7 +364,7 @@ pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), Str
         .execute(
             "UPDATE rounds SET output = ?3, transition = ?4, counts = ?5, rejected = ?6,
                 usage = coalesce(?7, usage), compactions = ?8, model = coalesce(?9, model),
-                ended_at = ?10
+                ended_at = ?10, set_aside = ?11
          WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
             params![
                 id.work,
@@ -373,7 +376,8 @@ pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), Str
                 e.usage.as_ref().map(Value::to_string),
                 e.compactions,
                 e.model,
-                db::now()
+                db::now(),
+                e.set_aside.as_ref().map(Value::to_string)
             ],
         )
         .map_err(sql)?;

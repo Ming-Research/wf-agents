@@ -383,8 +383,18 @@ function SentBack({ why }: { why: string }) {
   );
 }
 
+/// What a return was taken with set aside, found only by checks the work says it changes, which the reviews judge: shown
+/// as a return sent back is, one line for each, since it is what the checks would have sent it back with.
+function SetAside({ found }: { found: string }) {
+  return (
+    <Flash variant="warning">
+      <div className="reason">{t('rp_set_aside', { found })}</div>
+    </Flash>
+  );
+}
+
 /// The head of a round: who ran it and how long, and what it cost; then, for a return sent back or a run that ended
-/// without one, why.
+/// without one, why, and for a return taken with problems set aside, those.
 function RoundHead({ d, cell }: { d: RoundDetail; cell: CompiledCell | undefined }) {
   const r = d.round;
   const flash =
@@ -392,6 +402,8 @@ function RoundHead({ d, cell }: { d: RoundDetail; cell: CompiledCell | undefined
       <SentBack why={r.why ?? ''} />
     ) : r.outcome === 'failed' || r.outcome === 'interrupted' ? (
       <Flash variant="danger">{t('rp_no_return', { why: r.why ?? '' })}</Flash>
+    ) : r.set_aside !== null ? (
+      <SetAside found={r.set_aside} />
     ) : null;
   const s = r.tokens !== null ? spent(r.tokens) : null;
   const shares = s?.parts.filter((p) => p.fact !== true) ?? [];

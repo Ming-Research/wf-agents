@@ -2883,7 +2883,11 @@ on in its session or started one and why; or the tools, the engine's step or the
 ended; Cost, what it cost and the shares read again from the cache, newly cached and output, with its steps and its
 context at its start and its end; and a return sent back, a run that failed or a round cut off said in a Flash with the
 engine's reason, a return sent back for several problems with each on a line of its own, since the Flash would run
-them together; the reason's text carries the `reason` class (`white-space: pre-line`), which the reason has wherever it
+them together; a return taken with problems set aside (what only checks the work says it changes found, which the
+engine did not send back, until the change to its checks is installed, and the reviews judge) said in the same warning
+Flash as a return sent back, each problem on a line of its own after its number in the work (S1, S2, ...), since it is
+what the checks would have sent the return back with and the owner learns that look once, and a reader who follows the
+number finds the review's answer to it; the reason's text carries the `reason` class (`white-space: pre-line`), which the reason has wherever it
 is shown whole, also in the notes under a line of the item page's checklist, while a list of rounds that keeps a round
 to one line (above) lets the lines run on: the work page's table cuts them and says them whole on hovering, and the cell
 panel's list wraps them, so it shows them whole. In: the inputs new this round, a row each with its name, its address,

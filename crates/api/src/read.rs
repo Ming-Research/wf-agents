@@ -124,6 +124,22 @@ fn why(rejected: Option<&Value>) -> Option<String> {
     })
 }
 
+/// The problems a return was taken with set aside, as `rounds.set_aside` keeps them: a line for each, its number in
+/// the work before the line the engine would have sent it back with (`S1 check (field): text`); none for a round with
+/// none.
+fn set_aside(kept: Option<&Value>) -> Option<String> {
+    let lines: Vec<String> = kept?
+        .as_array()?
+        .iter()
+        .map(|p| {
+            let s = |k: &str| p[k].as_str().unwrap_or_default();
+            let line = db::problem_line(s("check"), p["field"].as_str(), s("text"));
+            format!("{} {line}", s("id"))
+        })
+        .collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
 fn is_ask(cell: &CompiledCell) -> bool {
     matches!(cell.step.as_deref(), Some("ask_owner" | "ask_architect"))
 }
@@ -638,7 +654,8 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
        CASE WHEN s.started <> 'carried'
          AND r.n = (SELECT min(x.n) FROM rounds x WHERE x.work = r.work AND x.session = r.session)
        THEN s.started END,
-       CASE WHEN r.session IS NULL THEN json_extract(r.input, '$.engine.new_session') END
+       CASE WHEN r.session IS NULL THEN json_extract(r.input, '$.engine.new_session') END,
+       r.set_aside
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
 
 /// Where an agent's round spent its tokens, from its usage record as the command line reported it: the totals of the
@@ -726,6 +743,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
         outcome: outcome(transition.as_deref(), rejected.as_ref(), ended_at.is_some()),
         // A row the engine took for a line whose session would start afresh says why it would.
         why: why(rejected.as_ref()).or(r.get(26)?),
+        set_aside: set_aside(json(r.get(27)?).as_ref()),
         transition,
         started_at: r.get(5)?,
         ended_at,

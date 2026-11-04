@@ -1,5 +1,6 @@
 //! The engine's checks of a return: `engine.checks` in the flow, each named by the cells that use it. A return that
-//! fails one is sent back with the reason, before it takes a row. The reason says every problem of every check that
+//! fails one is sent back with the reason, before it takes a row, unless only checks the work says it changes found its
+//! problems, which are then set aside ([`crate::set_aside`]). The reason says every problem of every check that
 //! applies, and a check says every problem it can find in the return ([`Problems`]), since each send-back costs a round.
 //! The one check that does not is `cards_match_records`: no cell of the flow calls it, so it sends nothing back and
 //! `crate::cards::check`, which stops at its first problem, is not converted; both go with `cards.rs` in #203.
@@ -22,7 +23,7 @@ use serde_json::Value;
 
 use crate::inputs::{answered, at_path, last_return};
 use crate::work::{self, Item, Round, RoundId, Work};
-use crate::{Engine, form_of, git, results, test_name, test_tables, values};
+use crate::{Engine, form_of, git, results, set_aside, test_name, test_tables, values};
 use sessions::worktree::Unfit;
 
 pub use db::DESIGN_CARD_RULING;
@@ -157,19 +158,13 @@ impl Problem {
         }
     }
 
-    /// The line this problem makes in the text a return is sent back with, `check (place): problem`.
+    /// The line this problem makes in the text a return is sent back with ([`db::problem_line`]).
     fn line(&self) -> String {
-        format!(
-            "{} ({}): {}",
-            self.check,
-            self.field.as_deref().unwrap_or("the return"),
-            self.text
-        )
+        db::problem_line(&self.check, self.field.as_deref(), &self.text)
     }
 }
 
-/// The text a return that failed checks is sent back with: a line for each problem, in the order found. The only
-/// place this line is made.
+/// The text a return that failed checks is sent back with: a line for each problem, in the order found.
 pub fn reason(problems: &[Problem]) -> String {
     problems.iter().map(Problem::line).collect::<Vec<_>>().join("\n")
 }
@@ -194,8 +189,34 @@ pub fn record(kind: &str, text: String, problems: &[Problem]) -> Value {
 
 /// Runs every check of the cell that applies to the return; gives every problem of every check, each once, in the
 /// order found: a return is sent back once with all that can be found, since each send-back costs a round.
-/// [`reason`] makes the text it is sent back with.
-pub fn run(c: &Ctx<'_>) -> Result<(), Vec<Problem>> {
+/// [`reason`] makes the text it is sent back with. A problem only a check the work says it changes found is not sent
+/// back but set aside ([`crate::set_aside`]): the return is taken with those, and sent back with only the others when
+/// there are others. A declaration the return makes that its own check refuses holds nothing.
+pub fn run(c: &Ctx<'_>) -> Result<Vec<Problem>, Vec<Problem>> {
+    let found = every_problem(c);
+    if found.is_empty() {
+        return Ok(Vec::new());
+    }
+    let refused = found.iter().any(|p| p.check == set_aside::KNOWN);
+    let own = (!refused).then(|| at_path(&c.unwrapped, set_aside::DECLARED)).flatten();
+    let declared = match set_aside::declared(c.e, c.w, c.g, c.item, &c.cell.id, own.as_ref()) {
+        Ok(d) => d,
+        Err(why) => {
+            let mut back = found;
+            back.push(Problem {
+                check: set_aside::KNOWN.to_string(),
+                field: Some(set_aside::DECLARED.to_string()),
+                text: format!("the checks this work says it changes could not be read: {why}"),
+            });
+            return Err(back);
+        }
+    };
+    let (back, aside) = set_aside::part(found, &declared);
+    if back.is_empty() { Ok(aside) } else { Err(back) }
+}
+
+/// Every problem of every check of the cell that applies to the return, each once, in the order found.
+fn every_problem(c: &Ctx<'_>) -> Vec<Problem> {
     let form = form_of(c.g, c.cell, c.output);
     let mut found: Vec<Problem> = Vec::new();
     for ch in &c.cell.checks {
@@ -213,7 +234,7 @@ pub fn run(c: &Ctx<'_>) -> Result<(), Vec<Problem>> {
             add(&mut found, &ch.check, ch.at.as_deref(), &problems);
         }
     }
-    if found.is_empty() { Ok(()) } else { Err(found) }
+    found
 }
 
 /// Adds the problems a check found to those found so far, each as a [`Problem`] of that check and place. A problem
@@ -308,6 +329,77 @@ fn previous_problems(due: &[String], given: &[String]) -> Problems {
         &id_misses(due, given).missing,
         |x| format!("no row for {x}, a finding of the last review"),
         |xs| format!("no row for {xs}, findings of the last review"),
+    );
+    problems
+}
+
+/// What is wrong with the checks a declaration names (`named`) against the flow's checks (`known`): a name that is no
+/// check, one named twice, and one no declaration sets aside, each kind said once with all its names.
+fn declared_problems(known: &[&str], named: &[String]) -> Problems {
+    let misses = id_misses(known, named);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("there is no check {x} among the flow's engine.checks"),
+        |xs| format!("there are no checks {xs} among the flow's engine.checks"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("check {x} is named twice"),
+        |xs| format!("checks {xs} are named twice"),
+    );
+    let never: Vec<String> = set_aside::NEVER
+        .iter()
+        .filter(|c| named.iter().any(|n| n == *c))
+        .map(|c| c.to_string())
+        .collect();
+    problems.about(
+        &never,
+        |x| format!("{x} is what makes a declaration no exemption, so no declaration names it: leave it out"),
+        |xs| format!("{xs} are what makes a declaration no exemption, so no declaration names them: leave them out"),
+    );
+    problems
+}
+
+/// What is wrong with a review's answers to the findings set aside it was given (`due`, their numbers): a number that
+/// is none of them, one answered twice, one not answered, and one answered real that names no finding of the return
+/// (`findings`, their numbers), each kind said once with all its numbers.
+fn set_aside_problems(due: &[String], answers: &[Value], findings: &[String]) -> Problems {
+    let given: Vec<String> = answers
+        .iter()
+        .map(|a| a["id"].as_str().unwrap_or_default().to_string())
+        .collect();
+    let misses = id_misses(due, &given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("{x} is not a finding set aside you were given"),
+        |xs| format!("{xs} are not findings set aside you were given"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("finding set aside {x} is answered twice"),
+        |xs| format!("findings set aside {xs} are answered twice"),
+    );
+    problems.about(
+        &misses.missing,
+        |x| format!("finding set aside {x} is not answered: answer it old_rule or real"),
+        |xs| format!("findings set aside {xs} are not answered: answer each old_rule or real"),
+    );
+    let unfound: Vec<String> = answers
+        .iter()
+        .filter(|a| a["answer"] == "real")
+        .filter(|a| !a["finding"].as_str().is_some_and(|f| findings.iter().any(|x| x == f)))
+        .map(|a| a["id"].as_str().unwrap_or_default().to_string())
+        .collect();
+    problems.about(
+        &unfound,
+        |x| {
+            format!("{x} is answered real, but the finding it names is not one of this return's: write it as a finding")
+        },
+        |xs| {
+            format!("{xs} are answered real, but the findings they name are not this return's: write each as a finding")
+        },
     );
     problems
 }
@@ -824,6 +916,24 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 _ => Ok(()),
             }
         }
+        // A declaration of the engine's checks a change changes names checks the flow has, each once, and only in the
+        // project the engine is built from.
+        "checks_changed_known" => {
+            let named = set_aside::names(v);
+            if named.is_empty() {
+                return Ok(());
+            }
+            let project = &c.item()?.project;
+            if !set_aside::engine_s_own(c.e, c.item) {
+                return fail(format!(
+                    "this project's changes cannot change the engine's checks: the engine is not built from project \
+                     {project}, so what a check named here finds stays a problem; leave checks_changed out"
+                ));
+            }
+            let flow = c.e.flow(c.w.flow_version)?;
+            let known: Vec<&str> = flow.engine.checks.keys().map(String::as_str).collect();
+            declared_problems(&known, &named).into_result()
+        }
         "conditions_cover_acceptance" => {
             let Some(rows) = v else { return Ok(()) };
             let rows = items(Some(rows));
@@ -1040,6 +1150,18 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             let due = ids(items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))));
             previous_problems(&due, &ids(items(v))).into_result()
+        }
+        // A review answers each finding set aside it was given, by its number, and no other; one it finds real is a
+        // finding of its own return too.
+        "set_aside_answered" => {
+            let due = set_aside::due_ids(c.e, c.w, c.g, c.cell)?;
+            let answers = items(v);
+            let findings: Vec<String> = items(c.unwrapped.get("findings"))
+                .into_iter()
+                .chain(items(c.unwrapped.pointer("/brought/new")))
+                .filter_map(|f| f["fid"].as_str().map(str::to_string))
+                .collect();
+            set_aside_problems(&due, &answers, &findings).into_result()
         }
         // An approved design has the option the owner chose for each of its decision points.
         "points_chosen" => {

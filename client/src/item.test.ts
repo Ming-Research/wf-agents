@@ -184,6 +184,7 @@ function round(n: number, at: string, transition: string | null, extra: Partial<
     outcome: transition === null ? 'running' : 'took',
     transition,
     why: null,
+    set_aside: null,
     started_at: n,
     ended_at: transition === null ? null : n + 1,
     model: null,

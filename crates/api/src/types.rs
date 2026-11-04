@@ -320,6 +320,9 @@ pub struct RoundSummary {
     pub transition: Option<String>,
     /// Why it was sent back, failed or was cut off; for a row the engine took as a session would start afresh, why.
     pub why: Option<String>,
+    /// For a return taken with problems set aside, which only checks the work said it changes found: one line for
+    /// each, its number in the work first (`S1 check (field): text`).
+    pub set_aside: Option<String>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
     pub model: Option<String>,
