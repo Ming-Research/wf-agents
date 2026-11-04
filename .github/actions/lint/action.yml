@@ -9,6 +9,8 @@ runs:
   using: composite
   steps:
     # Installs the toolchain rust-toolchain.toml pins, with its components.
+    - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      shell: bash
     - run: rustup toolchain install
       shell: bash
     # On GitHub's machines only: the project's own keep what the last run built.

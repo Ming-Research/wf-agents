@@ -149,6 +149,7 @@ jobs:
           if [ $rust_selected = false ] && [ $page_selected = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
           echo "rust=$rust_selected" >> "$GITHUB_OUTPUT"
           echo "page=$page_selected" >> "$GITHUB_OUTPUT"
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: rustup toolchain install
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
