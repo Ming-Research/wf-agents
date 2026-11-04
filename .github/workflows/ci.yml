@@ -23,20 +23,27 @@ concurrency:
 
 # The Rust tests take most of the time, so they run split across three jobs, beside a job for everything else; the
 # job `check` is red whenever any of them is, which is the check the projects' configuration waits for to merge.
+#
+# A run by hand, the one a work's merge waits for, runs on the project's own machine, whose runners keep what the last
+# run built (see fast.yml). A push to main runs on GitHub's machines from a clean start, as an independent check.
 jobs:
   lint:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted", "14900k"]') || 'ubuntu-24.04' }}
     timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: ${{ github.event_name != 'workflow_dispatch' }}
+      - if: runner.environment != 'github-hosted'
+        run: git clean -ffdxq -e target -e client/node_modules -e client/dist
       # The steps are written once, for this workflow and fast.yml (.github/actions/lint).
       - uses: ./.github/actions/lint
 
   test:
     name: test ${{ matrix.shard }} of 3
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted", "14900k"]') || 'ubuntu-24.04' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -46,34 +53,55 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: ${{ github.event_name != 'workflow_dispatch' }}
+      - if: runner.environment != 'github-hosted'
+        run: git clean -ffdxq -e target -e client/node_modules -e client/dist
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: rustup toolchain install
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-nextest@0.9.146
       # The three jobs build the same, so one of them keeps the cache.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment == 'github-hosted'
         with:
           save-if: ${{ matrix.shard == 1 }}
       # The workspace's own crates are compiled incrementally, from what the last run on main kept of them, so that a
       # run recompiles only what changed since: rust-cache turns incremental compiling off and deletes its state, so the
       # state is kept apart, whole, and restored after it. Main saves it below; every run restores the newest.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: runner.environment == 'github-hosted'
         with:
           path: target/ci
           key: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
       - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: runner.environment == 'github-hosted'
         with:
           node-version: 24.21.0
           cache: npm
           cache-dependency-path: client/package-lock.json
-      # Before any cargo step that compiles the crate the page is built into.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: runner.environment != 'github-hosted'
+        with:
+          node-version: 24.21.0
+      # Before any cargo step that compiles the crate the page is built into; on the project's machine, only when the
+      # page's files changed since this runner built it, and its dependencies only when their lock changed.
       - name: Build the page
         working-directory: client
         run: |
-          npm ci
-          npm run build
+          tree=$(git rev-parse HEAD:client)
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" != "$tree" ] || [ ! -f dist/index.html ]; then
+            npm run build
+            echo "$tree" > node_modules/.wf-tree
+          fi
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test
       # at 60 s; each job runs a third of every test binary's tests, and stops at its first red test, which keeps a
       # red run short.
@@ -92,7 +120,7 @@ jobs:
   check:
     needs: [lint, test]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted", "14900k"]') || 'ubuntu-24.04' }}
     timeout-minutes: 15
     steps:
       - name: Every other job passed

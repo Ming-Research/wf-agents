@@ -19,8 +19,7 @@ name: fast
 #
 # It runs on the project's own machine, whose runners keep each what the last run built: the repository's checkout, the
 # compiled target and the page's dependencies stay between runs, and only what changed is built again. So a checkout
-# leaves those in place (`clean: false`), and the step after it clears the rest of what the last run left. ci.yml runs on
-# GitHub's machines from a clean start, as an independent check.
+# leaves those in place (`clean: false`), and the step after it clears the rest of what the last run left.
 #
 # GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one made before this file
 # took a request to run by hand. The engine then runs it with main's CI files: ci on a temporary branch
