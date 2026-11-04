@@ -160,10 +160,8 @@ const HANDING_IN: [&str; 9] = ["H1", "H3", "H5", "H7", "H8", "H9", "L2", "P1", "
 /// The second eye's cell, whose problems send the matter back to the cell that handed its changes in.
 const SECOND_EYE: &str = "G2";
 
-/// The kinds of matter that come at the head of the queue, taken in this order before any other but the owner's words,
-/// a matter back with the owner's reply and the wait for a question just put: the check of whether the policy in force
-/// still holds, and the plan of what to do next. One of each kind is open at a time: one asked for again takes the
-/// newer asker's why.
+/// The check of whether the policy in force still holds, taken with what the plan queued. One is open at a time: one
+/// asked for again takes the newer asker's why.
 const CHECK: &str = "check_policy";
 const PLAN: &str = "make_plan";
 
