@@ -77,8 +77,16 @@ pub const INPUTS: [&str; 33] = [
 
 /// The engine's inputs that read the project's files on its main, each as one commit of it has them. A round whose cell
 /// has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a project's architect's line, the
-/// commit its worktree is brought to), which every one of them is read at, after one fetch of main.
-pub const MAIN_INPUTS: [&str; 3] = ["constitution", "guide", "cited_nodes"];
+/// commit its worktree is brought to), which every one of them is read at, after one fetch of main. What taking main in
+/// brought (`main_changes`) is among them, so that the round that takes main in has it fetched.
+pub const MAIN_INPUTS: [&str; 6] = [
+    "constitution",
+    "guide",
+    "cited_nodes",
+    "decisions_in_force",
+    "decision_history",
+    "main_changes",
+];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
 /// addressed as that return, so that a session that holds it is only referred to it.
@@ -1772,18 +1780,37 @@ pub fn ask_owner(
 
 // An engineer's question.
 
+/// The cells of the engineer's graph that put a question of their own kind to the architect, each with its kind (the
+/// matter's detail): the review of a design at the project's level, and its split along its parts.
+pub const DESIGN_QUESTIONS: [(&str, &str); 2] = [("D3", "design_review"), ("D6", "split_design")];
+
+/// The engineer's merge queue, whose third failure in a row comes to the architect.
+const MERGE_CELL: &str = "M2";
+
 /// The kind of matter a question to the architect is, with its detail: when a cell asked, or the engine reports a flow
 /// anomaly (the way on the engineer chose did not fit), an engineer's question, with none, since an ask carries no kind
 /// and the architect reads what it is about from what it says; for an engine tool that failed, or main's environment
-/// that changed, a failure, with which.
-fn question_kind(gathered: &[Gathered]) -> (&'static str, Option<String>) {
+/// that changed, a failure, with which. The engineer's graph puts two questions of its own kind to the architect at
+/// cells of their own ([`DESIGN_QUESTIONS`]): the review of a design at the project's level, and its split along its
+/// parts; and the third failure in a row of the merge queue is a failure of the merge.
+fn question_kind(cell: &CompiledCell, gathered: &[Gathered]) -> (&'static str, Option<String>) {
     fn path_of(p: &inputs::Part) -> String {
         match &p.origin {
             Origin::Place { path, .. } => path.clone(),
             _ => String::new(),
         }
     }
+    if let Some((_, detail)) = DESIGN_QUESTIONS.iter().find(|(c, _)| *c == cell.id) {
+        return ("engineer_question", Some((*detail).to_string()));
+    }
     let parts: Vec<&inputs::Part> = gathered.iter().flat_map(|x| &x.parts).collect();
+    if parts.iter().any(|p| {
+        matches!(&p.origin, Origin::Place { cell, path, .. } if cell == MERGE_CELL
+            && (path.starts_with("result[conflict]") || path.starts_with("result[red]")))
+            && !empty(&p.value)
+    }) {
+        return ("failure", Some("merge_failed".into()));
+    }
     if parts
         .iter()
         .any(|p| matches!(path_of(p).as_str(), "ask" | "next") && !empty(&p.value))
@@ -1898,8 +1925,8 @@ pub fn ask_architect(
     }
     let asked = asked_of(&gathered);
     let (kind, detail) = match b.kind.as_str() {
-        "tool_failure" => question_kind(&gathered),
-        _ => match question_kind(&gathered) {
+        "tool_failure" => question_kind(cell, &gathered),
+        _ => match question_kind(cell, &gathered) {
             ("failure", _) => ("engineer_question", None),
             x => x,
         },
@@ -1931,6 +1958,14 @@ pub fn ask_architect(
     let what = match back {
         Some(_) => format!(
             "Work {} on item {} ({}){of}: the owner decided its question, for you to carry out{about}",
+            w.id, item.id, item.title
+        ),
+        None if detail.as_deref() == Some("design_review") => format!(
+            "Work {} on item {} ({}){of}: its design waits for your review at the project's level, before the owner's",
+            w.id, item.id, item.title
+        ),
+        None if detail.as_deref() == Some("split_design") => format!(
+            "Work {} on item {} ({}){of}: the owner had its design split along its parts, for you to split",
             w.id, item.id, item.title
         ),
         // A flow anomaly asks nothing in words: the blocker says what the engine found.

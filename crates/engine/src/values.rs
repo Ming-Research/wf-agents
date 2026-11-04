@@ -37,14 +37,22 @@ pub fn given(
     Ok(out)
 }
 
+/// The cell of the initial research, whose rounds the engine counts to ask it whether the work can be started directly.
+const RESEARCH: &str = "R1";
+
+/// The merge queue's cell, and its rows that send a failure back: to the engineer, or the third time in a row to the
+/// architect.
+const MERGE: &str = "M2";
+const MERGE_FAILED: &str = "for_engineer";
+const MERGE_FAILED_THIRD: &str = "third_failure";
+
 /// One of the engine's values. Those of the architect's graph are worked out by [`crate::architect`]; the others are
 /// about the item a work is on.
 pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name: &str) -> Result<String, String> {
     if let Some(v) = crate::architect::value(e, w, g, name)? {
         return Ok(v);
     }
-    // An interjection waiting for the task's main line; a word that needs no answer, as the owner confirming the design
-    // card, is not one that turns the work.
+    // An interjection waiting for the task's main line; a word that needs no answer is not one that turns the work.
     if name == "interjection" {
         return Ok(if interjections(e, w, g)? > 0 { "yes" } else { "no" }.to_string());
     }
@@ -60,66 +68,50 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         )
     })?;
     let s = |x: &str| Ok(x.to_string());
+    let yes = |b: bool| Ok(if b { "yes" } else { "no" }.to_string());
     match name {
-        "deliver" => Ok(item.deliver.clone()),
         "work" => {
             if item.deliver == "report" {
                 return s("report");
             }
             s("implementation")
         }
-        // The light route has no blind review: its first review goes straight to the table.
-        "review_round" => {
-            let reviewed = !answered(e, w, g, "T3")?.is_empty() || !answered(e, w, g, "T4")?.is_empty();
-            s(if reviewed || light_route(e, w)? {
-                "table"
+        // Whether the item carries a decision point, which sends the work to deep research whatever its research says.
+        "decision_points" => yes(decision_points(e, item.id)?),
+        // Whether the initial research has run the project's bound of rounds since it last handed in its answer.
+        "research_rounds" => {
+            let bound = e
+                .project_of(w)?
+                .research_rounds
+                .unwrap_or(config::RESEARCH_ROUNDS);
+            s(if research_rounds(e, w, g)? >= bound {
+                "past"
             } else {
-                "blind"
+                "within"
             })
         }
-        "route_taken" => s(if light_route(e, w)? { "light" } else { "normal" }),
-        // The reviews of the plan that sent it back since the work last researched the problem, which a plan made
-        // afresh after the item changed counts from.
-        "revisions_before" => {
-            let since = answered(e, w, g, "R1")?.first().map(|r| r.id);
-            let sent_back = answered(e, w, g, "F2")?
+        // Whether this failure in the merge queue is the third in a row since the work last went to the architect.
+        "merge_failures" => s(if merge_failures(e, w)? >= 2 {
+            "third"
+        } else {
+            "fewer"
+        }),
+        "owner_approved" => yes(crate::approval::owner_approved(e, w)?),
+        // What the merge gate waits for: the items it depends on while one is not merged, then the owner's approval of
+        // a change that touches a path the owner approves.
+        "gates" => {
+            let waits_for_items = dependencies(e, item.id)?
                 .iter()
-                .filter(|r| since.is_none_or(|s| r.id > s) && r.transition.as_deref() == Some(PLAN_SENT_BACK))
-                .count();
-            s(if sent_back >= 2 { "two" } else { "fewer" })
-        }
-        // What the project's configuration says of it, which the design stage's cells choose the way by.
-        "records" => s(if e.project_of(w)?.records.is_some() {
-            "keeps"
-        } else {
-            "none"
-        }),
-        "under_test" => s(if e.project_of(w)?.under_test.is_empty() {
-            "no"
-        } else {
-            "yes"
-        }),
-        "other_projects" => s(if e.project_of(w)?.other_projects.is_empty() {
-            "no"
-        } else {
-            "yes"
-        }),
-        // What the merge gate waits for: the items it depends on while one is not merged, then the answers to the
-        // design's open questions.
-        "gates" => s(match gates_waiting_for(e, w, item)? {
-            None => "clear",
-            Some(_)
-                if dependencies(e, item.id)?
-                    .iter()
-                    .any(|d| !item_merged(e, *d).unwrap_or(false)) =>
-            {
+                .any(|d| !item_merged(e, *d).unwrap_or(false));
+            s(if waits_for_items {
                 "items"
-            }
-            Some(_) => "questions",
-        }),
+            } else if crate::approval::due(e, w)? {
+                "owner"
+            } else {
+                "clear"
+            })
+        }
         "held" => crate::blockers::held(e, w, g),
-        // Whose ruling the work waits for on where its latest design departs from the decisions of its item.
-        "departures" => s(crate::open_questions::ruling_due(e.db.conn(), w.id, &g.within)?),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
         "cancelled" => {
@@ -127,7 +119,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                 Some(line) => crate::blockers::waiting_words(e.db.conn(), w.id, &line, true)?,
                 None => 0,
             };
-            s(if waiting > 0 { "yes" } else { "no" })
+            yes(waiting > 0)
         }
         // Whether another work of the project is ahead of this one in its merge queue.
         "turn" => {
@@ -163,14 +155,6 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                 (true, false) => "all_split",
             })
         }
-        // A flow version stored before this value was named so calls it `card`.
-        "design_card_disputed" | "card" => s(
-            if design_card_disputed(e, w)? || crate::open_questions::turned_down(e.db.conn(), w.id, &g.within)? {
-                "yes"
-            } else {
-                "no"
-            },
-        ),
         "came_by" => {
             let from = arrived_from(e, w, g)?.unwrap_or_default();
             let fc = g.cell(&from);
@@ -179,10 +163,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                 .into_iter()
                 .find_map(|r| r.transition);
             s(match (fc, took.as_deref()) {
-                (Some(c), Some("interjection")) if matches!(c.id.as_str(), "A2" | "A3") => "interjection_at_engine",
-                (Some(c), Some("holder_gone" | "cancelled")) if c.id == "A2" => "withdrawn",
+                (Some(c), Some("interjection")) if asks(c) => "interjection_at_engine",
+                (Some(c), Some("holder_gone" | "cancelled")) if asks(c) => "withdrawn",
                 (Some(c), _) if c.id == "A7" => "withdrawn",
-                (Some(c), _) if matches!(c.id.as_str(), "A1" | "A2" | "A3") => "reply",
+                (Some(c), _) if asks(c) => "reply",
                 (Some(c), _) if c.id == "A6" => "waited",
                 (Some(c), _) if c.kind == "agent" => "interjection",
                 _ => "interjection_at_engine",
@@ -204,7 +188,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                     unmerged = true;
                 }
             }
-            s(if unmerged { "yes" } else { "no" })
+            yes(unmerged)
         }
         "waited" => {
             let deps = dependencies(e, item.id)?;
@@ -218,18 +202,47 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
     }
 }
 
-/// The row of the review of the plan (cell `F2`) that sends the plan back to be planned again.
-const PLAN_SENT_BACK: &str = "revise";
+/// Whether a cell is one where someone answers the work: the advisor's, or a cell that puts what it holds to the
+/// architect or the owner and brings back the reply.
+fn asks(c: &CompiledCell) -> bool {
+    c.id == "A1" || matches!(c.step.as_deref(), Some("ask_architect" | "ask_owner"))
+}
 
-/// Whether the work goes the light route, as the database's view `work_routes` defines it: by its item's mark before
-/// its research answers, by the research's latest row after, and never again once it turned to the normal route.
-pub fn light_route(e: &Engine, w: &Work) -> Result<bool, String> {
-    let route: Option<String> =
-        e.db.conn()
-            .query_row("SELECT route FROM work_routes WHERE work = ?1", [w.id], |r| r.get(0))
-            .optional()
-            .map_err(|e| e.to_string())?;
-    Ok(route.as_deref() == Some("light"))
+/// Whether the item carries a decision point: something settled in discussion, with the option the owner chose, that
+/// goes into the project's decisions once deep research confirms it.
+pub fn decision_points(e: &Engine, item: i64) -> Result<bool, String> {
+    let points: Option<String> = e
+        .db
+        .conn()
+        .query_row("SELECT decision_points FROM items WHERE id = ?1", [item], |r| r.get(0))
+        .optional()
+        .map_err(|e| e.to_string())?
+        .flatten();
+    Ok(crate::work::json_col(points)
+        .and_then(|v| v.as_array().map(|xs| !xs.is_empty()))
+        .unwrap_or(false))
+}
+
+/// The rounds the initial research ran since it last handed in its own answer, or since the work began.
+fn research_rounds(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<u64, String> {
+    let since = answered(e, w, g, RESEARCH)?.first().map(|r| r.id.n);
+    let n = crate::work::rounds_at(e.db.conn(), w.id, RESEARCH)?
+        .iter()
+        .filter(|r| r.transition.is_some() && since.is_none_or(|s| r.id.n > s))
+        .count();
+    Ok(n as u64)
+}
+
+/// The failures the merge queue sent back to the engineer since it last sent one to the architect, or since the work
+/// began.
+fn merge_failures(e: &Engine, w: &Work) -> Result<usize, String> {
+    let rounds = crate::work::rounds_at(e.db.conn(), w.id, MERGE)?;
+    Ok(rounds
+        .iter()
+        .filter_map(|r| r.transition.as_deref())
+        .take_while(|t| *t != MERGE_FAILED_THIRD)
+        .filter(|t| *t == MERGE_FAILED)
+        .count())
 }
 
 /// How many words said to a work are waiting for the line it stands on, which turn its way on.
@@ -241,12 +254,12 @@ pub fn interjections(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<i64, Str
 }
 
 /// The reply the work brought back to choose the way on: the last return of the cell that brought it, when that is
-/// the advisor, the architect or the owner.
+/// the advisor, or a cell that put what it holds to the architect or the owner.
 fn brought_back(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>, String> {
     let Some(from) = arrived_from(e, w, g)? else {
         return Ok(None);
     };
-    if !matches!(from.as_str(), "A1" | "A2" | "A3") {
+    if !g.cell(&from).is_some_and(asks) {
         return Ok(None);
     }
     Ok(last_return(e, w, g, &from, "reply")?.and_then(|r| r.get("reply").cloned()))
@@ -297,7 +310,7 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
                 &format!(
                     "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
                      WHERE w.item = ?1 AND r.cell IN {} AND r.transition = 'merged'",
-                    db::cells_sql(ENGINEER, &["M2"])
+                    db::cells_sql(ENGINEER, &[MERGE])
                 ),
                 [item],
                 |r| r.get(0),
@@ -306,47 +319,24 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
     Ok(n > 0)
 }
 
-/// Whether the owner chose another option on a current decision card of the work, or disagreed with one: a work that
-/// holds such a card from a flow version before open questions designs again. An answer to an open question is free
-/// text, which only the engineer can judge against the design: it turns the work as an interjection, and a redirect
-/// takes it back to design by the rows of cell `A4`. The one answer the engine reads is the ruling on a departure from a
-/// decision of the item ([`crate::open_questions::turned_down`]), which the value `design_card_disputed` adds to this.
-fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
-    Ok(crate::cards::current(e.db.conn(), w.id)?
-        .iter()
-        .any(|c| c.owner_ruling().is_some_and(db::ruling_disagrees)))
-}
-
-/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and every open
-/// question of the work answered.
+/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the owner's
+/// approval given where the change needs it.
 pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<String>, String> {
     for d in dependencies(e, item.id)? {
         if !item_merged(e, d)? {
             return Ok(Some(format!("item {d}, which this item depends on, to be merged")));
         }
     }
-    let open: Vec<String> = crate::open_questions::unanswered(e.db.conn(), w.id)?
-        .iter()
-        .map(i64::to_string)
-        .collect();
-    Ok(match open.as_slice() {
-        [] => None,
-        [one] => Some(format!("the answer to open question {one}")),
-        more => Some(format!(
-            "the answers to open questions {}",
-            crate::cards::and_list(more)
-        )),
-    })
+    Ok(crate::approval::due(e, w)?.then(|| "the owner's approval of the change".to_string()))
 }
 
-/// The head the last review started from; none before the first review.
+/// The head the last review started from; none before the first review: of its re-check, or of its second pass.
 pub fn reviewed_head(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<String>, String> {
-    head_reviewed_by(e, w, g, "T4")
-}
-
-/// The head a review cell last looked at: that of its newest answered round, if any.
-pub fn head_reviewed_by(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<Option<String>, String> {
-    Ok(answered(e, w, g, cell)?
-        .first()
-        .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
+    let recheck = answered(e, w, g, "T4")?.into_iter().next();
+    let review = answered(e, w, g, "T3")?.into_iter().next();
+    let newest = match (recheck, review) {
+        (Some(a), Some(b)) => Some(if a.id.n > b.id.n { a } else { b }),
+        (a, b) => a.or(b),
+    };
+    Ok(newest.and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
 }

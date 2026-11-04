@@ -810,6 +810,33 @@ pub fn engine_input(
         ));
     }
     let Some(item) = item else { return Ok(None) };
+    match name {
+        // What taking main in brought before this round, as the step took it in ([`crate::catch_up`]).
+        crate::catch_up::INPUT => {
+            return Ok(e
+                .caught_up
+                .as_ref()
+                .filter(|(work, _)| *work == w.id)
+                .and_then(|(_, v)| v.clone()));
+        }
+        // The project's decisions in force, and their history, at the commit of main the round is pinned to.
+        "decisions_in_force" | "decision_history" => {
+            let Some(p) = e.config.config.projects.get(&item.project) else {
+                return Ok(None);
+            };
+            let commit = match main {
+                Some(c) => c.to_string(),
+                None => config::main_commit(p).map_err(|x| format!("project {}: {x}", item.project))?,
+            };
+            return if name == "decisions_in_force" {
+                crate::in_force::in_force(&p.checkout, &commit)
+            } else {
+                crate::in_force::history(&p.checkout, &commit)
+            };
+        }
+        "owner_approval" => return crate::approval::input(e, w),
+        _ => {}
+    }
     let wt = w.worktree.as_deref();
     let main = main_of(e, item);
     Ok(match name {
