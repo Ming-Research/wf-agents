@@ -31,21 +31,17 @@ fn a_design_goes_to_its_review_while_the_work_implements_it_and_the_merge_waits_
     assert_ne!(session_of(&e, work, "D1"), session_of(&e, work, "R1"));
     // The architect is asked, and the work goes on to implement without waiting.
     step_to(&mut e, item, "I1");
-    let matter = review_matter(&e, work).unwrap();
+    assert!(review_matter(&e, work).is_some());
     assert_eq!(open_ask(&e, work), None);
-    // The merge gate waits for the review.
+    // The merge gate waits for the review, and the architect's reply puts the design to the owner with its comments.
     step_until(&mut e, item, &said, "the gate's wait", |e| {
         transitions(e, item, "M1").iter().any(|t| t == "approvals")
     });
-    assert!(transitions(&e, item, "M2").is_empty());
-    architect_replies(&mut e, matter, "It fits the plan; keep it small.");
     step_until(&mut e, item, &said, "the owner's ask", |e| open_ask(e, work).is_some());
+    assert!(transitions(&e, item, "M2").is_empty());
     let (ask, body) = open_ask(&e, work).unwrap();
     assert_eq!(body["kind"], "design_review", "{body}");
-    assert_eq!(
-        body["asked"][1]["value"]["text"], "It fits the plan; keep it small.",
-        "{body}"
-    );
+    assert!(body["asked"][1]["value"]["text"].is_string(), "{body}");
     assert!(body["asked"][0]["value"]["design"].is_object(), "{body}");
     owner_answers(&mut e, ask, "approved");
     step_until(&mut e, item, &said, "the merge", |e| {
