@@ -268,13 +268,23 @@ function Stored({ r, version }: { r: FlowRoute; version: number }) {
   );
 }
 
+/// Where the cost of installing the flow shown is read, which the engine judges: for the flow at a git ref that is
+/// compared, the address of the ref; none for any other flow, since a stored version is installed already, a decision
+/// card's flow is no branch to install, and a ref shown with no comparison is not being reviewed. The comparison's
+/// panel has its section of the cost where this gives an address, and nowhere else.
+export function costPath(r: FlowRoute): string | null {
+  if (r.project === null || r.ref === null || r.from === null) return null;
+  return `/api/v1/flows/cost?project=${encodeURIComponent(r.project)}&ref=${encodeURIComponent(r.ref)}`;
+}
+
 /// The flow at a ref, which no work runs on, compared with a stored version: the comparison's panel also says what
-/// installing the flow would do with each work going on, which the engine judges (`/api/v1/flows/cost`). It is read
-/// once as the comparison opens, as the works stand then.
+/// installing the flow would do with each work going on (`costPath`). It is read once as the comparison opens, as the
+/// works stand then.
 function AtRef({ r, at }: { r: FlowRoute; at: Resource<FlowAt> }) {
   const q = `project=${encodeURIComponent(r.project ?? '')}&ref=${encodeURIComponent(r.ref ?? '')}`;
   const diff = useResource<FlowDiff>(null, r.from !== null ? `/api/v1/flows/diff?from=${r.from}&${q}` : null);
-  const cost = useResource<FlowCost>(null, r.from !== null ? `/api/v1/flows/cost?${q}` : null);
+  const path = costPath(r);
+  const cost = useResource<FlowCost>(null, path);
   return (
     <Loaded r={at}>
       {(a) => (
@@ -283,7 +293,7 @@ function AtRef({ r, at }: { r: FlowRoute; at: Resource<FlowAt> }) {
           compiled={a.compiled}
           view={a.view}
           diff={r.from !== null ? (diff.data ?? null) : null}
-          cost={r.from !== null ? cost : null}
+          cost={path !== null ? cost : null}
         />
       )}
     </Loaded>

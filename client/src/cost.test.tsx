@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FlowCost, WorkCost, WorkStands } from './api';
 import { CostSection, costRuns } from './flow/Cost';
+import { costPath } from './pages/Flow';
 import { t } from './text';
 
 const stands = (over: Partial<WorkStands> = {}): WorkStands => ({
@@ -141,5 +142,20 @@ describe('the cost of installing a flow, on the comparison panel', () => {
       ['stays', [5]],
     ]);
     expect(costRuns([])).toEqual([]);
+  });
+});
+
+describe('which flows the cost is read for', () => {
+  const route = { page: 'flow' as const, version: null, graph: null, cell: null, project: null, ref: null, snapshot: null, from: null };
+
+  it('is the flow at a git ref that is compared, and no other: not a stored version, a decision card or a ref alone', () => {
+    expect(costPath({ ...route, project: 'p', ref: 'wf-agents/1', from: 3 })).toBe(
+      '/api/v1/flows/cost?project=p&ref=wf-agents%2F1',
+    );
+    // A stored version is installed already, and a decision card's flow is no branch to install.
+    expect(costPath({ ...route, version: 2, from: 1 })).toBeNull();
+    expect(costPath({ ...route, snapshot: 4, from: 1 })).toBeNull();
+    // A ref shown with no comparison is not being reviewed.
+    expect(costPath({ ...route, project: 'p', ref: 'main' })).toBeNull();
   });
 });
