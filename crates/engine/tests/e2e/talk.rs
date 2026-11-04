@@ -388,11 +388,11 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
         said.lock().unwrap().join("\n")
     );
     age_architect(&mut e, 90 * 60_000);
-    // The session began with the first round of the work, whatever it was.
+    // The base began with its reading of the project, after the owner's words were answered.
     let cut: i64 =
         e.db.conn()
             .query_row(
-                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND session IS NOT NULL",
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'U1'",
                 [one],
                 |r| r.get(0),
             )

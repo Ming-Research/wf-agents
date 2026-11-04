@@ -14319,12 +14319,9 @@
               "without": [
                 "progress"
               ],
-              "cells": [
-                "H1",
-                "H3",
-                "H5",
-                "H8",
-                "H9"
+              "lines": [
+                "architect",
+                "matter"
               ]
             },
             {
@@ -14392,10 +14389,7 @@
             ],
             "to": "X2",
             "counts": "searches",
-            "main": true,
-            "do": [
-              "open_session"
-            ]
+            "main": true
           },
           {
             "name": "pause",
@@ -15381,7 +15375,8 @@
             }
           ],
           "without": [
-            "ask"
+            "ask",
+            "search"
           ],
           "promptBy": {
             "by": "rebuild_for",
@@ -15719,7 +15714,8 @@
             }
           ],
           "without": [
-            "ask"
+            "ask",
+            "search"
           ],
           "shown": [
             "missing",
@@ -16223,7 +16219,8 @@
             }
           ],
           "without": [
-            "ask"
+            "ask",
+            "search"
           ],
           "shown": [
             "crux"
@@ -16705,6 +16702,9 @@
               "main": true,
               "note": "It is taken in next, in the same session."
             }
+          ],
+          "without": [
+            "search"
           ],
           "promptBy": {
             "by": "report",
@@ -17220,7 +17220,8 @@
             }
           ],
           "without": [
-            "ask"
+            "ask",
+            "search"
           ],
           "always": [
             {
@@ -18165,6 +18166,9 @@
               "check": "closing_given"
             }
           ],
+          "without": [
+            "search"
+          ],
           "shown": [
             "red"
           ],
@@ -18450,6 +18454,9 @@
               "to": "P2",
               "note": "The owner wants a new policy, or with none in force replied that none is needed: it is written next, in the same session, by the owner's stance."
             }
+          ],
+          "without": [
+            "search"
           ],
           "checks": [
             {
@@ -18763,6 +18770,9 @@
           ],
           "rules": [
             "policy_scope"
+          ],
+          "without": [
+            "search"
           ],
           "checks": [
             {
@@ -19165,6 +19175,7 @@
           ],
           "without": [
             "ask",
+            "search",
             "history"
           ],
           "shown": [

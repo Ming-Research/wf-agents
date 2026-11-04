@@ -534,11 +534,14 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
                     .unwrap();
             e.work(arch).unwrap().pos.at == "G2" && ran > 0
         };
-        assert!(
-            steps_until(&mut e, 40, at_review),
-            "{}",
-            said.lock().unwrap().join("\n")
-        );
+        // One cell at a time, since a step of the work runs the tools and the round after them as one.
+        for _ in 0..40 {
+            if at_review(&mut e) {
+                break;
+            }
+            e.advance(arch).unwrap();
+        }
+        assert!(at_review(&mut e), "{}", said.lock().unwrap().join("\n"));
         let ask =
             e.db.write(Actor::Engine, |tx| {
                 let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [arch], |r| r.get(0))?;
