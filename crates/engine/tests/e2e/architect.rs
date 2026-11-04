@@ -174,6 +174,140 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// A work of project p's architect on a model with prices, which handles the owner's words, builds its base and forks it
+/// for the check of the policy the plan queued, the base's rounds and the fork's first telling what they read from the
+/// cache as the command line does: the fork's first call reads `fork_read` tokens of the 90,503 the base held. Gives the
+/// work, its log, and the requests of the fork's rounds.
+fn warm_base_work(
+    name: &str,
+    fork_read: i64,
+) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, Arc<Mutex<Vec<Request>>>) {
+    let s = setup_priced(name);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.closing.log", json!("Answered the owner on the queue."))],
+            )
+        }),
+    );
+    for cell in ["U1", "N1"] {
+        agents.insert(cell, adding(cell, |_| vec![("@usage", used(1.0, 90_000))]));
+    }
+    let first = json!({ "session_cost_usd": 2.0,
+        "first_call": { "input_tokens": 3, "cache_read_input_tokens": fork_read, "cache_creation_input_tokens": 2_000 },
+        "usage": { "input_tokens": 3, "cache_read_input_tokens": fork_read, "cache_creation_input_tokens": 2_000,
+            "output_tokens": 50,
+            "iterations": [{ "input_tokens": 3, "cache_read_input_tokens": fork_read, "cache_creation_input_tokens": 2_000 }] } });
+    agents.insert("P1", adding("P1", move |_| vec![("@usage", first.clone())]));
+    let seen = keep_requests(&mut agents, &["P1"]);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look at the queue.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        path_of(&e, arch),
+        [
+            "Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
+        ],
+        "{log}"
+    );
+    (s, e, said, arch, seen)
+}
+
+/// A JSON text the database keeps, as the first column of the one row a query gives.
+fn kept_json(e: &Engine, sql: &str, arg: &dyn db::rusqlite::ToSql) -> Value {
+    let text: String = e.db.conn().query_row(sql, [arg], |r| r.get(0)).unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+// The base's last round, which built it, ended its call before the return it handed in, and a fork reads the base from
+// the prompt cache only up to a call the cache keeps under what the fork puts before its messages: before the first fork
+// of a base just built, the session manager pings the base once with the fork's command line, resuming the base, so that
+// the fork reads all the base holds. The ping and the fork's first round put the same before their messages (the model,
+// the schema with the tools, the base's system prompt, the command line's version); the fork forks the base after the
+// ping, and having read it, missed nothing.
+#[test]
+fn the_first_fork_of_a_base_is_made_after_a_ping_that_warms_the_base_for_it() {
+    let (s, e, said, arch, seen) = warm_base_work("warm-base", 90_503);
+    let log = said.lock().unwrap().join("\n");
+    let base = base_session(&e, arch);
+    let count = |sql: &str| -> i64 { e.db.conn().query_row(sql, [&base], |r| r.get(0)).unwrap() };
+    assert_eq!(
+        count("SELECT count(*) FROM pings p JOIN sessions s ON s.id = p.session WHERE s.cli_session = ?1"),
+        1,
+        "{log}"
+    );
+    let on_base = "FROM pings p JOIN sessions s ON s.id = p.session WHERE s.cli_session = ?1";
+    let waited = kept_json(&e, &format!("SELECT p.waited {on_base}"), &base);
+    assert_eq!(
+        (waited["cell"].as_str(), waited["on"].as_str()),
+        (Some("P1"), Some("fork"))
+    );
+    let ping = kept_json(&e, &format!("SELECT p.call {on_base}"), &base);
+    assert_eq!(ping["session"], json!({ "resumed": base }), "{ping}");
+    let fork = kept_json(
+        &e,
+        "SELECT json_extract(input, '$.call') FROM rounds WHERE work = ?1 AND cell = 'P1' ORDER BY n LIMIT 1",
+        &arch,
+    );
+    let before = sessions::miss::before_messages_of(&ping);
+    assert!(
+        before.iter().any(|(part, _)| part == "--append-system-prompt"),
+        "{before:?}"
+    );
+    assert_eq!(before, sessions::miss::before_messages_of(&fork));
+    let pinged: i64 = count(&format!("SELECT p.started_at {on_base}"));
+    let forked: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'P1'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(pinged <= forked, "{pinged} {forked}");
+    let seen = seen.lock().unwrap();
+    assert_eq!((seen[0].fork, seen[0].resume.as_deref()), (true, Some(base.as_str())));
+    assert_eq!(
+        count("SELECT count(*) FROM cache_misses WHERE work = (SELECT work FROM sessions WHERE cli_session = ?1)"),
+        0,
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A fork that still reads little of its base after the ping that warmed it under the fork's command line missed the
+// cache through a fault of wf-agents: it is compared with the ping's call, whose part before the messages is the fork's,
+// and the owner is told, naming the ping.
+#[test]
+fn a_fork_that_misses_its_warmed_base_is_a_fault_named_by_the_ping() {
+    let (s, e, said, arch, _) = warm_base_work("warm-base-miss", 30_000);
+    let log = said.lock().unwrap().join("\n");
+    let (notice, text): (Option<i64>, Option<String>) =
+        e.db.conn()
+            .query_row(
+                "SELECT c.notice, n.text FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round
+                 LEFT JOIN engine_notices n ON n.id = c.notice WHERE c.work = ?1 AND r.cell = 'P1'",
+                [arch],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or_else(|x| panic!("{x}\n{log}"));
+    assert!(notice.is_some(), "{log}");
+    let text = text.unwrap_or_default();
+    assert!(text.contains("from keep-warm ping"), "{text}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work of the architect after the one that built the base takes its matter in a session forked from that base, though
 // the base's prompt cache has long been let go: neither time nor a cold cache reads the project again, and the
 // project's next work goes from the look at what comes next straight to the matter, told what changed since the base.

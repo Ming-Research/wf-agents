@@ -1,16 +1,20 @@
 //! While a work goes on or waits, the sessions of its lines the flow can come back to, which the session manager keeps
 //! warm ([`sessions::warm`]): the engine knows where the work stands and what it waits on, and the flow which lines
 //! each way from there leads back to. A work the owner's global pause holds waits on it, and is kept warm while the
-//! owner keeps that switch on.
+//! owner keeps that switch on. While a work of a project's architect runs, the project's base, which its next matters
+//! fork, is kept warm too, and before each fork is made the base is warmed when the cache may not keep its end under
+//! the fork's command line ([`before_fork`]); each such ping runs the command line the forks run with.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use db::rusqlite::params;
+use db::rusqlite::{OptionalExtension, params};
 use flow::{CompiledCell, CompiledGraph, Position};
+use serde_json::Value;
+use sessions::cli::Request;
 use sessions::warm::Waited;
 
 use crate::work::{self, Work};
-use crate::{ARCHITECT, Engine, values};
+use crate::{ARCHITECT, Engine, RunsOn, values};
 
 /// The owner's global pause, while it holds, as keeping sessions warm reads it: whether the owner keeps the sessions of
 /// waiting works warm meanwhile (the switch beside the pause, on at first), the works the owner started, which run on
@@ -131,12 +135,137 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
     }
 }
 
-/// A keep-warm ping due to a session of a work's line, with where the work waits and the line's name.
+/// A keep-warm ping due to a session of a work's line, with where the work waits and the line's name; for a ping of a
+/// project's architect's base, what it runs ([`Prepared`]), which is not the base's last round's command line.
 #[derive(Debug, Clone)]
 pub struct Ping {
     due: sessions::warm::Due,
     waited: Waited,
     line: String,
+    base: Option<Box<Prepared>>,
+}
+
+/// A ping of a project's architect's base as the engine prepares it: the request a fork of the base is sent with,
+/// resuming the base instead of forking it, with the keep-warm message and no hooks or images, so that all that comes
+/// before the messages is what the forks put there and the cache keeps the base's end under it; and its call as a
+/// round's record keeps one, with the texts to keep in `contents`.
+#[derive(Debug, Clone)]
+struct Prepared {
+    req: Request,
+    call: Value,
+    kept: Vec<(String, String)>,
+}
+
+/// The ping that warms a project's architect's base for its forks, from the request a fork is sent with (`fork`): it
+/// resumes the base (`base_cli`), whose last round was at `cell`, and the CLI it runs reports `cli_version`.
+fn prepare(fork: &Request, base_cli: &str, cell: &str, cli_version: &str) -> Prepared {
+    let mut req = Request {
+        cell: cell.to_string(),
+        resume: Some(base_cli.to_string()),
+        fork: false,
+        new_session: base_cli.to_string(),
+        prompt: sessions::warm::MESSAGE.to_string(),
+        images: Vec::new(),
+        regive: None,
+        deliver: None,
+        replay: None,
+        ..fork.clone()
+    };
+    let line = sessions::cli::command_line(&req);
+    let mut kept = Vec::new();
+    let call = crate::steps::kept_call(sessions::cli::call(&req, &line, cli_version, crate::VERSION), &mut kept);
+    req.replay = Some(line);
+    Prepared { req, call, kept }
+}
+
+/// The keep-warm ping due at `now` to the base of a project's architect while a work of the architect runs (`w`, on
+/// the graph `g`), whose next matters fork the base, as the session manager finds it due ([`sessions::warm::base_due`]):
+/// with the command line its forks run with, as a round of the graph's first cell whose line forks the base would be
+/// sent, carrying the base's system prompt. None before the first base, and while a new base is being built, its line
+/// having another session going on than the base's, which the line's own pings keep warm.
+fn base_due(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    project: &str,
+    waited: &Waited,
+    now: i64,
+) -> Result<Option<Ping>, String> {
+    let conn = e.db.conn();
+    let Some(base) = crate::base::latest(conn, project)? else {
+        return Ok(None);
+    };
+    let Some(fork) = g.cells.iter().find(|c| c.kind == "agent" && c.fork_of.is_some()) else {
+        return Ok(None);
+    };
+    let line = fork.fork_of.clone().unwrap_or_default();
+    if sessions::choose::base(conn, project, &line)?.is_some_and(|(_, cli)| cli != base.cli_session) {
+        return Ok(None);
+    }
+    let (_, level, _) = crate::steps::level_of(e, g, fork, None)?;
+    let runs = e.runs_on(&level);
+    let Some(due) = sessions::warm::base_due(conn, (base.session, base.cli_session.as_str()), runs.on(), now)? else {
+        return Ok(None);
+    };
+    let request = Request {
+        system: sessions::system::of_session(conn, &due.rounds),
+        ..crate::steps::cell_request(e, w, g, fork, None)?
+    };
+    let cell = due.last.cell.clone().unwrap_or_default();
+    let prepared = prepare(&request, &base.cli_session, &cell, &e.cli_version(&level.cli));
+    Ok(Some(Ping {
+        due,
+        waited: waited.clone(),
+        line,
+        base: Some(Box::new(prepared)),
+    }))
+}
+
+/// Warms the base of a project's architect before the round `fork` (its request, and its call as its record keeps it)
+/// makes a fork of it, on what `runs` says its level runs on, when the session manager finds the cache may not keep the
+/// base's end under the fork's command line ([`sessions::warm::before_fork`]): one ping that runs the fork's command line,
+/// resuming the base, recorded as waiting on the fork, so that the fork and each fork after it read all the base holds
+/// from the cache. A ping that fails leaves the fork to write the base again, as it would have.
+pub fn before_fork(
+    e: &mut Engine,
+    w: &Work,
+    fork: &Request,
+    call: &Value,
+    cli_version: &str,
+    runs: &RunsOn,
+) -> Result<(), String> {
+    let Some(base_cli) = fork.resume.as_deref() else {
+        return Ok(());
+    };
+    // The base's latest row, of the architect work that took it up last.
+    let row: Option<(i64, String)> =
+        e.db.conn()
+            .query_row(
+                "SELECT id, line FROM sessions WHERE cli_session = ?1 ORDER BY id DESC LIMIT 1",
+                [base_cli],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|x| x.to_string())?;
+    let Some((row, line)) = row else {
+        return Ok(());
+    };
+    let now = db::now();
+    let Some(due) = sessions::warm::before_fork(e.db.conn(), (row, base_cli), call, runs.on(), now)? else {
+        return Ok(());
+    };
+    let cell = due.last.cell.clone().unwrap_or_default();
+    let p = Ping {
+        waited: Waited {
+            cell: w.pos.at.clone(),
+            on: "fork".to_string(),
+            what: format!("the {} line forks the base next", fork.line),
+        },
+        line,
+        base: Some(Box::new(prepare(fork, base_cli, &cell, cli_version))),
+        due,
+    };
+    send(e, w.id, std::slice::from_ref(&p), now)
 }
 
 /// The keep-warm pings due at `now`, by work: one to each session of a work's line that the flow can come back to
@@ -146,7 +275,9 @@ pub struct Ping {
 /// (`pause`), a work it holds waits on it; none is due then if the owner switched keeping warm off, and none while a
 /// failed run's cause stops every work. A work whose next round starts the new session the owner asked for has nothing
 /// to keep warm, nor has a work on an older flow version that the version the engine runs cannot take on where it
-/// stands, until the loop has brought it up.
+/// stands, until the loop has brought it up. A work of a project's architect is due a ping of the project's base too,
+/// whose next matters fork it ([`base_due`]): only while a work of the architect runs, since no fork of the base comes
+/// otherwise, and the first fork after a wait warms the base itself ([`before_fork`]).
 pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<(i64, Vec<Ping>)>, String> {
     let mut out = Vec::new();
     if e.halted() || pause.is_some_and(|p| !p.warm) {
@@ -225,7 +356,16 @@ pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<
                 due,
                 waited: waited.clone(),
                 line,
+                base: None,
             });
+        }
+        // The project's base, which the architect's next matters fork, unless a line of the work keeps its session warm
+        // already.
+        if let Some(project) = architect
+            && let Some(p) = base_due(e, &w, &g, project, &waited, now)?
+            && !pings.iter().any(|x| x.due.cli_session == p.due.cli_session)
+        {
+            pings.push(p);
         }
         if !pings.is_empty() {
             out.push((id, pings));
@@ -237,8 +377,9 @@ pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<
 /// Sends a work's keep-warm pings found due at `now`, as the job the loop dispatched for them, and records each.
 pub fn send(e: &mut Engine, work: i64, pings: &[Ping], now: i64) -> Result<(), String> {
     for p in pings {
+        let of = if p.base.is_some() { "the base, " } else { "" };
         e.say(&format!(
-            "work {work}: keep-warm ping {} of this wait to session {} of the {} line, as the work stands at cell {} \
+            "work {work}: keep-warm ping {} of this wait to {of}session {} of the {} line, as the work stands at cell {} \
              on {}: {}",
             p.due.pings + 1,
             p.due.session,
@@ -247,14 +388,25 @@ pub fn send(e: &mut Engine, work: i64, pings: &[Ping], now: i64) -> Result<(), S
             p.waited.on,
             p.waited.what
         ));
-        sessions::warm::ping(
-            &mut e.db,
-            e.shared.sessions.agents(),
-            &e.config.config,
-            &p.due,
-            &p.waited,
-            now,
-        )?;
+        match &p.base {
+            Some(b) => sessions::warm::ping_with(
+                &mut e.db,
+                e.shared.sessions.agents(),
+                &b.req,
+                &p.due,
+                &p.waited,
+                Some((&b.call, b.kept.as_slice())),
+                now,
+            )?,
+            None => sessions::warm::ping(
+                &mut e.db,
+                e.shared.sessions.agents(),
+                &e.config.config,
+                &p.due,
+                &p.waited,
+                now,
+            )?,
+        };
     }
     Ok(())
 }

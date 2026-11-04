@@ -460,6 +460,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         let _ = std::fs::remove_file(&given_again);
         return Ok(Advance::Waits("a failed run's cause stops every work".to_string()));
     }
+    // A fork reads its base from the prompt cache only up to a call the cache keeps under what the fork puts before its
+    // messages: the session manager warms the base first when the cache may not keep its end so, and the fork and every
+    // fork after it read it ([`crate::warm::before_fork`]).
+    if req.fork {
+        let runs = e.runs_on(&level);
+        crate::warm::before_fork(e, w, &req, &input["call"], &cli_version, &runs)?;
+    }
     let round =
         e.db.write(Actor::Engine, |tx| {
             db::keep(tx, &kept)?;
@@ -814,7 +821,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
 
 /// A round's call as its record keeps it: the structured-output schema the command line gives and the system prompt it
 /// appends, each the same for every round of a session, kept once in `contents` and referred to there.
-fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
+pub(crate) fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
     for flag in ["--json-schema", sessions::system::FLAG] {
         if let Some(args) = call["command"].as_array_mut()
             && let Some(i) = args.iter().position(|a| a == flag).map(|i| i + 1)

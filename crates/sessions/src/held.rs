@@ -275,20 +275,15 @@ pub fn wrote_message(r: &Round) -> bool {
             .is_some_and(|k| k != "cannot_run")
 }
 
-/// A CLI session's rounds, oldest first, and what it holds now, its keep-warm pings' compactions counted.
+/// A CLI session's rounds, oldest first, and what it holds now, the compactions of the keep-warm pings it holds counted
+/// ([`crate::warm::held_pings`]): a fork holds those of its base's from before it was made.
 pub fn of_session(conn: &Connection, cli_session: &str) -> Result<(Vec<Round>, Held), String> {
     let rounds = round::of_cli_session(conn, cli_session)?;
-    let mut st = conn
-        .prepare(
-            "SELECT p.started_at FROM pings p JOIN sessions s ON s.id = p.session
-             WHERE s.cli_session = ?1 AND p.compactions > 0 ORDER BY p.started_at",
-        )
-        .map_err(|e| e.to_string())?;
-    let at: Vec<i64> = st
-        .query_map([cli_session], |r| r.get(0))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<_, _>>()
-        .map_err(|e| e.to_string())?;
+    let at: Vec<i64> = crate::warm::held_pings(conn, cli_session)?
+        .into_iter()
+        .filter(|p| p.compactions > 0)
+        .map(|p| p.started_at)
+        .collect();
     let held = Held::with_pings(&rounds, &at);
     Ok((rounds, held))
 }

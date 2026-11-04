@@ -428,14 +428,19 @@ CREATE TABLE pings (
   -- Each keep-warm ping: one minimal message the session manager sent an idle session of a line its work could come
   -- back to, 55 minutes after the session's last call, so that the session's prompt cache was read before it expired
   -- instead of written again whole at the line's next round. A ping means the line waited over an hour, while its work
-  -- waited or went on without it: it says where the work stood and for what. Its cost is the work's.
+  -- waited or went on without it: it says where the work stood and for what. Its cost is the work's. A project's
+  -- architect's base, which the matters' sessions and the second eyes fork, is pinged so while its architect has a work
+  -- running, and once before a fork is made when the cache may not hold the base's end under the fork's command line:
+  -- after the base was built, after an install, or an hour after its last call; a fork holds the pings its base was
+  -- sent before the fork was made.
   -- Hidden from agents.
-  -- Read by: the session manager, which counts a wait's pings and a session's cost; the owner's interface and the
-  -- anomalies command.
+  -- Read by: the session manager, which counts a wait's pings and a session's cost, and tells what the cache last kept
+  -- a session under; the owner's interface and the anomalies command.
   id INTEGER PRIMARY KEY,
   session INTEGER NOT NULL REFERENCES sessions(id),
   -- Where the work stood and for what the line waited, JSON: the cell, what the work waited on (pause, owner,
-  -- architect, items or tool) or work when it went on without the line, and that in words.
+  -- architect, items or tool) or work when it went on without the line, or fork when the ping warmed an architect's
+  -- base before a fork of it, and that in words.
   waited TEXT NOT NULL CHECK (json_valid(waited)),
   -- The model the ping ran on, as the CLI reported it.
   model TEXT,
@@ -449,7 +454,13 @@ CREATE TABLE pings (
   error TEXT,
   -- When it started and ended.
   started_at INTEGER NOT NULL,
-  ended_at INTEGER
+  ended_at INTEGER,
+  -- The call the ping ran, JSON, as a round's record keeps one (`rounds.input.call`), each large text kept in contents:
+  -- for a ping of an architect's base, which runs the command line its forks run with. NULL for a ping that ran its
+  -- session's last round's command line again, whose call is that round's. Read by: the session manager, which tells
+  -- whether the cache keeps the base's end under a fork's command line, and compares a round that missed the cache with
+  -- the call the cache kept its session under last.
+  call TEXT CHECK (call IS NULL OR json_valid(call))
 ) STRICT;
 
 CREATE TABLE cache_misses (
@@ -472,7 +483,8 @@ CREATE TABLE cache_misses (
   -- The line of its session.
   line TEXT NOT NULL,
   -- The cause as far as the record tells it, JSON: each part of the command line and each variable of its environment
-  -- that differs from the session's round before, with its value there and in this round; an empty list when none
+  -- that differs from the session's round before, or from the keep-warm ping since it that recorded its call (as one
+  -- that warmed an architect's base for a fork), with its value there and in this round; an empty list when none
   -- differs.
   differs TEXT NOT NULL CHECK (json_valid(differs)),
   -- The tokens of what the session held that the round's first call did not read from the cache, and so wrote to it
