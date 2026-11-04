@@ -2700,7 +2700,8 @@ mod ci_on_demand {
         let runs = Runs::new(None);
         runs.has_run(HEAD, "fast", &[("lint", "green"), ("test 1 of 3", "red")]);
         for input in [None, Some("tests")] {
-            let (run, checks) = fast_checks(&runs, &project(false, input), "work", HEAD, &tests(&["a_test"])).unwrap();
+            let p = project(false, input);
+            let (run, checks) = fast_checks(&runs, &p, "work", HEAD, &tests(&["a_test"]), &[]).unwrap();
             assert_eq!(run, "whole");
             assert_eq!(results(&checks), [("lint", "green"), ("test 1 of 3", "red")]);
         }

@@ -637,10 +637,12 @@ impl Ctx<'_> {
     }
 
     /// The names of the checks of the CI runs recorded for this work, newest run first: those of the fast CI (a `ci`
-    /// run keeps them under `push`) and of the full CI (an attempt keeps its first run's under `first`, a run again
+    /// run keeps them under `push`) and of the full CI, which the merge runs (an attempt of it keeps its list as it is),
+    /// as did the full CI on the draft of an earlier flow (an attempt keeps its first run's under `first`, a run again
     /// its list as it is). A run that did not get as far as its checks has none.
     fn ci_jobs(&self) -> Result<Vec<String>, String> {
         let mut runs = self.ci_runs("ci")?;
+        runs.extend(self.ci_runs("merge")?);
         runs.extend(self.ci_runs("full_ci")?);
         Ok(check_names(&runs))
     }
@@ -3366,20 +3368,31 @@ mod tests {
         );
     }
 
-    // A ci_job row's jobs are read from what the tools recorded: the fast CI keeps its checks under `push`, the full CI
-    // its first run's under `first` and a run again its list as it is; a run that failed or was refused has none.
+    // A ci_job row's jobs are read from what the tools recorded: the fast CI keeps its checks under `push`, the merge
+    // its run of the full CI as a list, as a run again does, and the full CI on the draft its first run's under `first`;
+    // a run that failed or was refused has none, nor does the merge's record of a merge commit or of none yet.
     #[test]
     fn the_names_of_the_checks_of_every_recorded_ci_run_are_read_from_each_tools_record() {
         let check = |n: &str| json!({ "name": n, "result": "green", "run": "u" });
         let fast =
             json!({ "push": { "verdict": "pushed", "head": "h", "checks": [check("lint"), check("test 1 of 3")] } });
+        let merge = json!([check("check"), check("lint")]);
         let first = json!({ "first": [check("lint"), check("full only")] });
         let again = json!([check("again only")]);
         let refused = json!({ "push": { "verdict": "refused", "why": "w" } });
         let failed = json!({ "failed": { "kind": "other", "what": "w" } });
         assert_eq!(
-            check_names(&[fast, first, again, refused, failed]),
-            ["lint", "test 1 of 3", "full only", "again only"]
+            check_names(&[
+                fast,
+                merge,
+                json!("0123abc"),
+                Value::Null,
+                first,
+                again,
+                refused,
+                failed
+            ]),
+            ["lint", "test 1 of 3", "check", "full only", "again only"]
         );
     }
 
