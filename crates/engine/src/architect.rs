@@ -5751,6 +5751,46 @@ mod tests {
         assert!(title_language_problem("French", "Analyser l'entree").is_none());
     }
 
+    // Each cell whose closing is checked is told, in the formats it is given, the most characters the check lets its
+    // decision log line hold: a limit the agent learns only from a send-back costs a round each time.
+    #[test]
+    fn a_cell_that_closes_a_matter_is_told_the_most_its_log_line_holds() {
+        let f = flow::compile(
+            flow::FLOW,
+            &flow::Context {
+                relations: db::relations(db::SCHEMA).unwrap(),
+                tables: db::index_of(db::SCHEMA).unwrap(),
+            },
+        )
+        .unwrap();
+        let limit = format!("of at most {LOG_LINE_MOST} characters");
+        let mut told = 0;
+        for g in &f.graphs {
+            for c in &g.cells {
+                if !c.checks.iter().any(|x| x.check == "closing_given") {
+                    continue;
+                }
+                let given = format!(
+                    "{}\n{}",
+                    flow::formats::common_format_of(g, &sessions::format_cells(g, c)),
+                    flow::formats::cell_format(g, c)
+                );
+                let log = given
+                    .split("\"description\":\"")
+                    .find(|d| d.starts_with("One line, in English"))
+                    .unwrap_or_else(|| panic!("{} {} is not given the log line's description", g.name, c.id));
+                assert!(
+                    log.split('"').next().unwrap().contains(&limit),
+                    "{} {}: {log}",
+                    g.name,
+                    c.id
+                );
+                told += 1;
+            }
+        }
+        assert!(told > 0, "no cell checks a closing");
+    }
+
     // What a matter's session leaves as it ends is told every problem at once: an empty or long log line, one of two
     // lines, and an answer with no why.
     #[test]

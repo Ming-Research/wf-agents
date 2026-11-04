@@ -3654,7 +3654,7 @@
           "name": "log",
           "title": "Decision log line",
           "type": "text",
-          "desc": "One line, in English: what you did, why, and the items it concerns by number; what a session that handles a later matter needs to know of this one, and nothing it can read elsewhere"
+          "desc": "One line, in English, of at most 600 characters; count them before handing it in: what you did, why, and the items it concerns by number; what a session that handles a later matter needs to know of this one, and nothing it can read elsewhere"
         },
         {
           "name": "plan",
