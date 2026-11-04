@@ -327,8 +327,11 @@ fn a_cancel_after_github_merged_the_pull_request_closes_nothing() {
     FakeHub::squash_merge(&s.origin, &s.root, &s.prs, "o/p", pr).unwrap();
     cancel(&mut e, item, "owner");
     s.ci.open();
+    // Settled once the work has ended, and either a close was asked of GitHub, which the assertions refuse, or the
+    // outbox holds no close. A close asked here fails the test at once, not at the time limit.
     let settled = turns_until(&mut e, &Go::default(), |e| {
-        ended_why(e, work).is_some() && number(e, "SELECT count(*) FROM outbox WHERE kind = 'close_pr'") == 0
+        ended_why(e, work).is_some()
+            && (s.closing.came() > 0 || number(e, "SELECT count(*) FROM outbox WHERE kind = 'close_pr'") == 0)
     });
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -1008,6 +1011,17 @@ fn a_resume_that_met_the_lifting_of_its_pause_does_not_lift_the_owner_s_next_pau
 #[test]
 fn a_resume_withdrawn_during_the_loop_s_turn_lifts_nothing() {
     let s = setup("resume-withdrawn-in-turn");
+    // The close row below names pull request 1. The fake GitHub holds it, as GitHub would, so that the close is
+    // asked of an open pull request and reaches the gate; a pull request it does not hold is refused before the gate.
+    s.prs.lock().unwrap().insert(
+        1,
+        Pr {
+            branch: "unrelated/pr-1".into(),
+            base: "main".into(),
+            state: PrState::Open,
+            merged_as: None,
+        },
+    );
     let (mut e, said, _) = start(&s, scripts());
     let work = e.step(None).unwrap().work.unwrap();
     api::pause(&mut e.db, work, None).unwrap();
