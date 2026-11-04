@@ -808,6 +808,93 @@ pub struct Project {
     /// [`RESEARCH_ROUNDS`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub research_rounds: Option<u64>,
+    /// The lock files whose dependencies' source an agent may have put in its worktree to read, each with the command
+    /// that does it ([`DependencySources`]); none, and the tool `dependency_sources` refuses and says so. Left out of
+    /// the settings an agent is shown when empty, which they read as `none`. An engine that does not include the tool
+    /// refuses a project's file that has the field, since a field the types do not know is an error: add it only once
+    /// an engine that includes the tool is installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependency_sources: Vec<DependencySources>,
+}
+
+/// One lock file of a project, with the command the engine's tool `dependency_sources` runs to put the source of what
+/// the lock file locks on disk for an agent to read. The tool knows no language and no lock file format: it runs the
+/// words of `command` in the root of the work's worktree, and what they do with the lock file is theirs. So a project
+/// of any language writes the command of its own, and one that needs a shell writes `sh -c '...'` itself.
+///
+/// The command must fetch each package at the version the lock file locks, as it was published (its types included),
+/// without compiling anything and without running any code of a package, and it must write only into `into`, a
+/// directory of its own, which it may empty first: `cargo vendor` empties the directory it is given and `npm ci`
+/// removes `node_modules`. `into` must be ignored by the project's git (`.gitignore`), so that what the command writes
+/// never shows as a change of the work; the tool refuses to run when it is not. It is checked as a directory, with a
+/// trailing slash, which is how a rule such as `/client/node_modules/` reads, so `into` may name a directory that does
+/// not exist yet.
+///
+/// Written as `[[dependency_sources]]` tables in the project's file, one for each lock file:
+///
+/// ```toml
+/// [[dependency_sources]]
+/// # The lock file, by its path in the repository.
+/// lock = "Cargo.lock"
+/// # The directory the command fills, by its path in the repository; git must ignore it.
+/// into = "target/dependency-sources"
+/// # Run in the worktree's root, split into words as a shell would, never through one; --locked keeps cargo from
+/// # changing the lock file.
+/// command = "cargo vendor --locked --versioned-dirs target/dependency-sources"
+///
+/// [[dependency_sources]]
+/// lock = "client/package-lock.json"
+/// into = "client/node_modules"
+/// # --prefix makes npm take client/ for the project's root; --ignore-scripts runs no script of a package.
+/// command = "npm ci --ignore-scripts --no-audit --no-fund --prefix client"
+/// # Optional: how many seconds the command may run before the engine stops it and what it started; 600 unless set.
+/// timeout = 600
+/// ```
+///
+/// The time limit only ends a command that hangs: it says nothing of how long fetching should take.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DependencySources {
+    /// The lock file, by its path in the repository; what an agent names to ask for its dependencies' source.
+    pub lock: String,
+    /// The directory the command fills, by its path in the repository; git must ignore it.
+    pub into: String,
+    /// The command, as one line: split into words as a shell splits a line (quotes group, a backslash escapes), and
+    /// run without a shell in the root of the work's worktree.
+    pub command: String,
+    /// How many seconds the command may run before the engine stops it, and everything it started; none, and
+    /// [`DEPENDENCY_SOURCES_TIMEOUT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+}
+
+/// How many seconds a dependency sources command may run where the project sets no other limit: a hung command is
+/// stopped, and the limit is far above what a fetch of one project's packages takes.
+pub const DEPENDENCY_SOURCES_TIMEOUT: u64 = 600;
+
+/// A path in a repository as the parts it names, so that `a/b`, `a/b/` and `./a/b` are one.
+fn parts(path: &str) -> Vec<std::path::Component<'_>> {
+    Path::new(path)
+        .components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect()
+}
+
+impl DependencySources {
+    /// Whether `lock` names this entry's lock file, as `Cargo.lock` and `./Cargo.lock` both do.
+    pub fn locks(&self, lock: &str) -> bool {
+        parts(&self.lock) == parts(lock)
+    }
+
+    /// The directory the command fills, as a path from the repository's root, with no trailing slash.
+    pub fn directory(&self) -> PathBuf {
+        parts(&self.into).into_iter().collect()
+    }
+
+    /// How many seconds the command may run.
+    pub fn timeout_secs(&self) -> u64 {
+        self.timeout.unwrap_or(DEPENDENCY_SOURCES_TIMEOUT)
+    }
 }
 
 /// How many rounds the initial research runs before it is asked whether the work can be started directly, where the
@@ -1534,6 +1621,40 @@ impl Config {
                     p.ci.fast
                 ));
             }
+            for (i, d) in p.dependency_sources.iter().enumerate() {
+                let at = format!("projects/{name}.toml: dependency_sources of {:?}", d.lock);
+                // The lock file and the directory are paths of the project's repository, read by git there.
+                if !in_repository(Path::new(&d.lock)) {
+                    problems.push(format!("{at}: lock is not a path in the project's repository"));
+                }
+                if !in_repository(Path::new(&d.into)) {
+                    problems.push(format!(
+                        "{at}: into is not a directory in the project's repository: {}",
+                        d.into
+                    ));
+                }
+                // The command is run as its words, never through a shell: it must have some, and a quote must close.
+                match words(&d.command) {
+                    Err(why) => problems.push(format!("{at}: command cannot be split into words: {why}")),
+                    Ok(w) if w.is_empty() => problems.push(format!("{at}: command holds no word")),
+                    Ok(_) => {}
+                }
+                if d.timeout == Some(0) {
+                    problems.push(format!("{at}: timeout is 0; it is the seconds the command may run"));
+                }
+                // An agent names an entry by its lock file, and a directory is filled by one command only.
+                for other in &p.dependency_sources[..i] {
+                    if other.locks(&d.lock) {
+                        problems.push(format!("{at}: lock is listed twice"));
+                    }
+                    if parts(&other.into) == parts(&d.into) {
+                        problems.push(format!(
+                            "{at}: into is the directory of {:?} too: {}",
+                            other.lock, d.into
+                        ));
+                    }
+                }
+            }
             let mut tags = BTreeSet::new();
             for t in &p.observation_tags {
                 if t.name.trim().is_empty() || t.name.trim() != t.name || !tags.insert(t.name.as_str()) {
@@ -1724,6 +1845,53 @@ impl Config {
         }
         out
     }
+}
+
+/// Splits a command line into words as a shell would, without running anything: quotes group, a backslash escapes. A
+/// line the configuration holds is split by this where it is checked and where it is run, so that both read it alike.
+pub fn words(line: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut has = false;
+    let mut quote: Option<char> = None;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            // A backslash escapes the next character outside quotes; in double quotes only `$`, a backtick, `"` and `\`,
+            // and before any other character it is a character of the word. Before a line break it takes the break
+            // away, and at the end of the line it is a character of the word.
+            (Some('"'), '\\') | (None, '\\') => match chars.peek().copied() {
+                Some('\n') => {
+                    chars.next();
+                }
+                Some(n) if quote.is_none() || matches!(n, '$' | '`' | '"' | '\\') => {
+                    chars.next();
+                    cur.push(n);
+                }
+                _ => cur.push('\\'),
+            },
+            (Some(_), c) => cur.push(c),
+            (None, '\'' | '"') => {
+                quote = Some(c);
+                has = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if has || !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                    has = false;
+                }
+            }
+            (None, c) => cur.push(c),
+        }
+    }
+    if quote.is_some() {
+        return Err("a quote is not closed".into());
+    }
+    if has || !cur.is_empty() {
+        out.push(cur);
+    }
+    Ok(out)
 }
 
 /// Whether a path names something inside a repository from its root: relative, never going up (`..`), and naming more
@@ -2890,6 +3058,116 @@ asks = 9
                 "{e}"
             );
         }
+    }
+
+    // A command line the configuration holds is split into words as a shell would, where it is checked and where it is
+    // run, never run through a shell.
+    #[test]
+    fn a_command_line_is_split_as_a_shell_would() {
+        assert_eq!(
+            words("pr view 12 --json title").unwrap(),
+            ["pr", "view", "12", "--json", "title"]
+        );
+        assert_eq!(
+            words(r#"api 'repos/a/b/pulls?state=all' --jq ".[] | .title""#).unwrap(),
+            ["api", "repos/a/b/pulls?state=all", "--jq", ".[] | .title"]
+        );
+        assert_eq!(words(r#"a "" b\ c"#).unwrap(), ["a", "", "b c"]);
+        assert!(words("pr view 'x").is_err());
+    }
+
+    // A project lists the lock files whose dependencies' source an agent may have put in its worktree as
+    // `[[dependency_sources]]` tables. One that lists none reads as `none` in the settings an agent is shown, one that
+    // lists some as the list; a lock file is named as `./Cargo.lock` as well as `Cargo.lock`, and the time limit is
+    // 600 seconds unless set.
+    #[test]
+    fn a_project_lists_the_lock_files_whose_dependencies_source_an_agent_may_read() {
+        const LISTING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [[dependency_sources]]\nlock = \"Cargo.lock\"\ninto = \"target/dependency-sources\"\n\
+            command = \"cargo vendor --locked --versioned-dirs target/dependency-sources\"\n\
+            [[dependency_sources]]\nlock = \"client/package-lock.json\"\ninto = \"client/node_modules/\"\n\
+            command = \"npm ci --ignore-scripts --no-audit --no-fund --prefix client\"\ntimeout = 90\n";
+        const SETTING: &str = "`project.dependency_sources`";
+        let none = read(&files(&[])).unwrap();
+        assert!(none.projects["p"].dependency_sources.is_empty());
+        assert_eq!(
+            none.named_settings("p", SETTING),
+            [("project.dependency_sources".to_string(), "none".to_string())]
+        );
+        let c = read(&files(&[("projects/q.toml", LISTING)])).unwrap();
+        let listed = &c.projects["q"].dependency_sources;
+        assert_eq!(listed.len(), 2);
+        assert_eq!(
+            (listed[0].lock.as_str(), listed[0].directory(), listed[0].timeout_secs()),
+            ("Cargo.lock", PathBuf::from("target/dependency-sources"), 600)
+        );
+        assert_eq!(
+            (listed[1].directory(), listed[1].timeout_secs()),
+            (PathBuf::from("client/node_modules"), 90)
+        );
+        assert!(listed[0].locks("./Cargo.lock") && listed[0].locks("Cargo.lock"));
+        assert!(!listed[0].locks("client/Cargo.lock") && !listed[0].locks("client/package-lock.json"));
+        assert_eq!(
+            c.named_settings("q", SETTING),
+            [(
+                "project.dependency_sources".to_string(),
+                "[{\"lock\":\"Cargo.lock\",\"into\":\"target/dependency-sources\",\"command\":\"cargo vendor --locked \
+                 --versioned-dirs target/dependency-sources\"},{\"lock\":\"client/package-lock.json\",\"into\":\
+                 \"client/node_modules/\",\"command\":\"npm ci --ignore-scripts --no-audit --no-fund --prefix client\",\
+                 \"timeout\":90}]"
+                    .to_string()
+            )]
+        );
+        // A table with a field the list does not know is refused.
+        let colour = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n[[dependency_sources]]\n\
+                      lock = \"a.lock\"\ninto = \"d\"\ncommand = \"true\"\ncolour = \"red\"\n";
+        let e = read(&files(&[("projects/q.toml", colour)])).unwrap_err();
+        assert!(
+            e.problems
+                .iter()
+                .any(|p| p.contains("projects/q.toml") && p.contains("colour")),
+            "{e}"
+        );
+    }
+
+    // The check of the configuration tells every fault of the `[[dependency_sources]]` tables at once, each with the
+    // file and the lock file it is in: a lock file or a directory that is not a path in the repository, a command that
+    // has no words or a quote that is not closed, a time limit of 0, and a lock file or a directory listed twice,
+    // however its path is spelled.
+    #[test]
+    fn the_check_tells_every_fault_of_the_dependency_sources_at_once() {
+        const FAULTS: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [[dependency_sources]]\nlock = \"../Cargo.lock\"\ninto = \"/abs\"\ncommand = \"cargo 'vendor\"\ntimeout = 0\n\
+            [[dependency_sources]]\nlock = \"Cargo.lock\"\ninto = \"target/sources\"\ncommand = \"  \"\n\
+            [[dependency_sources]]\nlock = \"./Cargo.lock\"\ninto = \"target/sources/\"\ncommand = \"true\"\n";
+        let e = read(&files(&[("projects/q.toml", FAULTS)])).unwrap_err();
+        let said = |what: &str| {
+            e.problems
+                .iter()
+                .any(|p| p.starts_with("projects/q.toml: dependency_sources of ") && p.contains(what))
+        };
+        assert!(
+            said("\"../Cargo.lock\": lock is not a path in the project's repository"),
+            "{e}"
+        );
+        assert!(
+            said("\"../Cargo.lock\": into is not a directory in the project's repository: /abs"),
+            "{e}"
+        );
+        assert!(
+            said("\"../Cargo.lock\": command cannot be split into words: a quote is not closed"),
+            "{e}"
+        );
+        assert!(said("\"../Cargo.lock\": timeout is 0"), "{e}");
+        assert!(said("\"Cargo.lock\": command holds no word"), "{e}");
+        assert!(said("\"./Cargo.lock\": lock is listed twice"), "{e}");
+        assert!(
+            said("\"./Cargo.lock\": into is the directory of \"Cargo.lock\" too: target/sources/"),
+            "{e}"
+        );
+        // Nothing else is said: the faults are those and no others.
+        let ours = e.problems.iter().filter(|p| p.contains("dependency_sources")).count();
+        assert_eq!(ours, 7, "{e}");
     }
 
     // The engine reads the last commit; the working tree's changes count only once committed.

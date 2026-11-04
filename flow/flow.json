@@ -4372,6 +4372,79 @@
       ]
     },
     {
+      "name": "dependency_sources",
+      "desc": "Puts the source of the dependencies one of the project's lock files locks, each package at the locked version as it was published (its types included), in a directory of your worktree for you to read. Nothing is compiled and no code of a package runs. Only the lock files the project lists run; where it lists none, the tool refuses. Ask again when the lock file changed. Git ignores the directory, so a search that follows .gitignore, as ripgrep does, skips it when it searches the whole worktree: name the directory to search it",
+      "runs": "The engine finds the lock file among those the project's configuration lists (`dependency_sources`) and checks with git that the directory the configuration names for it is ignored, taking the path with a trailing slash, as git reads a rule for a directory. It then runs the command the configuration gives for the lock file in the root of the work's worktree, without a shell, in a process group of its own, with the engine's environment, and reads its output as it runs. The lock file is read as the worktree has it, uncommitted changes included. A command that runs past its time limit (`timeout`, 600 seconds unless the configuration sets it) is stopped with everything it started, and one that ends leaves nothing it started running: what is left in its process group is stopped when it ends. A command that fails while the network is down makes the cell wait for the network, as every tool does. The engine commits and changes nothing else, and records the attempt",
+      "in": [
+        {
+          "name": "lock",
+          "title": "Lock file",
+          "type": "text",
+          "desc": "The lock file, by its path in the repository: one of those the project lists, `project.dependency_sources`, each with the directory its command fills and the command"
+        }
+      ],
+      "out": [
+        {
+          "name": "sources",
+          "title": "Sources result",
+          "type": "union",
+          "desc": "Whether the sources were put in the directory",
+          "by": "verdict",
+          "branches": [
+            {
+              "value": "fetched",
+              "desc": "The command ran to its end and exited with 0",
+              "fields": [
+                {
+                  "name": "path",
+                  "title": "Directory",
+                  "type": "text",
+                  "desc": "The directory the command filled, as an absolute path on this machine: read the packages there"
+                }
+              ]
+            },
+            {
+              "value": "failed",
+              "desc": "The command ran and did not exit with 0, or was stopped, so what is in the directory is not to be relied on",
+              "fields": [
+                {
+                  "name": "exit",
+                  "title": "Exit code",
+                  "type": "int",
+                  "desc": "The command's exit code; left out when it was stopped, by the engine or by a signal, and has none",
+                  "optional": true
+                },
+                {
+                  "name": "timed_out",
+                  "title": "Stopped for time",
+                  "type": "bool",
+                  "desc": "True when the engine stopped the command, and everything it started, for running past its time limit"
+                },
+                {
+                  "name": "output",
+                  "title": "Output",
+                  "type": "text",
+                  "desc": "What the command wrote to its standard output and error, as it wrote it; if it is too long, it is saved locally and this gives the path"
+                }
+              ]
+            },
+            {
+              "value": "refused",
+              "desc": "The request did not pass the engine's checks, so no command ran",
+              "fields": [
+                {
+                  "name": "why",
+                  "title": "Why refused",
+                  "type": "text",
+                  "desc": "Which check failed: the work has no worktree, the project lists no lock file or not this one, or git does not ignore the directory the configuration names for it"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "gh",
       "desc": "One read-only gh command (your machine has no GitHub credentials). Only a command that starts with an entry of the allow list `gh.allow` runs: an entry that ends in / allows any argument under it, any other entry that command with any arguments after it. A request of api only reads: one with any of `-X`, `--method`, `-f`, `-F`, `--field`, `--raw-field` or `--input` is refused. To push or run CI, use ci or measure; for anything else on GitHub, ask the owner, kind permission",
       "runs": "The engine runs it with its own credentials, in the work's worktree. It lets through only commands on the allow list in the engine's configuration and an api request that only reads, runs nothing else, and records the attempt of each command it runs; only the owner changes the allow list",
@@ -6598,6 +6671,7 @@
             "ci_before",
             "measure",
             "decision_history",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -7143,6 +7217,7 @@
           "tools": [
             "measure",
             "decision_history",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -7359,6 +7434,7 @@
           "tools": [
             "measure",
             "decision_history",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -8386,6 +8462,7 @@
             "ci",
             "ci_before",
             "measure",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -8805,6 +8882,7 @@
           "tools": [
             "ci",
             "decision_history",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -8995,6 +9073,7 @@
           "tools": [
             "ci",
             "decision_history",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -9347,6 +9426,7 @@
           "tools": [
             "ci",
             "ci_before",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -9735,6 +9815,7 @@
             "ci",
             "ci_before",
             "measure",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -10213,6 +10294,7 @@
           "tools": [
             "ci",
             "decision_history",
+            "dependency_sources",
             "gh",
             "query"
           ],
@@ -12005,6 +12087,7 @@
           "tools": [
             "ci",
             "measure",
+            "dependency_sources",
             "gh",
             "query"
           ],

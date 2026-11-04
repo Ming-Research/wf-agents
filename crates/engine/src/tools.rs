@@ -1,13 +1,14 @@
-//! The tool cells: the tools agents ask for (cell `X1`, in each graph), the full CI on the draft (`T2`),
-//! the merge queue (`M2`) and watching main (`L1`). Each attempt of a tool is a row of tool_runs under
-//! the cell's round. A tool that fails is tried twice more; a refusal is a result, not a failure, and is not tried
-//! again.
+//! The tool cells: the tools agents ask for (cell `X1`, in each graph; `dependency_sources` is in
+//! [`crate::dependency_sources`]), the full CI on the draft (`T2`), the merge queue (`M2`) and watching main (`L1`).
+//! Each attempt of a tool is a row of tool_runs under the cell's round. A tool that fails is tried twice more; a
+//! refusal is a result, not a failure, and is not tried again.
 
 use std::cell::Cell;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+use config::words;
 use db::Actor;
 use db::rusqlite::params;
 use serde_json::{Value, json};
@@ -99,7 +100,7 @@ pub(crate) fn attempts(
 }
 
 /// A text given inline when it is short, or saved under the data directory and given by its path.
-fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String) -> String {
+pub(crate) fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String) -> String {
     if text.len() <= LONG {
         return text;
     }
@@ -131,44 +132,6 @@ fn rows_given(rows: Vec<Value>, save: impl FnOnce(String) -> String) -> (Vec<Val
     } else {
         (Vec::new(), Some(save(text)))
     }
-}
-
-/// Splits a command line into words as a shell would, without running anything: quotes group, a backslash escapes.
-pub fn words(line: &str) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut has = false;
-    let mut quote: Option<char> = None;
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
-        match (quote, c) {
-            (Some(q), c) if c == q => quote = None,
-            (Some('"'), '\\') | (None, '\\') => {
-                if let Some(n) = chars.next() {
-                    cur.push(n);
-                }
-            }
-            (Some(_), c) => cur.push(c),
-            (None, '\'' | '"') => {
-                quote = Some(c);
-                has = true;
-            }
-            (None, c) if c.is_whitespace() => {
-                if has || !cur.is_empty() {
-                    out.push(std::mem::take(&mut cur));
-                    has = false;
-                }
-            }
-            (None, c) => cur.push(c),
-        }
-    }
-    if quote.is_some() {
-        return Err("a quote is not closed".into());
-    }
-    if has || !cur.is_empty() {
-        out.push(cur);
-    }
-    Ok(out)
 }
 
 /// The flags that make a gh `api` request write or take its request from elsewhere; the tool refuses a request that has
@@ -784,6 +747,7 @@ pub fn run_tools(
             ("gh", _) => gh(e, w, project.as_ref(), round, n, req),
             ("query", _) => query(e, round, n, req),
             ("decision_history", _) => decision_history(e, w, project.as_ref(), round, n, req),
+            ("dependency_sources", _) => crate::dependency_sources::run(e, w, project.as_ref(), round, n, req),
             (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
         };
         got.push((n, tool.clone(), ran));
@@ -1709,20 +1673,6 @@ mod tests {
             "{hint}"
         );
         assert_eq!(named_columns("SELECT 1", "interrupted"), None);
-    }
-
-    #[test]
-    fn a_command_line_is_split_as_a_shell_would() {
-        assert_eq!(
-            words("pr view 12 --json title").unwrap(),
-            ["pr", "view", "12", "--json", "title"]
-        );
-        assert_eq!(
-            words(r#"api 'repos/a/b/pulls?state=all' --jq ".[] | .title""#).unwrap(),
-            ["api", "repos/a/b/pulls?state=all", "--jq", ".[] | .title"]
-        );
-        assert_eq!(words(r#"a "" b\ c"#).unwrap(), ["a", "", "b c"]);
-        assert!(words("pr view 'x").is_err());
     }
 
     // The tests named go to the fast workflow each followed by a line break, the last too, so that a name with spaces

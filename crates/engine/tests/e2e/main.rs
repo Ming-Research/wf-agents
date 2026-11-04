@@ -28,6 +28,8 @@ mod cancels;
 mod decisions;
 mod declared_checks;
 mod deep_research;
+mod dependency_sources;
+mod dependency_sources_left_behind;
 mod failures;
 mod flow_versions;
 mod guard;
