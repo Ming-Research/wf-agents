@@ -1,6 +1,7 @@
 # What the fast CI costs, measured on 2026-11-03 and 2026-11-04
 
-Item #282. The data is read as it stood at 2026-11-04 21:18:53 UTC. This report measures; it changes no engine, CI or flow
+Item #282. The engine's data is read as it stood at 2026-11-04 21:18:53 UTC (every query but Q1b and Q10 stops there,
+so a re-run gives the same sets); GitHub's records were read at about 21:20 UTC the same day. This report measures; it changes no engine, CI or flow
 file. Whom it serves: the architect, who decides what to change next in the CI, and the reviews of #244, #251 and #231,
 whose acceptance numbers it measures. It is kept until the numbers are measured again after the next change to the CI.
 
@@ -21,10 +22,10 @@ files, (inferred) from measurements, not tried.
 |---|---|
 | `ci` duration, median, before and after the switch to the fast CI | Before: 407 s, 95% interval 405 to 423 s (470 calls, whole CI, 2026-10-26 to 2026-11-03 09:21 UTC). After: 218 s, interval 204 to 220 s (161 calls, named tests, 2026-11-03 10:52 UTC to 2026-11-04 21:19 UTC). The target is 180 s: **not reached**; 19 of the 161 calls (12%) took 180 s or less. |
 | What the 218 s are made of | On the mean call of 38 sampled ones (216 s): building the page 63 s (29%), compiling and running the tests 53 s (24%), setting the job up 26 s (12%), restoring main's build state 20 s (9%), the engine before and after the run 27 s (12%), the lint job ending after the tests 12 s (6%), waiting for a runner 3 s (1%). Running the tests themselves is 3 to 7 s (about 2%). |
-| What a work waits for in CI | The 25 works merged last before the switch: mean 93.7 min, median 90.5 min. The 7 works that started after the switch and are merged: mean 60.1 min, median 44.5 min (49.3 and 37.5 min when the time `ci` and `ci_before` overlap counts once). The target of 34.8 min is met by 2 of the 7 works (3 of 7 on the second count). **Undecided**: 7 works, and the intervals overlap. The baseline of 69.7 min is the sum of works that were not finished; the same works now come to 88.9 min. |
+| What a work waits for in CI | The 25 works merged last before the switch: mean 93.7 min, median 90.5 min. The 7 works that started after the switch and are merged: mean 60.1 min, median 44.5 min (49.3 and 37.5 min when the time `ci` and `ci_before` overlap counts once). The target of 34.8 min is met by 2 of the 7 works (3 of 7 on the second count). **Undecided**: 7 works, and the intervals overlap. The baseline of 69.7 min is reproduced from the records (section 5) as a snapshot of works not yet finished, taken at about 2026-11-03 04:37 UTC; the same 25 works now come to 88.9 min. |
 | The full CI green the first time | Before the switch 42 of 43 works (98%); after it 10 of 12 (83%). Not told apart: the intervals (88% to 100%, 55% to 95%) overlap. |
 | `ci` and `ci_before` together | 59 rounds ran the two side by side. The round lasts 3.53 min against 3.50 min for `ci` alone: `ci_before` costs the round 2 s and the overlap saves 2.82 min a round, the whole of the shorter run. No lengthening of either run or of the wait for a runner is detected. |
-| What is worth changing | Building the page: about 58 s a call and the page is the same unless `client/` changed (inferred, not tried). Then the engine's 20 s polling, about 8 s a call (inferred). The tests, the runner wait and the lint job (already moved off the critical path) are not worth changing. Section 7 has the arithmetic, and what is still needed to reach 34.8 min. |
+| What is worth changing | Building the page: about 58 s a call and the page is the same unless `client/` changed (inferred, not tried). Then the engine's 20 s polling, about 8 s a call (inferred). The tests, the runner wait and the lint job (already moved off the critical path) are not worth changing. Whether main's build state is worth restoring is undecided (section 4) and needs paired runs. Section 7 has the arithmetic, and what is still needed to reach 34.8 min. |
 
 ## 2. How the numbers were taken
 
@@ -64,7 +65,9 @@ Against the target of 180 s: the lower end of the interval, 204.5 s, is 24.5 s a
 GitHub's run time agrees in direction: for the runs of `fast.yml` on the work branches, completed between 2026-11-03
 10:52 and 2026-11-04 21:19 UTC, the median is 196 s (mean 190.0 s, 39 to 244 s, 162 runs), 16 s above the target;
 the 38 sampled runs have median 196.5 s with interval 174 to 206 s, which contains 180 s, so on the run time alone the
-target is not decided. The tool time, which is what #244 counts (the `ci` call the engineer waits for), is above it.
+target is not decided. The 162-run figure was read once, with `gh run list` (section 9), and its list is not kept in the
+repository: the command lists the latest runs and GitHub keeps them 90 days, so a later re-run gives other runs. Only
+the figures of the 38 sampled runs, whose times are in `ci-speed-measured.sql`, can be recomputed. The tool time, which is what #244 counts (the `ci` call the engineer waits for), is above it.
 By what a call asked for (Q1b, read at 2026-11-04 21:03 UTC, so with a few calls fewer): named tests with the lint
 218.9 s (123 calls), named tests alone 215.7 s (7), named tests with a named check 215.5 s (18); the calls that ran only
 the lint 199.2 s (11). A call with the lint alone lasts about as long as one with the tests, so the lint job is as long
@@ -142,11 +145,16 @@ restore (the key holds the hash of `Cargo.lock`, and a work that changes the loc
 | restored, 11-04 | 5 | 39.0 s | 39.8 s | 78.8 s | |
 | not found, 11-03 / 11-04 | 5 / 2 | 0.2 / 0 s | 75.2 / 74.0 s | 75.4 / 74.0 s | |
 
-(measured; section 5 and 5b of the SQL file.) Restoring saves about 27 s of compile and costs 24 s: a gain of 3 s on
-the mean over all, 4.7 s on 11-03 and a loss of 4.8 s on 11-04, when the state was twice as large. These are
-observations, not paired runs: the work that changes the lock file also changes more code, and 7 calls do not carry a
-difference of a few seconds. Net: the restore does not pay for itself at its present size (inferred); it needs a paired
-run before it is kept or dropped.
+(measured; section 5 and 5b of the SQL file.) Restoring saves about 27 s of compile and costs 24 s. Over all 38 calls
+the restore and `Test` steps take 3 s less on the mean (72.0 against 75.0 s) and 10 s less on the median (66 against
+76 s) when the state was restored; on 11-03 they take 4.7 s less (26 against 5 calls) and on 11-04 4.8 s more (5
+against 2 calls), when the restored state had grown from 1.2 to 2.0 GB. So the observations lean to keeping the restore
+and only the two last days of them lean the other way: **undecided**. The two groups are not paired: the cause of each
+of the 7 misses was not read one by one (the key holds the hash of `Cargo.lock`, so a work that changes the lock file
+finds none, and so may any work just after main changed it, before main's CI saved the new key), and a call that
+changes the lock file also changes more code and compiles longer, which lowers the gain of the restore. 7 calls do not
+carry a difference of a few seconds. It needs paired runs (same commit, with and without the restore) before the restore
+is kept or dropped.
 
 ## 5. What a work waits for
 
@@ -179,19 +187,27 @@ from the flow on 2026-11-04, commit 8caa4e92): their full CI runs once, in `merg
 
 **The baseline of 69.7 min.** #38's description gives it as the sum for works 238 to 268 that ran `ci` (25 works): 249
 calls, 1340.8 min of `ci`, 262.4 of `ci_before`, 89.0 of `full_ci` and 50.2 of `merge`, "recomputed on 2026-11-02"; two of
-the works were still going. The same 25 works, counted up to a moment (Q7):
+the works were still going. The same 25 works, counted up to a moment (Q7, Q7b; a call counts when it was queued by the
+moment and has ended by now):
 
 | Counted up to (UTC) | works | `ci` calls | `ci` | `ci_before` | `full_ci` | `merge` | total | per work |
 |---|---|---|---|---|---|---|---|---|
+| 2026-11-03 04:33:33 (the 248th `ci` call) | 25 | 248 | 1340.6 | 257.6 | 89.0 | 50.2 | 1737.4 | 69.5 |
+| 2026-11-03 04:37:22 (the 249th `ci` call) | 25 | 249 | 1345.0 | 262.4 | 89.0 | 50.2 | 1746.6 | 69.9 |
+| 2026-11-03 04:39:01 (the 250th `ci` call) | 25 | 250 | 1345.2 | 262.4 | 89.0 | 50.2 | 1746.7 | 69.9 |
 | 2026-11-03 06:00 | 25 | 287 | 1556.0 | 316.0 | 89.0 | 57.7 | 2018.7 | 80.7 |
 | 2026-11-03 09:00 | 25 | 323 | 1727.3 | 327.5 | 96.7 | 64.6 | 2216.0 | 88.6 |
-| all (2026-11-04) | 25 | 326 | 1733.9 | 327.5 | 96.7 | 64.7 | 2222.8 | 88.9 |
+| to the cutoff (2026-11-04 21:18) | 25 | 326 | 1733.9 | 327.5 | 96.7 | 64.7 | 2222.8 | 88.9 |
 
-No moment I tried gives 249 calls and 1340.8 min; the nearest, 06:00, gives 287 calls, and matches only the full CI's 89.0
-min. The figure of 69.7 min is therefore not reproducible from the records today, and it is low for the reason the
-description gives: works not finished. For finished works the baseline is 88.9 min (the same 25) or 93.7 min (PRE25),
-and half of it is 44.5 to 46.9 min, not 34.8. Against that, the median of POST (44.5 min) is at the line and the mean
-(60.1 min) is above it.
+The figure of 69.7 min is reproduced (measured). At the 249th `ci` call, 2026-11-03 04:37 UTC (2026-11-02 evening in
+Pacific time, which fits "recomputed on 2026-11-02"), the number of calls is #38's 249, and `ci_before` 262.4, `full_ci`
+89.0 and `merge` 50.2 min are #38's to the decimal. The `ci` figure is 1345.0 against #38's 1340.8, 4.2 min more, which
+makes 69.9 min a work against 69.7. The 4.2 min is probably the 249th call itself, still running when #38 was
+written and counted for only a part of its length (inferred; the description does not say how a running call was
+counted). The baseline is thus the sum for works not finished, as the description says, at that moment; the same 25
+works come to 80.7 min by 06:00 and 88.9 min by the cutoff. For finished works the baseline is 88.9 min (the same 25) or
+93.7 min (PRE25), and half of it is 44.5 to 46.9 min, not 34.8. Against that, the median of POST (44.5 min) is at the
+line and the mean (60.1 min) is above it.
 
 **Calls against minutes a call.** Per work, `ci` took 72.4 min in PRE25 and 33.7 min in POST (-53%): 13.6 against 9.3
 calls (x0.68) and 5.30 against 3.63 minutes a call (x0.68). The fall in the calls a work makes is not established: the
@@ -233,7 +249,7 @@ Are the runs longer for being side by side? (Q4, Q4b; the intervals are of the m
 |---|---|---|---|---|
 | `ci` with a `ci_before` in the round | 58 | 218.4 s | 200.7 to 221.9 s | median 3 s, mean 2.6 s (14 jobs) |
 | `ci` alone | 103 | 218.1 s | 202.9 to 219.5 s | median 3 s, mean 3.4 s (24 jobs) |
-| `ci_before` with a `ci` in the round | 69 | 162.8 s | 158.9 to 178.1 s (68 at the cutoff) | median 3 s, mean 2.6 s (11 jobs) |
+| `ci_before` with a `ci` in the round | 68 | 162.8 s | 158.6 to 178.1 s (ranks 25, 44) | median 3 s, mean 2.6 s (11 jobs) |
 | `ci_before` alone | 11 | 158.8 s | 138.1 to 178.9 s | median 3 s, mean 3.6 s (11 jobs) |
 
 Neither run is told longer: the intervals overlap in both pairs, and the wait for a runner is 3 s in all four groups. The
@@ -257,12 +273,15 @@ the others are arithmetic on measured segments.
 | Keep the built page (`client/dist`) from a cache keyed by the hash of `client/`, and build it only when that changes | the page is 63 s, 29% of `ci` and 36% of `ci_before`; restoring the 85 MB node cache takes 0.5 to 1.6 s in the logs | about 55 to 60 s, of both tools | about 8.5 to 9.3 min, while `ci` is the longer of the pair (it is, by 60 s) | inferred; not tried |
 | Look at the run every 5 s instead of 20 s | after-run time: floor 8 s, median 18 s, mean 19.7 s | about 7 to 8 s | about 1.2 min | inferred from the shape |
 | Lint off the critical path | lint ended later in 35% of the calls that ran it, by 42 s | done on 2026-11-04 (5.7% of the mean call) | | measured |
-| Main's build state | restore 24 s, saves 27 s | about 0 | about 0 | measured, not paired |
+| Main's build state | restore 24 s, saves 27 s; over 38 calls the restore is 3 s (mean) and 10 s (median) faster, on 11-04 4.8 s slower (5 against 2 calls) | undecided | undecided | observed, not paired; needs paired runs |
 | Setting the job up | 26 s a call; the split between toolchain, nextest, rust-cache and node is not measured | not known | not known | measure first |
 | The tests themselves | 3 to 7 s a call | nothing to gain | | measured |
 
 To reach 34.8 min as the mean of the union count (POST: 49.3 min) a work must lose 14.5 min: with 9.3 calls that is 94 s
-off each call of 216 s (to about 122 s), or, at the present time per call, 5.3 calls instead of 9.3. The page and the
+off each call of 216 s (to about 122 s). Or, at the present time per call, fewer calls: if the whole wait scales with
+the calls, 9.3 x 34.8 / 49.3 = 6.6 calls instead of 9.3; if only the 35.8 min of `ci` and `ci_before` (49.3 - 13.5)
+scale and the 13.5 min of the full CI and the merge stay as they are, (34.8 - 13.5) / (35.8 / 9.3) = 5.5 calls
+(inferred; both readings take the means of POST). The page and the
 polling together would take about 66 s (inferred) and leave 28 s, the size of the job set-up. On the median (37.5 min,
 for the work with 7 calls) the page alone would suffice (about 31 min after). So the median can plausibly get below 34.8
 min with one change; the mean cannot without the set-up or fewer calls, and the target was set as half of a snapshot
@@ -285,7 +304,8 @@ The calls a work makes matter as much as the time of each: 9.3 calls, of which 3
 
 ## 9. To reproduce
 
-- `ci-speed-measured-queries.sql` Q1 to Q9 (and Q1b) give sections 3, 5 and 6; Q10 gives the sample of runs.
+- `ci-speed-measured-queries.sql` Q1 to Q9 (and Q1b, Q7b) give sections 3, 5 and 6; Q10 gives the sample of runs. All
+  but Q1b and Q10 stop at the cutoff of 2026-11-04 21:18:53 UTC, so they give the numbers of the report whenever they run.
 - The runs of `fast.yml`, completed (GitHub's run time of section 3):
   `gh run list --workflow fast.yml --limit 300 --json headBranch,startedAt,updatedAt,status`, with the runs on
   `wf-agents/...` branches as `ci` and those on `wf-agents-before/...` as `ci_before`.

@@ -7,9 +7,9 @@
 -- are kept for 90 days only, so the numbers GitHub gave are kept here). It is removed when the report is.
 --
 -- One row is one run of .github/workflows/fast.yml that the engine's tool `ci` or `ci_before` waited for (rows picked
--- by the query in the report's appendix: every 4th `ci` call with a test job, apart for the calls with and without a
--- `ci_before` in the same round, and all `ci_before` calls without a `ci`, every 6th of those with one). Times are
--- UTC epoch seconds, durations seconds, all read from `gh api repos/<repo>/actions/runs/<run>/jobs`:
+-- by Q10 in research/ci-speed-measured-queries.sql: every 4th `ci` call with a test job, apart for the calls with
+-- and without a `ci_before` in the same round, and all `ci_before` calls without a `ci`, every 6th of those with
+-- one). Times are UTC epoch seconds, durations seconds, all read from `gh api repos/<repo>/actions/runs/<run>/jobs`:
 --   t0, t1    the engine's tool run started and ended (tool_runs.started_at, ended_at)
 --   created   the first job of the run was created; e the last job completed
 --   qtest     the test job waited for a runner
