@@ -30,6 +30,7 @@ pub mod limits;
 mod actions;
 mod arch_changes;
 mod architect;
+mod base;
 mod cards;
 mod checks;
 mod decisions;
@@ -37,6 +38,7 @@ mod failed;
 mod faults;
 mod inputs;
 mod loops;
+mod main_watch;
 pub mod message;
 mod open_questions;
 mod reasoning;
@@ -207,6 +209,9 @@ struct Shared {
     sessions: sessions::Manager,
     github: Box<dyn GitHub>,
     hooks: Hooks,
+    /// When the watch of main last looked at each project's main ([`main_watch::look`]), so that GitHub is asked at most
+    /// once a minute for each.
+    main_looked: Mutex<BTreeMap<String, i64>>,
 }
 
 impl Shared {
@@ -232,6 +237,7 @@ impl Shared {
             sessions: sessions::Manager::new(agents),
             github,
             hooks,
+            main_looked: Mutex::default(),
         }
     }
 
@@ -445,6 +451,17 @@ impl Engine {
     /// The session manager: the agents' sessions and the command line they run in.
     pub fn sessions(&self) -> &sessions::Manager {
         &self.shared.sessions
+    }
+
+    /// Whether the watch of main is to look at a project's main at `now`: it last looked a minute or more ago, or never;
+    /// a look now is noted.
+    pub(crate) fn main_look_due(&self, project: &str, now: i64) -> bool {
+        let mut looked = lock(&self.shared.main_looked);
+        if looked.get(project).is_some_and(|at| now - at < main_watch::EVERY_MS) {
+            return false;
+        }
+        looked.insert(project.to_string(), now);
+        true
     }
 
     pub fn github(&self) -> &dyn GitHub {

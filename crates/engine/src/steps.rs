@@ -934,7 +934,7 @@ fn compose(
     let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
-    let fork = architect::fork_of(e, w, cell, cli.kind.forks())?;
+    let fork = crate::base::fork_of(e, w, cell, cli.kind.forks())?;
     let mut plan = e
         .sessions()
         .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now, fork.as_ref())?;

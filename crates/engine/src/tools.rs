@@ -50,7 +50,7 @@ fn sql(e: impl std::fmt::Display) -> String {
 /// Runs one tool up to [`ATTEMPTS`] times, each attempt a row of tool_runs; gives what the last attempt gave, or the
 /// failure with what each attempt gave. An attempt is given the engine, so that what it must keep before a long wait it
 /// can write ([`record_push`]).
-fn attempts(
+pub(crate) fn attempts(
     e: &mut Engine,
     round: RoundId,
     tool: &str,
@@ -231,18 +231,18 @@ pub fn gh_refusal(allow: &[String], args: &[String]) -> Option<String> {
 }
 
 /// The repository's name on GitHub, owner/name.
-fn repo(project: &config::Project) -> String {
+pub(crate) fn repo(project: &config::Project) -> String {
     project.repo.clone()
 }
 
 /// The workflows of the full CI that belong to the project itself; those of downstream projects are named
 /// owner/name:workflow.
-fn own_full(project: &config::Project) -> (Vec<String>, Vec<String>) {
+pub(crate) fn own_full(project: &config::Project) -> (Vec<String>, Vec<String>) {
     project.ci.full.iter().cloned().partition(|w| !w.contains(':'))
 }
 
 /// The checks that count against a merge: those merging needs (all of them when none is named), less the known red.
-fn counted(checks: &[CheckRun], project: &config::Project, known_red: &[String]) -> Vec<CheckRun> {
+pub(crate) fn counted(checks: &[CheckRun], project: &config::Project, known_red: &[String]) -> Vec<CheckRun> {
     checks
         .iter()
         .filter(|c| project.ci.merge_checks.is_empty() || project.ci.merge_checks.contains(&c.name))
@@ -251,7 +251,7 @@ fn counted(checks: &[CheckRun], project: &config::Project, known_red: &[String])
         .collect()
 }
 
-fn reds(checks: &[CheckRun]) -> Vec<String> {
+pub(crate) fn reds(checks: &[CheckRun]) -> Vec<String> {
     checks
         .iter()
         .filter(|c| c.result != "green")
@@ -259,7 +259,7 @@ fn reds(checks: &[CheckRun]) -> Vec<String> {
         .collect()
 }
 
-fn known_red(e: &Engine, project: &str) -> Result<Vec<String>, String> {
+pub(crate) fn known_red(e: &Engine, project: &str) -> Result<Vec<String>, String> {
     let mut st =
         e.db.conn()
             .prepare("SELECT check_name FROM known_red_checks WHERE project = ?1")
@@ -271,7 +271,7 @@ fn known_red(e: &Engine, project: &str) -> Result<Vec<String>, String> {
 }
 
 /// Every check of the project's own full CI on a commit: the latest run of each.
-fn full_checks(e: &Engine, project: &config::Project, sha: &str) -> Result<Vec<CheckRun>, Failure> {
+pub(crate) fn full_checks(e: &Engine, project: &config::Project, sha: &str) -> Result<Vec<CheckRun>, Failure> {
     full_checks_on(e.github(), project, sha, None)
 }
 
@@ -484,7 +484,7 @@ pub(crate) fn red_beside_the_change(
 }
 
 /// Runs the red checks again on the same commit, and gives the latest run of every check.
-fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRun]) -> Result<Vec<CheckRun>, Failure> {
+pub(crate) fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRun]) -> Result<Vec<CheckRun>, Failure> {
     let (own, _) = own_full(project);
     let mut out = Vec::new();
     for wf in own {
@@ -499,7 +499,7 @@ fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRu
     Ok(out)
 }
 
-fn not_run(field: &str, (f, tried): (Failure, String)) -> Value {
+pub(crate) fn not_run(field: &str, (f, tried): (Failure, String)) -> Value {
     // A request GitHub refused is not one of the kinds the flow lists for a tool that did not run: it is told as `other`,
     // with GitHub's words.
     let (kind, what) = if f.kind == "rejected" {
@@ -510,7 +510,7 @@ fn not_run(field: &str, (f, tried): (Failure, String)) -> Value {
     json!({ field: { "kind": "not_run", "failure": kind, "what": what, "tried": tried } })
 }
 
-fn checks_json(cs: &[CheckRun]) -> Value {
+pub(crate) fn checks_json(cs: &[CheckRun]) -> Value {
     serde_json::to_value(cs).unwrap_or(Value::Null)
 }
 
