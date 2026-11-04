@@ -503,25 +503,7 @@ impl Ctx<'_> {
     /// the code before the change. The files and the commit are in the request the tool was asked with; a run whose
     /// request does not name files has none.
     fn before_runs(&self) -> Result<Vec<BeforeRun>, String> {
-        let rows = work::query_json(
-            self.e.db.conn(),
-            "SELECT args, result FROM tool_runs
-             WHERE work = ?1 AND tool = 'ci_before' AND result IS NOT NULL ORDER BY id DESC",
-            &[&self.w.id],
-            1000,
-        )?;
-        let wt = self.w.worktree.as_deref();
-        Ok(rows
-            .into_iter()
-            .filter(|r| r["result"]["ran"]["verdict"] == "ran")
-            .map(|r| BeforeRun {
-                ran: r["result"]["ran"].clone(),
-                head: r["args"]["head"]
-                    .as_str()
-                    .and_then(|h| wt.and_then(|wt| git::resolve(wt, h))),
-                files: strs(r["args"].get("files")),
-            })
-            .collect())
+        before_runs_of(self.e, self.w)
     }
 
     /// The files of a run of ci_before that differ between its commit and the head handed in: the test files it put on
@@ -567,15 +549,7 @@ impl Ctx<'_> {
 
     /// What each run of ci on the head pushed last reported (its `push`), newest first; none when nothing was pushed.
     fn head_pushes(&self) -> Result<Vec<Value>, String> {
-        let Some(pushed) = self.pushed_head()? else {
-            return Ok(Vec::new());
-        };
-        Ok(self
-            .ci_runs("ci")?
-            .into_iter()
-            .filter(|r| r["push"]["head"].as_str() == Some(pushed.as_str()))
-            .map(|r| r["push"].clone())
-            .collect())
+        head_pushes_of(self.e, self.w)
     }
 
     /// The separators of the parts of a test's name, as the project's configuration names them; none when it names
@@ -891,16 +865,50 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             .into_result()
         }
         "new_test_results" | "guard_test_results" => {
-            if c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
-                return Ok(());
-            }
             let new = check == "new_test_results";
-            // The tests this return adds or extends, each written once in the test changes, with their two results.
+            // The tests this return adds or extends, each written once in the test changes, with the two results the
+            // engine reads from its runs.
             let tables = test_tables::of_return(&c.unwrapped);
             let rows = tables.table(if new { "new_tests" } else { "guard_tests" });
-            let mut problems = missing_results(rows);
-            problems.extend(result_problems(rows, new));
-            problems.extend(test_results_match_runs(c, rows)?);
+            if rows.is_empty() {
+                return Ok(());
+            }
+            if !c.results_named() {
+                return fail(no_results(&test_names(rows)));
+            }
+            let on_head = c.head_pushes()?;
+            let before = c.before_runs()?;
+            let seps = c.separators();
+            let filled = with_results(rows, &on_head, &before, &seps);
+            let mut problems = Problems::default();
+            let unreported: Vec<String> = filled
+                .iter()
+                .filter(|t| t.get("on_head").is_none())
+                .filter_map(|t| t["name"].as_str().map(str::to_string))
+                .collect();
+            if !unreported.is_empty() {
+                problems.push(not_reported_on_head(&unreported, on_head.first()));
+            }
+            for t in &filled {
+                let name = t["name"].as_str().unwrap_or_default();
+                let excused = t["not_before"].as_str().is_some_and(|x| !x.trim().is_empty());
+                let changed = run_for(&before, name, &seps)
+                    .map(|run| c.changed_since(run))
+                    .unwrap_or_default();
+                if !changed.is_empty() {
+                    problems.push(format!(
+                        "{name}: its result before the change comes from a run of ci_before, and {} changed after \
+                         it; {RUN_AGAIN}",
+                        changed.join(", ")
+                    ));
+                } else if t.get("on_base").is_none() && !excused {
+                    problems.push(format!(
+                        "{name} has no result before the change: run it with ci_before, or say in not_before why it \
+                         cannot run on the code before the change"
+                    ));
+                }
+            }
+            problems.extend(result_problems(&filled, new));
             problems.into_result()
         }
         "adversarial_test_results" => {
@@ -1619,7 +1627,7 @@ fn kind_problems(rows: &[Value], kinds: &[(String, String)], new: bool) -> Probl
 /// What is wrong with the results a table of new or guard tests gives on its own: each row that is red on the head, and
 /// each that does not fit its kind before the change (a new test that passes, a guard that does not pass), the three
 /// kinds of problem independent of each other and of the other rows. A result a row lacks is judged by nothing here:
-/// [`missing_results`] says it.
+/// the check of the engineer's tests says it.
 fn result_problems(rows: &[Value], new: bool) -> Problems {
     let mut problems = Problems::default();
     for t in rows {
@@ -1637,24 +1645,6 @@ fn result_problems(rows: &[Value], new: bool) -> Problems {
             problems.push(format!(
                 "{name} does not pass before the change: it does not guard old behaviour; fix it in this round"
             ));
-        }
-    }
-    problems
-}
-
-/// The results a test of the engineer's tables (`rows`, read from the test changes) lacks, each one: a design that chose
-/// no adversarial testing has the engineer run every test it adds or extends, and the row of the test changes holds the
-/// two results.
-fn missing_results(rows: &[Value]) -> Problems {
-    let mut problems = Problems::default();
-    for t in rows {
-        let name = t["name"].as_str().unwrap_or_default();
-        for (field, when) in [("on_head", "with the change"), ("on_base", "before the change")] {
-            if t.get(field).is_none_or(Value::is_null) {
-                problems.push(format!(
-                    "{name} has no result {when}: write it as {field} in its row of the test changes"
-                ));
-            }
         }
     }
     problems
@@ -2112,6 +2102,103 @@ fn test_results_match_runs(c: &Ctx<'_>, rows: &[Value]) -> Result<Problems, Stri
     }))
 }
 
+/// What each run of ci on the work's pushed head reported (its `push`), newest first; none when nothing was pushed.
+fn head_pushes_of(e: &Engine, w: &Work) -> Result<Vec<Value>, String> {
+    let pushed: Option<String> =
+        e.db.conn()
+            .query_row("SELECT pushed_head FROM works WHERE id = ?1", [w.id], |r| r.get(0))
+            .map_err(|x| x.to_string())?;
+    let Some(pushed) = pushed else {
+        return Ok(Vec::new());
+    };
+    let rows = work::query_json(
+        e.db.conn(),
+        "SELECT result FROM tool_runs WHERE work = ?1 AND tool = 'ci' AND result IS NOT NULL ORDER BY id DESC",
+        &[&w.id],
+        1000,
+    )?;
+    Ok(rows
+        .into_iter()
+        .map(|r| r["result"].clone())
+        .filter(|r| r["push"]["head"].as_str() == Some(pushed.as_str()))
+        .map(|r| r["push"].clone())
+        .collect())
+}
+
+/// The runs of ci_before of the work that ran, newest first, each with the files and the commit its request put on the
+/// code before the change. The files and the commit are in the request the tool was asked with; a run whose request does
+/// not name files has none.
+fn before_runs_of(e: &Engine, w: &Work) -> Result<Vec<BeforeRun>, String> {
+    let rows = work::query_json(
+        e.db.conn(),
+        "SELECT args, result FROM tool_runs
+         WHERE work = ?1 AND tool = 'ci_before' AND result IS NOT NULL ORDER BY id DESC",
+        &[&w.id],
+        1000,
+    )?;
+    let wt = w.worktree.as_deref();
+    Ok(rows
+        .into_iter()
+        .filter(|r| r["result"]["ran"]["verdict"] == "ran")
+        .map(|r| BeforeRun {
+            ran: r["result"]["ran"].clone(),
+            head: r["args"]["head"]
+                .as_str()
+                .and_then(|h| wt.and_then(|wt| git::resolve(wt, h))),
+            files: strs(r["args"].get("files")),
+        })
+        .collect())
+}
+
+/// The rows of a table of the engineer's tests (each with its name, read from the test changes) with the two results
+/// the engine reads from the runs it recorded, in place of any a return of a flow version before wrote: on the head, the
+/// latest run of ci on the pushed head that reported the test, passed green and failed red; before the change, the
+/// latest run of ci_before that reported it, passed green, failed red, not built cannot_run and not run not_run. A
+/// result no run gave is left out.
+fn with_results(rows: &[Value], on_head: &[Value], before: &[BeforeRun], seps: &[String]) -> Vec<Value> {
+    rows.iter()
+        .map(|t| {
+            let mut t = t.clone();
+            let name = t["name"].as_str().unwrap_or_default().to_string();
+            let head = on_head.iter().find_map(|run| reported(run, &name, seps));
+            let base = run_for(before, &name, seps).and_then(|r| reported_before(&r.ran, &name, seps));
+            let said = |r: &str| match r {
+                "passed" => "green",
+                "failed" => "red",
+                "not_built" => "cannot_run",
+                _ => "not_run",
+            };
+            if let Some(o) = t.as_object_mut() {
+                o.remove("on_head");
+                o.remove("on_base");
+                if let Some(h) = head {
+                    o.insert("on_head".into(), Value::String(said(h).into()));
+                }
+                if let Some((b, _)) = base.as_ref().filter(|(b, _)| b != "unread") {
+                    o.insert("on_base".into(), Value::String(said(b).into()));
+                }
+            }
+            t
+        })
+        .collect()
+}
+
+/// The engine's tables of the engineer's tests with their two results read from the runs ([`with_results`]): what the
+/// input of the engineer's tests gives the review.
+pub(crate) fn engineer_results(e: &Engine, w: &Work, rows: &[Value]) -> Result<Vec<Value>, String> {
+    let seps = e
+        .project_of(w)
+        .ok()
+        .and_then(|p| p.ci.results.as_ref().map(|r| r.separators.clone()))
+        .unwrap_or_default();
+    Ok(with_results(
+        rows,
+        &head_pushes_of(e, w)?,
+        &before_runs_of(e, w)?,
+        &seps,
+    ))
+}
+
 /// What a test is told to do when any of the files the latest run of ci_before that reported it put on the code before
 /// the change changed after it (the engine cannot tell which file a test is in, so a run lists only the files of the
 /// tests it is for). The forms of implementing, fixing and adversarial testing say it in the same words.
@@ -2222,7 +2309,7 @@ fn test_names(rows: &[Value]) -> Vec<String> {
 /// reports of it ([`reported_before`]): passed is green, failed red, not built cannot_run, and not run not_run or
 /// cannot_run; a run whose results could not be read is to be run again. A test the run reports nothing of (a run of an
 /// engine before the results were read from JUnit, or a name the request left out) is judged by the run's checks alone:
-/// said red while every check there is green. A result not said is not judged here: [`missing_results`] says it.
+/// said red while every check there is green. A result not said is not judged here.
 fn base_matches_run(name: &str, said: Option<&str>, ran: &Value, seps: &[String]) -> Problems {
     let mut problems = Problems::default();
     let Some(said) = said else {
@@ -3479,8 +3566,8 @@ mod tests {
         assert!(result_problems(&fine, false).is_empty());
     }
 
-    // Item #217: a result a row lacks is said once, by missing_results, and not also judged as a wrong one (a guard
-    // test with no result before the change "does not pass").
+    // Item #217: a result a row lacks is said once, by the check of the engineer's tests, and not also judged as a
+    // wrong one (a guard test with no result before the change "does not pass").
     #[test]
     fn a_test_row_with_no_result_before_the_change_is_not_told_it_does_not_pass() {
         let rows = vec![
@@ -3489,32 +3576,6 @@ mod tests {
         ];
         assert!(result_problems(&rows, false).is_empty());
         assert!(result_problems(&rows, true).is_empty());
-        assert_eq!(said(missing_results(&rows)).len(), 2);
-    }
-
-    // Item #217, R241-28: a test is written once, in the test changes, and the results its row lacks are said, each: a
-    // design with no adversarial testing has the engineer run what it adds or extends.
-    #[test]
-    fn every_result_a_test_row_lacks_is_said() {
-        let rows = vec![
-            json!({ "name": "both", "by": "engineer" }),
-            json!({ "name": "base_only", "by": "engineer", "on_head": "green" }),
-            json!({ "name": "head_only", "by": "engineer", "on_base": "red" }),
-            json!({ "name": "none", "by": "engineer", "on_head": null, "on_base": null }),
-            json!({ "name": "fine", "by": "engineer", "on_head": "green", "on_base": "red" }),
-        ];
-        assert_eq!(
-            said(missing_results(&rows)),
-            [
-                "both has no result with the change: write it as on_head in its row of the test changes",
-                "both has no result before the change: write it as on_base in its row of the test changes",
-                "base_only has no result before the change: write it as on_base in its row of the test changes",
-                "head_only has no result with the change: write it as on_head in its row of the test changes",
-                "none has no result with the change: write it as on_head in its row of the test changes",
-                "none has no result before the change: write it as on_base in its row of the test changes",
-            ]
-        );
-        assert!(missing_results(&[]).is_empty());
     }
 
     // Item #217, R241-41: the forms say which run of ci_before counts and what to do when a file of the run changed after
@@ -3553,7 +3614,6 @@ mod tests {
             "on_head": "green", "on_base": "red", "time": "1s", "worth": "w"
         }] });
         let tables = test_tables::of_return(&ret);
-        assert!(missing_results(&tables.new).is_empty());
         assert!(result_problems(&tables.new, true).is_empty());
         assert!(tables.guard.is_empty());
         // Adversarial testing lists the engineer's test in the table of the kind the engineer gave, and is told when it

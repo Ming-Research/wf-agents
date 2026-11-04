@@ -860,7 +860,10 @@ pub fn engine_input(
                 returns.extend(returns_holding(e, w, g, cell, "test_changes")?);
             }
             returns.sort_by_key(|(round, _)| *round);
-            engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name)
+            match engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name) {
+                Some(Value::Array(rows)) => Some(Value::Array(crate::checks::engineer_results(e, w, &rows)?)),
+                other => other,
+            }
         }
         // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
         // commit of main the branch was cut from or last took main in at, the head under review, the merges of main

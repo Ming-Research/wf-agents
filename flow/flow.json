@@ -486,7 +486,7 @@
       "name": "test_changes",
       "title": "Test changes",
       "type": "list",
-      "desc": "Every change to a test or check in this round, one per row; an empty list if none. The engine accumulates them over the rounds",
+      "desc": "Every change to a test or check in this round, one per row; an empty list if none. Write which tests are new, extended or removed and what each tests; the engine reads each result from the runs of ci and ci_before it recorded, and accumulates the rows over the rounds",
       "item": {
         "type": "union",
         "by": "change",
@@ -524,58 +524,18 @@
                 ]
               },
               {
-                "name": "on_head",
-                "title": "With the change",
-                "type": "enum",
-                "optional": true,
-                "desc": "Only when the design chose no dedicated adversarial testing, or on the light route, which has none; not when the design chose some. The result of running it once on the commit with the change, as ci reports it",
-                "values": [
-                  [
-                    "green",
-                    "Passed"
-                  ],
-                  [
-                    "red",
-                    "Failed"
-                  ]
-                ]
-              },
-              {
-                "name": "on_base",
-                "title": "Before the change",
-                "type": "enum",
-                "optional": true,
-                "desc": "Only when the design chose no dedicated adversarial testing, or on the light route, which has none; not when the design chose some. The result of running it once on the code before the change, as the latest run of ci_before that reported this test says; when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those)",
-                "values": [
-                  [
-                    "red",
-                    "It fails before the change: right for a new-behaviour test, wrong for a guard"
-                  ],
-                  [
-                    "cannot_run",
-                    "What it tests does not exist before the change: right for a new-behaviour test, wrong for a guard"
-                  ],
-                  [
-                    "not_run",
-                    "Not run: ci_before reports it not run, as when its job stopped at an earlier red test, so nothing measured it; the table review judges whether its result before the change is shown some other way"
-                  ],
-                  [
-                    "green",
-                    "It passes before the change: right for a guard, wrong for a new-behaviour test"
-                  ]
-                ]
-              },
-              {
-                "name": "time",
-                "title": "Time on its own",
-                "type": "text",
-                "desc": "How long it takes on its own, as ci reports it"
-              },
-              {
                 "name": "worth",
-                "title": "Why it is worth the time",
+                "title": "Why it is worth its time",
                 "type": "text",
-                "desc": "Why it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test"
+                "optional": true,
+                "desc": "Only for a test that runs long on its own (the engine reads its time from the CI's results): why it is worth that time, catching what no other test catches and no smaller, faster or folded test could"
+              },
+              {
+                "name": "not_before",
+                "title": "Why it cannot run before the change",
+                "type": "text",
+                "optional": true,
+                "desc": "Only for a test that cannot run on the code before the change, as one that needs what only the change adds to be built or to reach what it tests: why; the review judges it. Leave it out otherwise: the engine reads the test's result there from ci_before"
               }
             ]
           },
@@ -612,58 +572,18 @@
                 ]
               },
               {
-                "name": "on_head",
-                "title": "With the change",
-                "type": "enum",
-                "optional": true,
-                "desc": "Only when the design chose no dedicated adversarial testing, or on the light route, which has none; not when the design chose some. The result of running it once on the commit with the change, as ci reports it",
-                "values": [
-                  [
-                    "green",
-                    "Passed"
-                  ],
-                  [
-                    "red",
-                    "Failed"
-                  ]
-                ]
-              },
-              {
-                "name": "on_base",
-                "title": "Before the change",
-                "type": "enum",
-                "optional": true,
-                "desc": "Only when the design chose no dedicated adversarial testing, or on the light route, which has none; not when the design chose some. The result of running it once on the code before the change, as the latest run of ci_before that reported this test says; when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those)",
-                "values": [
-                  [
-                    "red",
-                    "It fails before the change: right for a new-behaviour test, wrong for a guard"
-                  ],
-                  [
-                    "cannot_run",
-                    "What it tests does not exist before the change: right for a new-behaviour test, wrong for a guard"
-                  ],
-                  [
-                    "not_run",
-                    "Not run: ci_before reports it not run, as when its job stopped at an earlier red test, so nothing measured it; the table review judges whether its result before the change is shown some other way"
-                  ],
-                  [
-                    "green",
-                    "It passes before the change: right for a guard, wrong for a new-behaviour test"
-                  ]
-                ]
-              },
-              {
-                "name": "time",
-                "title": "Time on its own",
-                "type": "text",
-                "desc": "How long it takes on its own now, as ci reports it"
-              },
-              {
                 "name": "worth",
-                "title": "Why it is worth the time",
+                "title": "Why it is worth its time",
                 "type": "text",
-                "desc": "Why the time it takes now is worth it: what it catches that no other test catches, and why it cannot be made smaller or faster or folded into another test"
+                "optional": true,
+                "desc": "Only for a test that runs long on its own (the engine reads its time from the CI's results): why it is worth that time, catching what no other test catches and no smaller, faster or folded test could"
+              },
+              {
+                "name": "not_before",
+                "title": "Why it cannot run before the change",
+                "type": "text",
+                "optional": true,
+                "desc": "Only for a test that cannot run on the code before the change, as one that needs what only the change adds to be built or to reach what it tests: why; the review judges it. Leave it out otherwise: the engine reads the test's result there from ci_before"
               }
             ]
           },
@@ -8329,7 +8249,7 @@
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
             "Write each option the owner chose for a decision point into the project's directory of decisions, one Markdown file for each decision, in English, saying: what is done now; why, what it is for and the reasons; each option not chosen, and why not; and one line for each challenge considered and turned down: when, what change was proposed, and why it was not made. It merges with this work's pull request. Name each file in decisions_written. A decision the owner overturned is rewritten in its file, and one withdrawn deleted, the commit message saying what changed and why.",
             "The acceptance may change: when it must, hand in the whole list as it is now in acceptance_changed, with why.",
-            "Write what changed in tests and checks: for each test added, what errors it catches, its kind, its two results, run once after the change with ci and once before it with ci_before (the latest run of ci_before that reported the test counts, and when any of the files that run put on the code before the change changed after it, run ci_before again, listing in a run only the files of the tests it is for), how long it runs on its own and why it is worth that time; for a test that was there and now tests more, an extended row of the same fields; for each removed, skipped or relaxed, its technical reason. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere."
+            "Write what changed in tests and checks: for each test added, what errors it catches and its kind; for a test that was there and now tests more, an extended row of the same; for each removed, skipped or relaxed, its technical reason. Run each test you add or extend once after the change with ci and once before it with ci_before, listing in a run of ci_before only the files of the tests it is for: the engine reads the two results from those runs, the latest that reported the test counting, and a test whose files changed after its run of ci_before is run again. A test that cannot run before the change says why in not_before. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere."
           ],
           "promptBy": {
             "by": "work",
@@ -9975,7 +9895,7 @@
             "- A change to the code an interjection asked for, as the way on chose it: make it, with the test that shows it, and answer fixed; when it turns out to need the design or the acceptance changed, ask.",
             "- A fix of any of these rows that is in no commit, such as a pull request description to correct: make it (for the description, hand in ci with pr and no tests) and answer fixed_outside_commit with where it is; do not answer fixed with the head as its commit. The side that raised the row looks at it again.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
-            "Before handing in, your last commit must have run with ci and the fast CI must be green: name the tests the fix touches, and for a red lint only the lint; the full CI runs once more in the merge queue, not before every problem is fixed. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; the rows of the acceptance table that changed; and, in the row of the test changes of each test added or extended in this round, its two results."
+            "Before handing in, your last commit must have run with ci and the fast CI must be green: name the tests the fix touches, and for a red lint only the lint; the full CI runs once more in the merge queue, not before every problem is fixed. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; and the rows of the acceptance table that changed. The engine reads the results of each test added or extended from the runs of ci and ci_before."
           ],
           "always": [
             {

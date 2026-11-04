@@ -625,9 +625,7 @@
        "change": "added",
        "test": "test_changes.test",
        "catches": "test_changes.catches",
-       "kind": "new_behaviour",
-       "time": "test_changes.time",
-       "worth": "test_changes.worth"
+       "kind": "new_behaviour"
       }
      ],
      "deviations": [
@@ -680,9 +678,7 @@
        "change": "added",
        "test": "test_changes.test",
        "catches": "test_changes.catches",
-       "kind": "new_behaviour",
-       "time": "test_changes.time",
-       "worth": "test_changes.worth"
+       "kind": "new_behaviour"
       }
      ],
      "deviations": [
@@ -735,9 +731,7 @@
        "change": "added",
        "test": "test_changes.test",
        "catches": "test_changes.catches",
-       "kind": "new_behaviour",
-       "time": "test_changes.time",
-       "worth": "test_changes.worth"
+       "kind": "new_behaviour"
       }
      ],
      "deviations": [
@@ -790,9 +784,7 @@
        "change": "added",
        "test": "test_changes.test",
        "catches": "test_changes.catches",
-       "kind": "new_behaviour",
-       "time": "test_changes.time",
-       "worth": "test_changes.worth"
+       "kind": "new_behaviour"
       }
      ],
      "deviations": [
@@ -1163,7 +1155,6 @@
        "test": "match_int_overlap_fixed",
        "catches": "outcome.test_changes.catches",
        "kind": "new_behaviour",
-       "time": "outcome.test_changes.time",
        "worth": "outcome.test_changes.worth"
       }
      ],
