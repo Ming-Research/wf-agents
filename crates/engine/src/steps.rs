@@ -18,12 +18,6 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// The owner's cell of the engineer's graph where the owner reviews a design, with the architect's comments.
-const OWNER_REVIEW: &str = "D4";
-
-/// The cell that hands in the design the owner reviews, as thinking again outside the frame left it.
-const REVIEWED_DESIGN: &str = "D2";
-
 /// A round the engine stopped in the middle of is closed as not done; its cell runs again.
 fn close_interrupted(e: &mut Engine, w: &Work) -> Result<Option<Round>, String> {
     let Some(r) = work::open_round(e.db.conn(), w.id)? else {
@@ -1909,29 +1903,7 @@ fn ask(
     let commit = e.config.commit.clone();
     // An ask that came of a flow anomaly reports a fault of wf-agents: the flow's ways on did not fit the situation.
     let anomaly = crate::faults::came_of_anomaly(e.db.conn(), w.id, g)?;
-    let text = if cell.id == OWNER_REVIEW {
-        let design = inputs::answered(e, w, g, REVIEWED_DESIGN)?
-            .first()
-            .map(|r| format!(" The design: /works/{}?round={}", w.id, r.id))
-            .unwrap_or_default();
-        format!(
-            "The design of work {} on item {} ({}) waits for your review, with the architect's comments: approve it, \
-             say what to change, or say to split it along its parts, and choose an option for each decision point.\
-             {design}",
-            w.id, item.id, item.title
-        )
-    } else if cell.id == crate::approval::APPROVE {
-        let files = crate::approval::touched(e, w)?;
-        format!(
-            "Work {} on item {} ({}) changes what you approve before it merges: {}. Reply exactly {} to approve it; \
-             anything else goes to its engineer.",
-            w.id,
-            item.id,
-            item.title,
-            files.join(", "),
-            crate::approval::APPROVED
-        )
-    } else if anomaly {
+    let text = if anomaly {
         format!(
             "Work {} on item {} ({}) met a flow anomaly, a fault of wf-agents: the way on its engineer chose does not \
              fit the situation, and it asks you how to go on",

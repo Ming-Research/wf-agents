@@ -5590,7 +5590,7 @@
                 "R1",
                 "D1",
                 "D2",
-                "D5",
+                "D4",
                 "I1",
                 "T2",
                 "T3",
@@ -8467,7 +8467,13 @@
                 "It came straight from the research"
               ]
             ]
-          }
+          },
+          "always": [
+            {
+              "at": "acceptance_changed",
+              "do": "record_acceptance"
+            }
+          ]
         },
         {
           "id": "T2",
@@ -9809,6 +9815,12 @@
             "- A fix of any of these rows that is in no commit, such as a pull request description to correct: make it (for the description, hand in ci with pr and no tests) and answer fixed_outside_commit with where it is; do not answer fixed with the head as its commit. The side that raised the row looks at it again.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
             "Before handing in, your last commit must have run with ci and the fast CI must be green: name the tests the fix touches, and for a red lint only the lint; the full CI runs once more in the merge queue, not before every problem is fixed. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; the rows of the acceptance table that changed; and, in the row of the test changes of each test added or extended in this round, its two results."
+          ],
+          "always": [
+            {
+              "at": "acceptance_changed",
+              "do": "record_acceptance"
+            }
           ]
         },
         {

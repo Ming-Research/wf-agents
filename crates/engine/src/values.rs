@@ -80,10 +80,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         "decision_points" => yes(decision_points(e, item.id)?),
         // Whether the initial research has run the project's bound of rounds since it last handed in its answer.
         "research_rounds" => {
-            let bound = e
-                .project_of(w)?
-                .research_rounds
-                .unwrap_or(config::RESEARCH_ROUNDS);
+            let bound = e.project_of(w)?.research_rounds.unwrap_or(config::RESEARCH_ROUNDS);
             s(if research_rounds(e, w, g)? >= bound {
                 "past"
             } else {
@@ -91,25 +88,19 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             })
         }
         // Whether this failure in the merge queue is the third in a row since the work last went to the architect.
-        "merge_failures" => s(if merge_failures(e, w)? >= 2 {
-            "third"
-        } else {
-            "fewer"
-        }),
-        "owner_approved" => yes(crate::approval::owner_approved(e, w)?),
+        "merge_failures" => s(if merge_failures(e, w)? >= 2 { "third" } else { "fewer" }),
+        // Where the review of the work's latest design stands.
+        "review" => s(crate::review::stage(e.db.conn(), w.id)?),
         // What the merge gate waits for: the items it depends on while one is not merged, then the owner's approval of
         // a change that touches a path the owner approves.
         "gates" => {
             let waits_for_items = dependencies(e, item.id)?
                 .iter()
                 .any(|d| !item_merged(e, *d).unwrap_or(false));
-            s(if waits_for_items {
-                "items"
-            } else if crate::approval::due(e, w)? {
-                "owner"
-            } else {
-                "clear"
-            })
+            if waits_for_items {
+                return s("items");
+            }
+            s(crate::approval::gate(e.db.conn(), &e.project_of(w)?, w)?)
         }
         "held" => crate::blockers::held(e, w, g),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
@@ -211,13 +202,12 @@ fn asks(c: &CompiledCell) -> bool {
 /// Whether the item carries a decision point: something settled in discussion, with the option the owner chose, that
 /// goes into the project's decisions once deep research confirms it.
 pub fn decision_points(e: &Engine, item: i64) -> Result<bool, String> {
-    let points: Option<String> = e
-        .db
-        .conn()
-        .query_row("SELECT decision_points FROM items WHERE id = ?1", [item], |r| r.get(0))
-        .optional()
-        .map_err(|e| e.to_string())?
-        .flatten();
+    let points: Option<String> =
+        e.db.conn()
+            .query_row("SELECT decision_points FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?
+            .flatten();
     Ok(crate::work::json_col(points)
         .and_then(|v| v.as_array().map(|xs| !xs.is_empty()))
         .unwrap_or(false))
@@ -327,7 +317,8 @@ pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<Str
             return Ok(Some(format!("item {d}, which this item depends on, to be merged")));
         }
     }
-    Ok(crate::approval::due(e, w)?.then(|| "the owner's approval of the change".to_string()))
+    Ok((crate::approval::gate(e.db.conn(), &e.project_of(w)?, w)? == "owner")
+        .then(|| "the owner's approval of the change".to_string()))
 }
 
 /// The head the last review started from; none before the first review: of its re-check, or of its second pass.

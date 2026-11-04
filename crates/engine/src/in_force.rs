@@ -37,16 +37,7 @@ pub fn in_force(checkout: &Path, commit: &str) -> Result<Option<Value>, String> 
 pub fn history(checkout: &Path, commit: &str) -> Result<Option<Value>, String> {
     let mut out = Vec::new();
     for file in files(checkout, commit)? {
-        let log = crate::git::git(
-            checkout,
-            &[
-                "log",
-                "--format=%H%x1f%as%x1f%B%x1e",
-                commit,
-                "--",
-                &file,
-            ],
-        )?;
+        let log = crate::git::git(checkout, &["log", "--format=%H%x1f%as%x1f%B%x1e", commit, "--", &file])?;
         let versions: Vec<Value> = log
             .split('\u{1e}')
             .map(str::trim)

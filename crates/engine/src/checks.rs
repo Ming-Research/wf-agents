@@ -51,6 +51,9 @@ pub struct Ctx<'a> {
 /// What a row a fix answered by its number in the table it was given is known by outside the table: a finding's
 /// number or a test's name; the number itself for a round given no numbered table, as before the fix table numbered
 /// its rows.
+/// Where a row of the fix's table comes from when the re-check insisted on it, as the table's rows say it.
+const INSISTED: &str = "T4·rows[insist]";
+
 fn known_as(table: &[Value], id: &str) -> String {
     table
         .iter()
@@ -1138,20 +1141,18 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             table_problems(&ids, &rows, !c.table.is_empty()).into_result()
         }
         "no_disagreeing_after_insist" => {
-            let mut insisted: BTreeSet<String> = BTreeSet::new();
-            for (cell, path) in [("T4", "previous"), ("T1", "previous")] {
-                for p in items(c.last(cell, path)?.as_ref())
-                    .iter()
-                    .filter(|p| p["verdict"] == "insist")
-                {
-                    insisted.extend(p["fid"].as_str().or(p["test"].as_str()).map(str::to_string));
-                }
-            }
+            // The rows of the table the re-check insisted on: those that came from its rows it gave the verdict insist.
+            let insisted: BTreeSet<String> = c
+                .table
+                .iter()
+                .filter(|r| r["from"].as_str().is_some_and(|f| f.starts_with(INSISTED)))
+                .filter_map(|r| r["row"].as_str().map(str::to_string))
+                .collect();
             let rows = items(c.unwrapped.get("rows"));
             let disagreed: Vec<String> = rows
                 .iter()
                 .filter(|r| matches!(r["answer"].as_str(), Some("disagree" | "test_wrong")))
-                .filter_map(|r| r["id"].as_str().map(|id| known_as(c.table, id)))
+                .filter_map(|r| r["id"].as_str().map(str::to_string))
                 .collect();
             disagreeing_problems(&insisted, &disagreed).into_result()
         }

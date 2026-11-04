@@ -834,7 +834,8 @@ pub fn engine_input(
                 crate::in_force::history(&p.checkout, &commit)
             };
         }
-        "owner_approval" => return crate::approval::input(e, w),
+        "owner_approval" => return crate::approval::input(e.db.conn(), &e.project_of(w)?, w),
+        "design_review" => return crate::review::input(e.db.conn(), w.id),
         _ => {}
     }
     let wt = w.worktree.as_deref();

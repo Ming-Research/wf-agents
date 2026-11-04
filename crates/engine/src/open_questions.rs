@@ -513,9 +513,9 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
     Ok(())
 }
 
-/// `write_learned`: the decisions the work's records bear out go under the head `Decisions:` of its item's `approach`,
-/// each as the line the engine makes of it ([`crate::decisions`]); what the work learned, with the commits it merged,
-/// goes at the end, under the head `Learned:`. Written as every change to an item is, in the transaction of the round,
+/// `write_learned`: what the work learned, with the commits it merged, goes at the end of its item's `approach`, under
+/// the head `Learned:`; the decisions it made merged with it in the project's `decisions/`, and none is written into
+/// the item. Written as every change to an item is, in the transaction of the round,
 /// so that `changes` keeps it. A work that learned nothing a later agent would miss still records its commits, which
 /// lead from the code's history back to the item.
 pub fn write_learned(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
@@ -527,12 +527,7 @@ pub fn write_learned(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let now: Option<String> = tx
         .query_row("SELECT approach FROM items WHERE id = ?1", [item.id], |r| r.get(0))
         .map_err(sql)?;
-    let mut approach = now.unwrap_or_default();
-    for d in ctx.unwrapped["decisions"].as_array().into_iter().flatten() {
-        let r = decisions::resolve(tx, &item.project, d, "engineer", Some(item.id)).map_err(|why| why.join("\n"))?;
-        approach = decisions::insert(&approach, &r.line);
-    }
-    let approach = with_learned(&approach, learned, &commits);
+    let approach = with_learned(&now.unwrap_or_default(), learned, &commits);
     tx.execute(
         "UPDATE items SET approach = ?2 WHERE id = ?1",
         params![item.id, approach],

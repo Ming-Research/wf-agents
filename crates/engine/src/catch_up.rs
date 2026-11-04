@@ -31,15 +31,12 @@ pub fn reads(cell: &CompiledCell) -> bool {
 /// comes back to the same cell, and is none.
 pub fn first_round(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<bool, String> {
     let line = crate::line_of(g, cell);
-    let latest = crate::work::rounds(e.db.conn(), w.id)?
-        .into_iter()
-        .rev()
-        .find(|r| {
-            r.cell
-                .as_deref()
-                .and_then(|c| g.cell(c))
-                .is_some_and(|c| crate::line_of(g, c) == line)
-        });
+    let latest = crate::work::rounds(e.db.conn(), w.id)?.into_iter().rev().find(|r| {
+        r.cell
+            .as_deref()
+            .and_then(|c| g.cell(c))
+            .is_some_and(|c| crate::line_of(g, c) == line)
+    });
     Ok(latest.is_none_or(|r| r.cell.as_deref() != Some(cell.id.as_str())))
 }
 
