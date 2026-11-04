@@ -4644,7 +4644,7 @@
       "keep_flow_feedback": "Keeps the round's flow feedback where it is, in the round's return the engine keeps with the round, for the owner and the assistant to go through later. It goes to no agent's queue and starts nothing.",
       "ask_owner_points": "Puts the decision points and the departures from decisions the research left before the owner, as one ask of the owner in the work's group of the kind points, and notifies the owner: the owner chooses an option for each and rules on each departure, or replies exactly approved to take what the research recommends. The work does not wait for it: it implements by the recommendation, and the merge gate waits for the answer. An answer other than approved reaches the engineer as the owner's words. Nothing when the research left none.",
       "ask_change_approval": "Once the work's branch touches a path the project's configuration has the owner approve (`owner_approves`), and neither the owner's approval of its design nor an answer of approved covers the change, puts the change before the owner at once, as an ask of the owner in the work's group of the kind change, unless one waits for its answer: reply exactly approved to approve it. The work does not wait for it before the merge gate; another answer reaches the engineer as the owner's words, and the change is asked again.",
-      "hold_for_approvals": "Has the work's blocker at the merge gate stand for what the merge waits for: the architect's review of its design while the architect has not replied, then the owner's answer to the review, then the oldest ask of the decision points the research left with no answer."
+      "hold_for_approvals": "Has the work's blocker at the merge gate stand for what the merge waits for: the architect's review of its design while the architect has not replied, then the owner's answer to the review, then the oldest ask of the decision points the research left that has no answer yet."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -6946,7 +6946,42 @@
               "desc": "What this research leaves for the owner to choose, each with its options and your recommendation, which the work follows until the owner chooses; the item's own decision points among them. None when nothing is left to choose. The owner gets them as the work starts implementing, and the merge waits for the answer",
               "item": {
                 "$ref": "decision_point"
-              }
+              },
+              "optional": true
+            },
+            {
+              "name": "to_decide",
+              "title": "Whether something is left to choose",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Not to be handed in: what an earlier version of this cell asked; a return that holds it reads as it did",
+              "branches": [
+                {
+                  "value": "no",
+                  "desc": "Nothing is left to choose",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "Why, in one sentence"
+                    }
+                  ]
+                },
+                {
+                  "value": "designs",
+                  "desc": "A choice between reasonable designs is left: deep research takes it",
+                  "fields": [
+                    {
+                      "name": "what",
+                      "title": "The choice",
+                      "type": "text",
+                      "desc": "The reasonable designs to choose between, and why the choice is not plain"
+                    }
+                  ]
+                }
+              ],
+              "optional": true
             }
           ],
           "cases": [
@@ -7008,7 +7043,8 @@
             "understanding",
             "can_start",
             "departs",
-            "points"
+            "points",
+            "to_decide"
           ],
           "inenums": {
             "research_rounds": [
@@ -7385,10 +7421,7 @@
                 ]
               ],
               "to": "D3",
-              "main": true,
-              "do": [
-                "raise_blocker"
-              ]
+              "main": true
             }
           ],
           "checks": [

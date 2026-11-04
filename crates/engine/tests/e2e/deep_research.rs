@@ -109,8 +109,8 @@ fn output_at(e: &Engine, work: i64, cell: &str) -> Value {
     serde_json::from_str(&output).unwrap()
 }
 
-// A change under a path the project has the owner approve waits at the merge gate for the owner: the gate asks, naming
-// the files. An answer other than approved goes to the engineer as the owner's words, and the work chooses the way on;
+// A change under a path the project has the owner approve is put to the owner once the branch touches it, naming the
+// files, and waits at the merge gate for the answer. An answer other than approved goes to the engineer as the owner's words, and the work chooses the way on;
 // carried on, it comes back to the gate, which asks again, and the reply approved lets the work merge.
 #[test]
 fn a_change_the_owner_approves_waits_at_the_merge_gate_until_the_owner_replies_approved() {
@@ -122,11 +122,12 @@ fn a_change_the_owner_approves_waits_at_the_merge_gate_until_the_owner_replies_a
         Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
     );
     let (mut e, said, item) = start(&s, agents);
-    step_until(&mut e, item, &said, "the gate's ask", |e| {
-        state(e, item).is_some_and(|(w, at, _)| at == "M1" && open_ask(e, w).is_some())
+    step_until(&mut e, item, &said, "the gate's wait", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "owner_approves")
     });
     let (work, _, _) = state(&e, item).unwrap();
     let (ask, body) = open_ask(&e, work).unwrap();
+    assert_eq!(body["kind"], "change", "{body}");
     assert_eq!(body["asked"][0]["value"]["files"], json!(["src/lib.txt"]), "{body}");
     owner_answers(&mut e, ask, "Keep the old line too.");
     step_until(&mut e, item, &said, "the gate's second ask", |e| {
