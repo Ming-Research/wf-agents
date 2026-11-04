@@ -2087,8 +2087,6 @@ fn side_report(e: &mut Engine, text: &str) -> (i64, i64) {
     .unwrap()
 }
 
-}
-
 /// Takes the work's steps alone, every other work held, until `done` says so.
 fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
     for _ in 0..80 {
