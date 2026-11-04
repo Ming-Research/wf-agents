@@ -389,7 +389,46 @@ impl Db {
     /// Opens the database at `path` only to read it, as it is: nothing is created or migrated, and a write on it
     /// fails. A file that does not exist or is empty is no database, as for [`Db::open`]; one not at this wf-agents'
     /// version is refused, since its shape is not the one read.
+    ///
+    /// A database in write-ahead-log mode whose side files (`-wal`, `-shm`) are gone, as they are once every connection
+    /// to it has closed, gets them back beside it, empty: SQLite reads such a database through them. Nothing else is
+    /// written.
     pub fn open_read_only(path: &Path) -> Result<Db> {
+        match Db::read_only(path)? {
+            (_, at) if at < VERSION => Err(Error::Older(at)),
+            (db, _) => Ok(db),
+        }
+    }
+
+    /// Opens the database at `path` only to read it, as the engine finds it once it has migrated it: for a reader that
+    /// must see a database before the engine that would migrate it runs, as one that works out what installing a flow
+    /// would do. A database at this wf-agents' version is opened as [`Db::open_read_only`] opens it, its side files made
+    /// as that says; an older one is copied whole into memory, as one snapshot (SQLite's backup), and the copy is
+    /// migrated as [`Db::open`] migrates a database, the file left as it was and no copy kept beside it. Writes on what
+    /// it gives fail either way. Gives the version the database is at with it; a newer database, or a file that is
+    /// none, is refused. The copy holds the whole database in memory while it is read.
+    pub fn open_read_only_migrated(path: &Path) -> Result<(Db, i64)> {
+        let (db, at) = Db::read_only(path)?;
+        if at == VERSION {
+            return Ok((db, at));
+        }
+        let mut copy = Db::set_up(Connection::open_in_memory()?)?;
+        match rusqlite::backup::Backup::new(&db.conn, &mut copy.conn)?.step(-1)? {
+            rusqlite::backup::StepResult::Done => {}
+            other => {
+                return Err(Error::Abort(format!(
+                    "the database could not be copied whole: {other:?}"
+                )));
+            }
+        }
+        copy.migrate(MIGRATIONS)?;
+        copy.conn.pragma_update(None, "query_only", true)?;
+        Ok((copy, at))
+    }
+
+    /// The database at `path` opened only to read it, as it is, whatever its version, with the version it is at; a
+    /// newer database, or a file that is none, is refused.
+    fn read_only(path: &Path) -> Result<(Db, i64)> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = connect(path, flags)?;
         conn.busy_timeout(Duration::from_secs(10))?;
@@ -398,19 +437,18 @@ impl Db {
         if at == 0 {
             return Err(refusal(&conn)?);
         }
-        if !up_to_date(at, VERSION)? {
-            return Err(Error::Older(at));
-        }
+        up_to_date(at, VERSION)?;
         let writer: Current = Arc::new(Mutex::new(None));
         register(&conn, "wf_tx", &writer, |w| w.tx)?;
         register(&conn, "wf_at", &writer, |w| w.at)?;
         register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
-        Ok(Db {
+        let db = Db {
             conn,
             writer,
             watch: Arc::default(),
             listener: None,
-        })
+        };
+        Ok((db, at))
     }
 
     /// A new database in memory.
@@ -2442,7 +2480,13 @@ mod tests {
     type Open = fn(&Path) -> Result<Db>;
 
     /// The ways a database is opened to be used, each with a name for the failure message.
-    const OPENS: [(&str, Open); 2] = [("open", Db::open), ("open_read_only", Db::open_read_only)];
+    const OPENS: [(&str, Open); 3] = [
+        ("open", Db::open),
+        ("open_read_only", Db::open_read_only),
+        ("open_read_only_migrated", |p| {
+            Db::open_read_only_migrated(p).map(|(db, _)| db)
+        }),
+    ];
 
     // A database from a newer wf-agents, or a file that is not one, is not touched, however it is opened; one older
     // than this wf-agents is not migrated by an open that only reads.
@@ -2521,6 +2565,62 @@ mod tests {
         drop(db);
         Db::open(&path).unwrap();
         assert_eq!(backup::copies(&dir, backup::BEFORE_MIGRATION).len(), 1);
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// The names in a directory, in order.
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    // Item #272: a database older than this wf-agents is read, by the open for a reader that must see it as the engine
+    // finds it once migrated, from a copy in memory migrated as `open` migrates it: the copy has the shape of a new
+    // database and the rows the file had, and refuses writes; the file stays as it was, with no copy kept beside it. One
+    // at this version is read as it is, and gets its side files back, empty, as SQLite reads it through them.
+    #[test]
+    fn an_older_database_is_read_from_a_copy_migrated_in_memory() {
+        let home = std::env::temp_dir().join(format!("wf-agents-db-{}-read-migrated", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let (older, current) = (home.join("older"), home.join("current"));
+        std::fs::create_dir_all(&older).unwrap();
+        std::fs::create_dir_all(&current).unwrap();
+        let path = older.join("wf-agents.sqlite");
+        let mut old = at_version(VERSION - 1);
+        old.write(Actor::Owner, |tx| item(tx, "kept")).unwrap();
+        old.conn.execute("VACUUM INTO ?1", [path.to_string_lossy()]).unwrap();
+        let (before, bytes) = (entries(&older), std::fs::read(&path).unwrap());
+        let (db, at) = Db::open_read_only_migrated(&path).unwrap();
+        assert_eq!(at, VERSION - 1);
+        assert_like_new(&db);
+        assert_eq!(names(db.conn(), "SELECT title FROM items").unwrap(), ["kept"]);
+        assert!(db.conn().execute("DELETE FROM items", []).is_err());
+        drop(db);
+        assert_eq!((entries(&older), std::fs::read(&path).unwrap()), (before, bytes));
+        let path = current.join("wf-agents.sqlite");
+        let mut made = Db::create(&path).unwrap();
+        made.write(Actor::Owner, |tx| item(tx, "kept")).unwrap();
+        drop(made);
+        assert_eq!(entries(&current), ["wf-agents.sqlite"]);
+        let bytes = std::fs::read(&path).unwrap();
+        let (db, at) = Db::open_read_only_migrated(&path).unwrap();
+        assert_eq!(at, VERSION);
+        assert_eq!(names(db.conn(), "SELECT title FROM items").unwrap(), ["kept"]);
+        assert!(db.conn().execute("DELETE FROM items", []).is_err());
+        drop(db);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(
+            entries(&current),
+            ["wf-agents.sqlite", "wf-agents.sqlite-shm", "wf-agents.sqlite-wal"]
+        );
+        assert_eq!(
+            std::fs::metadata(current.join("wf-agents.sqlite-wal")).unwrap().len(),
+            0
+        );
         std::fs::remove_dir_all(&home).unwrap();
     }
 

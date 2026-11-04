@@ -1,0 +1,189 @@
+//! What installing a flow would do with each work that is neither ended nor done, worked out before it is installed, so
+//! that whoever designs, rules on or installs a flow change sees what it costs the works that go on. On an engine made
+//! only to read that runs the flow ([`Engine::trying`]), each work is judged by the very code the engine runs as it
+//! brings a work on an older version up when the work next goes on: the plan ([`Engine::plan`]), the cell a work comes
+//! to when it cannot move ([`Engine::version_cell`]), and that cell's step without its writes ([`steps::arrival`]): the
+//! row it takes there by what it is given, where that row leads, and whether it pauses the work. So a work moves where
+//! it stands, goes from that cell to the cell its row leads to, stays there stuck, or ends. Nothing is written, and the
+//! whole is read as one moment of the database.
+
+use db::rusqlite::OptionalExtension;
+
+use crate::versions::Plan;
+use crate::work::{RoundId, Work};
+use crate::{ENGINEER, Engine, steps};
+
+/// What installing a flow version does with a work when the work next goes on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Effect {
+    /// The work is on that version already: nothing.
+    Stays,
+    /// It moves where it stands: the same work at the same cell, in the same sessions.
+    Moves,
+    /// It comes to cell `through` for the reason `why`, and goes from there to cell `to`, by the row that cell takes,
+    /// which it does again from its start: round `from` and the rounds after it, `redone` in all, are done again.
+    GoesBack {
+        through: String,
+        to: String,
+        why: String,
+        from: Option<RoundId>,
+        redone: usize,
+    },
+    /// It comes to the version's cell for it for the reason `why` and stays at cell `at`, paused for `pause`, which says
+    /// what the owner can do; the owner's Start takes it back to cell `back_to` all the same, when it has one.
+    Stuck {
+        at: String,
+        why: String,
+        back_to: Option<String>,
+        pause: String,
+    },
+    /// It ends, as no cell of the version can run it, for the reason `why`; a new work takes its item over when it is
+    /// an engineer's work on an item (`taken_over`).
+    Ends { why: String, taken_over: bool },
+}
+
+/// A work that is neither ended nor done, with what installing the flow does with it.
+#[derive(Debug, Clone)]
+pub struct WorkCost {
+    pub id: i64,
+    /// The work as the database holds it; none when it cannot be read.
+    pub work: Option<Work>,
+    /// The title of its item, for a work on one.
+    pub title: Option<String>,
+    /// What installing the flow does with it, or why that cannot be worked out: the engine meets that error as it
+    /// brings the work up, and stops.
+    pub effect: Result<Effect, String>,
+}
+
+/// What installing a flow would do: the version it would be stored as, whether the database has that version already,
+/// and each work that is neither ended nor done, by id, those paused included.
+#[derive(Debug, Clone)]
+pub struct Cost {
+    pub version: i64,
+    pub stored: bool,
+    pub works: Vec<WorkCost>,
+}
+
+impl Engine {
+    /// What installing the flow this engine runs would do with each work that is neither ended nor done, on an engine
+    /// made only to read that runs it ([`Engine::trying`]), read in one transaction, so that a round written meanwhile
+    /// does not mix two moments. A paused work is judged as well: it is brought up as it next goes on, and nothing it
+    /// carries changes meanwhile.
+    pub fn flow_cost(&mut self) -> Result<Cost, String> {
+        self.db
+            .conn()
+            .execute_batch("BEGIN")
+            .map_err(|e| format!("reading the database: {e}"))?;
+        let cost = self.cost();
+        // The read ends however it went; it wrote nothing.
+        let _ = self.db.conn().execute_batch("ROLLBACK");
+        cost
+    }
+
+    /// What installing the flow this engine runs would do with each work ([`Engine::flow_cost`]), within its read.
+    fn cost(&mut self) -> Result<Cost, String> {
+        let stored: bool = self
+            .db
+            .conn()
+            .query_row(
+                "SELECT count(*) > 0 FROM flow_versions WHERE id = ?1",
+                [self.flow_now],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("the flow versions: {e}"))?;
+        let ids: Vec<i64> = {
+            let mut st = self
+                .db
+                .conn()
+                .prepare("SELECT id FROM works WHERE ended IS NULL ORDER BY id")
+                .map_err(|e| e.to_string())?;
+            st.query_map([], |r| r.get(0))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?
+        };
+        let mut works = Vec::new();
+        for id in ids {
+            let work = Work::load(self.db.conn(), id, None);
+            let effect = match &work {
+                Ok(_) => self.effect(id).transpose(),
+                Err(e) => Some(Err(e.clone())),
+            };
+            let Some(effect) = effect else { continue };
+            let work = work.ok();
+            let title = work.as_ref().and_then(|w| w.item).and_then(|item| {
+                self.db
+                    .conn()
+                    .query_row("SELECT title FROM items WHERE id = ?1", [item], |r| r.get(0))
+                    .optional()
+                    .ok()
+                    .flatten()
+            });
+            works.push(WorkCost {
+                id,
+                work,
+                title,
+                effect,
+            });
+        }
+        Ok(Cost {
+            version: self.flow_now,
+            stored,
+            works,
+        })
+    }
+
+    /// What bringing work `id` to the version the engine runs does with it, decided as [`Engine::bring`] decides it and
+    /// as the step of the cell it comes to then goes; none for a work that is done, which is not brought up.
+    fn effect(&mut self, id: i64) -> Result<Option<Effect>, String> {
+        let w = self.work(id)?;
+        if self.done(&w)? {
+            return Ok(None);
+        }
+        if w.flow_version == self.flow_now {
+            return Ok(Some(Effect::Stays));
+        }
+        let (to, why, stuck) = match self.plan(&w)? {
+            Plan::Move => return Ok(Some(Effect::Moves)),
+            Plan::GoBack { to, why } => (Some(to), why, false),
+            Plan::Stuck { why, back_to } => (back_to, why, true),
+        };
+        let Some(through) = self.version_cell(&w)? else {
+            let taken_over = w.graph == ENGINEER && w.item.is_some();
+            return Ok(Some(Effect::Ends { why, taken_over }));
+        };
+        // The work as the engine leaves it at that cell ([`Engine::bring_back`]): on the version it runs, standing there,
+        // with the cell it goes back to as where it stopped and no cell waiting for an answer.
+        let now = Work {
+            flow_version: self.flow_now,
+            ..w.clone()
+        };
+        let g = self.graph_of(&now)?;
+        let mut there = Work::load(self.db.conn(), id, Some(&g))?;
+        there.flow_version = self.flow_now;
+        there.pos.at = through.clone();
+        there.pos.stopped = to;
+        there.pos.callers = Vec::new();
+        let cell = g
+            .cell(&through)
+            .cloned()
+            .ok_or_else(|| format!("work {id}: flow version {} has no cell {through}", self.flow_now))?;
+        let a = steps::arrival(self, &there, &g, &cell, w.flow_version, &why, stuck)?;
+        let next = g.step(&there.pos, &a.row)?;
+        Ok(Some(match a.pause {
+            Some(pause) => Effect::Stuck {
+                at: next.at,
+                why,
+                back_to: a.output["back_to"].as_str().map(str::to_string),
+                pause,
+            },
+            None => Effect::GoesBack {
+                through,
+                to: next.at,
+                why,
+                from: a.redone.map(|(r, _)| r),
+                redone: a.redone.map_or(0, |(_, n)| n),
+            },
+        }))
+    }
+}

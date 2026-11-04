@@ -1468,22 +1468,13 @@ pub fn bring_up(
             (from, why, false)
         }
     };
-    let mut given = Map::new();
-    let back = values::value(e, w, g, None, "brought_up")?;
-    let brought_up = if stuck { "stuck".to_string() } else { back };
-    given.insert("brought_up".into(), json!(brought_up));
-    let back_to = w.pos.stopped.clone().filter(|c| g.cell(c).is_some());
-    let rounds = work::rounds(e.db.conn(), w.id)?;
-    let redoes_from = back_to
-        .as_deref()
-        .filter(|_| brought_up == "went_back")
-        .map(|t| crate::versions::redone_from(g, &rounds, t))
-        .and_then(|i| rounds.get(i))
-        .map(|r| r.id.n);
-    let output = json!({
-        "from": from, "to": e.flow_now, "back_to": back_to, "why": why, "redoes_from": redoes_from,
-    });
-    let row = g.take(&cell.id, &output, &given)?.clone();
+    let Arrival {
+        given,
+        output,
+        row,
+        pause,
+        ..
+    } = arrival(e, w, g, cell, from, &why, stuck)?;
     let commit = e.config.commit.clone();
     let input = json!({ "given": given });
     let round =
@@ -1492,7 +1483,56 @@ pub fn bring_up(
         })
         .map_err(sql)?;
     let moved = finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)?;
-    if row.pauses {
+    if let Some(pause) = pause {
+        e.pause(w.id, &pause)?;
+    }
+    Ok(moved)
+}
+
+/// What the step of the cell a work on an older flow version comes to does with a work standing there, worked out
+/// without writing: what it is given (`brought_up`), what its round records (the versions, the cell the work goes back
+/// to, why, and the round it does again from), the row it takes by them, the rounds it does again, and, for a row that
+/// pauses the work, what it is paused for. [`bring_up`] carries it out; what installing a flow would do
+/// ([`crate::flow_cost`]) reads it for a work standing there as the engine would leave it.
+pub(crate) struct Arrival {
+    pub given: Map<String, Value>,
+    pub output: Value,
+    pub row: CompiledRow,
+    /// The first round the work does again and how many it does again, from the latest stretch of the cell it goes
+    /// back to on: none when it does not go back, or does no round again.
+    pub redone: Option<(RoundId, usize)>,
+    /// What the work is paused for, when the row pauses it.
+    pub pause: Option<String>,
+}
+
+/// What the step of the cell a work on an older flow version comes to does with work `w` standing there
+/// ([`Arrival`]), brought from version `from` for the reason `why`, and `stuck` when the engine keeps it there though it
+/// has a cell to go back to.
+pub(crate) fn arrival(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    from: i64,
+    why: &str,
+    stuck: bool,
+) -> Result<Arrival, String> {
+    let mut given = Map::new();
+    let back = values::value(e, w, g, None, "brought_up")?;
+    let brought_up = if stuck { "stuck".to_string() } else { back };
+    given.insert("brought_up".into(), json!(brought_up));
+    let back_to = w.pos.stopped.clone().filter(|c| g.cell(c).is_some());
+    let rounds = work::rounds(e.db.conn(), w.id)?;
+    let redone = back_to
+        .as_deref()
+        .filter(|_| brought_up == "went_back")
+        .map(|t| crate::versions::redone_from(g, &rounds, t))
+        .and_then(|i| rounds.get(i).map(|r| (r.id, rounds.len() - i)));
+    let output = json!({
+        "from": from, "to": e.flow_now, "back_to": back_to, "why": why, "redoes_from": redone.map(|(r, _)| r.n),
+    });
+    let row = g.take(&cell.id, &output, &given)?.clone();
+    let pause = if row.pauses {
         // A paused work is brought to a newer version only as it goes on, so the owner's Start is what looks again.
         let again = "Start it once a flow version that has a cell it walked is installed, and it looks again";
         // An engineer's work whose merge stands can be neither started over nor cancelled.
@@ -1506,9 +1546,17 @@ pub fn bring_up(
             (None, true) => format!("Start it over, or cancel its item; or {again}"),
         };
         let now = e.flow_now;
-        e.pause(w.id, &format!("it cannot go on in flow version {now}: {why}. {then}"))?;
-    }
-    Ok(moved)
+        Some(format!("it cannot go on in flow version {now}: {why}. {then}"))
+    } else {
+        None
+    };
+    Ok(Arrival {
+        given,
+        output,
+        row,
+        redone,
+        pause,
+    })
 }
 
 /// The first tool of a tool step's output that failed reaching the network or GitHub's API, with what it reported.

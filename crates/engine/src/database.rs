@@ -21,6 +21,14 @@ pub fn open_read_only(data: &Path) -> Result<Db, String> {
     Db::open_read_only(&path).map_err(|e| told(&path, e))
 }
 
+/// Opens the database in the data directory `data` only to read it, as the engine finds it once it has migrated it
+/// ([`Db::open_read_only_migrated`]): an older one is read from a copy in memory, migrated. Gives the version the
+/// database is at with it.
+pub fn open_read_only_migrated(data: &Path) -> Result<(Db, i64), String> {
+    let path = config::database(data);
+    Db::open_read_only_migrated(&path).map_err(|e| told(&path, e))
+}
+
 /// What a failure to open the database at `path` is told as: a missing database says where it was looked for and
 /// which command makes one.
 fn told(path: &Path, e: Error) -> String {
