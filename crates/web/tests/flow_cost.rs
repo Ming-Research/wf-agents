@@ -51,7 +51,14 @@ fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
-        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .env("GIT_CEILING_DIRECTORIES", std::env::temp_dir())
         .output()
@@ -81,7 +88,10 @@ fn serve(name: &str, checkout: &Path) -> (PathBuf, u16) {
     std::fs::write(dir.join("rules/ground.md"), "Facts first.").unwrap();
     git(&dir, &["init", "-q"]);
     commit_all(&dir, "configuration");
-    engine::database::create(&dir).unwrap();
+    // The database, made as the program makes it (the web crate's tests do not reach the engine crate, which the page
+    // before this change did not need).
+    std::fs::create_dir_all(dir.join("db")).unwrap();
+    drop(db::Db::create(&config::database(&dir)).unwrap());
     let port = web::start(web::Options {
         data: dir.clone(),
         db: config::database(&dir),
@@ -186,7 +196,14 @@ fn the_cost_of_a_flow_is_read_at_the_ref_that_names_one_commit_and_other_refs_ar
         assert!(body.contains("not a git ref"), "{rev:?}: {body}");
     }
     // Looks like a ref, names no single commit: not found.
-    for rev in ["nothing", "HEAD~1000", "HEAD..HEAD~1", "HEAD^{tree}", "HEAD^{blob}", "main.."] {
+    for rev in [
+        "nothing",
+        "HEAD~1000",
+        "HEAD..HEAD~1",
+        "HEAD^{tree}",
+        "HEAD^{blob}",
+        "main..",
+    ] {
         let (status, body) = at_ref(port, rev);
         assert_eq!(status, 404, "{rev}: {body}");
     }
@@ -233,11 +250,19 @@ fn the_cost_of_a_flow_is_read_beside_a_write_under_way_and_sees_only_what_is_com
     let works = |answer: (u16, String)| -> (i64, bool, Vec<i64>) {
         assert_eq!(answer.0, 200, "{}", answer.1);
         let page: serde_json::Value = serde_json::from_str(&answer.1).unwrap();
-        let ids = page["works"].as_array().unwrap().iter().map(|w| w["work"].as_i64().unwrap());
+        let ids = page["works"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w["work"].as_i64().unwrap());
         for w in page["works"].as_array().unwrap() {
             assert_eq!(w["effect"]["kind"], "unreadable", "{page}");
         }
-        (page["version"].as_i64().unwrap(), page["stored"].as_bool().unwrap(), ids.collect())
+        (
+            page["version"].as_i64().unwrap(),
+            page["stored"].as_bool().unwrap(),
+            ids.collect(),
+        )
     };
     // A write under way holds its lock while the page asks: the work it adds is not yet there.
     let beside = base
