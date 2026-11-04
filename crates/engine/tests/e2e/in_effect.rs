@@ -501,8 +501,8 @@ fn a_tool_refused_for_want_of_configuration_does_not_hold_and_the_report_says_wh
 
     the_wait_passes(&mut e, work);
     step_to(&mut e, item, "E1");
-    let looks = ended_at(&e, item, "W2");
-    let sent_back = looks
+    let rounds = ended_at(&e, item, "W2");
+    let sent_back = rounds
         .iter()
         .find_map(|(_, rejected)| rejected.as_deref())
         .expect("the look that rests on what no run showed is sent back");
