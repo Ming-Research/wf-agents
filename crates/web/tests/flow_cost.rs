@@ -188,7 +188,7 @@ fn the_cost_of_a_flow_is_read_at_the_ref_that_names_one_commit_and_other_refs_ar
         "HEAD;ls",
         "$(ls)",
         "HEAD\\",
-        "héad",
+        "h\u{e9}ad",
         long.as_str(),
     ] {
         let (status, body) = at_ref(port, rev);
