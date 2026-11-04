@@ -107,7 +107,7 @@ fn tool_cell_output(e: &Engine, item: i64) -> Value {
 }
 
 /// Whether the output fits what the compiled flow says cell `X1` returns.
-fn fits_the_flow(e: &Engine, work: i64, output: &Value) -> bool {
+fn fits_the_flow(e: &mut Engine, work: i64, output: &Value) -> bool {
     let w = e.work(work).unwrap();
     let g = e.graph_of(&w).unwrap();
     let schema = g.cell("X1").and_then(|c| c.schema.clone()).unwrap();
@@ -191,7 +191,7 @@ fn a_listed_lock_file_is_fetched_as_the_worktree_has_it_and_the_others_are_refus
         why(3)
     );
     let output = tool_cell_output(&e, item);
-    assert!(fits_the_flow(&e, work, &output), "{output}");
+    assert!(fits_the_flow(&mut e, work, &output), "{output}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -238,7 +238,7 @@ fn a_command_that_fails_or_hangs_gives_a_result_and_a_hung_one_is_stopped_with_w
     });
     assert!(gone, "process {pid} outlived the stop");
     let output = tool_cell_output(&e, item);
-    assert!(fits_the_flow(&e, work, &output), "{output}");
+    assert!(fits_the_flow(&mut e, work, &output), "{output}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
