@@ -25,6 +25,20 @@
 --   work: a committed change applies from the next round on. Each round keeps the input it was actually given and
 --   the configuration commit it ran with.
 
+CREATE TABLE migrations (
+  -- Each migration the database has taken, by its file in db/migrations. A database made from this file has taken
+  -- every one there is; one opened by a wf-agents with migrations it has not taken takes them, in the order their names
+  -- sort, and its rows here name them. A migration is named by the minute it was written and what it does, so that
+  -- works written side by side never take the same name, and these rows, not a count, say which a database took: a
+  -- migration merged after one whose name sorts after it is taken after that one where that one came first. A database
+  -- from before this table took the first migrations, as many as its version (`user_version`) less one.
+  -- Hidden from agents.
+  -- Read by: the engine, as it opens a database, to take the migrations it has not and to refuse one that took a
+  -- migration it does not know, which a newer wf-agents made.
+  -- The migration's file's name without `.sql`, as `0079` or `202611040140-record-migrations-taken`.
+  name TEXT PRIMARY KEY
+) STRICT;
+
 CREATE TABLE items (
   -- A piece of work to do, as its creator wrote it. Text that a work's rounds produce later (the problem as the
   -- engineer understood it, the study, the design, progress) is not stored here: views read it from rounds. Items own

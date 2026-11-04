@@ -40,96 +40,34 @@ pub use start_over::{
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
-/// The steps that bring an existing database up to [`SCHEMA`]: `db/migrations/0002.sql` takes version 1 to 2, the
-/// next 2 to 3, and so on. A change to `db/schema.sql` adds one in the same pull request. `db/migrations/0001.sql` is
-/// the schema as it was at version 1, from which a test migrates a database and compares it with one created from
-/// [`SCHEMA`].
-pub const MIGRATIONS: &[&str] = &[
-    include_str!("../../../db/migrations/0002.sql"),
-    include_str!("../../../db/migrations/0003.sql"),
-    include_str!("../../../db/migrations/0004.sql"),
-    include_str!("../../../db/migrations/0005.sql"),
-    include_str!("../../../db/migrations/0006.sql"),
-    include_str!("../../../db/migrations/0007.sql"),
-    include_str!("../../../db/migrations/0008.sql"),
-    include_str!("../../../db/migrations/0009.sql"),
-    include_str!("../../../db/migrations/0010.sql"),
-    include_str!("../../../db/migrations/0011.sql"),
-    include_str!("../../../db/migrations/0012.sql"),
-    include_str!("../../../db/migrations/0013.sql"),
-    include_str!("../../../db/migrations/0014.sql"),
-    include_str!("../../../db/migrations/0015.sql"),
-    include_str!("../../../db/migrations/0016.sql"),
-    include_str!("../../../db/migrations/0017.sql"),
-    include_str!("../../../db/migrations/0018.sql"),
-    include_str!("../../../db/migrations/0019.sql"),
-    include_str!("../../../db/migrations/0020.sql"),
-    include_str!("../../../db/migrations/0021.sql"),
-    include_str!("../../../db/migrations/0022.sql"),
-    include_str!("../../../db/migrations/0023.sql"),
-    include_str!("../../../db/migrations/0024.sql"),
-    include_str!("../../../db/migrations/0025.sql"),
-    include_str!("../../../db/migrations/0026.sql"),
-    include_str!("../../../db/migrations/0027.sql"),
-    include_str!("../../../db/migrations/0028.sql"),
-    include_str!("../../../db/migrations/0029.sql"),
-    include_str!("../../../db/migrations/0030.sql"),
-    include_str!("../../../db/migrations/0031.sql"),
-    include_str!("../../../db/migrations/0032.sql"),
-    include_str!("../../../db/migrations/0033.sql"),
-    include_str!("../../../db/migrations/0034.sql"),
-    include_str!("../../../db/migrations/0035.sql"),
-    include_str!("../../../db/migrations/0036.sql"),
-    include_str!("../../../db/migrations/0037.sql"),
-    include_str!("../../../db/migrations/0038.sql"),
-    include_str!("../../../db/migrations/0039.sql"),
-    include_str!("../../../db/migrations/0040.sql"),
-    include_str!("../../../db/migrations/0041.sql"),
-    include_str!("../../../db/migrations/0042.sql"),
-    include_str!("../../../db/migrations/0043.sql"),
-    include_str!("../../../db/migrations/0044.sql"),
-    include_str!("../../../db/migrations/0045.sql"),
-    include_str!("../../../db/migrations/0046.sql"),
-    include_str!("../../../db/migrations/0047.sql"),
-    include_str!("../../../db/migrations/0048.sql"),
-    include_str!("../../../db/migrations/0049.sql"),
-    include_str!("../../../db/migrations/0050.sql"),
-    include_str!("../../../db/migrations/0051.sql"),
-    include_str!("../../../db/migrations/0052.sql"),
-    include_str!("../../../db/migrations/0053.sql"),
-    include_str!("../../../db/migrations/0054.sql"),
-    include_str!("../../../db/migrations/0055.sql"),
-    include_str!("../../../db/migrations/0056.sql"),
-    include_str!("../../../db/migrations/0057.sql"),
-    include_str!("../../../db/migrations/0058.sql"),
-    include_str!("../../../db/migrations/0059.sql"),
-    include_str!("../../../db/migrations/0060.sql"),
-    include_str!("../../../db/migrations/0061.sql"),
-    include_str!("../../../db/migrations/0062.sql"),
-    include_str!("../../../db/migrations/0063.sql"),
-    include_str!("../../../db/migrations/0064.sql"),
-    include_str!("../../../db/migrations/0065.sql"),
-    include_str!("../../../db/migrations/0066.sql"),
-    include_str!("../../../db/migrations/0067.sql"),
-    include_str!("../../../db/migrations/0068.sql"),
-    include_str!("../../../db/migrations/0069.sql"),
-    include_str!("../../../db/migrations/0070.sql"),
-    include_str!("../../../db/migrations/0071.sql"),
-    include_str!("../../../db/migrations/0072.sql"),
-    include_str!("../../../db/migrations/0073.sql"),
-    include_str!("../../../db/migrations/0074.sql"),
-    include_str!("../../../db/migrations/0075.sql"),
-    include_str!("../../../db/migrations/0076.sql"),
-    include_str!("../../../db/migrations/0077.sql"),
-    include_str!("../../../db/migrations/0078.sql"),
-    include_str!("../../../db/migrations/0079.sql"),
-];
+/// One step that brings an existing database nearer to [`SCHEMA`]: a file of `db/migrations/`.
+#[derive(Debug, Clone, Copy)]
+pub struct Migration {
+    /// The file's name without `.sql`, which a database that took the migration keeps in `migrations`.
+    pub name: &'static str,
+    /// What the file says to run.
+    pub sql: &'static str,
+}
 
-/// The version [`SCHEMA`] defines, kept in the database's `user_version`.
+/// The steps that bring an existing database up to [`SCHEMA`], in the order their names sort: every file of
+/// `db/migrations/` but `0001.sql`, which the build lists (`build.rs`), so that a migration is added as a file alone.
+/// A change to `db/schema.sql` adds one in the same pull request, named by the minute it was written, in UTC, and what
+/// it does, as `202611040140-record-migrations-taken.sql`: works written side by side then never take the same name.
+/// Those named by a number, `0002.sql` to `0079.sql`, came before, each taking a database from one version to the
+/// next. A database keeps the name of each migration it took (the table `migrations`) and takes those it has not,
+/// whatever order they were merged in. `db/migrations/0001.sql` is the schema as it was at version 1, from which a test
+/// migrates a database and compares it with one created from [`SCHEMA`].
+pub const MIGRATIONS: &[Migration] = include!(concat!(env!("OUT_DIR"), "/migrations.rs"));
+
+/// The version [`SCHEMA`] defines: one more than the migrations that lead to it, as the database's `user_version`
+/// keeps it once it is made or migrated. Which migrations a database took is in its table `migrations`; the version
+/// only counts them, so that a wf-agents from before migrations were named, which reads the version alone, refuses a
+/// database newer than it.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 12] = [
+const UNTRACKED: [&str; 13] = [
+    "migrations",
     "rounds",
     "tool_runs",
     "pings",
@@ -238,8 +176,9 @@ pub fn stopped_by_architect(paused: Option<&str>, by: Option<&str>) -> bool {
 #[derive(Debug)]
 pub enum Error {
     Sql(rusqlite::Error),
-    /// The database was made by a newer wf-agents: its version.
-    Newer(i64),
+    /// The database was made by a newer wf-agents: it took migrations this one does not know, named, or counts more
+    /// than this one has, as the words say.
+    Newer(String),
     /// The database is older than this wf-agents and was opened only to read, so it was not migrated: its version.
     Older(i64),
     /// The file holds tables but is not a wf-agents database.
@@ -267,10 +206,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Sql(e) => write!(f, "{e}"),
-            Error::Newer(v) => write!(
-                f,
-                "the database is at version {v}, newer than this wf-agents ({VERSION})"
-            ),
+            Error::Newer(why) => write!(f, "the database is newer than this wf-agents ({VERSION}): {why}"),
             Error::Older(v) => write!(
                 f,
                 "the database is at version {v}, older than this wf-agents ({VERSION}): run the engine once to migrate it"
@@ -391,29 +327,29 @@ impl Db {
     }
 
     /// Opens the database at `path` only to read it, as it is: nothing is created or migrated, and a write on it
-    /// fails. A file that does not exist or is empty is no database, as for [`Db::open`]; one not at this wf-agents'
-    /// version is refused, since its shape is not the one read.
+    /// fails. A file that does not exist or is empty is no database, as for [`Db::open`]; one that has not taken every
+    /// migration of this wf-agents is refused, since its shape is not the one read.
     ///
     /// A database in write-ahead-log mode whose side files (`-wal`, `-shm`) are gone, as they are once every connection
     /// to it has closed, gets them back beside it, empty: SQLite reads such a database through them. Nothing else is
     /// written.
     pub fn open_read_only(path: &Path) -> Result<Db> {
         match Db::read_only(path)? {
-            (_, at) if at < VERSION => Err(Error::Older(at)),
-            (db, _) => Ok(db),
+            (_, at, true) => Err(Error::Older(at)),
+            (db, _, false) => Ok(db),
         }
     }
 
     /// Opens the database at `path` only to read it, as the engine finds it once it has migrated it: for a reader that
     /// must see a database before the engine that would migrate it runs, as one that works out what installing a flow
-    /// would do. A database at this wf-agents' version is opened as [`Db::open_read_only`] opens it, its side files made
-    /// as that says; an older one is copied whole into memory, as one snapshot (SQLite's backup), and the copy is
-    /// migrated as [`Db::open`] migrates a database, the file left as it was and no copy kept beside it. Writes on what
-    /// it gives fail either way. Gives the version the database is at with it; a newer database, or a file that is
-    /// none, is refused. The copy holds the whole database in memory while it is read.
+    /// would do. A database that took every migration of this wf-agents is opened as [`Db::open_read_only`] opens it,
+    /// its side files made as that says; an older one is copied whole into memory, as one snapshot (SQLite's backup),
+    /// and the copy is migrated as [`Db::open`] migrates a database, the file left as it was and no copy kept beside it.
+    /// Writes on what it gives fail either way. Gives the version the database is at with it; a newer database, or a
+    /// file that is none, is refused. The copy holds the whole database in memory while it is read.
     pub fn open_read_only_migrated(path: &Path) -> Result<(Db, i64)> {
-        let (db, at) = Db::read_only(path)?;
-        if at == VERSION {
+        let (db, at, older) = Db::read_only(path)?;
+        if !older {
             return Ok((db, at));
         }
         let mut copy = Db::set_up(Connection::open_in_memory()?)?;
@@ -430,9 +366,10 @@ impl Db {
         Ok((copy, at))
     }
 
-    /// The database at `path` opened only to read it, as it is, whatever its version, with the version it is at; a
-    /// newer database, or a file that is none, is refused.
-    fn read_only(path: &Path) -> Result<(Db, i64)> {
+    /// The database at `path` opened only to read it, as it is, whatever its version, with the version it is at and
+    /// whether it is older than this wf-agents, having migrations still to take; a newer database, or a file that is
+    /// none, is refused.
+    fn read_only(path: &Path) -> Result<(Db, i64, bool)> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = connect(path, flags)?;
         conn.busy_timeout(Duration::from_secs(10))?;
@@ -441,7 +378,7 @@ impl Db {
         if at == 0 {
             return Err(refusal(&conn)?);
         }
-        up_to_date(at, VERSION)?;
+        let older = !pending(&conn, at, MIGRATIONS)?.is_empty();
         let writer: Current = Arc::new(Mutex::new(None));
         register(&conn, "wf_tx", &writer, |w| w.tx)?;
         register(&conn, "wf_at", &writer, |w| w.at)?;
@@ -452,7 +389,7 @@ impl Db {
             watch: Arc::default(),
             listener: None,
         };
-        Ok((db, at))
+        Ok((db, at, older))
     }
 
     /// A new database in memory.
@@ -556,35 +493,46 @@ impl Db {
         Ok(out)
     }
 
-    /// Builds `schema` into a database that holds nothing, at the version `migrations` lead to; then makes the
-    /// triggers that track changes. What is there is judged under the lock, so of two creations only one builds.
-    fn create_schema(&mut self, schema: &str, migrations: &[&str]) -> Result<()> {
+    /// Builds `schema` into a database that holds nothing, at the version `migrations` lead to, as one that took each
+    /// of them; then makes the triggers that track changes. What is there is judged under the lock, so of two creations
+    /// only one builds.
+    fn create_schema(&mut self, schema: &str, migrations: &[Migration]) -> Result<()> {
         let version = 1 + migrations.len() as i64;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         if let Some(e) = in_the_way(&tx)? {
             return Err(e);
         }
         tx.execute_batch(schema)?;
+        record(&tx, migrations)?;
         track(&tx)?;
         tx.pragma_update(None, "user_version", version)?;
         tx.commit()?;
         Ok(())
     }
 
-    /// Brings an existing database to the version `migrations` lead to: runs the migrations from its version on, then
-    /// makes the triggers that track changes afresh. A file with nothing in it holds no database. A migration may make
-    /// a table afresh, which SQLite does with the foreign keys off: they are off while the migrations run, and every
-    /// row that points to another is checked before they commit.
-    fn migrate(&mut self, migrations: &[&str]) -> Result<()> {
-        let version = 1 + migrations.len() as i64;
+    /// Brings an existing database to the version `migrations` lead to, as [`Db::migrate_to`] does. Only the whole of
+    /// [`MIGRATIONS`] leads to [`SCHEMA`]; a test that takes a database to an earlier version gives the first of them.
+    fn migrate(&mut self, migrations: &[Migration]) -> Result<()> {
+        let schema = (migrations.len() == MIGRATIONS.len()).then_some(SCHEMA);
+        self.migrate_to(migrations, schema)
+    }
+
+    /// Brings an existing database to the version `migrations` lead to: takes those of them it has not taken, in their
+    /// order, and records them, then makes the triggers that track changes afresh. A file with nothing in it holds no
+    /// database. A migration may make a table afresh, which SQLite does with the foreign keys off: they are off while
+    /// the migrations run, and every row that points to another is checked before they commit. Given the `schema` they
+    /// lead to, whatever the migrations made, changed or dropped must come out as the schema has it, or nothing of
+    /// them is kept: a migration merged after one whose name sorts after it is taken after that one where that one
+    /// came first, and may undo some of it.
+    fn migrate_to(&mut self, migrations: &[Migration], schema: Option<&str>) -> Result<()> {
         // Settled on reads that take no lock, so that a database which needs nothing, or is refused, does not wait
         // for a writer.
         let at = version_of(&self.conn)?;
-        if up_to_date(at, version)? {
-            return Ok(());
-        }
         if at == 0 {
             return Err(refusal(&self.conn)?);
+        }
+        if pending(&self.conn, at, migrations)?.is_empty() {
+            return Ok(());
         }
         // A copy of the database as it stands is kept before it is migrated, so that a migration that goes wrong
         // loses nothing.
@@ -592,20 +540,23 @@ impl Db {
         // The setting cannot change within a transaction, so it is set around it, and put back whatever comes.
         let keys: bool = self.conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
         self.conn.pragma_update(None, "foreign_keys", false)?;
-        let done = self.run_migrations(migrations, version);
+        let done = self.run_migrations(migrations, schema);
         self.conn.pragma_update(None, "foreign_keys", keys)?;
         done
     }
 
-    fn run_migrations(&mut self, migrations: &[&str], version: i64) -> Result<()> {
+    fn run_migrations(&mut self, migrations: &[Migration], schema: Option<&str>) -> Result<()> {
+        let version = 1 + migrations.len() as i64;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         // Judged again under the lock: another process may have migrated it while this one waited.
         let at = version_of(&tx)?;
-        if up_to_date(at, version)? {
+        let pending = pending(&tx, at, migrations)?;
+        if pending.is_empty() {
             return Ok(());
         }
-        for m in &migrations[at as usize - 1..] {
-            tx.execute_batch(m)?;
+        let before = schema.map(|_| objects(&tx)).transpose()?;
+        for m in pending {
+            tx.execute_batch(m.sql)?;
         }
         let broken: i64 = tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))?;
         if broken > 0 {
@@ -613,11 +564,91 @@ impl Db {
                 "the migration to version {version} leaves {broken} rows pointing to rows that do not exist"
             )));
         }
+        if let (Some(schema), Some(before)) = (schema, before) {
+            let unlike = unlike_schema(&before, &objects(&tx)?, schema)?;
+            if !unlike.is_empty() {
+                return Err(Error::Abort(format!(
+                    "the migrations leave {} unlike db/schema.sql has them, so the database is left as it was: a \
+                     migration taken after one whose name sorts after it may undo some of what that one did, and a \
+                     migration after both must bring them to the schema",
+                    unlike.join(", ")
+                )));
+            }
+        }
+        record(&tx, migrations)?;
         track(&tx)?;
         tx.pragma_update(None, "user_version", version)?;
         tx.commit()?;
         Ok(())
     }
+}
+
+/// The migrations of `migrations` the database `conn` is open on, at version `at` (one or more), has not taken, in
+/// their order. It took those its table `migrations` names; a database from before the table took the first of them,
+/// as many as its version less one, as migrations were counted while they were numbered. One that took a migration
+/// this wf-agents does not know, or counts more than there are, is newer, and refused.
+fn pending<'m>(conn: &Connection, at: i64, migrations: &'m [Migration]) -> Result<Vec<&'m Migration>> {
+    if !has_table(conn, "migrations")? {
+        let taken = usize::try_from(at - 1).unwrap_or_default();
+        return match migrations.get(taken..) {
+            Some(rest) => Ok(rest.iter().collect()),
+            None => Err(Error::Newer(format!(
+                "it is at version {at}, past the {} migrations this one has",
+                migrations.len()
+            ))),
+        };
+    }
+    let taken: BTreeSet<String> = names(conn, "SELECT name FROM migrations")?.into_iter().collect();
+    let unknown: Vec<&str> = taken
+        .iter()
+        .map(String::as_str)
+        .filter(|t| !migrations.iter().any(|m| m.name == *t))
+        .collect();
+    if !unknown.is_empty() {
+        return Err(Error::Newer(format!(
+            "it took migrations this one does not know: {}",
+            unknown.join(", ")
+        )));
+    }
+    Ok(migrations.iter().filter(|m| !taken.contains(m.name)).collect())
+}
+
+/// Records each migration of `migrations` as taken by the database `conn` is open on, once it has the table that keeps
+/// them; a database from before the table keeps no record, and its version says which it took.
+fn record(conn: &Connection, migrations: &[Migration]) -> Result<()> {
+    if !has_table(conn, "migrations")? {
+        return Ok(());
+    }
+    let mut st = conn.prepare("INSERT OR IGNORE INTO migrations (name) VALUES (?1)")?;
+    for m in migrations {
+        st.execute([m.name])?;
+    }
+    Ok(())
+}
+
+/// Whether the database `conn` is open on has the table `name`.
+fn has_table(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+        [name],
+        |r| r.get(0),
+    )
+}
+
+/// What migrations left unlike `schema` has it, by kind and name: each table, view, index or trigger whose shape they
+/// changed, from `before` to `after` (made, changed or dropped), and that is not as a database made from `schema` has
+/// it. The triggers that track changes are made afresh after the migrations, and are not compared.
+fn unlike_schema(before: &Objects, after: &Objects, schema: &str) -> Result<Vec<String>> {
+    let made = Connection::open_in_memory()?;
+    made.execute_batch(schema)?;
+    let wanted = objects(&made)?;
+    let touched: BTreeSet<&(String, String)> = before.keys().chain(after.keys()).collect();
+    Ok(touched
+        .into_iter()
+        .filter(|(kind, name)| !(kind == "trigger" && name.starts_with("track_")))
+        .filter(|k| before.get(*k) != after.get(*k) && after.get(*k) != wanted.get(*k))
+        .map(|(kind, name)| format!("{kind} {name}"))
+        .collect())
 }
 
 /// What stops a creation in the database `conn` is open on: a database is there, or other tables are. None when it
@@ -641,14 +672,6 @@ pub fn is_taken(path: &Path) -> bool {
         return false;
     };
     in_the_way(&conn).is_ok_and(|e| e.is_some())
-}
-
-/// Whether a database at version `at` is already at `version`; one from a newer wf-agents is refused.
-fn up_to_date(at: i64, version: i64) -> Result<bool> {
-    if at > version {
-        return Err(Error::Newer(at));
-    }
-    Ok(at == version)
 }
 
 /// Why a file at version 0 is no database of this program: it holds nothing, or it holds other tables.
@@ -969,17 +992,27 @@ pub fn relations(schema: &str) -> rusqlite::Result<BTreeMap<String, BTreeSet<Str
 /// What a database is made of, to compare one migrated with one created afresh: each table's columns, foreign keys
 /// and indexes, and the definition of each view, index and trigger.
 pub fn shape(conn: &Connection) -> rusqlite::Result<Vec<String>> {
-    let mut out = Vec::new();
-    let objects: Vec<(String, String, Option<String>)> = {
+    Ok(objects(conn)?.into_values().flatten().collect())
+}
+
+/// What a database is made of, each table, view, index and trigger by its kind and name, as [`shape`] says it.
+type Objects = BTreeMap<(String, String), Vec<String>>;
+
+/// What the database `conn` is open on is made of, object by object: for a table its columns, foreign keys and
+/// strictness, for a view, an index or a trigger its definition.
+fn objects(conn: &Connection) -> rusqlite::Result<Objects> {
+    let mut out = Objects::new();
+    let all: Vec<(String, String, Option<String>)> = {
         let mut st = conn.prepare(
             "SELECT type, name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY type, name",
         )?;
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?
     };
-    for (kind, name, sql) in objects {
+    for (kind, name, sql) in all {
+        let lines = out.entry((kind.clone(), name.clone())).or_default();
         if kind != "table" {
-            out.push(format!("{kind} {name}: {}", sql.unwrap_or_default()));
+            lines.push(format!("{kind} {name}: {}", sql.unwrap_or_default()));
             continue;
         }
         let mut st =
@@ -996,7 +1029,7 @@ pub fn shape(conn: &Connection) -> rusqlite::Result<Vec<String>> {
             ))
         })?;
         for c in cols {
-            out.push(format!("table {name} column {}", c?));
+            lines.push(format!("table {name} column {}", c?));
         }
         let mut st = conn.prepare("SELECT \"table\", \"from\", \"to\", on_delete FROM pragma_foreign_key_list(?1)")?;
         let fks = st.query_map([&name], |r| {
@@ -1009,10 +1042,10 @@ pub fn shape(conn: &Connection) -> rusqlite::Result<Vec<String>> {
             ))
         })?;
         for f in fks {
-            out.push(format!("table {name} key {}", f?));
+            lines.push(format!("table {name} key {}", f?));
         }
         let strict: bool = conn.query_row("SELECT strict FROM pragma_table_list(?1)", [&name], |r| r.get(0))?;
-        out.push(format!("table {name} strict={strict}"));
+        lines.push(format!("table {name} strict={strict}"));
     }
     Ok(out)
 }
@@ -2447,6 +2480,8 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(v, VERSION);
+        let all: Vec<&str> = MIGRATIONS.iter().map(|m| m.name).collect();
+        assert_eq!(taken(&old), all);
     }
 
     // A round's record keeps a large text once and refers to it; put back, it is the text it was. A record that
@@ -2492,15 +2527,29 @@ mod tests {
         }),
     ];
 
-    // A database from a newer wf-agents, or a file that is not one, is not touched, however it is opened; one older
-    // than this wf-agents is not migrated by an open that only reads.
+    // A database from a newer wf-agents, or a file that is not one, is not touched, however it is opened: one that took
+    // a migration this wf-agents does not know, named in the refusal, and one from before migrations were named that
+    // counts more than there are. One older than this wf-agents is not migrated by an open that only reads.
     #[test]
     fn a_newer_or_foreign_database_is_refused() {
         let path = temp("newer");
         Db::create(&path).unwrap();
         Connection::open(&path)
             .unwrap()
-            .pragma_update(None, "user_version", VERSION + 1)
+            .execute_batch(&format!(
+                "INSERT INTO migrations (name) VALUES ('209901010000-from-a-newer-wf-agents');
+                 PRAGMA user_version = {};",
+                VERSION + 1
+            ))
+            .unwrap();
+        let past = temp("past");
+        Db::create(&past).unwrap();
+        Connection::open(&past)
+            .unwrap()
+            .execute_batch(&format!(
+                "DROP TABLE migrations; PRAGMA user_version = {};",
+                VERSION + 1
+            ))
             .unwrap();
         let foreign = temp("foreign");
         Connection::open(&foreign)
@@ -2508,14 +2557,16 @@ mod tests {
             .execute_batch("CREATE TABLE t (x)")
             .unwrap();
         for (how, open) in OPENS {
-            assert!(matches!(open(&path), Err(Error::Newer(v)) if v == VERSION + 1), "{how}");
+            let newer = open(&path).err().map(|e| e.to_string()).unwrap_or_default();
+            assert!(newer.contains("209901010000-from-a-newer-wf-agents"), "{how}: {newer}");
+            assert!(matches!(open(&path), Err(Error::Newer(_))), "{how}");
+            assert!(matches!(open(&past), Err(Error::Newer(_))), "{how}");
             assert!(matches!(open(&foreign), Err(Error::Foreign)), "{how}");
         }
         let older = temp("older");
-        Db::create(&older).unwrap();
-        Connection::open(&older)
-            .unwrap()
-            .pragma_update(None, "user_version", VERSION - 1)
+        at_version(VERSION - 1)
+            .conn
+            .execute("VACUUM INTO ?1", [older.to_string_lossy()])
             .unwrap();
         assert!(matches!(Db::open_read_only(&older), Err(Error::Older(v)) if v == VERSION - 1));
     }
@@ -2712,25 +2763,121 @@ mod tests {
         let v1 = "CREATE TABLE things (id INTEGER PRIMARY KEY, name TEXT NOT NULL) STRICT;";
         let v2 = "CREATE TABLE things (id INTEGER PRIMARY KEY, name TEXT NOT NULL, size INTEGER) STRICT;
                   CREATE INDEX things_by_size ON things (size);";
-        let step = "ALTER TABLE things ADD COLUMN size INTEGER; CREATE INDEX things_by_size ON things (size);";
-        let fresh = |schema: &str, migrations: &[&str]| {
-            let mut db = Db {
-                conn: Connection::open_in_memory().unwrap(),
-                writer: Arc::new(Mutex::new(None)),
-                watch: Arc::default(),
-                listener: None,
-            };
-            db.create_schema(schema, migrations).unwrap();
-            db
+        let step = Migration {
+            name: "0002",
+            sql: "ALTER TABLE things ADD COLUMN size INTEGER; CREATE INDEX things_by_size ON things (size);",
         };
-        let mut old = fresh(v1, &[]);
+        let mut old = made_from(v1, &[]);
         old.migrate(&[step]).unwrap();
-        let new = fresh(v2, &[step]);
+        let new = made_from(v2, &[step]);
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
-        let mut wrong = fresh(v1, &[]);
-        wrong.migrate(&["ALTER TABLE things ADD COLUMN size INTEGER;"]).unwrap();
+        let mut wrong = made_from(v1, &[]);
+        wrong
+            .migrate(&[Migration {
+                name: "0002",
+                sql: "ALTER TABLE things ADD COLUMN size INTEGER;",
+            }])
+            .unwrap();
         assert_ne!(shape(wrong.conn()).unwrap(), shape(new.conn()).unwrap());
         assert_eq!(VERSION, 1 + MIGRATIONS.len() as i64);
+    }
+
+    /// A database in memory made from `schema`, at the version `migrations` lead to, as one that took each of them.
+    fn made_from(schema: &str, migrations: &[Migration]) -> Db {
+        let mut db = Db::set_up(Connection::open_in_memory().unwrap()).unwrap();
+        db.create_schema(schema, migrations).unwrap();
+        db
+    }
+
+    /// The names of the migrations a database records it took, in order.
+    fn taken(db: &Db) -> Vec<String> {
+        names(db.conn(), "SELECT name FROM migrations ORDER BY name").unwrap()
+    }
+
+    /// The schema of a database that records the migrations it took, with `tables`.
+    fn recording(tables: &str) -> String {
+        format!("CREATE TABLE migrations (name TEXT PRIMARY KEY) STRICT; {tables}")
+    }
+
+    // Item #273: migrations are named by when they were written, so two works merged in either order each add one. A
+    // database that took the one merged first, whose name sorts after the other's, takes the other once it comes,
+    // records both and is at the version the two lead to; taken again they run nothing; a database that took a
+    // migration the list does not hold is newer, and the refusal names it.
+    #[test]
+    fn migrations_merged_in_either_order_are_each_taken_once() {
+        let a = Migration {
+            name: "202601010000-a",
+            sql: "CREATE TABLE a (x INTEGER) STRICT;",
+        };
+        let b = Migration {
+            name: "202602010000-b",
+            sql: "CREATE TABLE b (x INTEGER) STRICT;",
+        };
+        let mut db = made_from(&recording("CREATE TABLE things (id INTEGER PRIMARY KEY) STRICT;"), &[]);
+        db.migrate(&[b]).unwrap();
+        assert_eq!(taken(&db), [b.name]);
+        db.migrate(&[a, b]).unwrap();
+        assert_eq!(taken(&db), [a.name, b.name]);
+        assert_eq!(version_of(db.conn()).unwrap(), 3);
+        let tables = names(
+            db.conn(),
+            "SELECT name FROM sqlite_schema WHERE name IN ('a', 'b') ORDER BY name",
+        )
+        .unwrap();
+        assert_eq!(tables, ["a", "b"]);
+        db.migrate(&[a, b]).unwrap();
+        assert_eq!(taken(&db), [a.name, b.name]);
+        let refused = db.migrate(&[a]).unwrap_err();
+        assert!(
+            matches!(&refused, Error::Newer(why) if why.contains(b.name)),
+            "{refused}"
+        );
+    }
+
+    // Item #273: a migration taken after one whose name sorts after it may undo some of that one: here `a` makes the
+    // table afresh without the column `b`, merged first, added. Taken in the order of their names they make the schema;
+    // a database that took `b` first is left as it was, `a` not taken, and the refusal names the table.
+    #[test]
+    fn a_migration_that_undoes_one_taken_before_it_leaves_the_database_as_it_was() {
+        let v1 = recording("CREATE TABLE things (id INTEGER PRIMARY KEY, name TEXT) STRICT;");
+        let a = Migration {
+            name: "202601010000-a",
+            sql: "CREATE TABLE things_new (id INTEGER PRIMARY KEY, name TEXT, size INTEGER) STRICT;
+                  INSERT INTO things_new (id, name) SELECT id, name FROM things;
+                  DROP TABLE things;
+                  ALTER TABLE things_new RENAME TO things;",
+        };
+        let b = Migration {
+            name: "202602010000-b",
+            sql: "ALTER TABLE things ADD COLUMN colour TEXT;",
+        };
+        let v2 =
+            recording("CREATE TABLE things (id INTEGER PRIMARY KEY, name TEXT, size INTEGER, colour TEXT) STRICT;");
+        let mut in_order = made_from(&v1, &[]);
+        in_order.migrate_to(&[a, b], Some(v2.as_str())).unwrap();
+        assert_eq!(
+            shape(in_order.conn()).unwrap(),
+            shape(made_from(&v2, &[a, b]).conn()).unwrap()
+        );
+        let mut b_first = made_from(&v1, &[]);
+        b_first.migrate_to(&[b], None).unwrap();
+        let before = shape(b_first.conn()).unwrap();
+        let refused = b_first.migrate_to(&[a, b], Some(v2.as_str())).unwrap_err();
+        assert!(refused.to_string().contains("table things"), "{refused}");
+        assert_eq!(shape(b_first.conn()).unwrap(), before);
+        assert_eq!(taken(&b_first), [b.name]);
+    }
+
+    // Item #273: a database from before migrations were named, at the last numbered version, takes the named ones, and
+    // records every migration it took, those it had taken by number included.
+    #[test]
+    fn a_database_of_numbered_migrations_takes_the_named_ones_and_records_every_one() {
+        let mut old = at_version(79);
+        assert!(!has_table(old.conn(), "migrations").unwrap());
+        old.migrate(MIGRATIONS).unwrap();
+        let all: Vec<&str> = MIGRATIONS.iter().map(|m| m.name).collect();
+        assert_eq!(taken(&old), all);
+        assert_like_new(&old);
     }
 
     // Rounds from before the ledger enter what the run guard's lines are computed from with what their records tell,

@@ -16,7 +16,7 @@ fn database_at_version_69(path: &Path) -> Connection {
     conn.execute_batch(include_str!("../../../db/migrations/0001.sql"))
         .unwrap();
     for migration in &MIGRATIONS[..68] {
-        conn.execute_batch(migration).unwrap();
+        conn.execute_batch(migration.sql).unwrap();
     }
     conn.pragma_update(None, "user_version", 69).unwrap();
     conn

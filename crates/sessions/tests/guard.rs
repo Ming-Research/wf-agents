@@ -522,7 +522,7 @@ fn before_the_ledger(path: &Path, fill: impl FnOnce(&Connection)) {
     conn.execute_batch(include_str!("../../../db/migrations/0001.sql"))
         .unwrap();
     for m in &db::MIGRATIONS[..BEFORE_THE_LEDGER] {
-        conn.execute_batch(m).unwrap();
+        conn.execute_batch(m.sql).unwrap();
     }
     conn.execute_batch("COMMIT").unwrap();
     conn.pragma_update(None, "user_version", BEFORE_THE_LEDGER as i64 + 1)
