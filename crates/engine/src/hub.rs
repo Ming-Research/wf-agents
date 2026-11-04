@@ -1316,13 +1316,16 @@ mod tests {
 
     const LOOK_TAKES: Duration = Duration::from_millis(600);
 
+    /// For each look of a wait, when it started and the entity tag it sent.
+    type Looks = Vec<(Duration, Option<String>)>;
+
     /// A wait for a run whose n-th look (from 0) finds what `script` says, each look taking [`LOOK_TAKES`]: what the
-    /// wait gave, and for each look when it started and the entity tag it sent.
+    /// wait gave, and the looks it made.
     fn waited(
         waits: &Waits,
         wanted: &Wanted,
         mut script: impl FnMut(usize) -> Look,
-    ) -> (Result<Value, Failure>, Vec<(Duration, Option<String>)>) {
+    ) -> (Result<Value, Failure>, Looks) {
         let clock = Fake(std::cell::Cell::new(Duration::ZERO));
         let mut looks = Vec::new();
         let run = wait_for_run(waits, &clock, wanted, |etag| {
