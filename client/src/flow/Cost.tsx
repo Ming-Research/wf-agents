@@ -134,7 +134,7 @@ function Runs({ cost, titleOf }: { cost: FlowCost; titleOf: CellTitle }) {
   return (
     <>
       <p className="muted">{t(cost.stored ? 'cost_version_stored' : 'cost_version_new', { version: cost.version })}</p>
-      {runs.length === 0 ? <p className="muted">{t('cost_none')}</p> : null}
+      {runs.length === 0 ? <p className="muted">{t('cost_no_works')}</p> : null}
       {runs.map((run) => (
         <Fold key={run.kind} summary={HEADING[run.kind](run.works.length)} open={!CARRIES_ON.has(run.kind)}>
           <ul className="chg-list">

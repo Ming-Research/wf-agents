@@ -1417,7 +1417,7 @@ const messages = {
   cost_title: 'Works going on',
   cost_version_stored: 'This flow is flow version {version}, which the database has.',
   cost_version_new: 'Installing it makes it flow version {version}.',
-  cost_none: 'No work is going on.',
+  cost_no_works: 'No work is going on.',
   cost_unreadable: '{n} cannot be worked out, and the engine stops when it brings one up',
   cost_unreadable_one: '1 cannot be worked out, and the engine stops when it brings it up',
   cost_goes_back: '{n} go back and do work again',
