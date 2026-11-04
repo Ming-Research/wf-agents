@@ -20,6 +20,17 @@ fn condition(when: &str) -> Value {
 /// condition, and its implementation says it is checked after the merge. Another work's plan and implementation are the
 /// default ones, by the rounds the first ran: one of the research and two of the implementation.
 fn verifying(written: Value) -> BTreeMap<&'static str, Script> {
+    verifying_all(vec![written])
+}
+
+/// The agents as [`verifying`] makes them, with each of `written` beside the default condition.
+fn verifying_all(written: Vec<Value>) -> BTreeMap<&'static str, Script> {
+    let mut acceptance = vec![json!({ "by": "test", "id": "A1", "condition": "The feature is there." })];
+    let mut rows = vec![json!({ "how": "tested", "id": "A1", "tests": ["feature"] })];
+    for c in written {
+        rows.push(json!({ "how": "in_effect", "id": c["id"] }));
+        acceptance.push(c);
+    }
     let mut agents = scripts();
     let research = agents.remove("R1").unwrap();
     agents.insert(
@@ -27,8 +38,7 @@ fn verifying(written: Value) -> BTreeMap<&'static str, Script> {
         Box::new(move |r: &Request, n: usize| {
             let (pick, mut set) = research(r, n);
             if n == 1 {
-                let both = json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }, written.clone()]);
-                set.push(("outcome.can_start.acceptance", both));
+                set.push(("outcome.can_start.acceptance", json!(acceptance)));
             }
             (pick, set)
         }),
@@ -39,11 +49,7 @@ fn verifying(written: Value) -> BTreeMap<&'static str, Script> {
         Box::new(move |r: &Request, n: usize| {
             let (pick, mut set) = implementing(r, n);
             if n <= 2 {
-                let rows = json!([
-                    { "how": "tested", "id": "A1", "tests": ["feature"] },
-                    { "how": "in_effect", "id": "A2" },
-                ]);
-                set.push(("outcome.conditions", rows));
+                set.push(("outcome.conditions", json!(rows)));
             }
             (pick, set)
         }),
@@ -583,5 +589,459 @@ fn a_build_that_cannot_be_told_tells_the_owner_once_and_words_take_the_work_on()
     assert_eq!(transitions(&e, item, "W1"), ["cannot_tell", "words"]);
     assert_eq!(looks(&e, item), ["verified"]);
     assert!(report_of(&e, item).is_none());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A condition carried by main, numbered `id`, that the tool's real run of `command` checks.
+fn on_main(id: &str, tool: &str, command: &str) -> Value {
+    json!({
+        "by": "in_effect", "id": id, "condition": "A real run gives what it should.", "when": "merged", "tool": tool,
+        "command": command, "holds": "It gives what it should.", "enough": "none",
+    })
+}
+
+/// A look that asks the engine to run queries, and gh commands where one is named.
+fn asks_all(queries: &[&str], gh: &[&str]) -> Return {
+    let queries = queries.iter().map(|sql| json!({ "tool": "query", "sql": sql }));
+    let gh = gh.iter().map(|command| json!({ "tool": "gh", "command": command }));
+    let tools: Vec<Value> = queries.chain(gh).collect();
+    (vec![("outcome", "tools")], vec![("outcome.tools", json!(tools))])
+}
+
+fn holds(id: &str, run: &str, seen: &str) -> Value {
+    json!({ "verdict": "holds", "id": id, "run": run, "seen": seen })
+}
+
+fn fails(id: &str, run: &str, seen: &str, harm_now: bool) -> Value {
+    json!({
+        "verdict": "fails", "id": id, "run": run, "seen": seen, "why": "It gives what it should not.", "harm_now": harm_now,
+    })
+}
+
+fn not_yet(id: &str) -> Value {
+    json!({ "verdict": "not_yet", "id": id, "missing": "No run yet." })
+}
+
+fn cannot_judge(id: &str) -> Value {
+    json!({ "verdict": "cannot_judge", "id": id, "why": "The command gave nothing the condition can be judged by." })
+}
+
+/// A look's answer that says to look again after `minutes`.
+fn again_after(verdicts: Value, minutes: i64) -> Return {
+    (
+        Vec::new(),
+        vec![
+            ("outcome.verdicts", verdicts),
+            ("outcome.again_after_minutes", json!(minutes)),
+        ],
+    )
+}
+
+/// The time a round of the work at a cell that took a row began or ended, by the column named.
+fn time_of(e: &Engine, work: i64, cell: &str, row: &str, column: &str) -> i64 {
+    e.db.conn()
+        .query_row(
+            &format!(
+                "SELECT {column} FROM rounds WHERE work = ?1 AND cell = ?2 AND transition = ?3 ORDER BY n LIMIT 1"
+            ),
+            params![work, cell, row],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// The field `seen` says what the verdict rests on is "a value, or part of a row" of the run's result, and the cell's
+// prompt says a command that cannot run is cannot_judge and that a command is run as it is written. So none of these
+// is a basis for a verdict, and the look that gives them is sent back naming each: the name of a field of the tool's
+// answer where the query gave no row; a column's name where the value says otherwise, the case of a tool refused whose
+// query names its column `fetched`; a digit of a larger number; the text of a query that did not run, or of a gh
+// command that was not allowed; and another query than the condition's. The same look's verdict on an allowed gh
+// command, named with or without `gh`, is sound and is not named, and the look that rests on the values goes on.
+#[test]
+fn a_verdict_rests_only_on_a_value_its_own_command_gave() {
+    const NO_ROW: &str = "SELECT 1 AS one WHERE 0";
+    const REFUSED: &str = "SELECT 'refused' AS fetched";
+    const LARGER: &str = "SELECT 217 AS ms";
+    const BROKEN: &str = "SELECT nope FROM nowhere";
+    const OWN: &str = "SELECT 9 AS nine";
+    const ANOTHER: &str = "SELECT 8 AS eight";
+    const NOT_ALLOWED: &str = "auth status";
+    const ALLOWED: &str = "pr view 1";
+    let s = setup("in-effect-basis");
+    let mut agents = verifying_all(vec![
+        on_main("A2", "query", NO_ROW),
+        on_main("A3", "query", REFUSED),
+        on_main("A4", "query", LARGER),
+        on_main("A5", "query", BROKEN),
+        on_main("A6", "gh", NOT_ALLOWED),
+        on_main("A7", "query", OWN),
+        on_main("A8", "gh", ALLOWED),
+    ]);
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| match n {
+            1 => asks_all(
+                &[NO_ROW, REFUSED, LARGER, BROKEN, OWN, ANOTHER],
+                &[NOT_ALLOWED, ALLOWED],
+            ),
+            2 => answers(json!([
+                holds("A2", NO_ROW, "rows"),
+                holds("A3", REFUSED, "fetched"),
+                holds("A4", LARGER, "7"),
+                holds("A5", BROKEN, "no such table"),
+                holds("A6", NOT_ALLOWED, "not_allowed"),
+                holds("A7", ANOTHER, "8"),
+                holds("A8", "gh pr view 1", "pr view 1"),
+            ])),
+            _ => answers(json!([
+                cannot_judge("A2"),
+                fails("A3", REFUSED, "refused", false),
+                holds("A4", LARGER, "217"),
+                cannot_judge("A5"),
+                cannot_judge("A6"),
+                holds("A7", OWN, "9"),
+                holds("A8", ALLOWED, "pr view 1"),
+            ])),
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the look", |e| !looks(e, item).is_empty());
+    let (work, _, _) = state(&e, item).unwrap();
+    let sent_back = why_sent_back(&e, work, "W2").join("\n");
+    let taken: Vec<&str> = ["A2", "A3", "A4", "A5", "A6", "A7"]
+        .into_iter()
+        .filter(|id| !sent_back.contains(id))
+        .collect();
+    assert!(taken.is_empty(), "taken as sound: {taken:?}; sent back: {sent_back}");
+    assert!(!sent_back.contains("A8"), "{sent_back}");
+    assert_eq!(looks(&e, item), ["failed"]);
+    assert_eq!(verifications(&e, item).len(), 7);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The design has a look put in only the time the change took effect, and rest only on runs since. For a condition the
+// installed program carries that time is the merge's until the wait finds a build that holds it, and then that round's
+// start. A look on words, while no build holds the merge, runs both queries; the next look, once one does, is sent back
+// when it names those runs, the query that takes the time and the one that does not alike, and goes on when it has run
+// them again. A not_yet with no time to wait is sent back too, which would otherwise spend the limit of looks at once.
+// The view holds only the returns taken.
+#[test]
+fn a_look_takes_no_run_from_before_the_change_took_effect() {
+    const PLACED: &str = "SELECT 7 AS seven WHERE :in_effect_at > 0";
+    let placed = |at: i64| PLACED.replace(":in_effect_at", &at.to_string());
+    let s = setup("in-effect-before");
+    the_engine_s_own(&s);
+    let mut second = on_main("A3", "query", PLACED);
+    second["when"] = json!("installed");
+    let mut agents = verifying_all(vec![condition("installed"), second]);
+    let effects: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let given = effects.clone();
+    agents.insert(
+        "W2",
+        Box::new(move |r: &Request, n: usize| {
+            let mut given = given.lock().unwrap();
+            if n == 1 || n == 4 {
+                given.push(given_value(&r.prompt, "effect").expect(&r.prompt));
+            }
+            let at = |i: usize| placed(given[i]["at"].as_i64().unwrap());
+            match n {
+                1 => asks_all(&[SEVEN, &at(0)], &[]),
+                2 => answers(json!([not_yet("A2"), not_yet("A3")])),
+                3 => again_after(json!([not_yet("A2"), not_yet("A3")]), 1),
+                4 => answers(json!([holds("A2", SEVEN, "7"), holds("A3", &at(0), "7")])),
+                5 => asks_all(&[SEVEN, &at(1)], &[]),
+                _ => answers(json!([holds("A2", SEVEN, "7"), holds("A3", &at(1), "7")])),
+            }
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    e.built_from = main_head(&s);
+    step_to(&mut e, item, "W1");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.step(None).unwrap();
+    owner_says(&mut e, work, "Look now.");
+    step_until(&mut e, item, &said, "the look on words", |e| !looks(e, item).is_empty());
+    assert_eq!(looks(&e, item), ["again"]);
+    e.step(None).unwrap();
+
+    e.built_from = main_head(&s);
+    the_wait_passes(&mut e, work);
+    step_to(&mut e, item, "E1");
+    assert_eq!(
+        transitions(&e, item, "W1"),
+        ["not_carried", "words", "not_carried", "look"]
+    );
+    assert_eq!(looks(&e, item), ["again", "verified"]);
+    let effects = effects.lock().unwrap();
+    assert_eq!(effects[0]["in_effect"], "no");
+    assert_eq!(effects[0]["at"], time_of(&e, work, "M2", "merged", "ended_at"));
+    assert_eq!(effects[1]["in_effect"], "yes");
+    assert_eq!(effects[1]["at"], time_of(&e, work, "W1", "look", "started_at"));
+    let sent_back = why_sent_back(&e, work, "W2");
+    assert_eq!(sent_back.len(), 2, "{sent_back:?}");
+    assert!(sent_back[0].contains("again_after_minutes"), "{sent_back:?}");
+    assert!(
+        sent_back[1].contains("A2") && sent_back[1].contains("A3"),
+        "{sent_back:?}"
+    );
+    let verdicts: Vec<String> = verifications(&e, item).into_iter().map(|v| v.1).collect();
+    assert_eq!(verdicts, ["not_yet", "not_yet", "holds", "holds"]);
+    assert!(report_of(&e, item).is_none());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Looks over several conditions, by the flow's rows: any not_yet sends the work back to wait, as long as the latest look
+// said and not an earlier one, whatever the other conditions came to; once none is not_yet, a condition that fails ends
+// the work with a report of what each came to, urgent when any one does harm now. The time a condition carried by main
+// took effect is the merge's.
+#[test]
+fn looks_over_several_conditions_wait_as_the_latest_says_and_report_what_each_came_to() {
+    let s = setup("in-effect-several");
+    let mut agents = verifying_all(vec![
+        on_main("A2", "query", SEVEN),
+        on_main("A3", "query", SEVEN),
+        on_main("A4", "query", SEVEN),
+    ]);
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| match n {
+            1 | 3 | 5 => asks(SEVEN),
+            2 => again_after(json!([cannot_judge("A2"), not_yet("A3"), holds("A4", SEVEN, "7")]), 1),
+            4 => again_after(json!([not_yet("A2"), not_yet("A3"), holds("A4", SEVEN, "7")]), 2880),
+            _ => answers(json!([
+                fails("A2", SEVEN, "7", false),
+                fails("A3", SEVEN, "7", true),
+                holds("A4", SEVEN, "7"),
+            ])),
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(looks(&e, item), ["again"]);
+    let at = given_value(&message_at(&e, work, "W2", false), "effect").unwrap();
+    assert_eq!(at["at"], time_of(&e, work, "M2", "merged", "ended_at"));
+
+    the_wait_passes(&mut e, work);
+    step_until(&mut e, item, &said, "the second look", |e| looks(e, item).len() == 2);
+    assert_eq!(looks(&e, item), ["again", "again"]);
+
+    // Past what the first look said, and short of what the latest said, it waits.
+    the_wait_passes(&mut e, work);
+    e.step(None).unwrap();
+    e.step(None).unwrap();
+    assert_eq!(looks(&e, item).len(), 2);
+    assert_eq!(state(&e, item).unwrap().1, "W1");
+    assert_eq!(transitions(&e, item, "W1").last().unwrap(), "not_due");
+
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET ended_at = ended_at - 2880 * 60000 WHERE work = ?1 AND cell = 'W2' AND transition = 'again'",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    step_to(&mut e, item, "E1");
+    assert_eq!(looks(&e, item), ["again", "again", "failed"]);
+    assert_eq!(looks_counted(&e, work), 2);
+    let (matter, what, body) = report_of(&e, item).unwrap();
+    for part in ["A2 fails", "A3 fails", "A4 holds"] {
+        assert!(what.contains(part), "{what}");
+    }
+    assert_eq!(body["conditions"], json!(["A2", "A3", "A4"]));
+    assert_eq!(body["verdicts"].as_array().unwrap().len(), 3);
+    let urgent: i64 =
+        e.db.conn()
+            .query_row("SELECT urgent FROM architect_queue WHERE matter = ?1", [matter], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(urgent, 1);
+    let verdicts: Vec<String> = verifications(&e, item).into_iter().map(|v| v.1).collect();
+    assert_eq!(
+        verdicts,
+        [
+            "cannot_judge",
+            "not_yet",
+            "holds",
+            "not_yet",
+            "not_yet",
+            "holds",
+            "fails",
+            "fails",
+            "holds"
+        ]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The wait goes by the build as it stands: a build before the merge waits by one row, a build that cannot be told by
+// another, which tells the owner once, a new flow version in between included, and a build the checkout has not fetched
+// yet that holds the merge lets the work on, the wait's limit being only for a change not known to be in effect.
+#[test]
+fn the_wait_follows_the_build_through_not_carried_and_cannot_tell_to_a_look() {
+    let s = setup("in-effect-walk");
+    the_engine_s_own(&s);
+    let mut agents = verifying(condition("installed"));
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return asks(SEVEN);
+            }
+            answers(json!([holds("A2", SEVEN, "7")]))
+        }),
+    );
+    let (mut e, _, item) = start(&s, agents);
+    e.built_from = main_head(&s);
+    step_to(&mut e, item, "W1");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.step(None).unwrap();
+    assert_eq!(transitions(&e, item, "W1"), ["not_carried"]);
+
+    e.built_from = "unknown".into();
+    e.step(None).unwrap();
+    assert_eq!(transitions(&e, item, "W1"), ["not_carried", "cannot_tell"]);
+    let told = |e: &Engine| {
+        notices_of(e, work)
+            .iter()
+            .filter(|t| t.contains("installed program"))
+            .count()
+    };
+    assert_eq!(told(&e), 1);
+
+    older(&mut e, &[work], |g| {
+        let w1 = g.cells.iter_mut().find(|c| c.id == "W1").unwrap();
+        w1.rows.retain(|r| r.name != "never_in_effect");
+    });
+    e.step(None).unwrap();
+    assert_eq!(versions_of(&e, work).0, e.flow_now);
+    assert_eq!(told(&e), 1);
+
+    main_moves_on(&s.root, &[("later.txt", "later")], "Another change");
+    e.built_from = main_head(&s);
+    merged_hours_ago(&mut e, work, 73);
+    step_to(&mut e, item, "E1");
+    assert_eq!(transitions(&e, item, "W1"), ["not_carried", "cannot_tell", "look"]);
+    assert_eq!(looks(&e, item), ["verified"]);
+    assert!(report_of(&e, item).is_none());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The project's own limit of the wait holds for a build that cannot be told as for one before the merge: within it the
+// work waits, and past it what was said to the work still comes first; only then does the work report its conditions
+// unverified and end. The default limit of 72 hours would still be waiting.
+#[test]
+fn past_the_projects_limit_a_build_not_told_ends_the_wait_after_what_was_said() {
+    let s = setup("in-effect-limit");
+    the_engine_s_own(&s);
+    let path = s.data.join("projects/p.toml");
+    let text = std::fs::read_to_string(&path).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &text.replacen("repo = ", "install_wait_hours = 2\nrepo = ", 1),
+    );
+    git(&s.data, &["commit", "-q", "-am", "two hours of waiting"]);
+    let mut agents = verifying(condition("installed"));
+    agents.insert("W2", Box::new(|_: &Request, _: usize| waits_a_minute()));
+    let (mut e, _, item) = start(&s, agents);
+    e.built_from = "unknown".into();
+    step_to(&mut e, item, "W1");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.step(None).unwrap();
+    merged_hours_ago(&mut e, work, 1);
+    e.step(None).unwrap();
+    assert_eq!(state(&e, item).unwrap().1, "W1");
+    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell"]);
+
+    merged_hours_ago(&mut e, work, 3);
+    owner_says(&mut e, work, "Is it in?");
+    step_to(&mut e, item, "E1");
+    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell", "words", "never_in_effect"]);
+    assert_eq!(looks(&e, item), ["again"]);
+    let (_, _, body) = report_of(&e, item).unwrap();
+    assert_eq!(body["conditions"], json!(["A2"]));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work waiting at the cell after a look moves to a new flow version where it stands, however that version changed the
+// wait's rows or the inputs of the cell that looks: the look that was taken stays taken and counted, its time to wait
+// stands, and the next look comes when it has passed, in a session of its own.
+#[test]
+fn a_new_flow_version_leaves_a_work_waiting_between_looks_where_it_stands() {
+    let s = setup("in-effect-version");
+    let mut agents = verifying(condition("merged"));
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| match n {
+            1 => waits_a_minute(),
+            2 => asks(SEVEN),
+            _ => answers(json!([holds("A2", SEVEN, "7")])),
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
+    let (work, _, _) = state(&e, item).unwrap();
+    e.step(None).unwrap();
+    assert_eq!(transitions(&e, item, "W1").last().unwrap(), "not_due");
+    let rounds = rounds_of(&e, work);
+
+    older(&mut e, &[work], |g| {
+        let w1 = g.cells.iter_mut().find(|c| c.id == "W1").unwrap();
+        w1.rows.retain(|r| r.name != "never_in_effect");
+        let w2 = g.cells.iter_mut().find(|c| c.id == "W2").unwrap();
+        w2.inputs.pop();
+    });
+    e.step(None).unwrap();
+    assert_eq!(versions_of(&e, work).0, e.flow_now);
+    assert_eq!(state(&e, item).unwrap().1, "W1");
+    assert_eq!(rounds_of(&e, work), rounds);
+
+    the_wait_passes(&mut e, work);
+    step_to(&mut e, item, "E1");
+    assert_eq!(looks(&e, item), ["again", "verified"]);
+    assert_eq!(looks_counted(&e, work), 1);
+    let session_of_look = |row: &str| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT session FROM rounds WHERE work = ?1 AND cell = 'W2' AND transition = ?2",
+                params![work, row],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_ne!(session_of_look("again"), session_of_look("verified"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The design has the report's material be the item, the merge commit, each condition's result and its run, and the
+// architect judge what it means: a work of the architect takes it at its cell for reports, given all that, and handles
+// it.
+#[test]
+fn the_architect_handles_a_check_s_report_given_what_it_rests_on() {
+    let (s, mut e, item, _) = failing("in-effect-architect", true);
+    step_to(&mut e, item, "E1");
+    let (matter, _, body) = report_of(&e, item).unwrap();
+    let merge = body["merge_commit"].as_str().unwrap().to_string();
+    assert!(!merge.is_empty());
+    e.pass(&Go::default()).unwrap();
+    let arch = *architect_works(&e).first().expect("a work of the architect");
+    assert!(steps_until(&mut e, 40, |e| architect_work_done(e, arch)));
+    assert!(path_of(&e, arch).contains(&"H4".to_string()));
+    let given = message_at(&e, arch, "H4", false);
+    for part in ["It should give 8.", SEVEN, merge.as_str(), "A2"] {
+        assert!(given.contains(part), "{part} not in {given}");
+    }
+    let handled: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM work_handled WHERE work = ?1 AND matter = ?2",
+                params![arch, matter],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(handled, 1);
     let _ = std::fs::remove_dir_all(&s.root);
 }
