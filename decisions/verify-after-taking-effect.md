@@ -23,12 +23,13 @@ worktree meanwhile. They are the project's settings, and at either the architect
 and the work ends:
 
 - The wait for the change to take effect: 72 hours since the merge (`install_wait_hours`). Measured on 2026-11-04 over the
-  39 merges of the flow an installed build has taken in, from the merge to the first round of a build holding it: 17
-  minutes at least, 2.3 hours at the median, 23 hours at p90, 26.6 hours at most. Installing is by hand, and the longest
-  two installed builds were ever apart is 60 hours, so the limit stays above all of these.
+  39 merges of the flow on main that an installed build has taken in, from the merge to the first round of a build holding
+  it: 17 minutes at least, 2.0 hours at the median, 23.4 hours at p90, 26.2 hours at most. Installing is by hand, and the
+  longest two installed builds were ever apart is 62 hours, so the limit stays above all of these.
 - The looks: 8 times back to wait (`verification_looks`), each of at most two days (`again_after_minutes`). Measured the
-  same day, a work ran 40.5 hours at p90 and 6.2 days at most, the longest that evidence asking for a whole work after the
-  change should need; 16 days holds that more than twice over.
+  same day over the 258 works of the engineer's graph that ran a round, from the first round's start to the last round's
+  end, a work ran 34.6 hours at p90 and 6.2 days at most, the longest that evidence asking for a whole work after the change
+  should need; 16 days holds that more than twice over.
 
 Taken together, a work ends within 19 days of its merge at the worst, against the eight weeks of looks alone the design
 first gave.
@@ -49,8 +50,9 @@ Switch to fast CI):
 }
 ```
 
-And a tool that must first be installed and then configured, the case that shows whether in effect means what it should
-(from #208 Read dependency code):
+And a tool that must first be installed and then configured, the case that shows whether in effect means what it should:
+what #208 Read dependency code leaves to real runs, past the seven conditions no real call could reach, written as it
+would be its eighth:
 
 ```json
 {

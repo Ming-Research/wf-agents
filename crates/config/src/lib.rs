@@ -910,10 +910,10 @@ impl DependencySources {
 pub const RESEARCH_ROUNDS: u64 = 6;
 
 /// How many hours a merged work waits for its change to take effect, where the project sets no other limit. Measured on
-/// 2026-11-04 over the 39 merges of this flow that an installed build has taken in, each from its merge to the first
-/// round of a build holding it: 17 minutes at least, 2.3 hours at the median, 23 hours at p90 and 26.6 hours at most;
-/// the longest two installed builds were ever apart is 60 hours. Installing is done by hand, so the limit stays above
-/// the longest of these.
+/// 2026-11-04 over the 39 merges of this flow on main that an installed build has taken in, each from its merge to the
+/// first round of a build holding it: 17 minutes at least, 2.0 hours at the median, 23.4 hours at p90 and 26.2 hours at
+/// most; the longest two installed builds were ever apart is 62 hours. Installing is done by hand, so the limit stays
+/// above the longest of these.
 pub const INSTALL_WAIT_HOURS: u64 = 72;
 
 /// How many times the check of a condition written in_effect may send the work back to wait, where the project sets no
