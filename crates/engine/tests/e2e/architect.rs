@@ -174,14 +174,13 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The setup and engine of a work of an architect, its log, the work, and the requests of its fork's rounds.
+type WarmBase = (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, Arc<Mutex<Vec<Request>>>);
+
 /// A work of project p's architect on a model with prices, which handles the owner's words, builds its base and forks it
 /// for the check of the policy the plan queued, the base's rounds and the fork's first telling what they read from the
-/// cache as the command line does: the fork's first call reads `fork_read` tokens of the 90,503 the base held. Gives the
-/// work, its log, and the requests of the fork's rounds.
-fn warm_base_work(
-    name: &str,
-    fork_read: i64,
-) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, Arc<Mutex<Vec<Request>>>) {
+/// cache as the command line does: the fork's first call reads `fork_read` tokens of the 90,503 the base held.
+fn warm_base_work(name: &str, fork_read: i64) -> WarmBase {
     let s = setup_priced(name);
     let mut agents = scripts();
     agents.insert(
