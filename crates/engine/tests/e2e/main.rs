@@ -1215,6 +1215,18 @@ fn scripts() -> BTreeMap<&'static str, Script> {
     s
 }
 
+/// The default script of `cell`, setting besides what `extra` gives for its `n`th round, such as what the round used.
+fn adding(cell: &str, extra: impl Fn(usize) -> Vec<(&'static str, Value)> + Send + Sync + 'static) -> Script {
+    let base = scripts()
+        .remove(cell)
+        .unwrap_or_else(|| Box::new(|_: &Request, _: usize| (Vec::new(), Vec::new())));
+    Box::new(move |r: &Request, n: usize| {
+        let (pick, mut set) = base(r, n);
+        set.extend(extra(n));
+        (pick, set)
+    })
+}
+
 /// A review that answers every column its message tells it to as passing, and only those: it reads the message alone,
 /// as a review that holds nothing of its session's earlier prompts would. `also` gives the choices beside the table
 /// for the review's `n`th round: the first review judges the skipping of adversarial testing, a re-review does not.
@@ -1651,12 +1663,13 @@ fn owner_says(e: &mut Engine, work: i64, text: &str) {
     .unwrap();
 }
 
-/// Each agent round of the item's works, oldest first: its name, its cell, and what the engine recorded it gave.
+/// Each agent round of the item's works but the gathering of the background, oldest first: its name, its cell, and what
+/// the engine recorded it gave.
 fn agent_rounds(e: &Engine, item: i64) -> Vec<(String, String, Value)> {
     engine::query_json(
         e.db.conn(),
         "SELECT 'R' || r.work || '-' || r.n AS name, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.session IS NOT NULL AND r.cell NOT IN ('G1', 'G2', 'G3') ORDER BY r.work, r.n",
+         WHERE w.item = ?1 AND r.session IS NOT NULL AND r.cell <> 'R0' ORDER BY r.work, r.n",
         &[&item],
         1000,
     )
@@ -1713,13 +1726,13 @@ fn guide_in(input: &Value) -> Option<(String, bool)> {
     })
 }
 
-/// The engine over a setup whose cell `R1` ends its first `times` runs without a return, the CLI
-/// reporting `report`.
+/// The engine over a setup whose cell `R0`, the work's first agent's, ends its first `times` runs without a return,
+/// the CLI reporting `report`.
 fn failing(name: &str, report: String, times: usize) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64) {
     let s = setup(name);
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(move |_: &Request, n: usize| {
             let fail = vec![("@error", json!(report))];
             (Vec::new(), if n <= times { fail } else { Vec::new() })

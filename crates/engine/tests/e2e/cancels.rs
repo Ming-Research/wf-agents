@@ -201,47 +201,6 @@ fn at_the_merge(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, i64
     (s, e, said, item, work)
 }
 
-// The full CI opens a pull request when the work has none recorded, and records it before the wait, as the first CI
-// does. The work here loses the one it has as its implementing ends, since no flow reaches this tool without one but a
-// work whose run stopped.
-#[test]
-fn the_full_ci_records_a_pull_request_it_opens_before_it_waits() {
-    let s = setup("full-ci-records-pr");
-    let path = config::database(&s.data);
-    let ci = s.ci.clone();
-    let came = Arc::new(AtomicUsize::new(usize::MAX));
-    let held = came.clone();
-    let mut agents = scripts();
-    let implement = agents.remove("I1").unwrap();
-    agents.insert(
-        "I1",
-        Box::new(move |r: &Request, n: usize| {
-            if n == 2 {
-                db::Db::open(&path)
-                    .unwrap()
-                    .write(Actor::Engine, |tx| {
-                        tx.execute("UPDATE works SET pr = NULL", [])?;
-                        Ok(())
-                    })
-                    .unwrap();
-                ci.shut();
-                held.store(ci.came(), Ordering::SeqCst);
-            }
-            implement(r, n)
-        }),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    let at = turns_until(&mut e, &Go::default(), |e| {
-        state(e, item).is_some_and(|w| w.1 == "T2") && s.ci.came() > came.load(Ordering::SeqCst)
-    });
-    let log = said.lock().unwrap().join("\n");
-    assert!(at, "{log}");
-    assert_eq!(works_of(&e, item)[0].4, Some(1), "{log}");
-    s.ci.open();
-    e.drain().unwrap();
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 /// Takes turns until the merge step waits for the full CI, which stays shut.
 fn held_at_full_ci(e: &mut Engine, s: &Setup, said: &Mutex<Vec<String>>) {
     s.ci.shut();
@@ -258,7 +217,7 @@ fn held_at_the_merge_call(e: &mut Engine, s: &Setup, said: &Mutex<Vec<String>>) 
 }
 
 /// Takes turns until a work is done or has ended short of it, and gives what was said.
-fn done_after_watching_main(e: &mut Engine, work: i64, said: &Mutex<Vec<String>>) -> String {
+fn done_after_merging(e: &mut Engine, work: i64, said: &Mutex<Vec<String>>) -> String {
     let done = turns_until(e, &Go::default(), |e| {
         if ended_why(e, work).is_some() {
             return true;
@@ -308,7 +267,7 @@ fn a_pull_request_merged_on_github_before_the_merge_step_is_recorded_without_mer
     let log = said.lock().unwrap().join("\n");
     assert!(ended, "{log}");
     assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
-    let log = done_after_watching_main(&mut e, work, &said);
+    let log = done_after_merging(&mut e, work, &said);
     let made = made.lock().unwrap().clone().expect("GitHub merged the pull request");
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
     let recorded: String =
@@ -331,7 +290,7 @@ fn a_pull_request_merged_on_github_before_the_merge_step_is_recorded_without_mer
             .unwrap();
     assert_eq!(tries, 1, "{log}");
     assert_eq!(s.merging.came(), 0, "{log}");
-    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    assert!(!transitions_at(&e, work, "L2").is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -362,11 +321,11 @@ fn a_cancel_during_the_merge_call(name: &str, by: &str) -> (Setup, Engine, i64) 
     held_at_the_merge_call(&mut e, &s, &said);
     cancel(&mut e, item, by);
     s.merging.open();
-    let log = done_after_watching_main(&mut e, work, &said);
+    let log = done_after_merging(&mut e, work, &said);
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
-    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    assert!(!transitions_at(&e, work, "L2").is_empty(), "{log}");
     assert_eq!(ended_why(&e, work), None, "{log}");
     assert_eq!(notices(&e, "is not cancelled"), 1, "{log}");
     let closing: i64 =
@@ -390,7 +349,8 @@ fn reports_of_a_merge_first(e: &Engine, item: i64) -> i64 {
 }
 
 // A cancel that comes while the merge call is under way comes too late: the database says merged as GitHub does, the
-// merged pull request is not closed, nothing says the item cancelled, the work watches main as after any merge, and the
+// merged pull request is not closed, nothing says the item cancelled, the work writes what it learned as after any
+// merge, and the
 // owner is told. The cancel's request stands in the outbox until the merge is known, so no one was told otherwise.
 #[test]
 fn a_merge_under_way_outruns_the_owner_s_cancel() {
@@ -468,35 +428,33 @@ fn a_start_over_during_the_merge_s_full_ci_stops_the_merge() {
 }
 
 // A start over that comes while the merge call is under way comes too late: no new work takes the item over, the work
-// watches main as after any merge, and whoever asked is told.
+// writes what it learned as after any merge, and whoever asked is told.
 #[test]
 fn a_merge_under_way_outruns_a_start_over() {
     let (s, mut e, said, item, work) = at_the_merge("start-over-in-merge");
     held_at_the_merge_call(&mut e, &s, &said);
     api::start_over(&mut e.db, work).unwrap();
     s.merging.open();
-    let log = done_after_watching_main(&mut e, work, &said);
+    let log = done_after_merging(&mut e, work, &said);
     assert_eq!(works_of(&e, item).len(), 1, "{log}");
     assert_eq!(ended_why(&e, work), None, "{log}");
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
     assert_eq!(notices(&e, "is not started over"), 1, "{log}");
-    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    assert!(!transitions_at(&e, work, "L2").is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Once its merge stands on main, an item is not cancelled nor its work started over, whether the work watches main or
+// Once its merge stands on main, an item is not cancelled nor its work started over, whether the work writes what it
+// learned or
 // is done; whoever asks is told, and nothing waits in the outbox.
 #[test]
 fn an_item_whose_merge_stands_on_main_is_not_cancelled() {
     let (s, mut e, said, item, work) = at_the_merge("cancel-after-merge");
     held_at_the_merge_call(&mut e, &s, &said);
-    s.ci.shut();
-    let came = s.ci.came();
     s.merging.open();
-    let watching = turns_until(&mut e, &Go::default(), |_| s.ci.came() > came);
+    let learning = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "L2"));
     let log = said.lock().unwrap().join("\n");
-    assert!(watching, "{log}");
-    assert_eq!(state(&e, item).unwrap().1, "L1", "{log}");
+    assert!(learning, "{log}");
     cancel(&mut e, item, "owner");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(stopping(&e), Vec::<i64>::new(), "{log}");
@@ -505,8 +463,7 @@ fn an_item_whose_merge_stands_on_main_is_not_cancelled() {
         Err(format!("work {work} has merged, and its merge stands on main")),
         "{log}"
     );
-    s.ci.open();
-    let log = done_after_watching_main(&mut e, work, &said);
+    let log = done_after_merging(&mut e, work, &said);
     assert_eq!(ended_why(&e, work), None, "{log}");
     cancel(&mut e, item, "owner");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
@@ -1075,7 +1032,7 @@ fn a_merge_under_way_outruns_two_cancels_and_the_architect_is_told_though_it_ask
     cancel(&mut e, item, "owner");
     cancel(&mut e, item, "architect");
     s.merging.open();
-    let log = done_after_watching_main(&mut e, work, &said);
+    let log = done_after_merging(&mut e, work, &said);
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(reports_of_a_merge_first(&e, item), 1, "{log}");

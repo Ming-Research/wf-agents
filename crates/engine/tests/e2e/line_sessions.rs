@@ -7,13 +7,9 @@ use super::*;
 #[test]
 fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     let s = setup("cut");
-    let (mut e, said, item) = start(&s, scripts());
-    for _ in 0..2 {
-        e.step(None).unwrap();
-    }
-    let log = said.lock().unwrap().join("\n");
-    let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "R2", "{log}");
+    let (mut e, _, item) = start(&s, scripts());
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
     let session: i64 =
         e.db.conn()
             .query_row(
@@ -22,13 +18,13 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
                 |r| r.get(0),
             )
             .unwrap();
-    // The engine stops while cell `R2` runs.
+    // The engine stops while cell `I1` runs.
     let cut = e
         .db
         .write(Actor::Engine, |tx| {
             let n = next_round(tx, work)?;
             tx.execute(
-                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (?1, ?2, 'R2', ?3, '{}', 'c', 1)",
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at) VALUES (?1, ?2, 'I1', ?3, '{}', 'c', 1)",
                 params![work, n, session],
             )?;
             Ok(n)
@@ -37,11 +33,11 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     e.step(None).unwrap();
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = rounds.last().unwrap();
-    assert_eq!(cell, "R2");
+    assert_eq!(cell, "I1");
     let m = input["message"].as_str().unwrap();
     assert!(
         m.starts_with(&format!(
-            "# {id} · cell R2\n\nR{work}-{cut} was cut off midway. First look at the worktree"
+            "# {id} · cell I1\n\nR{work}-{cut} was cut off midway. First look at the worktree"
         )),
         "{m}"
     );
@@ -53,109 +49,6 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
 /// What a keep-warm ping was given: the command line it ran, and its message.
 type Replayed = (Vec<String>, String);
 
-// The engineer's line starts a new session at the first round of implementing and at the first round of fixing: the
-// session before ends, every other round goes on in the latest session, and a later round of either cell goes on in
-// the session it started. The new session is given what the work came to before it: at implementing the item, how
-// the work is understood, the approach chosen and the checks after design; at fixing the item, the locked acceptance,
-// the design and what implementing handed in. A round that goes on in the session is not given them again.
-#[test]
-fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
-    let s = setup("rotate");
-    let (mut e, said, item) = start(&s, scripts());
-    step_to(&mut e, item, "T7");
-    let (work, _, _) = state(&e, item).unwrap();
-    let lines = line_sessions(&e, work, "engineer");
-    assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
-    assert_eq!((lines[0].0.as_str(), lines[0].1), ("line", true), "{lines:?}");
-    assert!(lines[0].2.starts_with("R1,") && !lines[0].2.contains("I1"), "{lines:?}");
-    assert_eq!(lines[1], ("cell".to_string(), false, "I1,I1".to_string()));
-    let rounds = agent_rounds(&e, item);
-    let implements: Vec<&Value> = rounds.iter().filter(|r| r.1 == "I1").map(|r| &r.2).collect();
-    // The new session starts with the line's system prompt, and is given its cell's format.
-    assert!(in_system(implements[0], "format:common"), "{}", implements[0]);
-    assert_eq!(given(implements[0], "format:I1"), Some(true));
-    assert!(
-        implements[0]["call"]["session"]["started"].is_string(),
-        "{}",
-        implements[0]["call"]
-    );
-    assert_eq!(given(implements[1], "format:I1"), Some(false));
-    assert!(!in_system(implements[1], "format:common"));
-    // The cell's task is given once in a session, under its address, and referred to after.
-    assert_eq!(given(implements[0], "task:I1"), Some(true));
-    let m = implements[0]["message"].as_str().unwrap();
-    assert!(m.contains("## Task\n\n### task:I1\n\n"), "{m}");
-    assert_eq!(given(implements[1], "task:I1"), Some(false));
-    let m = implements[1]["message"].as_str().unwrap();
-    assert!(m.contains("## Task\n\ntask:I1, given to you before in R"), "{m}");
-    assert!(
-        implements[1]["call"]["session"]["resumed"].is_string(),
-        "{}",
-        implements[1]["call"]
-    );
-    let item_address = format!("item:{item}");
-    for end in [
-        item_address.as_str(),
-        "·R1·understanding",
-        "·D2·chosen",
-        "·D2·estimate",
-        "·D10·answer",
-    ] {
-        assert_eq!(
-            given_ending(implements[0], end),
-            Some(true),
-            "{end}: {}",
-            implements[0]["conditional"]
-        );
-        assert_eq!(
-            given_ending(implements[1], end),
-            Some(false),
-            "{end}: {}",
-            implements[1]["conditional"]
-        );
-    }
-    // The fix has a row to answer, a check the full CI on the draft found red, else it would run no round.
-    e.db.write(Actor::Engine, |tx| {
-        let n: i64 = tx.query_row("SELECT max(n) + 1 FROM rounds WHERE work = ?1", [work], |r| r.get(0))?;
-        let red = json!({ "result": { "kind": "red", "checks": [{ "name": "test", "result": "red", "run": "r" }] } });
-        record_round(tx, work, n, "T2", &red, "for_engineer")
-    })
-    .unwrap();
-    move_to(&mut e, work, "T6");
-    e.step(None).unwrap();
-    let log = said.lock().unwrap().join("\n");
-    let lines = line_sessions(&e, work, "engineer");
-    assert_eq!(lines.len(), 3, "{lines:?}\n{log}");
-    assert!(lines[1].1, "{lines:?}");
-    assert_eq!(
-        (lines[2].0.as_str(), lines[2].1, lines[2].2.as_str()),
-        ("cell", false, "T6"),
-        "{log}"
-    );
-    move_to(&mut e, work, "T6");
-    e.step(None).unwrap();
-    let lines = line_sessions(&e, work, "engineer");
-    assert_eq!(lines.len(), 3, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
-    assert_eq!(lines[2].2, "T6,T6");
-    let rounds = agent_rounds(&e, item);
-    let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "T6").map(|r| &r.2).collect();
-    for end in [item_address.as_str(), "·D2·acceptance", "·D2·design", "·I1·conditions"] {
-        assert_eq!(
-            given_ending(fixes[0], end),
-            Some(true),
-            "{end}: {}",
-            fixes[0]["conditional"]
-        );
-        assert_ne!(
-            given_ending(fixes[1], end),
-            Some(true),
-            "{end}: {}",
-            fixes[1]["conditional"]
-        );
-    }
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // A line's session whose context is past the configuration's limit is replaced at the line's next round by a new one,
 // which is given everything its cell needs; the session before ends. While the work waits before that round, the
 // session is not kept warm: the next round starts a new one anyway.
@@ -163,14 +56,11 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
 fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     let s = setup_priced("limit");
     let mut scripts = scripts();
-    scripts.insert(
-        "R2",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 499_997))])),
-    );
+    scripts.insert("R1", adding("R1", |_| vec![("@usage", used(1.0, 499_997))]));
     let (mut e, said, item) = start(&s, scripts);
-    agent_rounds_to(&mut e, item, 2);
+    agent_rounds_to(&mut e, item, 1);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(at, "I1", "{}", said.lock().unwrap().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
@@ -181,14 +71,14 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     assert_eq!(
         lines,
         [
-            ("line".to_string(), true, "R1,R2".to_string()),
-            ("limit".to_string(), false, "D1".to_string())
+            ("line".to_string(), true, "R1".to_string()),
+            ("limit".to_string(), false, "I1".to_string())
         ],
         "{log}"
     );
     let rounds = agent_rounds(&e, item);
-    let two = &rounds[2].2;
-    assert_eq!(given(two, "format:D1"), Some(true));
+    let two = &rounds[1].2;
+    assert_eq!(given(two, "format:I1"), Some(true));
     for a in ["format:common", "rule:ground"] {
         assert!(in_system(two, a), "{a}: {two}");
     }
@@ -205,17 +95,11 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let s = setup_priced("warm");
     let mut scripts = scripts();
     scripts.insert(
-        "R1",
+        "R0",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
     );
-    scripts.insert(
-        "R2",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.5, 9_500))])),
-    );
-    scripts.insert(
-        "D1",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(3.0, 10_000))])),
-    );
+    scripts.insert("R1", adding("R1", |_| vec![("@usage", used(1.5, 9_500))]));
+    scripts.insert("I1", adding("I1", |_| vec![("@usage", used(3.0, 10_000))]));
     let seen: Arc<Mutex<Vec<Replayed>>> = Arc::default();
     let pinged = seen.clone();
     scripts.insert(
@@ -232,9 +116,9 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    agent_rounds_to(&mut e, item, 2);
+    agent_rounds_to(&mut e, item, 1);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(at, "I1", "{}", said.lock().unwrap().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     // Not before 55 minutes, and not once the cache has let the session go.
@@ -251,7 +135,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let pings = pings_of(&e, work);
     assert_eq!(pings.len(), 39, "{log}");
     for (waited, _) in &pings {
-        assert_eq!(*waited, json!({ "cell": "D1", "on": "pause", "what": "to look at it" }));
+        assert_eq!(*waited, json!({ "cell": "I1", "on": "pause", "what": "to look at it" }));
     }
     // Each ping cost what the session grew by since the call before it.
     let costs: Vec<f64> = pings
@@ -261,7 +145,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     assert!(costs.iter().all(|c| (c - 0.02).abs() < 1e-9), "{costs:?}");
     // The ping ran the last round's command line, resuming its session, with only the message changed.
     let rounds = agent_rounds(&e, item);
-    let recorded: Vec<String> = rounds[1].2["call"]["command"]
+    let recorded: Vec<String> = rounds[0].2["call"]["command"]
         .as_array()
         .unwrap()
         .iter()
@@ -279,7 +163,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let cost: f64 =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(usage, '$.cost_usd') FROM rounds WHERE work = ?1 AND cell = 'D1'",
+                "SELECT json_extract(usage, '$.cost_usd') FROM rounds WHERE work = ?1 AND cell = 'I1'",
                 [work],
                 |r| r.get(0),
             )
@@ -296,7 +180,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
 fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let s = setup_priced("warm-lines");
     let (mut e, said, item) = start(&s, scripts());
-    step_to(&mut e, item, "T4");
+    step_to(&mut e, item, "T3");
     let (work, _, _) = state(&e, item).unwrap();
     // Each round recorded what it used, as the command line reports it.
     let usage = used(1.0, 9_000).to_string();
@@ -357,23 +241,28 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
 fn no_ping_before_a_new_session_or_beside_a_round() {
     let s = setup_priced("no-warm");
     let mut scripts = scripts();
-    scripts.insert(
-        "D11",
-        Box::new(|_: &Request, _: usize| {
-            (
-                vec![("outcome.adversarial", "not_needed")],
-                vec![("@usage", used(1.0, 9_000))],
-            )
-        }),
-    );
+    scripts.insert("R1", adding("R1", |_| vec![("@usage", used(1.0, 9_000))]));
     let (mut e, said, item) = start(&s, scripts);
-    step_to(&mut e, item, "I1");
+    // Before the research, the engineer's line has no session, and its first round starts one: nothing is pinged.
+    step_to(&mut e, item, "R1");
     let (work, _, _) = state(&e, item).unwrap();
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    let line_pings = |e: &Engine| {
+        number(
+            e,
+            &format!(
+                "SELECT count(*) FROM pings p JOIN sessions s ON s.id = p.session WHERE s.work = {work} AND s.line = 'engineer'"
+            ),
+        )
+    };
+    warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap();
+    assert_eq!(line_pings(&e), 0);
+    let_go_on(&mut e, work);
+    step_to(&mut e, item, "I1");
+    pause_by_owner(&mut e, work, "to look at it");
+    let from = last_call(&e, work);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
-    move_to(&mut e, work, "D11");
     let session: i64 =
         e.db.conn()
             .query_row(
@@ -387,24 +276,21 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             let n = next_round(tx, work)?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
-                 VALUES (?1, ?2, 'D11', ?3, '{}', 'c', ?4)",
+                 VALUES (?1, ?2, 'I1', ?3, '{}', 'c', ?4)",
                 params![work, n, session, from],
             )?;
             Ok(n)
         })
         .unwrap();
-    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap();
+    assert_eq!(line_pings(&e), 0);
     e.db.write(Actor::Engine, |tx| {
         tx.execute("DELETE FROM rounds WHERE work = ?1 AND n = ?2", [work, open])?;
         Ok(())
     })
     .unwrap();
-    assert_eq!(
-        warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(),
-        1,
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
+    warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap();
+    assert_eq!(line_pings(&e), 1, "{}", said.lock().unwrap().join("\n"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -414,17 +300,14 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
 fn a_ping_says_where_the_work_waited_and_for_what() {
     let s = setup_priced("warm-architect");
     let mut scripts = scripts();
-    scripts.insert(
-        "R2",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
-    );
+    scripts.insert("R1", adding("R1", |_| vec![("@usage", used(1.0, 9_000))]));
     let (mut e, said, item) = start(&s, scripts);
-    agent_rounds_to(&mut e, item, 2);
+    agent_rounds_to(&mut e, item, 1);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(at, "I1", "{}", said.lock().unwrap().join("\n"));
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
-            "UPDATE works SET at = 'A2', resume_at = 'D1', waiting = '[\"D1\"]' WHERE id = ?1",
+            "UPDATE works SET at = 'A2', resume_at = 'I1', waiting = '[\"I1\"]' WHERE id = ?1",
             [work],
         )?;
         let round = next_round(tx, work)?;
@@ -462,7 +345,7 @@ fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     let read: Arc<Mutex<Option<GivenAgain>>> = Arc::default();
     let seen = read.clone();
     scripts.insert(
-        "R2",
+        "I1",
         Box::new(move |r: &Request, _: usize| {
             let file = r.regive.clone().unwrap();
             let text = std::fs::read_to_string(&file).unwrap_or_default();
@@ -474,7 +357,7 @@ fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     agent_rounds_to(&mut e, item, 2);
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = &rounds[1];
-    assert_eq!(cell, "R2", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(cell, "I1", "{}", said.lock().unwrap().join("\n"));
     let (file, text) = read.lock().unwrap().clone().expect("the file the hook gives again");
     // The session holds the project guide, so the message only refers to it; the file gives it whole, and none of
     // what the session's system prompt holds, which a compaction leaves.
@@ -482,9 +365,9 @@ fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     assert_eq!(guide_in(input).map(|g| g.1), Some(false));
     assert!(
         text.starts_with(&format!("Your session was compacted in the middle of {id}"))
-            && text.contains(&format!("# {id} · cell R2"))
+            && text.contains(&format!("# {id} · cell I1"))
             && text.contains(&format!("### {}", guide(input)))
-            && text.contains("### format:R2")
+            && text.contains("### format:I1")
             && !text.contains("### format:common"),
         "{text}"
     );
@@ -509,7 +392,7 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     let mut scripts = scripts();
     let data = s.data.clone();
     scripts.insert(
-        "R2",
+        "I1",
         Box::new(move |r: &Request, _: usize| {
             // What the hook does after a tool use, while the owner interjects.
             let mut db = engine::database::open(&data).unwrap();
@@ -543,7 +426,7 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = &rounds[1];
-    assert_eq!(cell, "R2", "{log}");
+    assert_eq!(cell, "I1", "{log}");
     let (work, _, _) = state(&e, item).unwrap();
     let (transition, delivered): (Option<String>, Option<i64>) =
         e.db.conn()
@@ -588,9 +471,10 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
     let s = setup("images-engineer");
     let mut scripts = scripts();
     let data = s.data.clone();
+    let research = scripts.remove("R1").unwrap();
     scripts.insert(
         "R1",
-        Box::new(move |r: &Request, _: usize| {
+        Box::new(move |r: &Request, n: usize| {
             let mut db = engine::database::open(&data).unwrap();
             let said = api::WorkSaid {
                 text: "Look at these two.".into(),
@@ -602,21 +486,21 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
                 images: two_images(),
             };
             api::say_to_work(&mut db, r.work, &said).unwrap();
-            let n: i64 = db
+            let round: i64 = db
                 .conn()
                 .query_row("SELECT max(n) FROM rounds WHERE work = ?1", [r.work], |x| x.get(0))
                 .unwrap();
             assert_eq!(
-                sessions::interject::deliver(&mut db, r.work, n, "engineer").unwrap(),
+                sessions::interject::deliver(&mut db, r.work, round, "engineer").unwrap(),
                 None
             );
-            (Vec::new(), Vec::new())
+            research(r, n)
         }),
     );
     let sent: Sent = Arc::default();
     let seen = sent.clone();
     scripts.insert(
-        "R2",
+        "I1",
         Box::new(move |r: &Request, _: usize| {
             keep_sent(&seen, r);
             (
@@ -640,8 +524,8 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
     let a = image_addresses(&ids);
     assert_eq!(a.len(), 2);
     let sent = sent.lock().unwrap();
-    let (cell, prompt, images) = sent.first().unwrap_or_else(|| panic!("no round at R2:\n{log}"));
-    assert_eq!(cell, "R2");
+    let (cell, prompt, images) = sent.first().unwrap_or_else(|| panic!("no round at I1:\n{log}"));
+    assert_eq!(cell, "I1");
     assert!(
         prompt.contains(&format!(
             "From the owner: Look at these two.\n\nImages: {}, {}",
@@ -794,7 +678,7 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
     write(&s.data, "install.toml", &format!("{install}\n{other}"));
     git(&s.data, &["commit", "-q", "-am", "another tier"]);
     let (mut e, said, item) = start(&s, scripts());
-    agent_rounds_to(&mut e, item, 2);
+    agent_rounds_to(&mut e, item, 1);
     let (work, _, _) = state(&e, item).unwrap();
     // The owner moves the item to the other tier on its page: the change is the owner's, in the item's history.
     let done = api::set_level(&mut e.db, &s.data, item, "m").unwrap();
@@ -813,15 +697,15 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
     assert_eq!(
         line_sessions(&e, work, "engineer"),
         [
-            ("line".to_string(), true, "R1,R2".to_string()),
-            ("model".to_string(), false, "D1".to_string())
+            ("line".to_string(), true, "R1".to_string()),
+            ("model".to_string(), false, "I1".to_string())
         ],
         "{log}"
     );
     let model: String =
         e.db.conn()
             .query_row(
-                "SELECT model FROM rounds WHERE work = ?1 AND cell = 'D1'",
+                "SELECT model FROM rounds WHERE work = ?1 AND cell = 'I1'",
                 [work],
                 |r| r.get(0),
             )
@@ -837,7 +721,7 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
 fn a_new_login_account_starts_a_new_session_at_the_lines_next_round() {
     let s = setup("account");
     let (mut e, said, item) = start(&s, scripts());
-    agent_rounds_to(&mut e, item, 2);
+    agent_rounds_to(&mut e, item, 1);
     let (work, _, _) = state(&e, item).unwrap();
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
     let switched = install.replace(
@@ -852,8 +736,8 @@ fn a_new_login_account_starts_a_new_session_at_the_lines_next_round() {
     assert_eq!(
         line_sessions(&e, work, "engineer"),
         [
-            ("line".to_string(), true, "R1,R2".to_string()),
-            ("account".to_string(), false, "D1".to_string())
+            ("line".to_string(), true, "R1".to_string()),
+            ("account".to_string(), false, "I1".to_string())
         ],
         "{log}"
     );
@@ -861,7 +745,7 @@ fn a_new_login_account_starts_a_new_session_at_the_lines_next_round() {
         .db
         .conn()
         .query_row(
-            "SELECT json_extract(input, '$.call.env.CLAUDE_CONFIG_DIR') FROM rounds WHERE work = ?1 AND cell = 'D1'",
+            "SELECT json_extract(input, '$.call.env.CLAUDE_CONFIG_DIR') FROM rounds WHERE work = ?1 AND cell = 'I1'",
             [work],
             |r| r.get(0),
         )

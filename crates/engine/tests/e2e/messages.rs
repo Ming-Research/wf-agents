@@ -7,13 +7,9 @@ use super::*;
 #[test]
 fn building_a_message_writes_nothing() {
     let s = setup("dry");
-    let (mut e, said, item) = start(&s, scripts());
-    for _ in 0..2 {
-        e.step(None).unwrap();
-    }
-    let log = said.lock().unwrap().join("\n");
-    let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "R2", "{log}");
+    let (mut e, _, item) = start(&s, scripts());
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
     // The work runs on a flow version the engine no longer has built in.
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -57,7 +53,7 @@ fn building_a_message_writes_nothing() {
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
     let m = engine::next_message(&mut r, work).unwrap();
-    assert!(m.text.contains("cell R2"), "{}", m.text);
+    assert!(m.text.contains("cell I1"), "{}", m.text);
     drop(r);
     assert_eq!(state_of(), before);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -108,8 +104,7 @@ fn hash_of(input: &Value, address: &str) -> Option<String> {
 }
 
 // Every message starts with its round's address; within a session a conditional input is given once and referred to
-// after;
-// the database is an index; and the locked acceptance is the one conditional input the design handed in, held by the
+// after; the database is an index; and the research's plan, with its acceptance, is a conditional input held by the
 // engineer's session and given to the review's.
 #[test]
 fn a_message_gives_each_conditional_input_once_in_a_session() {
@@ -134,7 +129,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
         let m = input["message"].as_str().unwrap();
         assert!(m.starts_with(&format!("# {id} · cell {cell} · ")), "{m}");
     }
-    let (first, second) = (&at("R1"), &at("R2"));
+    let (first, second) = (&at("R1"), &at("I1"));
     let (work, _, _) = state(&e, item).unwrap();
     let workspace = format!("work:{work}");
     for a in ["format:R1", "inputs:R1", workspace.as_str()] {
@@ -155,15 +150,14 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     // with the same, byte for byte, and another line's with its own.
     assert_eq!(system_text(second), Some(system.clone()));
     assert!(second.get("system").is_none(), "{second}");
-    assert_eq!(system_text(&at("I1")), Some(system.clone()));
-    let review = system_text(&at("T3")).unwrap();
+    let review = system_text(&at("T2")).unwrap();
     assert_ne!(review, system);
     assert!(review.contains("\n### format:common\n\n") && !review.contains("\n### rule:engineering\n\n"));
     // The inputs to work from are listed by their numbers, which `inputs:<cell>` explains once in a session.
     let m = first["message"].as_str().unwrap();
     assert!(m.contains("\n1. item:"), "{m}");
     assert!(m.contains(&format!("Worktree: {workspace}")), "{m}");
-    assert_eq!(given(second, "format:R2"), Some(true));
+    assert_eq!(given(second, "format:I1"), Some(true));
     // The project guide is an input every agent's cell has: given in a session's first round, before anything else,
     // referred to after, and given again to the review's session.
     let guide = |input: &Value| -> Option<(String, bool)> {
@@ -179,7 +173,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let at_guide = m.find(&format!("### {address}")).unwrap();
     assert!(at_guide < m.find("### format:R1").unwrap(), "{m}");
     assert_eq!(guide(second).map(|g| g.1), Some(false));
-    assert_eq!(guide(&at("T3")).map(|g| g.1), Some(true));
+    assert_eq!(guide(&at("T2")).map(|g| g.1), Some(true));
     let m = second["message"].as_str().unwrap();
     assert!(!m.contains("### rule:ground") && m.contains("rule:ground"), "{m}");
     let m = first["message"].as_str().unwrap();
@@ -196,12 +190,11 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     );
     assert!(formats.contains("- items (id, project, title, "), "{formats}");
     assert!(!formats.contains("CREATE TABLE"), "{formats}");
-    let design = &rounds.iter().rev().find(|r| r.1 == "D2").unwrap().0;
-    let acceptance = format!("{design}·D2·acceptance");
-    assert_eq!(given(&at("D11"), &acceptance), Some(false), "{}", at("D11"));
-    // Implementing starts a new session, which holds nothing: the acceptance is given whole again.
-    assert_eq!(given(&at("I1"), &acceptance), Some(true), "{}", at("I1"));
-    assert_eq!(given(&at("T3"), &acceptance), Some(true), "{}", at("T3"));
+    let plan = "·R1·can_start[yes]";
+    // Implementing goes on in the research's session, which holds the plan; the review's session is given it whole.
+    assert_eq!(given_ending(&at("I1"), plan), Some(false), "{}", at("I1"));
+    assert_eq!(given_ending(&at("T2"), plan), Some(true), "{}", at("T2"));
+    assert_eq!(given_ending(&at("T3"), plan), Some(false), "{}", at("T3"));
     assert!(
         !rounds
             .iter()
@@ -265,21 +258,25 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     let s = setup("again");
     let mut scripts = scripts();
     scripts.insert(
-        "R2",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@compactions", json!(1))])),
+        "I1",
+        adding("I1", |n| {
+            if n == 1 {
+                vec![("@compactions", json!(1))]
+            } else {
+                Vec::new()
+            }
+        }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    agent_rounds_to(&mut e, item, 1);
     write(&s.data, "rules/ground.md", "Facts first, then the rest.\n");
     git(&s.data, &["add", "-A"]);
     git(&s.data, &["commit", "-q", "-m", "a changed rule"]);
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    agent_rounds_to(&mut e, item, 3);
     let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
-    assert_eq!(&cells[..3], ["R1", "R2", "D1"], "{log}");
+    assert_eq!(&cells[..3], ["R1", "I1", "I1"], "{log}");
     let (a, b, c) = (&rounds[0].2, &rounds[1].2, &rounds[2].2);
     assert_eq!(given(b, "rule:ground"), Some(true));
     assert_ne!(hash_of(a, "rule:ground"), hash_of(b, "rule:ground"));
@@ -304,7 +301,7 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     assert_eq!(given(c, "rule:ground"), Some(true));
     assert_eq!(given_text(c, "rule:ground"), given_text(b, "rule:ground"));
     assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
-    assert_eq!(given(c, "format:D1"), Some(true));
+    assert_eq!(given(c, "format:I1"), Some(true));
     let understanding = format!("{}·R1·understanding", rounds[0].0);
     assert_eq!(given(c, &understanding), Some(true), "{c}");
     let m = c["message"].as_str().unwrap();
@@ -331,20 +328,18 @@ fn given_text(input: &Value, address: &str) -> Option<String> {
 fn a_works_own_edits_to_its_records_do_not_give_the_guide_again() {
     let s = setup_records("own-guide");
     let (mut e, said, item) = start(&s, scripts());
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    agent_rounds_to(&mut e, item, 1);
     let (work, _, _) = state(&e, item).unwrap();
     let wt = worktree_of(&e, work);
     write(&wt, "design/added.md", "# Added\nThe work's own node.\n");
     git(&wt, &["add", "-A"]);
     git(&wt, &["commit", "-q", "-m", "Add a node"]);
     write(&wt, "AGENTS.md", "Edited, not committed.\n");
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    agent_rounds_to(&mut e, item, 3);
     let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
-    assert_eq!(&cells[..3], ["R1", "R2", "D1"], "{log}");
+    assert_eq!(&cells[..3], ["R1", "I1", "I1"], "{log}");
     let (address, sent) = guide_in(&rounds[0].2).unwrap();
     assert!(sent, "{address}");
     for (id, _, input) in &rounds[1..3] {
@@ -364,8 +359,7 @@ fn a_works_own_edits_to_its_records_do_not_give_the_guide_again() {
 fn a_changed_main_gives_only_what_changed_in_the_guide() {
     let s = setup_records("main-guide");
     let (mut e, said, item) = start(&s, scripts());
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    agent_rounds_to(&mut e, item, 1);
     let (work, _, _) = state(&e, item).unwrap();
     main_moves_on(
         &s.root,
@@ -373,12 +367,11 @@ fn a_changed_main_gives_only_what_changed_in_the_guide() {
         "Main's later node",
     );
     merge_main(&worktree_of(&e, work));
-    e.step(None).unwrap();
-    e.step(None).unwrap();
+    agent_rounds_to(&mut e, item, 3);
     let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
-    assert_eq!(&cells[..3], ["R1", "R2", "D1"], "{log}");
+    assert_eq!(&cells[..3], ["R1", "I1", "I1"], "{log}");
     let (first, _) = guide_in(&rounds[0].2).unwrap();
     let (changed, sent) = guide_in(&rounds[1].2).unwrap();
     assert!(sent, "{changed}");
@@ -457,7 +450,7 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
             }
         }
     }
-    // The engineer's graph has five lines, the architect's four.
-    assert_eq!(lines, 9);
+    // The engineer's graph has six lines, the architect's four.
+    assert_eq!(lines, 10);
     let _ = std::fs::remove_dir_all(&s.root);
 }

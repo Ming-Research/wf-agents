@@ -499,7 +499,7 @@ fn a_passing_failure_pauses_the_work_past_its_bound() {
     }
     let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R1", "{log}");
+    assert_eq!(at, "R0", "{log}");
     assert!(
         paused
             .as_deref()
