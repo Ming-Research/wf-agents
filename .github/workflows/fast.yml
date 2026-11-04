@@ -17,6 +17,11 @@ name: fast
 # the conventions this workflow holds to. A unit of the Rust tests that did not compile is in it too, as a testsuite
 # with no testcase and an error, and the tests of the other units still run.
 #
+# It runs on the project's own machine, whose runners keep each what the last run built: the repository's checkout, the
+# compiled target and the page's dependencies stay between runs, and only what changed is built again. So a checkout
+# leaves those in place (`clean: false`), and the step after it clears the rest of what the last run left. ci.yml runs on
+# GitHub's machines from a clean start, as an independent check.
+#
 # GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one made before this file
 # took a request to run by hand. The engine then runs it with main's CI files: ci on a temporary branch
 # `wf-agents-main-ci/...` holding the work's head with them, where it runs what is named as on the work's branch, and
@@ -50,23 +55,29 @@ jobs:
   # Only when named: the full CI runs it once, at the merge, and a work runs it here while it fixes what that found.
   lint:
     if: ${{ contains(fromJSON(inputs.checks || '[]'), 'lint') }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, 14900k]
     timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+      - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
       - uses: ./.github/actions/lint
 
   # The tests named, in one job: they are few, so that the build of the page and the compiling are paid once.
   test:
     if: ${{ inputs.tests != '' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, 14900k]
     timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+      - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
       # The names given: one a line when the input holds a line break, as the engine gives them; else split at white
       # space, as an engine before that gave them. Each is trimmed, as the engine trims a name, and listed in the log.
       #
@@ -142,30 +153,25 @@ jobs:
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-nextest@0.9.146
-      # What ci.yml saves on main is what this restores; a run on a branch saves nothing, which would only add to its
-      # time.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          save-if: false
-      # The incremental state of the workspace's own crates that ci.yml keeps on main, so that this run recompiles only
-      # what the work changed: a one-line change to the engine compiled in some 29 s with it against 124 s without.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: target/ci
-          key: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
-          restore-keys: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
       - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-      # Before any cargo step that compiles the crate the page is built into.
+      # Before any cargo step that compiles the crate the page is built into; only when the page's files changed since
+      # this runner built it, and its dependencies only when their lock changed.
       - name: Build the page
         working-directory: client
         run: |
-          npm ci
-          npm run build
+          tree=$(git rev-parse HEAD:client)
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" != "$tree" ] || [ ! -f dist/index.html ]; then
+            npm run build
+            echo "$tree" > node_modules/.wf-tree
+          fi
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
       # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
       #
@@ -283,7 +289,7 @@ jobs:
   fast:
     needs: [lint, test]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, 14900k]
     timeout-minutes: 5
     steps:
       - name: Every job that ran passed
