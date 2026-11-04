@@ -305,6 +305,14 @@ fn the_architect_s_look_up_of_the_history_is_given_the_rule_for_gathering_it() {
     assert_eq!(sources["git"]["directory"].as_str(), architect.to_str(), "{sources}");
     assert_eq!(sources["git"]["main"], "origin/main", "{sources}");
     assert!(sources.get("checkout").is_none(), "{sources}");
-    assert!(text.contains("judges each command of a chain"), "{text}");
+    for told in [
+        "`git grep -n <text> origin/<branch> -- <path>`",
+        "`git diff origin/main...origin/<branch>`",
+        "judges each command of a chain (`&&`, `;`) or a pipe by itself",
+        "a pipe into `awk`, and `$(...)` or backticks, are refused",
+        "a `cd` to another directory before git is refused",
+    ] {
+        assert!(text.contains(told), "{told}: {text}");
+    }
     let _ = std::fs::remove_dir_all(&s.root);
 }

@@ -971,8 +971,8 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
         "You are the architect of the project {project}. Your working directory is {}, a worktree of your own at the \
          project's main, the branch {main}, which the engine brings to the latest main before each round: you only \
          read, and change and commit nothing, there or anywhere. Read another branch there without switching: `git \
-         fetch origin <branch>`, then `git show origin/<branch>:<path>`, `git diff origin/{main}...origin/<branch>` \
-         or `git log origin/<branch>`. {GIT_CHECK}",
+         fetch origin <branch>`, then `git show origin/<branch>:<path>`, `git grep -n <text> origin/<branch> -- \
+         <path>`, `git diff origin/{main}...origin/<branch>` or `git log origin/<branch>`. {GIT_CHECK}",
         dir.display()
     );
     let others: Vec<&String> = e.config.config.projects.keys().filter(|n| *n != project).collect();
