@@ -132,9 +132,7 @@ pub fn carries(checkout: &Path, merge: &str, build: &str) -> &'static str {
 /// holds it as the work merges. For the installed program, a commit the checkout lacks may only not be fetched yet, so
 /// main is fetched once before it says it cannot tell, unless the build is one no fetch can bring.
 pub fn in_effect(e: &Engine, w: &Work, item: &Item) -> Result<&'static str, String> {
-    let installed = conditions(e.db.conn(), item.id)?
-        .iter()
-        .any(|c| c["when"] == INSTALLED);
+    let installed = conditions(e.db.conn(), item.id)?.iter().any(|c| c["when"] == INSTALLED);
     if !installed {
         return Ok("yes");
     }
@@ -156,7 +154,10 @@ pub fn in_effect(e: &Engine, w: &Work, item: &Item) -> Result<&'static str, Stri
 /// The engine's value `install_wait`: whether the time since the merge is past the project's limit of the wait for the
 /// change to take effect.
 pub fn install_wait(e: &Engine, w: &Work, now: i64) -> Result<&'static str, String> {
-    let hours = e.project_of(w)?.install_wait_hours.unwrap_or(config::INSTALL_WAIT_HOURS);
+    let hours = e
+        .project_of(w)?
+        .install_wait_hours
+        .unwrap_or(config::INSTALL_WAIT_HOURS);
     let since = merged(e.db.conn(), w.id)?.map_or(now, |(_, at)| at);
     Ok(if past_wait(since, hours, now) { "past" } else { "within" })
 }
@@ -171,7 +172,11 @@ pub fn look_due(e: &Engine, w: &Work, g: &CompiledGraph, now: i64) -> Result<&'s
     let Some(last) = answered(e, w, g, CHECK)?.into_iter().next() else {
         return Ok("yes");
     };
-    let minutes = last.output.as_ref().map(|o| g.unwrap(o)).and_then(|o| o["again_after_minutes"].as_i64());
+    let minutes = last
+        .output
+        .as_ref()
+        .map(|o| g.unwrap(o))
+        .and_then(|o| o["again_after_minutes"].as_i64());
     let due = match (minutes, last.ended_at) {
         (Some(m), Some(ended)) => now >= ended + m * MINUTE_MS,
         _ => true,
@@ -182,7 +187,10 @@ pub fn look_due(e: &Engine, w: &Work, g: &CompiledGraph, now: i64) -> Result<&'s
 /// The engine's value `looks`: whether the cell that checks has sent the work back to wait as many times as the
 /// project's limit.
 pub fn looks(e: &Engine, w: &Work) -> Result<&'static str, String> {
-    let limit = e.project_of(w)?.verification_looks.unwrap_or(config::VERIFICATION_LOOKS);
+    let limit = e
+        .project_of(w)?
+        .verification_looks
+        .unwrap_or(config::VERIFICATION_LOOKS);
     let again = work::rounds_at(e.db.conn(), w.id, CHECK)?
         .iter()
         .filter(|r| r.transition.as_deref() == Some(AGAIN))
@@ -322,7 +330,8 @@ pub fn cover_problems(wanted: &[String], verdicts: &[Value], words: bool) -> Pro
         |xs| format!("no verdict for acceptance conditions {xs}"),
     );
     if !words && verdicts.iter().any(|v| v["verdict"] == "skipped") {
-        problems.push("skipped is only for a condition someone said in words given to this look not to check; none were");
+        problems
+            .push("skipped is only for a condition someone said in words given to this look not to check; none were");
     }
     problems
 }
@@ -339,7 +348,9 @@ pub fn again_problems(verdicts: &[Value], minutes: Option<i64>) -> Problems {
             problems.push("again_after_minutes is only for a condition that is not_yet, and none is");
         }
         Some(m) if !(1..=AGAIN_AFTER_MOST).contains(&m) => {
-            problems.push(format!("again_after_minutes is from 1 to {AGAIN_AFTER_MOST}, and it says {m}"));
+            problems.push(format!(
+                "again_after_minutes is from 1 to {AGAIN_AFTER_MOST}, and it says {m}"
+            ));
         }
         _ => {}
     }
@@ -399,7 +410,10 @@ fn shown_in(result: &Value, seen: &str) -> bool {
 /// link in its result; and what it says it saw is in that run's result. A verdict that rests on no run names none.
 pub fn basis_problems(verdicts: &[Value], runs: &[Run]) -> Problems {
     let mut problems = Problems::default();
-    for v in verdicts.iter().filter(|v| v["verdict"] == "holds" || v["verdict"] == "fails") {
+    for v in verdicts
+        .iter()
+        .filter(|v| v["verdict"] == "holds" || v["verdict"] == "fails")
+    {
         let id = v["id"].as_str().unwrap_or_default();
         let run = plain(v["run"].as_str().unwrap_or_default());
         let seen = v["seen"].as_str().unwrap_or_default().trim();
@@ -461,10 +475,7 @@ pub fn tell_wait(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
 fn verdict_line(v: &Value) -> String {
     let id = v["id"].as_str().unwrap_or_default();
     let verdict = v["verdict"].as_str().unwrap_or_default();
-    match ["why", "missing", "seen", "words"]
-        .iter()
-        .find_map(|k| v[*k].as_str())
-    {
+    match ["why", "missing", "seen", "words"].iter().find_map(|k| v[*k].as_str()) {
         Some(said) => format!("{id} {verdict}: {}", db::one_sentence(said)),
         None => format!("{id} {verdict}"),
     }
@@ -491,7 +502,11 @@ pub fn report(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
             ctx.about(),
             lines.join("; ")
         ),
-        _ => format!("Checking {} once its change took effect: {}", ctx.about(), lines.join("; ")),
+        _ => format!(
+            "Checking {} once its change took effect: {}",
+            ctx.about(),
+            lines.join("; ")
+        ),
     };
     let m = Matter {
         project: item.project.clone(),
@@ -654,7 +669,11 @@ mod tests {
             "pr view 12 --json state",
             json!({ "ran": { "output": "{\"state\":\"MERGED\"}" } }),
         );
-        let measure = ran("measure", "", json!({ "push": { "run": "https://github.com/o/p/runs/9" } }));
+        let measure = ran(
+            "measure",
+            "",
+            json!({ "push": { "run": "https://github.com/o/p/runs/9" } }),
+        );
         let runs = [query, gh, measure];
 
         for good in [
@@ -667,17 +686,24 @@ mod tests {
         }
         let unrecorded = said(basis_problems(&[holds("A1", "SELECT 1", "1")], &runs));
         assert_eq!(unrecorded.len(), 1);
-        assert!(unrecorded[0].starts_with("A1: the run \"SELECT 1\" is not one the engine recorded"), "{unrecorded:?}");
+        assert!(
+            unrecorded[0].starts_with("A1: the run \"SELECT 1\" is not one the engine recorded"),
+            "{unrecorded:?}"
+        );
         let not_shown = json!({
             "verdict": "fails", "id": "A2", "run": "SELECT verdict FROM t", "seen": "fetched", "why": "x", "harm_now": false,
         });
         assert_eq!(
             said(basis_problems(&[not_shown], &runs)),
-            ["A2: \"fetched\" is not in the result of that run: say what it showed, copied letter for letter from its result"]
+            [
+                "A2: \"fetched\" is not in the result of that run: say what it showed, copied letter for letter from its result"
+            ]
         );
         // With no run on record since the change took effect, none can be named.
         assert_eq!(
-            basis_problems(&[holds("A1", "SELECT verdict FROM t", "refused")], &[]).texts().len(),
+            basis_problems(&[holds("A1", "SELECT verdict FROM t", "refused")], &[])
+                .texts()
+                .len(),
             1
         );
         assert!(basis_problems(&[not_yet("A1")], &[]).is_empty());
@@ -704,7 +730,10 @@ mod tests {
         assert!(known_problems(&acceptance, &known(false, true, true)).is_empty());
         let other = said(known_problems(&acceptance, &known(false, false, true)));
         assert_eq!(other.len(), 1);
-        assert!(other[0].contains("this project's changes cannot change the installed program"), "{other:?}");
+        assert!(
+            other[0].contains("this project's changes cannot change the installed program"),
+            "{other:?}"
+        );
         assert_eq!(
             said(known_problems(&acceptance, &known(false, true, false))),
             ["A3 is checked with measure, and project p lists no measurement workflow"]

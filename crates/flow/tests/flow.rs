@@ -1942,7 +1942,9 @@ fn a_work_with_a_condition_in_effect_waits_for_its_change_and_checks_it_with_a_r
     ];
     assert_eq!(
         walked(g, &steps),
-        ["S1", "R0", "R1", "I1", "T2", "T3", "M1", "M2", "L2", "W1", "W2", "W1", "W2", "E1"]
+        [
+            "S1", "R0", "R1", "I1", "T2", "T3", "M1", "M2", "L2", "W1", "W2", "W1", "W2", "E1"
+        ]
     );
     // The kind as a return writes it: every field is asked for.
     let schema = g.cell("D2").unwrap().schema.clone().unwrap();

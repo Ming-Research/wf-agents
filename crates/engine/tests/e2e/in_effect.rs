@@ -249,9 +249,11 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     assert_eq!((seen[1].0.as_str(), seen[1].1.as_str()), ("A2", "holds"));
     let latest: String =
         e.db.conn()
-            .query_row("SELECT cell FROM rounds WHERE work = ?1 AND n = ?2", params![work, seen[1].2], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT cell FROM rounds WHERE work = ?1 AND n = ?2",
+                params![work, seen[1].2],
+                |r| r.get(0),
+            )
             .unwrap();
     assert_eq!(latest, "W2");
 
@@ -368,9 +370,7 @@ fn a_look_past_the_projects_limit_reports_the_condition_and_ends() {
     let mut agents = verifying(condition("merged"));
     agents.insert("W2", Box::new(|_: &Request, _: usize| waits_a_minute()));
     let (mut e, said, item) = start(&s, agents);
-    step_until(&mut e, item, &said, "the first look", |e| {
-        !looks(e, item).is_empty()
-    });
+    step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
     let (work, _, _) = state(&e, item).unwrap();
     assert_eq!(looks(&e, item), ["again"]);
     assert_eq!(state(&e, item).unwrap().1, "W1");
@@ -409,7 +409,8 @@ fn only_the_engine_s_own_project_can_say_the_installed_program_carries_its_chang
         "R1",
         Box::new(move |r: &Request, n: usize| {
             if n == 1 {
-                let both = json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }, condition("installed")]);
+                let both =
+                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }, condition("installed")]);
                 let (pick, mut set) = plan(r, 2);
                 set.push(("outcome.can_start.acceptance", both));
                 return (pick, set);
@@ -495,9 +496,7 @@ fn a_tool_refused_for_want_of_configuration_does_not_hold_and_the_report_says_wh
     let other = another_item(&mut e);
     step_to(&mut e, other, "E1");
     e.built_from = main_head(&s);
-    step_until(&mut e, item, &said, "the first look", |e| {
-        !looks(e, item).is_empty()
-    });
+    step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
     assert_eq!(looks(&e, item), ["again"]);
 
     the_wait_passes(&mut e, work);
@@ -507,7 +506,10 @@ fn a_tool_refused_for_want_of_configuration_does_not_hold_and_the_report_says_wh
         .iter()
         .find_map(|(_, rejected)| rejected.as_deref())
         .expect("the look that rests on what no run showed is sent back");
-    assert!(sent_back.contains("\\\"fetched\\\" is not in the result of that run"), "{sent_back}");
+    assert!(
+        sent_back.contains("\\\"fetched\\\" is not in the result of that run"),
+        "{sent_back}"
+    );
     assert_eq!(looks(&e, item), ["again", "failed"]);
     let seen = verifications(&e, item);
     assert_eq!(seen.last().unwrap().1, "fails", "{seen:?}");
