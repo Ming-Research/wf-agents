@@ -204,9 +204,7 @@ pub fn run(c: &Ctx<'_>) -> Result<Vec<Problem>, Vec<Problem>> {
         return Ok(Vec::new());
     }
     let refused = found.iter().any(|p| p.check == set_aside::KNOWN);
-    let own = (!refused)
-        .then(|| at_path(&c.unwrapped, set_aside::DECLARED))
-        .flatten();
+    let own = (!refused).then(|| at_path(&c.unwrapped, set_aside::DECLARED)).flatten();
     let declared = match set_aside::declared(c.e, c.w, c.g, c.item, &c.cell.id, own.as_ref()) {
         Ok(d) => d,
         Err(why) => {
@@ -398,8 +396,12 @@ fn set_aside_problems(due: &[String], answers: &[Value], findings: &[String]) ->
         .collect();
     problems.about(
         &unfound,
-        |x| format!("{x} is answered real, but the finding it names is not one of this return's: write it as a finding"),
-        |xs| format!("{xs} are answered real, but the findings they name are not this return's: write each as a finding"),
+        |x| {
+            format!("{x} is answered real, but the finding it names is not one of this return's: write it as a finding")
+        },
+        |xs| {
+            format!("{xs} are answered real, but the findings they name are not this return's: write each as a finding")
+        },
     );
     problems
 }

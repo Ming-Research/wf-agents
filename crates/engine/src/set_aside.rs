@@ -80,7 +80,10 @@ pub fn declared(
         let implemented = answered(e, w, g, IMPLEMENT)?.into_iter().next();
         let since = implemented.as_ref().map(|r| r.id);
         held.extend(implemented.as_ref().map(of).unwrap_or_default());
-        for fix in answered(e, w, g, FIX)?.iter().filter(|r| since.is_none_or(|s| r.id > s)) {
+        for fix in answered(e, w, g, FIX)?
+            .iter()
+            .filter(|r| since.is_none_or(|s| r.id > s))
+        {
             held.extend(of(fix));
         }
     }
@@ -196,17 +199,18 @@ pub fn due_ids(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> 
 /// What the merge gate's step returns: on the value `set_aside` of the gate, the findings set aside it was given, for
 /// the fix to answer as rows of its table; nothing otherwise, nor for a flow version whose gate returns none.
 pub fn gate_return(cell: &CompiledCell, gathered: &[Gathered], given: &Map<String, Value>) -> Value {
-    let returns_them = cell
-        .schema
-        .as_ref()
-        .and_then(|s| s["properties"].get(INPUT))
-        .is_some();
+    let returns_them = cell.schema.as_ref().and_then(|s| s["properties"].get(INPUT)).is_some();
     if !returns_them || given.get("gates").and_then(Value::as_str) != Some(INPUT) {
         return json!({});
     }
     let them = gathered
         .iter()
-        .find(|x| x.input.from.iter().any(|s| matches!(s, flow::format::Src::Engine(n) if n == INPUT)))
+        .find(|x| {
+            x.input
+                .from
+                .iter()
+                .any(|s| matches!(s, flow::format::Src::Engine(n) if n == INPUT))
+        })
         .and_then(|x| x.value.clone());
     match them {
         Some(v) => json!({ INPUT: v }),

@@ -44,7 +44,11 @@ fn ended_with(e: &Engine, item: i64, cell: &str) -> Vec<(Option<String>, Option<
             .unwrap();
     let json = |t: Option<String>| t.map(|t| serde_json::from_str::<Value>(&t).unwrap());
     st.query_map(params![item, cell], |r| {
-        Ok((r.get(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?))
+        Ok((
+            r.get(0)?,
+            r.get::<_, Option<String>>(1)?,
+            r.get::<_, Option<String>>(2)?,
+        ))
     })
     .unwrap()
     .map(|x| {
@@ -65,7 +69,10 @@ fn last_taken(e: &Engine, item: i64, cell: &str) -> (Value, Value) {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-    (serde_json::from_str(&input).unwrap(), serde_json::from_str(&output).unwrap())
+    (
+        serde_json::from_str(&input).unwrap(),
+        serde_json::from_str(&output).unwrap(),
+    )
 }
 
 /// The checks of the problems a return was sent back with, as `rounds.rejected` keeps them.
@@ -103,14 +110,18 @@ fn a_finding_of_a_check_the_work_changes_is_judged_before_the_owner_approves_and
         "T6",
         Box::new(|r: &Request, _: usize| {
             let head = git(&r.worktree, &["rev-parse", "HEAD"]);
-            let rows = json!([{ "answer": "old_rule", "id": "F1", "why": "The branch's check reads the run that named it." }]);
+            let rows =
+                json!([{ "answer": "old_rule", "id": "F1", "why": "The branch's check reads the run that named it." }]);
             (Vec::new(), vec![("outcome.rows", rows), ("outcome.head", json!(head))])
         }),
     );
     agents.insert(
         "T4",
         Box::new(|_: &Request, _: usize| {
-            (Vec::new(), vec![("outcome.rows", json!([{ "verdict": "holds", "id": "F1" }]))])
+            (
+                Vec::new(),
+                vec![("outcome.rows", json!([{ "verdict": "holds", "id": "F1" }]))],
+            )
         }),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -135,7 +146,12 @@ fn a_finding_of_a_check_the_work_changes_is_judged_before_the_owner_approves_and
     let (given, fixed) = last_taken(&e, item, "T6");
     let table = &given["engine"]["table"];
     assert_eq!(
-        (&table[0]["row"], &table[0]["from"], &table[0]["id"], table.as_array().map(Vec::len)),
+        (
+            &table[0]["row"],
+            &table[0]["from"],
+            &table[0]["id"],
+            table.as_array().map(Vec::len)
+        ),
         (&json!("F1"), &json!("M1·set_aside"), &json!("S1"), Some(1)),
         "{table}"
     );
@@ -151,14 +167,15 @@ fn a_finding_of_a_check_the_work_changes_is_judged_before_the_owner_approves_and
     let mut gate = transitions(&e, item, "M1");
     gate.dedup();
     assert_eq!(gate, ["set_aside", "owner_approves", "clear"]);
-    let sent_back: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.item = ?1 AND r.rejected IS NOT NULL",
-                [item],
-                |r| r.get(0),
-            )
-            .unwrap();
+    let sent_back: i64 = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.item = ?1 AND r.rejected IS NOT NULL",
+            [item],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(sent_back, 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -194,7 +211,11 @@ fn only_the_engine_s_own_project_can_say_its_change_changes_the_engine_s_checks(
         text.contains("this project's changes cannot change the engine's checks"),
         "{text}"
     );
-    assert_eq!((rounds[2].0.as_deref(), &rounds[2].2), (Some("done"), &None), "{rounds:?}");
+    assert_eq!(
+        (rounds[2].0.as_deref(), &rounds[2].2),
+        (Some("done"), &None),
+        "{rounds:?}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -203,7 +224,8 @@ fn only_the_engine_s_own_project_can_say_its_change_changes_the_engine_s_checks(
 // review, given it, is sent back while it does not answer it; it answers it real, with a finding of its own that
 // carries it, and the work goes to the fix.
 #[test]
-fn a_return_that_breaks_another_check_too_is_sent_back_with_its_problems_only_and_the_review_judges_what_was_set_aside() {
+fn a_return_that_breaks_another_check_too_is_sent_back_with_its_problems_only_and_the_review_judges_what_was_set_aside()
+{
     let s = setup("declared-and-not");
     the_engine_s_own(&s);
     let mut agents = scripts();
