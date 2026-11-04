@@ -130,7 +130,8 @@ fn what_the_message_and_the_hook_gave_a_stopped_round_reaches_the_round_run_agai
                     )],
                 );
             }
-            // The first run says a word more while it runs, takes it from the hook, and then grows past the guard's lines.
+            // The first run says a word more while it runs, takes it from the hook, and then grows past the guard's
+            // lines.
             let mut db = engine::database::open(&data).unwrap();
             db.write(Actor::Owner, |tx| {
                 tx.execute(

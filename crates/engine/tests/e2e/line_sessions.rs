@@ -434,7 +434,8 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
 
 // What the engineer is given of an interjection depends on whether it needs an answer (`informs`), in the round's
 // message and in the hook alike: a word that needs none is told as such, apart from what may need one. What the message
-// gave the hook does not give again; what comes while the round runs it does give. The round's record lists all four, and each is recorded as delivered in that round.
+// gave the hook does not give again; what comes while the round runs it does give. The round's record lists all four,
+// and each is recorded as delivered in that round.
 #[test]
 fn an_interjection_is_given_once_and_asks_for_an_answer_only_where_one_may_be_needed() {
     let s = setup("informs");

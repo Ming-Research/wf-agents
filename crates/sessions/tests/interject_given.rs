@@ -67,8 +67,8 @@ fn during(db: &Db, given: &[i64]) -> Vec<i64> {
         .collect()
 }
 
-// Both kinds the message gave are recorded as delivered with nothing handed in, whether or not the hook has more to hand
-// in; what the round handed in while it ran, and only that, is what the round's end adds to its record.
+// Both kinds the message gave are recorded as delivered with nothing handed in, whether or not the hook has more to
+// hand in; what the round handed in while it ran, and only that, is what the round's end adds to its record.
 #[test]
 fn the_hook_records_both_kinds_the_message_gave_and_hands_in_only_what_came_since() {
     let mut db = running_round(&[1, 2]);

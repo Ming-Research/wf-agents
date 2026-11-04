@@ -6,7 +6,8 @@
 //!
 //! The round's message has given the interjections that waited when the round began, and the round's record lists them
 //! (`rounds.input`, `$.engine.interjections`); the hook records them as delivered in the round, so that the owner's
-//! page does not show them as not taken up while it runs, but does not hand them in again. An interjection that needs no answer (`informs`) is handed in under its own lead, which says so.
+//! page does not show them as not taken up while it runs, but does not hand them in again. An interjection that needs
+//! no answer (`informs`) is handed in under its own lead, which says so.
 
 use db::rusqlite::params;
 use db::{Actor, Db};
@@ -40,7 +41,8 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
                 "SELECT j.id, j.speaker, j.text, j.design_card, c.key, j.informs,
                         j.id IN (SELECT g.value FROM rounds r, json_each(r.input, '$.engine.interjections') g
                                  WHERE r.work = ?1 AND r.n = ?3) AS given,
-                        EXISTS (SELECT 1 FROM attachments a WHERE a.interjection = j.id OR a.matter = j.matter) AS imaged
+                        EXISTS (SELECT 1 FROM attachments a
+                                WHERE a.interjection = j.id OR a.matter = j.matter) AS imaged
                  FROM interjections j LEFT JOIN design_cards c ON c.id = j.design_card
                  WHERE j.work = ?1 AND j.line = ?2 AND j.delivered_round IS NULL
                  ORDER BY j.id",
@@ -56,7 +58,13 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
                     r.get(3)?,
                     r.get::<_, Option<String>>(4)?.as_deref(),
                 );
-                Ok((r.get::<_, i64>(0)?, r.get::<_, bool>(5)?, words, r.get::<_, bool>(6)?, r.get::<_, bool>(7)?))
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, bool>(5)?,
+                    words,
+                    r.get::<_, bool>(6)?,
+                    r.get::<_, bool>(7)?,
+                ))
             })?;
             for row in rows {
                 let (id, informs, words, given, imaged) = row?;
