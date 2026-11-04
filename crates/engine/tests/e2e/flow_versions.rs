@@ -506,17 +506,15 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
                 )
             }),
         );
-        // The second eye's first return has a verdict it does not have, and is sent back.
+        // The second eye's first round asks for tools, and it stands at the second eye once they ran.
         agents.insert(
             "G2",
             Box::new(|_: &Request, n: usize| {
                 if n > 1 {
                     return (Vec::new(), Vec::new());
                 }
-                (
-                    Vec::new(),
-                    vec![("outcome.check", json!({ "verdict": "maybe", "why": "w" }))],
-                )
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
             }),
         );
         let (mut e, said) = engine(&s, agents);
@@ -524,18 +522,17 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
         an_item(&mut e);
         say(&mut e, "Drop the parser's item.");
         let arch = e.step(None).unwrap().work.unwrap();
-        // It stands at the second eye once its first return was sent back: the gate's step and the second eye's first
-        // round are one step of the work.
+        // It stands at the second eye once the tools its first round asked for ran.
         let at_review = |e: &mut Engine| {
-            let sent: i64 =
+            let ran: i64 =
                 e.db.conn()
                     .query_row(
-                        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'G2' AND rejected IS NOT NULL",
+                        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'X1' AND transition IS NOT NULL",
                         [arch],
                         |r| r.get(0),
                     )
                     .unwrap();
-            e.work(arch).unwrap().pos.at == "G2" && sent > 0
+            e.work(arch).unwrap().pos.at == "G2" && ran > 0
         };
         assert!(
             steps_until(&mut e, 40, at_review),

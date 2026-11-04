@@ -186,8 +186,7 @@ fn say_with_an_image(e: &mut Engine, text: &str) {
 #[test]
 fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_asks_and_images() {
     let s = setup("owner-talk-window");
-    rebuild_every_work(&s);
-    let (mut e, said) = engine(&s, scripts());
+    let (mut e, said) = engine(&s, base_wrong_later(scripts()));
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Alpha talk. ALPHAEND");
@@ -372,8 +371,7 @@ fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bo
 #[test]
 fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
     let s = setup("owner-talk-kinds");
-    rebuild_every_work(&s);
-    let (mut e, said) = engine(&s, scripts());
+    let (mut e, said) = engine(&s, base_wrong_later(scripts()));
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Alpha talk. ALPHAEND");

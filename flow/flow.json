@@ -17501,12 +17501,6 @@
                 ]
               ],
               "to": "G1",
-              "do": [
-                {
-                  "at": "answer[new_policy].why",
-                  "do": "queue_check_policy"
-                }
-              ],
               "note": "Whether the policy still holds is checked, as a matter taken with what the plan queued, why being what the owner asks of the direction."
             }
           ],
@@ -17526,6 +17520,10 @@
             {
               "at": "closing",
               "do": "log_matter"
+            },
+            {
+              "at": "answer[new_policy].why",
+              "do": "queue_check_policy"
             }
           ],
           "checks": [
