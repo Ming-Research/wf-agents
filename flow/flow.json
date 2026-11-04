@@ -4300,6 +4300,7 @@
       "go_on_at_second_cell": "Puts the matter in hand back at the head of the queue, to go on at its second cell (`H3` after `H2`, `H5` after `H4`, `P2` after `P1`). The matter that leads a group takes the others with it: they wait in the queue until it is taken again, and its second cell answers for all of them.",
       "write_learned": "Adds what the work learned to its item's approach under `Learned:`, with the commits merged.",
       "collect_decisions": "Makes each decision the round hands in a change of the batch, of the kind record_decision, from the first matter of the owner's words of the batch it quotes: the engine reads the records it quotes, tells from them who decided and when, takes the words from them as they are and writes the line, which is kept with the change, so that the review reads what is written and the batch writes it once the review finds it sound.",
+      "fresh_session": "The line of the cell the row goes to starts a new session there, each time the work takes the row: the session manager ends the one the line had going on.",
       "record_acceptance": "Writes the acceptance conditions of the plan or the design the work implements onto the item: the research's plan when the work goes straight to implement, the design the owner approved otherwise; later the implementation, a fix or the advisor may change them, saying why. If they are the same as those on the item, nothing changes.",
       "post_design_review": "Queues the work's latest design, with what thinking again outside the frame examined, for the project's architect to review at the project's level, as an engineer's question of the kind design_review, which starts a work of the architect when none runs; the matter stands for the work's blocker. One queued already for the same design, not answered nor withdrawn, is not queued again.",
       "ask_owner_review": "Puts the work's latest design before the owner, with the architect's comments, as an ask of the owner in the work's group, and notifies the owner: the owner approves it, says what to change, or says to split it along its parts, and chooses an option for each decision point. The ask stands for the work's blocker; one put already for the same comments, not answered, is not put again.",
@@ -4943,6 +4944,9 @@
       ],
       "write_learned": [
         "items"
+      ],
+      "fresh_session": [
+        "sessions"
       ],
       "record_acceptance": [
         "acceptance"
@@ -7593,7 +7597,7 @@
               "to": "I1",
               "main": true,
               "do": [
-                "open_session",
+                "fresh_session",
                 "record_acceptance"
               ],
               "sets": {

@@ -74,7 +74,7 @@ fn a_return_that_lacks_only_its_last_brace_is_closed_within_its_round() {
     assert!(
         record["attempts"][0]["text"]
             .as_str()
-            .is_some_and(|t| t.contains("\"tell_owner\"")),
+            .is_some_and(|t| t.contains("\"progress\"")),
         "{record}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
@@ -131,8 +131,8 @@ fn engine_record(e: &Engine, work: i64) -> Value {
 }
 
 // A round records where its return was read from: the tool's input, which the command line checked, or the text of the
-// run's result, which no check of it saw. A null a return holds in a field of another form than its own (`ask` beside
-// the understanding) is taken as left out, the round takes its row with nothing sent back, and the round records the
+// run's result, which no check of it saw. A null a return holds in a field of another form than its own (`pause` beside
+// the brief) is taken as left out, the round takes its row with nothing sent back, and the round records the
 // path of the null; a return with no such null records none.
 #[test]
 fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out() {
@@ -144,7 +144,7 @@ fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out(
             Box::new(move |_: &Request, n: usize| match n {
                 1 if nulls => (
                     Vec::new(),
-                    vec![("@from", json!(from)), ("@foreign_null", json!("ask"))],
+                    vec![("@from", json!(from)), ("@foreign_null", json!("pause"))],
                 ),
                 1 => (Vec::new(), vec![("@from", json!(from))]),
                 _ => (Vec::new(), Vec::new()),
@@ -161,7 +161,7 @@ fn a_round_records_where_its_return_came_from_and_the_nulls_it_took_as_left_out(
         assert_eq!(record["return_from"], from, "{record}");
         assert_eq!(
             record.get("foreign_nulls").cloned(),
-            nulls.then(|| json!(["outcome.ask"])),
+            nulls.then(|| json!(["outcome.pause"])),
             "{record}"
         );
         let _ = std::fs::remove_dir_all(&s.root);

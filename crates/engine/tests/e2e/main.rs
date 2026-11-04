@@ -1307,15 +1307,6 @@ fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {
         .ok()
 }
 
-/// Marks an item for the route its works go.
-fn marked(e: &mut Engine, item: i64, route: &str) {
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE items SET route = ?2 WHERE id = ?1", params![item, route])?;
-        Ok(())
-    })
-    .unwrap();
-}
-
 /// Makes, in a clone of the origin, the commit that writes the files given on top of main as it is now, as another pull
 /// request merged meanwhile would, and gives the clone. The commit is not on main until it is pushed from there
 /// ([`main_moves_on`]).
@@ -1446,29 +1437,6 @@ fn step_until(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>, what: &
         rounds.join("; "),
         said.lock().unwrap().join("\n")
     );
-}
-
-/// What the latest round of choosing what runs next planned for the review, and for adversarial testing.
-fn planned(e: &Engine, work: i64) -> (String, String) {
-    e.db.conn()
-        .query_row(
-            "SELECT json_extract(output, '$.plan.review'), json_extract(output, '$.plan.adversarial') FROM rounds
-             WHERE work = ?1 AND cell = 'T7' ORDER BY n DESC LIMIT 1",
-            [work],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap()
-}
-
-/// The row the latest round of the merge judgment took.
-fn judged(e: &Engine, work: i64) -> String {
-    e.db.conn()
-        .query_row(
-            "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'M1' ORDER BY n DESC LIMIT 1",
-            [work],
-            |r| r.get(0),
-        )
-        .unwrap()
 }
 
 /// The latest work of an item: its id, cell, worktree, branch, pull request and why it ended.
@@ -2251,37 +2219,6 @@ fn reported(
     (e, said, reports)
 }
 
-/// A design that is not sure of one thing: it hands in an open question, with the options and the one it recommends.
-fn designs_with_an_open_question() -> Script {
-    Box::new(|_: &Request, _: usize| {
-        (
-            vec![("outcome.measure", "not_measured")],
-            vec![
-                (
-                    "outcome.acceptance",
-                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
-                ),
-                (
-                    "outcome.open_questions",
-                    json!([{ "question": "Which table?", "options": "One or two.", "recommended": "One." }]),
-                ),
-            ],
-        )
-    })
-}
-
-/// The work's open questions, by the view the cells read: each with its answer.
-fn open_questions(e: &Engine, work: i64) -> Vec<(i64, String, Option<String>)> {
-    let mut st =
-        e.db.conn()
-            .prepare("SELECT matter, question, answer FROM work_open_questions WHERE work = ?1 ORDER BY matter")
-            .unwrap();
-    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .unwrap()
-        .map(|x| x.unwrap())
-        .collect()
-}
-
 /// Takes the work's steps alone, every other work held, until `done` says so.
 fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
     for _ in 0..80 {
@@ -2290,70 +2227,6 @@ fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
         }
         e.advance(work).unwrap();
     }
-}
-
-/// The ask of the owner that parks a matter, with the cell the matter goes back to with the owner's reply; none while
-/// no ask parks it.
-fn parked_for(e: &Engine, matter: i64) -> Option<(i64, String)> {
-    let (ask, cell): (Option<i64>, Option<String>) =
-        e.db.conn()
-            .query_row(
-                "SELECT asked, resume_cell FROM architect_matters WHERE id = ?1",
-                [matter],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    ask.zip(cell)
-}
-
-/// The work of the architect whose ways (`H3`) took a round, the first or the last.
-fn ways_work(e: &Engine, last: bool) -> i64 {
-    let order = if last { "DESC" } else { "" };
-    e.db.conn()
-        .query_row(
-            &format!("SELECT work FROM rounds WHERE cell = 'H3' ORDER BY work {order}, n {order} LIMIT 1"),
-            [],
-            |r| r.get(0),
-        )
-        .unwrap()
-}
-
-/// An engine whose work has the open question "Which table?" and whose ways (`H3`) are `ways`, with any other cell
-/// scripted as given, run until the architect pinned the question for the owner and its work ended: the engine, what it
-/// said, the item, its work, the matter of the question, and the ask that parks it.
-fn pinned(
-    s: &Setup,
-    ways: Script,
-    scripted: Vec<(&'static str, Script)>,
-) -> (Engine, Arc<Mutex<Vec<String>>>, i64, i64, i64, i64) {
-    let mut agents = scripts();
-    agents.insert("D2", designs_with_an_open_question());
-    agents.insert("H3", ways);
-    agents.insert(
-        "A4",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
-    );
-    for (cell, script) in scripted {
-        agents.insert(cell, script);
-    }
-    let (mut e, said, item) = start(s, agents);
-    step_to(&mut e, item, "I1");
-    let (work, _, _) = state(&e, item).unwrap();
-    let matter = open_questions(&e, work)[0].0;
-    advance_until(&mut e, work, |e| !ended_at(e, item, "M1").is_empty());
-    assert!(
-        steps_until(&mut e, 60, |e| parked_for(e, matter).is_some()),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let ask = parked_for(&e, matter).unwrap().0;
-    let arch = ways_work(&e, false);
-    assert!(
-        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    (e, said, item, work, matter, ask)
 }
 
 /// The sessions of a work's line, oldest first: why each started, whether it ended, and the cells of its rounds.

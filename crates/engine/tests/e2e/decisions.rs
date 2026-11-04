@@ -3,15 +3,6 @@
 
 use super::*;
 
-/// An item's approach as it stands.
-fn approach_of(e: &Engine, item: i64) -> String {
-    e.db.conn()
-        .query_row("SELECT coalesce(approach, '') FROM items WHERE id = ?1", [item], |r| {
-            r.get(0)
-        })
-        .unwrap()
-}
-
 /// A decision as the cell that records decisions hands it in: what it settles, and the words it rests on named by their
 /// record and the part that decides. Without an item it is one no item holds, with the title and tags of the observation
 /// it is kept as.

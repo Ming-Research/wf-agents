@@ -207,7 +207,8 @@ mod tests {
 
     // The flow starts the engineer's new sessions at researching and at implementing a design, the reader's at its
     // gathering of the background, the deep research's at its first round, the reviewer's at the first pass of the review
-    // and the adversarial tester's at its one round; the fix goes on in the implementation's session.
+    // and the adversarial tester's at its one round; implementing straight from the research and the fix go on in the
+    // research's session, and implementing starts one afresh each time the review of a design approves it.
     #[test]
     fn the_engineer_starts_new_sessions_at_researching_and_implementing() {
         let f = compiled();
@@ -218,6 +219,7 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["R0", "R1", "D1", "I1", "T2", "T1"]);
+        assert_eq!(starts, ["R0", "R1", "D1", "T2", "T1"]);
+        assert_eq!(g.cell("I1").unwrap().fresh_session, ["D4·approved"]);
     }
 }
