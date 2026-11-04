@@ -153,6 +153,24 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
         (false, Some(base.as_str()))
     );
     assert_eq!((by("P1").fork, by("P1").resume.as_deref()), (true, Some(base.as_str())));
+    // The fork reads the base from the prompt cache: all that comes before the base's messages in the prompt (the model,
+    // the tools with the schema of the return among them, the system prompt and the command line's version) is the same
+    // in the base's last round and in the fork's first, where only the messages and the effort differ.
+    let before = |cell: &str| {
+        let r = by(cell);
+        sessions::miss::before_messages_of(&engine::agent::call(
+            r,
+            &engine::agent::command_line(r),
+            "2.1.318",
+            "e2e",
+        ))
+    };
+    assert!(
+        before("N1").iter().any(|(part, _)| part == "--append-system-prompt"),
+        "{:?}",
+        before("N1")
+    );
+    assert_eq!(before("P1"), before("N1"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
