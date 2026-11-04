@@ -2,3 +2,5 @@
 /client/node_modules/
 /client/dist/
 /client/src/stored-flow.json
+# Backup copies, such as the one git mergetool keeps beside a merged file.
+*.orig
