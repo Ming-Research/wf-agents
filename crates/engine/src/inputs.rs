@@ -704,7 +704,7 @@ fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
             let at = |k: &str| o.get(k).and_then(Value::as_str);
             let (head, base) = (at("on_head"), at("on_base"));
             let unfit = if guards {
-                !matches!(base, Some("green" | "not_run"))
+                !matches!(base, Some("green" | "not_run" | "cannot_run"))
             } else {
                 base == Some("green")
             };
@@ -1161,6 +1161,27 @@ mod tests {
             line_diff("It reads. It writes. It ends.", "It reads. It checks. It ends."),
             " It reads.\n-It writes.\n+It checks.\n It ends."
         );
+    }
+
+    // Item #270: a guard test that cannot be built before the change is no row of the fix's table, as one not run is
+    // none: the check of the return asks for its reason and the review judges it. A guard red on either side is one.
+    #[test]
+    fn a_guard_test_that_cannot_be_built_before_the_change_is_no_row_of_the_fix_table() {
+        let guards = json!([
+            { "name": "green", "on_head": "green", "on_base": "green" },
+            { "name": "not_built", "on_head": "green", "on_base": "cannot_run" },
+            { "name": "not_reached", "on_head": "green", "on_base": "not_run" },
+            { "name": "fails_before", "on_head": "green", "on_base": "red" },
+            { "name": "red_after", "on_head": "red", "on_base": "green" },
+        ]);
+        let names: Vec<_> = entries("guard_tests", &guards)
+            .iter()
+            .map(|m| m["name"].clone())
+            .collect();
+        assert_eq!(names, [json!("fails_before"), json!("red_after")]);
+        // New tests are as they were: cannot_run is right for them.
+        let news = json!([{ "name": "n", "on_head": "green", "on_base": "cannot_run" }]);
+        assert!(entries("new_tests", &news).is_empty());
     }
 
     // Item #217: the engineer's tests with their results are an input only when the engineer wrote results, which is
