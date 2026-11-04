@@ -139,13 +139,17 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
         .map(|(_, u)| u.as_ref().unwrap()["cost_usd"].as_f64().unwrap())
         .collect();
     assert!(costs.iter().all(|c| (c - 0.02).abs() < 1e-9), "{costs:?}");
-    // The ping ran the last round's command line, resuming its session, with only the message changed.
+    // The ping ran the last round's command line, resuming its session, with only the message changed: that round, the
+    // research's, started the session the ping resumes.
     let rounds = agent_rounds(&e, item);
     let recorded: Vec<String> = rounds[0].2["call"]["command"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|a| a.as_str().unwrap().to_string())
+        .map(|a| match a.as_str().unwrap() {
+            "--session-id" => "--resume".to_string(),
+            a => a.to_string(),
+        })
         .collect();
     let (replayed, prompt) = seen.lock().unwrap()[0].clone();
     assert_eq!(replayed, recorded);
