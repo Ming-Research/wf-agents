@@ -50,19 +50,20 @@ fn delivered_in(db: &Db, id: i64) -> Option<i64> {
         .unwrap()
 }
 
-// What the round's message gave is not handed in again by the hook, and stays unrecorded: the round records it when it
-// ends. What came after the message is handed in, once.
+// What the round's message gave is not handed in again by the hook, but it is recorded as delivered in the round (the
+// agent has it, and the owner's page must not show it as not taken up while the round runs). What came after the
+// message is handed in, once.
 #[test]
 fn the_hook_does_not_hand_in_what_the_rounds_message_gave() {
     let mut db = running_round(&[1]);
     say(&mut db, "Given by the message.", false);
     assert_eq!(deliver(&mut db, 1, 1, "engineer").unwrap(), None);
-    assert_eq!(delivered_in(&db, 1), None);
+    assert_eq!(delivered_in(&db, 1), Some(1));
 
     say(&mut db, "Said while the round runs.", false);
     let out = deliver(&mut db, 1, 1, "engineer").unwrap().unwrap();
     assert!(out.contains("### ij:2") && !out.contains("ij:1"), "{out}");
-    assert_eq!((delivered_in(&db, 1), delivered_in(&db, 2)), (None, Some(1)));
+    assert_eq!((delivered_in(&db, 1), delivered_in(&db, 2)), (Some(1), Some(1)));
     assert_eq!(deliver(&mut db, 1, 1, "engineer").unwrap(), None);
 }
 
