@@ -4576,7 +4576,7 @@
       "start_work": "Has the session manager set up where the work runs and the engineer's session, on a machine with a free slot. An item worked on here before takes over its latest earlier work's branch, its worktree (reused when it is there, made afresh from the branch otherwise) and its PR; an item imported with a branch takes that branch and the PR imported with it; any other item gets a new branch from main.",
       "run_tools": "Runs the tools the calling cell asked for, from the commits the session manager bundled. When the work comes back from the architect, it runs again only the tools that failed. A tool that fails is retried twice before it counts as failed.",
       "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI once and merges it when it is green: the three one after another, the queue taking one work at a time. Where the project's CI runs on demand, the full CI on the head is a run made by hand now; the merge waits for a green run of the full CI, never for one of the fast CI, and a run without a check merging needs is red. A conflict or a red check goes back to the engineer, who fixes everything with the fast CI before the full CI runs again; the third time in a row it goes to the architect.",
-      "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged. The split of a design along its parts (cell `D5`) is queued so too, as an engineer's question of its own kind.",
+      "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. For the architect, the ask holds only the matter of the path that asked, and the architect's work goes on; the owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked. For an engineer's work, the work waits for the answer, holding no slot, and the answer goes back unchanged to the cell that asked: the engineer's question about what the owner wants, the owner's review of a design, or the owner's approval of a change.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. The engine watches main's CI for every project first (`queue_main_red`).",
@@ -4681,7 +4681,6 @@
       "plan_written": "The plan rewrites the notebook's plan.",
       "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
       "ask_only_on_open_question": "The ways for a question ask the owner only about an open question of an engineer's design, never about an engineer's question, whose engineer waits for the reply; and the question they pin links to the design it is about, as a markdown link to the link the matter holds.",
-      "points_chosen": "An approved design has one choice for each decision point of the latest design, by its number: none that is no such number, none chosen twice, none left out, and each chosen option one of the point's options.",
       "must_fix_fits_findings": "The answer whether anything must be fixed is yes exactly when the first pass or the second found something.",
       "decisions_written": "One row for each option the owner chose for a decision point at the review, by its number, none twice, and each file named is one the branch adds or changes under `decisions/` against main.",
       "closing_given": "The decision log line is one line, of at most 600 characters, and each of the two answers has its why."
@@ -4750,10 +4749,8 @@
       "turn": "Whether the work is first in its project's merge queue.",
       "waited": "Whether every item waited for is merged.",
       "work": "What the work changes: the implementation, the records only, or a report.",
-      "decision_points": "Whether the work's item carries a decision point.",
       "research_rounds": "Whether the initial research has run the project's bound of rounds (6 unless `limits.research_rounds` sets it) since it last handed in its answer.",
       "merge_failures": "Whether this failure in the merge queue is the third in a row since the work last went to the architect for them.",
-      "review": "Where the review of the work's latest design stands: waiting for the architect's comments, for the owner's answer, or answered.",
       "second_eye": "Whether what the matter's session handed in holds a change of a kind a second eye checks."
     },
     "needs": {
@@ -5416,12 +5413,6 @@
           "items"
         ]
       },
-      "decision_points": {
-        "stores": [
-          "items"
-        ],
-        "says": "the item's decision points"
-      },
       "research_rounds": {
         "stores": [
           "recorded"
@@ -5433,13 +5424,6 @@
           "recorded"
         ],
         "says": "the rows the merge queue took"
-      },
-      "review": {
-        "stores": [
-          "architect_queue",
-          "owner_asks"
-        ],
-        "says": "the architect's reply and the owner's answer to the review of the latest design"
       },
       "second_eye": {
         "says": "the changes the matter's session handed in, and the works running",
@@ -5898,14 +5882,6 @@
           {
             "name": "research_again",
             "desc": "The times the way on chosen after a reply or an interjection was to research the problem again, since what the work must deliver changed"
-          },
-          {
-            "name": "design_revisions",
-            "desc": "The times the review of the design sent it back to deep research to be changed"
-          },
-          {
-            "name": "splits",
-            "desc": "The times the owner had the design split along its parts and the architect was asked to split it"
           },
           {
             "name": "review_returns",
@@ -7032,7 +7008,7 @@
             "understanding",
             "can_start",
             "departs",
-            "to_decide"
+            "points"
           ],
           "inenums": {
             "research_rounds": [
@@ -7093,7 +7069,7 @@
             },
             {
               "name": "Why it came to deep research",
-              "what": "Why the work came here: where the research got stuck, the decision it would depart from, the choice it left; or, from the implementation, where the plan or the design did not hold; none when the item's decision points brought it",
+              "what": "Why the work came here: where the research got stuck, and a decision it would depart from; or, from the implementation, where the plan or the design did not hold",
               "from": [
                 [
                   "R1",
@@ -7102,10 +7078,6 @@
                 [
                   "R1",
                   "departs[yes]"
-                ],
-                [
-                  "R1",
-                  "to_decide[designs]"
                 ],
                 [
                   "I1",
