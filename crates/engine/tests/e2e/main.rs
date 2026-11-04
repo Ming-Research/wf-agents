@@ -2051,42 +2051,6 @@ fn at_head(e: &Engine) -> Vec<AtHead> {
     .collect()
 }
 
-/// A side report of one of project p's engineers, as the engine queues one: the engineer's work on an item of its own,
-/// held so that nothing runs it, handed the report in at its round 1. Gives the work and the matter.
-fn side_report(e: &mut Engine, text: &str) -> (i64, i64) {
-    let v = e.flow_now;
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO items (project, title, problem, why, deliver, level)
-             VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l')",
-            [],
-        )?;
-        let item = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, paused, paused_by)
-             VALUES (?1, ?2, 'engineer', 'I1', 'held for the test', 'owner')",
-            params![item, v],
-        )?;
-        let work = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-             VALUES (?1, 1, 'I1', '{}', '{}', 'done', 'c', 1, 1)",
-            [work],
-        )?;
-        let m = db::Matter {
-            project: "p".into(),
-            kind: "report".into(),
-            detail: Some("other".into()),
-            what: format!("A side report: {text}"),
-            body: json!({ "report": { "kind": "other", "what": text, "urgent": false } }),
-            item: Some(item),
-            raised: Some((work, 1)),
-        };
-        Ok((work, db::queue_matter(tx, &m)?))
-    })
-    .unwrap()
-}
-
 /// Takes the work's steps alone, every other work held, until `done` says so.
 fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
     for _ in 0..80 {

@@ -80,7 +80,7 @@ fn reading_the_project_anew_checks_the_policy_only_once_the_policy_or_the_consti
     let check = ("check_policy".to_string(), false, vec![("U1".to_string(), understood)]);
     assert_eq!(
         head_after_a_new_session("check-same", constitution, constitution, false),
-        [last.clone()]
+        std::slice::from_ref(&last)
     );
     let changed = "## Article 1. Small\n\nKeep it smaller.\n";
     assert_eq!(
