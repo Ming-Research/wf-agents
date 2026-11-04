@@ -1210,6 +1210,7 @@ mod tests {
             coloured,
             [
                 ("engineer", Colour::Blue),
+                ("designer", Colour::Plum),
                 ("review", Colour::Teal),
                 ("adversarial", Colour::Auburn),
                 ("advisor", Colour::Pink),

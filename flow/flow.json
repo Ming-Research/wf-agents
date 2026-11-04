@@ -5484,6 +5484,10 @@
             "desc": "The times cell `T6` returned from a fix, whether the review, adversarial testing, the re-check or the merge queue sent it there"
           },
           {
+            "name": "approval_asks",
+            "desc": "The times the merge gate asked the owner to approve a change that touches a path the owner approves"
+          },
+          {
             "name": "shallow_research",
             "desc": "The times the implementation found that the plan of the research, which sent it straight to implement, did not hold: the research was too shallow, and deep research took it"
           },
@@ -6256,6 +6260,9 @@
                 "open_session"
               ]
             }
+          ],
+          "without": [
+            "ask"
           ]
         },
         {
@@ -6904,6 +6911,17 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Replies from those asked",
+              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -7027,6 +7045,17 @@
                 {
                   "engine": "decision_history"
                 }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Replies from those asked",
+              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
+                ]
               ],
               "maybe": true
             }
@@ -7206,9 +7235,12 @@
               ],
               "to": "D4",
               "do": [
-                "resolve_blocker",
-                "raise_blocker"
-              ]
+                {
+                  "at": "reply",
+                  "do": "hand_over"
+                }
+              ],
+              "passes": true
             },
             {
               "name": "to_owner",
@@ -7223,10 +7255,13 @@
               ],
               "to": "D4",
               "do": [
-                "resolve_blocker",
-                "raise_blocker"
+                {
+                  "at": "reply",
+                  "do": "hand_over"
+                }
               ],
-              "note": "The architect handed it to the owner: the owner reviews it next, as after the architect's comments."
+              "note": "The architect handed it to the owner: the owner reviews it next, as after the architect's comments.",
+              "passes": true
             },
             {
               "name": "to_architect",
@@ -7261,10 +7296,10 @@
               ],
               "to": "D4",
               "do": [
-                "withdraw_blocker",
-                "raise_blocker"
+                "hand_over"
               ],
-              "note": "The architect that held it is gone: the owner reviews it without its comments."
+              "note": "The architect that held it is gone: the owner reviews it without its comments.",
+              "passes": true
             },
             {
               "name": "cancelled",
@@ -7281,7 +7316,8 @@
               "do": [
                 "withdraw_blocker"
               ],
-              "counts": "interjections"
+              "counts": "interjections",
+              "interject": true
             },
             {
               "name": "interjection",
@@ -7353,14 +7389,13 @@
             },
             {
               "name": "The architect's comments",
-              "what": "What the architect said of it at the project's level; none when the architect was gone",
+              "what": "What the architect said of the design at the project's level",
               "from": [
                 [
                   "D3",
                   "reply"
                 ]
-              ],
-              "maybe": true
+              ]
             }
           ],
           "out": [
@@ -7433,14 +7468,13 @@
           "inputs": [
             {
               "name": "The architect's comments",
-              "what": "What the architect said of the design at the project's level; none when the architect was gone",
+              "what": "What the architect said of the design at the project's level",
               "from": [
                 [
                   "D3",
                   "reply"
                 ]
-              ],
-              "maybe": true
+              ]
             },
             {
               "name": "The owner's answer",
@@ -7463,6 +7497,17 @@
               ],
               "maybe": true,
               "unanswered": true
+            },
+            {
+              "name": "Replies from those asked",
+              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -7788,7 +7833,8 @@
               "do": [
                 "withdraw_blocker"
               ],
-              "counts": "interjections"
+              "counts": "interjections",
+              "interject": true
             },
             {
               "name": "interjection",
@@ -8672,6 +8718,17 @@
                   "engine": "review_base"
                 }
               ]
+            },
+            {
+              "name": "Replies from those asked",
+              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -8863,6 +8920,17 @@
                   "findings"
                 ]
               ]
+            },
+            {
+              "name": "Replies from those asked",
+              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -9141,6 +9209,17 @@
                   "must_fix"
                 ]
               ]
+            },
+            {
+              "name": "Replies from those asked",
+              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -9546,7 +9625,27 @@
                   "T6",
                   "test_changes"
                 ]
-              ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What adversarial testing did",
+              "what": "The directions adversarial testing tried, the tests it wrote and the places it suspects but could not test; none when it did not run",
+              "from": [
+                [
+                  "T1",
+                  "directions"
+                ],
+                [
+                  "T1",
+                  "wrote"
+                ],
+                [
+                  "T1",
+                  "suspects"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "out": [
@@ -9867,6 +9966,21 @@
                 [
                   "T1",
                   "guard_tests"
+                ],
+                [
+                  "T1",
+                  "wrote"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Replies from those asked",
+              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
                 ]
               ],
               "maybe": true
@@ -10100,6 +10214,17 @@
               "maybe": true
             },
             {
+              "name": "The owner's approval",
+              "what": "What the owner replied when asked to approve the change; none when the owner was not asked",
+              "from": [
+                [
+                  "M3",
+                  "reply"
+                ]
+              ],
+              "maybe": true
+            },
+            {
               "name": "Interjections",
               "what": "Interjections for the engineer that came while the work stood at this step, or while tools ran, and are not delivered yet; none if there are none",
               "from": [
@@ -10172,9 +10297,12 @@
               ],
               "to": "M3",
               "do": [
+                "hand_over",
                 "raise_blocker"
               ],
-              "note": "The change touches a path the owner approves, and the owner has approved neither its design nor the change: the owner is shown it."
+              "note": "The change touches a path the owner approves, and the owner has approved neither its design nor the change: the owner is shown it.",
+              "passes": true,
+              "counts": "approval_asks"
             },
             {
               "name": "clear",
@@ -10247,7 +10375,8 @@
               "do": [
                 "withdraw_blocker"
               ],
-              "counts": "interjections"
+              "counts": "interjections",
+              "interject": true
             }
           ],
           "inenums": {
@@ -10333,7 +10462,8 @@
               "do": [
                 "resolve_blocker"
               ],
-              "note": "The owner replied exactly approved: the merge goes on."
+              "note": "The owner replied exactly approved: the merge goes on.",
+              "passes": true
             },
             {
               "name": "answered",
@@ -10357,7 +10487,9 @@
               "do": [
                 "resolve_blocker"
               ],
-              "note": "Any other answer goes to the engineer to choose the way on."
+              "note": "Any other answer goes to the engineer to choose the way on.",
+              "interject": true,
+              "counts": "interjections"
             },
             {
               "name": "interjection",
@@ -10740,6 +10872,16 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "The merge",
+              "what": "The commit the work merged as",
+              "from": [
+                [
+                  "M2",
+                  "result[merged]"
+                ]
+              ]
             }
           ],
           "prompt": [
