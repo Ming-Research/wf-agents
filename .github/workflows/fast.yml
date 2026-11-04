@@ -9,11 +9,19 @@ name: fast
 # The engine's ci_before tool runs it too, on its temporary branches `wf-agents-before/...`, which hold the code before
 # a change with the tests of the change put on it. On those it runs exactly the tests listed, and skips the lint: the
 # lint would check the code before the change against the page's types of now, and say nothing of the tests.
+#
+# The tests job uploads what became of each test it ran as JUnit XML, in the artifact `test-results`, which the engine
+# reads: the project's configuration names it (`ci.results`), and the documentation of that setting in the engine gives
+# the conventions this workflow holds to. A unit of the Rust tests that did not compile is in it too, as a testsuite
+# with no testcase and an error, and the tests of the other units still run.
 on:
   workflow_dispatch:
     inputs:
       tests:
-        description: The tests to run, by their names separated by spaces, each to its end; empty for the lint only
+        description: >-
+          The tests to run, each name followed by a line break, so that a name may hold spaces (names separated by
+          spaces, with no line break, are read too, as an older engine gives them); each runs to its end. Empty for the
+          lint only
         required: false
         default: ''
 
@@ -48,6 +56,77 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The names given: one a line when the input holds a line break, as the engine gives them; else split at white
+      # space, as an engine before that gave them. Each is trimmed, as the engine trims a name, and listed in the log.
+      #
+      # The engine alone decides which test a name names, by the rule the documentation of `ci.results` gives; this
+      # workflow runs at least every test a name names by that rule: more, never fewer. Each name is taken for a Rust
+      # test and for a page test both. The selection below holds for the separators `::` and ` > `, the project's
+      # `ci.results.separators`: whoever changes that rule or the separators widens it in the same change.
+      #
+      # A Rust test is named by its name, by its unit (its test binary) and its name joined by a space, `::` or ` > `,
+      # or by what follows a separator in one of these. Neither the unit nor the name holds a space, nor the unit a
+      # ` > `, so what follows a name's last ` > ` holds at most one space, and what follows its last `::` or space is
+      # the test's name, or the end of it after a `::`, which `(^|::)…$` selects.
+      #
+      # A page test is named by its title, joined by ` > ` after the titles of the describes it is in and the file it is
+      # in, or by a space or `::` after the file. What follows a name's last ` > ` is the end of the test's own title,
+      # whole, or after the file and a space, or after the file and `::`: three candidates. Every page test is defined
+      # in a `*.test.*` or `*.spec.*` file with its title written there as a string, so the files that hold a
+      # candidate, as written or as a string in the code writes it, hold every test the name names; only those files are
+      # run, and in them only the tests whose name holds a candidate found. Whoever defines a test elsewhere, or with a
+      # title made when the tests run, widens this in the same change.
+      - name: Read the names
+        id: names
+        env:
+          TESTS: ${{ inputs.tests }}
+        run: |
+          set -f
+          names="$RUNNER_TEMP/names" results="$RUNNER_TEMP/test-results"
+          mkdir -p "$names" "$results"
+          if [[ $TESTS == *$'\n'* ]]; then mapfile -t given <<< "$TESTS"; else read -ra given <<< "$TESTS"; fi
+          sq="'" dq='"' bt='`'
+          rust=() titles=() files=()
+          for n in "${given[@]}"; do
+            n=$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "$n")
+            [ -n "$n" ] || continue
+            echo "Named: $n"
+            last=${n##* > }
+            if [[ $last != *' '*' '* ]]; then
+              end=${last##*::}
+              end=${end##* }
+              [ -z "$end" ] || rust+=("test(/(^|::)$(sed 's/[][\\.^$*+?(){}|/]/\\&/g' <<< "$end")\$/)")
+            fi
+            for title in "$last" "${last#* }" "${last#*::}"; do
+              [ -n "$title" ] || continue
+              # As written, and as a string in single quotes, double quotes or backquotes writes it.
+              escaped=${title//\\/\\\\}
+              found=$(git grep -l -F -e "$title" -e "${escaped//$sq/\\$sq}" -e "${escaped//$dq/\\$dq}" \
+                -e "${escaped//$bt/\\$bt}" -- ':(glob)client/**/*.test.*' ':(glob)client/**/*.spec.*' || true)
+              [ -n "$found" ] || continue
+              titles+=("$(sed 's/[][\\.^$*+?(){}|]/\\&/g' <<< "$title")")
+              mapfile -t -O "${#files[@]}" files < <(sed 's|^client/||' <<< "$found")
+            done
+          done
+          rust_selected=false page_selected=false
+          if [ ${#rust[@]} -gt 0 ]; then
+            mapfile -t rust < <(printf '%s\n' "${rust[@]}" | sort -u)
+            filter=""
+            for f in "${rust[@]}"; do filter="${filter:+$filter | }$f"; done
+            printf '%s' "$filter" > "$names/filter"
+            rust_selected=true
+          fi
+          if [ ${#titles[@]} -gt 0 ]; then
+            mapfile -t titles < <(printf '%s\n' "${titles[@]}" | sort -u)
+            (IFS='|'; printf '%s' "${titles[*]}") > "$names/pattern"
+            printf '%s\n' "${files[@]}" | sort -u > "$names/files"
+            echo "Page tests in: $(paste -sd ' ' "$names/files")"
+            page_selected=true
+          fi
+          # A run that names no test it can run says so, and reports no test.
+          if [ $rust_selected = false ] && [ $page_selected = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
+          echo "rust=$rust_selected" >> "$GITHUB_OUTPUT"
+          echo "page=$page_selected" >> "$GITHUB_OUTPUT"
       - run: rustup toolchain install
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
@@ -77,19 +156,116 @@ jobs:
           npm ci
           npm run build
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
-      # 60 s. Each test is named by its name or the end of its path, and runs to its end.
+      # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
+      #
+      # Nextest builds every test binary in one cargo command, and runs none when one does not compile (its exit code
+      # 101). Only then are the units that did compile found, by building again past the failure: `cargo build --tests
+      # --keep-going` compiles the units nextest's `cargo test --no-run` does, with the same profile and flags, so it
+      # takes what that built as it is. Each unit expected (a target of the workspace with tests) that it did not build
+      # is written as a testsuite with no testcase and an error, named as nextest names its binary: the first error the
+      # compiler gave for it, or else that a unit it depends on did not compile. The named tests of the units built are
+      # run again, selected by target with --workspace, so that cargo resolves the features as for the whole workspace
+      # and compiles nothing again: one run when no library's tests failed to compile; else one for the other targets
+      # and one for the libraries that compiled; and, apart, by its package, which may compile some again, any target
+      # with the name of one that did not compile in another package. The step is red still. This is done only when a
+      # unit does not compile: whoever changes it makes one fail on a branch and reads the artifact.
       - name: Test
-        env:
-          TESTS: ${{ inputs.tests }}
+        if: ${{ steps.names.outputs.rust == 'true' }}
         run: |
           set -f
-          filter=""
-          for t in $TESTS; do
-            name=$(printf '%s' "$t" | sed 's/[][\\.^$*+?(){}|]/\\&/g')
-            filter="${filter:+$filter | }test(/(^|::)${name}\$/)"
+          filter=$(cat "$RUNNER_TEMP/names/filter")
+          results="$RUNNER_TEMP/test-results"
+          junit=target/nextest/ci/junit.xml
+          # What a run of nextest wrote, kept under a name of its own; nothing when it wrote nothing.
+          keep() { if [ -f "$junit" ]; then mv "$junit" "$results/$1"; fi; }
+          rm -f "$junit"
+          code=0
+          cargo nextest run --workspace --locked --cargo-profile ci --profile ci \
+            --no-fail-fast --no-tests=pass -E "$filter" || code=$?
+          keep rust.xml
+          [ "$code" -eq 101 ] || exit "$code"
+          tmp="$RUNNER_TEMP/unbuilt"
+          mkdir -p "$tmp"
+          cargo build --tests --workspace --locked --profile ci --keep-going --message-format json > "$tmp/build.json" \
+            || true
+          cargo metadata --no-deps --format-version 1 --locked > "$tmp/metadata.json"
+          jq -n --slurpfile meta "$tmp/metadata.json" --slurpfile build "$tmp/build.json" '
+            def lib: .kind | IN("lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro");
+            def binary_id:
+              if lib then .pkg elif .kind == "test" then "\(.pkg)::\(.name)" else "\(.pkg)::\(.kind)/\(.name)" end;
+            def unit: "\(.id) \(.kind) \(.name)";
+            ($meta[0].packages | map({key: .id, value: .name}) | from_entries) as $pkgs
+            | [$meta[0].packages[] | . as $p | .targets[] | select(.test)
+               | {pkg: $p.name, id: $p.id, kind: .kind[0], name}] as $all
+            | [$build[] | select(.reason == "compiler-artifact" and .profile.test and .executable != null)
+               | {id: .package_id, kind: .target.kind[0], name: .target.name} | unit] as $made
+            | [$build[] | select(.reason == "compiler-message" and .message.level == "error")
+               | {pkg: ($pkgs[.package_id] // .package_id), id: .package_id, kind: .target.kind[0], name: .target.name,
+                  text: .message.rendered}] as $errors
+            | [$all[] | select(unit as $u | any($made[]; . == $u) | not)] as $unbuilt
+            | [$all[] | select(unit as $u | any($made[]; . == $u))] as $built
+            | ($errors | map(binary_id) | unique | join(", ")) as $failing
+            | ([$unbuilt[] | select(lib) | .pkg] | unique) as $broken_libs
+            | ($unbuilt | map(select(lib | not) | "\(.kind) \(.name)")) as $taken
+            | [$built[] | select((lib | not) and ("\(.kind) \(.name)" as $k | any($taken[]; . == $k)))] as $apart
+            | ([$built[] | select((lib | not) and ("\(.kind) \(.name)" as $k | any($taken[]; . == $k) | not))
+                | ["--\(.kind)", .name]] | unique | add // []) as $targets
+            | ([$built[] | select(lib)] | length > 0) as $libs
+            | {
+                xml: ([
+                  "<testsuites>",
+                  ($unbuilt[] | . as $u
+                    | ([$errors[] | select(.id == $u.id and .kind == $u.kind and .name == $u.name)] | first | .text)
+                      // "not built: a unit it depends on did not compile (\(
+                           if $failing == "" then "the log says which" else $failing end))"
+                    | "  <testsuite name=\"\($u | binary_id | @html)\" tests=\"0\" errors=\"1\">",
+                      "    <error message=\"not built\">\(@html)</error>",
+                      "  </testsuite>"),
+                  "</testsuites>"
+                ] | join("\n")),
+                unbuilt: ($unbuilt | map(binary_id)),
+                runs: (
+                  if ($broken_libs | length) == 0 then
+                    [["--workspace"] + (if $libs then ["--lib"] else [] end) + $targets | select(length > 1)]
+                  else
+                    [(["--workspace"] + $targets | select(length > 1)),
+                     (["--workspace"] + ($broken_libs | map("--exclude", .)) + ["--lib"] | select($libs))]
+                  end
+                  + ($apart | group_by(.pkg) | map(["-p", .[0].pkg] + (map(["--\(.kind)", .name]) | add)))
+                )
+              }' > "$tmp/plan.json"
+          jq -r .xml "$tmp/plan.json" > "$results/unbuilt.xml"
+          echo "Units not built: $(jq -r '.unbuilt | join(", ")' "$tmp/plan.json")"
+          mapfile -t runs < <(jq -c '.runs[]' "$tmp/plan.json")
+          n=0
+          for run in "${runs[@]}"; do
+            mapfile -t targets < <(jq -r '.[]' <<< "$run")
+            n=$((n + 1))
+            echo "The named tests of the units built: ${targets[*]}"
+            rm -f "$junit"
+            cargo nextest run --locked --cargo-profile ci --profile ci --no-fail-fast --no-tests=pass -E "$filter" \
+              "${targets[@]}" < /dev/null || true
+            keep "rust-$n.xml"
           done
-          exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci \
-            --no-fail-fast --no-tests=pass -E "$filter"
+          exit 101
+      # The page's tests named, in the files Read the names found them in, writing vitest's JUnit beside its own report;
+      # also when the step before is red. They read the flow as the engine stores it, which the first command writes,
+      # with the cargo profile and the workspace's features of the step before, so that it compiles nothing that step
+      # compiled.
+      - name: Test the page
+        if: ${{ !cancelled() && steps.names.outputs.page == 'true' }}
+        run: |
+          WF_AGENTS_GENERATE=1 cargo test --workspace --locked --profile ci --test typescript
+          mapfile -t files < "$RUNNER_TEMP/names/files"
+          cd client
+          npx vitest run "${files[@]}" --testNamePattern="$(cat "$RUNNER_TEMP/names/pattern")" --passWithNoTests \
+            --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/test-results/page.xml"
+      # What became of the tests, for the engine to read, whatever became of the steps before.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: test-results
+          path: ${{ runner.temp }}/test-results
 
   # The one check the engine reads, red whenever a job that ran is. A job that did not run is skipped: the lint on a
   # temporary branch of the code before a change, the tests when none are named.
