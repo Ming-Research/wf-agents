@@ -4161,7 +4161,7 @@
       "start_work": "Has the session manager set up where the work runs and the engineer's session, on a machine with a free slot. An item worked on here before takes over its latest earlier work's branch, its worktree (reused when it is there, made afresh from the branch otherwise) and its PR; an item imported with a branch takes that branch and the PR imported with it; any other item gets a new branch from main.",
       "run_tools": "Runs the tools the calling cell asked for, from the commits the session manager bundled. When the work comes back from the architect, it runs again only the tools that failed. A tool that fails is retried twice before it counts as failed.",
       "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI once and merges it when it is green: the three one after another, the queue taking one work at a time. Where the project's CI runs on demand, the full CI on the head is a run made by hand now; the merge waits for a green run of the full CI, never for one of the fast CI, and a run without a check merging needs is red. A conflict or a red check goes back to the engineer, who fixes everything with the fast CI before the full CI runs again; the third time in a row it goes to the architect.",
-      "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged. The review of a design (cell `D3`) and its split along its parts (cell `D6`) are queued so too, as an engineer's question of their own kind.",
+      "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged. The split of a design along its parts (cell `D5`) is queued so too, as an engineer's question of its own kind.",
       "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. For the architect, the ask holds only the matter of the path that asked, and the architect's work goes on; the owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked. For an engineer's work, the work waits for the answer, holding no slot, and the answer goes back unchanged to the cell that asked: the engineer's question about what the owner wants, the owner's review of a design, or the owner's approval of a change.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. What was said in the works' groups since the architect last read it is queued first (`queue_group_talk`).",
@@ -8061,6 +8061,9 @@
               "to": "@caller",
               "main": true
             }
+          ],
+          "without": [
+            "ask"
           ]
         },
         {
@@ -12001,6 +12004,17 @@
                   "by": "project"
                 }
               ]
+            },
+            {
+              "name": "The architect's reply",
+              "what": "What the architect replied, if it did before the limit passed; none otherwise",
+              "from": [
+                [
+                  "@from",
+                  "reply"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [

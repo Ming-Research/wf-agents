@@ -508,8 +508,8 @@ impl Ctx<'_> {
         Ok(Some(("D2".to_string(), plan, crate::inputs::decisions_of(&r))))
     }
 
-    /// The acceptance conditions in force: those locked on the item, or else those the latest design handed in, or on
-    /// the light route the latest plan.
+    /// The acceptance conditions in force: those recorded on the item, or else those the latest design handed in, or
+    /// the research's plan.
     fn acceptance(&self) -> Result<Vec<Value>, String> {
         let locked: Option<String> = self
             .e
@@ -523,7 +523,7 @@ impl Ctx<'_> {
             return Ok(xs);
         }
         let mut written: Vec<(RoundId, Value)> = Vec::new();
-        for (cell, path) in [("D2", "acceptance"), ("F1", "plan.acceptance")] {
+        for (cell, path) in [("D2", "design.acceptance"), ("R1", "can_start.acceptance")] {
             let returns = crate::inputs::returns_holding(self.e, self.w, self.g, cell, path)?;
             if let Some((round, conditions)) = returns.iter().find_map(|(r, x)| Some((*r, at_path(x, path)?))) {
                 written.push((round, conditions));
@@ -688,7 +688,6 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             research_problems(clean, &outside).into_result()
         }
-        "route_given" => route_problems(values::light_route(c.e, c.w)?, v).into_result(),
         "design_paths_unchanged" => {
             let wt = c.wt()?;
             let Some(start) = &c.head_start else { return Ok(()) };
@@ -1067,69 +1066,68 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             columns_problems(&want, &ids).into_result()
         }
         "evidence_holds" => cited_evidence_exists(c.e.db.conn(), c.wt()?, v),
+        // The re-check answers every row the latest fix answered, by its number, and no other.
         "previous_findings_answered" => {
-            let Some(last) = c.accepted("T4")?.into_iter().next() else {
+            let Some(fix) = c.accepted("T6")?.into_iter().next() else {
                 return Ok(());
             };
-            let out = last.output.map(|o| c.g.unwrap(&o)).unwrap_or(Value::Null);
-            let mut due: Vec<String> = strs(at_path(&out, "columns.findings.fid").as_ref());
-            due.extend(
-                items(out.get("previous"))
-                    .iter()
-                    .filter(|p| matches!(p["verdict"].as_str(), Some("not_fixed" | "insist")))
-                    .filter_map(|p| p["fid"].as_str().map(str::to_string)),
-            );
-            previous_problems(&due, &strs(v)).into_result()
+            let ids = |rows: Vec<Value>| -> Vec<String> {
+                rows.iter()
+                    .filter_map(|r| r["id"].as_str().map(str::to_string))
+                    .collect()
+            };
+            let due = ids(items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))));
+            previous_problems(&due, &ids(items(v))).into_result()
         }
-        "unverified_decided" => {
-            // The columns the engineer could not verify either: rows of the fix since the last review that came from
-            // a column that review could not verify, answered cannot_verify.
-            let since = c.accepted("T4")?.first().map(|r| r.id);
-            let mut both = BTreeSet::new();
-            for fix in c.accepted("T6")?.into_iter().filter(|r| since.is_none_or(|s| r.id > s)) {
-                let table = table_of(&fix);
-                for row in items(fix.output.as_ref().and_then(|o| o[&c.g.within].get("rows"))) {
-                    let given = table.iter().find(|t| t["row"] == row["id"]);
-                    if row["answer"] == "cannot_verify"
-                        && let Some(t) = given.filter(|t| t["from"] == "T4·columns[cannot_verify]")
-                    {
-                        both.extend(t["column"].as_str().map(str::to_string));
-                    }
-                }
+        // An approved design has the option the owner chose for each of its decision points.
+        "points_chosen" => {
+            if v.and_then(|x| x["verdict"].as_str()) != Some("approved") {
+                return Ok(());
             }
-            unverified_problems(&both, &items(v)).into_result()
+            let points = items(c.last("D2", "design.points")?.as_ref());
+            let choices = items(v.and_then(|x| x.get("choices")));
+            points_problems(&points, &choices).into_result()
         }
-        "no_adversarial_when_due" => {
-            let first = c.accepted("T4")?.is_empty();
-            let chose = c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed");
-            let ran = !c.accepted("T1")?.is_empty();
-            let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
-            // The light route has no design to choose adversarial testing or not, and no judgment of that choice.
-            let light = values::light_route(c.e, c.w)?;
-            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran && !light;
-            let verdict = v.and_then(|x| x["verdict"].as_str());
-            match (due, first, verdict) {
-                (true, true, None) => fail(
-                    "the first review of a change whose design chose no adversarial testing hands in no_adversarial",
-                ),
-                (true, false, Some("stands")) => {
-                    fail("at a re-review, no_adversarial is handed in only as does_not_stand")
-                }
-                (false, _, Some(_)) => fail("no_adversarial is not due here"),
+        // The answer whether anything must be fixed is yes exactly when one of the two passes found something.
+        "must_fix_fits_findings" => {
+            let first = items(c.last("T2", "findings")?.as_ref()).len();
+            let found = first + items(c.unwrapped.get("findings")).len();
+            let yes = v.and_then(|x| x["verdict"].as_str()) == Some("yes");
+            match (yes, found) {
+                (true, 0) => fail("nothing was found in either pass: nothing must be fixed"),
+                (false, n) if n > 0 => fail(format!(
+                    "the two passes found {n} problems: each must be fixed before the change can merge"
+                )),
                 _ => Ok(()),
             }
         }
-        "blind_findings_carried" => {
-            let Some(blind) = c.accepted("T3")?.into_iter().next() else {
-                return Ok(());
+        // Each option the owner chose is written in a file of decisions/ the branch adds or changes.
+        "decisions_written" => {
+            let chosen: Vec<String> = c
+                .last("D4", "verdict")?
+                .filter(|x| x["verdict"] == "approved")
+                .map(|x| {
+                    items(x.get("choices"))
+                        .iter()
+                        .filter_map(|ch| ch["point"].as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let rows = items(v);
+            let given: Vec<String> = rows
+                .iter()
+                .filter_map(|r| r["point"].as_str().map(str::to_string))
+                .collect();
+            let changed = if rows.is_empty() {
+                Vec::new()
+            } else {
+                c.branch_changes()?
             };
-            if c.accepted("T4")?.first().is_some_and(|r| r.id > blind.id) {
-                return Ok(());
-            }
-            let out = blind.output.map(|o| c.g.unwrap(&o)).unwrap_or(Value::Null);
-            let blind_ids = strs(at_path(&out, "findings.fid").as_ref());
-            let carried = strs(at_path(&c.unwrapped, "columns.findings.fid").as_ref());
-            blind_problems(&blind_ids, &carried, &strs(v)).into_result()
+            let files: Vec<String> = rows
+                .iter()
+                .filter_map(|r| r["file"].as_str().map(str::to_string))
+                .collect();
+            written_problems(&chosen, &given, &files, &changed).into_result()
         }
         "table_answered" => {
             let ids: Vec<String> = items(v)
@@ -1256,6 +1254,85 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         other => crate::architect::check(c, other, at, v),
     }
+}
+
+/// What is wrong with the options chosen for the decision points of a design (`points`, each with its number and
+/// options) that the review approved: a choice of no such point, a point chosen twice or left out, and an option that
+/// is none of its point's, each kind said once with all its points.
+fn points_problems(points: &[Value], choices: &[Value]) -> Problems {
+    let want: Vec<String> = points
+        .iter()
+        .filter_map(|p| p["point"].as_str().map(str::to_string))
+        .collect();
+    let given: Vec<String> = choices
+        .iter()
+        .filter_map(|ch| ch["point"].as_str().map(str::to_string))
+        .collect();
+    let misses = id_misses(&want, &given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("the design has no decision point {x}"),
+        |xs| format!("the design has no decision points {xs}"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("decision point {x} is chosen twice"),
+        |xs| format!("decision points {xs} are chosen twice"),
+    );
+    problems.about(
+        &misses.missing,
+        |x| format!("no option is chosen for decision point {x}"),
+        |xs| format!("no option is chosen for decision points {xs}"),
+    );
+    for ch in choices {
+        let (Some(id), Some(option)) = (ch["point"].as_str(), ch["chosen"].as_str()) else {
+            continue;
+        };
+        let Some(point) = points.iter().find(|p| p["point"] == id) else {
+            continue;
+        };
+        let options = items(point.get("options"));
+        let names: Vec<&str> = options.iter().filter_map(|o| o["option"].as_str()).collect();
+        if !names.iter().any(|n| n.trim() == option.trim()) {
+            problems.push(format!(
+                "{option} is no option of decision point {id}, whose options are: {}",
+                names.join("; ")
+            ));
+        }
+    }
+    problems
+}
+
+/// What is wrong with the decisions the implementation says it wrote (`given`, by point, in `files`) against the
+/// points the owner chose for (`chosen`) and the files the branch changes (`changed`): a point not chosen, one written
+/// twice or left out, and a file that is no file of `decisions/` the branch adds or changes.
+fn written_problems(chosen: &[String], given: &[String], files: &[String], changed: &[String]) -> Problems {
+    let misses = id_misses(chosen, given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("the owner chose no option for decision point {x}"),
+        |xs| format!("the owner chose no option for decision points {xs}"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("decision point {x} is written twice"),
+        |xs| format!("decision points {xs} are written twice"),
+    );
+    problems.about(
+        &misses.missing,
+        |x| format!("the option the owner chose for decision point {x} is written in no file of decisions/"),
+        |xs| format!("the options the owner chose for decision points {xs} are written in no file of decisions/"),
+    );
+    for f in files {
+        if !crate::in_force::holds(f) {
+            problems.push(format!("{f} is no file of decisions/"));
+        } else if !changed.iter().any(|c| c == f) {
+            problems.push(format!("the branch does not add or change {f}"));
+        }
+    }
+    problems
 }
 
 /// Where a review of a design says whether a better design is found, in its return.

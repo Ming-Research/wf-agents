@@ -1353,20 +1353,9 @@ pub fn engine(
     // A step that only chooses the row is taken at once; so is where a project's architect waits for a work to start,
     // which no work of the architect stands at, its works starting where its row leads: a work there would take the row
     // for whether a matter is due for its project.
-    let quick = matches!(
-        step.as_deref(),
-        None | Some("choose_checks") | Some("wait_for_start") | Some("wait_for_matter")
-    );
+    let quick = matches!(step.as_deref(), None | Some("wait_for_start") | Some("wait_for_matter"));
     if quick {
-        let output = match step.as_deref() {
-            Some("choose_checks") => {
-                // What the choice compared is in the round's input, where it is read with the choice.
-                let (output, compared) = choose_checks(e, w, g)?;
-                input["engine"] = json!({ "compared": compared });
-                output
-            }
-            _ => json!({}),
-        };
+        let output = json!({});
         let row = g.take(&cell.id, &output, &given)?.clone();
         if row.waits && waits_again(e, w, cell, &row)? {
             return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
@@ -1415,7 +1404,6 @@ pub fn engine(
             }
             out
         }
-        Some("full_ci_on_draft") => tools::full_ci(e, w, needed(&item, w)?, round)?,
         Some("check_records") => {
             let project = e.project_of(w)?;
             let wt = w
@@ -1426,7 +1414,6 @@ pub fn engine(
             crate::reasoning::check(e, &project, wt, &fork)?
         }
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
-        Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
@@ -1976,116 +1963,6 @@ fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
     out
 }
 
-/// Whether a round of the fix answered a row that the cell `side` raised: a row of the table that round was given
-/// names the cell it came from. A round's rows are numbered anew, so its answers are read against its own table; a
-/// round given no table (the engine runs none then) answered nothing.
-fn answers_a_row_of(fix: &Round, within: &str, side: &str) -> bool {
-    let table = fix.input["engine"]["table"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    let answers = fix.output.as_ref().and_then(|o| o[within]["rows"].as_array());
-    answers.is_some_and(|rows| {
-        rows.iter().any(|row| {
-            table
-                .iter()
-                .any(|t| t["row"] == row["id"] && t["from"].as_str().and_then(|f| f.split('·').next()) == Some(side))
-        })
-    })
-}
-
-/// Cell `T7`: what runs next, from what the design chose, what the review accepted, whether the work's own lines
-/// changed since each side last looked, and what the fix answered: a side that raised a row the fix answered looks at
-/// it again, whatever the answer was. It gives the choice, and what it compared for each side that has answered, which
-/// the round of `T7` records in `input.engine.compared`: the head the side left the work at, the head now, and whether
-/// the work's own lines at the two are the same (`same`), differ (`differs`), or could not be had to compare
-/// (`cannot_compare: <why>`). What cannot be compared counts as changed. The record is what was compared, not the
-/// choice: the review is also chosen as `changed` when adversarial testing runs again, though its own lines are `same`.
-fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<(Value, Value), String> {
-    let project = e.project_of(w)?;
-    let reviews = inputs::answered(e, w, g, "T4")?;
-    let adversarial = inputs::answered(e, w, g, "T1")?;
-    let fixes = inputs::answered(e, w, g, "T6")?;
-    let chose = inputs::last_return(e, w, g, "D11", "adversarial")?
-        .and_then(|r| at_path(&r, "adversarial.verdict"))
-        .is_some_and(|v| v == "needed");
-    let not_accepted = inputs::last_return(e, w, g, "T4", "no_adversarial")?
-        .and_then(|r| at_path(&r, "no_adversarial.verdict"))
-        .is_some_and(|v| v == "does_not_stand");
-    let worktree = w.worktree.as_deref();
-    // The work's own lines at a commit, or why they cannot be had.
-    let own = |rev: &str| -> Result<Vec<u8>, String> {
-        let wt = worktree.ok_or("the work has no worktree")?;
-        git::own_lines(wt, &project.main, rev)
-    };
-    let now_head = worktree.and_then(|wt| git::head(wt).ok());
-    let now = own("HEAD");
-    // For a side that has answered: the record of what was compared against its newest answer, and whether the work's
-    // own lines changed since. The work stood where the round ended (`head_after`), else where it began (`head`, for a
-    // round recorded before `head_after` existed), so that what the side committed itself is not a change.
-    let compare = |rs: &[Round]| -> Option<(Value, bool)> {
-        let side = rs.first()?;
-        let engine = &side.input["engine"];
-        let since = engine["head_after"].as_str().or_else(|| engine["head"].as_str());
-        let then = match since {
-            Some(head) => own(head),
-            None => Err("the round recorded no head".to_string()),
-        };
-        let (verdict, changed) = match (&then, &now) {
-            (Ok(a), Ok(b)) if a == b => ("same".to_string(), false),
-            (Ok(_), Ok(_)) => ("differs".to_string(), true),
-            (Err(why), _) | (_, Err(why)) => (format!("cannot_compare: {why}"), true),
-        };
-        Some((
-            json!({ "since": since, "now": now_head, "own_lines": verdict }),
-            changed,
-        ))
-    };
-    let adversarial_compared = compare(&adversarial);
-    let review_compared = compare(&reviews);
-    let changed = |compared: &Option<(Value, bool)>| compared.as_ref().is_some_and(|c| c.1);
-    // Whether the fix answered, with any answer, a row that `side` raised since `side` last returned.
-    let answered_since = |rs: &[Round], side: &str| -> bool {
-        let since = rs.first().map(|r| r.id);
-        fixes
-            .iter()
-            .filter(|f| since.is_none_or(|s| f.id > s))
-            .any(|f| answers_a_row_of(f, &g.within, side))
-    };
-    let adv = if (chose || not_accepted) && adversarial.is_empty() {
-        "all"
-    } else if changed(&adversarial_compared) {
-        "changed"
-    } else if !adversarial.is_empty() && answered_since(&adversarial, "T1") {
-        "disputes"
-    } else {
-        "skipped"
-    };
-    let mut review = if reviews.is_empty() {
-        "all"
-    } else if changed(&review_compared) {
-        "changed"
-    } else if answered_since(&reviews, "T4") || !crate::message::unverified_last(e, w, g).is_empty() {
-        // The rows the fix answered, whatever the answer and whether or not it changed the code, and the columns the
-        // last review could not verify: the side that raised them decides them again.
-        "disputes"
-    } else {
-        "none"
-    };
-    if adv != "skipped" && matches!(review, "none" | "disputes") {
-        review = "changed";
-    }
-    // A side that has not answered has nothing to compare against.
-    let compared: Map<String, Value> = [("adversarial", adversarial_compared), ("review", review_compared)]
-        .into_iter()
-        .filter_map(|(side, c)| c.map(|(record, _)| (side.to_string(), record)))
-        .collect();
-    Ok((
-        json!({ "plan": { "review": review, "adversarial": adv } }),
-        Value::Object(compared),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2100,88 +1977,5 @@ mod tests {
         let before = vec![json!({ "value": { "points": [{ "kind": "blocked_by_permission", "what": "Run it." }] } })];
         assert_eq!(what_is_asked(&before), ": Run it.");
         assert_eq!(what_is_asked(&[]), "");
-    }
-
-    // The numbered table of a fix, made as the engine makes it: F1 a finding of the table review, F2 a test of
-    // adversarial testing that went wrong, F3 a red check of the full CI.
-    fn fix_table() -> Value {
-        let place = |cell: &str, path: &str, value: Value| inputs::Part {
-            origin: inputs::Origin::Place {
-                round: crate::work::RoundId::new(1, 9),
-                first: crate::work::RoundId::new(1, 9),
-                cell: cell.into(),
-                path: path.into(),
-            },
-            value,
-        };
-        let finding = json!({ "fid": "R1", "where": "w", "what": "x", "fix": "y" });
-        let gathered = inputs::Gathered {
-            input: flow::CompiledInput {
-                id: None,
-                name: None,
-                common: false,
-                numbered: Some("F".into()),
-                what: "The table to answer".into(),
-                from: Vec::new(),
-                maybe: true,
-                newest: false,
-                unanswered: false,
-            },
-            parts: vec![
-                place(
-                    "T4",
-                    "columns[findings]",
-                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding] }]),
-                ),
-                place(
-                    "T1",
-                    "new_tests",
-                    json!([{ "name": "red_test", "on_head": "red", "on_base": "red" }]),
-                ),
-                place(
-                    "T2",
-                    "result[red]",
-                    json!({ "kind": "red", "checks": [{ "name": "lint", "result": "red", "run": "u" }] }),
-                ),
-            ],
-            value: None,
-        };
-        Value::Array(inputs::table(&[gathered]))
-    }
-
-    fn fix_round(table: Option<&Value>, answer: &str, id: &str) -> Round {
-        Round {
-            id: crate::work::RoundId::new(1, 9),
-            cell: Some("T6".into()),
-            session: None,
-            input: json!({ "engine": { "table": table } }),
-            output: Some(json!({ "outcome": { "rows": [{ "answer": answer, "id": id }] } })),
-            transition: Some("done".into()),
-            rejected: None,
-            compactions: 0,
-            started_at: 0,
-            ended_at: None,
-            usage: None,
-        }
-    }
-
-    // A fix answered a row the cell `side` raised when its answer names a row of the table it was given that came from
-    // that cell, whatever the answer is. Every answer the flow gives is tried, so one added later cannot be left out;
-    // a row of another cell, a number the table does not have and a round given no table answer no one's.
-    #[test]
-    fn any_answer_to_a_row_a_side_raised_is_an_answer_to_that_side() {
-        let table = fix_table();
-        let answers = flow::answers("T6", "rows").unwrap();
-        assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
-        for a in &answers {
-            let answered = |id: &str, side: &str| answers_a_row_of(&fix_round(Some(&table), a, id), "outcome", side);
-            assert!(answered("F1", "T4"), "{a}");
-            assert!(!answered("F1", "T1"), "{a}");
-            assert!(answered("F2", "T1"), "{a}");
-            assert!(!answered("F2", "T4"), "{a}");
-            assert!(!answered("F3", "T4") && !answered("F3", "T1"), "{a}");
-            assert!(!answered("F9", "T4") && !answered("F9", "T1"), "{a}");
-            assert!(!answers_a_row_of(&fix_round(None, a, "F1"), "outcome", "T4"), "{a}");
-        }
     }
 }
