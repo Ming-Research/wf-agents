@@ -21,8 +21,12 @@ use crate::work::{Item, RoundId, Work};
 /// The field of the implementation's and the fix's return that names the checks the change changes.
 pub const DECLARED: &str = "checks_changed";
 
-/// The check that judges a declaration: no declaration sets aside what it finds.
+/// The check that judges a declaration.
 pub const KNOWN: &str = "checks_changed_known";
+
+/// The checks no declaration sets aside, nor can name, what makes the declaration no exemption: the one that judges it,
+/// and the one that holds the reviews to answering each finding set aside, which is what judging one is.
+pub const NEVER: [&str; 2] = [KNOWN, "set_aside_answered"];
 
 /// The engine's input of the findings set aside no review judged, and the merge gate's value and return that name it.
 pub const INPUT: &str = "set_aside";
@@ -31,8 +35,8 @@ pub const INPUT: &str = "set_aside";
 const IMPLEMENT: &str = "I1";
 const FIX: &str = "T6";
 
-/// The cells a round of which, once it handed in its answer, has judged every finding set aside before it: the details
-/// review and the re-check.
+/// The cells a round of which, once it handed in its answer, has judged every finding set aside before it, and not those
+/// of its own return: the details review and the re-check.
 const JUDGES: [&str; 2] = ["T3", "T4"];
 
 /// The re-check, which judges the findings set aside the fix answered as rows of its table there, not among the others.
@@ -94,12 +98,11 @@ pub fn declared(
 }
 
 /// The problems a return's checks found, parted into those sent back and those set aside: a problem of a check the work
-/// says it changes is set aside, and any other is sent back, as is every problem of the check that judges the
-/// declaration, which no declaration can set aside.
+/// says it changes is set aside, and any other is sent back, as is every problem of a check no declaration sets aside.
 pub fn part(found: Vec<Problem>, declared: &BTreeSet<String>) -> (Vec<Problem>, Vec<Problem>) {
     found
         .into_iter()
-        .partition(|p| p.check == KNOWN || !declared.contains(&p.check))
+        .partition(|p| NEVER.contains(&p.check.as_str()) || !declared.contains(&p.check))
 }
 
 /// The problems set aside in a round's return as `rounds.set_aside` keeps them, each numbered after those the work set
@@ -124,11 +127,11 @@ pub fn record(conn: &db::rusqlite::Connection, work: i64, aside: &[Problem]) -> 
 }
 
 /// Every finding set aside in the work, oldest first, each with the round whose return it was found in, as the input
-/// gives it: `{id, check, field, text, round}`, a field left out for a problem about the return as a whole.
+/// gives it: `{id, check, field, text, round, cell}`, a field left out for a problem about the return as a whole.
 fn recorded(e: &Engine, work: i64) -> Result<Vec<(RoundId, Value)>, String> {
     let rows = crate::work::query_json(
         e.db.conn(),
-        "SELECT round, id, check_name, field, text FROM work_set_aside WHERE work = ?1 ORDER BY round, position",
+        "SELECT round, cell, id, check_name, field, text FROM work_set_aside WHERE work = ?1 ORDER BY round, position",
         &[&work],
         10_000,
     )?;
@@ -144,13 +147,14 @@ fn recorded(e: &Engine, work: i64) -> Result<Vec<(RoundId, Value)>, String> {
             }
             entry.insert("text".into(), r["text"].clone());
             entry.insert("round".into(), json!(round.to_string()));
+            entry.insert("cell".into(), r["cell"].clone());
             (round, Value::Object(entry))
         })
         .collect())
 }
 
-/// The findings set aside in the work that no review has judged: those after the latest round of the details review or
-/// the re-check that handed in its answer, oldest first.
+/// The findings set aside in the work that no review has judged, oldest first: those in the latest round of the details
+/// review or the re-check that handed in its answer, whose return no review came after, and those after it.
 pub fn unjudged(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Vec<Value>, String> {
     let mut judged: Option<RoundId> = None;
     for cell in JUDGES {
@@ -160,7 +164,7 @@ pub fn unjudged(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Vec<Value>, S
     }
     Ok(recorded(e, w.id)?
         .into_iter()
-        .filter(|(round, _)| judged.is_none_or(|j| *round > j))
+        .filter(|(round, _)| judged.is_none_or(|j| *round >= j))
         .map(|(_, entry)| entry)
         .collect())
 }

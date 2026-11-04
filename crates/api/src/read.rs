@@ -125,15 +125,16 @@ fn why(rejected: Option<&Value>) -> Option<String> {
 }
 
 /// The problems a return was taken with set aside, as `rounds.set_aside` keeps them: a line for each, its number in
-/// the work before it as the engine would have sent it back (`S1 check (field): text`); none for a round with none.
+/// the work before the line the engine would have sent it back with (`S1 check (field): text`); none for a round with
+/// none.
 fn set_aside(kept: Option<&Value>) -> Option<String> {
     let lines: Vec<String> = kept?
         .as_array()?
         .iter()
         .map(|p| {
             let s = |k: &str| p[k].as_str().unwrap_or_default();
-            let field = p["field"].as_str().unwrap_or("the return");
-            format!("{} {} ({field}): {}", s("id"), s("check"), s("text"))
+            let line = db::problem_line(s("check"), p["field"].as_str(), s("text"));
+            format!("{} {line}", s("id"))
         })
         .collect();
     (!lines.is_empty()).then(|| lines.join("\n"))

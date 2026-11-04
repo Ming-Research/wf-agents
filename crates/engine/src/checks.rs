@@ -158,19 +158,13 @@ impl Problem {
         }
     }
 
-    /// The line this problem makes in the text a return is sent back with, `check (place): problem`.
+    /// The line this problem makes in the text a return is sent back with ([`db::problem_line`]).
     fn line(&self) -> String {
-        format!(
-            "{} ({}): {}",
-            self.check,
-            self.field.as_deref().unwrap_or("the return"),
-            self.text
-        )
+        db::problem_line(&self.check, self.field.as_deref(), &self.text)
     }
 }
 
-/// The text a return that failed checks is sent back with: a line for each problem, in the order found. The only
-/// place this line is made.
+/// The text a return that failed checks is sent back with: a line for each problem, in the order found.
 pub fn reason(problems: &[Problem]) -> String {
     problems.iter().map(Problem::line).collect::<Vec<_>>().join("\n")
 }
@@ -340,7 +334,7 @@ fn previous_problems(due: &[String], given: &[String]) -> Problems {
 }
 
 /// What is wrong with the checks a declaration names (`named`) against the flow's checks (`known`): a name that is no
-/// check, one named twice, and the check that judges the declaration, each kind said once with all its names.
+/// check, one named twice, and one no declaration sets aside, each kind said once with all its names.
 fn declared_problems(known: &[&str], named: &[String]) -> Problems {
     let misses = id_misses(known, named);
     let mut problems = Problems::default();
@@ -354,12 +348,16 @@ fn declared_problems(known: &[&str], named: &[String]) -> Problems {
         |x| format!("check {x} is named twice"),
         |xs| format!("checks {xs} are named twice"),
     );
-    if named.iter().any(|n| n == set_aside::KNOWN) {
-        problems.push(format!(
-            "{} judges the declaration itself, so no declaration sets aside what it finds: leave it out",
-            set_aside::KNOWN
-        ));
-    }
+    let never: Vec<String> = set_aside::NEVER
+        .iter()
+        .filter(|c| named.iter().any(|n| n == *c))
+        .map(|c| c.to_string())
+        .collect();
+    problems.about(
+        &never,
+        |x| format!("{x} is what makes a declaration no exemption, so no declaration names it: leave it out"),
+        |xs| format!("{xs} are what makes a declaration no exemption, so no declaration names them: leave them out"),
+    );
     problems
 }
 

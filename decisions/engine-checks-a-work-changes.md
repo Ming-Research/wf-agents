@@ -11,7 +11,9 @@ Such a work names, in its implementation's return, each check of the flow's `eng
 one more names that one too. The declaration holds from the return that makes it on: the latest implementation's, with
 every fix's since. The engine accepts a declaration only in the project the engine is built from, since no other
 project's change can change the engine's checks, and only of checks the flow has, each named once
-(`checks_changed_known`).
+(`checks_changed_known`). No declaration names `checks_changed_known` or `set_aside_answered`, and what they find is
+never set aside: they are what makes a declaration no exemption, the one judging it and the other holding the reviews
+to answering each finding.
 
 From then on, a problem in any return of the work that only a declared check found is not sent back: the return is
 taken, and the problem is kept on its round (`rounds.set_aside`), numbered in the work (S1, S2, ...). A return that also
@@ -27,12 +29,23 @@ table, which it answers `old_rule` or fixes, and the re-check judges the answers
 the owner asked to approve it, with a finding set aside that no review judged. The review also checks the declaration
 itself against the diff: the engine cannot tell which file holds which check.
 
+A review does not judge what is set aside in its own return, since no review came after it. A finding set aside in a
+return of the re-check goes by the merge gate's row `set_aside` to the fix and to the re-check again, and the way round
+ends when a return of the re-check sets none aside. The re-check is given the installed prompt, so a return written by
+it is reported only where the installed check disagrees with that prompt, which the engineer cannot mend. So the second
+time the same check is set aside from a return of the re-check, the fix does not answer that row but asks the advisor,
+who judges whether the re-check can write a return that passes the installed check; where it cannot, the architect has
+the work wait for the installation or changes the item. The engine does not stop the way round itself: as with the
+other loops between the fix and the re-check, the counter `review_returns` tells the owner past its limit and the time
+budget pauses the work.
+
 ## Why
 
 The constitution's Article 1 has wf-agents develop itself through its own flow, and the policy has a work that mends the
 engine's own rules not be stopped by the fault it mends. Before this, such a work was sent back by the installed check,
-and went around it by asking the advisor: #217 took seven more rounds from the return sent back to the advisor's
-ruling. With the declaration it takes two: the fix answers, and the re-check judges.
+and went around it by asking the advisor: #217 took seven more rounds from the return sent back until the work was back
+at its cell, the advisor's ruling among them. With the declaration it takes two: the fix answers, and the re-check
+judges.
 
 The declaration is no exemption. The installed checks still run and what they find is recorded on the round; every
 finding is judged by a review against the diff, and the merge gate lets none through unjudged; and only the project the

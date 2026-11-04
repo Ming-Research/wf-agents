@@ -312,6 +312,11 @@ fn ids_in(v: &Value) -> Vec<String> {
         .collect()
 }
 
+/// What the merge gate returned the last time it took a row for the item's work.
+fn gate_return(e: &Engine, item: i64) -> Value {
+    last_taken(e, item, "M1").1
+}
+
 /// What the merge gate did the first time it judged the item's work, past waiting for items: the row it took, and the
 /// findings set aside before it that it let through, those neither answered in the `set_aside` of a details review's
 /// or a re-check's return the engine took before it, nor among those it returned for the fix to answer.
@@ -406,6 +411,85 @@ fn a_finding_set_aside_in_the_details_review_s_own_return_waits_for_a_review_aft
     );
     let (gate, left) = left_unjudged_at_the_gate(&e, item);
     assert_eq!((gate.as_str(), left), ("set_aside", Vec::<String>::new()), "{log}");
+    // The gate hands on the review's own finding alone, saying the cell whose return it was found in.
+    let sent = gate_return(&e, item);
+    assert_eq!(
+        (ids_in(&sent["set_aside"]), &sent["set_aside"][0]["cell"]),
+        (vec!["S2".to_string()], &json!("T3")),
+        "{sent}\n{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A finding set aside in the re-check's own return, when the work says it changes the re-check's check, has no review
+// after it: the merge gate sends it to the fix and the re-check once more, saying it came from the re-check, and lets the
+// work through only once a return of the re-check sets none aside.
+#[test]
+fn a_finding_set_aside_in_the_re_check_s_own_return_goes_round_until_a_return_of_the_re_check_sets_none_aside() {
+    let s = setup("declared-recheck-own");
+    the_engine_s_own(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        adding("I1", |_| {
+            vec![("outcome.checks_changed", declaring_too("previous_findings_answered"))]
+        }),
+    );
+    agents.insert("T3", adversarial());
+    agents.insert(
+        "T1",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.wrote", "none")],
+                vec![("outcome.conditions", conditions_with_a_test_never_run())],
+            )
+        }),
+    );
+    agents.insert(
+        "T6",
+        Box::new(|r: &Request, _: usize| {
+            let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+            let rows = json!([{ "answer": "old_rule", "id": "F1", "why": "The branch's check reads the run." }]);
+            (Vec::new(), vec![("outcome.rows", rows), ("outcome.head", json!(head))])
+        }),
+    );
+    // The first return of the re-check leaves the row out, which only the check the work says it changes refuses.
+    agents.insert(
+        "T4",
+        Box::new(|_: &Request, n: usize| {
+            let rows = if n == 1 {
+                json!([])
+            } else {
+                json!([{ "verdict": "holds", "id": "F1" }])
+            };
+            (Vec::new(), vec![("outcome.rows", rows)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the merge", |e| {
+        transitions(e, item, "M2").iter().any(|t| t == "merged")
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        transitions(&e, item, "M1"),
+        ["set_aside", "set_aside", "clear"],
+        "{log}"
+    );
+    let rechecked = ended_with(&e, item, "T4");
+    let aside = rechecked[0].2.clone().unwrap_or_default();
+    assert_eq!(
+        (ids_in(&aside), &aside[0]["check"]),
+        (vec!["S2".to_string()], &json!("previous_findings_answered")),
+        "{rechecked:?}\n{log}"
+    );
+    assert_eq!(rechecked[1].2, None, "{rechecked:?}\n{log}");
+    let (given, _) = last_taken(&e, item, "T6");
+    let table = &given["engine"]["table"];
+    assert_eq!(
+        (&table[0]["id"], &table[0]["cell"], table.as_array().map(Vec::len)),
+        (&json!("S2"), &json!("T4"), Some(1)),
+        "{table}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -451,6 +535,16 @@ fn saying_the_work_changes_the_check_of_the_reviews_answers_lets_no_finding_set_
     let log = said.lock().unwrap().join("\n");
     let (gate, left) = left_unjudged_at_the_gate(&e, item);
     assert_eq!(left, Vec::<String>::new(), "the gate took {gate}\n{log}");
+    // The declaration of that check is refused, and the review held to answering.
+    let implemented = ended_with(&e, item, "I1");
+    let refused = implemented[1].1.clone().unwrap_or_default();
+    assert!(checks_of(&refused).iter().any(|c| c == "checks_changed_known"), "{refused}");
+    assert!(
+        db::sent_back_text(&refused).unwrap_or_default().contains("set_aside_answered"),
+        "{refused}"
+    );
+    let reviewed = ended_with(&e, item, "T3");
+    assert_eq!(checks_of(&reviewed[0].1.clone().unwrap_or_default()), ["set_aside_answered"], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

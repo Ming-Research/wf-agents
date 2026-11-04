@@ -70,8 +70,8 @@ back. A work that changes one of these checks is judged by the installed engine,
 change is merged and installed: it names the checks it changes (`checks_changed`), in the project the engine is built
 from only, and what only those find in its returns is not sent back but set aside, kept on the round
 (`rounds.set_aside`, the view `work_set_aside`) and numbered S1, S2, ... in the work. The details review and the
-re-check judge each against the diff, as the old rule's product or a real problem to fix, and the merge gate sends any
-still not judged to the fix and the re-check before the work may merge.
+re-check judge each against the diff, as the old rule's product or a real problem to fix, none judging what its own
+return set aside, and the merge gate sends any still not judged to the fix and the re-check before the work may merge.
 
 ## Installing
 
