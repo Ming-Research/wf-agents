@@ -739,7 +739,10 @@ mod tests {
         assert_eq!(carried_chars(&log, &empty), log.to_string().chars().count());
         let mut since = empty.clone();
         since["merged"] = json!(["abc Merge the parser"]);
-        assert_eq!(carried_chars(&json!({}), &since), since["merged"].to_string().chars().count());
+        assert_eq!(
+            carried_chars(&json!({}), &since),
+            since["merged"].to_string().chars().count()
+        );
     }
 
     // The engine's order takes what waits by fact: the owner first, then main red, then a work stopped at its question;

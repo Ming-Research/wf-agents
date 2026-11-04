@@ -278,7 +278,12 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
     // The check of the policy, forked from the base, is referred to every section the base was given, and given whole
     // the plan, which the base wrote and was never given.
     let check = input_at(&e, arch, "P1", false);
-    for (section, whole) in [("project_now", false), ("unclear", false), ("plan", true), ("other", false)] {
+    for (section, whole) in [
+        ("project_now", false),
+        ("unclear", false),
+        ("plan", true),
+        ("other", false),
+    ] {
         assert_eq!(
             given_ending(&check, &format!("·engine·notebook_{section}")),
             Some(whole),
