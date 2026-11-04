@@ -146,6 +146,15 @@ pub fn gate(conn: &Connection, item: i64, work: i64) -> Result<&'static str, Str
     Ok(if relayed { ASK } else { ANSWERED })
 }
 
+/// Whether the gate's ask of the first condition still open stands unanswered: the gate's row [`JUDGES`] has then nothing
+/// new to do, and otherwise asks of it.
+pub fn asked(conn: &Connection, item: i64, work: i64) -> Result<bool, String> {
+    let Some(first) = open(conn, item)?.into_iter().next() else {
+        return Ok(false);
+    };
+    Ok(matches!(latest_ask(conn, work, first.id)?, Some((_, _, None))))
+}
+
 /// The latest report of the engineer on a condition, by its number: the round, and the row it handed in; none when it
 /// has not reported on it.
 fn report(conn: &Connection, work: i64, within: &str, number: &str) -> Result<Option<Value>, String> {

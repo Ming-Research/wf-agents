@@ -13,17 +13,26 @@ fn compiled() -> flow::Compiled {
     flow::compile(FLOW, &cx).unwrap_or_else(|e| panic!("{e}"))
 }
 
-// The engineer does not record a merge condition: every cell of a line that holds the rule to ask the architect instead
-// can ask, by the row the asking part gives it or, a cell that is asked itself, by handing on to the architect, so that
-// the rule is one each can follow.
+// The engineer does not record a merge condition: the rule that holds every cell of its lines says to ask the architect
+// instead, and each can ask, by the row the asking part gives it or, a cell that is asked itself, by handing on to the
+// architect, so that the rule is one each can follow. The one exception is `A7`, which only says how long the question of
+// the cell that called it goes on waiting and goes back to that cell, in the same session, where it can ask.
 #[test]
 fn every_cell_told_to_ask_the_architect_for_a_merge_condition_can() {
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let flows = v["flows"].as_array().unwrap();
+    let engineer = flows.iter().find(|f| f["name"] == "engineer").unwrap();
+    let rules = engineer["rules"].as_array().unwrap();
+    let engineering = rules.iter().find(|r| r["name"] == "engineering").unwrap();
+    let text = engineering["text"].to_string();
+    assert!(text.contains("ask the architect to record it"), "{text}");
+
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let told: Vec<&flow::CompiledCell> = g
         .cells
         .iter()
-        .filter(|x| x.kind == "agent" && x.rules.iter().any(|r| r.name == "engineering"))
+        .filter(|x| x.kind == "agent" && x.id != "A7" && x.rules.iter().any(|r| r.name == "engineering"))
         .collect();
     assert!(told.iter().any(|x| x.id == "I1") && told.iter().any(|x| x.id == "T6"));
     for cell in told {

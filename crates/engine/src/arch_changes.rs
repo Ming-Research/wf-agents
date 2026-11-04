@@ -1358,7 +1358,7 @@ mod tests {
                 [],
             )?;
             let edit = json!({ "kind": "edit_acceptance", "item": 1, "acceptance": ["New wording."], "reason": "r" });
-            write_all(tx, &[edit], &BTreeMap::new()).map_err(db::Error::Abort)?;
+            write_all(tx, &[edit], &BTreeMap::new(), ROUND).map_err(db::Error::Abort)?;
             Ok(())
         })
         .unwrap();

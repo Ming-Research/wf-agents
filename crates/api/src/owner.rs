@@ -2244,8 +2244,6 @@ mod tests {
                 speaker: "owner".into(),
                 relayed: None,
                 to: None,
-                choice: None,
-                condition: None,
                 images: Vec::new(),
             },
         )
@@ -2312,8 +2310,6 @@ mod tests {
             speaker: "delegate".into(),
             relayed: relaying(&["Go."]),
             to: None,
-            choice: None,
-            condition: None,
             images: Vec::new(),
         };
         say_to_projects(&mut db, &["p".to_string()], &group).unwrap();
