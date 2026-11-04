@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/lint
 
-  # The tests named, in one job: they are few, so that the build of the page and the compiling are paid once.
+  # The tests named, in one job: they are few, so that getting the page and the compiling are paid once.
   test:
     if: ${{ inputs.tests != '' }}
     runs-on: ubuntu-24.04
@@ -155,17 +155,14 @@ jobs:
           key: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
       - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # The page the crate `web` is built with, before any cargo step that compiles that crate: the build main kept for
+      # the content of `client/` when there is one, else built here (.github/actions/page). A run on a branch keeps
+      # nothing, so a work that changed `client/` builds it each time. The dependencies are installed also when the page
+      # tests are to run, which need them.
+      - uses: ./.github/actions/page
         with:
-          node-version: 24.21.0
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-      # Before any cargo step that compiles the crate the page is built into.
-      - name: Build the page
-        working-directory: client
-        run: |
-          npm ci
-          npm run build
+          modules: ${{ steps.names.outputs.page }}
+          save: false
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
       # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
       #

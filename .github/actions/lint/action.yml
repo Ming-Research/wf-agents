@@ -12,11 +12,6 @@ runs:
     - run: rustup toolchain install
       shell: bash
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-      with:
-        node-version: 24.21.0
-        cache: npm
-        cache-dependency-path: client/package-lock.json
     # Formatting first: it needs no build, so a misformatted push fails in seconds.
     - name: Format
       id: format
@@ -28,10 +23,13 @@ runs:
     - name: Generate the page's types and the flow its tests read
       run: WF_AGENTS_GENERATE=1 cargo test -p api --locked --test typescript
       shell: bash
-    - name: Install the page's dependencies
-      working-directory: client
-      run: npm ci
-      shell: bash
+    # Node, the page's dependencies, which the next steps run, and the page the crate `web` is built with, restored
+    # from the build main kept for the content of `client/` or else built (.github/actions/page). It is there before
+    # the cargo step that compiles that crate. This job keeps nothing.
+    - name: Get the page and its dependencies
+      uses: ./.github/actions/page
+      with:
+        modules: true
     - name: Type-check the page
       working-directory: client
       run: npm run typecheck
@@ -49,11 +47,6 @@ runs:
     - name: Test the page
       working-directory: client
       run: npm test
-      shell: bash
-    # Before any cargo step that compiles the crate the page is built into.
-    - name: Build the page
-      working-directory: client
-      run: npm run build
       shell: bash
     - name: Lint
       run: cargo clippy --workspace --all-targets --locked -- -D warnings

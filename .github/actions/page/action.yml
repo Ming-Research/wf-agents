@@ -1,0 +1,82 @@
+name: page
+description: The owner's page for crates/web, restored from the build kept for the content of client/, else built
+
+# Gives the job `client/dist`, which `crates/web/build.rs` reads when it compiles that crate, so that it goes before any
+# cargo step that compiles the crate. The page is a function of the content of `client/` alone: the entry, the sources,
+# the configuration and the lock file that fixes the dependencies are all in it. A build of it is therefore kept under a
+# key made of that content, and the page is built only when no build of that content is kept. Nothing of `client/` is
+# read from outside it; a change that makes the build read something from outside (a file of another directory, a
+# variable of the environment) must widen the key in the same change.
+#
+# Who keeps it: a push to main, by the job that is given `save` (ci.yml's first test shard), and nobody else. A run on a
+# branch only reads, as it does the incremental build state in target/ci: GitHub lets a run read what the default branch
+# kept, so a work's runs read what main kept, and a work that changed `client/` builds, as it did before this action.
+# The build is kept at once, before the tests that follow, since it does not depend on how they end.
+#
+# Used by ci.yml and fast.yml (their test jobs) and by the lint steps (.github/actions/lint), so that the way the page
+# is got is written once.
+
+inputs:
+  modules:
+    description: >-
+      'true' when the job runs commands of the page itself (its tests, type check or lint), which need the installed
+      dependencies whether or not the page is restored; otherwise they are installed only when the page is built.
+    required: false
+    default: 'false'
+  save:
+    description: >-
+      'true' for the job that keeps the build it makes, when it makes one: the job of a push to main that is the only
+      one of its workflow to keep it. Anything else keeps nothing.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    # The tree id of `client/` in the commit checked out names every file git tracks under it, among them any added
+    # later, and none that a job generates there (node_modules, dist, src/stored-flow.json). This file is in the key as
+    # well: it holds the node version and the build command, so a change to either makes a new key.
+    - name: Name the build by the content of client/
+      id: key
+      run: echo "key=page-${{ runner.os }}-$(git rev-parse HEAD:client)-${{ hashFiles('.github/actions/page/action.yml') }}" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Restore the kept build
+      id: kept
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: client/dist
+        key: ${{ steps.key.outputs.key }}
+    # Cargo reruns a build script only when a path it declared changed after the script last ran, and compares file
+    # times: a restored file is as old as the build that made it, older than the build state in target/ci, and cargo
+    # would then embed the page that state was built with and not this one. A page built now has new files, so does a
+    # restored one.
+    - name: The restored page is as new as one built now
+      if: steps.kept.outputs.cache-hit == 'true'
+      run: |
+        echo "The page is restored: client/ is as it was when ${{ steps.key.outputs.key }} was kept"
+        find client/dist -exec touch {} +
+      shell: bash
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      if: inputs.modules == 'true' || steps.kept.outputs.cache-hit != 'true'
+      with:
+        node-version: 24.21.0
+        cache: npm
+        cache-dependency-path: client/package-lock.json
+    - name: Install the page's dependencies
+      if: inputs.modules == 'true' || steps.kept.outputs.cache-hit != 'true'
+      working-directory: client
+      run: npm ci
+      shell: bash
+    - name: Build the page
+      if: steps.kept.outputs.cache-hit != 'true'
+      working-directory: client
+      run: |
+        echo "No build of client/ is kept as ${{ steps.key.outputs.key }}: building the page"
+        npm run build
+      shell: bash
+    - name: Keep the build
+      if: inputs.save == 'true' && steps.kept.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: client/dist
+        key: ${{ steps.key.outputs.key }}

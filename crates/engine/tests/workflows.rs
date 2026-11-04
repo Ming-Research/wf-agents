@@ -126,6 +126,105 @@ fn the_two_workflows_do_not_share_a_concurrency_group() {
     assert_ne!(fast, full);
 }
 
+/// The steps of a workflow or action file, each as its lines trimmed, comments and blank lines left out: a step starts
+/// at a line that starts with `- `.
+fn steps(text: &str) -> Vec<Vec<&str>> {
+    let mut out: Vec<Vec<&str>> = Vec::new();
+    for l in text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+    {
+        if l.starts_with("- ") {
+            out.push(Vec::new());
+        }
+        if let Some(step) = out.last_mut() {
+            step.push(l);
+        }
+    }
+    out
+}
+
+/// The one step of `text` that has a line holding `needle`.
+fn step_with<'a>(text: &'a str, needle: &str) -> Vec<&'a str> {
+    let found: Vec<_> = steps(text)
+        .into_iter()
+        .filter(|s| s.iter().any(|l| l.contains(needle)))
+        .collect();
+    assert_eq!(found.len(), 1, "{} steps hold `{needle}`: {found:?}", found.len());
+    found.into_iter().next().unwrap_or_default()
+}
+
+// The page the crate `web` is built with is got in one place, by an action the two workflows and the lint use, so that
+// they cannot differ in the key it is kept under. It is restored when a build of the same `client/` is kept and built
+// only when none is; the dependencies are installed only when it is built or the job runs the page's own commands; and
+// only a push to main keeps a build, by one job: a run on a branch that kept one would add to its time for a build
+// nobody else reads.
+#[test]
+fn the_page_is_got_by_one_action_and_only_a_push_to_main_keeps_it() {
+    let action = workflow("actions/page/action.yml");
+    assert!(action.contains("using: composite"));
+    let key = step_with(&action, "git rev-parse HEAD:client").join("\n");
+    assert!(key.contains("hashFiles('.github/actions/page/action.yml')"), "{key}");
+    let miss = "steps.kept.outputs.cache-hit != 'true'";
+    let build = step_with(&action, "npm run build").join("\n");
+    assert!(build.contains(&format!("if: {miss}")), "{build}");
+    let install = step_with(&action, "npm ci").join("\n");
+    assert!(
+        install.contains(&format!("if: inputs.modules == 'true' || {miss}")),
+        "{install}"
+    );
+    let node = step_with(&action, "actions/setup-node").join("\n");
+    assert!(
+        node.contains(&format!("if: inputs.modules == 'true' || {miss}")),
+        "{node}"
+    );
+    let touch = step_with(&action, "touch").join("\n");
+    assert!(touch.contains("if: steps.kept.outputs.cache-hit == 'true'"), "{touch}");
+    assert!(touch.contains("find client/dist -exec touch {} +"), "{touch}");
+    let save = step_with(&action, "actions/cache/save").join("\n");
+    assert!(save.contains(&format!("if: inputs.save == 'true' && {miss}")), "{save}");
+    assert!(save.contains("path: client/dist"), "{save}");
+    let restore = step_with(&action, "actions/cache/restore").join("\n");
+    assert!(restore.contains("path: client/dist"), "{restore}");
+    assert!(restore.contains("key: ${{ steps.key.outputs.key }}"), "{restore}");
+    assert!(
+        !restore.contains("restore-keys"),
+        "only the build of this very content is any use: {restore}"
+    );
+
+    let (fast, full, lint) = (
+        workflow("workflows/fast.yml"),
+        workflow("workflows/ci.yml"),
+        workflow("actions/lint/action.yml"),
+    );
+    for (file, text) in [("fast.yml", &fast), ("ci.yml", &full), ("the lint action", &lint)] {
+        for own in ["npm ci", "npm run build", "actions/setup-node"] {
+            let written: Vec<_> = steps(text)
+                .into_iter()
+                .filter(|s| s.iter().any(|l| l.contains(own)))
+                .collect();
+            assert!(
+                written.is_empty(),
+                "{file} writes `{own}` itself, not through the action: {written:?}"
+            );
+        }
+    }
+    // The test job of the fast workflow installs the dependencies also when the page's tests are to run, and keeps
+    // nothing; the full workflow's keeps the build from main's push, in the first of its three test jobs only; the lint
+    // always needs the dependencies and keeps nothing.
+    let page = step_with(&fast, "uses: ./.github/actions/page").join("\n");
+    assert!(page.contains("modules: ${{ steps.names.outputs.page }}"), "{page}");
+    assert!(page.contains("save: false"), "{page}");
+    let page = step_with(&full, "uses: ./.github/actions/page").join("\n");
+    let want = "save: ${{ matrix.shard == 1 && github.ref == 'refs/heads/main' && github.event_name == 'push' }}";
+    assert!(page.contains(want), "{page}");
+    assert!(!page.contains("modules"), "{page}");
+    let page = step_with(&lint, "uses: ./.github/actions/page").join("\n");
+    assert!(page.contains("modules: true"), "{page}");
+    assert!(!page.contains("save"), "{page}");
+}
+
 // The fast workflow runs the lint only when it is named, by its job's name in the input of the checks, as the engine
 // gives them (`ci.named_checks`); and it is the same lint in both workflows: one action holds its steps, so that they
 // cannot differ.

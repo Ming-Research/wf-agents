@@ -29,7 +29,7 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
 - `.github/workflows/ci.yml`: the full CI, every check, which each push to main runs and a work's head runs once, at
   the merge; `.github/workflows/fast.yml`: the fast CI the engine runs by hand on a work's branch, with the tests to
-  run and the checks named; `.github/actions/lint`: the lint steps both run; `.config/nextest.toml`: how they run the tests; `.config/english-exempt.txt`: the files the check that the
+  run and the checks named; `.github/actions/lint`: the lint steps both run; `.github/actions/page`: how both get the page `crates/web` is built with (below); `.config/nextest.toml`: how they run the tests; `.config/english-exempt.txt`: the files the check that the
   repository is in English leaves out.
 - `.github/workflows/measure.yml`: the measurement workflow the engine's tool `measure` runs for a project that lists it
   (`[[ci.measure]]` in the project's configuration): it times a command on the code to compare with, a twin of it and
@@ -41,7 +41,9 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 The full CI, `ci`, runs on each push to main, and on a work's branch when the engine runs it by hand: rustfmt, clippy
 with warnings as errors, and the tests, on the toolchain
 `rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
-build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
+build, which come before any cargo step that compiles `crates/web` and are not built again when the build main kept for the
+same content of `client/` can be restored (`.github/actions/page`: main's full CI keeps it under a key made of the git tree
+of `client/`, and a run on a branch only reads it, so a work that changed `client/` builds the page itself); and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
 flow as the engine stores it, which the page's tests read and git leaves out). Its job `check` is red whenever another
 of its jobs is. A red format check leaves the files as rustfmt makes them, and a stale `client/src/api.ts` the file as
