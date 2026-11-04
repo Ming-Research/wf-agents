@@ -18078,7 +18078,7 @@
           ],
           "out": [
             {
-              "name": "verdict",
+              "name": "red",
               "title": "What made main red",
               "type": "obj",
               "desc": "What made main red, and what is done",
@@ -18175,7 +18175,7 @@
             "search"
           ],
           "shown": [
-            "verdict"
+            "red"
           ],
           "rules": [
             "policy_scope"

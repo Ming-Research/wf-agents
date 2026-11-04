@@ -67,8 +67,131 @@ DROP TABLE sessions_before_forks;
 
 CREATE UNIQUE INDEX sessions_going_on ON sessions (work, line) WHERE ended IS NULL;
 
-ALTER TABLE architect_matters ADD COLUMN logged TEXT CHECK (logged IS NULL OR json_valid(logged));
-ALTER TABLE architect_matters ADD COLUMN effects_held TEXT CHECK (effects_held IS NULL OR json_valid(effects_held));
+-- architect_matters is made afresh, as its description says the matters the engine takes in a fixed order and its
+-- two new columns hold the decision log's line and the effects held for the second eye.
+CREATE TABLE architect_matters_before_forks AS SELECT * FROM architect_matters;
+DROP TABLE architect_matters;
+
+CREATE TABLE architect_matters (
+  -- A matter for a project's architect: an engineer's question, a report, a fault of wf-agents forwarded to it, a
+  -- design card to look at, a failure, the owner's words, a message from another project's architect, slots free with
+  -- nothing of the project ready, main's CI red, a place its plan of what to do next found to set straight, or the
+  -- check of its policy. The project's queue is its matters not handled; the engine takes them in a fixed order, by
+  -- what waits on each: the owner's words and replies first, then main's CI red, then what a work stopped waits on, the
+  -- one that came first; then the base when it is due; then what the plan queued; then what waited for the planning.
+  -- Each is handled in a session of its own forked from the base. A matter something waits on starts a work of the
+  -- project's architect when none runs; one that waits for the planning starts one only once it came before the base
+  -- was built, or once as many wait as the installation's amount.
+  -- Read by: the engine, which starts the architect's works, takes each matter, routes it to its path, hands it its
+  -- material and takes its replies back; the architect's cells through architect_queue and work_handled; the owner's
+  -- interface.
+  id INTEGER PRIMARY KEY,
+  -- The project whose architect it is for.
+  project TEXT NOT NULL,
+  -- Its kind, which decides the path it takes: set_straight, engineer_question, open_question, report, design_card,
+  -- failure, owner_words, other_architect, slots_free, main_red (main's CI red, which the engine's watch of main
+  -- queues: its body holds the commit, its red checks and their runs, and while one is open the project's merge queue
+  -- is stopped), or check_policy, the check of the policy in force, one open at a time; slots_free and make_plan (the
+  -- plan of what to do next, which a flow version before queued) are what a planning answers. An open question is what an engineer's design could not settle: its body holds the question, the options, the
+  -- one recommended, the link to the design (design_link) and, once it has come, the answer (answer) with who gave it
+  -- (answered_by: architect, or owner when the architect pinned the question for the owner and the owner answered), for
+  -- the owner the ask that holds their words (owner_ask), and the time it came (answered_at, in milliseconds). A
+  -- matter handled before these kinds keeps the kind it had then: set_policy for the setting of a new policy, which a
+  -- flow version before ran as a stage of its own, and policy for a setting that ended, when the setting was a work of
+  -- its own.
+  kind TEXT NOT NULL,
+  -- What more its kind says: an engineer's question's own kind (split, duplicate, ...); a report's (a side report's
+  -- kind, followup for a report's what to do next, answer for an engineer's answer to what the architect said to its
+  -- work, flow_feedback for what agents said was wrong with their cells, or fault for a fault of wf-agents forwarded
+  -- to it, by the owner or by the owner's setting, which starts a work of it as a report does); a failure's
+  -- (tool_failed, environment_changed); the owner's words' (said, answer, release, approved_changes); a message's
+  -- (message, reply, or flow_feedback for flow feedback another project's architect forwarded); the kind of a place to
+  -- set straight. NULL when there is nothing more. Read by: the engine, for the matter's material and whether it starts a work of
+  -- the architect; the owner's interface.
+  detail TEXT,
+  -- What it is, in one sentence, as the engine wrote it.
+  what TEXT NOT NULL,
+  -- Its material, JSON: what the asking cell handed in, the side report, a report's what to do next with its paths and
+  -- the commit merged, the design card, the tool that failed, the owner's words (with where they were said, and who
+  -- the caller declared to speak: `speaker`, owner or delegate; none for words kept before it was declared), the
+  -- message, the place to set straight; for a fault forwarded, who forwarded it (by: owner, or setting for the owner's
+  -- setting), the fault itself being read from its notice when the matter is handled. Read by: the engine, for the
+  -- matter's material.
+  body TEXT NOT NULL CHECK (json_valid(body)),
+  -- The item it concerns; NULL when it concerns none.
+  item INTEGER REFERENCES items(id),
+  -- The round that raised it: an engineer's round at the architect's cell, a round that handed in a side report or a
+  -- design card, an architect's round; NULL for one the owner or the engine raised.
+  work INTEGER,
+  round INTEGER,
+  -- For a fault of wf-agents forwarded to it: the engine's notice that reports the fault, which goes to each
+  -- project's architect once; NULL for any other matter. Read by: the engine, which hands the architect the notice
+  -- and the engine's evidence of the fault as they stand when the matter is handled, and adds a further cache miss to
+  -- a notice forwarded while its matter waits; the owner's interface, which shows where each fault went and how it
+  -- stands there.
+  notice INTEGER REFERENCES engine_notices(id),
+  -- When it came. Read by: the queue, for how long it waited.
+  at INTEGER NOT NULL,
+  -- The ask of the owner a cell on its path put about it, which holds it while the owner has not answered: it is then
+  -- out of the queue, and once answered it is back, and goes back to the cell that asked, with the answer. NULL when no
+  -- cell asked about it. Read by: the queue; the engine, which routes it and gives the answer.
+  asked INTEGER REFERENCES owner_asks(id),
+  -- The cell that asked, set with asked: where the matter goes back to with the owner's answer; for the approval of
+  -- the draft of a new policy, the cell that wrote it, a reply of exactly approved going to where it takes effect
+  -- instead.
+  resume_cell TEXT,
+  -- For a matter of two cells that its first cell sent back to the queue, as a flow version before did so that the
+  -- owner's words that came meanwhile were taken first: its second cell, where it goes on (`H3` after `H2`, `H5` after
+  -- `H4`, `P2` after `P1`). No cell sets it now, since a matter's cells follow one another in its own session; it is
+  -- cleared once the matter is closed or a cell on its path asks the owner about it. Read by: the engine, which routes
+  -- a matter that still holds one there.
+  goes_on_at TEXT,
+  -- For a side report or an engineer's answer a flow version before had the architect pick together with others of
+  -- its kind in one pick, the matter that led the group: the one picked. No pick groups matters now, each being handled
+  -- in a session of its own; it stays on a matter handled so, saying with which others it was handled. Read by: the
+  -- owner's interface.
+  group_lead INTEGER REFERENCES architect_matters(id),
+  -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
+  -- work's group to a question the architect holds is the reply too, said by the owner (by), with who the caller
+  -- declared to speak (speaker, owner or delegate). Read by: the engine, which takes it back unchanged to the work that
+  -- asked.
+  reply TEXT CHECK (reply IS NULL OR json_valid(reply)),
+  -- A reply that waits for the second eye, JSON, as the round handed it in: it becomes the reply, with the numbers of
+  -- the items made, once the second eye finds the round's changes sound. NULL otherwise.
+  reply_held TEXT CHECK (reply_held IS NULL OR json_valid(reply_held)),
+  -- The architect's round that handled it: its work and the round that closed it; NULL while it is not handled.
+  handled_work INTEGER,
+  handled_round INTEGER,
+  -- Why it left the queue unhandled: the work it waits on, which raised it (a question, a failure, a design card),
+  -- ended, saying how; the owner ruled the design card it was to look at, or another card replaced it, saying which;
+  -- the owner answered the question in the work's group, the reply saying what; it said that a setting of the
+  -- policy, a work of its own then, had ended, when the setting became a stage of the architect's works; or it was a
+  -- setting of the policy as a stage of its own, which runs so no longer. NULL otherwise.
+  -- Read by: architect_queue, which leaves it out; the engine, which tells a new work on the item what an earlier
+  -- work asked and had withdrawn; the owner's interface, which leaves it out of the queue.
+  withdrawn TEXT,
+  -- What the session that handled it left as it ended, JSON: its line of the decision log (`log`), and its answers
+  -- whether the matter changes the plan (`plan`: no or yes) and whether something that matters in the base no longer
+  -- holds (`base`: holds or wrong), each with why (`plan_why`, `base_why`), with the round that handed them in
+  -- (`round`). NULL until then, and for a matter handled before the architect's matters were forked. Read by: the
+  -- engine, which gives every matter handled after it the decision log since the base, and counts the answers among
+  -- the facts that call for a new base; the owner's interface.
+  logged TEXT CHECK (logged IS NULL OR json_valid(logged)),
+  -- What the round handed in that waits for the second eye, JSON: its effects and its answer, made once the second eye
+  -- finds the changes sound, or dropped when it sends them back. NULL otherwise. Read by: the engine.
+  effects_held TEXT CHECK (effects_held IS NULL OR json_valid(effects_held)),
+  CHECK ((work IS NULL) = (round IS NULL)),
+  CHECK ((handled_work IS NULL) = (handled_round IS NULL)),
+  CHECK ((asked IS NULL) = (resume_cell IS NULL)),
+  FOREIGN KEY (work, round) REFERENCES rounds (work, n),
+  FOREIGN KEY (handled_work, handled_round) REFERENCES rounds (work, n)
+) STRICT;
+
+INSERT INTO architect_matters (id, project, kind, detail, what, body, item, work, round, notice, at, asked, resume_cell, goes_on_at, group_lead, reply, reply_held, handled_work, handled_round, withdrawn)
+  SELECT id, project, kind, detail, what, body, item, work, round, notice, at, asked, resume_cell, goes_on_at, group_lead, reply, reply_held, handled_work, handled_round, withdrawn FROM architect_matters_before_forks;
+DROP TABLE architect_matters_before_forks;
+CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE handled_round IS NULL;
+CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, project) WHERE notice IS NOT NULL;
 
 UPDATE architect_matters
   SET withdrawn = 'Flow feedback no longer goes to the architect: it stays in the returns of the rounds it is about, for the owner and the delegate to take up.'

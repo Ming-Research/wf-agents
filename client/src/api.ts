@@ -2919,6 +2919,11 @@ fresh_session?: Array<string>,
  */
 cache_expiry?: boolean,
 /**
+ * The line whose latest session a new session of the cell's line forks from, as the cell's line says; none for a
+ * line whose new sessions start empty, and in a flow version stored before lines forked.
+ */
+fork_of?: string | null,
+/**
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.
  */
