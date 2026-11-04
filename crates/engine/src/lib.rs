@@ -97,9 +97,6 @@ pub const POLICY: &str = "policy";
 /// The line of the search of observations, which runs at the observer's level.
 pub const OBSERVER: &str = "observer";
 
-/// The line of the pick of the architect's next matter, which runs at the picker's level.
-pub const PICKER: &str = "picker";
-
 /// The engine's version: the commit it was built from, which every agent's round records.
 pub const VERSION: &str = env!("WF_AGENTS_COMMIT");
 
@@ -1479,7 +1476,7 @@ impl Engine {
     /// slots in turn, each in its architect's order. An item held or blocked is not among those waiting (the view
     /// `ready_items`).
     fn next_ready(&mut self) -> Option<i64> {
-        let changing = architect::held_by_batches(self.db.conn()).ok()?;
+        let changing = architect::held_by_checks(self.db.conn()).ok()?;
         let free = self.free_slots().ok()?;
         let waiting: Vec<(i64, String, Option<f64>)> = {
             let mut st = self

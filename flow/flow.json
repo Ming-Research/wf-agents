@@ -4043,7 +4043,6 @@
       "apply_checked": "Makes what the matter's session handed in and the second eye found sound: its item changes, its changes to observations, its actions and its messages, as `apply_effects` makes them; its reply goes, with the numbers of the items made, and the work that reported is told what became of it.",
       "return_checked": "Sends what the matter's session handed in back to it, at the cell that handed it in, with what the second eye found: none of it takes effect, its reply does not go, and the session hands it in again, revised.",
       "queue_main_red": "Watches main's CI for every project, at most once a minute each: when the full CI of main's latest commit has finished and a check that counts against a merge is red, and no matter of main red was queued for that commit, queues one, with the commit, the red checks and their runs. While a matter of main red is open, the project's merge queue is stopped: no work merges onto a red main.",
-      "base_built": "Marks this round's session as the project's base from now on: every matter after it forks from where it ends, and the facts that call for a new base are counted from here.",
       "close_planning": "Marks the matters the planning answers as handled by this round: slots free with nothing of the project to start, and a plan of what to do next a flow version before queued.",
       "log_matter": "Keeps the matter's line of the decision log and its two answers, whether it changes the plan and whether the base is wrong, as the session hands them in: the latest hand-in of the matter stands.",
       "redo_matters": "Undoes what the rounds the architect's work goes back to do again did that has not taken effect: what waits for a second eye is dropped, to be handed in again, and the matters they closed whose reply has not gone out go back to the queue, a reply held dropped, to be written again."
@@ -4116,7 +4115,7 @@
       "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
       "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work.",
-      "matter": "The matter in hand, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not; for a matter the second eye sent back, what it found.",
+      "matter": "The matter in hand, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not.",
       "matter_items": "The items and works the matter in hand concerns, in full: each item as it stands with its version, its acceptance, its dependencies, the decisions it holds and the other items that depend on it, its work's cell and state; and the observations the matter names, whole.",
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
@@ -4680,9 +4679,6 @@
       ],
       "queue_main_red": [
         "architect_queue"
-      ],
-      "base_built": [
-        "sessions"
       ],
       "close_planning": [
         "architect_queue"
@@ -5693,7 +5689,7 @@
                   "name": "urgent",
                   "title": "Urgent",
                   "type": "bool",
-                  "desc": "True when it cannot wait and someone must look now: main is red for everyone, say, or another work is changing the same place"
+                  "desc": "True only when it is causing loss now: data lost, a feature the owner uses broken, or another work blocked; the architect takes it at once. Anything else waits for the architect's next planning"
                 }
               ]
             }
@@ -15149,9 +15145,6 @@
               ],
               "to": "Q0",
               "main": true,
-              "do": [
-                "base_built"
-              ],
               "counts": "rebuilds",
               "note": "Only the base was due, and the plan holds: this session is the base, and the matters are taken."
             },
@@ -15445,7 +15438,6 @@
                   "do": "queue_fixes"
                 },
                 "release_straight_hold",
-                "base_built",
                 "close_planning"
               ],
               "note": "This session is the base from now on: the matters are taken, each in a session forked from it."
@@ -15472,7 +15464,6 @@
                   "do": "queue_fixes"
                 },
                 "release_straight_hold",
-                "base_built",
                 "close_planning"
               ]
             },
@@ -15498,7 +15489,6 @@
                   "at": "fit[set_straight].fixes",
                   "do": "queue_fixes"
                 },
-                "base_built",
                 "close_planning"
               ]
             }
@@ -15558,6 +15548,18 @@
                   "engine": "matter"
                 }
               ]
+            },
+            {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
             },
             {
               "name": "Items and works concerned",
@@ -16038,6 +16040,18 @@
                   "engine": "matter"
                 }
               ]
+            },
+            {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
             },
             {
               "name": "The item and those around it",
@@ -16531,6 +16545,18 @@
               ]
             },
             {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
+            },
+            {
               "name": "Items running and queued",
               "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
               "from": [
@@ -16778,6 +16804,18 @@
               ]
             },
             {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
+            },
+            {
               "name": "The work and its item",
               "what": "The work and its item, in full",
               "from": [
@@ -17011,6 +17049,18 @@
                   "engine": "matter"
                 }
               ]
+            },
+            {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
             },
             {
               "name": "Items concerned",
@@ -17282,6 +17332,18 @@
                   "engine": "matter"
                 }
               ]
+            },
+            {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
             },
             {
               "name": "Items named",
@@ -17653,6 +17715,18 @@
               ]
             },
             {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
+            },
+            {
               "name": "What the checks found",
               "what": "What the engine's mechanical checks found: the red checks run again, the known red checks, and main's commit before the merges",
               "from": [
@@ -17888,6 +17962,18 @@
                   "engine": "matter"
                 }
               ]
+            },
+            {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
             },
             {
               "name": "Policy in force",
@@ -18188,6 +18274,18 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "What the second eye found",
+              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it sent nothing back",
+              "from": [
+                [
+                  "G2",
+                  "check"
+                ]
+              ],
+              "maybe": true,
+              "unanswered": true
             },
             {
               "name": "Policy in force",
