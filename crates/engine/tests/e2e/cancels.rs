@@ -315,6 +315,31 @@ fn a_cancel_during_the_merge_s_full_ci_stops_the_merge() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// GitHub merges a pull request while the merge step waits for the full CI, outside the engine's merge call, as when the
+// answer of that call was lost, so the engine's record has no merge. A cancel that comes then ends the work and queues
+// the close of its pull request. GitHub refuses to close a merged pull request, so the close must find the merge on
+// GitHub and close nothing: no close is called, and no row is left in the outbox to be tried again.
+#[test]
+fn a_cancel_after_github_merged_the_pull_request_closes_nothing() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-after-github-merge");
+    held_at_full_ci(&mut e, &s, &said);
+    let pr = *s.prs.lock().unwrap().keys().next().unwrap();
+    FakeHub::squash_merge(&s.origin, &s.root, &s.prs, "o/p", pr).unwrap();
+    cancel(&mut e, item, "owner");
+    s.ci.open();
+    let settled = turns_until(&mut e, &Go::default(), |e| {
+        ended_why(e, work).is_some() && number(e, "SELECT count(*) FROM outbox WHERE kind = 'close_pr'") == 0
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(settled, "{log}");
+    assert_eq!(s.closing.came(), 0, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("stopped".to_string())], "{log}");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// A cancel asked by `by` while the merge call is under way: the merge came first, and stands.
 fn a_cancel_during_the_merge_call(name: &str, by: &str) -> (Setup, Engine, i64) {
     let (s, mut e, said, item, work) = at_the_merge(name);
