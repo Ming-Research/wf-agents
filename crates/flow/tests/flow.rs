@@ -1693,6 +1693,8 @@ fn what_a_field_was_earlier_is_carried_and_never_handed_in_now() {
         .find(|n| n["id"] == "D1")
         .unwrap();
     d1["out"].as_array_mut().unwrap().push(note);
+    // A field nobody reads is refused; the owner reads this one on the item.
+    d1["shown"].as_array_mut().unwrap().push("note".into());
     let plain = flow::compile(&v.to_string(), &context()).unwrap_or_else(|e| panic!("{e}"));
     let out = v["flows"][0]["nodes"]
         .as_array_mut()

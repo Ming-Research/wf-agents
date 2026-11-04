@@ -326,21 +326,32 @@ mod tests {
         let mut to = from.clone();
         let g = &mut to.graphs[0];
         let within = g.within.clone();
-        let c = g
+        // The fields an agent's own form requires that are not themselves alternatives, which a carried return's
+        // schema would write as such; a cell of two of them at least is taken.
+        let plain_required = |c: &CompiledCell, own: usize| -> Vec<String> {
+            let form = &c.schema.as_ref().unwrap()["properties"][&within]["anyOf"][own];
+            form["required"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|r| form["properties"][*r].get("anyOf").is_none())
+                .map(str::to_string)
+                .collect()
+        };
+        let (c, own, required) = g
             .cells
             .iter_mut()
-            .find(|c| c.kind == "agent" && c.carried.is_none())
+            .filter(|c| c.kind == "agent" && c.carried.is_none() && c.schema.is_some())
+            .find_map(|c| {
+                let own = c.forms.iter().position(|f| f.field.is_none())?;
+                let required = plain_required(c, own);
+                (required.len() >= 2).then_some((c, own, required))
+            })
             .unwrap();
         let id = c.id.clone();
-        let own = c.forms.iter().position(|f| f.field.is_none()).unwrap();
         let mut carried = c.schema.clone().unwrap();
         let form = &mut carried["properties"][&within]["anyOf"][own];
-        let required: Vec<String> = form["required"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|r| r.as_str().map(str::to_string))
-            .collect();
         let (other, absent) = (required[0].clone(), required[1].clone());
         let now = form["properties"][&other].clone();
         form["properties"][&other] = json!({ "anyOf": [now, { "type": "string" }] });
