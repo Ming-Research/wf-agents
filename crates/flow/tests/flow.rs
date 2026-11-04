@@ -1917,7 +1917,7 @@ fn a_work_with_a_condition_in_effect_waits_for_its_change_and_checks_it_with_a_r
     );
     assert_eq!(row("W2", "again").to, "W1");
     assert_eq!(row("W2", "again").counts.as_deref(), Some("verification_looks"));
-    for name in ["past_looks", "failed"] {
+    for name in ["past_looks", "failed", "unjudged"] {
         assert!(does(&row("W2", name), "report_verification"), "{name}");
         assert_eq!(row("W2", name).to, "E1");
     }

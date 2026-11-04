@@ -937,8 +937,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         "conditions_cover_acceptance" => {
             let Some(rows) = v else { return Ok(()) };
             let rows = items(Some(rows));
-            let wanted: Vec<String> = c
-                .acceptance()?
+            // A return that changes the acceptance says how its conditions are met against the list it hands in.
+            let acceptance = match c.unwrapped["acceptance_changed"]["acceptance"].as_array() {
+                Some(changed) => changed.clone(),
+                None => c.acceptance()?,
+            };
+            let wanted: Vec<String> = acceptance
                 .iter()
                 .filter_map(|a| a["id"].as_str().map(str::to_string))
                 .collect();
@@ -972,7 +976,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 &jobs,
                 |s| text_on_branch(wt, s),
             );
-            problems.extend(verification::rows_problems(&c.acceptance()?, &rows));
+            problems.extend(verification::rows_problems(&acceptance, &rows));
             problems.into_result()
         }
         // A condition only a real run can show, written by a return, is one this project's work can check.
@@ -983,7 +987,6 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 name: &item.project,
                 report: item.deliver == "report",
                 engine_s_own: set_aside::engine_s_own(c.e, c.item),
-                measures: c.project().is_ok_and(|p| !p.ci.measure.is_empty()),
             };
             verification::known_problems(acceptance, &project).into_result()
         }
@@ -1004,9 +1007,11 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         // What a verdict rests on is a run the engine recorded since the change took effect, and what that run showed.
         "verdict_basis_ran" => {
             let conn = c.e.db.conn();
-            let since = verification::took_effect_at(conn, c.w.id, c.item()?.id)?.unwrap_or(0);
+            let item = c.item()?.id;
+            let since = verification::took_effect_at(conn, c.w.id, item)?.unwrap_or(0);
             let runs = verification::runs_since(conn, c.w.id, since)?;
-            verification::basis_problems(&items(v), &runs).into_result()
+            let conditions = verification::conditions(conn, item)?;
+            verification::basis_problems(&items(v), &conditions, since, &runs).into_result()
         }
         "new_test_results" | "guard_test_results" => {
             let new = check == "new_test_results";

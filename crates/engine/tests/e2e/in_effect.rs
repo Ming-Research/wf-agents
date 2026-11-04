@@ -393,17 +393,6 @@ fn a_look_past_the_projects_limit_reports_the_condition_and_ends() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work whose acceptance holds no such condition ends after what it learned, and never comes to wait.
-#[test]
-fn a_work_with_no_condition_in_effect_ends_after_what_it_learned() {
-    let s = setup("in-effect-none");
-    let (mut e, _, item) = start(&s, scripts());
-    step_to(&mut e, item, "E1");
-    assert_eq!(transitions(&e, item, "L2"), ["done"]);
-    assert!(transitions(&e, item, "W1").is_empty());
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // A project the engine is not built from cannot change the installed program: a plan that says it carries the change is
 // sent back saying so. Written as carried by main, it is taken, and the wait lets the work on at once.
 #[test]
@@ -592,6 +581,195 @@ fn a_build_that_cannot_be_told_tells_the_owner_once_and_words_take_the_work_on()
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A condition that does not hold is reported at once, though another's evidence is not there yet: waiting for it could
+// leave what does harm now unknown to the architect for the whole of the looks. The report says what was not checked, and
+// the look need not say how long to wait, as the work ends.
+#[test]
+fn a_condition_that_fails_is_reported_at_once_though_another_is_not_yet() {
+    let s = setup("in-effect-fails-at-once");
+    let mut agents = verifying_all(vec![on_main("A2", "query", SEVEN), on_main("A3", "query", SEVEN)]);
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return asks(SEVEN);
+            }
+            answers(json!([fails("A2", SEVEN, "7", true), not_yet("A3")]))
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the look", |e| !looks(e, item).is_empty());
+    let (work, _, _) = state(&e, item).unwrap();
+    assert!(why_sent_back(&e, work, "W2").is_empty());
+    assert_eq!(looks(&e, item), ["failed"]);
+    assert_eq!(looks_counted(&e, work), 0);
+    let (matter, what, body) = report_of(&e, item).unwrap();
+    for part in ["A2 fails", "A3 not_yet", "not checked, and stand unverified"] {
+        assert!(what.contains(part), "{part} not in {what}");
+    }
+    assert_eq!(body["urgent"], true);
+    let urgent: i64 =
+        e.db.conn()
+            .query_row("SELECT urgent FROM architect_queue WHERE matter = ?1", [matter], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(urgent, 1);
+    step_to(&mut e, item, "E1");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// With no evidence still to wait for and nothing found not to hold, a condition that cannot be judged goes to the
+// architect by a row of its own.
+#[test]
+fn a_condition_that_cannot_be_judged_is_reported_once_nothing_is_awaited() {
+    let s = setup("in-effect-unjudged");
+    let mut agents = verifying_all(vec![on_main("A2", "query", SEVEN), on_main("A3", "query", SEVEN)]);
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return asks(SEVEN);
+            }
+            answers(json!([cannot_judge("A2"), holds("A3", SEVEN, "7")]))
+        }),
+    );
+    let (mut e, _, item) = start(&s, agents);
+    step_to(&mut e, item, "E1");
+    assert_eq!(looks(&e, item), ["unjudged"]);
+    let (_, what, _) = report_of(&e, item).unwrap();
+    assert!(what.contains("A2 cannot_judge"), "{what}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Words not to check a condition hold for every look after, though each is a session of its own: the look they reached
+// skips it and finds another's evidence not there yet, and the next, given no words, may still skip it. A build that
+// cannot be told sends the work back to wait by the same row after that look, and the owner, told once, is not told again.
+#[test]
+fn words_not_to_check_a_condition_hold_for_each_look_after() {
+    let s = setup("in-effect-skip");
+    the_engine_s_own(&s);
+    let mut second = on_main("A3", "query", SEVEN);
+    second["when"] = json!("installed");
+    let mut agents = verifying_all(vec![condition("installed"), second]);
+    let skip = || json!({ "verdict": "skipped", "id": "A2", "words": "The owner: it was reverted." });
+    agents.insert(
+        "W2",
+        Box::new(move |_: &Request, n: usize| match n {
+            1 => again_after(json!([skip(), not_yet("A3")]), 1),
+            2 => asks(SEVEN),
+            _ => answers(json!([skip(), holds("A3", SEVEN, "7")])),
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    e.built_from = "unknown".into();
+    step_to(&mut e, item, "W1");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.step(None).unwrap();
+    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell"]);
+    owner_says(&mut e, work, "It was reverted, so do not check A2.");
+    step_until(&mut e, item, &said, "the look on words", |e| !looks(e, item).is_empty());
+    assert_eq!(looks(&e, item), ["again"]);
+    e.step(None).unwrap();
+    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell", "words", "cannot_tell"]);
+    let told = notices_of(&e, work)
+        .iter()
+        .filter(|t| t.contains("cannot tell whether the installed program holds merge"))
+        .count();
+    assert_eq!(told, 1);
+    let notice = notices_of(&e, work)
+        .into_iter()
+        .find(|t| t.contains("cannot tell whether the installed program holds merge"))
+        .unwrap();
+    assert!(
+        notice.contains("Only installing a build of main settles it") && notice.contains("buys one look"),
+        "{notice}"
+    );
+
+    e.built_from = main_head(&s);
+    the_wait_passes(&mut e, work);
+    step_to(&mut e, item, "E1");
+    assert!(why_sent_back(&e, work, "W2").is_empty(), "{:?}", why_sent_back(&e, work, "W2"));
+    assert_eq!(looks(&e, item), ["again", "verified"]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return that changes the acceptance says how its conditions are met against the list it hands in, a condition checked
+// after the merge among them: the rows of the old list are sent back, and those of the new one are taken.
+#[test]
+fn a_return_that_changes_the_acceptance_answers_for_the_list_it_hands_in() {
+    let s = setup("in-effect-changed");
+    let mut agents = scripts();
+    let implementing = agents.remove("I1").unwrap();
+    let changed = json!({
+        "acceptance": [
+            { "by": "test", "id": "A1", "condition": "The feature is there." },
+            condition("merged"),
+        ],
+        "why": "A real run is what shows it.",
+    });
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            let (pick, mut set) = implementing(r, n);
+            if n >= 2 {
+                let tested = json!({ "how": "tested", "id": "A1", "tests": ["feature"] });
+                let rows = if n == 2 {
+                    json!([tested])
+                } else {
+                    json!([tested, { "how": "in_effect", "id": "A2" }])
+                };
+                set.push(("outcome.acceptance_changed", changed.clone()));
+                set.push(("outcome.conditions", rows));
+            }
+            (pick, set)
+        }),
+    );
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return asks(SEVEN);
+            }
+            answers(json!([holds("A2", SEVEN, "7")]))
+        }),
+    );
+    let (mut e, _, item) = start(&s, agents);
+    step_to(&mut e, item, "W1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let sent_back = why_sent_back(&e, work, "I1");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}");
+    assert!(sent_back[0].contains("A2"), "{sent_back:?}");
+    step_to(&mut e, item, "E1");
+    assert_eq!(looks(&e, item), ["verified"]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A query's result too long to give is saved to a file, and what a look saw is looked for there: a value the file does
+// not hold is sent back, and one it holds goes on.
+#[test]
+fn a_look_finds_what_it_saw_in_the_file_a_long_result_was_saved_to() {
+    const LONG: &str = "SELECT hex(zeroblob(15000)) AS pad, 7 AS seven";
+    let s = setup("in-effect-long");
+    let mut agents = verifying(on_main("A2", "query", LONG));
+    agents.insert(
+        "W2",
+        Box::new(|_: &Request, n: usize| match n {
+            1 => asks(LONG),
+            2 => answers(json!([holds("A2", LONG, "8")])),
+            _ => answers(json!([holds("A2", LONG, "7")])),
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the look", |e| !looks(e, item).is_empty());
+    let (work, _, _) = state(&e, item).unwrap();
+    let sent_back = why_sent_back(&e, work, "W2");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}");
+    assert!(sent_back[0].contains("is not in the result of that run"), "{sent_back:?}");
+    assert_eq!(looks(&e, item), ["verified"]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// A condition carried by main, numbered `id`, that the tool's real run of `command` checks.
 fn on_main(id: &str, tool: &str, command: &str) -> Value {
     json!({
@@ -777,6 +955,7 @@ fn a_look_takes_no_run_from_before_the_change_took_effect() {
     assert_eq!(effects[0]["at"], time_of(&e, work, "M2", "merged", "ended_at"));
     assert_eq!(effects[1]["in_effect"], "yes");
     assert_eq!(effects[1]["at"], time_of(&e, work, "W1", "look", "started_at"));
+    assert!(time_of(&e, work, "W1", "look", "started_at") > time_of(&e, work, "M2", "merged", "ended_at"));
     let sent_back = why_sent_back(&e, work, "W2");
     assert_eq!(sent_back.len(), 2, "{sent_back:?}");
     assert!(sent_back[0].contains("again_after_minutes"), "{sent_back:?}");
@@ -790,10 +969,9 @@ fn a_look_takes_no_run_from_before_the_change_took_effect() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Looks over several conditions, by the flow's rows: any not_yet sends the work back to wait, as long as the latest look
-// said and not an earlier one, whatever the other conditions came to; once none is not_yet, a condition that fails ends
-// the work with a report of what each came to, urgent when any one does harm now. The time a condition carried by main
-// took effect is the merge's.
+// Looks over several conditions, by the flow's rows: a not_yet with none that fails sends the work back to wait, as long
+// as the latest look said and not an earlier one; then a condition that fails ends the work with a report of what each
+// came to, urgent when any one does harm now. The time a condition carried by main took effect is the merge's.
 #[test]
 fn looks_over_several_conditions_wait_as_the_latest_says_and_report_what_each_came_to() {
     let s = setup("in-effect-several");
@@ -961,8 +1139,10 @@ fn past_the_projects_limit_a_build_not_told_ends_the_wait_after_what_was_said() 
     step_to(&mut e, item, "E1");
     assert_eq!(transitions(&e, item, "W1"), ["cannot_tell", "words", "never_in_effect"]);
     assert_eq!(looks(&e, item), ["again"]);
-    let (_, _, body) = report_of(&e, item).unwrap();
+    let (_, what, body) = report_of(&e, item).unwrap();
     assert_eq!(body["conditions"], json!(["A2"]));
+    assert!(what.contains("cannot tell whether the change took effect"), "{what}");
+    assert!(!what.contains("never took effect"), "{what}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

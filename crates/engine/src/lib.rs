@@ -219,6 +219,9 @@ struct Shared {
     /// When the watch of main last looked at each project's main ([`main_watch::look`]), so that GitHub is asked at most
     /// once a minute for each.
     main_looked: Mutex<BTreeMap<String, i64>>,
+    /// The fetches of main made for an installed build the project's checkout lacks ([`verification`]), so that a value
+    /// worked out at every step of a wait does not reach the network at each.
+    build_fetches: Mutex<verification::Fetches>,
 }
 
 impl Shared {
@@ -245,6 +248,7 @@ impl Shared {
             github,
             hooks,
             main_looked: Mutex::default(),
+            build_fetches: Mutex::default(),
         }
     }
 
@@ -305,6 +309,18 @@ pub struct Engine {
     /// The commit the installed program was built from, which says whether a change it carries is in effect
     /// ([`verification`]): [`VERSION`], which a test sets to a commit of its own repository.
     pub built_from: String,
+}
+
+impl Engine {
+    /// Whether main is to be fetched now for this merge and build, which marks the attempt ([`verification::Fetches`]).
+    pub(crate) fn build_fetch_due(&self, key: &verification::FetchKey, now: i64) -> bool {
+        lock(&self.shared.build_fetches).due(key, now)
+    }
+
+    /// Main was fetched for this merge and build, so no other fetch is needed for them.
+    pub(crate) fn build_fetched(&self, key: &verification::FetchKey) {
+        lock(&self.shared.build_fetches).done(key);
+    }
 }
 
 // A thread that takes a step owns its context, and every thread shares one `Shared`: a field added to either that may

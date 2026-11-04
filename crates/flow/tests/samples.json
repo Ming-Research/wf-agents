@@ -1519,12 +1519,9 @@
     "outcome": {
      "verdicts": [
       {
-       "verdict": "fails",
+       "verdict": "cannot_judge",
        "id": "A1",
-       "run": "SELECT 1 AS one",
-       "seen": "1",
-       "why": "It does not hold.",
-       "harm_now": false
+       "why": "The command cannot run."
       },
       {
        "verdict": "not_yet",
@@ -1541,6 +1538,35 @@
   },
   {
    "row": "failed",
+   "json": {
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none",
+    "tell_owner": [],
+    "outcome": {
+     "verdicts": [
+      {
+       "verdict": "fails",
+       "id": "A1",
+       "run": "SELECT 1 AS one",
+       "seen": "1",
+       "why": "It does not hold.",
+       "harm_now": true
+      },
+      {
+       "verdict": "not_yet",
+       "id": "A2",
+       "missing": "No run yet."
+      }
+     ]
+    }
+   },
+   "given": {
+    "looks": "within"
+   }
+  },
+  {
+   "row": "unjudged",
    "json": {
     "side_reports": [],
     "progress": "progress",

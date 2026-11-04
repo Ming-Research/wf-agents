@@ -4,19 +4,24 @@
 
 An acceptance condition that no test, check of the CI or measurement on the branch can show, and that real runs show
 once the change is in effect, is written `in_effect`. It says what carries the change (`when`: `installed`, the installed
-program built from this project, or `merged`, main), the tool whose real run checks it (`query`, `gh` or `measure`), what
-to run (`command`), what result means it holds (`holds`) and what evidence it waits for (`enough`). The check
-`in_effect_known` refuses what a project cannot check: `installed` outside the project the engine is built from, `measure`
-where the project lists no workflow, and any such condition in a work that delivers a report.
+program built from this project, or `merged`, main), the tool whose real run checks it (`query` or `gh`), what to run
+(`command`), what result means it holds (`holds`) and what evidence it waits for (`enough`). The check `in_effect_known`
+refuses what a project cannot check: `installed` outside the project the engine is built from, and any such condition in
+a work that delivers a report.
 
 The work that merged it checks it. After it writes what it learned (cell `L2`) it does not end but waits at cell `W1`,
 holding no slot and keeping no session warm, until every carrier holds its merge commit. That is one definition for every
 project: main holds it as the work merges; the installed program holds it when the commit it was built from has the merge
 commit among its ancestors in the project's checkout. A round in a new session (cell `W2`) then runs each condition's
-command as written, putting in only the time the change took effect, and gives each a verdict. Evidence not there yet
-sends the work back to wait as long as the round says (`not_yet`). Everything holding ends the work; a condition that
-does not hold or cannot be judged goes to the project's architect as a report (`detail` `verification`), urgent when it is
-doing harm now, and the work ends.
+command as written, putting in only the time the change took effect, and gives each a verdict, which must rest on that
+command's own run since then and on a value it showed. A condition that does not hold goes at once to the project's
+architect as a report (`detail` `verification`), urgent when it is doing harm now, listing what is still not checked, and
+the work ends. Otherwise evidence not there yet sends the work back to wait as long as the round says (`not_yet`). With
+none awaited, a condition that cannot be judged is reported the same way, and everything holding ends the work.
+
+What is said to a merged work is all the owner has over it, as it can be neither cancelled nor started over, beside the
+Pause. Words buy one look; they do not put the change in effect, which only what carries it does. Words not to check a
+condition hold for each look after.
 
 Two limits keep a merged work from waiting for good, since it can be neither cancelled nor started over, and it keeps its
 worktree meanwhile. They are the project's settings, and at either the architect is told the conditions stand unverified
@@ -102,7 +107,12 @@ writes `skipped`.
   costs more than a round at the item's level.
 - The condition carries SQL for when it can be judged, which the engine waits for by itself. That SQL has parameters, cannot
   be tried when it is written since its data does not exist yet, and once wrong waits forever; it needs the same limit and
-  report; and gh and measure results need an agent to judge them anyway, so it would cover half of what one loop covers.
+  report; and gh results need an agent to judge them anyway, so it would cover half of what one loop covers.
+- `measure` as a tool that checks. It runs at the head of the work's own branch, and the merge squashes, so it measures the
+  code before the merge. Its result holds only a link and the paths of files, so the engine cannot check what a verdict says
+  it saw. The records of real runs are read with `query` and `gh`, and no known condition wants it. It is for when a
+  project's change is carried by something a workflow can probe, such as a deployment; which commit it then runs on, and how
+  the check reads the files it saves, are to be decided with that carrier.
 - A look that cannot judge at once goes straight to the architect. Most such conditions then go unchecked, which is the
   state this replaces.
 - In effect always means installed, or main with its full CI finished, as an earlier design had it. A change to the CI has

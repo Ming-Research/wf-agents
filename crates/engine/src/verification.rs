@@ -11,6 +11,7 @@
 //! its ancestors. Only a merged work comes here: a change pushed straight to main goes through no cell of the flow, so
 //! nothing here checks it (item #275 takes that part).
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -54,6 +55,9 @@ const NOT_KNOWN: &str = "unknown";
 
 const MINUTE_MS: i64 = 60_000;
 const HOUR_MS: i64 = 60 * MINUTE_MS;
+
+/// How long after a fetch of main that failed another may be tried for the same merge and build.
+const FETCH_AGAIN_MS: i64 = 10 * MINUTE_MS;
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -128,9 +132,41 @@ pub fn carries(checkout: &Path, merge: &str, build: &str) -> &'static str {
     }
 }
 
+/// What a fetch of main for a build the checkout lacks is for: the project, the merge and the build.
+pub type FetchKey = (String, String, String);
+
+/// The fetches of main made for a build the checkout lacks, for the engine's process. The value that wants one is worked
+/// out at every step of a wait, and a build that is not on main never comes by fetching: one fetch that worked is enough
+/// for a merge and a build, and one that failed is tried again only after [`FETCH_AGAIN_MS`].
+#[derive(Default)]
+pub struct Fetches {
+    /// When the last attempt began, for each; none once one worked.
+    tried: BTreeMap<FetchKey, Option<i64>>,
+}
+
+impl Fetches {
+    /// Whether to fetch now, which marks the attempt.
+    pub fn due(&mut self, key: &FetchKey, now: i64) -> bool {
+        let due = match self.tried.get(key) {
+            Some(None) => false,
+            Some(Some(at)) => now - at >= FETCH_AGAIN_MS,
+            None => true,
+        };
+        if due {
+            self.tried.insert(key.clone(), Some(now));
+        }
+        due
+    }
+
+    /// The fetch worked: none is needed again for this merge and build.
+    pub fn done(&mut self, key: &FetchKey) {
+        self.tried.insert(key.clone(), None);
+    }
+}
+
 /// The engine's value `in_effect`: whether what carries the change holds the merge commit for every condition. Main
 /// holds it as the work merges. For the installed program, a commit the checkout lacks may only not be fetched yet, so
-/// main is fetched once before it says it cannot tell, unless the build is one no fetch can bring.
+/// main is fetched, as [`Fetches`] allows, before it says it cannot tell, unless the build is one no fetch can bring.
 pub fn carriers_hold(e: &Engine, w: &Work, item: &Item) -> Result<&'static str, String> {
     let installed = conditions(e.db.conn(), item.id)?.iter().any(|c| c["when"] == INSTALLED);
     if !installed {
@@ -144,10 +180,15 @@ pub fn carriers_hold(e: &Engine, w: &Work, item: &Item) -> Result<&'static str, 
     if found != "cannot_tell" || e.built_from == NOT_KNOWN {
         return Ok(found);
     }
+    let key = (item.project.clone(), merge.clone(), e.built_from.clone());
+    if !e.build_fetch_due(&key, db::now()) {
+        return Ok(found);
+    }
     if let Err(why) = config::fetch_main(&project) {
         e.say(&format!("work {}: {why}", w.id));
         return Ok(found);
     }
+    e.build_fetched(&key);
     Ok(carries(&project.checkout, &merge, &e.built_from))
 }
 
@@ -252,8 +293,6 @@ pub struct Project<'a> {
     pub report: bool,
     /// Whether the project is the one the engine is built from.
     pub engine_s_own: bool,
-    /// Whether the project lists a measurement workflow.
-    pub measures: bool,
 }
 
 /// What is wrong with the conditions written in_effect of a list of acceptance conditions a return hands in.
@@ -270,12 +309,6 @@ pub fn known_problems(acceptance: &Value, p: &Project<'_>) -> Problems {
                 "{id} says the installed program carries the change, and this project's changes cannot change the \
                  installed program: the engine is not built from project {}. Write `when` as merged, or the condition \
                  another way",
-                p.name
-            ));
-        }
-        if c["tool"] == "measure" && !p.measures {
-            problems.push(format!(
-                "{id} is checked with measure, and project {} lists no measurement workflow",
                 p.name
             ));
         }
@@ -309,7 +342,7 @@ pub fn rows_problems(acceptance: &[Value], rows: &[Value]) -> Problems {
 }
 
 /// What is wrong with a look's verdicts against the conditions written in_effect (`wanted`): one for each and no other;
-/// `skipped` only once the look was given words said to the work (`words`).
+/// `skipped` only once words were said to the work since its merge (`words`).
 pub fn cover_problems(wanted: &[String], verdicts: &[Value], words: bool) -> Problems {
     let mut problems = Problems::default();
     let given: Vec<String> = ids(verdicts);
@@ -330,22 +363,24 @@ pub fn cover_problems(wanted: &[String], verdicts: &[Value], words: bool) -> Pro
         |xs| format!("no verdict for acceptance conditions {xs}"),
     );
     if !words && verdicts.iter().any(|v| v["verdict"] == "skipped") {
-        problems
-            .push("skipped is only for a condition someone said in words given to this look not to check; none were");
+        problems.push("skipped is only for a condition someone said not to check, since the merge; no one said anything");
     }
     problems
 }
 
-/// What is wrong with how long a look says to wait: it says so exactly when a condition is not_yet, within the bound.
+/// What is wrong with how long a look says to wait: it says so exactly when the look waits, a condition being not_yet and
+/// none failing, within the bound.
 pub fn again_problems(verdicts: &[Value], minutes: Option<i64>) -> Problems {
     let mut problems = Problems::default();
-    let not_yet = verdicts.iter().any(|v| v["verdict"] == "not_yet");
+    let waits = verdicts.iter().any(|v| v["verdict"] == "not_yet") && !verdicts.iter().any(|v| v["verdict"] == "fails");
     match minutes {
-        None if not_yet => {
+        None if waits => {
             problems.push("a condition is not_yet: say in again_after_minutes how long the missing evidence needs");
         }
-        Some(_) if !not_yet => {
-            problems.push("again_after_minutes is only for a condition that is not_yet, and none is");
+        Some(_) if !waits => {
+            problems.push(
+                "again_after_minutes is only for a look that waits, with a condition not_yet and none that fails",
+            );
         }
         Some(m) if !(1..=AGAIN_AFTER_MOST).contains(&m) => {
             problems.push(format!(
@@ -357,12 +392,14 @@ pub fn again_problems(verdicts: &[Value], minutes: Option<i64>) -> Problems {
     problems
 }
 
-/// One run of a tool a look may rest on, as the engine recorded it: the tool, what was handed in for it, and its result.
+/// One run of a tool a look may rest on, as the engine recorded it: the tool, what was handed in for it, its result, and
+/// the text of the file its result was saved to when it was too long to give.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Run {
     pub tool: String,
     pub given: String,
     pub result: Value,
+    pub saved: Option<String>,
 }
 
 /// The runs of the tools that check, of this work, since the time given.
@@ -371,17 +408,24 @@ pub fn runs_since(conn: &Connection, work: i64, since: i64) -> Result<Vec<Run>, 
         conn,
         "SELECT tool, coalesce(json_extract(args, '$.sql'), json_extract(args, '$.command'), '') AS given, result
          FROM tool_runs
-         WHERE work = ?1 AND tool IN ('query', 'gh', 'measure') AND started_at >= ?2 AND result IS NOT NULL
+         WHERE work = ?1 AND tool IN ('query', 'gh') AND started_at >= ?2 AND result IS NOT NULL
          ORDER BY id",
         &[&work, &since],
         10_000,
     )?;
     Ok(rows
         .iter()
-        .map(|r| Run {
-            tool: r["tool"].as_str().unwrap_or_default().to_string(),
-            given: r["given"].as_str().unwrap_or_default().to_string(),
-            result: r["result"].clone(),
+        .map(|r| {
+            let ran = &r["result"]["ran"];
+            let said = ran["saved"].as_str().or_else(|| ran["output"].as_str());
+            Run {
+                tool: r["tool"].as_str().unwrap_or_default().to_string(),
+                given: r["given"].as_str().unwrap_or_default().to_string(),
+                result: r["result"].clone(),
+                saved: said
+                    .and_then(crate::tools::saved_to)
+                    .and_then(|path| std::fs::read_to_string(path).ok()),
+            }
         })
         .collect())
 }
@@ -392,45 +436,113 @@ fn plain(text: &str) -> &str {
     text.strip_prefix("gh ").map_or(text, str::trim)
 }
 
-/// Whether a text is, letter for letter, in a value of a run's result or in the result as written.
-fn shown_in(result: &Value, seen: &str) -> bool {
-    fn in_a_value(v: &Value, seen: &str) -> bool {
-        match v {
-            Value::String(s) => s.contains(seen),
-            Value::Array(xs) => xs.iter().any(|x| in_a_value(x, seen)),
-            Value::Object(o) => o.values().any(|x| in_a_value(x, seen)),
-            other => other.to_string().contains(seen),
-        }
-    }
-    in_a_value(result, seen) || result.to_string().contains(seen)
+/// A condition's command as it is run: with the time the change took effect put in, the one thing put in.
+fn placed(command: &str, at: i64) -> String {
+    command.replace(":in_effect_at", &at.to_string())
 }
 
-/// What is wrong with what a look's verdicts rest on: a verdict of holds or fails names a run among `runs`, those the
-/// engine recorded for this work since the change took effect, by what was handed in for it or, for a measurement, a
-/// link in its result; and what it says it saw is in that run's result. A verdict that rests on no run names none.
-pub fn basis_problems(verdicts: &[Value], runs: &[Run]) -> Problems {
+/// Whether a run ran to its end and well: a query that gave rows, or a gh command that exited 0. One that did not is
+/// cannot_judge, and nothing it said is evidence.
+fn ran_well(run: &Run) -> bool {
+    let ran = &run.result["ran"];
+    ran["verdict"] == "ran" && ran["exit"].as_i64().unwrap_or(0) == 0
+}
+
+/// Whether `seen` is in `text` as a whole: not the `7` of `217`, nor the `fetch` of `fetched`.
+fn whole_in(text: &str, seen: &str) -> bool {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices(seen).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + seen.len()..].chars().next();
+        let cut_before = seen.starts_with(word) && before.is_some_and(word);
+        let cut_after = seen.ends_with(word) && after.is_some_and(word);
+        !cut_before && !cut_after
+    })
+}
+
+/// A value of a row as it reads: a text as it is, anything else as JSON writes it.
+fn cell_text(v: &Value) -> String {
+    v.as_str().map_or_else(|| v.to_string(), str::to_string)
+}
+
+/// Whether `seen` is a value of a row, or part of the row that holds a value: not a column's name alone.
+fn in_row(row: &Value, seen: &str) -> bool {
+    let values: Vec<String> = row
+        .as_object()
+        .into_iter()
+        .flat_map(|o| o.values())
+        .map(cell_text)
+        .collect();
+    let in_a_value = row
+        .as_object()
+        .into_iter()
+        .flat_map(|o| o.values())
+        .any(|v| match v {
+            Value::String(s) => whole_in(s, seen),
+            other => other.to_string() == seen,
+        });
+    in_a_value || (whole_in(&row.to_string(), seen) && values.iter().any(|v| !v.is_empty() && whole_in(seen, v)))
+}
+
+/// Whether a run that ran well showed `seen`: among a query's rows or in a gh command's output, or in the file where they
+/// were saved. What the tool itself says of the run, its fields' names and the path of that file, shows nothing.
+fn shown_in(run: &Run, seen: &str) -> bool {
+    let ran = &run.result["ran"];
+    if run.tool == "query" {
+        let given = ran["rows"].as_array().into_iter().flatten().any(|row| in_row(row, seen));
+        let saved = run.saved.iter().flat_map(|text| text.lines()).any(|line| {
+            serde_json::from_str::<Value>(line).is_ok_and(|row| in_row(&row, seen))
+        });
+        return given || saved;
+    }
+    match &run.saved {
+        Some(text) => whole_in(text, seen),
+        None => ran["output"].as_str().is_some_and(|text| whole_in(text, seen)),
+    }
+}
+
+/// What is wrong with what a look's verdicts rest on: a verdict of holds or fails names its condition's own command with
+/// the time the change took effect (`at`) put in, among `runs`, those the engine recorded for this work since then; that
+/// run ran well; and what the verdict says it saw is what that run showed. A verdict that rests on no run names none.
+pub fn basis_problems(verdicts: &[Value], conditions: &[Value], at: i64, runs: &[Run]) -> Problems {
     let mut problems = Problems::default();
     for v in verdicts
         .iter()
         .filter(|v| v["verdict"] == "holds" || v["verdict"] == "fails")
     {
         let id = v["id"].as_str().unwrap_or_default();
+        // A verdict for no such condition is said by the check of what the verdicts cover.
+        let Some(condition) = conditions.iter().find(|c| c["id"].as_str() == Some(id)) else {
+            continue;
+        };
+        let own = placed(condition["command"].as_str().unwrap_or_default(), at);
         let run = plain(v["run"].as_str().unwrap_or_default());
         let seen = v["seen"].as_str().unwrap_or_default().trim();
+        if run != plain(&own) {
+            problems.push(format!(
+                "{id}: the run {run:?} is not the condition's own command, which with the time put in is {:?}: run it as \
+                 it is written and name it so",
+                plain(&own)
+            ));
+            continue;
+        }
         let matching: Vec<&Run> = runs
             .iter()
-            .filter(|r| {
-                !run.is_empty()
-                    && (plain(&r.given) == run || (r.tool == "measure" && r.result.to_string().contains(run)))
-            })
+            .filter(|r| r.tool == condition["tool"].as_str().unwrap_or_default() && plain(&r.given) == run)
             .collect();
         if matching.is_empty() {
             problems.push(format!(
-                "{id}: the run {run:?} is not one the engine recorded for this work since the change took effect: \
-                 name the SQL or the gh arguments as you handed them in, or a measurement's link, and run it if you \
-                 have not"
+                "{id}: the run {run:?} is not one the engine recorded for this work since the change took effect: name \
+                 the SQL or the gh arguments as you handed them in, and run it if you have not"
             ));
-        } else if seen.is_empty() || !matching.iter().any(|r| shown_in(&r.result, seen)) {
+            continue;
+        }
+        let well: Vec<&&Run> = matching.iter().filter(|r| ran_well(r)).collect();
+        if well.is_empty() {
+            problems.push(format!(
+                "{id}: that run did not run to its end: a command that cannot run is cannot_judge, saying why"
+            ));
+        } else if seen.is_empty() || !well.iter().any(|r| shown_in(r, seen)) {
             problems.push(format!(
                 "{id}: {seen:?} is not in the result of that run: say what it showed, copied letter for letter from \
                  its result"
@@ -440,32 +552,46 @@ pub fn basis_problems(verdicts: &[Value], runs: &[Run]) -> Problems {
     problems
 }
 
-/// Whether the look under way was given words said to the work: since the wait let the work on, in this round or a
-/// round before it.
+/// Whether words were said to the work since its merge, given to this look or to one before it: they hold for each look
+/// after, though each look is a session of its own.
 pub fn words_given(conn: &Connection, work: i64) -> Result<bool, String> {
     let n: i64 = conn
         .query_row(
-            "SELECT count(*) FROM interjections
-             WHERE work = ?1 AND delivered_round > coalesce(
-               (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = ?2), 0)",
-            params![work, WAIT],
+            &format!(
+                "SELECT count(*) FROM interjections
+                 WHERE work = ?1 AND delivered_round > coalesce(
+                   (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
+                db::cells_sql(ENGINEER, &[MERGE])
+            ),
+            params![work],
             |r| r.get(0),
         )
         .map_err(sql)?;
     Ok(n > 0)
 }
 
-/// `tell_wait`: tells the owner once, as the work first takes the row, what only the owner can do about a wait the
-/// engine cannot judge.
+/// `tell_wait`: tells the owner, the first time in the work it takes the row, what settles a wait the engine cannot judge
+/// and what words said to the work do.
 pub fn tell_wait(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
+    let told: i64 = tx
+        .query_row(
+            "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = ?2 AND transition = ?3 AND n < ?4",
+            params![ctx.work.id, WAIT, ctx.row.name, ctx.round.n],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    if told > 0 {
+        return Ok(());
+    }
     let merge = ctx
         .last(tx, MERGE, "result.merge_commit")?
         .and_then(|(_, c)| c.as_str().map(str::to_string))
         .unwrap_or_default();
     let text = format!(
         "{} waits for its change to take effect, and the engine cannot tell whether the installed program holds merge \
-         {merge}: its build's commit is unknown or not in the project's checkout. Install a build of main, or say in the \
-         work's group that it is in effect.",
+         {merge}: its build's commit is unknown or not in the project's checkout. Only installing a build of main settles \
+         it. Saying something in the work's group buys one look at its conditions, and if the evidence is not there the \
+         work waits again.",
         ctx.about()
     );
     crate::actions::notify(tx, Some(ctx.work.id), &text)
@@ -491,19 +617,40 @@ pub fn report(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let urgent = verdicts.iter().any(|v| v["harm_now"] == true);
     let all = ids(&conditions(tx, item.id)?);
     let lines: Vec<String> = verdicts.iter().map(verdict_line).collect();
+    let (waiting, settled): (Vec<&Value>, Vec<&Value>) = verdicts.iter().partition(|v| v["verdict"] == "not_yet");
+    let joined = |vs: &[&Value]| vs.iter().map(|v| verdict_line(v)).collect::<Vec<_>>().join("; ");
     let what = match ctx.row.name.as_str() {
+        NEVER_IN_EFFECT if ctx.given.get("in_effect").is_some_and(|v| v == "cannot_tell") => format!(
+            "The wait for the change of {} reached its limit, and the engine cannot tell whether the change took effect, \
+             the installed program's build being unknown or not in the project's checkout: {} not checked, and stand \
+             unverified",
+            ctx.about(),
+            all.join(", ")
+        ),
         NEVER_IN_EFFECT => format!(
             "The change of {} never took effect within the limit of the wait: {} not checked, and stand unverified",
             ctx.about(),
             all.join(", ")
         ),
-        PAST_LOOKS => format!(
+        PAST_LOOKS if settled.is_empty() => format!(
             "The evidence for {} did not come within the limit of looks, so these stand unverified: {}",
+            ctx.about(),
+            joined(&waiting)
+        ),
+        PAST_LOOKS => format!(
+            "The evidence for {} did not come within the limit of looks, so these stand unverified: {}. The others: {}",
+            ctx.about(),
+            joined(&waiting),
+            joined(&settled)
+        ),
+        _ if waiting.is_empty() => format!(
+            "Checking {} once its change took effect: {}",
             ctx.about(),
             lines.join("; ")
         ),
         _ => format!(
-            "Checking {} once its change took effect: {}",
+            "Checking {} once its change took effect: {}. Those not_yet were not checked, and stand unverified, since the \
+             work ended on what does not hold",
             ctx.about(),
             lines.join("; ")
         ),
@@ -616,26 +763,31 @@ mod tests {
         assert!(cover_problems(&wanted, &skipped, true).is_empty());
         assert_eq!(
             said(cover_problems(&wanted, &skipped, false)),
-            ["skipped is only for a condition someone said in words given to this look not to check; none were"]
+            ["skipped is only for a condition someone said not to check, since the merge; no one said anything"]
         );
     }
 
-    // How long to wait goes with a condition not_yet and none other, from a minute to two days.
+    // How long to wait goes with a look that waits and none other, from a minute to two days: a condition that fails ends
+    // the work, whatever else is not_yet.
     #[test]
     fn how_long_to_wait_is_said_exactly_for_a_condition_not_yet_and_within_two_days() {
         let waiting = [not_yet("A1")];
         let settled = [holds("A1", "q", "s")];
+        let ending = [not_yet("A1"), json!({ "verdict": "fails", "id": "A2" })];
         assert!(again_problems(&waiting, Some(1)).is_empty());
         assert!(again_problems(&waiting, Some(AGAIN_AFTER_MOST)).is_empty());
         assert!(again_problems(&settled, None).is_empty());
+        assert!(again_problems(&ending, None).is_empty());
         assert_eq!(
             said(again_problems(&waiting, None)),
             ["a condition is not_yet: say in again_after_minutes how long the missing evidence needs"]
         );
-        assert_eq!(
-            said(again_problems(&settled, Some(5))),
-            ["again_after_minutes is only for a condition that is not_yet, and none is"]
-        );
+        for no_wait in [&settled[..], &ending[..]] {
+            assert_eq!(
+                said(again_problems(no_wait, Some(5))),
+                ["again_after_minutes is only for a look that waits, with a condition not_yet and none that fails"]
+            );
+        }
         assert_eq!(
             said(again_problems(&waiting, Some(AGAIN_AFTER_MOST + 1))),
             ["again_after_minutes is from 1 to 2880, and it says 2881"]
@@ -651,98 +803,182 @@ mod tests {
             tool: tool.into(),
             given: given.into(),
             result,
+            saved: None,
         }
     }
 
-    // A verdict that rests on a run names one the engine recorded, as handed in, or by a measurement's link; what it saw
-    // is in that run's result. A run no record has, or a text that run did not show, as `fetched` where every run was
-    // refused, is said; a verdict that rests on no run names none.
+    fn checked_by(id: &str, tool: &str, command: &str) -> Value {
+        json!({ "by": "in_effect", "id": id, "tool": tool, "command": command })
+    }
+
+    // A verdict that rests on a run names the condition's own command with the time put in, as the engine recorded it;
+    // what it saw is what that run showed. Another command, a run no record has, a run that did not end well, or a text the
+    // run did not show, as `fetched` where every run was refused, is said; a verdict that rests on no run names none.
     #[test]
     fn a_verdict_rests_on_a_run_the_engine_recorded_and_on_what_that_run_showed() {
+        const QUERY: &str = "SELECT verdict FROM t WHERE at > :in_effect_at";
+        const PLACED: &str = "SELECT verdict FROM t WHERE at > 50";
+        const VIEW: &str = "pr view 12 --json state";
         let query = ran(
             "query",
-            "SELECT verdict FROM t",
+            PLACED,
             json!({ "ran": { "verdict": "ran", "rows": [{ "verdict": "refused", "ms": 218_000 }] } }),
         );
         let gh = ran(
             "gh",
-            "pr view 12 --json state",
-            json!({ "ran": { "output": "{\"state\":\"MERGED\"}" } }),
+            VIEW,
+            json!({ "ran": { "verdict": "ran", "exit": 0, "output": "{\"state\":\"MERGED\"}" } }),
         );
-        let measure = ran(
-            "measure",
-            "",
-            json!({ "push": { "run": "https://github.com/o/p/runs/9" } }),
-        );
-        let runs = [query, gh, measure];
+        let runs = [query, gh];
+        let conditions = [checked_by("A1", "query", QUERY), checked_by("A2", "gh", VIEW)];
+        let problems = |v: Value, runs: &[Run]| said(basis_problems(&[v], &conditions, 50, runs));
 
         for good in [
-            holds("A1", " SELECT verdict FROM t ", "refused"),
-            holds("A1", "SELECT verdict FROM t", "218000"),
-            holds("A1", "gh pr view 12 --json state", "\"state\":\"MERGED\""),
-            holds("A1", "https://github.com/o/p/runs/9", "runs/9"),
+            holds("A1", &format!(" {PLACED} "), "refused"),
+            holds("A1", PLACED, "218000"),
+            holds("A1", PLACED, "\"ms\":218000"),
+            holds("A2", "gh pr view 12 --json state", "\"state\":\"MERGED\""),
+            holds("A2", VIEW, "MERGED"),
         ] {
-            assert!(basis_problems(std::slice::from_ref(&good), &runs).is_empty(), "{good}");
+            let found = problems(good.clone(), &runs);
+            assert!(found.is_empty(), "{good}: {found:?}");
         }
-        let unrecorded = said(basis_problems(&[holds("A1", "SELECT 1", "1")], &runs));
-        assert_eq!(unrecorded.len(), 1);
+        let another = problems(holds("A1", "SELECT 1", "1"), &runs);
+        assert_eq!(another.len(), 1);
         assert!(
-            unrecorded[0].starts_with("A1: the run \"SELECT 1\" is not one the engine recorded"),
-            "{unrecorded:?}"
+            another[0].starts_with("A1: the run \"SELECT 1\" is not the condition's own command"),
+            "{another:?}"
         );
-        let not_shown = json!({
-            "verdict": "fails", "id": "A2", "run": "SELECT verdict FROM t", "seen": "fetched", "why": "x", "harm_now": false,
-        });
-        assert_eq!(
-            said(basis_problems(&[not_shown], &runs)),
-            [
-                "A2: \"fetched\" is not in the result of that run: say what it showed, copied letter for letter from its result"
-            ]
-        );
+        // The time not put in is another command than the one that was run.
+        assert_eq!(problems(holds("A1", QUERY, "refused"), &runs).len(), 1);
+        for seen in ["fetched", "verdict", "218", "ran"] {
+            let not_shown = json!({
+                "verdict": "fails", "id": "A1", "run": PLACED, "seen": seen, "why": "x", "harm_now": false,
+            });
+            let found = problems(not_shown, &runs);
+            assert_eq!(found.len(), 1, "{seen}: {found:?}");
+            assert!(found[0].contains("is not in the result of that run"), "{found:?}");
+        }
         // With no run on record since the change took effect, none can be named.
-        assert_eq!(
-            basis_problems(&[holds("A1", "SELECT verdict FROM t", "refused")], &[])
-                .texts()
-                .len(),
-            1
+        let none = problems(holds("A1", PLACED, "refused"), &[]);
+        assert_eq!(none.len(), 1);
+        assert!(none[0].contains("is not one the engine recorded"), "{none:?}");
+        assert!(problems(not_yet("A1"), &[]).is_empty());
+
+        // A run that did not end well is evidence of nothing, whatever it said.
+        let broken = ran(
+            "query",
+            PLACED,
+            json!({ "ran": { "verdict": "error", "error": "no such table: t" } }),
         );
-        assert!(basis_problems(&[not_yet("A1")], &[]).is_empty());
+        let exited = ran(
+            "gh",
+            VIEW,
+            json!({ "ran": { "verdict": "ran", "exit": 1, "output": "MERGED" } }),
+        );
+        let cannot = "that run did not run to its end";
+        assert!(problems(holds("A1", PLACED, "no such table"), &[broken])[0].contains(cannot));
+        assert!(problems(holds("A2", VIEW, "MERGED"), &[exited])[0].contains(cannot));
     }
 
-    fn known(report: bool, engine_s_own: bool, measures: bool) -> Project<'static> {
+    // A result too long to give is looked for in the file it was saved to, and the words that say where it is show nothing.
+    #[test]
+    fn a_long_result_is_looked_for_in_the_file_it_was_saved_to() {
+        let conditions = [checked_by("A1", "query", "Q"), checked_by("A2", "gh", "pr list")];
+        let query = Run {
+            saved: Some("{\"ms\":218000}\n{\"ms\":7}".into()),
+            ..ran(
+                "query",
+                "Q",
+                json!({ "ran": { "verdict": "ran", "rows": [], "saved": "Too long to give here (9 bytes); saved to /x/y" } }),
+            )
+        };
+        let gh = Run {
+            saved: Some("the state is MERGED".into()),
+            ..ran(
+                "gh",
+                "pr list",
+                json!({ "ran": { "verdict": "ran", "exit": 0, "output": "Too long to give here (9 bytes); saved to /x/y" } }),
+            )
+        };
+        let runs = [query, gh];
+        let problems = |v: Value| basis_problems(&[v], &conditions, 0, &runs);
+        assert!(problems(holds("A1", "Q", "218000")).is_empty());
+        assert!(problems(holds("A1", "Q", "7")).is_empty());
+        assert!(problems(holds("A2", "pr list", "MERGED")).is_empty());
+        for (id, run, seen) in [("A1", "Q", "8"), ("A1", "Q", "saved to"), ("A2", "pr list", "saved to")] {
+            assert_eq!(problems(holds(id, run, seen)).texts().len(), 1, "{seen}");
+        }
+    }
+
+    // A fetch for a build the checkout lacks is made at most once when it works, however many steps the wait takes, and
+    // again only after a while when it fails. Another merge or build has its own. The count is of what would reach the
+    // network, stepping as the wait does.
+    #[test]
+    fn a_wait_fetches_main_for_a_build_once_and_again_only_after_a_failure_and_a_while() {
+        let key = ("p".to_string(), "merge".to_string(), "build".to_string());
+        let mut fetches = Fetches::default();
+        let mut made = 0;
+        for step in 0..1000 {
+            if fetches.due(&key, step * 10_000) {
+                made += 1;
+                fetches.done(&key);
+            }
+        }
+        assert_eq!(made, 1);
+
+        let failing = ("p".to_string(), "merge".to_string(), "other".to_string());
+        let mut made = 0;
+        for step in 0..=360 {
+            // An hour of steps ten seconds apart, the fetch failing each time it is made.
+            if fetches.due(&failing, step * 10_000) {
+                made += 1;
+            }
+        }
+        assert_eq!(made, 7, "one each ten minutes, the first at once");
+    }
+
+    // A text is shown whole: not the digit of a larger number, nor the start of a longer word, and a text that does not
+    // begin or end with a letter or digit is not held to it there.
+    #[test]
+    fn a_text_is_found_only_whole() {
+        assert!(whole_in("took 217 ms", "217"));
+        assert!(!whole_in("took 217 ms", "7"));
+        assert!(!whole_in("fetched", "fetch"));
+        assert!(whole_in("{\"a\":1}", "\"a\":"));
+        assert!(whole_in("x fetch x fetched", "fetch"));
+        assert!(whole_in("中文 ok", "ok"));
+    }
+
+    fn known(report: bool, engine_s_own: bool) -> Project<'static> {
         Project {
             name: "p",
             report,
             engine_s_own,
-            measures,
         }
     }
 
-    // In the project the engine is built from a condition may name the installed program; in any other it may not, and
-    // nor may it name measure where the project lists no workflow, nor a report write any such condition.
+    // In the project the engine is built from a condition may name the installed program; in any other it may not, nor may
+    // a report write any such condition.
     #[test]
     fn a_condition_in_effect_is_one_this_project_can_check() {
         let acceptance = json!([
             { "by": "test", "id": "A1", "condition": "x" },
             { "by": "in_effect", "id": "A2", "when": "installed", "tool": "query" },
-            { "by": "in_effect", "id": "A3", "when": "merged", "tool": "measure" },
+            { "by": "in_effect", "id": "A3", "when": "merged", "tool": "gh" },
         ]);
-        assert!(known_problems(&acceptance, &known(false, true, true)).is_empty());
-        let other = said(known_problems(&acceptance, &known(false, false, true)));
+        assert!(known_problems(&acceptance, &known(false, true)).is_empty());
+        let other = said(known_problems(&acceptance, &known(false, false)));
         assert_eq!(other.len(), 1);
         assert!(
             other[0].contains("this project's changes cannot change the installed program"),
             "{other:?}"
         );
         assert_eq!(
-            said(known_problems(&acceptance, &known(false, true, false))),
-            ["A3 is checked with measure, and project p lists no measurement workflow"]
-        );
-        assert_eq!(
-            said(known_problems(&acceptance, &known(true, true, true))),
+            said(known_problems(&acceptance, &known(true, true))),
             ["a work that delivers a report writes no condition in_effect: nothing of it takes effect"]
         );
-        assert!(known_problems(&json!([{ "by": "test", "id": "A1" }]), &known(true, false, false)).is_empty());
+        assert!(known_problems(&json!([{ "by": "test", "id": "A1" }]), &known(true, false)).is_empty());
     }
 
     // A condition written in_effect is met by a row of that kind and no other, and only such a condition has one.
