@@ -723,7 +723,9 @@ pub struct Ping {
     pub id: i64,
     pub session: i64,
     pub line: String,
-    /// The cell the work waited at, what it waited on (pause, owner, architect, items or tool) and that in words.
+    /// The cell the work waited at, what it waited on (pause, slot, owner, architect, items or row) or `work` when it
+    /// went on without the line, or `fork` when the ping warmed an architect's base before a fork of it, and that in
+    /// words.
     pub cell: String,
     pub on: String,
     pub what: String,

@@ -2,7 +2,7 @@
 //! resumed from included, so each call's own cost is what that grew by since the session's call before it. And what
 //! each kind of token costs each model, by which a round's cost is split by kind and a miss of the cache is priced.
 
-use db::rusqlite::{Connection, OptionalExtension};
+use db::rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::cli::{Call, FIRST_CALL};
@@ -202,23 +202,18 @@ pub fn own_cost(mut usage: Value, before: Option<f64>) -> Value {
 }
 
 /// What a CLI session had cost by its last call that reported it, a round's or a keep-warm ping's, whichever came
-/// last; its rounds are given oldest first.
+/// last; its rounds are given oldest first. The pings are those it holds ([`crate::warm::held_pings`]): a fork's
+/// command line counts what its base cost, the pings the base was sent before the fork was made included, so that a
+/// fork's first round costs what it grew by beyond them, and the pings are not counted twice.
 pub fn spent(conn: &Connection, cli_session: &str, rounds: &[Round]) -> Result<Option<f64>, String> {
     let round = rounds.iter().rev().find_map(|r| {
         let total = r.usage.as_ref()?["session_cost_usd"].as_f64()?;
         Some((r.ended_at.unwrap_or(r.started_at), total))
     });
-    let ping: Option<(i64, f64)> = conn
-        .query_row(
-            "SELECT p.started_at, json_extract(p.usage, '$.session_cost_usd') FROM pings p
-             JOIN sessions s ON s.id = p.session
-             WHERE s.cli_session = ?1 AND json_extract(p.usage, '$.session_cost_usd') IS NOT NULL
-             ORDER BY p.started_at DESC LIMIT 1",
-            [cli_session],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
+    let ping: Option<(i64, f64)> = crate::warm::held_pings(conn, cli_session)?
+        .into_iter()
+        .rev()
+        .find_map(|p| Some((p.started_at, p.usage?["session_cost_usd"].as_f64()?)));
     Ok(match (round, ping) {
         (Some(r), Some(p)) => Some(if p.0 > r.0 { p.1 } else { r.1 }),
         (r, p) => r.or(p).map(|x| x.1),
