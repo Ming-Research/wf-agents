@@ -86,8 +86,6 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-}
-
 // The decisions of an item that a batch merges into another are the kept item's from then on, whatever else the batch
 // does to the kept item's `approach`. A batch that merges item 2 into item 1 and then writes item 1's approach whole,
 // from the text item 1 had before the merge, must not lose the lines the merge carried: either the return is sent back
