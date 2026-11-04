@@ -33,6 +33,11 @@ const BEFORE: &str = "wf-agents-before";
 /// project's measurement workflow runs on one only as `measure` asks it to.
 const MEASURE: &str = "wf-agents-measure";
 
+/// Where the temporary refs are that `ci` runs the fast CI on with main's CI files, each a work's head with them, when
+/// GitHub refused to run it on the work's branch with the branch's own: the full CI and the measurement workflow leave
+/// them alone on push.
+const MAIN_CI: &str = "wf-agents-main-ci";
+
 /// What `measure` refuses with when the project's configuration lists no measurement workflow.
 const NO_MEASURE: &str = "This project's configuration lists no measurement workflow (ci.measure), so measure does \
     not run. Do not wait for it: where your answer has a measure field, answer not_measured and say in why how you \
@@ -299,27 +304,76 @@ fn full_checks_on(
         if let Some(branch) = branch.filter(|_| project.ci.on_demand)
             && github.latest_run_id(&repo, sha, &wf)?.is_none()
         {
-            github.dispatch(&repo, &wf, branch, &[]).map_err(dispatch_failed)?;
+            github.dispatch(&repo, &wf, branch, &[])?;
         }
         out.extend(github.checks(&repo, sha, &wf)?);
     }
     Ok(out)
 }
 
-/// What a failed dispatch is told with, when the workflow it asked for is not on the branch: a branch made before the
-/// workflow existed has none, and takes it with main.
-const DISPATCH_HINT: &str = "If the workflow is not on the branch, which one made before the workflow existed does not \
-                             have, merge origin/main into the branch and hand the head in again";
+/// `commit` with main's CI files ([`git::with_ci_files_of`]), for a workflow GitHub refused to run by hand with the
+/// commit's own, as on a branch made before main's workflow took the request: GitHub runs a workflow on a ref by the
+/// file of it the ref holds. Main is fetched first, so that its CI files are those of now. Where `own`, the commit is
+/// the work's head, and the CI files the work changed itself stay as it has them. None when main's CI files are the
+/// commit's, which a run cannot be refused for.
+fn with_main_ci(
+    project: &config::Project,
+    wt: &Path,
+    commit: &str,
+    own: bool,
+    tag: &str,
+) -> Result<Option<String>, Failure> {
+    config::fetch_main(project).map_err(Failure::network)?;
+    let main = format!("origin/{}", project.main);
+    let kept = if own {
+        let fork = git::git(wt, &["merge-base", commit, &main]).map_err(Failure::other)?;
+        git::changed_among(wt, fork.trim(), commit, &[git::CI_FILES.to_string()]).map_err(Failure::other)?
+    } else {
+        Vec::new()
+    };
+    git::with_ci_files_of(wt, commit, &main, &kept, tag).map_err(Failure::other)
+}
 
-fn dispatch_failed(f: Failure) -> Failure {
-    // A request GitHub refused (an input the workflow lacks, say) is told as it is: the workflow is there.
-    if f.kind == "rejected" {
-        return f;
-    }
-    Failure {
-        kind: f.kind,
-        what: format!("{}. {DISPATCH_HINT}", f.what),
-    }
+/// Where GitHub refused to run a workflow with a commit's own CI files (`refused`), runs it again with main's when they
+/// differ: `run`, given the commit with main's CI files ([`with_main_ci`]) once it is pushed to `refname`. Gives what
+/// that run gave, with both of GitHub's answers when it refused that too; the refusal as it was when main's CI files
+/// are the commit's.
+#[allow(clippy::too_many_arguments)]
+fn again_with_main_ci<T>(
+    project: &config::Project,
+    wt: &Path,
+    commit: &str,
+    own: bool,
+    tag: &str,
+    refname: &str,
+    refused: Failure,
+    run: impl FnOnce(&str) -> Result<T, Failure>,
+) -> Result<T, Failure> {
+    let Some(at) = with_main_ci(project, wt, commit, own, tag)? else {
+        return Err(refused);
+    };
+    hub::push(wt, &at, refname, true)?;
+    run(&at).map_err(|again| {
+        if again.kind != "rejected" {
+            return again;
+        }
+        Failure::rejected(format!(
+            "{}; and with main's CI files ({}/) as well: {}",
+            refused.what,
+            git::CI_FILES,
+            again.what
+        ))
+    })
+}
+
+/// What a run of the fast CI made with main's CI files is told with: GitHub refused to run it with the CI files of
+/// the commit, which `holder` names as the tool's reader knows it ("your branch has"), saying `said`.
+fn main_ci_note(fast: &str, holder: &str, said: &str) -> String {
+    format!(
+        "GitHub refused to run {fast} with the CI files ({}/) {holder}, as it does those of a branch made before \
+         main's took the request: {said}. It ran with main's CI files instead",
+        git::CI_FILES
+    )
 }
 
 /// What a wait for the run that a push to a temporary branch should make is told when none came: the project's CI may
@@ -351,9 +405,7 @@ fn before_checks(
     let (repo, fast) = (repo(project), project.ci.fast.as_str());
     match named {
         Some(input) => {
-            github
-                .dispatch(&repo, fast, branch, &[(input, listed)])
-                .map_err(dispatch_failed)?;
+            github.dispatch(&repo, fast, branch, &[(input, listed)])?;
             github.checks(&repo, commit, fast)
         }
         None => github.checks(&repo, commit, fast).map_err(no_run_on_before_branch),
@@ -379,9 +431,7 @@ fn fast_checks(
     })?;
     // The runs of the workflow on the commit there are now are not the one asked for: that is numbered above them.
     let before = github.latest_run_id(&repo, sha, fast)?;
-    github
-        .dispatch(&repo, fast, branch, &[(input, tests_input(tests).as_str())])
-        .map_err(dispatch_failed)?;
+    github.dispatch(&repo, fast, branch, &[(input, tests_input(tests).as_str())])?;
     let run = if tests.is_empty() { "lint" } else { "named_and_lint" };
     Ok((run, github.checks_after(&repo, sha, fast, before)?))
 }
@@ -638,7 +688,7 @@ pub fn run_tools(
                 got.push((
                     *n,
                     tool.clone(),
-                    ci(e, w, project, item, round, req, &mut pushed, &pr, &tell),
+                    ci(e, w, project, item, round, *n, req, &mut pushed, &pr, &tell),
                 ));
             }
             // ci has pushed all it will: a ci_before still waiting for its head is refused.
@@ -724,10 +774,10 @@ fn push_refusal(wt: &Path, head: &str, pushed: Option<&str>, main: &str) -> Opti
     None
 }
 
-/// The title and description a pull request is opened with when the engineer has handed in none, at its first push
-/// (`ci`) or when the full CI opens it (`full_ci`): fixed English text naming the item by its number, and none of the
-/// item's own text, which is in the owner's language, since everything in a pull request is in English. The engineer's
-/// `pr` at a later push replaces both.
+/// The title and description a pull request is opened with when the engineer has handed in none, at the first push of
+/// a commit of the work's own (`ci`) or when the full CI opens it (`full_ci`): fixed English text naming the item by
+/// its number, and none of the item's own text, which is in the owner's language, since everything in a pull request
+/// is in English. The engineer's `pr` at a later push replaces both.
 fn pr_fallback(item: &Item) -> (String, String) {
     (
         format!("Item {}", item.id),
@@ -740,7 +790,8 @@ fn pr_fallback(item: &Item) -> (String, String) {
 }
 
 /// Pushes the head and waits for its fast CI; `told` hears each head as soon as it is pushed, before the wait, so that a
-/// run of the code before the change can start meanwhile.
+/// run of the code before the change can start meanwhile. `n` is the request's place among the round's, which names
+/// the temporary ref of a run with main's CI files.
 #[allow(clippy::too_many_arguments)]
 fn ci(
     e: &mut Engine,
@@ -748,6 +799,7 @@ fn ci(
     project: &config::Project,
     item: &Item,
     round: RoundId,
+    n: usize,
     req: &Value,
     pushed: &mut Option<String>,
     pr: &Cell<Option<i64>>,
@@ -771,36 +823,72 @@ fn ci(
             p["body"].as_str().unwrap_or_default().to_string(),
         )
     });
+    let tag = format!("{}-{}-{n}", round.work, round.n);
+    let main_ci = format!("{MAIN_CI}/{tag}");
+    let main_ci_ref = format!("refs/heads/{main_ci}");
+    // GitHub opens no pull request for a branch with no commit beyond main, as a work's before its first commit: the
+    // first push of a commit of the work's own opens it. One open already stays the work's, whatever the branch holds.
+    let own_commit = !git::is_ancestor(&wt, &sha, &format!("origin/{}", project.main));
     let got = attempts(e, round, "ci", req, |e| {
         hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
         told(&sha);
-        let tb = title_body
-            .clone()
-            .or_else(|| pr.get().is_none().then(|| fallback.clone()));
-        let n = e.github().pull_request(
-            &repo(project),
-            &branch,
-            &project.main,
-            tb.as_ref().map(|(t, b)| (t.as_str(), b.as_str())),
-            pr.get(),
-        )?;
-        // Known only once written: an attempt whose write failed leaves it unknown, and the next writes it.
-        if pr.get() != Some(n) {
-            record_push(e, w, None, Some(n)).map_err(Failure::other)?;
-            pr.set(Some(n));
+        if pr.get().is_some() || own_commit {
+            let tb = title_body
+                .clone()
+                .or_else(|| pr.get().is_none().then(|| fallback.clone()));
+            let n = e.github().pull_request(
+                &repo(project),
+                &branch,
+                &project.main,
+                tb.as_ref().map(|(t, b)| (t.as_str(), b.as_str())),
+                pr.get(),
+            )?;
+            // Known only once written: an attempt whose write failed leaves it unknown, and the next writes it.
+            if pr.get() != Some(n) {
+                record_push(e, w, None, Some(n)).map_err(Failure::other)?;
+                pr.set(Some(n));
+            }
+            // A pull request that was open already, one a work took over among them, keeps the base it was opened
+            // with.
+            hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
         }
-        // A pull request that was open already, one a work took over among them, keeps the base it was opened with.
-        hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
-        let (run, checks) = fast_checks(e.github(), project, &branch, &sha, &tests)?;
+        let (ran, ci_files) = match fast_checks(e.github(), project, &branch, &sha, &tests) {
+            // A branch made before main's fast workflow took the request: the head runs with main's CI files, on a
+            // temporary ref, since the branch is the engineer's; its result is the head's.
+            Err(refused) if refused.kind == "rejected" => {
+                let note = format!(
+                    "{}, on a temporary ref holding your head with them, those you changed yourself kept as you have \
+                     them; the run is your head's. Merge origin/main into your branch to run it on the branch itself",
+                    main_ci_note(&project.ci.fast, "your branch has", &refused.what)
+                );
+                let again = again_with_main_ci(project, &wt, &sha, true, &tag, &main_ci_ref, refused, |at| {
+                    fast_checks(e.github(), project, &main_ci, at, &tests)
+                });
+                let _ = hub::delete_ref(&wt, &main_ci_ref);
+                (again, Some(note))
+            }
+            ran => (ran, None),
+        };
+        let (run, checks) = ran?;
         let tests = named_results(e.github(), project, &checks, &tests);
         let mut push = json!({
             "verdict": "pushed", "head": sha, "run": run, "checks": checks_json(&checks), "tests": tests
         });
+        if let Some(note) = ci_files {
+            push["ci_files"] = Value::String(note);
+        }
+        if pr.get().is_none() {
+            push["no_pull_request"] = Value::String(NO_PULL_REQUEST.to_string());
+        }
         let artifact = project.ci.generated_artifact.as_deref();
         if let Some(g) = generated(e.github(), &repo(project), artifact, &checks, &wt) {
             push["generated"] = g;
         }
-        Ok(json!({ "push": push, "pr": n }))
+        // The pull request is recorded from the tool's run (`record_tool_runs`), and is not the engineer's to read.
+        Ok(match pr.get() {
+            Some(n) => json!({ "push": push, "pr": n }),
+            None => json!({ "push": push }),
+        })
     });
     // GitHub refused the request to run the fast CI itself, such as an input the workflow does not take: trying again
     // cannot help, and the engineer, who can change the request, is told what GitHub said.
@@ -819,6 +907,12 @@ fn ci(
     }
     Ok(v)
 }
+
+/// What `ci` says when the work has no pull request after its push: the branch has no commit beyond main, and GitHub
+/// opens none for it.
+const NO_PULL_REQUEST: &str = "No pull request was opened: your branch has no commit beyond main, and GitHub opens \
+                               none for such a branch. The first push of a commit of your own opens it, with the title \
+                               and description handed in with that push";
 
 /// What the engineer is told of the generated files put in its worktree.
 const GENERATED: &str = "What the run generated from your head, put in your worktree uncommitted: commit these files \
@@ -963,7 +1057,19 @@ fn ci_before(
     attempts(e, round, "ci_before", &recorded, |e| {
         let commit = git::files_onto(&wt, &files, &sha, &base, &tag).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
-        let ran = before_checks(e.github(), project, &branch, &commit, named, &listed);
+        let mut ran = before_checks(e.github(), project, &branch, &commit, named, &listed);
+        // The code before the change of a branch made before main's fast workflow took the request runs with main's CI
+        // files, on the same temporary branch.
+        let mut ci_files = None;
+        if let Err(f) = &ran
+            && f.kind == "rejected"
+        {
+            let note = main_ci_note(&project.ci.fast, "the code before the change has", &f.what);
+            ran = again_with_main_ci(project, &wt, &commit, false, &tag, &refname, f.clone(), |at| {
+                before_checks(e.github(), project, &branch, at, named, &listed)
+            });
+            ci_files = ran.is_ok().then_some(note);
+        }
         // GitHub refused the request itself: trying again cannot help, and the engineer is told what GitHub said.
         if let Err(f) = &ran
             && f.kind == "rejected"
@@ -975,12 +1081,16 @@ fn ci_before(
         }
         let _ = hub::delete_ref(&wt, &refname);
         let checks = ran?;
-        Ok(json!({ "ran": {
+        let mut ran = json!({
             "verdict": "ran",
             "run": if named.is_some() { "named" } else { "whole" },
             "checks": checks_json(&checks),
             "tests": named_results(e.github(), project, &checks, &tests),
-        } }))
+        });
+        if let Some(note) = ci_files {
+            ran["ci_files"] = Value::String(note);
+        }
+        Ok(json!({ "ran": ran }))
     })
 }
 
@@ -2049,7 +2159,7 @@ mod tests {
             "ci.yml runs on more than a push to main"
         );
         let measure = include_str!("../../../.github/workflows/measure.yml");
-        for prefix in [BEFORE, MEASURE] {
+        for prefix in [BEFORE, MEASURE, MAIN_CI] {
             let ignored = format!("      - '{prefix}/**'\n");
             assert!(measure.contains(&ignored), "measure.yml does not ignore {prefix}/**");
         }
@@ -2106,7 +2216,16 @@ mod ci_on_demand {
         rejects: Option<String>,
         /// The head of a branch, where no repository tells.
         heads: BTreeMap<String, String>,
+        /// Whether a workflow runs by hand only on a commit whose own file of it (`.github/workflows/<name>.yml`)
+        /// takes the request, as GitHub runs it; else on any.
+        reads_workflow_files: bool,
+        /// Whether every wait for a run fails, as when GitHub cannot be reached.
+        fails_waits: bool,
         dispatched: Vec<Dispatch>,
+        /// The commit each workflow run by hand was asked for on, in the order of `dispatched`.
+        dispatched_on: Vec<String>,
+        /// How many times a pull request was asked to be opened or updated.
+        pull_requests: usize,
         reruns: usize,
         merges: usize,
         /// The number of the last run made.
@@ -2205,12 +2324,48 @@ mod ci_on_demand {
             s.seen.clear();
             s.coming.clear();
             s.dispatched.clear();
+            s.dispatched_on.clear();
             s.reruns = 0;
             s.merges = 0;
         }
 
+        /// From now on a workflow runs by hand only on a commit whose own file of it takes the request.
+        fn reads_workflow_files(&self) {
+            self.state().reads_workflow_files = true;
+        }
+
+        /// From now on no wait for a run can read it, as when GitHub cannot be reached.
+        fn fails_waits(&self) {
+            self.state().fails_waits = true;
+        }
+
+        /// What GitHub says in refusing to run the workflow by hand on a commit with the inputs named, by the commit's
+        /// own file of it, when it reads them: a file without the trigger, or one that takes no such input. None when
+        /// it takes the request.
+        fn refusal_of(&self, sha: &str, workflow: &str, inputs: &[(&str, &str)]) -> Option<String> {
+            let (Some(origin), true) = (&self.origin, self.state().reads_workflow_files) else {
+                return None;
+            };
+            let said = "could not create workflow dispatch event: HTTP 422:";
+            let file =
+                git::git(origin, &["show", &format!("{sha}:.github/workflows/{workflow}.yml")]).unwrap_or_default();
+            if !file.contains("workflow_dispatch") {
+                return Some(format!("{said} Workflow does not have 'workflow_dispatch' trigger"));
+            }
+            let unknown: Vec<String> = inputs
+                .iter()
+                .filter(|(name, _)| !file.contains(&format!("{name}:")))
+                .map(|(name, _)| format!("{name:?}"))
+                .collect();
+            (!unknown.is_empty()).then(|| format!("{said} Unexpected inputs provided: [{}]", unknown.join(", ")))
+        }
+
         fn dispatched(&self) -> Vec<Dispatch> {
             self.state().dispatched.clone()
+        }
+
+        fn dispatched_on(&self) -> Vec<String> {
+            self.state().dispatched_on.clone()
         }
 
         fn merges(&self) -> usize {
@@ -2222,11 +2377,22 @@ mod ci_on_demand {
         fn pull_request(
             &self,
             _repo: &str,
-            _branch: &str,
-            _base: &str,
+            branch: &str,
+            base: &str,
             _title_body: Option<(&str, &str)>,
-            _existing: Option<i64>,
+            existing: Option<i64>,
         ) -> Result<i64, Failure> {
+            self.state().pull_requests += 1;
+            // GitHub opens none for a branch with no commit beyond its base, and says so.
+            let empty = |origin: &PathBuf| {
+                let (branch, base) = (format!("refs/heads/{branch}"), format!("refs/heads/{base}"));
+                git::git(origin, &["merge-base", "--is-ancestor", &branch, &base]).is_ok()
+            };
+            if existing.is_none() && self.origin.as_ref().is_some_and(empty) {
+                return Err(Failure::network(format!(
+                    "pull request create failed: GraphQL: No commits between {base} and {branch} (createPullRequest)"
+                )));
+            }
             Ok(1)
         }
 
@@ -2242,6 +2408,9 @@ mod ci_on_demand {
             after: Option<i64>,
         ) -> Result<Vec<CheckRun>, Failure> {
             let mut s = self.state();
+            if s.fails_waits {
+                return Err(Failure::network("gh run list: connection reset"));
+            }
             loop {
                 let newest = s
                     .seen
@@ -2294,18 +2463,25 @@ mod ci_on_demand {
 
         fn dispatch(&self, _repo: &str, workflow: &str, branch: &str, inputs: &[(&str, &str)]) -> Result<(), Failure> {
             let sha = self.head_of(branch);
+            let refused = self.refusal_of(&sha, workflow, inputs);
             let mut s = self.state();
-            if let Some(why) = s.rejects.clone() {
-                // The request was made, and refused.
-                let inputs = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-                s.dispatched.push((workflow.to_string(), branch.to_string(), inputs));
-                return Err(Failure::rejected(why));
-            }
-            let Some(holds) = s.makes.get(workflow).cloned() else {
+            let known = s.makes.get(workflow).cloned();
+            if s.rejects.is_none() && known.is_none() {
                 return Err(Failure::network(format!(
                     "could not find any workflows named {workflow}"
                 )));
-            };
+            }
+            // The request was made, whether GitHub takes it or refuses it.
+            let inputs = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            s.dispatched.push((workflow.to_string(), branch.to_string(), inputs));
+            s.dispatched_on.push(sha.clone());
+            if let Some(why) = s.rejects.clone() {
+                return Err(Failure::rejected(why));
+            }
+            let holds = known.unwrap_or_default();
+            if let Some(why) = refused {
+                return Err(Failure::rejected(why));
+            }
             s.made += 1;
             let id = s.made;
             s.coming.push(Run {
@@ -2314,8 +2490,6 @@ mod ci_on_demand {
                 workflow: workflow.to_string(),
                 checks: checks_of(workflow, id, &holds),
             });
-            let inputs = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-            s.dispatched.push((workflow.to_string(), branch.to_string(), inputs));
             Ok(())
         }
 
@@ -2419,21 +2593,6 @@ mod ci_on_demand {
             assert_eq!(results(&checks), [("lint", "green"), ("test 1 of 3", "red")]);
         }
         assert!(runs.dispatched().is_empty());
-    }
-
-    // A workflow the branch does not have fails to run, and the failure says what to do about a branch made before the
-    // workflow existed.
-    #[test]
-    fn a_workflow_the_branch_lacks_fails_saying_to_merge_main_in() {
-        let runs = Runs::new(None);
-        runs.at("work", HEAD);
-        let f = fast_checks(&runs, &project(true, Some("tests")), "work", HEAD, &tests(&["a"])).unwrap_err();
-        assert_eq!(f.kind, "network_or_api");
-        assert!(f.what.contains("could not find any workflows named fast"), "{}", f.what);
-        assert!(f.what.contains("merge origin/main into the branch"), "{}", f.what);
-        // A request GitHub refused is told as it is: the workflow is there, and the hint would mislead.
-        let refused = dispatch_failed(Failure::rejected("Unexpected inputs provided: [\"tests\"]"));
-        assert_eq!(refused, Failure::rejected("Unexpected inputs provided: [\"tests\"]"));
     }
 
     // A head that only the fast CI has run is not run in full by it: the full CI is run by hand, and its checks are what
@@ -2557,8 +2716,18 @@ mod ci_on_demand {
         rig_of(name, "test_paths = [\"tests/\"]\n", ci)
     }
 
+    /// A rig whose project's `[ci]` table holds `ci`, its engine with the hooks given.
+    fn rig_hooked(name: &str, ci: &str, hooks: Hooks) -> Rig {
+        rig_made(name, "test_paths = [\"tests/\"]\n", ci, hooks)
+    }
+
     /// A rig whose project's file holds `top` above its `[ci]` table, which holds `ci`.
     fn rig_of(name: &str, top: &str, ci: &str) -> Rig {
+        rig_made(name, top, ci, Hooks::default())
+    }
+
+    /// A rig whose project's file holds `top` above its `[ci]` table, which holds `ci`, its engine with the hooks given.
+    fn rig_made(name: &str, top: &str, ci: &str, hooks: Hooks) -> Rig {
         let root = std::env::temp_dir().join(format!("wf-agents-ci-on-demand-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
@@ -2616,14 +2785,7 @@ timeout_ms = 1000
         crate::database::create(&data).unwrap();
         let runs = Runs::new(Some(origin.clone()));
         let committed = config::committed(&data).unwrap();
-        let mut e = Engine::new(
-            &data,
-            committed,
-            Box::new(NoAgents),
-            Box::new(runs.clone()),
-            Hooks::default(),
-        )
-        .unwrap();
+        let mut e = Engine::new(&data, committed, Box::new(NoAgents), Box::new(runs.clone()), hooks).unwrap();
         e.retry_wait = Duration::ZERO;
         let flow_now = e.flow_now;
         let worktree = path(&wt);
@@ -2671,13 +2833,78 @@ timeout_ms = 1000
 
         /// The tool `ci` asked for the head with the tests named.
         fn ci(&mut self, tests: &[&str]) -> Value {
+            self.ci_ran(tests).unwrap()
+        }
+
+        /// What the tool `ci` asked for the head with the tests named gave, a failure included.
+        fn ci_ran(&mut self, tests: &[&str]) -> Ran {
             let w = Work::load(self.e.db.conn(), self.work, None).unwrap();
             let item = Item::load(self.e.db.conn(), self.item).unwrap();
             let project = self.e.project_of(&w).unwrap();
             let round = RoundId { work: self.work, n: 1 };
             let req = json!({ "tool": "ci", "head": self.head, "tests": tests });
             let (mut pushed, pr) = (w.pushed_head.clone(), Cell::new(w.pr));
-            ci(&mut self.e, &w, &project, &item, round, &req, &mut pushed, &pr, &|_| {}).unwrap()
+            ci(
+                &mut self.e,
+                &w,
+                &project,
+                &item,
+                round,
+                0,
+                &req,
+                &mut pushed,
+                &pr,
+                &|_| {},
+            )
+        }
+
+        /// The work commits `files` and takes it as its head.
+        fn commits(&mut self, files: &[(&str, &str)], message: &str) {
+            for (path, text) in files {
+                let at = self.wt.join(path);
+                std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+                std::fs::write(at, text).unwrap();
+            }
+            self.head = commit(&self.wt, message);
+        }
+
+        /// The work merges main as it is on the remote now, and takes the merge as its head.
+        fn merges_main(&mut self) {
+            git::git(&self.wt, &["fetch", "-q", "origin", &config::main_refspec("main")]).unwrap();
+            let who = ["-c", "user.name=t", "-c", "user.email=t@t"];
+            git::git(
+                &self.wt,
+                &[&who[..], &["merge", "-q", "--no-edit", "origin/main"]].concat(),
+            )
+            .unwrap();
+            self.head = git::resolve(&self.wt, "HEAD").unwrap();
+        }
+
+        /// The temporary refs left on the remote, under the prefixes the tools push them to.
+        fn temporary_refs(&self) -> String {
+            let left = git::git(&self.origin, &["branch", "--list", "--format=%(refname:short)"]).unwrap();
+            left.lines()
+                .filter(|b| [BEFORE, MEASURE, MAIN_CI].iter().any(|p| b.starts_with(p)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+
+        /// Main moves on by a commit of another work's that writes `files`, pushed; the worktree has not fetched it.
+        fn main_moves_on(&self, files: &[(&str, &str)]) {
+            let other = self.root.join("other");
+            if !other.exists() {
+                let (origin, to) = (self.origin.to_string_lossy(), other.to_string_lossy());
+                git::git(&self.root, &["clone", "-q", &origin, &to]).unwrap();
+            }
+            git::git(&other, &["checkout", "-q", "main"]).unwrap();
+            git::git(&other, &["pull", "-q", "--ff-only", "origin", "main"]).unwrap();
+            for (path, text) in files {
+                let at = other.join(path);
+                std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+                std::fs::write(at, text).unwrap();
+            }
+            commit(&other, "another work");
+            git::git(&other, &["push", "-q", "origin", "HEAD:main"]).unwrap();
         }
 
         /// The tool `ci_before` asked to run the tests on the code before the change.
@@ -2687,6 +2914,12 @@ timeout_ms = 1000
 
         /// The tool `ci_before` asked to put the files on the code before the change and run the tests there.
         fn ci_before_of(&mut self, files: &[&str], tests: &[&str]) -> Value {
+            self.ci_before_ran(files, tests).unwrap()
+        }
+
+        /// What the tool `ci_before` asked to put the files on the code before the change and run the tests there gave,
+        /// a failure included.
+        fn ci_before_ran(&mut self, files: &[&str], tests: &[&str]) -> Ran {
             let w = Work::load(self.e.db.conn(), self.work, None).unwrap();
             let project = self.e.project_of(&w).unwrap();
             let round = RoundId { work: self.work, n: 1 };
@@ -2701,7 +2934,6 @@ timeout_ms = 1000
                 Some(self.head.as_str()),
                 None,
             )
-            .unwrap()
         }
     }
 
@@ -2753,6 +2985,199 @@ timeout_ms = 1000
         r.runs.clear();
         let v = r.ci(&[]);
         assert_eq!(v["push"]["run"], "lint", "{v}");
+    }
+
+    // Item #268: GitHub runs a workflow on a ref by the file of it the ref holds, and refuses to on a branch made
+    // before main's took a request to run by hand, here before main had it at all. The fast CI then runs with main's
+    // CI files: for ci, on a temporary ref holding the head with them, the CI files the work changed itself kept as it
+    // has them, and the run is the head's; for ci_before, on the code before the change with them, wholly main's. Each
+    // result says so, and no temporary ref is left once the run is read.
+    #[test]
+    fn a_branch_made_before_main_s_workflow_runs_the_fast_ci_with_main_s_ci_files() {
+        let mut r = rig("main-ci-files");
+        std::fs::create_dir_all(r.wt.join(".github")).unwrap();
+        std::fs::write(r.wt.join(".github/own.txt"), "the work's\n").unwrap();
+        r.head = commit(&r.wt, "the work's CI file");
+        r.main_moves_on(&[
+            (".github/workflows/fast.yml", FAST),
+            (".github/own.txt", "main's\n"),
+            (".github/other.txt", "main's\n"),
+        ]);
+        r.runs.reads_workflow_files();
+        r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
+        let wt = r.wt.clone();
+        let file = |commit: &str, path: &str| git::git(&wt, &["show", &format!("{commit}:{path}")]).unwrap();
+
+        let v = r.ci(&["a_test"]);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        assert_eq!(v["push"]["head"], r.head.as_str());
+        let checks = v["push"]["checks"].as_array().unwrap();
+        assert!(
+            !checks.is_empty() && checks.iter().all(|c| c["result"] == "green"),
+            "{v}"
+        );
+        let said = v["push"]["ci_files"].as_str().unwrap();
+        assert!(
+            said.contains("workflow_dispatch") && said.contains("main's CI files"),
+            "{said}"
+        );
+        let branches: Vec<String> = r.runs.dispatched().into_iter().map(|(_, b, _)| b).collect();
+        assert_eq!(branches, ["work".to_string(), format!("{MAIN_CI}/{}-1-0", r.work)]);
+        let on = r.runs.dispatched_on()[1].clone();
+        assert_eq!(git::resolve(&r.wt, &format!("{on}^")).unwrap(), r.head);
+        assert_eq!(file(&on, "a.txt"), "main\nwork\n");
+        assert_eq!(file(&on, ".github/own.txt"), "the work's\n");
+        assert_eq!(file(&on, ".github/other.txt"), "main's\n");
+        assert!(file(&on, ".github/workflows/fast.yml").contains("workflow_dispatch"));
+
+        r.runs.clear();
+        let v = r.ci_before(&["a_test"]);
+        assert_eq!(v["ran"]["verdict"], "ran", "{v}");
+        assert!(
+            v["ran"]["ci_files"].as_str().unwrap().contains("main's CI files"),
+            "{v}"
+        );
+        let branches: Vec<String> = r.runs.dispatched().into_iter().map(|(_, b, _)| b).collect();
+        let before = format!("{BEFORE}/{}-1-0", r.work);
+        assert_eq!(branches, [before.clone(), before]);
+        let on = r.runs.dispatched_on()[1].clone();
+        assert_eq!(file(&on, "a.txt"), "main\n");
+        assert_eq!(file(&on, ".github/own.txt"), "main's\n");
+        assert!(file(&on, ".github/workflows/fast.yml").contains("workflow_dispatch"));
+
+        let left = git::git(&r.origin, &["branch", "--list", "--format=%(refname:short)"]).unwrap();
+        assert!(!left.contains(MAIN_CI) && !left.contains(BEFORE), "{left}");
+    }
+
+    /// Main's fast workflow in the tests of #268: it takes a request to run by hand with the tests named.
+    const FAST: &str = "on:\n  workflow_dispatch:\n    inputs:\n      tests:\n        default: ''\n";
+
+    // Item #268: main's CI files run the fast CI where GitHub refuses a branch's for being older than main's, never in
+    // place of a change the work made to them itself. A work whose own fast workflow takes no request to run by hand,
+    // or not the input of the tests, is refused with GitHub's answer, asked once and nothing run, where main's CI files
+    // are otherwise the branch's. Where main changed another of them since, the run with main's CI files keeps the
+    // work's own fast workflow and is refused as well, and the refusal gives both of GitHub's answers. No temporary ref
+    // is left.
+    #[test]
+    fn a_work_s_own_change_to_its_fast_workflow_is_refused_and_never_run_with_main_s() {
+        let mut r = rig("own-workflow");
+        r.main_moves_on(&[(".github/workflows/fast.yml", FAST)]);
+        r.merges_main();
+        r.runs.reads_workflow_files();
+        r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
+        let no_trigger = "on:\n  push:\n";
+        let no_input = "on:\n  workflow_dispatch:\n";
+        let unexpected = "Unexpected inputs provided: [\"tests\"]";
+        for (own, said) in [
+            (no_trigger, "Workflow does not have 'workflow_dispatch' trigger"),
+            (no_input, unexpected),
+        ] {
+            r.runs.clear();
+            r.commits(&[(".github/workflows/fast.yml", own)], "the work's own fast workflow");
+            let v = r.ci(&["a_test"]);
+            assert_eq!(v["push"]["verdict"], "refused", "{v}");
+            let why = v["push"]["why"].as_str().unwrap();
+            assert!(
+                why.starts_with("GitHub refused to run fast: ") && why.contains(said),
+                "{why}"
+            );
+            assert!(!why.contains("main's CI files"), "{why}");
+            assert_eq!(r.runs.dispatched().len(), 1, "{:?}", r.runs.dispatched());
+            assert_eq!(r.temporary_refs(), "");
+        }
+
+        r.main_moves_on(&[(".github/other.txt", "main's\n")]);
+        r.runs.clear();
+        let v = r.ci(&["a_test"]);
+        assert_eq!(v["push"]["verdict"], "refused", "{v}");
+        let why = v["push"]["why"].as_str().unwrap();
+        let (first, then) = why
+            .split_once("; and with main's CI files (.github/) as well: ")
+            .unwrap_or_else(|| panic!("one answer only: {why}"));
+        assert!(
+            first.starts_with("GitHub refused to run fast: ") && first.contains(unexpected),
+            "{why}"
+        );
+        assert!(then.contains(unexpected), "{why}");
+        let branches: Vec<String> = r.runs.dispatched().into_iter().map(|(_, b, _)| b).collect();
+        assert_eq!(branches, ["work".to_string(), format!("{MAIN_CI}/{}-1-0", r.work)]);
+        let on = r.runs.dispatched_on()[1].clone();
+        let file = |path: &str| git::git(&r.wt, &["show", &format!("{on}:{path}")]).unwrap();
+        assert_eq!(file(".github/workflows/fast.yml"), no_input);
+        assert_eq!(file(".github/other.txt"), "main's\n");
+        assert_eq!(r.temporary_refs(), "");
+    }
+
+    // Item #268: the temporary ref of a run with main's CI files is deleted however the run ends, and so is the
+    // temporary branch of the code before the change. Here no wait can read the run, as when GitHub cannot be reached,
+    // which with the network down is not tried again; a run that does not finish in time ends the same way, each tool
+    // deleting its ref whatever the run gave.
+    #[test]
+    fn the_temporary_refs_of_a_run_with_main_s_ci_files_are_deleted_when_the_run_fails() {
+        let offline = Hooks {
+            network: Some(Arc::new(|| false)),
+            ..Hooks::default()
+        };
+        let mut r = rig_hooked("main-ci-fails", ON_DEMAND, offline);
+        r.main_moves_on(&[(".github/workflows/fast.yml", FAST)]);
+        r.runs.reads_workflow_files();
+        r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
+        r.runs.fails_waits();
+
+        let (failed, _) = r.ci_ran(&["a_test"]).unwrap_err();
+        assert_eq!(failed.kind, "network_or_api", "{}", failed.what);
+        let branches: Vec<String> = r.runs.dispatched().into_iter().map(|(_, b, _)| b).collect();
+        assert_eq!(branches, ["work".to_string(), format!("{MAIN_CI}/{}-1-0", r.work)]);
+        assert_eq!(r.temporary_refs(), "");
+
+        r.runs.clear();
+        let (failed, _) = r.ci_before_ran(&[], &["a_test"]).unwrap_err();
+        assert_eq!(failed.kind, "network_or_api", "{}", failed.what);
+        let branches: Vec<String> = r.runs.dispatched().into_iter().map(|(_, b, _)| b).collect();
+        let before = format!("{BEFORE}/{}-1-0", r.work);
+        assert_eq!(branches, [before.clone(), before]);
+        assert_eq!(r.temporary_refs(), "");
+    }
+
+    // W288 asked for ci on a branch with no commit beyond main, and GitHub refused the pull request it opened first,
+    // each try: such a branch is pushed and its fast CI run, no pull request is asked for and none recorded, and the
+    // result says so. The first push of a commit of its own opens it.
+    #[test]
+    fn a_branch_with_no_commit_of_its_own_runs_its_fast_ci_and_opens_no_pull_request() {
+        let mut r = rig("no-commit-of-its-own");
+        let main = git::resolve(&r.wt, "origin/main").unwrap();
+        git::git(&r.wt, &["checkout", "-q", "-b", "fresh", &main]).unwrap();
+        r.e.db
+            .write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE works SET branch = 'fresh', pr = NULL, pushed_head = NULL WHERE id = ?1",
+                    [r.work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        r.head = main.clone();
+        r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
+        let pr_of = |r: &Rig| Work::load(r.e.db.conn(), r.work, None).unwrap().pr;
+
+        let v = r.ci(&["a_test"]);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        assert_eq!(v["push"]["head"], main.as_str());
+        assert!(v["push"]["checks"].as_array().is_some_and(|cs| !cs.is_empty()), "{v}");
+        let said = v["push"]["no_pull_request"].as_str().unwrap();
+        assert!(said.contains("no commit beyond main"), "{said}");
+        assert!(v.get("pr").is_none(), "{v}");
+        assert_eq!(r.runs.state().pull_requests, 0);
+        assert_eq!(pr_of(&r), None);
+        assert_eq!(git::git(&r.origin, &["rev-parse", "fresh"]).unwrap().trim(), main);
+
+        std::fs::write(r.wt.join("b.txt"), "the work's\n").unwrap();
+        r.head = commit(&r.wt, "the work's first commit");
+        let v = r.ci(&["a_test"]);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        assert!(v["push"].get("no_pull_request").is_none(), "{v}");
+        assert_eq!(r.runs.state().pull_requests, 1);
+        assert_eq!(pr_of(&r), Some(1));
     }
 
     /// The project's `[ci]` where the fast CI takes no tests to run on their own.

@@ -326,12 +326,13 @@ pub fn catch_up(dir: &Path, main: &str) -> Result<Result<String, Vec<String>>, S
     }
 }
 
-/// A commit on `base` that has the given files as they are at `from`: the tests of a change put on the code before
-/// it, its message naming `tag`, so that two made at once from the same files are two commits and a run found by its
-/// commit is the run made for it. Nothing changes in the worktree.
-pub fn files_onto(dir: &Path, files: &[String], from: &str, base: &str, tag: &str) -> Result<String, String> {
-    // The index is the worktree's git directory's, named by `tag`: never a file in the worktree, which a push from it
-    // at the same time would find uncommitted, and one for each run, so that two runs at once do not share it.
+/// Git in a worktree, as [`in_own_index`] gives it: a command line, and what git wrote out, as it wrote it.
+type Indexed<'a> = &'a dyn Fn(&[&str]) -> Result<String, String>;
+
+/// Runs `f` with git in the worktree on an index of its own, named by `tag` and removed after: the worktree's git
+/// directory's, never a file in the worktree, which a push from it at the same time would find uncommitted, and one
+/// for each caller, so that two at once do not share it.
+fn in_own_index<T>(dir: &Path, tag: &str, f: impl FnOnce(Indexed<'_>) -> Result<T, String>) -> Result<T, String> {
     let gitdir = git(dir, &["rev-parse", "--absolute-git-dir"])?;
     let tmp = Path::new(gitdir.trim()).join(format!("wf-agents-index-{tag}"));
     let index = tmp.to_string_lossy().into_owned();
@@ -350,11 +351,73 @@ pub fn files_onto(dir: &Path, files: &[String], from: &str, base: &str, tag: &st
                 String::from_utf8_lossy(&out.stderr).trim()
             ));
         }
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     };
-    let result = commit_with(&run, files, from, base, tag);
+    let result = f(&run);
     let _ = std::fs::remove_file(&tmp);
     result
+}
+
+/// A commit on `base` that has the given files as they are at `from`: the tests of a change put on the code before
+/// it, its message naming `tag`, so that two made at once from the same files are two commits and a run found by its
+/// commit is the run made for it. Nothing changes in the worktree.
+pub fn files_onto(dir: &Path, files: &[String], from: &str, base: &str, tag: &str) -> Result<String, String> {
+    in_own_index(dir, tag, |run| commit_with(run, files, from, base, tag))
+}
+
+/// The directory of a repository on GitHub that holds its workflows, and as a rule the actions they use: its CI files.
+pub const CI_FILES: &str = ".github";
+
+/// A commit with the files of `from` but for its CI files ([`CI_FILES`]), which are those of `main` (a commit of the
+/// project's main), save the paths `own` names, which stay as `from` has them, a path `from` lacks being left out: the
+/// CI files a merge of main would give it, where main's do not meet changes of its own. Its parent is `from`, and its
+/// message names `tag`, so that a run found by its commit is the run made for it. None when its files would be
+/// `from`'s, as when main's CI files are those `from` has. Nothing changes in the worktree.
+pub fn with_ci_files_of(
+    dir: &Path,
+    from: &str,
+    main: &str,
+    own: &[String],
+    tag: &str,
+) -> Result<Option<String>, String> {
+    in_own_index(dir, &format!("ci-files-{tag}"), |run| {
+        run(&["read-tree", from])?;
+        let had = names(&run(&["ls-files", "-z", "--", CI_FILES])?);
+        if !had.is_empty() {
+            let mut args = vec!["update-index", "--force-remove", "--"];
+            args.extend(had.iter().map(String::as_str));
+            run(&args)?;
+        }
+        // A main with no CI files leaves none but those of the commit's own.
+        let mains = format!("{main}:{CI_FILES}");
+        if run(&["cat-file", "-e", &mains]).is_ok() {
+            run(&["read-tree", &format!("--prefix={CI_FILES}/"), &mains])?;
+        }
+        for path in own {
+            let entry = run(&["ls-tree", "-z", from, "--", path])?;
+            match entry.split_once('\t') {
+                // `<mode> blob <id>\t<path>`: a file, which a directory of that name cannot be.
+                Some((meta, _)) => {
+                    let parts: Vec<&str> = meta.split(' ').collect();
+                    let [mode, _, id] = parts[..] else {
+                        return Err(format!("git ls-tree gave {entry:?} for {path}"));
+                    };
+                    run(&["update-index", "--add", "--cacheinfo", &format!("{mode},{id},{path}")])?;
+                }
+                None => {
+                    run(&["update-index", "--force-remove", "--", path])?;
+                }
+            }
+        }
+        let tree = run(&["write-tree"])?.trim().to_string();
+        if tree == run(&["rev-parse", &format!("{from}^{{tree}}")])?.trim() {
+            return Ok(None);
+        }
+        let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
+        let msg = format!("The commit with main's CI files (wf-agents {tag})");
+        let made = run(&[&who[..], &["commit-tree", tree.as_str(), "-p", from, "-m", &msg]].concat())?;
+        Ok(Some(made.trim().to_string()))
+    })
 }
 
 /// A commit on top of `from` that has the same files, with the message given: a commit of its own, which no workflow
@@ -369,22 +432,22 @@ pub fn commit_over(dir: &Path, from: &str, message: &str) -> Result<String, Stri
     Ok(made.trim().to_string())
 }
 
-fn commit_with(
-    run: &impl Fn(&[&str]) -> Result<String, String>,
-    files: &[String],
-    from: &str,
-    base: &str,
-    tag: &str,
-) -> Result<String, String> {
+fn commit_with(run: Indexed<'_>, files: &[String], from: &str, base: &str, tag: &str) -> Result<String, String> {
     run(&["read-tree", base])?;
     for f in files {
         let blob = run(&["rev-parse", &format!("{from}:{f}")])?;
-        run(&["update-index", "--add", "--cacheinfo", &format!("100644,{blob},{f}")])?;
+        run(&[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("100644,{},{f}", blob.trim()),
+        ])?;
     }
     let tree = run(&["write-tree"])?;
     let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
     let msg = format!("Tests of the change on the code before it (wf-agents {tag})");
-    run(&[&who[..], &["commit-tree", tree.as_str(), "-p", base, "-m", &msg]].concat())
+    let made = run(&[&who[..], &["commit-tree", tree.trim(), "-p", base, "-m", &msg]].concat())?;
+    Ok(made.trim().to_string())
 }
 
 #[cfg(test)]
@@ -624,6 +687,59 @@ mod tests {
         );
         // A base that is no commit is an error, not an empty answer.
         assert!(changes_since(&dir, "main", "no-such-commit", &r1).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Item #268: a commit with main's CI files has main's in place of its own, but for those named as its own, which
+    // stay as it has them, one it took away staying away; its other files are its own and its parent is the commit.
+    // There is none when main's CI files are the commit's.
+    #[test]
+    fn a_commit_with_main_s_ci_files_keeps_those_named_as_its_own() {
+        let dir = fresh("main-ci-files");
+        commit(
+            &dir,
+            &[
+                ("a.txt", "a\n"),
+                (".github/old.yml", "old\n"),
+                (".github/gone.yml", "gone\n"),
+            ],
+            "Start",
+        );
+        run(&dir, &["checkout", "-q", "-b", "work"]);
+        std::fs::remove_file(dir.join(".github/gone.yml")).unwrap();
+        let head = commit(
+            &dir,
+            &[("a.txt", "work\n"), (".github/own.yml", "the work's\n")],
+            "The work",
+        );
+        assert_eq!(with_ci_files_of(&dir, &head, &head, &[], "t").unwrap(), None);
+        run(&dir, &["checkout", "-q", "main"]);
+        std::fs::remove_file(dir.join(".github/old.yml")).unwrap();
+        let main = commit(
+            &dir,
+            &[
+                (".github/workflows/fast.yml", "on: workflow_dispatch\n"),
+                (".github/own.yml", "main's\n"),
+                (".github/gone.yml", "main's\n"),
+            ],
+            "Main's CI",
+        );
+        let files = |commit: &str| run(&dir, &["ls-tree", "-r", "--name-only", commit]);
+        let own = [".github/own.yml".to_string(), ".github/gone.yml".to_string()];
+        let made = with_ci_files_of(&dir, &head, &main, &own, "t").unwrap().unwrap();
+        assert_eq!(run(&dir, &["rev-parse", &format!("{made}^")]), head);
+        assert_eq!(files(&made), ".github/own.yml\n.github/workflows/fast.yml\na.txt");
+        assert_eq!(run(&dir, &["show", &format!("{made}:.github/own.yml")]), "the work's");
+        assert_eq!(run(&dir, &["show", &format!("{made}:a.txt")]), "work");
+        // Named as its own none, the CI files are wholly main's.
+        let mains = with_ci_files_of(&dir, &head, &main, &[], "t").unwrap().unwrap();
+        assert_eq!(
+            files(&mains),
+            ".github/gone.yml\n.github/own.yml\n.github/workflows/fast.yml\na.txt"
+        );
+        assert_eq!(run(&dir, &["show", &format!("{mains}:.github/own.yml")]), "main's");
+        // The worktree is as it was.
+        assert_eq!(run(&dir, &["status", "--porcelain"]), "");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

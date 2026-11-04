@@ -14,6 +14,11 @@ name: fast
 # reads: the project's configuration names it (`ci.results`), and the documentation of that setting in the engine gives
 # the conventions this workflow holds to. A unit of the Rust tests that did not compile is in it too, as a testsuite
 # with no testcase and an error, and the tests of the other units still run.
+#
+# GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one made before this file
+# took a request to run by hand. The engine then runs it with main's CI files: ci on a temporary branch
+# `wf-agents-main-ci/...` holding the work's head with them, where the lint runs as on the work's branch, and ci_before
+# on its own temporary branch.
 on:
   workflow_dispatch:
     inputs:
