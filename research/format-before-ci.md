@@ -19,9 +19,9 @@ command's verdict differs from CI's on a tree CI judged; or the calls it would s
 | Fact | How known |
 |---|---|
 | `cargo fmt --all --check` is refused on the engineer's command line: "Permission to use Bash with command cargo fmt --all --check has been denied." The command line holds `Bash(cargo fmt *)` both as allowed and as refused (the engine refuses it again, as a change of #266 meant). | measured, run in this round |
-| `Bash(rustfmt *)` is allowed and never refused: in all 140 recorded rounds of cells D1, I1 (Implement), R1, T1 and T6 of works 300 and later (24, 39, 39, 17 and 21), `Bash(rustfmt *)` is in `--allowedTools` and not after `--disallowedTools`. The engine's list of heavy commands holds no `rustfmt`. | measured on the records (Q4); read in `crates/config/src/lib.rs` (`heavy`) |
+| `Bash(rustfmt *)` is among the command line's rules in all 140 recorded rounds of cells D1, I1 (Implement), R1, T1 and T6 of works 300 and later (24, 39, 39, 17 and 21). The engine's list of heavy commands holds no `rustfmt`, so the engine adds no refusal of it. | presence measured on the records (Q4); the heavy list read in `crates/config/src/lib.rs`. Q4 counts presence only, not whether a refusal follows it in a round; the one run in an Implement round's shell (`rustfmt --check` on `crates/engine/src/inputs.rs`) was not refused |
 | `rustfmt --check crates/**/*.rs` in the worktree: 171 files (the number `git ls-files '*.rs'` gives, all under `crates/`), no output, exit 0, 2.3 s in all (1.97 s user), on origin/main at ece3499a, where the `ci` workflow succeeded. | measured |
-| It reads the repository's `rustfmt.toml` (width 120, `edition = "2024"`) and the toolchain `rust-toolchain.toml` pins: `rustfmt 1.10.0-stable (58cf8f9c35 2026-10-13)` in the worktree. | measured |
+| It reads the repository's `rustfmt.toml` (width 120, `edition = "2024"`). The `rustfmt` that rustup runs in the worktree reported `rustfmt 1.10.0-stable (58cf8f9c35 2026-10-13)`. That rustup runs the toolchain `rust-toolchain.toml` pins is rustup's documented behaviour, not checked here. | measured (config and version); inferred (toolchain selection) |
 | It finds what CI found. Two heads CI turned red on format, run as `git show <head>:<file> \| rustfmt --check`: `crates/api/src/owner.rs` at f8754a2b gives a diff at line 119 that joins the `Err(format!(...))` on one line, the one CI's log shows at the same line; `crates/web/tests/flow_cost.rs` at 3465a967 gives a diff at line 51 that breaks `.args([...])` into one item per line, the one CI's log shows at the same line. | measured (CI's text from `tool_runs`, id 4700 and id 4363) |
 | It finds a wrong format and follows modules: a scratch root with `mod child;` and a child with `vec![1,2,3]` gave exit 1 and the diff for the child; a file `mid.rs` with `mod leaf;` found `mid/leaf.rs`. The scratch files were removed and not committed. | measured |
 | Every out-of-line `mod x;` of the workspace is in a target root (`lib.rs`, `main.rs`, `tests/e2e/main.rs`), so naming a changed file never resolves a child wrongly today. | read (a search over `crates/`) |
@@ -75,14 +75,11 @@ FROM tool_runs t, json_each(json_extract(t.result, '$.push.checks')) c
 WHERE t.tool = 'ci' AND json_valid(t.result) AND json_extract(c.value, '$.result') = 'red'
 GROUP BY name ORDER BY 2 DESC;
 
--- Q4: whether rustfmt is allowed and not refused on the engineer's command line, by cell.
+-- Q4: whether Bash(rustfmt *) is among the command line's rules, by cell. Presence only: the query does not say
+-- whether a refusal follows it.
 SELECT r.cell, count(*) AS rounds,
   sum(EXISTS (SELECT 1 FROM json_each(json_extract(r.input, '$.call.command'))
-              WHERE value = 'Bash(rustfmt *)')) AS allow_rustfmt,
-  sum(EXISTS (SELECT 1 FROM json_each(json_extract(r.input, '$.call.command'))
-              WHERE value LIKE 'Bash(rustfmt%'
-                AND json_each.key > (SELECT min(key) FROM json_each(json_extract(r.input, '$.call.command'))
-                                     WHERE value = '--disallowedTools' AND key > 30))) AS rustfmt_after_disallow
+              WHERE value = 'Bash(rustfmt *)')) AS allow_rustfmt
 FROM rounds r
 WHERE r.cell IN ('D1', 'I1', 'R1', 'T1', 'T6') AND r.session IS NOT NULL AND r.work >= 300
 GROUP BY r.cell;

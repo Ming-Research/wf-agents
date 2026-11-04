@@ -12,8 +12,8 @@ What an agent needs to know for this repository, beyond the rules every agent is
   (for example `rustfmt crates/engine/src/inputs.rs`), and commit what it rewrites: CI's lint checks the format first,
   and a push that fails it costs a whole CI call. `rustfmt --check <files>` shows the differences without rewriting
   them. Use `rustfmt` itself, since `cargo fmt` is refused on the engineer's command line. `rustfmt` reads
-  `rustfmt.toml` and the toolchain `rust-toolchain.toml` pins, so it formats as CI does. Do not pass a glob such as
-  `crates/**/*.rs`, so that no file is left out.
+  `rustfmt.toml`, and rustup runs the toolchain that `rust-toolchain.toml` pins, so the `rustfmt` it provides formats
+  as CI does. Do not pass a glob such as `crates/**/*.rs`, so that no file is left out.
 - A new crate goes under `crates/` and takes its version, edition and lints from the workspace.
 - `db/schema.sql` is the only definition of the database: change the database by changing it, with the migration in
   the same pull request, a file of `db/migrations/` named by the minute it was written and what it does.
