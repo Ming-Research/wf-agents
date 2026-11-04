@@ -85,6 +85,14 @@
   --role-text: var(--display-cyan-fgColor);
 }
 
+.role-plum {
+  --role-edge: var(--display-plum-borderColor-emphasis);
+  --role-fill: var(--display-plum-bgColor-muted);
+  --role-line: var(--display-plum-borderColor-muted);
+  --role-mark: var(--display-plum-bgColor-emphasis);
+  --role-text: var(--display-plum-fgColor);
+}
+
 .role-none {
   --role-edge: var(--borderColor-neutral-emphasis);
   --role-fill: var(--bgColor-neutral-muted);
