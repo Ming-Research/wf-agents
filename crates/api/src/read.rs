@@ -2180,7 +2180,8 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
     let picked: Option<Option<i64>> = conn
         .query_row(
             &format!(
-                "SELECT coalesce(json_extract(output, '$.queue.matter'), json_extract(output, '$.outcome.pick.matter'))
+                "SELECT coalesce(json_extract(output, '$.next.matter'), json_extract(output, '$.queue.matter'),
+                                 json_extract(output, '$.outcome.pick.matter'))
                  FROM rounds WHERE work = ?1 AND transition IS NOT NULL
                    AND (cell IN {} OR (cell IN {} AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL))
                  ORDER BY n DESC LIMIT 1",
@@ -2201,9 +2202,11 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
     Ok((open > 0).then_some(m))
 }
 
-/// The cells on a matter's path, whose rounds do what becomes of a matter; `H6` looked at decision cards, for the
-/// matters of before.
-const PATH: [&str; 11] = ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "A3"];
+/// The cells on a matter's path, whose rounds do what becomes of a matter: its own session's, main's checks and the
+/// second eye's; `H6` looked at decision cards and `H10` at free slots, for the matters of before.
+const PATH: [&str; 15] = [
+    "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "L1", "L2", "G1", "G2", "A3",
+];
 
 /// The first `why` a return says, looking through it in order: why a cell closed a matter with nothing else done.
 fn first_why(v: &Value) -> Option<String> {
@@ -2270,7 +2273,8 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
         let taken: Option<i64> = conn.query_row(
             &format!(
                 "SELECT max(n) FROM rounds WHERE work = ?1 AND n <= ?2 AND cell IN {picks}
-                   AND ?3 IN (json_extract(output, '$.outcome.pick.matter'), json_extract(output, '$.outcome.queue.matter'))"
+                   AND ?3 IN (json_extract(output, '$.outcome.pick.matter'), json_extract(output, '$.outcome.queue.matter'),
+                              json_extract(output, '$.next.matter'), json_extract(output, '$.queue.matter'))"
             ),
             params![h.work, h.round, h.matter],
             |r| r.get(0),

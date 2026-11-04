@@ -1215,9 +1215,9 @@ mod tests {
                 ("advisor", Colour::Pink),
                 ("librarian", Colour::Green),
                 ("architect", Colour::Purple),
-                ("architect_review", Colour::Indigo),
+                ("matter", Colour::Cyan),
+                ("second_eye", Colour::Indigo),
                 ("observer", Colour::Brown),
-                ("picker", Colour::Cyan),
             ]
         );
         assert!(graphs.iter().flat_map(|g| &g.lines).all(|l| !l.desc.is_empty()));

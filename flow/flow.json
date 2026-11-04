@@ -15216,6 +15216,9 @@
           ],
           "shown": [
             "plan"
+          ],
+          "rules": [
+            "policy_scope"
           ]
         },
         {
@@ -16110,13 +16113,14 @@
             },
             {
               "name": "The crux",
-              "what": "What you found of the question's crux in this session, as you handed it in",
+              "what": "What you found of the question's crux in this session, as you handed it in; none when the matter came back to you without it, which this session holds",
               "from": [
                 [
                   "H2",
                   "crux"
                 ]
-              ]
+              ],
+              "maybe": true
             },
             {
               "name": "The owner's reply",
@@ -16536,13 +16540,14 @@
           "inputs": [
             {
               "name": "What the report is",
-              "what": "What you found the report is in this session, as you handed it in",
+              "what": "What you found the report is in this session, as you handed it in; none when the matter came back to you without it, which this session holds",
               "from": [
                 [
                   "H4",
                   "finding"
                 ]
-              ]
+              ],
+              "maybe": true
             },
             {
               "name": "What the second eye found",
@@ -17728,13 +17733,14 @@
             },
             {
               "name": "What the checks found",
-              "what": "What the engine's mechanical checks found: the red checks run again, the known red checks, and main's commit before the merges",
+              "what": "What the engine's mechanical checks found: the red checks run again, the known red checks, and main's commit before the merges; none when the matter came back to you without them, which this session holds",
               "from": [
                 [
                   "L1",
                   "main"
                 ]
-              ]
+              ],
+              "maybe": true
             },
             {
               "name": "Known red checks",
@@ -18914,9 +18920,6 @@
           ],
           "shown": [
             "check"
-          ],
-          "rules": [
-            "policy_scope"
           ]
         },
         {

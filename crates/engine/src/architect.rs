@@ -5067,8 +5067,7 @@ fn similar_items(e: &Engine, w: &Work) -> Result<Value, String> {
         &[],
         ROWS,
     )?;
-    if !review
-        && let Some(mine) = running
+    if let Some(mine) = running
             .iter()
             .find(|r| r["work"].as_i64() == from_work)
             .and_then(changed_by)

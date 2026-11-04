@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use db::rusqlite::{Connection, OptionalExtension, params};
+use db::rusqlite::{Connection, OptionalExtension};
 use flow::CompiledCell;
 use serde_json::{Map, Value, json};
 
