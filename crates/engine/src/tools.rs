@@ -762,6 +762,7 @@ pub fn run_tools(
             ("measure", Some((_, project))) => measure(e, w, project, round, n, req, pushed.as_deref()),
             ("gh", _) => gh(e, w, project.as_ref(), round, n, req),
             ("query", _) => query(e, round, n, req),
+            ("decision_history", _) => decision_history(e, w, project.as_ref(), round, n, req),
             (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
         };
         got.push((n, tool.clone(), ran));
@@ -1470,6 +1471,57 @@ fn query(e: &mut Engine, round: RoundId, n: usize, req: &Value) -> Result<Value,
     })
 }
 
+/// The history of one of the project's decisions on its main ([`config::decisions::history`]), for the work's project,
+/// a work of an architect's included. A path that names no decision's file is told so, and nothing runs.
+fn decision_history(
+    e: &mut Engine,
+    w: &Work,
+    project: Option<&config::Project>,
+    round: RoundId,
+    n: usize,
+    req: &Value,
+) -> Result<Value, (Failure, String)> {
+    let p = match project {
+        Some(p) => p.clone(),
+        None => match w.project.as_deref().and_then(|name| e.config.config.projects.get(name)) {
+            Some(p) => p.clone(),
+            None => return Ok(json!({ "history": { "verdict": "none", "why": "The work has no project" } })),
+        },
+    };
+    let path = match config::decisions::named(&p, req["path"].as_str().unwrap_or_default()) {
+        Ok(path) => path,
+        Err(why) => return Ok(json!({ "history": { "verdict": "none", "why": why } })),
+    };
+    attempts(e, round, "decision_history", req, |e| {
+        let versions = config::decisions::history(&p, &path).map_err(Failure::other)?;
+        Ok(history_given(&path, &p.main, &versions, |text| {
+            inline_or_saved(e, round, n, text)
+        }))
+    })
+}
+
+/// What the tool decision_history gives for the versions of the decision's file at `path`, newest first: each one, or,
+/// when they are too long to give here, none and what `save` gives for them written one JSON object per line, which
+/// says where they were saved ([`rows_given`]); and when there are none, that main never had the file.
+fn history_given(
+    path: &str,
+    main: &str,
+    versions: &[config::decisions::Version],
+    save: impl FnOnce(String) -> String,
+) -> Value {
+    if versions.is_empty() {
+        let why = format!("No commit of {main} ever had a file at {path}");
+        return json!({ "history": { "verdict": "none", "why": why } });
+    }
+    let rows = versions.iter().map(|v| json!(v)).collect();
+    let (rows, saved) = rows_given(rows, save);
+    let mut found = json!({ "verdict": "found", "versions": rows });
+    if let Some(s) = saved {
+        found["saved"] = Value::String(s);
+    }
+    json!({ "history": found })
+}
+
 /// What a query that names a column or a table there is not is told beside its error, from the index of the tables
 /// and views agents read that `format:common` gives them: the columns of each one the query names, and for a table
 /// there is not, the name of every one; none for any other error. In the sixth trial agents guessed columns
@@ -2033,6 +2085,104 @@ mod tests {
         assert!(
             check.contains("a run of this work's measure tool") && !check.contains("in this cell"),
             "{check}"
+        );
+    }
+
+    // What agents are told of decision_history is what the code gives: a version has each field the flow names and no
+    // other, a change is one of the values it names, and a merge's commits have the fields of a commit; the directory
+    // read is the setting `project.decisions`, whose value the engine writes beside it. Versions too long to give are
+    // saved, as a query's rows are, and a path main never had is said so.
+    #[test]
+    fn the_decision_history_tool_is_described_as_the_code_gives_it() {
+        use config::decisions::{Change, Commit, Version};
+        let tool = flow_tool("decision_history");
+        let text = format!("{} {}", tool["desc"], tool["runs"]);
+        assert!(text.contains("`project.decisions`"), "{text}");
+        let branch = |value: &str| {
+            tool["out"][0]["branches"]
+                .as_array()
+                .and_then(|bs| bs.iter().find(|b| b["value"] == value))
+                .cloned()
+                .unwrap_or_else(|| panic!("decision_history gives no {value}"))
+        };
+        let names = |fields: &Value| -> Vec<String> {
+            let mut n: Vec<String> = fields
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|f| f["name"].as_str().unwrap().to_string())
+                .collect();
+            n.sort();
+            n
+        };
+        let found = branch("found");
+        let version = &found["fields"][0]["item"];
+        let commit = |id: &str| Commit {
+            commit: id.into(),
+            date: "2026-11-04T05:21:06-08:00".into(),
+            message: "Decide".into(),
+        };
+        let whole = Version {
+            made_by: commit("c2"),
+            change: Change::Renamed,
+            path: "decisions/b.md".into(),
+            from: Some("decisions/a.md".into()),
+            text: Some("We do B.\n".into()),
+            brought: vec![commit("c1")],
+        };
+        let given = json!(whole);
+        let mut keys: Vec<String> = given.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, names(&version["fields"]));
+        let brought = version["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == "brought")
+            .unwrap();
+        let mut keys: Vec<String> = given["brought"][0].as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, names(&brought["item"]["fields"]));
+        let change = version["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == "change")
+            .unwrap();
+        let values: Vec<Value> = change["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v[0].clone())
+            .collect();
+        let changes = [Change::Added, Change::Changed, Change::Renamed, Change::Deleted];
+        assert_eq!(values, changes.iter().map(|c| json!(c)).collect::<Vec<_>>());
+        assert_eq!(names(&branch("none")["fields"]), ["why"]);
+        // What the tool gives: the versions, saved when too long, or why there are none.
+        let given = history_given(
+            "decisions/b.md",
+            "main",
+            std::slice::from_ref(&whole),
+            |_| unreachable!(),
+        );
+        assert_eq!(given["history"]["verdict"], "found");
+        assert_eq!(given["history"]["versions"][0]["from"], "decisions/a.md");
+        assert!(given["history"].get("saved").is_none());
+        let long = Version {
+            text: Some("x".repeat(LONG)),
+            ..whole
+        };
+        let given = history_given("decisions/b.md", "main", &[long], |text| {
+            assert!(text.contains("decisions/a.md"));
+            "saved here".into()
+        });
+        assert_eq!(given["history"]["versions"], json!([]));
+        assert_eq!(given["history"]["saved"], "saved here");
+        let given = history_given("decisions/never.md", "main", &[], |_| unreachable!());
+        assert_eq!(given["history"]["verdict"], "none");
+        assert_eq!(
+            given["history"]["why"],
+            "No commit of main ever had a file at decisions/never.md"
         );
     }
 

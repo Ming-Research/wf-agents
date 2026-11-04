@@ -23,6 +23,8 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `constitution.md`: the lasting values designs are judged by, which the owner sets.
+- `decisions/`: the decisions in force for wf-agents' design, one file each, which the owner chose; its README.md says
+  how one is written.
 - `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
 - `.github/workflows/ci.yml`: the full CI, every check, which each push to main runs and a work's head runs once, at
   the merge; `.github/workflows/fast.yml`: the fast CI the engine runs by hand on a work's branch, with the tests to
@@ -84,6 +86,16 @@ rules from there. The records' directory is the project's design paths: a work t
 to the owner as a decision card, lists a change that changes no decision as an edit, and merges once the owner has
 ruled every card (the project file no longer names `design_paths`). The flow is wf-agents' own, built into the
 program: only in wf-agents' own repository does a card carry the flow drawn from its work's branch.
+
+## A project's decisions
+
+A project keeps the decisions in force for its design in its own repository, one file for each, in the directory its
+file names as `decisions` (`decisions` unless it names another). The engine's input `decisions` gives a cell every file
+of that directory but a README.md, each by its path with its text, as the project's main has them at the commit the
+round is pinned to, as it gives the constitution; none when the directory is not there or holds nothing else. The
+engine's tool `decision_history` gives the history of one on main: each version its file had, newest first, with the
+commit that made it, its date and message and its text, a withdrawn decision's included, and for a merge the commits it
+brought. wf-agents' own are in `decisions/`, whose README.md says how one is written.
 
 ## The agents' own configuration
 

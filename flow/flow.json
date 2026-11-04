@@ -4030,6 +4030,160 @@
       ]
     },
     {
+      "name": "decision_history",
+      "desc": "The history of one of the project's decisions on its main: each version its file had, newest first, with the commit that made it, its date and whole message, what it did to the file and the file's text as it left it; for a merge, also the commits it brought that changed the file, whose messages say why. Ask for it before you propose to change or withdraw a decision, to see what it said before, why each change was made and which challenges it already turned down; a withdrawn decision has one too, by the path it had",
+      "runs": "The engine reads it with git in the project's checkout, on main as last fetched (`origin/<main>`): the commits of main's first-parent line that changed the file, followed through its renames (`git log --first-parent --follow`), the text of each version read at its commit, and for a merge among them the commits of the branch it merged that changed the file. It reads only a file under the project's directory of decisions, `project.decisions`, and changes nothing",
+      "in": [
+        {
+          "name": "path",
+          "title": "Decision's file",
+          "type": "text",
+          "desc": "The decision's file, by its path in the repository as the project's decisions are given, such as decisions/one-flow.md, or by its path in the directory of decisions; for a withdrawn decision, the path it had"
+        }
+      ],
+      "out": [
+        {
+          "name": "history",
+          "title": "History",
+          "type": "union",
+          "desc": "Whether main ever had the file",
+          "by": "verdict",
+          "branches": [
+            {
+              "value": "found",
+              "desc": "Main had the file: its versions",
+              "fields": [
+                {
+                  "name": "versions",
+                  "title": "Versions",
+                  "type": "list",
+                  "desc": "Each version main had, newest first; an empty list when they were too long to give here and were saved",
+                  "item": {
+                    "type": "obj",
+                    "desc": "One version, as the commit of main that made it left the file",
+                    "fields": [
+                      {
+                        "name": "commit",
+                        "title": "Commit",
+                        "type": "text",
+                        "desc": "The commit of main's first-parent line that made it"
+                      },
+                      {
+                        "name": "date",
+                        "title": "Date",
+                        "type": "text",
+                        "desc": "When that commit was committed, in ISO 8601"
+                      },
+                      {
+                        "name": "message",
+                        "title": "Message",
+                        "type": "text",
+                        "desc": "The commit's message, whole"
+                      },
+                      {
+                        "name": "change",
+                        "title": "Change",
+                        "type": "enum",
+                        "desc": "What the commit did to the file",
+                        "values": [
+                          [
+                            "added",
+                            "Made it, new or as a copy of the file in from"
+                          ],
+                          [
+                            "changed",
+                            "Rewrote it where it was"
+                          ],
+                          [
+                            "renamed",
+                            "Moved it from the path in from, its text changed or not"
+                          ],
+                          [
+                            "deleted",
+                            "Deleted it: the decision was withdrawn"
+                          ]
+                        ]
+                      },
+                      {
+                        "name": "path",
+                        "title": "Path",
+                        "type": "text",
+                        "desc": "The file's path in this version; for a deletion, the path it had"
+                      },
+                      {
+                        "name": "from",
+                        "title": "Earlier path",
+                        "type": "text",
+                        "desc": "For a rename or a copy, the path the file came from",
+                        "optional": true
+                      },
+                      {
+                        "name": "text",
+                        "title": "Text",
+                        "type": "text",
+                        "desc": "The file's text in this version; none for a deletion",
+                        "optional": true
+                      },
+                      {
+                        "name": "brought",
+                        "title": "Commits merged",
+                        "type": "list",
+                        "desc": "For a merge, the commits of the branch it merged that changed the file, newest first",
+                        "optional": true,
+                        "item": {
+                          "type": "obj",
+                          "desc": "One commit of the merged branch",
+                          "fields": [
+                            {
+                              "name": "commit",
+                              "title": "Commit",
+                              "type": "text",
+                              "desc": "The commit"
+                            },
+                            {
+                              "name": "date",
+                              "title": "Date",
+                              "type": "text",
+                              "desc": "When it was committed, in ISO 8601"
+                            },
+                            {
+                              "name": "message",
+                              "title": "Message",
+                              "type": "text",
+                              "desc": "Its message, whole"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "saved",
+                  "title": "Where the versions were saved",
+                  "type": "text",
+                  "optional": true,
+                  "desc": "Only when the versions were too long to give here: the local path they were saved to, one JSON object per line"
+                }
+              ]
+            },
+            {
+              "value": "none",
+              "desc": "No history was read",
+              "fields": [
+                {
+                  "name": "why",
+                  "title": "Why none",
+                  "type": "text",
+                  "desc": "Why: no commit of main ever had a file at that path, or the path names no decision's file, being outside the repository, outside the directory of decisions or its README.md"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "gh",
       "desc": "One read-only gh command (your machine has no GitHub credentials). Only a command that starts with an entry of the allow list `gh.allow` runs: an entry that ends in / allows any argument under it, any other entry that command with any arguments after it. A request of api only reads: one with any of `-X`, `--method`, `-f`, `-F`, `--field`, `--raw-field` or `--input` is refused. To push or run CI, use ci or measure; for anything else on GitHub, ask the owner, kind permission",
       "runs": "The engine runs it with its own credentials, in the work's worktree. It lets through only commands on the allow list in the engine's configuration and an api request that only reads, runs nothing else, and records the attempt of each command it runs; only the owner changes the allow list",
@@ -4321,8 +4475,7 @@
       "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for.",
       "history_sources": "The database's read-only address and the project's checkout, for the gatherer's `sqlite3` and git.",
       "main_changes": "Before the first round of cells `R1`, `D1` and `I1` each time the work comes to them, the engine merges the latest main into the work's branch when its worktree is clean: the files main changed since the branch last took it, or the files in conflict when it could not merge cleanly, the merge then undone; none when main changed nothing since.",
-      "decisions_in_force": "The project's decisions in force: each file of its `decisions/` directory on main, whole, read at the commit of main the round is pinned to; none when it has none.",
-      "decision_history": "Each file of the project's `decisions/` with its versions: the commits on main that wrote it, each with its message, from git; none when it has none.",
+      "decisions": "The project's decisions in force, as its main has them at the commit the round is pinned to: every file of the directory its configuration names as decisions (decisions unless set) but a README.md, each by its path with its text; none when there are none. A decision a work writes or changes on its own branch is not here until it merges; it is in the work's diff.",
       "owner_approval": "The files of the work's change against main that match a path of the project's `owner_approves`, with the pull request and, for the flow, the flow page that compares it with main; whether the owner approved the work's design at its review, or replied exactly approved to the ask of this change since its last fix; none when the change touches none.",
       "design_review": "The review of the work's latest design: what the architect replied at the project's level, and the owner's answer with the images it sent, as cell `D3` brought them."
     },
@@ -6290,6 +6443,7 @@
             "ci",
             "ci_before",
             "measure",
+            "decision_history",
             "gh",
             "query"
           ],
@@ -6340,10 +6494,10 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, each file of `decisions/` on main whole: how the design is done now and why, the options not taken and why not; none when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
               "from": [
                 {
-                  "engine": "decisions_in_force"
+                  "engine": "decisions"
                 }
               ],
               "maybe": true
@@ -6834,6 +6988,7 @@
           "line": "designer",
           "tools": [
             "measure",
+            "decision_history",
             "gh",
             "query"
           ],
@@ -6909,10 +7064,10 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, each file of `decisions/` on main whole: how the design is done now and why, the options not taken and why not; none when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
               "from": [
                 {
-                  "engine": "decisions_in_force"
+                  "engine": "decisions"
                 }
               ],
               "maybe": true
@@ -7049,16 +7204,17 @@
           "line": "designer",
           "tools": [
             "measure",
+            "decision_history",
             "gh",
             "query"
           ],
           "inputs": [
             {
-              "name": "The history of the decisions",
-              "what": "Each file of `decisions/` with its versions: the commits that wrote it, each with its message, for a decision this design might break",
+              "name": "Decisions in force",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
               "from": [
                 {
-                  "engine": "decision_history"
+                  "engine": "decisions"
                 }
               ],
               "maybe": true
@@ -7076,7 +7232,7 @@
             }
           ],
           "prompt": [
-            "List everything this design takes for granted: earlier decisions (the owner's, the architect's), the architecture and interfaces as they are, how the item puts it, the initial research's conclusion, and what you take for facts. Pick the two or three that bind this design most: those without which the design would change the most. For each, suppose it broken: what does the design become? Follow it on: what else must change with it, and at what cost, until it either works or does not; where it does not, write at which step it dies. Where breaking one is plainly better and worth its cost, write it as a proposal: which, why, and what must change with it. Never break one quietly: whoever made it decides, at the review. Where none is better, write that the design stands, with the ones you examined and why each is not broken.",
+            "List everything this design takes for granted: earlier decisions (the owner's, the architect's), the architecture and interfaces as they are, how the item puts it, the initial research's conclusion, and what you take for facts. Pick the two or three that bind this design most: those without which the design would change the most. For each, suppose it broken: what does the design become? Follow it on: what else must change with it, and at what cost, until it either works or does not; where it does not, write at which step it dies. Where breaking one is plainly better and worth its cost, write it as a proposal: which, why, and what must change with it; before proposing to break a decision in force, read its history with decision_history. Never break one quietly: whoever made it decides, at the review. Where none is better, write that the design stands, with the ones you examined and why each is not broken.",
             "Hand in the design again whole, with only what this examination changed changed, and say what changed. Change no file outside `research/`."
           ],
           "out": [
@@ -8145,10 +8301,10 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, each file of `decisions/` on main whole: how the design is done now and why, the options not taken and why not; none when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
               "from": [
                 {
-                  "engine": "decisions_in_force"
+                  "engine": "decisions"
                 }
               ],
               "maybe": true
@@ -8171,7 +8327,7 @@
             "A small case the design did not foresee you handle yourself, and write it as a departure. To change the approach, or where the plan or the design does not hold, do not work around it: say where it does not hold, and the work goes back to deep research.",
             "Before handing in, merge the latest main into the branch, resolve any conflict yourself, and run ci again: hand in only once it is green. To run CI or a measurement, commit locally and use ci or measure.",
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
-            "Write each option the owner chose for a decision point into `decisions/` in the repository, one file for each decision, in English: how it is done now and why, the options not chosen and why not; it merges with this work's pull request. Name each file in decisions_written. When an existing file is overturned, rewrite it, and say in the commit message what changed and why.",
+            "Write each option the owner chose for a decision point into the project's directory of decisions, one Markdown file for each decision, in English, saying: what is done now; why, what it is for and the reasons; each option not chosen, and why not; and one line for each challenge considered and turned down: when, what change was proposed, and why it was not made. It merges with this work's pull request. Name each file in decisions_written. A decision the owner overturned is rewritten in its file, and one withdrawn deleted, the commit message saying what changed and why.",
             "The acceptance may change: when it must, hand in the whole list as it is now in acceptance_changed, with why.",
             "Write what changed in tests and checks: for each test added, what errors it catches, its kind, its two results, run once after the change with ci and once before it with ci_before (the latest run of ci_before that reported the test counts, and when any of the files that run put on the code before the change changed after it, run ci_before again, listing in a run only the files of the tests it is for), how long it runs on its own and why it is worth that time; for a test that was there and now tests more, an extended row of the same fields; for each removed, skipped or relaxed, its technical reason. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere."
           ],
@@ -8486,6 +8642,7 @@
           "line": "review",
           "tools": [
             "ci",
+            "decision_history",
             "gh",
             "query"
           ],
@@ -8555,10 +8712,10 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, each file of `decisions/` on main whole: how the design is done now and why, the options not taken and why not; none when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
               "from": [
                 {
-                  "engine": "decisions_in_force"
+                  "engine": "decisions"
                 }
               ],
               "maybe": true
@@ -8665,6 +8822,7 @@
           "line": "review",
           "tools": [
             "ci",
+            "decision_history",
             "gh",
             "query"
           ],
@@ -8734,10 +8892,10 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, each file of `decisions/` on main whole: how the design is done now and why, the options not taken and why not; none when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
               "from": [
                 {
-                  "engine": "decisions_in_force"
+                  "engine": "decisions"
                 }
               ],
               "maybe": true
@@ -9834,6 +9992,7 @@
           "line": "review",
           "tools": [
             "ci",
+            "decision_history",
             "gh",
             "query"
           ],

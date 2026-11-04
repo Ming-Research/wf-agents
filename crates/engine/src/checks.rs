@@ -1081,7 +1081,13 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .iter()
                 .filter_map(|r| r["file"].as_str().map(str::to_string))
                 .collect();
-            written_problems(&chosen, &given, &files, &changed).into_result()
+            let dir = c
+                .project()?
+                .decisions
+                .to_string_lossy()
+                .trim_end_matches('/')
+                .to_string();
+            written_problems(&chosen, &given, &files, &changed, &dir).into_result()
         }
         "table_answered" => {
             let ids: Vec<String> = items(v)
@@ -1260,8 +1266,8 @@ fn points_problems(points: &[Value], choices: &[Value]) -> Problems {
 
 /// What is wrong with the decisions the implementation says it wrote (`given`, by point, in `files`) against the
 /// points the owner chose for (`chosen`) and the files the branch changes (`changed`): a point not chosen, one written
-/// twice or left out, and a file that is no file of `decisions/` the branch adds or changes.
-fn written_problems(chosen: &[String], given: &[String], files: &[String], changed: &[String]) -> Problems {
+/// twice or left out, and a file that is no file of the project's decisions (`dir`) the branch adds or changes.
+fn written_problems(chosen: &[String], given: &[String], files: &[String], changed: &[String], dir: &str) -> Problems {
     let misses = id_misses(chosen, given);
     let mut problems = Problems::default();
     problems.about(
@@ -1280,8 +1286,12 @@ fn written_problems(chosen: &[String], given: &[String], files: &[String], chang
         |xs| format!("the options the owner chose for decision points {xs} are written in no file of decisions/"),
     );
     for f in files {
-        if !crate::in_force::holds(f) {
-            problems.push(format!("{f} is no file of decisions/"));
+        let decision = f
+            .strip_prefix(dir)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .is_some_and(|rest| !rest.is_empty() && rest != "README.md");
+        if !decision {
+            problems.push(format!("{f} is no file of the project's decisions ({dir}/)"));
         } else if !changed.iter().any(|c| c == f) {
             problems.push(format!("the branch does not add or change {f}"));
         }

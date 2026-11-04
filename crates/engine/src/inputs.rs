@@ -819,21 +819,6 @@ pub fn engine_input(
                 .filter(|(work, _)| *work == w.id)
                 .and_then(|(_, v)| v.clone()));
         }
-        // The project's decisions in force, and their history, at the commit of main the round is pinned to.
-        "decisions_in_force" | "decision_history" => {
-            let Some(p) = e.config.config.projects.get(&item.project) else {
-                return Ok(None);
-            };
-            let commit = match main {
-                Some(c) => c.to_string(),
-                None => config::main_commit(p).map_err(|x| format!("project {}: {x}", item.project))?,
-            };
-            return if name == "decisions_in_force" {
-                crate::in_force::in_force(&p.checkout, &commit)
-            } else {
-                crate::in_force::history(&p.checkout, &commit)
-            };
-        }
         "owner_approval" => return crate::approval::input(e.db.conn(), &e.project_of(w)?, w),
         "design_review" => return crate::review::input(e.db.conn(), w.id),
         _ => {}
@@ -1448,29 +1433,37 @@ mod tests {
                 .iter()
                 .any(|x| x.from.iter().any(|s| matches!(s, Src::Engine(n) if n.as_str() == name)))
         };
-        let mut declared: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
         let mut agent = None;
         for g in &compiled.graphs {
             for c in &g.cells {
                 let has = main_inputs.iter().any(|n| declares(c, n));
                 assert_eq!(reads_main(c), has, "{} {}", g.name, c.id);
                 assert!(!has || c.kind == "agent", "{} {} is no agent's cell", g.name, c.id);
-                declared.extend(main_inputs.iter().copied().filter(|n| declares(c, n)));
                 if has && agent.is_none() {
                     agent = Some(c.clone());
                 }
             }
         }
-        // Each is declared by some cell of the flow, and computed by the module that takes the commit of main.
-        assert_eq!(declared.len(), main_inputs.len(), "{declared:?}");
+        // Each is computed by the module that takes the commit of main. Whether the flow's cells declare each is the
+        // flow's check, which holds every input the flow names to some cell; here, a cell with none of them reads no
+        // main, and the same cell given any one of them does.
         assert!(main_inputs.iter().all(|n| crate::architect::INPUTS.contains(n)));
-        // A cell with none of them reads no main.
-        let mut bare = agent.expect("some agent's cell reads main");
-        bare.inputs.retain(|x| {
-            !x.from
+        let agent = agent.expect("some agent's cell reads main");
+        let reads = |x: &CompiledInput| {
+            x.from
                 .iter()
                 .any(|s| matches!(s, Src::Engine(n) if main_inputs.contains(&n.as_str())))
-        });
+        };
+        let template = agent.inputs.iter().find(|x| reads(x)).cloned().unwrap();
+        let mut bare = agent;
+        bare.inputs.retain(|x| !reads(x));
         assert!(!reads_main(&bare));
+        for n in main_inputs {
+            let mut one = bare.clone();
+            let mut x = template.clone();
+            x.from = vec![Src::Engine(n.to_string())];
+            one.inputs.push(x);
+            assert!(reads_main(&one), "{n}");
+        }
     }
 }
