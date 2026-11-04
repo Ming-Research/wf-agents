@@ -45,7 +45,8 @@ pub struct Request {
     pub images: Vec<Image>,
     /// What the return must be, as JSON Schema; the engine checks the return against it.
     pub schema: Value,
-    /// The schema the CLI is given, the same for every cell of the line: [`envelope`].
+    /// The schema the CLI is given, the same for every cell of the line and of the lines forked together with it:
+    /// [`envelope`].
     pub envelope: Value,
     /// The commands the round may run besides those the CLI's own arguments allow, as the CLI's tool rules name them:
     /// its line's permissions.
@@ -290,8 +291,9 @@ pub fn command_line(r: &Request) -> Vec<String> {
         out.extend([crate::system::FLAG.to_string(), s.clone()]);
     }
     // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to the
-    // next would leave nothing of the session's prompt cache: it is the line's envelope, the same for every cell of the
-    // line. A bare call is given no schema and no tools.
+    // next would leave nothing of the session's prompt cache, and a fork given another schema than its base would read
+    // nothing of the base from it: it is the line's envelope, the same for every cell of the line and of the lines
+    // forked together with it. A bare call is given no schema and no tools.
     if r.bare {
         out.extend(["--tools".to_string(), String::new()]);
     } else {
@@ -1039,19 +1041,26 @@ fn activity_of_value(v: &Value) -> Option<String> {
     }
 }
 
-/// The schema the CLI is given for every round of a line's agents, those of the graph's agents' cells on `line`, the
-/// same for every cell of the line, since a schema that changed from one round to the next leaves nothing of the
-/// session's prompt cache, and a session is a line's; the line's own, instead of the graph's, since a field every return
-/// of some lines holds (`tell_owner`) is one another line's agents must not hand in, which the schema the CLI gives the
+/// The schema the CLI is given for every round of a line's agents, those of the graph's agents' cells on `line` and on
+/// the lines forked together with it ([`forked_together`]), the same for every cell of them, since the CLI gives the
+/// schema among the tools, which come first in the prompt, so that a schema that changed from one round to the next
+/// leaves nothing of the session's prompt cache, and a fork whose schema is not its base's reads nothing of the base
+/// from it, writing the whole base again (in a trial each matter forked from the architect's base read 31,414 tokens of
+/// the 80,301 or 133,030 the base held). It is these lines' own, instead of the graph's, since a field every return of
+/// some lines holds (`tell_owner`) is one another line's agents must not hand in, which the schema the CLI gives the
 /// model would otherwise offer them. It holds a return's top-level fields: the short fields every return holds first,
 /// each with only its type, and the field an agent's forms are under last, so that only closing brackets come after
-/// the long answer; that field with the [`Shape`] of every form of every agent's cell of the line taken together
+/// the long answer; that field with the [`Shape`] of every form of every agent's cell of the lines taken together
 /// ([`Shape::merged`]), each object with its fields and each list with its items, down to every value. It refuses what
-/// no agent's cell of the line takes, as far as types and fields tell: an object requires the fields every one of its
-/// alternatives requires, at the top those every agent's cell of the line requires, and a
-/// field some forms leave out unless the return is one of those forms ([`unless_left_out`]: `progress`, which `tools`
+/// no agent's cell of the lines takes, as far as types and fields tell: an object requires the fields every one of its
+/// alternatives requires, at the top those every agent's cell of the lines requires, and a
+/// field some forms leave out unless the return is one of those forms ([`chained`]: `progress`, which `tools`
 /// and `search` leave out, so that a return of the architect's `B4` without it, which a trial's engine sent back, is
-/// refused by the command line); and it takes no field beyond those it lists when none of its alternatives does, the
+/// refused by the command line); a field the cells of some of the lines hold and require and those of the others do not
+/// hold (`tell_owner`, which the base and each matter's session hand in and the second eye does not) is required unless
+/// the return is a form the others hand in, and refused beside a form only they hand in, so that the second eye's
+/// `check` with `tell_owner` is refused by the command line, while `tools` with it or without it is left to the engine's
+/// check of the cell's own schema; and it takes no field beyond those it lists when none of its alternatives does, the
 /// field of the forms included, so that a field written inside the form it does not belong to is refused, and a field
 /// every return holds written inside the field of the forms is too. A union below the field of the forms, whose
 /// branches fix one field to a value of their own (a deviation of the kind `surprise` or `workaround`), keeps its
@@ -1073,10 +1082,11 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// the field left out. Without the types the model hands in each field as the JSON text of its value, and with the
 /// field of the forms an object with no fields it handed in the whole form as a string holding its JSON.
 pub fn envelope(g: &flow::CompiledGraph, line: Option<&str>) -> Value {
+    let lines = forked_together(g, line);
     let cells: Vec<&flow::CompiledCell> = g
         .cells
         .iter()
-        .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
+        .filter(|c| c.kind == "agent" && lines.contains(&c.line))
         .collect();
     let schemas: Vec<&Value> = cells.iter().filter_map(|c| c.schema.as_ref()).collect();
     // The fields beside the forms', of every agent's cell of the line, in the order the cells give them.
@@ -1135,46 +1145,143 @@ pub fn envelope(g: &flow::CompiledGraph, line: Option<&str>) -> Value {
         "required": required,
         "additionalProperties": false,
     });
-    // The fields some forms leave out, which every agent's cell of the line has and requires of its other forms, as the
-    // engine checks: grouped by the forms that leave them out.
+    // The fields some forms leave out, as the engine checks, grouped by the forms that leave them out: a field every
+    // agent's cell of the lines has and requires of its other forms is left out by the forms that say so; a field the
+    // cells of some of the lines have and require and those of the others do not have is left out by every form the
+    // others take, and refused beside a form only they take.
     let mut left: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
+    let mut refused: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
     for k in beside.iter().filter(|k| !required_of(&out).contains(&k.as_str())) {
-        let has = |s: &&Value| s.get("properties").is_some_and(|p| p.get(k.as_str()).is_some());
-        let forms: BTreeSet<String> = cells
-            .iter()
-            .flat_map(|c| &c.forms)
-            .filter(|f| f.without.contains(k))
-            .filter_map(|f| f.field.clone())
-            .collect();
-        if !forms.is_empty() && schemas.iter().all(has) {
-            left.entry(forms.into_iter().collect()).or_default().push(k.clone());
+        let has = |s: &Value| s.get("properties").is_some_and(|p| p.get(k.as_str()).is_some());
+        let (having, lacking): (Vec<&Value>, Vec<&Value>) = schemas.iter().copied().partition(|&s| has(s));
+        if lacking.is_empty() {
+            let forms: BTreeSet<String> = cells
+                .iter()
+                .flat_map(|c| &c.forms)
+                .filter(|f| f.without.contains(k))
+                .filter_map(|f| f.field.clone())
+                .collect();
+            if !forms.is_empty() {
+                left.entry(forms.into_iter().collect()).or_default().push(k.clone());
+            }
+        } else if having.iter().all(|s| required_of(s).contains(&k.as_str())) {
+            let (theirs, others) = (taken_under(&lacking, &g.within), taken_under(&having, &g.within));
+            if !theirs.is_empty() {
+                left.entry(theirs.iter().cloned().collect())
+                    .or_default()
+                    .push(k.clone());
+            }
+            let only: Vec<String> = theirs.difference(&others).cloned().collect();
+            if !only.is_empty() {
+                refused.entry(only).or_default().push(k.clone());
+            }
         }
     }
-    let groups: Vec<(Vec<String>, Vec<String>)> = left.into_iter().collect();
-    if let (Some(rule), Some(o)) = (unless_left_out(&g.within, &groups), out.as_object_mut()) {
+    // A return holds each field of a group unless its form is one of the group's; and beside a form only the cells
+    // that lack some fields take, it holds none of those.
+    let one_of = |forms: &[String]| -> Vec<Value> {
+        forms
+            .iter()
+            .map(|f| json!({ "type": "object", "required": [f] }))
+            .collect()
+    };
+    let mut rules: Vec<(Value, Value)> = left
+        .iter()
+        .map(|(forms, fields)| {
+            (
+                json!({ "properties": { &g.within: { "type": "object", "not": { "anyOf": one_of(forms) } } } }),
+                json!({ "required": fields }),
+            )
+        })
+        .collect();
+    for (forms, fields) in &refused {
+        let kept: serde_json::Map<String, Value> = beside
+            .iter()
+            .filter(|k| !fields.contains(k))
+            .chain([&g.within])
+            .map(|k| (k.clone(), json!({})))
+            .collect();
+        rules.push((
+            json!({ "required": [&g.within],
+                    "properties": { &g.within: { "type": "object", "anyOf": one_of(forms) } } }),
+            json!({ "properties": kept, "additionalProperties": false }),
+        ));
+    }
+    if let (Some(rule), Some(o)) = (chained(&rules), out.as_object_mut()) {
         o.extend(rule);
     }
     out
 }
 
-/// The rule that a return holds each field of a group unless its form is one of the group's, which leave the fields
-/// out, for every group: an `if` and `then` at the top, a later group's in the `then` of an earlier and in its `else`,
-/// since the API takes no `anyOf` or `allOf` at the top of the schema of the tool a return is handed in with (as tried
-/// with 2.1.312: "input_schema does not support oneOf, allOf, or anyOf at the top level"). An object a keyword reads
-/// says it is one, which the command line's strict check otherwise warns of. None for no group.
-fn unless_left_out(within: &str, groups: &[(Vec<String>, Vec<String>)]) -> Option<serde_json::Map<String, Value>> {
-    let ((forms, fields), rest) = groups.split_first()?;
-    let rest = unless_left_out(within, rest);
-    let leaving: Vec<Value> = forms
+/// The lines whose sessions share with a session of `line` all that comes before their messages in the prompt: the
+/// line a session of it forks from in the end (the line its sessions fork from, and the line that one's fork from, and
+/// so on), and every line whose sessions fork from that one in the end, `line` among them, in the order the agents'
+/// cells of the graph give them; `line` alone for a line no session forks from or to, and for a cell on no line. A fork
+/// holds its base's session and reads it from the prompt cache only where its tools, the schema the command line gives
+/// among them, and its system prompt are the base's: so these lines are given one schema ([`envelope`]), and a fork
+/// carries its base's system prompt (`crate::system`).
+pub fn forked_together(g: &flow::CompiledGraph, line: Option<&str>) -> Vec<Option<String>> {
+    let agents = || g.cells.iter().filter(|c| c.kind == "agent");
+    // The line a line's sessions fork from in the end; itself for one that forks from none.
+    let base = |line: &str| -> String {
+        let mut at = line.to_string();
+        let mut seen = vec![at.clone()];
+        while let Some(up) = agents()
+            .find(|c| c.line.as_deref() == Some(at.as_str()))
+            .and_then(|c| c.fork_of.clone())
+        {
+            if seen.contains(&up) {
+                break;
+            }
+            seen.push(up.clone());
+            at = up;
+        }
+        at
+    };
+    let Some(root) = line.map(&base) else {
+        return vec![None];
+    };
+    let mut out: Vec<Option<String>> = Vec::new();
+    for c in agents() {
+        if let Some(l) = c.line.as_deref()
+            && !out.contains(&c.line)
+            && base(l) == root
+        {
+            out.push(c.line.clone());
+        }
+    }
+    if out.is_empty() {
+        out.push(line.map(str::to_string));
+    }
+    out
+}
+
+/// The fields under the field of the forms that any of these cells' schemas takes: each form's field, and those beside
+/// it in the form, as `notebook`.
+fn taken_under(schemas: &[&Value], within: &str) -> BTreeSet<String> {
+    schemas
         .iter()
-        .map(|f| json!({ "type": "object", "required": [f] }))
-        .collect();
-    let mut then = json!({ "required": fields });
+        .filter_map(|s| s.get("properties")?.get(within))
+        .flat_map(|w| {
+            Shape::of(w)
+                .field_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Rules at the top of the schema, each an `if` and its `then`, as one: the first's `if` and `then`, with the rest in its
+/// `then` and in its `else`, since the API takes no `anyOf` or `allOf` at the top of the schema of the tool a return is
+/// handed in with (as tried with 2.1.312: "input_schema does not support oneOf, allOf, or anyOf at the top level"). An
+/// object a keyword reads says it is one, which the command line's strict check otherwise warns of. None for no rule.
+fn chained(rules: &[(Value, Value)]) -> Option<serde_json::Map<String, Value>> {
+    let ((when, then), rest) = rules.split_first()?;
+    let rest = chained(rest);
+    let mut then = then.clone();
     let mut rule = serde_json::Map::new();
-    rule.insert(
-        "if".into(),
-        json!({ "properties": { within: { "type": "object", "not": { "anyOf": leaving } } } }),
-    );
+    rule.insert("if".into(), when.clone());
     if let Some(r) = rest {
         if let Some(t) = then.as_object_mut() {
             t.extend(r.clone());
@@ -1663,29 +1770,22 @@ mod tests {
             );
         }
         let a = f.graph("architect").unwrap();
-        // The base and each matter's session tell the owner; the second eye and the search of observations do not.
-        for line in ["architect", "matter"] {
+        // The base and each matter's session tell the owner; the second eye and the search of observations do not. The
+        // second eye shares one schema with the base and each matter's session, which fork the same base: it offers
+        // `tell_owner` and requires it of no form the second eye hands in too.
+        for line in ["architect", "matter", "second_eye"] {
             let arch = envelope(a, Some(line));
             assert_eq!(
                 keys(&arch),
                 ["tell_owner", "progress", "flow_feedback", "outcome"],
                 "{line}"
             );
-            assert_eq!(
-                arch["required"],
-                json!(["tell_owner", "flow_feedback", "outcome"]),
-                "{line}"
-            );
+            assert_eq!(arch["required"], json!(["flow_feedback", "outcome"]), "{line}");
         }
         // The search of observations asks for no tools, so nothing it hands in leaves out `progress`.
-        for (line, required) in [
-            ("second_eye", json!(["flow_feedback", "outcome"])),
-            ("observer", json!(["progress", "flow_feedback", "outcome"])),
-        ] {
-            let h = envelope(a, Some(line));
-            assert_eq!(keys(&h), ["progress", "flow_feedback", "outcome"], "{line}");
-            assert_eq!(h["required"], required, "{line}");
-        }
+        let h = envelope(a, Some("observer"));
+        assert_eq!(keys(&h), ["progress", "flow_feedback", "outcome"]);
+        assert_eq!(h["required"], json!(["progress", "flow_feedback", "outcome"]));
         // A project that does not ask for flow feedback gives its agents no such field.
         let off = envelope(&g.clone().as_asked(|_| false), Some("engineer"));
         assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
@@ -1715,6 +1815,99 @@ mod tests {
                         assert!(required_of(schema).contains(&k), "cell {}: {k}", c.id);
                     }
                 }
+            }
+        }
+    }
+
+    // A fork reads its base's session from the prompt cache only where its tools are the base's, and the command line
+    // gives the schema of the return among them: in a trial each matter's session, forked from the architect's base with
+    // a schema of its own, read 31,414 tokens of a base that held 80,301 or 133,030, and wrote the rest again. The lines
+    // that fork from one another are given one schema, made from the cells of them all, and every other line keeps its
+    // own: on the architect's, the base, each matter's session and the second eye share one, and the search of
+    // observations has its own.
+    #[test]
+    fn a_fork_is_given_the_schema_of_the_session_it_forks() {
+        let f = compiled();
+        let mut forks = 0;
+        for g in &f.graphs {
+            for c in g.cells.iter().filter(|c| c.kind == "agent") {
+                if let Some(base) = &c.fork_of {
+                    assert_eq!(
+                        envelope(g, c.line.as_deref()).to_string(),
+                        envelope(g, Some(base)).to_string(),
+                        "graph {}, cell {}",
+                        g.name,
+                        c.id
+                    );
+                    forks += 1;
+                }
+            }
+        }
+        assert!(forks > 0);
+        let a = f.graph("architect").unwrap();
+        let line = |l: &str| Some(l.to_string());
+        let together = forked_together(a, Some("matter"));
+        for l in ["architect", "matter", "second_eye"] {
+            assert!(together.contains(&line(l)), "{l}: {together:?}");
+            assert_eq!(forked_together(a, Some(l)), together, "{l}");
+        }
+        assert_eq!(forked_together(a, Some("observer")), [line("observer")]);
+        assert_eq!(forked_together(a, None), [None]);
+        let g = f.graph("engineer").unwrap();
+        assert_eq!(forked_together(g, Some("engineer")), [line("engineer")]);
+    }
+
+    // The base and each matter's session tell the owner and the second eye does not, and the three share one schema:
+    // it requires `tell_owner` of every form but those the second eye hands in too (the base's `plan` among them, below),
+    // and refuses it beside the second eye's own `check`, as the command line did when the second eye had a schema of
+    // its own. A form the second eye hands in too, as `tools`, is taken with it and without it, and the engine's check of
+    // the cell's own schema tells which the cell needs.
+    #[test]
+    fn a_field_some_lines_of_one_schema_hold_is_required_or_refused_by_the_form() {
+        let f = compiled();
+        let g = f.graph("architect").unwrap();
+        let s = envelope(g, Some("second_eye"));
+        let schema = g.cell("G2").unwrap().schema.clone().unwrap();
+        let mut check = json!({
+            "progress": "Looking at what the change loses",
+            "flow_feedback": "none",
+            "outcome": { "check": { "verdict": "sound", "why": "Nothing it holds is lost." } },
+        });
+        assert!(flow::valid(&schema, &check), "{check}");
+        assert_eq!(refused(&s, &check, ""), None);
+        check["tell_owner"] = json!([]);
+        assert!(!flow::valid(&schema, &check));
+        assert_eq!(
+            refused(&s, &check, "").as_deref(),
+            Some("root: must NOT have additional properties ('tell_owner' is not allowed)")
+        );
+        let tools = json!({
+            "flow_feedback": "none",
+            "outcome": { "tools": [{ "tool": "query", "sql": "SELECT id FROM items" }] },
+        });
+        assert_eq!(refused(&s, &tools, ""), None);
+        let mut told = tools.clone();
+        told["tell_owner"] = json!([]);
+        assert_eq!(refused(&s, &told, ""), None);
+    }
+
+    // A round whose effort turns thinking on or off reads nothing of its session from the cache, which the flow's check
+    // keeps from happening within a line: a fork's first round whose effort does so against its base's last reads
+    // nothing of the base, so the lines forked together run at `low`, which does not think, all or none.
+    #[test]
+    fn the_lines_forked_together_think_alike() {
+        let f = compiled();
+        for g in &f.graphs {
+            for line in lines_of(g) {
+                let lines = forked_together(g, line);
+                let low: BTreeSet<bool> = g
+                    .cells
+                    .iter()
+                    .filter(|c| c.kind == "agent" && lines.contains(&c.line))
+                    .filter_map(|c| c.effort.as_deref())
+                    .map(|e| e == "low")
+                    .collect();
+                assert!(low.len() <= 1, "graph {}, lines {lines:?}", g.name);
             }
         }
     }
@@ -1896,8 +2089,18 @@ mod tests {
         for (g, line) in [("engineer", "engineer"), ("architect", "architect")] {
             let g = f.graph(g).unwrap();
             let s = envelope(g, Some(line));
+            // The fields every cell of the line requires, beside the forms.
+            let schemas: Vec<&Value> = g
+                .cells
+                .iter()
+                .filter(|c| c.kind == "agent" && c.line.as_deref() == Some(line))
+                .filter_map(|c| c.schema.as_ref())
+                .collect();
             let mut base = json!({});
-            for k in required_of(&s).into_iter().filter(|k| *k != g.within) {
+            for k in required_of(schemas[0])
+                .into_iter()
+                .filter(|k| *k != g.within && schemas.iter().all(|s| required_of(s).contains(k)))
+            {
                 base[k] = if k == "flow_feedback" { json!("none") } else { json!([]) };
             }
             let mut pause = base.clone();
@@ -2235,10 +2438,12 @@ mod tests {
         for g in &f.graphs {
             for line in lines_of(g) {
                 let env = envelope(g, line);
+                // The cells the line's schema is made of: those of the lines forked together with it too.
+                let lines = forked_together(g, line);
                 let cells: Vec<&flow::CompiledCell> = g
                     .cells
                     .iter()
-                    .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
+                    .filter(|c| c.kind == "agent" && lines.contains(&c.line))
                     .collect();
                 let found: Vec<(&str, Vec<Union<'_>>)> = cells
                     .iter()

@@ -140,7 +140,11 @@ what waited for the planning, which it gathers until `[architect] gathered_most`
 alone in a session forked from the base (where the agent's command line cannot fork one, a new session given whole what
 it reads), which ends with one line of the decision log; a change that can lose something (a cancel, a merge, a split, a
 rewritten or removed acceptance, a change to an item a work runs on) is made only once a second eye, forked from the
-same base on the same model, finds it sound. The engine watches main's CI for each project once a minute: when the
+same base on the same model, finds it sound. A fork reads the base from the prompt cache, instead of writing it again,
+because it shares with the base all that comes before the base's messages in the prompt: the model, the base's system
+prompt, the same tools, and one schema of the return for the base, each matter's session and the second eye, made from
+the forms of all their cells (the engine then checks each return against its own cell's schema); only the messages and
+the reasoning effort differ, and their cells all think, none running at `low`, or none does. The engine watches main's CI for each project once a minute: when the
 full CI of main's latest commit is red, it stops the merge queue, runs the red checks again, reads the known red
 checks and the run before the merge, and only when those do not clear it gives the architect the matter of which merge
 made it red, and whether to have it fixed or to revert it.

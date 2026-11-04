@@ -100,6 +100,23 @@ impl Miss {
     }
 }
 
+/// What comes before a session's messages in the prompt of a call, as far as its record tells: each part of
+/// [`BEFORE_MESSAGES`] it has, with its value, and the tools `--disallowedTools` takes from the model. A round reads its
+/// session from the prompt cache only where this is what the call before it had: the session's round before, or for a
+/// fork's first round its base's last, which the fork reads from the cache only so.
+pub fn before_messages_of(call: &Value) -> Vec<(String, String)> {
+    let all = parts(call);
+    let mut out: Vec<(String, String)> = all
+        .iter()
+        .filter(|(p, _)| BEFORE_MESSAGES.contains(&p.as_str()))
+        .cloned()
+        .collect();
+    let taken = all.iter().find(|(p, _)| p == TAKEN_TOOLS).map(|(_, v)| v.clone());
+    let taken: Vec<&str> = tools_taken(&taken).into_iter().collect();
+    out.push((TAKEN_TOOLS.to_string(), taken.join(" ")));
+    out
+}
+
 /// The tools a value of `--disallowedTools` takes from the model: its words that name a tool alone, with no rule on how
 /// it may be used.
 fn tools_taken(value: &Option<String>) -> BTreeSet<&str> {
@@ -370,6 +387,31 @@ mod tests {
         ] {
             assert!(before_messages(&now).is_empty(), "{now}");
         }
+    }
+
+    // What comes before the messages is told by its parts and their values, which a fork's first round must share with
+    // its base's last: the model, the schema, the command line's version and the tools taken from the model, not the
+    // rules on how a tool may be used, the effort, the hooks or the flag that names the session.
+    #[test]
+    fn what_comes_before_the_messages_is_named_with_its_values() {
+        let named = |xs: &[(&str, &str)]| -> Vec<(String, String)> {
+            xs.iter().map(|(p, v)| (p.to_string(), v.to_string())).collect()
+        };
+        let base = call("high", "2.1.3", "1", true);
+        assert_eq!(
+            before_messages_of(&base),
+            named(&[
+                ("--model", "m"),
+                ("--json-schema", "content abc"),
+                ("the CLI's version", "2.1.3"),
+                ("--disallowedTools", "WebFetch"),
+            ])
+        );
+        let mut fork = call("low", "2.1.3", "2", false);
+        fork["command"][9] = json!("Bash(git push:*)");
+        assert_eq!(before_messages_of(&fork), before_messages_of(&base));
+        fork["command"][5] = json!({ "content": "def" });
+        assert_ne!(before_messages_of(&fork), before_messages_of(&base));
     }
 
     const SONNET: Option<&str> = Some("claude-sonnet-5-5");

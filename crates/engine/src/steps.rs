@@ -839,9 +839,10 @@ pub fn round_directory(
 /// tools and commands its line refuses, the directories outside where it runs that it may read, and where it runs: a
 /// work in its worktree, a project's architect in its graph's worktree at the project's main, and a cell of the
 /// architect's on no line in an empty directory ([`architect::workdir`]). What of
-/// it the command line puts before the session is the same for every cell of a line, but for the effort, which the
-/// flow's check keeps from turning thinking on or off, or the line's session reads nothing from the prompt cache at a
-/// change of cell; a test holds every line of the flow to that.
+/// it the command line puts before the session is the same for every cell of a line, and of the lines forked together
+/// with it ([`sessions::cli::forked_together`]), so that a fork reads its base from the prompt cache, but for the
+/// effort, which the flow's check keeps from turning thinking on or off, or the line's session reads nothing from the
+/// prompt cache at a change of cell; tests hold every line of the flow to that.
 pub fn cell_request(
     e: &Engine,
     w: &Work,
