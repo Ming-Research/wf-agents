@@ -2423,7 +2423,7 @@
               "name": "version",
               "title": "Version drafted on",
               "type": "int",
-              "desc": "The item's version as you were given it, which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now"
+              "desc": "The item's version as you were given it, which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now; 0 for an item this round creates"
             },
             {
               "name": "part",
@@ -2482,7 +2482,7 @@
               "name": "version",
               "title": "Version drafted on",
               "type": "int",
-              "desc": "The item's version as you were given it, which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now"
+              "desc": "The item's version as you were given it, which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now; 0 for an item this round creates"
             },
             {
               "name": "acceptance",
@@ -17452,7 +17452,7 @@
                 },
                 {
                   "value": "new_policy",
-                  "desc": "Whether the policy still holds is checked, as a matter at the head of the queue",
+                  "desc": "Whether the policy still holds is checked, as a matter taken with what the plan queued",
                   "fields": [
                     {
                       "name": "why",
@@ -17507,7 +17507,7 @@
                   "do": "queue_check_policy"
                 }
               ],
-              "note": "Whether the policy still holds is checked, as a matter at the head of the queue, why being what the owner asks of the direction."
+              "note": "Whether the policy still holds is checked, as a matter taken with what the plan queued, why being what the owner asks of the direction."
             }
           ],
           "always": [

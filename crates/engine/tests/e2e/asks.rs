@@ -274,7 +274,10 @@ fn a_question_parks_its_matter_and_a_reply_to_a_closed_question_is_the_owner_s_w
     );
     let log = said.lock().unwrap().join("\n");
     let cells = cells_of(&e, arch);
-    assert!(cells.contains(&("A3".to_string(), Some("held".to_string()))), "{cells:?}\n{log}");
+    assert!(
+        cells.contains(&("A3".to_string(), Some("held".to_string()))),
+        "{cells:?}\n{log}"
+    );
     assert_eq!(cells.last().map(|c| c.0.as_str()), Some("E2"), "{log}");
     // The question still waits, its matter parked.
     let ask = parked_by(&e, held);
@@ -416,7 +419,9 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
-        ["Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"],
+        [
+            "Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
+        ],
         "{log}"
     );
     assert_eq!(rows_at(&e, arch, "H8"), ["new_policy"], "{log}");

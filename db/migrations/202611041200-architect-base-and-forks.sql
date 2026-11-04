@@ -7,7 +7,7 @@
 -- the works' groups is given to each matter's session as what changed since the base: such matters not handled yet
 -- leave the queue, saying why. The view of the queue says what reads it now, and the view of how often main was red
 -- only on known red checks counts the architect's watch of main too. The owner's conversations read the matter in hand
--- from the look at what comes next too, and name the architect as who spoke, whichever of its lines' sessions it was.
+-- from the look at what comes next too, and name the architect as who spoke from its base or a matter's session.
 -- Each statement below that defines something is written exactly as db/schema.sql writes it.
 
 CREATE TABLE sessions_before_forks AS SELECT * FROM sessions;
@@ -267,8 +267,8 @@ CREATE VIEW conversation_entries AS
   -- interface takes it to the group of every project the configuration connects them with), or wf-agents. source is
   -- what the entry is (message, notice, ask, interjection, words, talk, question, report, reply, card, ruling or
   -- between) and id its row in the table it comes from; an ask is one entry, the owner's answer to it shown in it, never
-  -- an entry of its own beside it. sender and recipient are a line (the architect, whichever of its lines' sessions
-  -- spoke: its base, a matter's session forked from it), the owner, the engine or wf-agents, the recipient of
+  -- an entry of its own beside it. sender and recipient are a line (the architect for its base and for a matter's
+  -- session forked from it), the owner, the engine or wf-agents, the recipient of
   -- the owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
   -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. design_card: the decision
@@ -297,7 +297,8 @@ CREATE VIEW conversation_entries AS
                                AND (x.handled_round IS NULL OR x.handled_work <> m.work OR x.handled_round >= m.round)),
                             'architect:' || w.project) END AS conversation,
     coalesce(w.project, i.project) AS project, 'message' AS source, m.id AS id,
-    CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect' ELSE coalesce(s.line, 'engineer') END AS sender,
+    CASE WHEN w.graph NOT IN ('architect', 'policy') THEN coalesce(s.line, 'engineer')
+         WHEN s.line IS NULL OR s.line IN ('architect', 'matter') THEN 'architect' ELSE s.line END AS sender,
     'owner' AS recipient, m.text AS text, coalesce(r.ended_at, r.started_at) AS at, m.work AS work, m.round AS round,
     NULL AS ask, m.design_card AS design_card, NULL AS matter, m.read_at AS read_at, 0 AS waiting, 0 AS pending,
     0 AS undelivered, 0 AS answerable, NULL AS fault

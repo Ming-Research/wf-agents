@@ -25,8 +25,14 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
                 vec![("outcome.answer", "done")],
                 vec![
                     ("outcome.answer.reply", json!("I retitle it as an action.")),
-                    ("outcome.effects", json!({ "item_changes": versioned(&path, json!([given.clone()])) })),
-                    ("outcome.closing.log", json!("Retitled #1 as an action, as the owner asked.")),
+                    (
+                        "outcome.effects",
+                        json!({ "item_changes": versioned(&path, json!([given.clone()])) }),
+                    ),
+                    (
+                        "outcome.closing.log",
+                        json!("Retitled #1 as an action, as the owner asked."),
+                    ),
                 ],
             )
         }),
@@ -48,7 +54,9 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
-        ["Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"],
+        [
+            "Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
+        ],
         "{log}"
     );
     let rows: Vec<Option<String>> = cells_of(&e, arch).into_iter().map(|c| c.1).collect();
@@ -127,16 +135,23 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
         sessions,
         [
             ("matter".to_string(), "line".to_string(), None, true, true),
-            ("architect".to_string(), "cell".to_string(), None, false, false),
+            ("architect".to_string(), "line".to_string(), None, false, false),
             ("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true),
         ],
         "{log}"
     );
     let seen = seen.lock().unwrap();
-    let by = |cell: &str| seen.iter().find(|r| r.cell == cell).unwrap_or_else(|| panic!("{cell}\n{log}"));
+    let by = |cell: &str| {
+        seen.iter()
+            .find(|r| r.cell == cell)
+            .unwrap_or_else(|| panic!("{cell}\n{log}"))
+    };
     assert!(!by("H8").fork && by("H8").resume.is_none());
     assert!(!by("U1").fork && by("U1").resume.is_none());
-    assert_eq!((by("N1").fork, by("N1").resume.as_deref()), (false, Some(base.as_str())));
+    assert_eq!(
+        (by("N1").fork, by("N1").resume.as_deref()),
+        (false, Some(base.as_str()))
+    );
     assert_eq!((by("P1").fork, by("P1").resume.as_deref()), (true, Some(base.as_str())));
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -174,7 +189,11 @@ fn the_next_work_forks_its_matter_from_the_base_however_long_after() {
     );
     let seen = seen.lock().unwrap();
     let last = seen.last().unwrap();
-    assert_eq!((last.fork, last.resume.as_deref()), (true, Some(base.as_str())), "{log}");
+    assert_eq!(
+        (last.fork, last.resume.as_deref()),
+        (true, Some(base.as_str())),
+        "{log}"
+    );
     let h8 = message_at(&e, second, "H8", false);
     assert!(given_value(&h8, "·engine·since_base").is_some(), "{h8}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -742,5 +761,67 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
         json!({ "items": 0.5, "architect": 0.25 }),
         "{numbers}"
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The engine watches each project's main: once the full CI of the commit main is at has finished red, a matter of main
+// red is queued for that commit, once, which starts a work of the architect and stops the merge queue while it is
+// open. The look at what comes next takes it first after the owner's words; the engine checks it mechanically, running
+// the red check again on the same commit, reading the known red checks and running the check on main's commit before
+// the merge, which is green: the merge made main red, so the matter goes to the architect, which says which merge and
+// what is done, and closes it.
+#[test]
+fn main_red_is_checked_by_the_engine_and_then_judged_by_the_architect() {
+    let s = setup("main-red");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    main_moves_on(
+        &s.root,
+        &[(&format!("tests/{REGRESSION}.txt"), "It fails.\n")],
+        "Add a test that fails",
+    );
+    let head = git(&s.origin, &["rev-parse", "main"]);
+    s.watch_main.store(true, Ordering::SeqCst);
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    assert_eq!(&path[..5], ["Q0", "Q2", "L1", "L2", "G1"], "{log}");
+    assert_eq!(rows_at(&e, arch, "Q0")[0], "main_red", "{log}");
+    assert_eq!(rows_at(&e, arch, "L1"), ["red"], "{log}");
+    let checked: Value =
+        e.db.conn()
+            .query_row(
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'L1' AND transition IS NOT NULL",
+                [arch],
+                |r| r.get::<_, String>(0),
+            )
+            .map(|o| serde_json::from_str(&o).unwrap())
+            .unwrap();
+    assert_eq!(checked["main"]["kind"], "broken_by_merge", "{checked}");
+    let (commit, handled): (String, bool) =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(body, '$.commit'), handled_round IS NOT NULL FROM architect_matters
+                 WHERE kind = 'main_red'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((commit.as_str(), handled), (head.as_str(), true), "{log}");
+    // Main is still red on that commit, and the matter is not queued again for it.
+    for _ in 0..3 {
+        e.step(None).unwrap();
+    }
+    let queued: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM architect_matters WHERE kind = 'main_red'", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(queued, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

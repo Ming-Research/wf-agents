@@ -16,9 +16,16 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
             if n == 1 {
                 return (Vec::new(), Vec::new());
             }
-            let reason = if n == 2 { "Not needed." } else { "Its acceptance is in #2 now." };
+            let reason = if n == 2 {
+                "Not needed."
+            } else {
+                "Its acceptance is in #2 now."
+            };
             let cancel = json!({ "kind": "cancel", "item": "1", "goes": "Done by #2.", "reason": reason });
-            (Vec::new(), vec![("outcome.effects", json!({ "item_changes": [cancel] }))])
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": [cancel] }))],
+            )
         }),
     );
     agents.insert(
@@ -71,7 +78,13 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
         sessions_of(&e, second),
         [
             ("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true),
-            ("second_eye".to_string(), "fork".to_string(), Some(base.clone()), true, true),
+            (
+                "second_eye".to_string(),
+                "fork".to_string(),
+                Some(base.clone()),
+                true,
+                true
+            ),
         ],
         "{log}"
     );

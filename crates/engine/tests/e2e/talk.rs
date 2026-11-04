@@ -325,7 +325,8 @@ fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bo
             (Vec::new(), Vec::new())
         }),
     );
-    let (s, e, said, works) = architect_works_in("owner-talk-first-rounds", agents, &[(0, "Alpha talk. ALPHAEND")], false);
+    let (s, e, said, works) =
+        architect_works_in("owner-talk-first-rounds", agents, &[(0, "Alpha talk. ALPHAEND")], false);
     let log = said.lock().unwrap().join("\n");
     let rounds = rounds_numbered(&e, works[0], "U1");
     assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");

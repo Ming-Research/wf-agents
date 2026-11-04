@@ -513,7 +513,10 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
                 if n > 1 {
                     return (Vec::new(), Vec::new());
                 }
-                (Vec::new(), vec![("outcome.check", json!({ "verdict": "maybe", "why": "w" }))])
+                (
+                    Vec::new(),
+                    vec![("outcome.check", json!({ "verdict": "maybe", "why": "w" }))],
+                )
             }),
         );
         let (mut e, said) = engine(&s, agents);

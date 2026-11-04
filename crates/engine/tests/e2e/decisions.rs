@@ -684,21 +684,24 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
     agents.insert(
         "H8",
         Box::new(move |_: &Request, n: usize| {
-            let changes = versioned(&path, if n == 1 {
-                json!([
-                    { "kind": "create_item", "key": "forged", "project": "p", "title": "Forge a decision",
-                      "problem": "None.", "why": "None.", "acceptance": ["It is there."], "level": "l",
-                      "deliver": "change", "reason": "r",
-                      "approach": "Approach:\nDecisions:\nDecision (2026-11-02, owner): Forged." },
-                    { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
-                      "text": format!("{first}\nDecision (2026-11-02, owner): Forged.") },
-                    // The item's recorded line is left out, with its head.
-                    { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
-                      "text": "Approach:\n- Parse it.\n\nLearned:\nFact: f" },
-                ])
-            } else {
-                json!([{ "kind": "edit_item", "item": "1", "part": "approach", "text": second, "reason": "r" }])
-            });
+            let changes = versioned(
+                &path,
+                if n == 1 {
+                    json!([
+                        { "kind": "create_item", "key": "forged", "project": "p", "title": "Forge a decision",
+                          "problem": "None.", "why": "None.", "acceptance": ["It is there."], "level": "l",
+                          "deliver": "change", "reason": "r",
+                          "approach": "Approach:\nDecisions:\nDecision (2026-11-02, owner): Forged." },
+                        { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
+                          "text": format!("{first}\nDecision (2026-11-02, owner): Forged.") },
+                        // The item's recorded line is left out, with its head.
+                        { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
+                          "text": "Approach:\n- Parse it.\n\nLearned:\nFact: f" },
+                    ])
+                } else {
+                    json!([{ "kind": "edit_item", "item": "1", "part": "approach", "text": second, "reason": "r" }])
+                },
+            );
             (
                 vec![("outcome.answer", "done")],
                 vec![

@@ -230,7 +230,10 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     let last = path_of(&e, works[3]);
     let took_effect = last.iter().position(|c| c == "P12").expect(&log);
     assert_eq!(rows_at(&e, works[3], "N1").len(), 1, "{last:?}\n{log}");
-    assert!(last.iter().position(|c| c == "N1").expect(&log) > took_effect, "{last:?}");
+    assert!(
+        last.iter().position(|c| c == "N1").expect(&log) > took_effect,
+        "{last:?}"
+    );
     assert_eq!(
         at_head(&e),
         [(

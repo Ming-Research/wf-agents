@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -691,6 +691,7 @@ struct FakeHub {
     merging: Gate,
     closing: Gate,
     by_hand: ByHands,
+    watch_main: Arc<AtomicBool>,
 }
 
 impl FakeHub {
@@ -908,6 +909,20 @@ impl GitHub for FakeHub {
         self.checks(repo, sha, workflow)
     }
 
+    fn branch_head(&self, _repo: &str, branch: &str) -> Result<String, Failure> {
+        if !self.watch_main.load(Ordering::SeqCst) {
+            return Err(Failure::other("main is not watched in this test"));
+        }
+        Ok(git(&self.origin, &["rev-parse", branch]))
+    }
+
+    fn finished_checks(&self, repo: &str, sha: &str, workflow: &str) -> Result<Option<Vec<CheckRun>>, Failure> {
+        if !self.watch_main.load(Ordering::SeqCst) {
+            return Err(Failure::other("main is not watched in this test"));
+        }
+        self.checks(repo, sha, workflow).map(Some)
+    }
+
     fn merge_commit(&self, _repo: &str, pr: i64) -> Result<Option<String>, Failure> {
         self.prs
             .lock()
@@ -1035,6 +1050,9 @@ struct Setup {
     closing: Gate,
     /// The workflows the fake GitHub was asked to run by hand.
     by_hand: ByHands,
+    /// Whether the fake GitHub tells the engine's watch of main where main is and how its full CI ran there: only in a
+    /// test of the watch, so that no other test's CI is asked more than it counts on.
+    watch_main: Arc<AtomicBool>,
 }
 
 fn setup(name: &str) -> Setup {
@@ -1118,6 +1136,7 @@ results = {{ artifact = "{RESULTS}" }}
         merging: Gate::default(),
         closing: Gate::default(),
         by_hand: ByHands::default(),
+        watch_main: Arc::new(AtomicBool::new(false)),
     }
 }
 
@@ -1266,6 +1285,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         merging: s.merging.clone(),
         closing: s.closing.clone(),
         by_hand: s.by_hand.clone(),
+        watch_main: s.watch_main.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -2842,14 +2862,13 @@ fn keep_requests(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'static 
 /// The sessions of a work, oldest first: each one's line, why it started, whether it forks another session (and the
 /// CLI's id of that one), whether it is a matter's, and whether it ended.
 fn sessions_of(e: &Engine, work: i64) -> Vec<(String, String, Option<String>, bool, bool)> {
-    let mut st = e
-        .db
-        .conn()
-        .prepare(
-            "SELECT s.line, s.started, b.cli_session, s.matter IS NOT NULL, s.ended IS NOT NULL
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT s.line, s.started, b.cli_session, s.matter IS NOT NULL, s.ended IS NOT NULL
              FROM sessions s LEFT JOIN sessions b ON b.id = s.fork_of WHERE s.work = ?1 ORDER BY s.id",
-        )
-        .unwrap();
+            )
+            .unwrap();
     st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
         .unwrap()
         .map(|x| x.unwrap())
@@ -2868,24 +2887,28 @@ fn base_session(e: &Engine, work: i64) -> String {
 }
 
 /// Item changes as an agent drafts them on the items as the database at `path` has them now: each change that rewrites
-/// an item's text or acceptance, naming the item by its number, given the version it is drafted on, the item's latest
-/// change in the log of changes, unless it names one.
+/// an item's text or acceptance given the version it is drafted on, unless it names one: the item's latest change in
+/// the log of changes, or 0 for an item the changes create, named by its key.
 fn versioned(path: &Path, mut changes: Value) -> Value {
     let c = db::open_read(path).unwrap();
     for ch in changes.as_array_mut().into_iter().flatten() {
         let rewrites = matches!(ch["kind"].as_str(), Some("edit_item" | "edit_acceptance"));
-        let item = ch["item"].as_str().and_then(|i| i.parse::<i64>().ok());
-        if let (true, Some(item), None) = (rewrites, item, ch.get("version")) {
-            let version: i64 = c
+        if !rewrites || ch.get("version").is_some() {
+            continue;
+        }
+        // An item the same changes create, named by its key, has no version yet.
+        let version: i64 = match ch["item"].as_str().and_then(|i| i.parse::<i64>().ok()) {
+            Some(item) => c
                 .query_row(
                     "SELECT coalesce(max(id), 0) FROM changes
                      WHERE table_name = 'items' AND row_key = json_object('id', ?1)",
                     [item],
                     |r| r.get(0),
                 )
-                .unwrap();
-            ch["version"] = json!(version);
-        }
+                .unwrap(),
+            None => 0,
+        };
+        ch["version"] = json!(version);
     }
     changes
 }
@@ -2895,6 +2918,10 @@ fn versioned(path: &Path, mut changes: Value) -> Value {
 /// character, which any base after its first matter has carried past.
 fn rebuild_every_work(s: &Setup) {
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
-    write(&s.data, "install.toml", &format!("{install}\n[architect]\ncarried_most = 1\n"));
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[architect]\ncarried_most = 1\n"),
+    );
     git(&s.data, &["commit", "-q", "-am", "a base read anew at every work"]);
 }
