@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, PICKER, actions, architect, checks, git, tools, values, watch};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -51,15 +51,6 @@ fn g_step_waits(e: &mut Engine, w: &Work, r: &Round) -> Result<bool, String> {
     Ok(cell.is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect"))))
 }
 
-/// Whether a row is one the engine takes for a line in place of a round, when the line's session would start afresh
-/// there: a shared row on an engine's case that is not of its fallback, nor the row for a table with no row to answer.
-pub fn anew(r: &CompiledRow) -> bool {
-    !r.fallback
-        && r.conditions
-            .iter()
-            .any(|a| matches!(a, flow::format::Atom::Engine(k) if k != flow::format::NOTHING_TO_ANSWER))
-}
-
 /// Why a round's session starts afresh, in words, for the round's record and the owner's page.
 pub fn new_session_why(
     why: sessions::Start,
@@ -80,6 +71,7 @@ pub fn new_session_why(
         ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
+        sessions::Start::Fork => "the matter's session, forked from the base".into(),
     }
 }
 
@@ -135,41 +127,9 @@ fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
 
 pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     close_interrupted(e, w)?;
-    // The time the round's session is chosen at, one for the check below and the message's own, so that a session
-    // whose cache expires between them is not told apart by them.
+    // The time the round's session is chosen at, which the message is built at too, so that a session whose cache
+    // expires between them is not told apart by them.
     let now = db::now();
-    // A new session of the architect's line in the middle of an architect work understands the project first: the
-    // cell's row for that, recorded with why the session would start afresh; a flow version without the row goes back
-    // unrecorded.
-    if let Some(why) = crate::architect::understand_first(e, w, g, cell, now)? {
-        let Some(row) = cell.rows.iter().find(|r| anew(r)).cloned() else {
-            return crate::architect::back_to_understanding(e, w, g, cell);
-        };
-        let commit = e.config.commit.clone();
-        // The round is pinned to a commit of main as any round of the cell is: the check of the policy its row queues
-        // compares the constitution as that commit has it.
-        let pin = inputs::pin_main(e, w, cell, None, true)?;
-        let mut input = json!({ "engine": { "new_session": why } });
-        pin.record(&mut input["engine"]);
-        let round =
-            e.db.write(Actor::Engine, |tx| {
-                work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
-            })
-            .map_err(sql)?;
-        return finish(
-            e,
-            w,
-            g,
-            cell,
-            round,
-            json!({}),
-            &row,
-            Ended::default(),
-            &[],
-            None,
-            &Map::new(),
-        );
-    }
     let item = e.subject(w)?;
     // A work on an item runs in its project; a work of the architect is on no item and in no project.
     let project = match &item {
@@ -319,14 +279,27 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             &level.model,
             e.runs_on(&level).on().cache,
         )),
+        Plan::Fork { .. } => Some(new_session_why(
+            sessions::Start::Fork,
+            cell,
+            e.config.config.install.agents.context_limit,
+            &level.model,
+            e.runs_on(&level).on().cache,
+        )),
         Plan::Going { .. } => None,
     };
-    let (sid, resume, new_session) = match plan {
+    // The matter a session of a line whose sessions are each a matter's is for: the matter in hand.
+    let matter = match cell.fork_of {
+        Some(_) => architect::picked(e.db.conn(), w.id)?,
+        None => None,
+    };
+    let (sid, resume, new_session, fork) = match plan {
         Plan::Going {
             id,
             cli_session,
             resume,
             carried,
+            fork_from,
             ..
         } => {
             let id = if carried {
@@ -337,19 +310,43 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             } else {
                 id
             };
-            (id, resume.then(|| cli_session.clone()), cli_session)
+            match fork_from {
+                // A fork whose first round never started the CLI's session forks the base under its id now.
+                Some(base) => (id, Some(base), cli_session, true),
+                None => (id, resume.then(|| cli_session.clone()), cli_session, false),
+            }
+        }
+        Plan::Fork { base, base_cli, .. } => {
+            let fresh = agent::new_session_id();
+            let id =
+                e.db.write(Actor::Engine, |tx| {
+                    sessions::choose::open_for(
+                        tx,
+                        w.id,
+                        &line,
+                        &cli_name,
+                        &fresh,
+                        sessions::Start::Fork,
+                        matter,
+                        Some(base),
+                    )
+                    .map_err(db::Error::Abort)
+                })
+                .map_err(sql)?;
+            (id, Some(base_cli), fresh, true)
         }
         Plan::New(why) => {
             let fresh = agent::new_session_id();
             let id =
                 e.db.write(Actor::Engine, |tx| {
-                    sessions::choose::open(tx, w.id, &line, &cli_name, &fresh, why).map_err(db::Error::Abort)
+                    sessions::choose::open_for(tx, w.id, &line, &cli_name, &fresh, why, matter, None)
+                        .map_err(db::Error::Abort)
                 })
                 .map_err(sql)?;
             if why == sessions::Start::Owner {
                 e.sessions().met(w.id, w.project.as_deref());
             }
-            (id, None, fresh)
+            (id, None, fresh, false)
         }
     };
     // What the cell is given, whole, which a compaction within the round gives the session again at once.
@@ -398,6 +395,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     let req = Request {
         resume,
+        fork,
         system,
         new_session: new_session.clone(),
         prompt: msg.text.clone(),
@@ -870,6 +868,7 @@ pub fn cell_request(
         worktree,
         config_dir: e.cli_home(&level.cli),
         resume: None,
+        fork: false,
         system: None,
         new_session: String::new(),
         prompt: String::new(),
@@ -888,10 +887,9 @@ pub fn cell_request(
 }
 
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
-/// advisor, which is the engineer with a higher model; for the architect, the review of its item changes and the new
-/// architects that read a policy, the level the installation names for the architect; for the search of
-/// observations, the level it names for the observer; for the pick of the architect's next matter, the level it names
-/// for the picker.
+/// advisor, which is the engineer with a higher model; for the architect's base, each matter's session and the second
+/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks; for
+/// the search of observations, the level it names for the observer.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -901,7 +899,6 @@ pub fn level_of(
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
         None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
-        None if cell.line.as_deref() == Some(PICKER) => e.config.config.picker_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e
@@ -958,21 +955,25 @@ fn compose(
     now: i64,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
-    let (_, level, _) = level_of(e, g, cell, item)?;
+    let (_, level, cli) = level_of(e, g, cell, item)?;
     let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
+    let fork = crate::base::fork_of(e, w, cell, cli.kind.forks())?;
     let mut plan = e
         .sessions()
-        .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now)?;
+        .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now, fork.as_ref())?;
     // The rounds the agent ran or was told of: a step of the engine's before one that failed in passing is neither.
     let work_rounds: Vec<Round> = work::rounds(e.db.conn(), w.id)?
         .into_iter()
         .filter(|r| !failed::was_step(r))
         .collect();
     let number = work::next_round(e.db.conn(), w.id)?;
+    // A fork holds what its base held: the base's rounds are its session's from its start.
     let (line_rounds, held) = match &mut plan {
-        Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
+        Plan::Going { rounds, held, .. } | Plan::Fork { rounds, held, .. } => {
+            (std::mem::take(rounds), *std::mem::take(held))
+        }
         Plan::New(_) => (Vec::new(), Held::default()),
     };
     // A session that has run no round yet starts with the system prompt every session of its line is given alike; one
@@ -1297,7 +1298,7 @@ pub fn engine(
     // item back, as the engine works it out for every item that waits.
     if step.as_deref() == Some("wait_to_start") {
         let item = needed(&item, w)?;
-        let changing = architect::held_by_batches(e.db.conn())?;
+        let changing = architect::held_by_checks(e.db.conn())?;
         let free = e.free_slots()?;
         let reason = e.waits_to_start(item.id, &item.project, &changing, free)?;
         let mut given = Map::new();
@@ -1384,15 +1385,6 @@ pub fn engine(
             .map_err(sql)?;
         return finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given);
     }
-    // The look at the queue that would wait again for the owner by the row it waited by last, for the reply to a
-    // question or for the owner's next words, records no new round.
-    if step.as_deref() == Some("look_at_queue")
-        && let Some(name) = architect::would_wait(e, w, cell)?
-        && let Some(row) = cell.rows.iter().find(|r| r.waits && r.name == name)
-        && waits_again(e, w, cell, row)?
-    {
-        return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
-    }
     // A step that acts outside the database starts its round first, so what it does is recorded under it.
     let round =
         e.db.write(Actor::Engine, |tx| {
@@ -1430,6 +1422,7 @@ pub fn engine(
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
+        Some("check_main") => crate::main_watch::check(e, w, round)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };

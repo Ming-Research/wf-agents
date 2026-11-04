@@ -66,8 +66,8 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     assert!(replied, "{log}");
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "H2").expect(&log);
-    // The crux found, the question goes back to the queue and on to the ways, which reply.
-    assert_eq!(&path[at - 1..at + 5], ["Q2", "H2", "Q0", "Q2", "H3", "B1"], "{log}");
+    // The crux found, the question goes on to the ways in the same session, which reply.
+    assert_eq!(&path[at - 1..at + 3], ["Q2", "H2", "H3", "G1"], "{log}");
     // The ways were given the crux by its address in the session, not again.
     let ways = message_at(&e, arch, "H3", false);
     assert!(ways.contains("·H2·crux"), "{ways}");
@@ -616,13 +616,9 @@ fn a_capability_gap_with_no_way_around_has_its_work_wait_for_the_item_that_fixes
             ],
         )
     });
-    let review: Script = Box::new(|_: &Request, _: usize| {
-        let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
-        (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
-    });
     let way_on: Script = Box::new(|_: &Request, _: usize| (vec![("outcome.next", "wait_for_items")], Vec::new()));
     let ask = asks_about_a_gap("The `jq` command is not on the machine.");
-    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways), ("B2", review), ("A4", way_on)]);
+    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways), ("A4", way_on)]);
     assert_eq!(item, 1);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");

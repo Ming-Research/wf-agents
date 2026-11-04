@@ -1148,7 +1148,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
     // queue untaken.
     let mut st = conn.prepare(&format!(
         "WITH taken AS (
-           SELECT CAST(coalesce(json_extract(r.output, '$.queue.matter'),
+           SELECT CAST(coalesce(json_extract(r.output, '$.next.matter'), json_extract(r.output, '$.queue.matter'),
                                 json_extract(r.output, '$.outcome.pick.matter')) AS INTEGER) AS matter,
                   min(coalesce(r.ended_at, r.started_at)) AS at
            FROM rounds r JOIN works w ON w.id = r.work

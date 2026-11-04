@@ -175,7 +175,6 @@ fn an_engineer_s_cell_is_given_the_decisions_main_has_and_on_asking_one_s_histor
 #[test]
 fn an_architect_s_cell_is_given_the_decisions_main_has() {
     let s = setup("decisions-architect");
-    no_reply_wait(&s);
     decided(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);

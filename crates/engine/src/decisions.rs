@@ -333,22 +333,8 @@ impl Said {
 /// the line that goes into the item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
-    pub source: Source,
-    pub date: String,
     pub said: Vec<Said>,
     pub line: String,
-}
-
-impl Resolved {
-    /// What the batch keeps of it, so that the review reads what is written.
-    pub fn to_json(&self) -> Value {
-        json!({
-            "source": self.source.as_str(),
-            "date": self.date,
-            "line": self.line,
-            "words": self.said.iter().map(|s| json!({ "from": s.from, "id": s.id, "words": s.words, "source": s.source.as_str() })).collect::<Vec<_>>(),
-        })
-    }
 }
 
 fn text<'a>(d: &'a Value, k: &str) -> &'a str {
@@ -521,12 +507,7 @@ pub fn resolve(
         field(text(d, "reason")),
         field(text(d, "replaces")),
     );
-    Ok(Resolved {
-        source,
-        date,
-        said,
-        line,
-    })
+    Ok(Resolved { said, line })
 }
 
 /// Whether a line of a text is a line of a decision: it starts with [`LINE`], leading blanks and one list mark `- `
@@ -799,6 +780,22 @@ mod tests {
         })
     }
 
+    /// Who a decision's line says decided, from its head: `Decision (<date>, <who>):`.
+    fn head_source(r: &Resolved) -> &'static str {
+        let rest = r.line.split_once(", ").map_or("", |x| x.1);
+        [
+            Source::Owner,
+            Source::Relayed,
+            Source::Delegate,
+            Source::Unrecorded,
+            Source::Architect,
+        ]
+        .into_iter()
+        .map(Source::as_str)
+        .find(|s| rest.starts_with(&format!("{s}):")))
+        .unwrap_or_default()
+    }
+
     // Who decided is what the record says: the owner's words as declared at the page, a delegate's as the delegate's,
     // words kept before the speaker was declared as unrecorded, an answer to an open question as the architect's, and
     // an ask's answer as it was declared. A decision on several records is told by the least certain of them.
@@ -806,10 +803,7 @@ mod tests {
     fn who_decided_is_what_the_record_says_and_the_least_certain_of_several_holds() {
         let db = records();
         let who = |words: &[(&str, i64, &str)]| {
-            resolve(db.conn(), "p", &decision(words), "architect", None)
-                .unwrap()
-                .source
-                .as_str()
+            head_source(&resolve(db.conn(), "p", &decision(words), "architect", None).unwrap())
         };
         assert_eq!(who(&[("matter", 1, "No browser check")]), "owner");
         assert_eq!(who(&[("matter", 2, "Yes, do that.")]), "delegate");
@@ -837,7 +831,7 @@ mod tests {
     fn answers_to_the_engineer_and_words_said_to_it_alone_tell_who_spoke_as_declared() {
         let db = records();
         let who = |from: &str, id: i64, quote: &str| {
-            resolve(db.conn(), "p", &decision(&[(from, id, quote)]), "architect", None).map(|r| r.source.as_str())
+            resolve(db.conn(), "p", &decision(&[(from, id, quote)]), "architect", None).map(|r| head_source(&r))
         };
         assert_eq!(who("matter", 7, "in two"), Ok("delegate"));
         assert_eq!(who("interjection", 1, "to the engineer"), Ok("delegate"));
@@ -998,7 +992,6 @@ mod tests {
         d["reason_by"] = json!("writer");
         d["what"] = json!("No browser check\nfor this item.");
         let r = resolve(db.conn(), "p", &d, "architect", None).unwrap();
-        assert_eq!(r.date, "2026-11-03");
         assert_eq!(
             r.line,
             "Decision (2026-11-03, unrecorded): No browser check for this item. Situation: The item adds a diagram fit. \

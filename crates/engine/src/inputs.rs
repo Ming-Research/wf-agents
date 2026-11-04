@@ -470,12 +470,7 @@ pub fn gather(
         let mut parts: Vec<Part> = Vec::new();
         let after = if x.unanswered { last_answer } else { None };
         for s in &x.from {
-            match s {
-                // What the cell before this one answered of the matter, and for a group of matters, of the others too:
-                // one place of its return for each.
-                Src::Engine(n) if n == crate::architect::BEFORE => parts.extend(crate::architect::before(e, w, g)?),
-                _ => parts.extend(source(e, w, g, cell, item, s, x.newest, after, main)?),
-            }
+            parts.extend(source(e, w, g, cell, item, s, x.newest, after, main)?);
         }
         let value = match parts.as_slice() {
             [] => None,

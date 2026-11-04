@@ -357,6 +357,7 @@ impl Engine {
             return Ok(());
         }
         architect::queue_due(self)?;
+        crate::main_watch::look(self)?;
         for project in projects {
             if architect::running(self, &project)?.is_some() {
                 continue;

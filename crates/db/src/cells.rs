@@ -13,11 +13,15 @@
 //! tree at D1 to D11 reads as the cell with that code now, and one at D12 to D15 as the cell that code became. The
 //! tree's review (T5) is gone too, and keeps its row, so that a round there still reads as itself. The architect's
 //! batch stage has a fifth cell, B5, which records the owner's decisions between B1 and B2; it was numbered after B4 so
-//! that no cell of a flow version before changes its code.
+//! that no cell of a flow version before changes its code. When the architect came to work from a base and a session
+//! forked from it for each matter, its start's understanding (S1), its pick (Q1), its batch (B1 to B5), the plan after a
+//! batch (H10) and the talk of the groups (H12) left the flow; they keep their rows, H12 one of its own now, so that a
+//! round there still reads as itself, and the cells of main's red CI (L1, L2) and of the second eye (G1, G2) took codes
+//! no version gave another cell.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
-const BEFORE: [(&str, &str, &[&str]); 79] = [
+const BEFORE: [(&str, &str, &[&str]); 84] = [
     ("engineer", "S0", &["U0"]),
     ("engineer", "S1", &["0", "start", "S0"]),
     ("engineer", "G1", &[]),
@@ -109,6 +113,11 @@ const BEFORE: [(&str, &str, &[&str]); 79] = [
     ("architect", "X1", &["TOOLS", "tools"]),
     ("architect", "X2", &["S1", "search"]),
     ("architect", "X5", &[]),
+    ("architect", "L1", &[]),
+    ("architect", "L2", &[]),
+    ("architect", "G1", &[]),
+    ("architect", "G2", &[]),
+    ("architect", "H12", &[]),
 ];
 
 /// Whether `id` is the code of a cell of `graph` now.
@@ -221,5 +230,7 @@ mod tests {
         assert_eq!(code_of("engineer", "T5"), Some("T5"));
         assert_eq!(code_of("engineer", "G1"), Some("G1"));
         assert_eq!(code_of("architect", "X5"), Some("X5"));
+        assert_eq!(code_of("architect", "G2"), Some("G2"));
+        assert_eq!(cells_sql("architect", &["L1", "G1"]), "('L1', 'G1')");
     }
 }

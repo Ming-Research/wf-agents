@@ -659,17 +659,17 @@ mod tests {
     }
 
     // Item #230, W245: an architect's work at an engine's cell that has not run moves when the version gives that cell
-    // a row of its own (B1's decisions, to B5).
+    // a row of its own, as the gate of the second eye (`G1`) one more.
     #[test]
     fn a_work_at_an_engine_s_cell_not_run_moves_though_its_rows_changed() {
         let old = architect();
         let mut new = old.clone();
-        let b1 = cell(&mut new, "B1");
-        let mut more = b1.rows[0].clone();
+        let g1 = cell(&mut new, "G1");
+        let mut more = g1.rows[0].clone();
         more.name = "more".into();
-        b1.rows.insert(0, more);
+        g1.rows.insert(0, more);
         let rounds = [ran(1, "H5", "done", json!({}))];
-        assert_eq!(plan(&old, &new, &at("B1"), &rounds), Plan::Move);
+        assert_eq!(plan(&old, &new, &at("G1"), &rounds), Plan::Move);
     }
 
     /// The version with the tools form of cell `I1` asking for a field `reason` that the samples' returns lack.
@@ -836,15 +836,15 @@ mod tests {
     fn a_return_that_differs_only_beside_its_outcome_still_fits() {
         let now = architect();
         let mut old = now.clone();
-        let schema = cell(&mut old, "Q1").schema.as_mut().unwrap();
+        let schema = cell(&mut old, "G2").schema.as_mut().unwrap();
         schema["properties"]["tell_owner"] = json!({ "type": "array" });
         schema["properties"]["side_reports"] = json!({ "type": "array" });
-        let told = json!({ "outcome": { "pick": { "matter": 4, "why": "w" } }, "progress": "p",
+        let told = json!({ "outcome": { "check": { "verdict": "sound", "why": "w" } }, "progress": "p",
                            "flow_feedback": "none", "tell_owner": [], "side_reports": [{ "kind": "other", "what": "w" }] });
-        let taken = old.cell("Q1").unwrap().schema.as_ref().unwrap();
+        let taken = old.cell("G2").unwrap().schema.as_ref().unwrap();
         assert!(flow::valid(taken, &told), "{:?}", flow::misfits(taken, &told, ""));
-        assert!(!flow::valid(now.cell("Q1").unwrap().schema.as_ref().unwrap(), &told));
-        assert_eq!(plan(&old, &now, &at("Q2"), &[ran(1, "Q1", "picked", told)]), Plan::Move);
+        assert!(!flow::valid(now.cell("G2").unwrap().schema.as_ref().unwrap(), &told));
+        assert_eq!(plan(&old, &now, &at("Q0"), &[ran(1, "G2", "sound", told)]), Plan::Move);
     }
 
     // What the engine records of a row it took itself, which its cell's schema does not take, is no return: the work
@@ -988,19 +988,19 @@ mod tests {
     }
 
     // An architect's work never goes back past a round that did something at once: an interjection, a reply that went
-    // out; a reply that waits for the batch's item changes, which is done again, holds it back from nothing.
+    // out; a cancel that waits for the second eye, which is done again with its reply, holds it back from nothing.
     #[test]
     fn an_architect_work_never_goes_back_past_what_it_did_at_once() {
         let old = architect();
         let mut new = old.clone();
-        // The version asks the pick for a field the round's return lacks.
-        needs_after(&mut new, "Q1", "pick");
-        let pick =
-            json!({ "outcome": { "pick": { "matter": 4, "why": "w" } }, "progress": "p", "flow_feedback": "none" });
-        assert!(flow::valid(old.cell("Q1").unwrap().schema.as_ref().unwrap(), &pick));
-        assert!(!flow::valid(new.cell("Q1").unwrap().schema.as_ref().unwrap(), &pick));
+        // The version asks the crux of the question for a field the round's return lacks.
+        needs_after(&mut new, "H2", "crux");
+        let crux = json!({ "outcome": { "crux": { "root": "itself", "question": "q" } }, "progress": "p",
+                           "flow_feedback": "none", "tell_owner": [] });
+        assert!(flow::valid(old.cell("H2").unwrap().schema.as_ref().unwrap(), &crux));
+        assert!(!flow::valid(new.cell("H2").unwrap().schema.as_ref().unwrap(), &crux));
         let interjected = json!({ "actions": [{ "kind": "interject", "work": 7, "text": "Stop." }] });
-        let held = json!({ "item_changes": [{ "kind": "edit_item", "item": "1", "part": "title", "text": "T" }] });
+        let held = json!({ "item_changes": [{ "kind": "cancel", "item": "1", "reason": "Done elsewhere." }] });
         let cases = [
             (
                 answered(2, interjected),
@@ -1010,7 +1010,7 @@ mod tests {
             (answered(2, held), None),
         ];
         for (h3, done) in cases {
-            let rounds = [ran(1, "Q1", "picked", pick.clone()), h3];
+            let rounds = [ran(1, "H2", "found", crux.clone()), h3];
             let got = plan(&old, &new, &at("Q0"), &rounds);
             match (done, got) {
                 (Some(what), Plan::Stuck { why, back_to }) => {
@@ -1018,9 +1018,9 @@ mod tests {
                         why.ends_with(&format!("would do round R1-2 again, which {what}")),
                         "{why}"
                     );
-                    assert_eq!(back_to.as_deref(), Some("Q1"));
+                    assert_eq!(back_to.as_deref(), Some("H2"));
                 }
-                (None, Plan::GoBack { to, .. }) => assert_eq!(to, "Q1"),
+                (None, Plan::GoBack { to, .. }) => assert_eq!(to, "H2"),
                 (done, got) => panic!("{done:?}: {got:?}"),
             }
         }

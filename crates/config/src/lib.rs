@@ -58,6 +58,43 @@ pub struct Install {
     pub reasoning: Reasoning,
     #[serde(default)]
     pub backup: Backup,
+    #[serde(default)]
+    pub architect: Architect,
+}
+
+/// How a project's architect keeps its base, the session that read the project last, from which each matter's session
+/// forks. The two amounts are first guesses, to be set by what the architects' works measure: how many matters waited
+/// for a planning when it was due, and how long the decision log and what changed since the base grew before a rebuild
+/// paid for itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Architect {
+    /// How many matters that wait for the planning (side reports, what to do next after a report, engineers' answers to
+    /// what the architect said, faults the owner's setting forwarded, other architects' messages no work waits on) call
+    /// for one: 10 when not set, to be measured.
+    #[serde(default = "gathered_most")]
+    pub gathered_most: u64,
+    /// How long, in characters, the decision log and what changed since the base may grow before carrying them into
+    /// every matter's session costs more than reading the project again: 40,000 when not set, to be measured.
+    #[serde(default = "carried_most")]
+    pub carried_most: u64,
+}
+
+impl Default for Architect {
+    fn default() -> Architect {
+        Architect {
+            gathered_most: gathered_most(),
+            carried_most: carried_most(),
+        }
+    }
+}
+
+fn gathered_most() -> u64 {
+    10
+}
+
+fn carried_most() -> u64 {
+    40_000
 }
 
 /// The installation's one copy of the reasoning system, which every project that keeps records is kept by.
@@ -188,8 +225,8 @@ pub struct Agents {
     /// How many subagents a round may start for chores.
     #[serde(default)]
     pub subagents: Subagents,
-    /// The level the architect runs at, by its name among the levels, and the review of its item changes; the top level
-    /// when none is named.
+    /// The level the architect runs at, by its name among the levels: its base, each matter's session and the second eye
+    /// alike; the top level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architect: Option<String>,
     /// The level the search of a project's observations runs at, by its name among the levels; the lowest level when
@@ -200,25 +237,27 @@ pub struct Agents {
     /// lowest level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub librarian: Option<String>,
-    /// The level the pick of the architect's next matter runs at (the line `picker`), by its name among the levels; the
-    /// lowest level when none is named.
+    /// Retired: the level the pick of the architect's next matter ran at, before the engine took the architect's
+    /// matters in a fixed order (2026-11-04). It is still read, so that an installation that names it loads, and nothing
+    /// uses it; it goes once no installation names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picker: Option<String>,
     /// The context, in tokens, past which a line's session is replaced by a new one at the line's next round: the
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
-    /// How long, in seconds, the architect's understanding of a project (cell `U1`) holds: a new session of the
-    /// architect's within it goes on from the notebook the understanding wrote, and one past it understands the project
-    /// again.
+    /// Retired: how long, in seconds, the architect's understanding of a project held, before each matter was handled
+    /// in a session forked from the base (2026-11-04). It is still read, so that an installation that sets it loads,
+    /// and nothing uses it; it goes once no installation sets it.
     #[serde(default = "understanding_life")]
     pub understanding_life: u64,
     /// The least time, in seconds, between two matters of slots free for one project's architect (cell `S0`'s
     /// `queue_slots_free`): one that found nothing to start does not come back at once.
     #[serde(default = "slots_free_wait")]
     pub slots_free_wait: u64,
-    /// The longest time, in seconds, a project's architect waits for the owner's reply in a talk with the owner (cell
-    /// `H11`) before it goes on with its queue, holding the talk until the owner says more or ends it.
+    /// Retired: the longest time, in seconds, a project's architect waited for the owner's reply, before a question to
+    /// the owner parked its matter and the architect went on at once (2026-11-04). It is still read, so that an
+    /// installation that sets it loads, and nothing uses it; it goes once no installation sets it.
     #[serde(default = "owner_reply_wait")]
     pub owner_reply_wait: u64,
 }
@@ -357,17 +396,17 @@ fn locks_except() -> Vec<String> {
 }
 
 /// The review and the advisor, which look at a work's worktree, the reader of a work's history, and every line of a
-/// project's architect, which reads the project in a worktree of its own at main: its work's, the setting of a new
-/// policy included, the review of its item changes and the search of observations.
+/// project's architect, which reads the project in a worktree of its own at main: its base, each matter's session
+/// forked from it, the second eye and the search of observations.
 fn read_only() -> Vec<String> {
     [
         "review",
         "advisor",
         "librarian",
         "architect",
-        "architect_review",
+        "matter",
+        "second_eye",
         "observer",
-        "picker",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -619,6 +658,15 @@ pub enum CliKind {
 const CLAUDE_FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
 
 impl CliKind {
+    /// Whether the CLI can fork a session: copy it under a new id, which holds all it held, leaving it as it was.
+    /// `claude` does, with `--resume` and `--fork-session`. A line that forks starts a new session instead on a CLI
+    /// that cannot, given whole what its cells read.
+    pub fn forks(self) -> bool {
+        match self {
+            CliKind::Claude => true,
+        }
+    }
+
     /// How long, in milliseconds, the CLI's prompt cache keeps a session's prompt after the session's last call: a call
     /// later than that writes the whole prompt again, at many times the price of reading it. `claude` keeps it an hour.
     /// None for a CLI with no prompt cache, whose sessions lose nothing by waiting.
@@ -1386,11 +1434,6 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.librarian names no level: {l}"));
         }
-        if let Some(p) = &self.install.agents.picker
-            && !self.install.agents.levels.contains_key(p)
-        {
-            problems.push(format!("install.toml: agents.picker names no level: {p}"));
-        }
         if let Some(h) = &self.install.items.highest_level
             && !self.install.agents.levels.contains_key(h)
         {
@@ -1595,8 +1638,8 @@ impl Config {
             .unwrap_or_default()
     }
 
-    /// The level the architect runs at, with the review of its item changes and the new architects that read a
-    /// policy: the one the installation names, or else the top level.
+    /// The level the architect runs at, its base, each matter's session and the second eye alike: the one the
+    /// installation names, or else the top level.
     pub fn architect_level(&self) -> String {
         match &self.install.agents.architect {
             Some(a) => a.clone(),
@@ -1608,18 +1651,6 @@ impl Config {
     pub fn observer_level(&self) -> String {
         match &self.install.agents.observer {
             Some(o) => o.clone(),
-            None => self
-                .levels_in_order()
-                .first()
-                .map(|n| n.to_string())
-                .unwrap_or_default(),
-        }
-    }
-
-    /// The level the pick of the architect's next matter runs at: the one the installation names, or else the lowest.
-    pub fn picker_level(&self) -> String {
-        match &self.install.agents.picker {
-            Some(p) => p.clone(),
             None => self
                 .levels_in_order()
                 .first()
@@ -2232,9 +2263,9 @@ asks = 9
         let p = Permissions::default();
         for line in [
             "architect",
-            "architect_review",
+            "matter",
+            "second_eye",
             "observer",
-            "picker",
             "review",
             "advisor",
             "librarian",

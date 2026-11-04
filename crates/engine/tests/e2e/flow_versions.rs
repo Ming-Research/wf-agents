@@ -467,23 +467,23 @@ fn an_advisor_whose_tools_run_when_its_line_changes_is_done_again() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Item #230, W245: an architect's work brought to a new flow version in the middle of its batch makes the item changes
-// it collected before, whether it moves where it stands or goes back through cell `V1` to the review of the batch it had
-// begun, which the version puts on another line; its ask of the owner stays the owner's to answer, and is answered.
+// Item #230, W245: an architect's work brought to a new flow version while its changes wait for the second eye makes
+// them once the second eye finds them sound, whether it moves where it stands or goes back through cell `V1` to the
+// second eye it had begun, which the version puts on another line; its ask of the owner stays the owner's to answer,
+// and is answered.
 #[test]
-fn an_architect_work_brought_up_mid_batch_makes_its_changes_and_keeps_its_ask() {
+fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_its_ask() {
     for back in [false, true] {
-        let s = setup(if back { "batch-back" } else { "batch-moves" });
+        let s = setup(if back { "second-eye-back" } else { "second-eye-moves" });
         let mut agents = scripts();
-        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse the input first",
-                             "reason": "Clearer." });
+        let change = json!({ "kind": "cancel", "item": "1", "goes": "Not needed.", "reason": "Done elsewhere." });
         agents.insert(
             "H8",
             Box::new(move |_: &Request, _: usize| {
                 (
                     vec![("outcome.answer", "done")],
                     vec![
-                        ("outcome.answer.reply", json!("I retitle it as an action.")),
+                        ("outcome.answer.reply", json!("I cancel it.")),
                         (
                             "outcome.effects",
                             json!({ "item_changes": [change.clone()], "observation_changes": null }),
@@ -492,37 +492,42 @@ fn an_architect_work_brought_up_mid_batch_makes_its_changes_and_keeps_its_ask() 
                 )
             }),
         );
-        // The review's first return has a verdict it does not have, and is sent back.
+        // The second eye's first round asks for tools, and it stands at the second eye once they ran.
         agents.insert(
-            "B2",
+            "G2",
             Box::new(|_: &Request, n: usize| {
-                let verdict = if n == 1 { "maybe" } else { "ok" };
-                let row = json!({ "change": 1, "verdict": verdict, "why": "It reads better." });
-                (Vec::new(), vec![("outcome.review", json!([row]))])
+                if n > 1 {
+                    return (Vec::new(), Vec::new());
+                }
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
             }),
         );
         let (mut e, said) = engine(&s, agents);
         quiet(&mut e);
         an_item(&mut e);
-        say(&mut e, "Make the parser's item clearer.");
+        say(&mut e, "Drop the parser's item.");
         let arch = e.step(None).unwrap().work.unwrap();
-        // It stands at the review of the batch: before it ran, or, to go back, once its first return was sent back.
+        // It stands at the second eye once the tools its first round asked for ran.
         let at_review = |e: &mut Engine| {
-            let sent: i64 =
+            let ran: i64 =
                 e.db.conn()
                     .query_row(
-                        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'B2' AND rejected IS NOT NULL",
+                        "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'X1' AND transition IS NOT NULL",
                         [arch],
                         |r| r.get(0),
                     )
                     .unwrap();
-            e.work(arch).unwrap().pos.at == "B2" && (sent > 0) == back
+            e.work(arch).unwrap().pos.at == "G2" && ran > 0
         };
-        assert!(
-            steps_until(&mut e, 40, at_review),
-            "{}",
-            said.lock().unwrap().join("\n")
-        );
+        // One cell at a time, since a step of the work runs the tools and the round after them as one.
+        for _ in 0..40 {
+            if at_review(&mut e) {
+                break;
+            }
+            e.advance(arch).unwrap();
+        }
+        assert!(at_review(&mut e), "{}", said.lock().unwrap().join("\n"));
         let ask =
             e.db.write(Actor::Engine, |tx| {
                 let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [arch], |r| r.get(0))?;
@@ -534,11 +539,11 @@ fn an_architect_work_brought_up_mid_batch_makes_its_changes_and_keeps_its_ask() 
             })
             .unwrap();
         let v = older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
-            let b2 = g.cells.iter_mut().find(|c| c.id == "B2").unwrap();
+            let g2 = g.cells.iter_mut().find(|c| c.id == "G2").unwrap();
             if back {
-                b2.line = Some("observer".into());
+                g2.line = Some("observer".into());
             } else {
-                b2.rows[0].name = format!("{} before", b2.rows[0].name);
+                g2.rows[0].name = format!("{} before", g2.rows[0].name);
             }
         });
         assert!(
@@ -552,16 +557,16 @@ fn an_architect_work_brought_up_mid_batch_makes_its_changes_and_keeps_its_ask() 
         match back {
             true => assert_eq!(
                 (v1.len(), v1[0].0.as_str(), &v1[0].1["back_to"]),
-                (1, "went_back", &json!("B2")),
+                (1, "went_back", &json!("G2")),
                 "{log}"
             ),
             false => assert!(v1.is_empty(), "{v1:?}\n{log}"),
         }
-        let title: String =
+        let cancelled: Option<String> =
             e.db.conn()
-                .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+                .query_row("SELECT cancelled FROM items WHERE id = 1", [], |r| r.get(0))
                 .unwrap();
-        assert_eq!(title, "Parse the input first", "{log}");
+        assert!(cancelled.is_some(), "{log}");
         let answer: Option<String> =
             e.db.conn()
                 .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
@@ -769,7 +774,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_stays_at_v1_and_asks_no_one
     let arch = e.step(None).unwrap().work.unwrap();
     // On the version before, it stood at a cell the version the engine runs lacks, having walked only such a cell.
     older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
-        for (id, like) in [("Z0", "Q0"), ("Z1", "Q1")] {
+        for (id, like) in [("Z0", "Q0"), ("Z1", "Q2")] {
             let mut c = g.cell(like).unwrap().clone();
             c.id = id.into();
             g.cells.push(c);
@@ -906,6 +911,7 @@ fn trying(s: &Setup, compiled: flow::Compiled) -> Engine {
         merging: s.merging.clone(),
         closing: s.closing.clone(),
         by_hand: s.by_hand.clone(),
+        watch_main: s.watch_main.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let (e, at) = Engine::trying(&s.data, committed, compiled, Box::new(agents), Box::new(hub)).unwrap();

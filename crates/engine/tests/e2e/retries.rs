@@ -299,7 +299,6 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
 /// The architect's work at `U1`, with its project's remote at `url` from now on, and no wait for a step that failed to
 /// be taken again.
 fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
-    no_reply_wait(s);
     let (mut e, said) = engine(s, scripts());
     quiet(&mut e);
     e.backoff_unit = Duration::ZERO;
@@ -521,7 +520,6 @@ fn a_passing_failure_pauses_the_work_past_its_bound() {
 #[test]
 fn failures_with_a_return_between_are_not_in_a_row() {
     let s = setup("far-apart");
-    no_reply_wait(&s);
     let mut scripts = scripts();
     scripts.insert(
         "U1",
@@ -641,7 +639,7 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
         ("U1", None, step_failed()),
         ("U1", None, step_failed()),
         ("U1", None, step_failed()),
-        ("Q0", Some("waits"), None),
+        ("Q0", Some("plan"), None),
         ("U1", None, transient),
         ("U1", None, cut_off),
         ("U1", None, step_failed()),
@@ -667,7 +665,6 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
 #[test]
 fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
     let s = setup("refused-at-once");
-    no_reply_wait(&s);
     let mut scripts = scripts();
     scripts.insert(
         "U1",
@@ -829,7 +826,6 @@ fn returns_sent_back_either_side_of_a_return_taken_are_not_in_a_row() {
 fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
     let s = setup("limit-mixed");
     limit_on(&s, &[("retries", 1)]);
-    no_reply_wait(&s);
     let mut scripts = scripts();
     scripts.insert(
         "U1",

@@ -57,13 +57,19 @@ fn session_ping(db: &mut db::Db, ended: i64) {
     .unwrap();
 }
 
-/// The architect's cell N1 of the flow as it is, whose line expires with the cache.
+/// The architect's cell N1 of the flow as it is, as on a line that expires with the cache: the base does not, since a
+/// cold cache is written once, cheaper than reading the project again, and the expiry is the chooser's for any line
+/// that says so.
 fn architect_cell() -> CompiledCell {
     let relations = db::relations(db::SCHEMA).unwrap();
     let tables = db::index_of(db::SCHEMA).unwrap();
     let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
-    let cell = f.graph("architect").unwrap().cell("N1").unwrap().clone();
-    assert!(cell.cache_expiry);
+    let mut cell = f.graph("architect").unwrap().cell("N1").unwrap().clone();
+    assert!(
+        !cell.cache_expiry,
+        "the architect's base does not expire with the cache"
+    );
+    cell.cache_expiry = true;
     cell
 }
 
@@ -100,7 +106,7 @@ fn a_return_sent_back_is_rewritten_in_its_session_though_its_cache_let_go() {
         })
         .unwrap();
     };
-    let at = |db: &db::Db| plan(db.conn(), 1, &cell, 500_000, on(), later).unwrap();
+    let at = |db: &db::Db| plan(db.conn(), 1, &cell, 500_000, on(), later, None).unwrap();
     assert!(expired(&at(&db)));
     rejected(&mut db, r#"{"unparsed": "the return is not an object"}"#);
     assert!(goes_on(&at(&db)));
@@ -125,7 +131,7 @@ fn a_ping_made_in_the_previous_work_keeps_the_session_the_next_work_takes_up() {
     })
     .unwrap();
     let cell = architect_cell();
-    let next = |now: i64| plan(db.conn(), 2, &cell, 500_000, on(), now).unwrap();
+    let next = |now: i64| plan(db.conn(), 2, &cell, 500_000, on(), now, None).unwrap();
     // One millisecond short of an hour after the ping, 109 minutes after the round: the session is taken up.
     assert!(matches!(
         next(1_000_000 + 110 * 60_000 - 1),
@@ -152,7 +158,7 @@ fn a_ping_that_read_the_cache_moves_the_next_ping_and_the_expiry_on_from_itself(
     assert_eq!(due_at(pinged + 55 * 60_000), Some(1));
     assert_eq!(due_at(pinged + HOUR - 1), Some(1));
     assert_eq!(due_at(pinged + HOUR), None);
-    let at = |now: i64| plan(db.conn(), 1, &cell, 500_000, on(), now).unwrap();
+    let at = |now: i64| plan(db.conn(), 1, &cell, 500_000, on(), now, None).unwrap();
     assert!(goes_on(&at(pinged + HOUR - 1)));
     assert!(expired(&at(pinged + HOUR)));
 }

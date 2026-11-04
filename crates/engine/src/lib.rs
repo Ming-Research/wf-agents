@@ -31,6 +31,7 @@ mod actions;
 mod approval;
 mod arch_changes;
 mod architect;
+mod base;
 mod cards;
 mod catch_up;
 mod checks;
@@ -39,6 +40,7 @@ mod failed;
 mod faults;
 mod inputs;
 mod loops;
+mod main_watch;
 pub mod message;
 mod open_questions;
 mod reasoning;
@@ -99,9 +101,6 @@ pub const POLICY: &str = "policy";
 
 /// The line of the search of observations, which runs at the observer's level.
 pub const OBSERVER: &str = "observer";
-
-/// The line of the pick of the architect's next matter, which runs at the picker's level.
-pub const PICKER: &str = "picker";
 
 /// The engine's version: the commit it was built from, which every agent's round records.
 pub const VERSION: &str = env!("WF_AGENTS_COMMIT");
@@ -213,6 +212,9 @@ struct Shared {
     sessions: sessions::Manager,
     github: Box<dyn GitHub>,
     hooks: Hooks,
+    /// When the watch of main last looked at each project's main ([`main_watch::look`]), so that GitHub is asked at most
+    /// once a minute for each.
+    main_looked: Mutex<BTreeMap<String, i64>>,
 }
 
 impl Shared {
@@ -238,6 +240,7 @@ impl Shared {
             sessions: sessions::Manager::new(agents),
             github,
             hooks,
+            main_looked: Mutex::default(),
         }
     }
 
@@ -456,6 +459,17 @@ impl Engine {
     /// The session manager: the agents' sessions and the command line they run in.
     pub fn sessions(&self) -> &sessions::Manager {
         &self.shared.sessions
+    }
+
+    /// Whether the watch of main is to look at a project's main at `now`: it last looked a minute or more ago, or never;
+    /// a look now is noted.
+    pub(crate) fn main_look_due(&self, project: &str, now: i64) -> bool {
+        let mut looked = lock(&self.shared.main_looked);
+        if looked.get(project).is_some_and(|at| now - at < main_watch::EVERY_MS) {
+            return false;
+        }
+        looked.insert(project.to_string(), now);
+        true
     }
 
     pub fn github(&self) -> &dyn GitHub {
@@ -1487,7 +1501,7 @@ impl Engine {
     /// slots in turn, each in its architect's order. An item held or blocked is not among those waiting (the view
     /// `ready_items`).
     fn next_ready(&mut self) -> Option<i64> {
-        let changing = architect::held_by_batches(self.db.conn()).ok()?;
+        let changing = architect::held_by_checks(self.db.conn()).ok()?;
         let free = self.free_slots().ok()?;
         let waiting: Vec<(i64, String, Option<f64>)> = {
             let mut st = self

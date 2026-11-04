@@ -1,6 +1,6 @@
 //! The changes to the items a project's architect hands in, the flow's `item_change`: what makes them valid, which the
-//! effects of an answer and a revision of a batch are checked against, and making a batch of them once its review
-//! finds them sound, in the transaction of the review's round.
+//! effects of an answer are checked against as they are handed in, and making them, in order, in the transaction of
+//! the round that hands them in or of the second eye's that finds them sound.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -135,23 +135,10 @@ fn dependency(kind: &Value, bad: &mut dyn FnMut(String)) {
 /// What is said of a line of a decision that a change writes by hand.
 fn hand_written(line: &str) -> String {
     format!(
-        "it writes the line \"{line}\" of a decision, which the item's text does not have: a decision is recorded by \
-         the cell that records decisions, which makes its line from the records it quotes; a line the item has \
-         stands letter for letter"
+        "it writes the line \"{line}\" of a decision, which the item's text does not have: an item holds no new \
+         decision line; what is to go to the project's decisions is written as a decision point, under the head \
+         `Decision point:`, and a line the item has stands letter for letter as its history"
     )
-}
-
-/// The change that records a decision in the batch, before the engine reads its records: the decision as it was handed
-/// in, with the project it is of and the matter of the batch it comes from. The engine adds what it read of the records
-/// (`resolved`) when it collects the change, so that the review reads what is written.
-pub fn record_decision_of(project: &str, matter: i64, decision: &Value) -> Value {
-    json!({
-        "kind": "record_decision",
-        "reason": format!("Records the decision that the words of matter {matter} make, from the records it quotes"),
-        "project": project,
-        "matter": matter,
-        "decision": decision,
-    })
 }
 
 /// The route a change that creates an item gives it: the normal route when it gives none.
@@ -201,10 +188,8 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
 }
 
 /// [`validate`], saying what is wrong with the changes from the `first`-th on only: those before it stand as the
-/// changes that come after must find them, and are not judged again. A change that records a decision is held to what
-/// a decision must be: the records it quotes hold its words, an item it names is the project's, and no edit of that
-/// item's `approach` comes after it in the batch, which would write the text over again; and no change writes a line of
-/// a decision by hand, which only a decision does.
+/// changes that come after must find them, and are not judged again. No change writes a line of a decision by hand:
+/// an item holds no new decision line, and keeps those it has as its history.
 pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize) -> Result<(), String> {
     let mut s = State::load(e.db.conn())?;
     let cfg = &e.config.config;
@@ -212,15 +197,10 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
     let mut next_new = -1;
     // The acceptance conditions each item split gives to its new items so far.
     let mut taken: BTreeMap<i64, BTreeSet<String>> = BTreeMap::new();
-    // What each item the batch creates delivers, which the route a later change gives it must fit.
+    // What each item the changes create delivers, which the route a later change gives it must fit.
     let mut delivers: BTreeMap<i64, String> = BTreeMap::new();
-    // The items a decision of the batch is recorded in so far, and the words each has quoted.
-    let mut decided: BTreeSet<i64> = BTreeSet::new();
-    let mut quoted: BTreeSet<(i64, String, i64, String)> = BTreeSet::new();
-    // The `approach` of the items changes of the batch make, and the items merged away so far, with the item each is
-    // kept in.
+    // The `approach` of the items the changes make so far.
     let mut approaches = crate::decisions::Approaches::default();
-    let mut away: BTreeMap<i64, i64> = BTreeMap::new();
     for (i, c) in changes.iter().enumerate() {
         let n = i + 1;
         let mut bad = |p: String| {
@@ -372,7 +352,6 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                             continue;
                         };
                         approaches.merged(e.db.conn(), keep, a);
-                        away.insert(a, keep);
                         let links: Vec<(i64, i64)> = s.links.iter().copied().collect();
                         s.links.clear();
                         for (x, d) in links {
@@ -439,46 +418,9 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                             crate::decisions::HEAD
                         ));
                     }
-                    if id.is_some_and(|id| decided.contains(&id)) {
-                        bad(
-                            "it writes the item's approach whole after a decision of this batch was recorded in it, \
-                             which the new text would write over: put this change before the decision"
-                                .into(),
-                        );
-                    }
                     if let Some(id) = id {
                         approaches.written(id, text(c, "text"));
                     }
-                }
-            }
-            "record_decision" => {
-                let d = &c["decision"];
-                let id = match d.get("item").filter(|v| !v.is_null()) {
-                    Some(v) => own(v, &s, &mut bad),
-                    None => None,
-                };
-                if let Some(keep) = id.and_then(|id| away.get(&id)) {
-                    bad(format!(
-                        "item {} is merged into item {keep} earlier in this batch, and is cancelled with it: record \
-                         the decision in item {keep}, or put it before the merge, which carries it",
-                        id.unwrap_or_default()
-                    ));
-                }
-                if let Some(id) = id {
-                    decided.insert(id);
-                }
-                match crate::decisions::resolve(e.db.conn(), project, d, "architect", id.filter(|id| *id > 0)) {
-                    Ok(r) => {
-                        for w in &r.said {
-                            if !quoted.insert((id.unwrap_or_default(), w.from.clone(), w.id, w.words.clone())) {
-                                bad(format!(
-                                    "\"{}\" of {} {} is quoted by an earlier decision of this batch",
-                                    w.words, w.from, w.id
-                                ));
-                            }
-                        }
-                    }
-                    Err(why) => why.into_iter().for_each(&mut bad),
                 }
             }
             "set_level" => {
@@ -636,11 +578,16 @@ fn write_one(
     let json_of = |k: &str| c.get(k).cloned().unwrap_or(Value::Null).to_string();
     match text(c, "kind") {
         "create_item" => {
-            // How to do it, when the creator knows; none when it gave none.
+            // How to do it, when the creator knows; none when it gave none. The decision points a discussion settled,
+            // each with the owner's choice, which take the item to deep research; none when it carries none.
             let approach = Some(text(c, "approach").trim()).filter(|a| !a.is_empty());
+            let points = c["decision_points"]
+                .as_array()
+                .filter(|p| !p.is_empty())
+                .map(|p| Value::Array(p.clone()).to_string());
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted, route)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted, route, decision_points)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     text(c, "project"),
                     text(c, "title"),
@@ -650,7 +597,8 @@ fn write_one(
                     text(c, "deliver"),
                     text(c, "level"),
                     json_of("acceptance"),
-                    route_of(c)
+                    route_of(c),
+                    points
                 ],
             )
             .map_err(sql)?;
@@ -804,44 +752,6 @@ fn write_one(
                 params![item_of(&c["item"], keys)?, text(c, "level")],
             )
             .map_err(sql)?;
-        }
-        "record_decision" => {
-            // The line is the one the review read, which the engine made from the records when it collected the change.
-            let line = c["resolved"]["line"]
-                .as_str()
-                .ok_or("a decision to record has no line the review read")?;
-            let d = &c["decision"];
-            match d.get("item").filter(|v| !v.is_null()) {
-                Some(v) => {
-                    let id = item_of(v, keys)?;
-                    let now: Option<String> = tx
-                        .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
-                        .map_err(sql)?;
-                    tx.execute(
-                        "UPDATE items SET approach = ?2 WHERE id = ?1",
-                        params![id, crate::decisions::insert(now.as_deref().unwrap_or_default(), line)],
-                    )
-                    .map_err(sql)?;
-                }
-                // No item holds it: the line is kept as an observation, for an item to take in.
-                None => {
-                    let refs: Vec<String> = items(c["resolved"].get("words"))
-                        .iter()
-                        .map(|w| format!("{} {}", text(w, "from"), w["id"]))
-                        .collect();
-                    let o = json!({
-                        "kind": "new",
-                        "title": text(d, "title").trim(),
-                        "what": line,
-                        "tags": d.get("tags").cloned().unwrap_or(Value::Null),
-                        "source": "A decision found in the owner's words that no item holds, as the architect's \
-                                   batch of item changes recorded it",
-                        "refs": refs,
-                    });
-                    let from = format!("matter {}", c["matter"]);
-                    crate::architect::observe(tx, text(c, "project"), &from, &o)?;
-                }
-            }
         }
         "add_known_red_check" => {
             tx.execute(

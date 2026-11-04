@@ -562,9 +562,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
 #[test]
 fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     let s = setup("images-architect");
-    no_reply_wait(&s);
     let mut agents = scripts();
-    picks_first(&s, &mut agents);
     let sent: Sent = Arc::default();
     let seen = sent.clone();
     agents.insert(

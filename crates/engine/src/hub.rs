@@ -110,6 +110,15 @@ pub trait GitHub: Send + Sync {
     }
     /// Runs the red checks of the workflow's run on a commit once more, waits, and gives each check's result.
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure>;
+    /// The commit a branch of a repository is at, as GitHub has it.
+    fn branch_head(&self, _repo: &str, _branch: &str) -> Result<String, Failure> {
+        Err(Failure::other("no branches are read here"))
+    }
+    /// Each check's result of the workflow's latest run on a commit once that run has finished, without waiting for
+    /// it: none while it runs, and none when the commit has no run of it.
+    fn finished_checks(&self, _repo: &str, _sha: &str, _workflow: &str) -> Result<Option<Vec<CheckRun>>, Failure> {
+        Err(Failure::other("no runs are read here"))
+    }
     /// The branch a pull request merges into: its base.
     fn base(&self, repo: &str, pr: i64) -> Result<String, Failure>;
     /// Sets the branch a pull request merges into.
@@ -722,6 +731,22 @@ impl GitHub for Gh {
 
     fn latest_run_id(&self, repo: &str, sha: &str, workflow: &str) -> Result<Option<i64>, Failure> {
         Ok(newest_above(&self.runs(repo, sha, workflow)?, None).and_then(|r| r["databaseId"].as_i64()))
+    }
+
+    fn branch_head(&self, repo: &str, branch: &str) -> Result<String, Failure> {
+        let out = self.run(&["api", &format!("repos/{repo}/branches/{branch}"), "--jq", ".commit.sha"])?;
+        let sha = out.trim();
+        if sha.is_empty() {
+            return Err(Failure::other(format!("GitHub gave no commit for {repo}'s {branch}")));
+        }
+        Ok(sha.to_string())
+    }
+
+    fn finished_checks(&self, repo: &str, sha: &str, workflow: &str) -> Result<Option<Vec<CheckRun>>, Failure> {
+        match newest_above(&self.runs(repo, sha, workflow)?, None) {
+            Some(run) if run["status"] == "completed" => self.jobs(repo, &run).map(Some),
+            _ => Ok(None),
+        }
     }
 
     fn dispatch(&self, repo: &str, workflow: &str, branch: &str, inputs: &[(&str, &str)]) -> Result<(), Failure> {

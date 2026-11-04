@@ -194,6 +194,10 @@ pub struct CompiledCell {
     /// line's session was last called a cache lifetime or more ago. False in a flow version stored before lines said so.
     #[serde(default, skip_serializing_if = "is_false")]
     pub cache_expiry: bool,
+    /// The line whose latest session a new session of the cell's line forks from, as the cell's line says; none for a
+    /// line whose new sessions start empty, and in a flow version stored before lines forked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_of: Option<String>,
     /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
     /// declared one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1179,6 +1183,14 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 .line
                 .as_ref()
                 .is_some_and(|line| g.flow.sessions.lines.iter().any(|l| &l.name == line && l.cache_expiry)),
+            fork_of: c.line.as_ref().and_then(|line| {
+                g.flow
+                    .sessions
+                    .lines
+                    .iter()
+                    .find(|l| &l.name == line)
+                    .and_then(|l| l.forks.clone())
+            }),
             effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),

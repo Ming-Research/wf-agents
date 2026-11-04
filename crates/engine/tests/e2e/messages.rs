@@ -49,6 +49,7 @@ fn building_a_message_writes_nothing() {
         merging: s.merging.clone(),
         closing: s.closing.clone(),
         by_hand: s.by_hand.clone(),
+        watch_main: s.watch_main.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();

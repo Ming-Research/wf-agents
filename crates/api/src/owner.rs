@@ -330,7 +330,8 @@ fn answer_question(
         .query_row(
             "SELECT count(*) FROM rounds p JOIN works w ON w.id = p.work
              WHERE w.graph = 'architect' AND w.ended IS NULL AND p.transition IS NOT NULL
-               AND ?1 IN (json_extract(p.output, '$.outcome.pick.matter'), json_extract(p.output, '$.queue.matter'))",
+               AND ?1 IN (json_extract(p.output, '$.outcome.pick.matter'), json_extract(p.output, '$.queue.matter'),
+                          json_extract(p.output, '$.next.matter'))",
             [matter],
             |r| r.get(0),
         )

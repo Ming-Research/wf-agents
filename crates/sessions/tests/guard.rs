@@ -54,6 +54,7 @@ fn stopped_at_its_first_call(dir: &Path, script: &str, wait: Duration) -> Reply 
         worktree: dir.to_path_buf(),
         config_dir: None,
         resume: None,
+        fork: false,
         system: None,
         new_session: "s1".into(),
         prompt: "p".into(),

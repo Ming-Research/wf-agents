@@ -112,7 +112,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             };
             yes(waiting > 0)
         }
-        // Whether another work of the project is ahead of this one in its merge queue.
+        // Whether another work of the project is ahead of this one in its merge queue; while main's CI is red for the
+        // project, a matter of main red open, the queue is stopped and every work in it waits as one behind.
         "turn" => {
             let ahead: Option<i64> =
                 e.db.conn()
@@ -123,7 +124,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                     )
                     .optional()
                     .map_err(|e| e.to_string())?;
-            s(if ahead.is_some_and(|a| a != w.id) {
+            let stopped = crate::main_watch::red(e.db.conn(), &item.project)?;
+            s(if stopped || ahead.is_some_and(|a| a != w.id) {
                 "behind"
             } else {
                 "first"

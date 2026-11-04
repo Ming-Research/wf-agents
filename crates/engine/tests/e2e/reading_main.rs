@@ -158,7 +158,6 @@ fn an_engineer_s_round_is_given_the_constitution_main_has_and_the_checkout_stays
 #[test]
 fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     let s = setup("main-pinned");
-    no_reply_wait(&s);
     names_a_constitution(&s);
     let article = |n: usize, what: &str| format!("## Article {n}. {what}\n\nKeep it {}.\n", what.to_lowercase());
     let two = format!("{}\n{}", article(1, "Small"), article(2, "Quick"));
@@ -228,7 +227,8 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
         "{u1}"
     );
     assert!(!u1.contains("Keep it plain.") && !u1.contains("third way"), "{u1}");
-    assert!(p1.contains("Keep it plain.") && !p1.contains("Keep it warm."), "{p1}");
+    // The check of the policy, forked from the base, is not given the constitution main moved on to while it ran.
+    assert!(!p1.contains("Keep it warm."), "{p1}");
     assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
     assert_eq!(pinned_main(&e, arch, "P1").as_deref(), Some(second.as_str()), "{log}");
     // Its check of the policy was queued under the hash of the constitution of that commit.
@@ -267,7 +267,6 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
 #[test]
 fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_and_its_inputs() {
     let s = setup("main-one-fetch");
-    no_reply_wait(&s);
     main_moves_on(&s.root, &[("AGENTS.md", "Work the first way.\n")], "The first way");
     let first = git(&s.origin, &["rev-parse", "main"]);
     let fetches = Fetches::watching(&s);
@@ -353,7 +352,6 @@ fn an_engineer_s_round_now_fetches_main_once_at_each_agent_cell() {
 fn an_architect_whose_worktree_cannot_be_brought_to_main_is_paused_or_waits_and_goes_on_when_it_can() {
     for up in [true, false] {
         let s = setup(&format!("architect-no-main-{up}"));
-        no_reply_wait(&s);
         let net = Arc::new(std::sync::atomic::AtomicBool::new(up));
         let seen_net = net.clone();
         let hooks = Hooks {
@@ -617,7 +615,6 @@ fn a_round_does_not_start_when_main_cannot_be_fetched_and_the_checkout_has_none(
 #[test]
 fn the_preview_of_a_message_fetches_nothing_and_the_round_does() {
     let s = setup("main-preview");
-    no_reply_wait(&s);
     names_a_constitution(&s);
     let checkout = s.root.join("checkout");
     main_moves_on(
@@ -657,7 +654,6 @@ fn the_preview_of_a_message_fetches_nothing_and_the_round_does() {
 #[test]
 fn a_checkout_without_the_remote_s_main_gives_no_text_from_its_own_branch() {
     let s = setup("main-no-remote");
-    no_reply_wait(&s);
     let checkout = s.root.join("checkout");
     git(&checkout, &["update-ref", "-d", "refs/remotes/origin/main"]);
     assert!(checkout.join("AGENTS.md").exists());
