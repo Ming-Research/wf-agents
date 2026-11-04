@@ -738,7 +738,7 @@ fn an_ask_carries_no_kind() {
 
 // What the owner alone wants of a work its engineer asks the owner, at the owner's cell (`A3`); what only the owner can
 // do or decide besides reaches the owner through the architect. The owner holds a work's blocker there, at the review of
-// its design (`D3`, after the architect) and at the merge gate's approval of a change (`M1`), and nowhere else; the
+// the answers the work asked for while it went on, at the merge gate (`M1`), and nowhere else; the
 // architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a related project's
 // architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect at `A2`, which is
 // given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's design, and an
@@ -782,7 +782,7 @@ fn what_only_the_owner_wants_is_asked_of_the_owner_and_the_rest_goes_through_the
         .filter(|b| b.holders.iter().any(|h| h == "owner"))
         .map(|b| b.cell.as_str())
         .collect();
-    assert_eq!(held, ["A3", "D3", "M1"]);
+    assert_eq!(held, ["A3", "M1"]);
     let asking = g.cell("A2").unwrap();
     assert!(asking.rows.iter().all(|r| r.name != "to_owner"));
     assert!(asking.inputs.iter().any(|x| x.name.as_deref() == Some("Flow anomaly")));
@@ -1893,13 +1893,15 @@ fn a_work_moves_by_its_rows() {
     assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("R1", None));
     let wrong = g.cell("A5").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
     assert!(g.step(&p, wrong).is_err());
-    // The research goes straight to implement, or to deep research, whose design the architect and the owner review.
+    // The research goes straight to implement, or to deep research, whose design goes to its review while the work
+    // implements by it.
     assert_eq!(take(&p, "start").at, "I1");
     let deep = take(&p, "cannot_start");
     assert_eq!((deep.at.as_str(), deep.recorded["stage"].as_str()), ("D1", "design_on"));
     let p = take(&take(&deep, "done"), "done");
     assert_eq!(p.at, "D3");
-    assert_eq!(take(&p, "reviewed").at, "D4");
+    let p = take(&p, "posted");
+    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("I1", "code"));
     // What the work learned is written after it merged, before its end.
     let merged = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "merged").unwrap();
     assert_eq!(merged.to, "L2");
@@ -1936,9 +1938,9 @@ fn engine_step(given: &[(&str, &str)]) -> (Value, Map<String, Value>) {
     (serde_json::json!({}), given)
 }
 
-// A work whose research can start it directly goes straight to implement in the research's session; one whose research
-// is stuck goes to deep research, whose design waits for the review of the architect and then the owner, is taken in and
-// implemented; then the review in two passes, the merge gate, the merge queue, what was learned and the end.
+// A work whose research settles its approach goes straight to implement in the research's session; one whose research
+// cannot goes to deep research, whose design goes to its review while the work implements by it; then the review in two
+// passes, the merge gate, the merge queue, what was learned and the end.
 #[test]
 fn a_work_goes_straight_to_implement_or_through_deep_research_and_its_review() {
     let c = compiled();
@@ -1967,14 +1969,13 @@ fn a_work_goes_straight_to_implement_or_through_deep_research_and_its_review() {
         sampled("R1", "cannot_start", &[]),
         sampled("D1", "done", &[]),
         sampled("D2", "done", &[]),
-        engine_step(&[("review", "answered"), ("interjection", "no")]),
-        sampled("D4", "approved", &[]),
+        engine_step(&[("interjection", "no")]),
     ];
     let steps: Vec<_> = deep.iter().chain(&tail).cloned().collect();
     assert_eq!(
         walked(g, &steps),
         [
-            "S1", "R0", "R1", "D1", "D2", "D3", "D4", "I1", "T2", "T3", "M1", "M2", "L2", "E1"
+            "S1", "R0", "R1", "D1", "D2", "D3", "I1", "T2", "T3", "M1", "M2", "L2", "E1"
         ]
     );
 }

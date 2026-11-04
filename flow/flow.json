@@ -4631,8 +4631,7 @@
       "write_learned": "Adds what the work learned to its item's approach under `Learned:`, with the commits merged.",
       "fresh_session": "The line of the cell the row goes to starts a new session there, each time the work takes the row: the session manager ends the one the line had going on.",
       "record_acceptance": "Writes the acceptance conditions of the plan or the design the work implements onto the item: the research's plan when the work goes straight to implement, the design the owner approved otherwise; later the implementation, a fix or the advisor may change them, saying why. If they are the same as those on the item, nothing changes.",
-      "post_design_review": "Queues the work's latest design, with what thinking again outside the frame examined, for the project's architect to review at the project's level, as an engineer's question of the kind design_review, which starts a work of the architect when none runs; the matter stands for the work's blocker. One queued already for the same design, not answered nor withdrawn, is not queued again.",
-      "ask_owner_review": "Puts the work's latest design before the owner, with the architect's comments, as an ask of the owner in the work's group, and notifies the owner: the owner approves it, says what to change, or says to split it along its parts, and chooses an option for each decision point. The ask stands for the work's blocker; one put already for the same comments, not answered, is not put again.",
+      "post_design_review": "Queues the work's latest design, with what thinking again outside the frame examined, for the project's architect to review at the project's level, as an engineer's question of the kind design_review, which starts a work of the architect when none runs. The work does not wait for it: once the architect replied, the engine puts the design to the owner with the architect's comments, as an ask of the owner in the work's group of the kind design_review, and notifies the owner, who replies exactly approved to approve it, or says what to change and chooses an option for each decision point. An answer other than approved reaches the engineer as the owner's words. One queued already and not answered is not queued again.",
       "ask_owner_approval": "Puts the change before the owner, as an ask of the owner in the work's group with the files the owner approves and the pull request to compare them on, and notifies the owner: reply exactly approved to approve it. The ask stands for the work's blocker; one put already and not answered is not put again.",
       "relay_owner_answer": "Gives the owner's answer to the ask of the change, which was not exactly approved, to the work's engineer as the owner's words, which the way on chosen next takes in.",
       "apply_checked": "Makes what the matter's session handed in and the second eye found sound: its item changes, its changes to observations, its actions and its messages, as `apply_effects` makes them; its reply goes, with the numbers of the items made, and the work that reported is told what became of it.",
@@ -4642,7 +4641,10 @@
       "log_matter": "Keeps the matter's line of the decision log and its two answers, whether it changes the plan and whether the base is wrong, as the session hands them in: the latest hand-in of the matter stands.",
       "return_matters": "What the architect's work that ends held and did not finish goes back to the project's queue, not handled, for the next work to take afresh: what waits for a second eye is dropped, its item changes marked revised and its reply held dropped, and the matters it closed whose reply has not gone out go back; the matter in hand goes back too, to start its path again, unless a cell of its path that hands in took effect, which closes it as handled by that round. Each matter that goes back or is closed so leaves its sessions, the fork's and the second eye's; one held by an ask of the owner keeps its session, to be taken up again with the answer.",
       "redo_matters": "Undoes what the rounds the architect's work goes back to do again did that has not taken effect: what waits for a second eye is dropped, to be handed in again, and the matters they closed whose reply has not gone out go back to the queue, a reply held dropped, to be written again.",
-      "keep_flow_feedback": "Keeps the round's flow feedback where it is, in the round's return the engine keeps with the round, for the owner and the assistant to go through later. It goes to no agent's queue and starts nothing."
+      "keep_flow_feedback": "Keeps the round's flow feedback where it is, in the round's return the engine keeps with the round, for the owner and the assistant to go through later. It goes to no agent's queue and starts nothing.",
+      "ask_owner_points": "Puts the decision points and the departures from decisions the research left before the owner, as one ask of the owner in the work's group of the kind points, and notifies the owner: the owner chooses an option for each and rules on each departure, or replies exactly approved to take what the research recommends. The work does not wait for it: it implements by the recommendation, and the merge gate waits for the answer. An answer other than approved reaches the engineer as the owner's words. Nothing when the research left none.",
+      "ask_change_approval": "Once the work's branch touches a path the project's configuration has the owner approve (`owner_approves`), and neither the owner's approval of its design nor an answer of approved covers the change, puts the change before the owner at once, as an ask of the owner in the work's group of the kind change, unless one waits for its answer: reply exactly approved to approve it. The work does not wait for it before the merge gate; another answer reaches the engineer as the owner's words, and the change is asked again.",
+      "hold_for_approvals": "Has the work's blocker at the merge gate stand for what the merge waits for: the architect's review of its design while the architect has not replied, then the owner's answer to the review, then the oldest ask of the decision points the research left with no answer."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -4737,7 +4739,7 @@
       "came_by": "How the work came to choose the way on.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the line the work stands on has not taken it up yet.",
       "due": "Whether a matter is due for the project's architect, which starts a work of it.",
-      "gates": "What the merge gate waits for: the items it depends on while one is not merged, then the findings set aside in this work that no review has judged, then the owner's approval of a change that touches a path the owner approves.",
+      "gates": "What the merge gate waits for: the items it depends on while one is not merged, then the findings set aside in this work that no review has judged, then the approvals the work asked for while it went on (the review of its design, the decision points the research left), then the owner's approval of a change that touches a path the owner approves.",
       "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the line the work stands on",
       "interjection": "Whether an interjection for the line the work stands on is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
@@ -5240,11 +5242,8 @@
       ],
       "post_design_review": [
         "architect_queue",
-        "blockers"
-      ],
-      "ask_owner_review": [
-        "owner_asks",
         "blockers",
+        "owner_asks",
         "owner_notices"
       ],
       "ask_owner_approval": [
@@ -5292,7 +5291,18 @@
       "check_main": [
         "tool_runs"
       ],
-      "keep_flow_feedback": []
+      "keep_flow_feedback": [],
+      "ask_owner_points": [
+        "owner_asks",
+        "owner_notices"
+      ],
+      "ask_change_approval": [
+        "owner_asks",
+        "owner_notices"
+      ],
+      "hold_for_approvals": [
+        "blockers"
+      ]
     },
     "reads": {
       "ask_architect": {
@@ -5549,9 +5559,7 @@
           "nodes": [
             "D1",
             "D2",
-            "D3",
-            "D4",
-            "D5"
+            "D3"
           ],
           "entries": [
             "D1"
@@ -5748,9 +5756,7 @@
             "nodes": [
               "D1",
               "D2",
-              "D3",
-              "D4",
-              "D5"
+              "D3"
             ]
           },
           {
@@ -5973,7 +5979,6 @@
                 "R1",
                 "D1",
                 "D2",
-                "D4",
                 "I1",
                 "T2",
                 "T3",
@@ -6747,10 +6752,10 @@
             "Read the code concerned. Reproduce the problem first when you can, with ci, ci_before or measure; when you cannot, prove it another way, such as reasoning from the code or adding logs.",
             "When you are unsure, look further: read more code, run more, look up the history; do not stop to ask.",
             "Find the cause at its root; if you think the design itself is at fault, say so plainly.",
-            "This research answers whether the work can be started directly. If it can, write how to change it and how to verify it. If going on would rest on guesses (a fact that would change the direction is unchecked and cannot be checked in a round or two, or several approaches must be compared or tried before one can be chosen), stop and hand it to deep research, saying where it is stuck. Handing it to deep research is no failure; a conclusion that cannot stand is.",
+            "This research answers one question: by the facts found, can a sound approach be settled? If it can, write how to change it and how to verify it: the work is implemented next. It cannot only when a fact that would change the direction is unchecked and cannot be checked in a round or two, or several approaches must be measured or tried before one can be chosen; then hand it to deep research, saying where it is stuck. Nothing else is a reason for deep research: a choice for the owner, an approval or a departure from a decision you write as a decision point or a departure, with what you recommend, and the work goes on by your recommendation while the owner answers; an item whose own words contradict each other you settle by the facts, writing the acceptance that holds and saying in vs_item where it differs; a fact the history holds, in git or the records, you look up. Handing it to deep research is no failure; a conclusion that cannot stand is.",
             "Before handing in, ask yourself: if this conclusion is wrong, where is it most likely wrong? Did you check that point?",
-            "Follow the decisions in force and the options the owner chose for the item's decision points. If your research finds one should not be followed here, or the change would depart from it, say so in departs: which, why, and what happens if it is followed; a decision changes only in deep research.",
-            "Stop to ask only about what is not yours to decide: what is the project's, such as the item itself having to change or a scope too large for one work, ask the architect; what the owner wants, ask the owner. A technical trade-off you decide yourself; one you cannot decide goes to deep research.",
+            "Follow the decisions in force and the options the owner chose for the item's decision points. If your research finds one should not be followed here, or the change would depart from it, say so in departs: which, why, and what happens if it is followed; whoever made the decision rules on it while the work goes on, and the merge waits for the ruling.",
+            "Stop to ask only about what is not yours to decide: what is the project's, such as the item itself having to change or a scope too large for one work, ask the architect. A technical trade-off you decide yourself; where reasonable options stand, neither wins by a fact you can check and choosing wrong costs much, write a decision point.",
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
             "If what already exists for this item is given, it was half done before: first see clearly how far the work got, then research as usual; keep what still holds, and say why for what does not.",
             "When this item was split off a design the owner approved, the part it carries is in the item: check only that it still holds on main as it is now. If it does, it can be started directly, by that design; if not, say where it does not hold."
@@ -6760,7 +6765,7 @@
             "cases": {
               "within": [],
               "past": [
-                "By now: can it be started directly? If not, hand it to deep research."
+                "By now: can a sound approach be settled by the facts found? If it cannot, hand it to deep research."
               ]
             }
           },
@@ -6854,10 +6859,10 @@
             },
             {
               "name": "can_start",
-              "title": "Whether it can be started directly",
+              "title": "Whether a sound approach can be settled",
               "type": "union",
               "by": "verdict",
-              "desc": "Whether the work can be started directly, with one sentence of why",
+              "desc": "By the facts found, whether a sound approach can be settled, so that the work is implemented next, with one sentence of why",
               "branches": [
                 {
                   "value": "yes",
@@ -6895,7 +6900,7 @@
                 },
                 {
                   "value": "no",
-                  "desc": "It cannot: going on would rest on guesses, and deep research takes it next",
+                  "desc": "It cannot: a fact that would change the direction is unchecked and cannot be checked in a round or two, or several approaches must be measured or tried first; deep research takes it next",
                   "fields": [
                     {
                       "name": "why",
@@ -6934,7 +6939,7 @@
                 },
                 {
                   "value": "yes",
-                  "desc": "It departs: deep research takes it, where a decision may change",
+                  "desc": "It departs: whoever made the decision rules on it, the work goes on meanwhile by what you recommend, and the merge waits for the ruling",
                   "fields": [
                     {
                       "name": "decision",
@@ -6959,64 +6964,16 @@
               ]
             },
             {
-              "name": "to_decide",
-              "title": "Whether something is left to choose",
-              "type": "union",
-              "by": "verdict",
-              "desc": "Whether a choice between reasonable designs is left, which is not yours to make alone, with one sentence of why. What is the project's or the owner's you ask instead",
-              "branches": [
-                {
-                  "value": "no",
-                  "desc": "Nothing is left to choose",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Why, in one sentence"
-                    }
-                  ]
-                },
-                {
-                  "value": "designs",
-                  "desc": "A choice between reasonable designs is left: deep research takes it",
-                  "fields": [
-                    {
-                      "name": "what",
-                      "title": "The choice",
-                      "type": "text",
-                      "desc": "The reasonable designs to choose between, and why the choice is not plain"
-                    }
-                  ]
-                }
-              ]
+              "name": "points",
+              "title": "Decision points",
+              "type": "list",
+              "desc": "What this research leaves for the owner to choose, each with its options and your recommendation, which the work follows until the owner chooses; the item's own decision points among them. None when nothing is left to choose. The owner gets them as the work starts implementing, and the merge waits for the answer",
+              "item": {
+                "$ref": "decision_point"
+              }
             }
           ],
           "cases": [
-            {
-              "name": "decision_point",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "inp",
-                  "decision_points",
-                  [
-                    "yes"
-                  ]
-                ]
-              ],
-              "to": "D1",
-              "do": [
-                "open_session"
-              ],
-              "sets": {
-                "stage": "design_on",
-                "designed": "yes"
-              },
-              "note": "An item that carries a decision point goes to deep research, whatever the research answers."
-            },
             {
               "name": "cannot_start",
               "if": [
@@ -7024,98 +6981,10 @@
                   "own"
                 ],
                 [
-                  "inp",
-                  "decision_points",
-                  [
-                    "no"
-                  ]
-                ],
-                [
                   "is",
                   "can_start.verdict",
                   [
                     "no"
-                  ]
-                ]
-              ],
-              "to": "D1",
-              "do": [
-                "open_session"
-              ],
-              "sets": {
-                "stage": "design_on",
-                "designed": "yes"
-              }
-            },
-            {
-              "name": "departs",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "inp",
-                  "decision_points",
-                  [
-                    "no"
-                  ]
-                ],
-                [
-                  "is",
-                  "can_start.verdict",
-                  [
-                    "yes"
-                  ]
-                ],
-                [
-                  "is",
-                  "departs.verdict",
-                  [
-                    "yes"
-                  ]
-                ]
-              ],
-              "to": "D1",
-              "do": [
-                "open_session"
-              ],
-              "sets": {
-                "stage": "design_on",
-                "designed": "yes"
-              }
-            },
-            {
-              "name": "designs",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "inp",
-                  "decision_points",
-                  [
-                    "no"
-                  ]
-                ],
-                [
-                  "is",
-                  "can_start.verdict",
-                  [
-                    "yes"
-                  ]
-                ],
-                [
-                  "is",
-                  "departs.verdict",
-                  [
-                    "no"
-                  ]
-                ],
-                [
-                  "is",
-                  "to_decide.verdict",
-                  [
-                    "designs"
                   ]
                 ]
               ],
@@ -7135,43 +7004,23 @@
                   "own"
                 ],
                 [
-                  "inp",
-                  "decision_points",
-                  [
-                    "no"
-                  ]
-                ],
-                [
                   "is",
                   "can_start.verdict",
                   [
                     "yes"
-                  ]
-                ],
-                [
-                  "is",
-                  "departs.verdict",
-                  [
-                    "no"
-                  ]
-                ],
-                [
-                  "is",
-                  "to_decide.verdict",
-                  [
-                    "no"
                   ]
                 ]
               ],
               "to": "I1",
               "main": true,
               "do": [
-                "record_acceptance"
+                "record_acceptance",
+                "ask_owner_points"
               ],
               "sets": {
                 "stage": "code"
               },
-              "note": "The work goes on in this session, the code read and the reproduction done."
+              "note": "The work goes on in this session, the code read and the reproduction done. Its decision points and departures, if any, go to the owner at once, and the work does not wait for the answer."
             }
           ],
           "checks": [
@@ -7186,16 +7035,6 @@
             "to_decide"
           ],
           "inenums": {
-            "decision_points": [
-              [
-                "yes",
-                "The item carries a decision point: something settled in discussion that goes into `decisions/` once deep research confirms it"
-              ],
-              [
-                "no",
-                "It carries none"
-              ]
-            ],
             "research_rounds": [
               [
                 "within",
@@ -7281,15 +7120,13 @@
             },
             {
               "name": "The review it comes back from",
-              "what": "What the review of the design asked to change, and whose points they are; none the first time",
+              "what": "The review of the design it comes back from: what the architect said at the project's level and what the owner answered; none the first time",
               "from": [
-                [
-                  "D4",
-                  "verdict[revise]"
-                ]
+                {
+                  "engine": "design_review"
+                }
               ],
-              "maybe": true,
-              "unanswered": true
+              "maybe": true
             },
             {
               "name": "Decisions in force",
@@ -7630,15 +7467,8 @@
           "out": [],
           "cases": [
             {
-              "name": "architect",
+              "name": "posted",
               "if": [
-                [
-                  "inp",
-                  "review",
-                  [
-                    "architect"
-                  ]
-                ],
                 [
                   "inp",
                   "interjection",
@@ -7647,63 +7477,17 @@
                   ]
                 ]
               ],
-              "to": "D3",
-              "do": [
-                "raise_blocker",
-                "post_design_review"
-              ],
-              "waits": true,
-              "note": "The design goes to the architect's queue, and the work waits for its comments, holding no slot."
-            },
-            {
-              "name": "owner",
-              "if": [
-                [
-                  "inp",
-                  "review",
-                  [
-                    "owner"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "D3",
-              "do": [
-                "raise_blocker",
-                "ask_owner_review"
-              ],
-              "waits": true,
-              "note": "The architect commented: the design goes to the owner with the comments, and the work waits for the owner's answer."
-            },
-            {
-              "name": "reviewed",
-              "if": [
-                [
-                  "inp",
-                  "review",
-                  [
-                    "answered"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "D4",
+              "to": "I1",
               "main": true,
               "do": [
-                "resolve_blocker"
-              ]
+                "post_design_review",
+                "record_acceptance",
+                "fresh_session"
+              ],
+              "sets": {
+                "stage": "code"
+              },
+              "note": "The design goes to the architect's queue, and to the owner with the architect's comments once it replied; the work does not wait for either: it implements by the design, and the merge waits for the owner's answer. An answer other than approved reaches the engineer as the owner's words."
             },
             {
               "name": "interjection",
@@ -7717,444 +7501,13 @@
                 ]
               ],
               "to": "A4",
-              "do": [
-                "withdraw_blocker"
-              ],
               "counts": "interjections",
               "interject": true,
-              "note": "What was said to the work while it waited takes it on to choose the way on: the review leaves the architect's queue, or its ask needs no answer."
+              "note": "What was said to the work since the design was handed in takes it on to choose the way on."
             }
           ],
           "inenums": {
-            "review": [
-              [
-                "architect",
-                "The latest design waits for the architect's comments"
-              ],
-              [
-                "owner",
-                "The architect commented on it, and it waits for the owner's answer"
-              ],
-              [
-                "answered",
-                "The owner answered"
-              ]
-            ],
             "interjection": "interjection_state"
-          }
-        },
-        {
-          "id": "D4",
-          "kind": "agent",
-          "title": "Take in the review",
-          "effort": "high",
-          "line": "designer",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "The review",
-              "what": "What the architect said of the design at the project's level, and what the owner answered",
-              "from": [
-                {
-                  "engine": "design_review"
-                }
-              ]
-            },
-            {
-              "name": "The architect's reply on the split",
-              "what": "When the owner had it split along its parts: what the architect did, the items it made and the part this work keeps; none before",
-              "from": [
-                [
-                  "D5",
-                  "reply"
-                ]
-              ],
-              "maybe": true,
-              "unanswered": true
-            },
-            {
-              "name": "Replies from those asked",
-              "what": "The reply of whoever this cell asked, when it asked; none otherwise",
-              "from": [
-                [
-                  "@from",
-                  "reply"
-                ]
-              ],
-              "maybe": true
-            }
-          ],
-          "prompt": [
-            "The architect and the owner reviewed your design. Hand in what the owner decided; the owner's word goes over the architect's.",
-            "approved: the owner approved it, with the option the owner chose for each decision point, by its number, quoting the owner's words that chose it; a point the owner did not choose for is chosen by the recommendation, saying so. revise: the owner asks for changes, or takes up the architect's: what to change, and whose points they are; the design is changed where they touch it. split: the owner said to split it along its parts: which part this work keeps (the first) and which become items, each with its section of the design and the decisions it carries, by address; the architect splits it, and once its reply comes, hand in approved for the part this work keeps.",
-            "If the owner's words leave it unclear what the owner decided, ask the owner."
-          ],
-          "out": [
-            {
-              "name": "verdict",
-              "title": "What the review decided",
-              "type": "union",
-              "by": "verdict",
-              "desc": "What the owner decided at the review",
-              "branches": [
-                {
-                  "value": "approved",
-                  "desc": "The owner approved the design: it is implemented next",
-                  "fields": [
-                    {
-                      "name": "choices",
-                      "title": "The options chosen",
-                      "type": "list",
-                      "desc": "One row for each decision point of the design, by its number; an empty list when it has none",
-                      "item": {
-                        "type": "obj",
-                        "fields": [
-                          {
-                            "name": "point",
-                            "title": "Decision point",
-                            "type": "text",
-                            "desc": "Its number, such as P1"
-                          },
-                          {
-                            "name": "chosen",
-                            "title": "Option chosen",
-                            "type": "text",
-                            "desc": "The option chosen, by its name"
-                          },
-                          {
-                            "name": "words",
-                            "title": "The owner's words",
-                            "type": "text",
-                            "desc": "The owner's words that chose it, quoted; that it went by the recommendation when the owner chose nothing for it"
-                          }
-                        ]
-                      }
-                    }
-                  ]
-                },
-                {
-                  "value": "revise",
-                  "desc": "The design must change: deep research takes it again",
-                  "fields": [
-                    {
-                      "name": "what",
-                      "title": "What to change",
-                      "type": "text",
-                      "desc": "What to change in the design"
-                    },
-                    {
-                      "name": "whose",
-                      "title": "Whose points",
-                      "type": "text",
-                      "desc": "Whose points they are: the owner's, or the architect's that the owner took up"
-                    }
-                  ]
-                },
-                {
-                  "value": "split",
-                  "desc": "The owner said to split it along its parts: the architect splits it next",
-                  "fields": [
-                    {
-                      "name": "keeps",
-                      "title": "The part this work keeps",
-                      "type": "text",
-                      "desc": "The part this work keeps, by its name in the design"
-                    },
-                    {
-                      "name": "items",
-                      "title": "The parts that become items",
-                      "type": "text",
-                      "desc": "Each part that becomes an item, by its name, with the section of the design and the decisions it carries, by address"
-                    }
-                  ]
-                }
-              ]
-            }
-          ],
-          "cases": [
-            {
-              "name": "approved",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "is",
-                  "verdict.verdict",
-                  [
-                    "approved"
-                  ]
-                ],
-                [
-                  "inp",
-                  "split",
-                  [
-                    "not_split",
-                    "split"
-                  ]
-                ]
-              ],
-              "to": "I1",
-              "main": true,
-              "do": [
-                "fresh_session",
-                "record_acceptance"
-              ],
-              "sets": {
-                "stage": "code"
-              }
-            },
-            {
-              "name": "revise",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "is",
-                  "verdict.verdict",
-                  [
-                    "revise"
-                  ]
-                ],
-                [
-                  "inp",
-                  "split",
-                  [
-                    "not_split",
-                    "split"
-                  ]
-                ]
-              ],
-              "to": "D1",
-              "counts": "design_revisions",
-              "sets": {
-                "stage": "design_on"
-              }
-            },
-            {
-              "name": "to_split",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "is",
-                  "verdict.verdict",
-                  [
-                    "split"
-                  ]
-                ],
-                [
-                  "inp",
-                  "split",
-                  [
-                    "not_split",
-                    "split"
-                  ]
-                ]
-              ],
-              "to": "D5",
-              "do": [
-                "raise_blocker"
-              ],
-              "counts": "splits"
-            },
-            {
-              "name": "all_to_sub_items",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "inp",
-                  "split",
-                  [
-                    "all_split"
-                  ]
-                ]
-              ],
-              "to": "E1",
-              "do": [
-                "hand_over_to_sub_items"
-              ],
-              "note": "The architect gave every part to items of their own: this work keeps nothing and ends without merging."
-            }
-          ],
-          "checks": [
-            {
-              "at": "verdict",
-              "check": "points_chosen"
-            }
-          ],
-          "shown": [
-            "verdict"
-          ],
-          "inenums": {
-            "split": [
-              [
-                "split",
-                "In the reply brought back, the architect split off sub-items, and this work keeps a part"
-              ],
-              [
-                "not_split",
-                "The reply brought back split off no sub-item"
-              ],
-              [
-                "all_split",
-                "In the reply brought back, the architect gave all of this work to sub-items, and it keeps nothing"
-              ]
-            ]
-          }
-        },
-        {
-          "id": "D5",
-          "kind": "engine",
-          "title": "Split along the design's parts",
-          "step": "ask_architect",
-          "inputs": [
-            {
-              "name": "What to split",
-              "what": "The part this work keeps and the parts that become items, as the owner said at the review",
-              "from": [
-                [
-                  "D4",
-                  "verdict[split]"
-                ]
-              ]
-            },
-            {
-              "name": "The design's parts",
-              "what": "The design and its parts, each with what it covers and what it depends on, which give the new items their order",
-              "from": [
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            }
-          ],
-          "out": [
-            {
-              "$ref": "architect_reply"
-            }
-          ],
-          "cases": [
-            {
-              "name": "answered",
-              "if": [
-                [
-                  "inp",
-                  "held",
-                  [
-                    "answered"
-                  ]
-                ]
-              ],
-              "to": "D4",
-              "do": [
-                "resolve_blocker"
-              ]
-            },
-            {
-              "name": "to_architect",
-              "if": [
-                [
-                  "inp",
-                  "held",
-                  [
-                    "to_architect"
-                  ]
-                ]
-              ],
-              "to": "D5",
-              "do": [
-                {
-                  "at": "reply",
-                  "do": "hand_over"
-                }
-              ],
-              "counts": "hand_overs"
-            },
-            {
-              "name": "holder_gone",
-              "if": [
-                [
-                  "inp",
-                  "held",
-                  [
-                    "holder_gone"
-                  ]
-                ]
-              ],
-              "to": "D4",
-              "do": [
-                "withdraw_blocker"
-              ]
-            },
-            {
-              "name": "cancelled",
-              "if": [
-                [
-                  "inp",
-                  "held",
-                  [
-                    "cancelled"
-                  ]
-                ]
-              ],
-              "to": "A4",
-              "do": [
-                "withdraw_blocker"
-              ],
-              "counts": "interjections",
-              "interject": true
-            },
-            {
-              "name": "interjection",
-              "if": [
-                [
-                  "inp",
-                  "held",
-                  [
-                    "interjection"
-                  ]
-                ]
-              ],
-              "to": "A4",
-              "do": [
-                "withdraw_blocker"
-              ],
-              "counts": "interjections",
-              "interject": true
-            }
-          ],
-          "inenums": {
-            "held": [
-              [
-                "answered",
-                "The architect replied: what it split off, and what this work keeps"
-              ],
-              [
-                "to_architect",
-                "The architect handed it to the architect of a related project, saying why and what it found"
-              ],
-              [
-                "holder_gone",
-                "The architect that holds it is gone: its project is no longer in the configuration"
-              ],
-              [
-                "cancelled",
-                "An item this work's item depended on was cancelled, and the engineer has not taken it up yet"
-              ],
-              [
-                "interjection",
-                "Something was said to the engineer, which takes the work on to choose the way on"
-              ]
-            ]
           }
         },
         {
@@ -8260,7 +7613,10 @@
                 ]
               ],
               "to": "@caller",
-              "main": true
+              "main": true,
+              "do": [
+                "ask_change_approval"
+              ]
             },
             {
               "name": "failed",
@@ -8480,12 +7836,11 @@
             },
             {
               "name": "The options chosen",
-              "what": "The option the owner chose for each decision point of the design; none when the work did not go through deep research",
+              "what": "The review of the design: the architect's comments and the owner's answer, with the option chosen for each decision point; none before the owner answered, or when the work did not go through deep research",
               "from": [
-                [
-                  "D4",
-                  "verdict[approved]"
-                ]
+                {
+                  "engine": "design_review"
+                }
               ],
               "maybe": true
             },
@@ -8900,12 +8255,11 @@
             },
             {
               "name": "The options chosen",
-              "what": "The option the owner chose for each decision point of the design; none when the work did not go through deep research",
+              "what": "The review of the design: the architect's comments and the owner's answer, with the option chosen for each decision point; none before the owner answered, or when the work did not go through deep research",
               "from": [
-                [
-                  "D4",
-                  "verdict[approved]"
-                ]
+                {
+                  "engine": "design_review"
+                }
               ],
               "maybe": true
             },
@@ -9091,12 +8445,11 @@
             },
             {
               "name": "The options chosen",
-              "what": "The option the owner chose for each decision point of the design; none when the work did not go through deep research",
+              "what": "The review of the design: the architect's comments and the owner's answer, with the option chosen for each decision point; none before the owner answered, or when the work did not go through deep research",
               "from": [
-                [
-                  "D4",
-                  "verdict[approved]"
-                ]
+                {
+                  "engine": "design_review"
+                }
               ],
               "maybe": true
             },
@@ -9444,12 +8797,11 @@
             },
             {
               "name": "The options chosen",
-              "what": "The option the owner chose for each decision point of the design; none when the work did not go through deep research",
+              "what": "The review of the design: the architect's comments and the owner's answer, with the option chosen for each decision point; none before the owner answered, or when the work did not go through deep research",
               "from": [
-                [
-                  "D4",
-                  "verdict[approved]"
-                ]
+                {
+                  "engine": "design_review"
+                }
               ],
               "maybe": true
             },
@@ -9908,12 +9260,11 @@
             },
             {
               "name": "The options chosen",
-              "what": "The option the owner chose for each decision point of the design; none when the work did not go through deep research",
+              "what": "The review of the design: the architect's comments and the owner's answer, with the option chosen for each decision point; none before the owner answered, or when the work did not go through deep research",
               "from": [
-                [
-                  "D4",
-                  "verdict[approved]"
-                ]
+                {
+                  "engine": "design_review"
+                }
               ],
               "maybe": true
             },
@@ -10745,6 +10096,39 @@
               "note": "A finding set aside that no review judged, as one found after the details review: the fix answers each, and the re-check judges the answers, before the work may enter the merge queue or the owner is asked to approve it. A finding set aside in the re-check's own return goes this way too, since no review came after it; the way round ends when a return of the re-check sets none aside. The second time the same check is set aside from a return of the re-check, the fix asks the advisor instead of answering it: the installed check then reports every return of the re-check here, which no round of this work can change."
             },
             {
+              "name": "approvals",
+              "if": [
+                [
+                  "inp",
+                  "gates",
+                  [
+                    "approvals"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "M1",
+              "do": [
+                "raise_blocker",
+                "hold_for_approvals"
+              ],
+              "waits": true,
+              "note": "The merge waits for the answers the work asked for while it went on: the architect's comments on its design, the owner's answer to its review, the owner's choices on the decision points the research left. One that is not approved comes back as the owner's words, which take the work on to choose the way on."
+            },
+            {
               "name": "owner_approves",
               "if": [
                 [
@@ -10901,8 +10285,12 @@
                 "Every item depended on is merged, and a finding set aside in this work has been judged by no round of the details review or the re-check after it"
               ],
               [
+                "approvals",
+                "Every item depended on is merged, every finding set aside is judged, and the review of the design or the decision points the research left wait for an answer"
+              ],
+              [
                 "owner",
-                "Every item depended on is merged, every finding set aside is judged, and the change touches a path the owner approves, which the owner has approved neither at the review of its design nor since its last fix"
+                "Every item depended on is merged, every finding set aside is judged, every approval asked is answered, and the change touches a path the owner approves, which the owner has approved neither at the review of its design nor by an answer of approved"
               ],
               [
                 "answered",
@@ -11239,12 +10627,11 @@
             },
             {
               "name": "The options chosen",
-              "what": "The option the owner chose for each decision point of the design; none when the work did not go through deep research",
+              "what": "The review of the design: the architect's comments and the owner's answer, with the option chosen for each decision point; none before the owner answered, or when the work did not go through deep research",
               "from": [
-                [
-                  "D4",
-                  "verdict[approved]"
-                ]
+                {
+                  "engine": "design_review"
+                }
               ],
               "maybe": true
             },
@@ -12893,9 +12280,9 @@
       ],
       "designCard": [
         "A design holds its decision points itself: there are no cards. What deep research leaves uncertain, where at least two options stand and choosing wrong costs much, is a decision point of the design, with its options, the one recommended, how sure it is and why it is uncertain.",
-        "When the design is done, the work stops for its review: first the architect's, at the project's level only then the owner's, with the architect's comments, both at cell `D3`. The owner approves it, says what to change, or says to split it along its parts, and chooses an option for each decision point; the designer takes the answer in (cell `D4`).",
+        "When the design is done, cell `D3` puts it to its review and the work implements by it without waiting: first the architect reviews it, at the project's level only, then the owner, with the architect's comments. The owner approves it exactly, or says what to change and chooses an option for each decision point; that answer reaches the engineer as the owner's words, and a design the owner would have otherwise is written again. The merge waits for the owner's answer.",
         "The implementation writes each option the owner chose into `decisions/` in the repository, one file for each decision, which merges with the work's pull request.",
-        "At cell `M1`, a change that touches a path the project's configuration has the owner approve waits for the owner's approval, unless the owner approved the work's design at its review."
+        "Whatever the work asks the owner while it goes on (the decision points and departures the research left, the review of its design, the approval of a change that touches a path the project's configuration has the owner approve, asked once its branch touches one) it does not wait for: it goes on by what it recommended, and cell `M1` holds the merge while one has no answer. A change to such a path is approved by the owner's approval of the work's design or by an answer of exactly approved."
       ],
       "interject": {
         "name": "interjection",
@@ -13014,7 +12401,13 @@
             "when": "A step of the engine's before the agent's round, such as bringing the architect's worktree to the latest main, reaches the network and fails the way a passing failure does: a transport error, a timeout, a host that does not resolve, a connection that is reset or refused",
             "desc": "The engine records the failure on the cell, waits as long as the backoff says (5, 15 and 45 seconds, 2 minutes, then 5 minutes), and takes the step again. It does so after each of the first 5 failures in a row, with no return of an agent, a tool or the owner taken in between; the next failure pauses the work and tells the owner instead: the architect's own work as much as any, since it cannot ask itself. A failure the engine does not know for one of the network's is a cannot_step.",
             "inRow": 5,
-            "backoff": [5, 15, 45, 120, 300],
+            "backoff": [
+              5,
+              15,
+              45,
+              120,
+              300
+            ],
             "then": "pause",
             "counts": "retries"
           },
@@ -13039,7 +12432,7 @@
         ]
       },
       "blockers": {
-        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, an architect at `A2` (and at `A7` while the engineer weighs whether to wait longer for it), the owner at `A3`, the items it waits for at `A6`; at `D3` the architect, then the owner, for the review of the design, and at `D5` the architect to split it; and at `M1` the items it depends on, then the owner's approval of a change that needs it. Every move of a blocker is a row: the rows into a holder's cell raise it, the rows that pass the work on between holders' cells hand it on (`A1` to `A2`, `A2` to a related project's architect), and the rows out resolve or withdraw it. A holder never stops while it holds a blocker. Each cell where the work waits has a row for each way its holder can fail it and for the owner's interjection. A work's end withdraws its open blocker, with the end's reason.",
+        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, an architect at `A2` (and at `A7` while the engineer weighs whether to wait longer for it), the owner at `A3`, the items it waits for at `A6`; and at `M1` the items it depends on, then the review of its design (the architect's comments, then the owner's answer) and the owner's approvals the work asked for while it went on. Every move of a blocker is a row: the rows into a holder's cell raise it, the rows that pass the work on between holders' cells hand it on (`A1` to `A2`, `A2` to a related project's architect), and the rows out resolve or withdraw it. A holder never stops while it holds a blocker. Each cell where the work waits has a row for each way its holder can fail it and for the owner's interjection. A work's end withdraws its open blocker, with the end's reason.",
         "cells": [
           {
             "cell": "A1",
@@ -13078,26 +12471,10 @@
             ]
           },
           {
-            "cell": "D3",
-            "holders": [
-              "architect",
-              "owner"
-            ],
-            "waits": true
-          },
-          {
-            "cell": "D5",
-            "holders": [
-              "architect"
-            ],
-            "fails": [
-              "holder_gone"
-            ]
-          },
-          {
             "cell": "M1",
             "holders": [
               "items",
+              "architect",
               "owner"
             ],
             "fails": [
@@ -18891,7 +18268,13 @@
             "when": "A step of the engine's before the agent's round, such as bringing the architect's worktree to the latest main, reaches the network and fails the way a passing failure does: a transport error, a timeout, a host that does not resolve, a connection that is reset or refused",
             "desc": "The engine records the failure on the cell, waits as long as the backoff says (5, 15 and 45 seconds, 2 minutes, then 5 minutes), and takes the step again. It does so after each of the first 5 failures in a row, with no return of an agent, a tool or the owner taken in between; the next failure pauses the work and tells the owner instead: the architect's own work as much as any, since it cannot ask itself. A failure the engine does not know for one of the network's is a cannot_step.",
             "inRow": 5,
-            "backoff": [5, 15, 45, 120, 300],
+            "backoff": [
+              5,
+              15,
+              45,
+              120,
+              300
+            ],
             "then": "pause",
             "counts": "retries"
           },

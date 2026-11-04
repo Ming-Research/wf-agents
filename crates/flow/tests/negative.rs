@@ -658,7 +658,7 @@ case!(a_row_no_return_takes, "never taken", |v| {
 });
 case!(a_value_no_way_records, "never taken", |v| {
     obj(row(v, "R1", "start")).remove("sets");
-    obj(row(v, "D4", "approved")).remove("sets");
+    obj(row(v, "D3", "posted")).remove("sets");
 });
 case!(a_cell_asked_again_while_it_waits, "asked again", |v| {
     node(v, "A1")["out"][0]["fields"].as_array_mut().unwrap().push(json!({
@@ -681,7 +681,7 @@ case!(
     }
 );
 case!(a_design_never_reviewed, "unreached D3", |v| {
-    row(v, "D2", "done")["to"] = json!("D4");
+    row(v, "D2", "done")["to"] = json!("I1");
 });
 
 // A cell whose rows test a value the engine works out lists what it is worked out from.
