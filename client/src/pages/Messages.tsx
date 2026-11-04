@@ -84,6 +84,7 @@ import {
   CardTalk,
   enterSends,
   handsBack,
+  judgesCondition,
   needsWords,
   pickAfter,
   useAskPick,
@@ -149,6 +150,7 @@ import { useNarrow, useWidth, type Width } from '../width';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble, BubbleHead } from './Bubble';
+import { ConditionLine, useConditionTick } from './ConditionTick';
 import { AskView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkGroupName, WorkHead } from './TalkHead';
 import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
@@ -367,12 +369,15 @@ function AnswerBox({ draft, placeholder, ready, send, children = null }: {
 
 /// What answering in a bubble needs: the draft of its words and images, kept under `key` (made of the number of what is
 /// answered), which knows whether they are being sent and what failed, and how to send them, the images with the words.
-function useAnswer(key: string): { draft: Draft; post: (url: string, body: object) => void } {
+function useAnswer(key: string): { draft: Draft; post: (url: string, body: object, sent: () => void) => void } {
   const draft = useDraft(key);
-  const post = (url: string, body: object) =>
+  const post = (url: string, body: object, sent: () => void) =>
     draft.send(
       () => postJson(url, { ...body, images: imagesSent(draft.images) }),
-      () => reread('messages', 'architect', 'works', 'work:*'),
+      () => {
+        sent();
+        reread('messages', 'architect', 'works', 'work:*');
+      },
     );
   return { draft, post };
 }
@@ -380,20 +385,24 @@ function useAnswer(key: string): { draft: Draft; post: (url: string, body: objec
 /// How an ask that waits is answered, in its bubble, under its card, whose option boxes pick what it offers (a click
 /// picking one and a second clearing it, the one picked marked): the small box of the owner's words and Answer, which
 /// sends the option picked. The words are needed for an ask in words alone and for an option ask with none picked, else
-/// they are free; an engineer's ask the owner holds can be handed back to the architect with them.
+/// they are free; an engineer's ask the owner holds can be handed back to the architect with them. An ask about one item
+/// takes a merge condition ticked on its answer, but the merge gate's ask of a condition, which judges one.
 export function AskAnswer({ a }: { a: OwnerAsk }) {
   const pick = useAskPick(a.id)?.picked ?? '';
   const [back, setBack] = useState(false);
   const { draft, post } = useAnswer(`ask:${a.id}`);
-  const answer = askAnswer(pick, draft.text, handsBack(a) && back, draft.images.length > 0);
+  const judges = judgesCondition(a);
+  const tick = useConditionTick(`ask:${a.id}`, draft.text, !judges && a.condition_item !== null);
+  const answer = askAnswer(pick, draft.text, handsBack(a) && back, draft.images.length > 0, judges);
+  const ready = answer !== null && tick.ready;
   return (
     <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
       <AnswerBox
         draft={draft}
         placeholder={t(needsWords(pick) ? 'conv_answer_words' : 'conv_answer_more')}
-        ready={answer !== null}
+        ready={ready}
         send={() => {
-          if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
+          if (ready) post(`/api/v1/asks/${a.id}/answer`, { ...answer, ...tick.sent }, tick.done);
         }}
       >
         {handsBack(a) ? (
@@ -403,16 +412,18 @@ export function AskAnswer({ a }: { a: OwnerAsk }) {
             <FormControl.Caption>{t('answer_to_architect_hint')}</FormControl.Caption>
           </FormControl>
         ) : null}
+        <ConditionLine tick={tick} disabled={draft.busy} />
       </AnswerBox>
     </div>
   );
 }
 
 /// How a question of an engineer's that the architect holds is answered in the group, in its bubble: the small box of
-/// the owner's words and Answer; the answer is the reply, and the architect is told.
+/// the owner's words and Answer; the answer is the reply, and the architect is told. A merge condition may be ticked on it.
 export function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
   const { draft, post } = useAnswer(`question:${work}:${matter}`);
-  const ready = saysSomething(draft.text, draft.images);
+  const tick = useConditionTick(`question:${work}:${matter}`, draft.text, true);
+  const ready = saysSomething(draft.text, draft.images) && tick.ready;
   return (
     <div className="talk-answer">
       <AnswerBox
@@ -420,9 +431,17 @@ export function QuestionAnswer({ work, matter }: { work: number; matter: number 
         placeholder={t('conv_answer_words')}
         ready={ready}
         send={() => {
-          if (ready) post(`/api/v1/works/${work}/say`, { text: draft.text.trim(), speaker: SPEAKER, question: matter });
+          if (ready) {
+            post(
+              `/api/v1/works/${work}/say`,
+              { text: draft.text.trim(), speaker: SPEAKER, question: matter, ...tick.sent },
+              tick.done,
+            );
+          }
         }}
-      />
+      >
+        <ConditionLine tick={tick} disabled={draft.busy} />
+      </AnswerBox>
     </div>
   );
 }
@@ -957,9 +976,10 @@ function Approve({ project, question }: { project: string; question: number }) {
   );
 }
 
-/// The question the box at the bottom of the one-to-one replies to: its number, its words, and what takes the reply
-/// off, the box's words then going to the architect as any words do.
-export type Reply = { question: number; words: string; clear: () => void };
+/// The question the box at the bottom of the one-to-one replies to: its number, its words, what takes the reply off, the
+/// box's words then going to the architect as any words do, and whether it is about one item, which a merge condition
+/// ticked on the reply goes on.
+export type Reply = { question: number; words: string; clear: () => void; aboutOneItem: boolean };
 
 /// The decision card the owner's question asks about, or an answer answers about, over its words as the strip over the
 /// box quotes the question a reply answers: a `ReplyIcon` and the card by its number and question on one line, cut
@@ -994,8 +1014,9 @@ function ReplyStrip({ reply }: { reply: Reply }) {
 /// work's group to the engineer, the architect or both; in a group of projects to one architect or every one; in the
 /// one-to-one to the architect, as the owner's words it takes first, or, with the strip over it, as the reply to the
 /// question it names (`reply`), after which it replies to what the architect waits on again (`onSent`). It never
-/// answers a bubble: an ask of a work's, and a question the architect holds, are answered in their bubbles. Closed, it
-/// says why: a work at its end no longer changes its way on.
+/// answers a bubble: an ask of a work's, and a question the architect holds, are answered in their bubbles. A merge
+/// condition may be ticked on the words in a work's group and on a reply to a question about one item. Closed, it says
+/// why: a work at its end no longer changes its way on.
 export function Composer({ c, w, reply = null, onSent }: {
   c: Conversation;
   w: WorkSummary | null;
@@ -1011,9 +1032,14 @@ export function Composer({ c, w, reply = null, onSent }: {
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
   const closed = closedWhy(c, w);
+  const tick = useConditionTick(
+    `conv:${c.key}`,
+    text,
+    closed === null && (c.kind === 'work' || (c.kind === 'architect' && reply !== null && reply.aboutOneItem)),
+  );
   if (choices.length === 0) return null;
   const busy = draft.busy;
-  const ready = closed === null && saysSomething(text, images) && sendTo.length > 0;
+  const ready = closed === null && saysSomething(text, images) && sendTo.length > 0 && tick.ready;
   const send = () => {
     if (!ready) return;
     const said = text.trim();
@@ -1021,7 +1047,13 @@ export function Composer({ c, w, reply = null, onSent }: {
     draft.send(
       () => {
         if (c.kind === 'work') {
-          return postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: said, speaker: SPEAKER, to, images: sentImages });
+          return postJson(`/api/v1/works/${c.work ?? 0}/say`, {
+            text: said,
+            speaker: SPEAKER,
+            to,
+            images: sentImages,
+            ...tick.sent,
+          });
         }
         if (c.kind === 'projects') {
           return Promise.all(
@@ -1038,9 +1070,11 @@ export function Composer({ c, w, reply = null, onSent }: {
         return postJson(forProject('/api/v1/architect/say', c.project), {
           ...toArchitect(said, reply !== null ? reply.question : null),
           images: sentImages,
+          ...tick.sent,
         });
       },
       () => {
+        tick.done();
         onSent?.();
         reread('messages', 'architect', 'works', 'work:*');
       },
@@ -1085,6 +1119,7 @@ export function Composer({ c, w, reply = null, onSent }: {
           {t('conv_send')}
         </Button>
       </div>
+      <ConditionLine tick={tick} disabled={busy} />
       {draft.error !== null ? <Flash variant="danger">{t('request_failed', { error: draft.error })}</Flash> : null}
     </div>
   );
@@ -1245,7 +1280,15 @@ export function Open({ c, works, side }:{ c: Conversation; works: WorkSummary[] 
   // replies to the one the architect waits on.
   const [chosen, setChosen] = useState<number | null | undefined>(undefined);
   const to = replyingTo(d !== null ? pinnedQuestions(d) : [], chosen, d?.waits_on ?? null);
-  const reply: Reply | null = to !== null ? { question: to.id, words: to.text, clear: () => setChosen(null) } : null;
+  const reply: Reply | null =
+    to !== null
+      ? {
+          question: to.id,
+          words: to.text,
+          clear: () => setChosen(null),
+          aboutOneItem: (to.ask_detail?.condition_item ?? null) !== null,
+        }
+      : null;
   // One function for as long as the conversation is open, so that the entries that hold it are not drawn again for it.
   const replyTo = useCallback((question: number) => {
     setChosen(question);

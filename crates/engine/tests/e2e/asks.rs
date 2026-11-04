@@ -207,6 +207,8 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
         why: None,
         reply: None,
         to: None,
+        choice: None,
+        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, ask, &yes).unwrap();

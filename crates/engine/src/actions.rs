@@ -387,6 +387,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         "post_design_review" => crate::review::post(ctx, tx)?,
         "ask_owner_review" => crate::review::ask_owner(ctx, tx)?,
         "ask_owner_approval" => crate::approval::ask(ctx, tx)?,
+        "ask_owner_condition" => crate::conditions::ask(ctx, tx)?,
         "relay_owner_answer" => crate::approval::relay(ctx, tx)?,
         "lock_new_acceptance" => {
             let new = at_value.or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance"));

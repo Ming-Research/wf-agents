@@ -465,6 +465,14 @@ button.talk-pinbar-line:hover .talk-pinbar-words {
   gap: var(--base-size-8);
 }
 
+/* Under a box of the owner's words, the tick that sets a merge condition, and while ticked the line of the condition. */
+.condition-tick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+  margin-top: var(--base-size-8);
+}
+
 /* What the page says in a message: what the choice picked means, or why an ask needed no answer. */
 .talk-said-note {
   margin: 0;

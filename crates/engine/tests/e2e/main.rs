@@ -36,6 +36,7 @@ mod guard;
 mod history;
 mod holds;
 mod line_sessions;
+mod merge_conditions;
 mod messages;
 mod notebook;
 mod observations;
@@ -1389,6 +1390,8 @@ fn owner_answers(e: &mut Engine, ask: i64, text: &str) {
         why: None,
         reply: None,
         to: None,
+        choice: None,
+        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, ask, &answer).unwrap();

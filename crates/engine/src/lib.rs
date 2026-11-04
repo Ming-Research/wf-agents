@@ -35,6 +35,7 @@ mod base;
 mod cards;
 mod catch_up;
 mod checks;
+mod conditions;
 mod decisions;
 mod dependency_sources;
 mod failed;

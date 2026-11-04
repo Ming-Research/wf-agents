@@ -8,12 +8,13 @@
 // formats; a field the page does not know is shown as labelled text.
 
 import { XIcon } from '@primer/octicons-react';
-import { ConfirmationDialog, Flash, IconButton, PageHeader } from '@primer/react';
+import { ConfirmationDialog, Flash, IconButton, Label, PageHeader } from '@primer/react';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 
-import type { DesignCard, ItemDetail, ItemSummary, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
+import type { DesignCard, ItemDetail, ItemSummary, JsonValue, LinkedItem, MergeCondition, OwnerAsk, Shown, Waits } from '../api';
 import { course, DependencyKind, Facts, ItemBadge, liveState, Loaded, StateChip, WorkBadge } from '../components';
-import { cost, time } from '../format';
+import { DocList } from '../document';
+import { cost, roundName, time } from '../format';
 import {
   Acceptance,
   anchored,
@@ -62,6 +63,7 @@ const DRAWN = new Set([
   'deviations',
   'followup',
   'conditions',
+  'owner_conditions',
   'end.followup',
   'end.conditions',
 ]);
@@ -341,6 +343,65 @@ function AcceptanceBlock({ d, shown }: { d: ItemDetail; shown: Map<string, Shown
     <Block title={t('acceptance')} from={proposed}>
       <p className="muted">{t('acceptance_proposed')}</p>
       <Acceptance value={proposed.value} met={met} />
+    </Block>
+  );
+}
+
+/// Who a merge condition's record says said its words, in words.
+function conditionWords(c: MergeCondition): string {
+  const of = { quote: c.quote, source: c.source, id: c.source_id };
+  switch (c.said_by) {
+    case 'owner':
+      return t('condition_said_by_owner', of);
+    case 'relayed':
+      return t('condition_said_by_relayed', of);
+    case 'delegate':
+      return t('condition_said_by_delegate', of);
+    default:
+      return t('condition_said_by_unrecorded', of);
+  }
+}
+
+/// Who recorded a merge condition, and when.
+function conditionRecorded(c: MergeCondition): string {
+  const at = time(c.at);
+  if (c.recorded_work !== null && c.recorded_round !== null) {
+    return t('condition_recorded_architect', { round: roundName(c.recorded_work, c.recorded_round), at });
+  }
+  return t(c.recorded_by === 'delegate' ? 'condition_recorded_delegate' : 'condition_recorded_owner', { at });
+}
+
+/// The engineer's latest report on a merge condition, or that it has not reported.
+function conditionReport(c: MergeCondition): string {
+  const r = c.report;
+  if (r === null) return t('condition_no_report');
+  const of = { round: roundName(r.work, r.round), words: r.words };
+  return t(r.answer === 'done' ? 'condition_report_done' : 'condition_report_not_done', of);
+}
+
+/// What the owner set to be done before the work merges, under the acceptance: each by its sentence, where it stands, the
+/// words it rests on and who said them, who recorded it, and what the engineer reported; nothing for an item with none.
+function MergeConditions({ d }: { d: ItemDetail }) {
+  if (d.merge_conditions.length === 0) return null;
+  const mark = (c: MergeCondition) => {
+    if (c.status === 'met') return <Label variant="success">{t('condition_status_met')}</Label>;
+    if (c.status === 'withdrawn') return <Label variant="secondary">{t('condition_status_withdrawn')}</Label>;
+    return <Label variant="attention">{t('condition_status_open')}</Label>;
+  };
+  return (
+    <Block title={t('merge_conditions')}>
+      <DocList
+        items={d.merge_conditions.map((c) => ({
+          no: c.id,
+          lead: c.what,
+          mark: mark(c),
+          parts: [
+            [t('condition_words'), conditionWords(c)],
+            [t('condition_recorded'), conditionRecorded(c)],
+            [t('condition_report'), conditionReport(c)],
+          ],
+        }))}
+      />
     </Block>
   );
 }
@@ -664,6 +725,7 @@ function Detail({ d }: { d: ItemDetail }) {
       <Problem d={d} shown={shown} />
       <DesignBlock shown={shown} d={d} />
       <AcceptanceBlock d={d} shown={shown} />
+      <MergeConditions d={d} />
       <Changes shown={shown} />
       <Others shown={shown} />
       {d.depends_on.length > 0 || d.depended_on_by.length > 0 ? (

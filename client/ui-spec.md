@@ -843,7 +843,8 @@ when the box goes away, and instead of keeping every page shown, which is what t
 
 - **One draft for each box, under a key made of the number of what the box belongs to.** A box takes its words from
   `useDraft(key)` (`src/drafts.ts`): `conv:<conversation key>`, `ask:<id>`, `question:<work>:<matter>`, `card:<id>`,
-  `obs-close:<id>`, `settings`, `account:<cli>`, `flow-compare-ref`. A key is never made of where the box stands or
+  `obs-close:<id>`, `settings`, `account:<cli>`, `flow-compare-ref`; the tick of a merge condition on a box and its line
+  (below) under `condition-ticked:<the box's key>` and `condition:<the box's key>`. A key is never made of where the box stands or
   of a title, so that one box never shows another's words; two boxes with one key are one box. The keys are not
   tied to a database: a draft the owner never sent goes after 30 days.
 - **Kept at each change, in this browser.** Every change is written to `localStorage` at once, with no timer and no hook
@@ -1118,6 +1119,12 @@ The problem is the engineer's understanding once research has run, the item as w
 the approach chosen as its heading, the design itself and the measure, with where it changes, what it leaves out, its
 pitfalls, why and the approaches compared folded; the acceptance is shown once, the locked one with the round that
 locked it, each condition with how the work said it was met.
+
+Under the acceptance, only on an item that has any, the merge conditions, what the owner set to be done before its work
+merges: a list of the document's shape (`DocList`), each with its sentence as its lead, where it stands as a `Label` beside
+it (waits for you attention, met success, withdrawn neutral), then the words it rests on and who said them, who recorded it
+and when, and the engineer's latest report or that it has not reported. It is read here; it is judged in the work's group,
+where the merge gate's ask of it waits.
 
 ### Fields drawn by their shape
 
@@ -2006,6 +2013,27 @@ bubble in the stream holds the question with the owner's answer under it, folded
 to that ask or question, with the choice made and the words, and it shows nowhere else: the conversation's view holds an
 ask as one entry, the answer in it, and the owner's reply to a question shows in the question's bubble, not as words of
 the owner's of its own; an ask the engine closed says there why no answer was needed.
+
+The merge gate's ask of a merge condition, what the owner set to be done before the work merges, is an ask as any other:
+its points say the condition's sentence, the words it rests on and who said them with a link to the record they are in,
+who recorded it and when, the engineer's latest report on it or that it has not reported, and the pull request; its two
+options on their boxes are met and withdrawn. The option picked is sent apart from the words, since the engine reads which
+was chosen, and needs no words with it; words with no option go to the engineer, and the gate asks again. It takes neither
+the hand-back to the architect, since only the owner judges a condition, nor the tick below.
+
+### The tick of a merge condition
+
+Every box where the owner's words can set something to be done before a work merges takes one tick, the same part in each
+(ours, `ConditionLine`, a Primer `Checkbox` and `FormControl` under the box): the box at the bottom of a work's group, the
+small box that answers an engineer's ask or question in its bubble, and the box at the bottom of the one-to-one while it
+replies to a question of the architect's about one item. A question about no item or about several takes no tick, and the
+architect records the condition from the words. Ticked, "Must be met before it merges" adds one line under it, "The
+condition", a `DraftInput` holding the box's words until the owner writes in it, because the owner's words may be only "OK",
+and a condition must read alone; a line left empty keeps the words from being sent. The words go as they would have gone;
+the line goes with them, and the engine records it with the record the words are kept in. Instead of a form of its own, or
+a command after the words are sent, because a condition is set while saying it, and instead of having agents pick it out of
+the words, which a missed one would make silent. A word that neither the owner ticked nor the architect recorded holds
+nothing at the merge gate, and the part's caption says what the line is for.
 
 A decision card that waits for the owner's ruling, whether or not its work waits on it yet, waits in its stage's bubble
 with its verdicts, folded to its head line as every card there, since open it took most of the conversation, the bar

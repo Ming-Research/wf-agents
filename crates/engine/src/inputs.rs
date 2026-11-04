@@ -821,6 +821,7 @@ pub fn engine_input(
                 .and_then(|(_, v)| v.clone()));
         }
         "owner_approval" => return crate::approval::input(e.db.conn(), &e.project_of(w)?, w),
+        crate::conditions::INPUT => return crate::conditions::input(e.db.conn(), item.id),
         "design_review" => return crate::review::input(e.db.conn(), w.id),
         _ => {}
     }
