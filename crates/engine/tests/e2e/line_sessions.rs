@@ -94,10 +94,6 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
 fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let s = setup_priced("warm");
     let mut scripts = scripts();
-    scripts.insert(
-        "R0",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(1.0, 9_000))])),
-    );
     scripts.insert("R1", adding("R1", |_| vec![("@usage", used(1.5, 9_500))]));
     scripts.insert("I1", adding("I1", |_| vec![("@usage", used(3.0, 10_000))]));
     let seen: Arc<Mutex<Vec<Replayed>>> = Arc::default();
@@ -172,10 +168,10 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// While a work goes on without a line, the line's session is kept warm as long as the flow can come back to it: the
-// review's, while the work stands at fixing, is pinged for the work going on; the engineer's implementing session is
-// not, since fixing starts the engineer a new session, but is once the work stands where a way leads back to it
-// without passing fixing, as choosing the way on after an interjection.
+// While a work goes on, each line's session is kept warm as long as the flow can come back to it: while the work stands
+// at fixing, the engineer's, which the fix goes on in, the review's, which re-checks after it, and the reader's, which a
+// look-up the fix may ask for goes to, are pinged for the work going on; standing at the merge gate a moment later,
+// nothing is pinged again.
 #[test]
 fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let s = setup_priced("warm-lines");
@@ -215,36 +211,31 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
     let log = said.lock().unwrap().join("\n");
-    // The review comes back after the fix, and the reader of the history at a look-up the fix may ask for.
-    assert_eq!(warm_now(&mut e, now, None).unwrap(), 2, "{log}");
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 3, "{log}");
     let going_on = json!({ "cell": "T6", "on": "work", "what": "the work goes on" });
     let mut pings = pinged(&e);
     pings.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
         pings,
         [
+            ("engineer".to_string(), going_on.clone()),
             ("librarian".to_string(), going_on.clone()),
             ("review".to_string(), going_on)
         ]
     );
     move_to(&mut e, work, "M1");
-    assert_eq!(warm_now(&mut e, now + 2_000, None).unwrap(), 1, "{log}");
-    let pings = pinged(&e);
-    assert_eq!(pings.len(), 3, "{pings:?}");
-    assert_eq!((pings[2].0.as_str(), &pings[2].1["cell"]), ("engineer", &json!("M1")));
+    assert_eq!(warm_now(&mut e, now + 2_000, None).unwrap(), 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// No ping goes to a session whose next round starts a new one, at a cell the line starts one at, nor beside a round of
-// the session that runs.
+// No ping goes beside a round of the session that runs.
 #[test]
-fn no_ping_before_a_new_session_or_beside_a_round() {
+fn no_ping_beside_a_round_of_the_session() {
     let s = setup_priced("no-warm");
     let mut scripts = scripts();
     scripts.insert("R1", adding("R1", |_| vec![("@usage", used(1.0, 9_000))]));
     let (mut e, said, item) = start(&s, scripts);
-    // Before the research, the engineer's line has no session, and its first round starts one: nothing is pinged.
-    step_to(&mut e, item, "R1");
+    step_to(&mut e, item, "I1");
     let (work, _, _) = state(&e, item).unwrap();
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
@@ -256,12 +247,6 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             ),
         )
     };
-    warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap();
-    assert_eq!(line_pings(&e), 0);
-    let_go_on(&mut e, work);
-    step_to(&mut e, item, "I1");
-    pause_by_owner(&mut e, work, "to look at it");
-    let from = last_call(&e, work);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
     let session: i64 =
         e.db.conn()

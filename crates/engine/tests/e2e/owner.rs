@@ -783,7 +783,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         lines,
         [
             ("line".to_string(), true, "R1".to_string()),
-            ("owner".to_string(), false, "I1,I1".to_string())
+            ("owner".to_string(), false, "I1".to_string())
         ],
         "{log}"
     );

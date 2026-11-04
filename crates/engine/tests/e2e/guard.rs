@@ -451,13 +451,13 @@ fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
             db.write(Actor::Owner, |tx| {
                 tx.execute(
                     "INSERT INTO interjections (work, line, speaker, text)
-                     VALUES (?1, 'engineer', 'owner', 'Look at the log.')",
+                     VALUES (?1, 'librarian', 'owner', 'Look at the log.')",
                     [work],
                 )?;
                 Ok(())
             })
             .unwrap();
-            sessions::interject::deliver(&mut db, work, round, "engineer")
+            sessions::interject::deliver(&mut db, work, round, "librarian")
                 .unwrap()
                 .unwrap();
             (Vec::new(), vec![("@stream", calls_of(&[10_000, 30_000]))])

@@ -199,7 +199,7 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
     assert!(
         stdout.contains("engineer: format:common ")
             && stdout.contains("engineer ")
-            && stdout.contains("new sessions at R1, I1"),
+            && stdout.contains("new sessions at R1, a new session each time at I1"),
         "{stdout}"
     );
     let out = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
