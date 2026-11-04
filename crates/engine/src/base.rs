@@ -15,13 +15,6 @@ use serde_json::{Map, Value, json};
 use crate::work::{RoundId, Work, query_json};
 use crate::{ARCHITECT, Engine};
 
-/// The line of the base, which the lines of a matter's session and of the second eye fork from.
-pub const BASE_LINE: &str = "architect";
-
-/// The cells of the base: reading the project, and planning in the same session.
-pub const READ: &str = "U1";
-pub const PLAN: &str = "N1";
-
 /// The rounds that leave a base built, of the rounds table named `r`: reading the project that found the plan holds when
 /// only the base was due, and every plan that answered.
 const BUILT: &str = "((r.cell = 'U1' AND r.transition = 'holds')

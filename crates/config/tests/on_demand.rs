@@ -123,6 +123,62 @@ fn a_ci_on_demand_names_its_input_to_the_workflow() {
     assert!(e.contains("projects/p.toml") && e.contains("tests_input"), "{e}");
 }
 
+// The checks the fast CI runs only when named, such as the lint, are run by hand through the input the configuration
+// names: a list without the input, an input without a list or with no name, a name that is empty, and a list where the
+// CI does not run on demand are each refused, all of them told at once; the list with its input on demand is read.
+#[test]
+fn the_checks_run_by_name_go_with_their_input_on_demand() {
+    let on = "on_demand = true\nfast = \"fast\"\n";
+    let data = Data::new(
+        "named-checks",
+        &format!("{on}named_checks = [\"lint\"]\nchecks_input = \"checks\"\n"),
+    );
+    let ci = config::working(data.path()).unwrap().projects["p"].ci.clone();
+    assert_eq!(ci.named_checks, ["lint"]);
+    assert_eq!(ci.checks_input.as_deref(), Some("checks"));
+    // None by default, and left out of the settings written back.
+    let data = Data::new("no-named-checks", on);
+    let ci = config::working(data.path()).unwrap().projects["p"].ci.clone();
+    assert!(ci.named_checks.is_empty() && ci.checks_input.is_none());
+    let written = serde_json::to_value(&ci).unwrap();
+    assert!(written.get("named_checks").is_none() && written.get("checks_input").is_none());
+    for (name, ci, said) in [
+        (
+            "no-input",
+            format!("{on}named_checks = [\"lint\"]\n"),
+            "ci.named_checks needs ci.checks_input",
+        ),
+        (
+            "no-list",
+            format!("{on}checks_input = \"checks\"\n"),
+            "lists no check to run by it",
+        ),
+        (
+            "empty-input",
+            format!("{on}named_checks = [\"lint\"]\nchecks_input = \" \"\n"),
+            "ci.checks_input is empty",
+        ),
+        (
+            "not-on-demand",
+            "named_checks = [\"lint\", \"\"]\nchecks_input = \"checks\"\n".to_string(),
+            "ci.named_checks needs ci.on_demand",
+        ),
+        (
+            "empty-name",
+            format!("{on}named_checks = [\"lint\", \"\"]\nchecks_input = \"checks\"\n"),
+            "ci.named_checks holds an empty name",
+        ),
+    ] {
+        let e = refused(name, &ci).unwrap_or_else(|| panic!("{name} is read"));
+        assert!(e.contains("projects/p.toml") && e.contains(said), "{name}: {e}");
+    }
+    let e = refused("both", "named_checks = [\"lint\", \"\"]\nchecks_input = \"checks\"\n").unwrap();
+    assert!(
+        e.contains("needs ci.on_demand") && e.contains("holds an empty name"),
+        "{e}"
+    );
+}
+
 // The setting that says whether the CI runs on the engine's temporary refs is true unless a project says otherwise, is
 // kept from the file a project extends, and goes with a tests_input and with a CI on demand, which do not read it; a
 // project's settings written as JSON and read back keep it, whichever it is: false is written, and true, which is the

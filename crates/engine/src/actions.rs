@@ -663,6 +663,10 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
             }
         }
+        "keep_flow_feedback" => {
+            // What the round said was wrong with its cell stays in its return, which the round keeps, for the owner and
+            // the assistant to go through later: it goes to no agent's queue.
+        }
         "tell_went_back" => {
             // The notice names the round, where the owner's page shows what the work went back to and why.
             let o = &ctx.output;

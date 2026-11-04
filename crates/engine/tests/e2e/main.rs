@@ -39,6 +39,7 @@ mod observations;
 mod open_questions;
 mod owner;
 mod policy;
+mod project_decisions;
 mod questions;
 mod random;
 mod reading_main;
@@ -840,6 +841,7 @@ impl GitHub for FakeHub {
             run: format!("https://example.invalid/{workflow}/{sha}"),
             log_tail: red.then(|| format!("test {REGRESSION} ... FAILED")),
             log_path: None,
+            skipped: false,
         }])
     }
 

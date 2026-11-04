@@ -22,6 +22,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+pub mod decisions;
 pub mod shared_git;
 
 /// Everything wrong with a configuration.
@@ -781,6 +782,13 @@ pub struct Project {
     /// text as main has it, never as the checkout's files have it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution: Option<PathBuf>,
+    /// Where the project keeps its decisions in force: a directory of its repository, `decisions` unless set, spelled
+    /// as the project's main has it, holding one file for each decision. Agents are given every file in it as main has
+    /// them, but its `README.md`, which says what the directory is ([`decisions::in_force`]); none when it is not there
+    /// or holds nothing else. A decision replaced lives on only in the repository's history, which the tool
+    /// `decision_history` gives ([`decisions::history`]), and one withdrawn is deleted.
+    #[serde(default = "default_decisions")]
+    pub decisions: PathBuf,
     /// The tags the project's observations may carry, each with what it covers: the architect tags an observation with
     /// these only. The owner sets them; none, and observations carry no tag.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -824,6 +832,11 @@ fn default_main() -> String {
     "main".to_string()
 }
 
+/// Where a project that names no other keeps its decisions.
+fn default_decisions() -> PathBuf {
+    PathBuf::from("decisions")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
@@ -844,6 +857,17 @@ pub struct Ci {
     /// the input at white space still reads every name that holds no space as it did before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
+    /// The checks of the fast CI besides the tests, such as the lint, that it runs only when the ci tool names them,
+    /// each by the name of its job in the fast workflow: the full CI runs every check once, at the merge, and a check
+    /// it found red is run so while it is fixed. Each needs `checks_input`, and the CI on demand. None, and the ci tool
+    /// runs the tests only and refuses a check named.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named_checks: Vec<String>,
+    /// The input of the fast CI's workflow that takes the checks to run (`named_checks`): the engine gives the names
+    /// asked for as a JSON array of strings, such as `["lint"]`, and gives the input only when one is asked for, so
+    /// that a run with none, and a workflow made before the input, take its default, which runs none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks_input: Option<String>,
     /// Whether the fast CI runs when the engine pushes the temporary ref (`wf-agents-before/...`) that ci_before puts
     /// the code before the change on. Read only where `tests_input` is none: ci_before then waits for the run the push
     /// makes, and for it to end it reads each listed test's result from the run's results (`results`). Set to false
@@ -861,9 +885,10 @@ pub struct Ci {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_artifact: Option<String>,
     /// Whether the fast CI runs only when the engine asks for it: the ci tool then runs the fast workflow by hand on
-    /// the work's branch with the tests named (`tests_input`, which must be set), and the full CI, which no push of a
-    /// work's branch is to run, is run by hand too, by the tools that need it, when the commit has no run of it yet.
-    /// Off, the pushes of a work's branch run both, and the tools only wait for those runs.
+    /// the work's branch with the tests named (`tests_input`, which must be set) and the checks named
+    /// (`named_checks`), and nothing when it names neither, and the full CI, which no push of a work's branch is to
+    /// run, is run by hand too, at the merge, when the commit has no run of it yet. Off, the pushes of a work's branch
+    /// run both, and the tools only wait for those runs.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_demand: bool,
     /// The workflows the measure tool may run, each with what it takes and gives; none when the project has no
@@ -1408,13 +1433,18 @@ impl Config {
             // The constitution is a file of the project's repository, named by its path from the repository's root: a
             // path that goes up (`..`) or names no file (empty, `.`) is never read ([`read_at`]), so it is refused here.
             if let Some(c) = &p.constitution
-                && (!c.is_relative()
-                    || c.components().any(|x| matches!(x, std::path::Component::ParentDir))
-                    || !c.components().any(|x| matches!(x, std::path::Component::Normal(_))))
+                && !in_repository(c)
             {
                 problems.push(format!(
                     "projects/{name}.toml: constitution is not a path in the project's repository: {}",
                     c.display()
+                ));
+            }
+            // So are the decisions a directory of it: the root itself holds every file, and is no directory of them.
+            if !in_repository(&p.decisions) {
+                problems.push(format!(
+                    "projects/{name}.toml: decisions is not a directory in the project's repository: {}",
+                    p.decisions.display()
                 ));
             }
             for o in &p.other_projects {
@@ -1433,6 +1463,30 @@ impl Config {
             if p.ci.tests_input.as_deref().is_some_and(|i| i.trim().is_empty()) {
                 problems.push(format!(
                     "projects/{name}.toml: ci.tests_input is empty; it names the workflow's input"
+                ));
+            }
+            // A check named is run by hand, by the input that takes the checks; each is named by its job.
+            match (p.ci.named_checks.is_empty(), p.ci.checks_input.as_deref()) {
+                (false, None) => problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks needs ci.checks_input, the input of the fast workflow that \
+                     takes the checks to run"
+                )),
+                (true, Some(_)) => problems.push(format!(
+                    "projects/{name}.toml: ci.checks_input is set and ci.named_checks lists no check to run by it"
+                )),
+                (_, Some(i)) if i.trim().is_empty() => problems.push(format!(
+                    "projects/{name}.toml: ci.checks_input is empty; it names the workflow's input"
+                )),
+                _ => {}
+            }
+            if !p.ci.named_checks.is_empty() && !p.ci.on_demand {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks needs ci.on_demand: only a run by hand runs a check by name"
+                ));
+            }
+            if p.ci.named_checks.iter().any(|c| c.trim().is_empty()) {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks holds an empty name; each is the name of a job"
                 ));
             }
             if let Some(r) = &p.ci.results {
@@ -1655,6 +1709,15 @@ impl Config {
         }
         out
     }
+}
+
+/// Whether a path names something inside a repository from its root: relative, never going up (`..`), and naming more
+/// than the root itself (not empty, not `.`).
+fn in_repository(path: &Path) -> bool {
+    use std::path::Component;
+    path.is_relative()
+        && !path.components().any(|x| matches!(x, Component::ParentDir))
+        && path.components().any(|x| matches!(x, Component::Normal(_)))
 }
 
 /// The database's file in a data directory.
@@ -1904,22 +1967,24 @@ fn records_under(repo: &Path, commit: &str, dir: &str, found: &mut BTreeMap<Stri
         } else {
             format!("{dir}/")
         };
-        walk_records(repo, commit, &prefix, &tree, &mut vec![tree.clone()], found)?;
+        let markdown = |path: &str| path.ends_with(".md");
+        walk_files(repo, commit, &prefix, &tree, &mut vec![tree.clone()], found, &markdown)?;
     }
     Ok(())
 }
 
-/// The Markdown files of the directory `tree` stands for at the path `prefix`, added to `found`
+/// The files of the directory `tree` stands for at the path `prefix` whose paths `keep` keeps, added to `found`
 /// ([`records_under`]); `on_path` holds the trees of the directories this walk is in, the one it started from and each
 /// that a link led into, so that a link that leads back into one of them ends the walk in an error at once: it would
 /// otherwise be followed again from the same place, once for every link there is, however many levels deep.
-fn walk_records(
+fn walk_files(
     repo: &Path,
     commit: &str,
     prefix: &str,
     tree: &str,
     on_path: &mut Vec<String>,
     found: &mut BTreeMap<String, String>,
+    keep: &dyn Fn(&str) -> bool,
 ) -> Result<(), String> {
     let listed = git(repo, &["ls-tree", "-r", "-z", tree])?;
     // Each entry is `<mode> <type> <object>\t<path>`, the path from `tree`.
@@ -1934,14 +1999,14 @@ fn walk_records(
             continue;
         }
         if mode != Some("120000") {
-            if path.ends_with(".md") {
+            if keep(&path) {
                 found.insert(path, object.to_string());
             }
             continue;
         }
         let fail = |x: String| format!("{path} cannot be read at {commit} in {}: {x}", repo.display());
         match resolve(repo, commit, &path).map_err(fail)? {
-            Found::File(object) if path.ends_with(".md") => {
+            Found::File(object) if keep(&path) => {
                 found.insert(path, object);
             }
             Found::Dir { tree, .. } => {
@@ -1951,10 +2016,10 @@ fn walk_records(
                     ));
                 }
                 on_path.push(tree.clone());
-                walk_records(repo, commit, &format!("{path}/"), &tree, on_path, found)?;
+                walk_files(repo, commit, &format!("{path}/"), &tree, on_path, found, keep)?;
                 on_path.pop();
             }
-            Found::Missing(at) if path.ends_with(".md") => {
+            Found::Missing(at) if keep(&path) => {
                 return Err(fail(format!("path '{at}' does not exist in '{commit}'")));
             }
             Found::File(_) | Found::Missing(_) => {}
@@ -2678,6 +2743,36 @@ asks = 9
             "projects/root.toml: constitution is not a path in the project's repository: .",
         ] {
             assert!(e.to_string().contains(bad), "{bad}: {e}");
+        }
+    }
+
+    // A project keeps its decisions in `decisions` unless it names another directory of its repository; one outside
+    // it, and the root itself, are refused, each project's at once.
+    #[test]
+    fn a_project_s_decisions_are_a_directory_of_its_repository() {
+        let named = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\ndecisions = \"docs/decided\"";
+        let c = read(&files(&[("projects/q.toml", named)])).unwrap();
+        assert_eq!(c.projects["p"].decisions, Path::new("decisions"));
+        assert_eq!(c.projects["q"].decisions, Path::new("docs/decided"));
+        let e = read(&files(&[
+            (
+                "projects/up.toml",
+                "extends = [\"common\"]\nrepo = \"o/up\"\ncheckout = \"/up\"\ndecisions = \"../decisions\"",
+            ),
+            (
+                "projects/root.toml",
+                "extends = [\"common\"]\nrepo = \"o/root\"\ncheckout = \"/root\"\ndecisions = \".\"",
+            ),
+            (
+                "projects/abs.toml",
+                "extends = [\"common\"]\nrepo = \"o/abs\"\ncheckout = \"/abs\"\ndecisions = \"/x/decisions\"",
+            ),
+        ]))
+        .unwrap_err()
+        .to_string();
+        for (name, dir) in [("up", "../decisions"), ("root", "."), ("abs", "/x/decisions")] {
+            let said = format!("projects/{name}.toml: decisions is not a directory in the project's repository: {dir}");
+            assert!(e.contains(&said), "{said}: {e}");
         }
     }
 

@@ -37,12 +37,12 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`].
-pub const INPUTS: [&str; 33] = [
+pub const INPUTS: &[&str] = &[
     "constitution",
+    "decisions",
     "guide",
     "cited_nodes",
     "since_last_base",
-    "decision_records",
     "board",
     "numbers",
     "observations_overview",
@@ -76,7 +76,7 @@ pub const INPUTS: [&str; 33] = [
 /// The engine's inputs that read the project's files on its main, each as one commit of it has them. A round whose cell
 /// has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a project's architect's line, the
 /// commit its worktree is brought to), which every one of them is read at, after one fetch of main.
-pub const MAIN_INPUTS: [&str; 3] = ["constitution", "guide", "cited_nodes"];
+pub const MAIN_INPUTS: &[&str] = &["constitution", "decisions", "guide", "cited_nodes"];
 
 /// The sections of a project's architect's notebook, each with the engine's input that gives it: an input of its own
 /// for each, so that a session given a section is referred to it while it stays the same.
@@ -3638,10 +3638,10 @@ pub fn input(e: &Engine, w: &Work, _g: &CompiledGraph, name: &str, main: Option<
     let project = project_of(w)?;
     match name {
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
+        "decisions" => decisions(e, project, main),
         "guide" => guide(e, project, main).map(Some),
         "cited_nodes" => cited_nodes(e, w, project, main),
         "since_last_base" => since_last_base(e, w, project).map(Some),
-        "decision_records" => decision_records(e, project, main),
         "board" => board(e, project).map(Some),
         "numbers" => numbers(e, w, project).map(Some),
         "observations_overview" => observations_overview(e, project).map(Some),
@@ -3672,25 +3672,6 @@ pub fn input(e: &Engine, w: &Work, _g: &CompiledGraph, name: &str, main: Option<
         "handed_in" => handed_in(e, w),
         other => Err(format!("no such engine input: {other}")),
     }
-}
-
-/// The project's decisions in force, as its main has them under `decisions/` at the commit `main` pins or else the
-/// commit `origin/<main>` is at now: each file whole, by its path; none when the project keeps none.
-fn decision_records(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
-    let Some(p) = e.config.config.projects.get(project) else {
-        return Ok(None);
-    };
-    let commit = main_at(project, p, main)?;
-    let Ok(listed) = git::git(&p.checkout, &["ls-tree", "-r", "--name-only", &commit, "--", "decisions/"]) else {
-        return Ok(None);
-    };
-    let mut out = Map::new();
-    for path in listed.lines().filter(|l| !l.trim().is_empty()) {
-        if let Ok(text) = config::read_at(p, &commit, Path::new(path)) {
-            out.insert(path.to_string(), Value::String(text));
-        }
-    }
-    Ok((!out.is_empty()).then_some(Value::Object(out)))
 }
 
 /// The item changes of the matter in hand that wait for the second eye, numbered from 1, each whole, and each item it
@@ -3764,11 +3745,12 @@ fn handed_in(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 }
 
 /// What the architect knows of its project that a cell of an engineer's work is given, as the architect has it: the
-/// constitution, which every agent's cell is given, the board of the project's items, the decision cards of the others,
-/// the policy in force, and two sections of its notebook, the plan (with the owner's lasting instructions) and what the
-/// project is now.
-pub const KNOWLEDGE: [&str; 6] = [
+/// constitution, which every agent's cell is given, the decisions in force, the board of the project's items, the
+/// decision cards of the others, the policy in force, and two sections of its notebook, the plan (with the owner's
+/// lasting instructions) and what the project is now.
+pub const KNOWLEDGE: &[&str] = &[
     "constitution",
+    "decisions",
     "board",
     "items_decided",
     "policy",
@@ -3778,7 +3760,7 @@ pub const KNOWLEDGE: [&str; 6] = [
 
 /// What a cell of an engineer's work on an item (`item`) of a project is given of the architect's knowledge
 /// ([`KNOWLEDGE`]); none when there is nothing. `main` is the commit of the project's main the round is pinned to, for
-/// the constitution.
+/// the constitution and the decisions.
 pub fn knowledge(
     e: &Engine,
     project: &str,
@@ -3788,6 +3770,7 @@ pub fn knowledge(
 ) -> Result<Option<Value>, String> {
     match name {
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
+        "decisions" => decisions(e, project, main),
         "board" => board(e, project).map(Some),
         "items_decided" => items_decided(e.db.conn(), project, item),
         "policy" => policy(e, project),
@@ -3877,6 +3860,32 @@ fn constitution_of(project: &str, p: Option<&config::Project>, main: Option<&str
              press Start."
         )
     })
+}
+
+/// A project's decisions in force as its main has them, at the commit `main` pins or else the commit `origin/<main>` is
+/// at now: each file of its directory of decisions by its path, with its text ([`config::decisions::in_force`]); none
+/// when the project is not configured, or keeps none. A directory that cannot be read is an error that says which, at
+/// which commit, and how to set it right.
+fn decisions(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
+    let Some(p) = e.config.config.projects.get(project) else {
+        return Ok(None);
+    };
+    let commit = main_at(project, p, main)?;
+    let files = config::decisions::in_force(p, &commit).map_err(|x| {
+        format!(
+            "project {project}: decisions: {x}. Until they can be read no agent of the project can judge by them, so \
+             every work of the project stops at its next round: set decisions in the project's configuration to the \
+             directory main keeps them in, or set that directory right on main, then press Start."
+        )
+    })?;
+    Ok((!files.is_empty()).then(|| {
+        Value::Object(
+            files
+                .into_iter()
+                .map(|(path, text)| (path, Value::String(text)))
+                .collect(),
+        )
+    }))
 }
 
 /// A project's guide as its main has it, at the commit `main` pins or else the commit `origin/<main>` is at now: its
@@ -5122,6 +5131,10 @@ fn owner_answer(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 mod tests {
     use super::*;
     use crate::checks::{constitution_problems, names_article};
+
+    fn said(p: Problems) -> Vec<String> {
+        p.texts().to_vec()
+    }
 
     // A reply to an open question that says a design departs from a decision someone other than the architect made,
     // the owner or a delegate, is sent back until the owner has answered an ask that holds it; one that departs from the

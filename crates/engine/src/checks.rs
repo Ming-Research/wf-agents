@@ -637,10 +637,12 @@ impl Ctx<'_> {
     }
 
     /// The names of the checks of the CI runs recorded for this work, newest run first: those of the fast CI (a `ci`
-    /// run keeps them under `push`) and of the full CI (an attempt keeps its first run's under `first`, a run again
+    /// run keeps them under `push`) and of the full CI, which the merge runs (an attempt of it keeps its list as it is),
+    /// as did the full CI on the draft of an earlier flow (an attempt keeps its first run's under `first`, a run again
     /// its list as it is). A run that did not get as far as its checks has none.
     fn ci_jobs(&self) -> Result<Vec<String>, String> {
         let mut runs = self.ci_runs("ci")?;
+        runs.extend(self.ci_runs("merge")?);
         runs.extend(self.ci_runs("full_ci")?);
         Ok(check_names(&runs))
     }
@@ -1808,13 +1810,17 @@ fn measure_problems(verdict: &str, ran: bool) -> Problems {
 
 /// The checks that are not green in the runs of the tool `ci` on `sha` that decide whether the head is green, from the
 /// results of the tool, the newest first: the latest run on the head and, beside it, the latest that ran tests. Where
-/// the CI runs on demand a run that only ran the lint (`push.run` is `lint`, as when the call only hands in the PR's
-/// text) is made after the run that ran the tests and must not hide it, as a red test run would be on the same head.
-/// A run that does not say what it ran is one of the whole of the fast CI. None when no run is on the head.
+/// the CI runs on demand a run that only ran checks named, as the lint (`push.run` is `checks`, or `lint` in the
+/// records of an engine before the checks were named), is made after the run that ran the tests and must not hide it,
+/// as a red test run would be on the same head; and a push that ran nothing (`none`, as when the call only hands in the
+/// PR's text) is no run. A run that does not say what it ran is one of the whole of the fast CI. None when no run is on
+/// the head.
 fn red_checks_of_head(runs: &[Value], sha: &str) -> Option<Vec<String>> {
-    let mut on_head = runs.iter().filter(|r| r["push"]["head"] == sha);
+    let mut on_head = runs
+        .iter()
+        .filter(|r| r["push"]["head"] == sha && r["push"]["run"] != "none");
     let latest = on_head.clone().next()?;
-    let tests = on_head.find(|r| r["push"]["run"] != "lint");
+    let tests = on_head.find(|r| !matches!(r["push"]["run"].as_str(), Some("checks" | "lint")));
     let mut red: Vec<String> = Vec::new();
     for run in [Some(latest), tests].into_iter().flatten() {
         for check in items(run["push"].get("checks")) {
@@ -2534,32 +2540,48 @@ mod tests {
         json!({ "push": push })
     }
 
-    // The head is green only if the latest run that ran tests is: a run of the lint alone, made later to hand in the
-    // PR's text, does not stand for them. Runs of another head, and a lint-only run that is itself red, are as ever.
+    // The head is green only if the latest run that ran tests is: a run of a check named alone, as the lint, made later,
+    // does not stand for them, nor does a push that ran nothing, made to hand in the PR's text, which is no run at all.
+    // Runs of another head, and a run of a check that is itself red, are as ever; the records of an engine that ran the
+    // lint beside the tests (`named_and_lint`, `lint`) are read alike.
     #[test]
-    fn a_lint_only_run_does_not_hide_a_red_test_run_on_the_same_head() {
-        let red_tests = pushed("h", Some("named_and_lint"), &[("lint", "green"), ("fast", "red")]);
-        let lint_green = pushed("h", Some("lint"), &[("lint", "green"), ("fast", "green")]);
-        // The newest run is first.
-        let runs = [lint_green.clone(), red_tests.clone()];
-        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec!["fast".to_string()]));
-        // A later run that ran the tests and passed covers the red one.
-        let green_tests = pushed("h", Some("named_and_lint"), &[("lint", "green"), ("fast", "green")]);
-        let runs = [lint_green.clone(), green_tests.clone(), red_tests.clone()];
-        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec![]));
-        // A head that only the lint has run is green on it; red on it, it is not.
-        assert_eq!(red_checks_of_head(std::slice::from_ref(&lint_green), "h"), Some(vec![]));
-        let lint_red = pushed("h", Some("lint"), &[("lint", "red")]);
-        let runs = [lint_red, green_tests.clone()];
-        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec!["lint".to_string()]));
-        // A run that does not say what it ran is the whole of the fast CI; the red run of another head is not the head's.
-        let old = pushed("h", None, &[("test 1 of 3", "red")]);
-        assert_eq!(
-            red_checks_of_head(&[lint_green.clone(), old], "h"),
-            Some(vec!["test 1 of 3".to_string()])
-        );
-        let elsewhere = pushed("g", Some("named_and_lint"), &[("fast", "red")]);
-        assert_eq!(red_checks_of_head(&[lint_green, elsewhere], "h"), Some(vec![]));
+    fn a_run_of_a_check_alone_or_of_nothing_does_not_hide_a_red_test_run_on_the_same_head() {
+        for (tests, alone) in [("named", "checks"), ("named_and_lint", "lint")] {
+            let red_tests = pushed("h", Some(tests), &[("test", "red"), ("fast", "red")]);
+            let lint_green = pushed("h", Some(alone), &[("lint", "green"), ("fast", "green")]);
+            let nothing = pushed("h", Some("none"), &[]);
+            // The newest run is first.
+            let runs = [nothing.clone(), lint_green.clone(), red_tests.clone()];
+            assert_eq!(
+                red_checks_of_head(&runs, "h"),
+                Some(vec!["test".to_string(), "fast".to_string()]),
+                "{tests}"
+            );
+            // A later run that ran the tests and passed covers the red one.
+            let green_tests = pushed("h", Some(tests), &[("test", "green"), ("fast", "green")]);
+            let runs = [lint_green.clone(), green_tests.clone(), red_tests.clone()];
+            assert_eq!(red_checks_of_head(&runs, "h"), Some(vec![]), "{tests}");
+            // A head that only a check named has run is green on it; red on it, it is not.
+            assert_eq!(red_checks_of_head(std::slice::from_ref(&lint_green), "h"), Some(vec![]));
+            let lint_red = pushed("h", Some(alone), &[("lint", "red")]);
+            let runs = [nothing.clone(), lint_red, green_tests.clone()];
+            assert_eq!(
+                red_checks_of_head(&runs, "h"),
+                Some(vec!["lint".to_string()]),
+                "{tests}"
+            );
+            // A head that only pushes of nothing have run has no run.
+            assert_eq!(red_checks_of_head(&[nothing.clone(), nothing], "h"), None);
+            // A run that does not say what it ran is the whole of the fast CI; the red run of another head is not the
+            // head's.
+            let old = pushed("h", None, &[("test 1 of 3", "red")]);
+            assert_eq!(
+                red_checks_of_head(&[lint_green.clone(), old], "h"),
+                Some(vec!["test 1 of 3".to_string()])
+            );
+            let elsewhere = pushed("g", Some(tests), &[("fast", "red")]);
+            assert_eq!(red_checks_of_head(&[lint_green, elsewhere], "h"), Some(vec![]));
+        }
         assert_eq!(red_checks_of_head(&[], "h"), None);
     }
 
@@ -3346,20 +3368,31 @@ mod tests {
         );
     }
 
-    // A ci_job row's jobs are read from what the tools recorded: the fast CI keeps its checks under `push`, the full CI
-    // its first run's under `first` and a run again its list as it is; a run that failed or was refused has none.
+    // A ci_job row's jobs are read from what the tools recorded: the fast CI keeps its checks under `push`, the merge
+    // its run of the full CI as a list, as a run again does, and the full CI on the draft its first run's under `first`;
+    // a run that failed or was refused has none, nor does the merge's record of a merge commit or of none yet.
     #[test]
     fn the_names_of_the_checks_of_every_recorded_ci_run_are_read_from_each_tools_record() {
         let check = |n: &str| json!({ "name": n, "result": "green", "run": "u" });
         let fast =
             json!({ "push": { "verdict": "pushed", "head": "h", "checks": [check("lint"), check("test 1 of 3")] } });
+        let merge = json!([check("check"), check("lint")]);
         let first = json!({ "first": [check("lint"), check("full only")] });
         let again = json!([check("again only")]);
         let refused = json!({ "push": { "verdict": "refused", "why": "w" } });
         let failed = json!({ "failed": { "kind": "other", "what": "w" } });
         assert_eq!(
-            check_names(&[fast, first, again, refused, failed]),
-            ["lint", "test 1 of 3", "full only", "again only"]
+            check_names(&[
+                fast,
+                merge,
+                json!("0123abc"),
+                Value::Null,
+                first,
+                again,
+                refused,
+                failed
+            ]),
+            ["lint", "test 1 of 3", "check", "full only", "again only"]
         );
     }
 

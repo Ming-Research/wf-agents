@@ -1,9 +1,10 @@
 name: ci
 
 # The full CI: every test, and the lint. It runs on each push to main, and on a work's branch only when the engine runs
-# it by hand: its full CI before the review and the merge (the project's configuration sets `on_demand`). While a work's
-# code is being written, the engine runs fast.yml instead, with the tests named (`fast`, `tests_input`). A push to any
-# other branch runs nothing.
+# it by hand, once, at the merge (the project's configuration sets `on_demand`): what it finds red goes back to the
+# work, which fixes it with fast.yml, and the head handed in next is run here once more. While a work's code is being
+# written, the engine runs fast.yml instead, with the tests named and, while what this found in the lint is being
+# fixed, the lint (`fast`, `tests_input`, `named_checks`). A push to any other branch runs nothing.
 on:
   push:
     branches:
