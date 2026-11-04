@@ -689,7 +689,11 @@ fn words_not_to_check_a_condition_hold_for_each_look_after() {
     e.built_from = main_head(&s);
     the_wait_passes(&mut e, work);
     step_to(&mut e, item, "E1");
-    assert!(why_sent_back(&e, work, "W2").is_empty(), "{:?}", why_sent_back(&e, work, "W2"));
+    assert!(
+        why_sent_back(&e, work, "W2").is_empty(),
+        "{:?}",
+        why_sent_back(&e, work, "W2")
+    );
     assert_eq!(looks(&e, item), ["again", "verified"]);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -765,7 +769,10 @@ fn a_look_finds_what_it_saw_in_the_file_a_long_result_was_saved_to() {
     let (work, _, _) = state(&e, item).unwrap();
     let sent_back = why_sent_back(&e, work, "W2");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}");
-    assert!(sent_back[0].contains("is not in the result of that run"), "{sent_back:?}");
+    assert!(
+        sent_back[0].contains("is not in the result of that run"),
+        "{sent_back:?}"
+    );
     assert_eq!(looks(&e, item), ["verified"]);
     let _ = std::fs::remove_dir_all(&s.root);
 }

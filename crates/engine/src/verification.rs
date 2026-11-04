@@ -363,7 +363,8 @@ pub fn cover_problems(wanted: &[String], verdicts: &[Value], words: bool) -> Pro
         |xs| format!("no verdict for acceptance conditions {xs}"),
     );
     if !words && verdicts.iter().any(|v| v["verdict"] == "skipped") {
-        problems.push("skipped is only for a condition someone said not to check, since the merge; no one said anything");
+        problems
+            .push("skipped is only for a condition someone said not to check, since the merge; no one said anything");
     }
     problems
 }
@@ -416,15 +417,12 @@ pub fn runs_since(conn: &Connection, work: i64, since: i64) -> Result<Vec<Run>, 
     Ok(rows
         .iter()
         .map(|r| {
-            let ran = &r["result"]["ran"];
-            let said = ran["saved"].as_str().or_else(|| ran["output"].as_str());
+            let saved = r["result"]["ran"]["saved"].as_str().and_then(crate::tools::saved_to);
             Run {
                 tool: r["tool"].as_str().unwrap_or_default().to_string(),
                 given: r["given"].as_str().unwrap_or_default().to_string(),
                 result: r["result"].clone(),
-                saved: said
-                    .and_then(crate::tools::saved_to)
-                    .and_then(|path| std::fs::read_to_string(path).ok()),
+                saved: saved.and_then(|path| std::fs::read_to_string(path).ok()),
             }
         })
         .collect())
@@ -441,11 +439,13 @@ fn placed(command: &str, at: i64) -> String {
     command.replace(":in_effect_at", &at.to_string())
 }
 
-/// Whether a run ran to its end and well: a query that gave rows, or a gh command that exited 0. One that did not is
-/// cannot_judge, and nothing it said is evidence.
+/// Whether a run ran to its end and well: a query that gave rows, or a gh command that exited 0, whose record is its exit
+/// code and its whole output. One that did not is cannot_judge, and nothing it said is evidence.
 fn ran_well(run: &Run) -> bool {
-    let ran = &run.result["ran"];
-    ran["verdict"] == "ran" && ran["exit"].as_i64().unwrap_or(0) == 0
+    if run.tool == "gh" {
+        return run.result[0] == 0;
+    }
+    run.result["ran"]["verdict"] == "ran"
 }
 
 /// Whether `seen` is in `text` as a whole: not the `7` of `217`, nor the `fetch` of `fetched`.
@@ -473,32 +473,30 @@ fn in_row(row: &Value, seen: &str) -> bool {
         .flat_map(|o| o.values())
         .map(cell_text)
         .collect();
-    let in_a_value = row
-        .as_object()
-        .into_iter()
-        .flat_map(|o| o.values())
-        .any(|v| match v {
-            Value::String(s) => whole_in(s, seen),
-            other => other.to_string() == seen,
-        });
+    let in_a_value = row.as_object().into_iter().flat_map(|o| o.values()).any(|v| match v {
+        Value::String(s) => whole_in(s, seen),
+        other => other.to_string() == seen,
+    });
     in_a_value || (whole_in(&row.to_string(), seen) && values.iter().any(|v| !v.is_empty() && whole_in(seen, v)))
 }
 
-/// Whether a run that ran well showed `seen`: among a query's rows or in a gh command's output, or in the file where they
+/// Whether a run that ran well showed `seen`: in a gh command's output, or among a query's rows, or in the file where those
 /// were saved. What the tool itself says of the run, its fields' names and the path of that file, shows nothing.
 fn shown_in(run: &Run, seen: &str) -> bool {
-    let ran = &run.result["ran"];
-    if run.tool == "query" {
-        let given = ran["rows"].as_array().into_iter().flatten().any(|row| in_row(row, seen));
-        let saved = run.saved.iter().flat_map(|text| text.lines()).any(|line| {
-            serde_json::from_str::<Value>(line).is_ok_and(|row| in_row(&row, seen))
-        });
-        return given || saved;
+    if run.tool == "gh" {
+        return run.result[1].as_str().is_some_and(|text| whole_in(text, seen));
     }
-    match &run.saved {
-        Some(text) => whole_in(text, seen),
-        None => ran["output"].as_str().is_some_and(|text| whole_in(text, seen)),
-    }
+    let given = run.result["ran"]["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|row| in_row(row, seen));
+    let saved = run
+        .saved
+        .iter()
+        .flat_map(|text| text.lines())
+        .any(|line| serde_json::from_str::<Value>(line).is_ok_and(|row| in_row(&row, seen)));
+    given || saved
 }
 
 /// What is wrong with what a look's verdicts rest on: a verdict of holds or fails names its condition's own command with
@@ -824,11 +822,7 @@ mod tests {
             PLACED,
             json!({ "ran": { "verdict": "ran", "rows": [{ "verdict": "refused", "ms": 218_000 }] } }),
         );
-        let gh = ran(
-            "gh",
-            VIEW,
-            json!({ "ran": { "verdict": "ran", "exit": 0, "output": "{\"state\":\"MERGED\"}" } }),
-        );
+        let gh = ran("gh", VIEW, json!([0, "{\"state\":\"MERGED\"}"]));
         let runs = [query, gh];
         let conditions = [checked_by("A1", "query", QUERY), checked_by("A2", "gh", VIEW)];
         let problems = |v: Value, runs: &[Run]| said(basis_problems(&[v], &conditions, 50, runs));
@@ -871,17 +865,16 @@ mod tests {
             PLACED,
             json!({ "ran": { "verdict": "error", "error": "no such table: t" } }),
         );
-        let exited = ran(
-            "gh",
-            VIEW,
-            json!({ "ran": { "verdict": "ran", "exit": 1, "output": "MERGED" } }),
-        );
+        let exited = ran("gh", VIEW, json!([1, "MERGED"]));
+        let cut_off = ran("gh", VIEW, json!({ "failed": { "kind": "other", "what": "MERGED" } }));
         let cannot = "that run did not run to its end";
         assert!(problems(holds("A1", PLACED, "no such table"), &[broken])[0].contains(cannot));
         assert!(problems(holds("A2", VIEW, "MERGED"), &[exited])[0].contains(cannot));
+        assert!(problems(holds("A2", VIEW, "MERGED"), &[cut_off])[0].contains(cannot));
     }
 
-    // A result too long to give is looked for in the file it was saved to, and the words that say where it is show nothing.
+    // Rows too long to give are looked for in the file they were saved to, and the words that say where it is show nothing.
+    // A gh command's record holds its whole output, however long.
     #[test]
     fn a_long_result_is_looked_for_in_the_file_it_was_saved_to() {
         let conditions = [checked_by("A1", "query", "Q"), checked_by("A2", "gh", "pr list")];
@@ -893,20 +886,13 @@ mod tests {
                 json!({ "ran": { "verdict": "ran", "rows": [], "saved": "Too long to give here (9 bytes); saved to /x/y" } }),
             )
         };
-        let gh = Run {
-            saved: Some("the state is MERGED".into()),
-            ..ran(
-                "gh",
-                "pr list",
-                json!({ "ran": { "verdict": "ran", "exit": 0, "output": "Too long to give here (9 bytes); saved to /x/y" } }),
-            )
-        };
-        let runs = [query, gh];
+        let long = format!("{} the state is MERGED", "x".repeat(30_000));
+        let runs = [query, ran("gh", "pr list", json!([0, long]))];
         let problems = |v: Value| basis_problems(&[v], &conditions, 0, &runs);
         assert!(problems(holds("A1", "Q", "218000")).is_empty());
         assert!(problems(holds("A1", "Q", "7")).is_empty());
         assert!(problems(holds("A2", "pr list", "MERGED")).is_empty());
-        for (id, run, seen) in [("A1", "Q", "8"), ("A1", "Q", "saved to"), ("A2", "pr list", "saved to")] {
+        for (id, run, seen) in [("A1", "Q", "8"), ("A1", "Q", "saved to"), ("A2", "pr list", "CLOSED")] {
             assert_eq!(problems(holds(id, run, seen)).texts().len(), 1, "{seen}");
         }
     }
