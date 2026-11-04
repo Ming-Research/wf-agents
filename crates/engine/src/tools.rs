@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use crate::hub::{self, CheckRun, Failure};
 use crate::inputs::Gathered;
 use crate::work::{self, Item, RoundId, Work};
-use crate::{Engine, git, test_name};
+use crate::{Engine, git, results};
 use sessions::worktree::Unfit;
 
 /// How many times a tool is tried before it is given up.
@@ -380,7 +380,7 @@ fn fast_checks(
     // The runs of the workflow on the commit there are now are not the one asked for: that is numbered above them.
     let before = github.latest_run_id(&repo, sha, fast)?;
     github
-        .dispatch(&repo, fast, branch, &[(input, tests.join(" ").as_str())])
+        .dispatch(&repo, fast, branch, &[(input, tests_input(tests).as_str())])
         .map_err(dispatch_failed)?;
     let run = if tests.is_empty() { "lint" } else { "named_and_lint" };
     Ok((run, github.checks_after(&repo, sha, fast, before)?))
@@ -480,88 +480,70 @@ fn record_push(e: &mut Engine, w: &Work, head: Option<&str>, pr: Option<i64>) ->
     .map_err(sql)
 }
 
-/// A test as a cargo-nextest log ends it: how it ended, how long it took, its test binary and its name, read from a
-/// line such as `PASS [   1.234s] (  3/520) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue`.
-struct Timed {
-    status: String,
-    time: String,
-    binary: String,
-    test: String,
-}
-
-/// How nextest says a test ended, besides a signal (SIGSEGV and the like). Its other lines with a time (SLOW, a
-/// retry's TRY, the Summary) end no test.
-const ENDED: [&str; 6] = ["PASS", "FAIL", "TIMEOUT", "LEAK", "LEAK-FAIL", "ABORT"];
-
-/// The tests a cargo-nextest log shows ended, in the order they ended, each once. Each line is read as a reader sees
-/// it: without the job, the step and the time gh puts before it, and without colour escapes.
-fn timed(log: &str) -> Vec<Timed> {
-    let mut out: Vec<Timed> = Vec::new();
-    for line in hub::clean_log(log).lines() {
-        let Some((status, rest)) = line.trim().split_once(" [") else {
-            continue;
-        };
-        if !ENDED.contains(&status) && !status.starts_with("SIG") {
-            continue;
-        }
-        let Some((time, rest)) = rest.split_once(']') else {
-            continue;
-        };
-        let time = time.trim();
-        if time.strip_suffix('s').is_none_or(|t| t.parse::<f64>().is_err()) {
-            continue;
-        }
-        // Nextest may count the tests before each one's binary: "(  3/520)".
-        let rest = rest.trim_start();
-        let rest = match rest.strip_prefix('(').and_then(|r| r.split_once(')')) {
-            Some((_, after)) => after.trim_start(),
-            None => rest,
-        };
-        let Some((binary, test)) = rest.split_once(' ') else {
-            continue;
-        };
-        let test = test.trim();
-        // The summary at the end names the tests that did not pass again.
-        if out.iter().any(|t| t.binary == binary && t.test == test) {
-            continue;
-        }
-        out.push(Timed {
-            status: status.to_string(),
-            time: time.to_string(),
-            binary: binary.to_string(),
-            test: test.to_string(),
-        });
+/// What became of each test named in a run of the fast CI, one row each ([`results::rows`]), from the results the run
+/// reported in the artifact the project's configuration names (`ci.results`), downloaded from the run any of its
+/// checks is of; unread, with why, when the project names no results, the run has no job or uploaded no such artifact,
+/// or it could not be fetched or read. Nothing is fetched when no test is named.
+fn named_results(
+    github: &dyn hub::GitHub,
+    project: &config::Project,
+    checks: &[CheckRun],
+    tests: &[String],
+) -> Vec<Value> {
+    if tests.is_empty() {
+        return Vec::new();
     }
-    out
+    let seps = project
+        .ci
+        .results
+        .as_ref()
+        .map(|r| r.separators.as_slice())
+        .unwrap_or_default();
+    let read = match (&project.ci.results, checks.first()) {
+        (None, _) => Err("the project's configuration names no results of its fast CI (ci.results)".to_string()),
+        (Some(_), None) => Err("the run has no job".to_string()),
+        (Some(r), Some(check)) => match github.artifact(&repo(project), check, &r.artifact) {
+            Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", r.artifact)),
+            Ok(None) => Err(format!("the run uploaded no artifact {}", r.artifact)),
+            Err(f) => Err(format!("the artifact {} could not be fetched: {}", r.artifact, f.what)),
+        },
+    };
+    results::rows(tests, read.as_ref().map_err(String::as_str), seps)
 }
 
-/// What became of each named test in a run, as the logs of its jobs tell, cargo-nextest writing a line as each test
-/// ends: passed, with its time; failed, with how it ended and its time; or not run, when no log shows it, as when its
-/// job stopped at an earlier red test or there is no such test, so that a test the run did not reach is never read
-/// as measured; and when no log could be read, unread, with why. A test is named as [`test_name`] says.
-fn test_results(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
-    let found: Vec<Timed> = logs
-        .iter()
-        .filter_map(|l| l.as_ref().ok())
-        .flat_map(|l| timed(l))
-        .collect();
-    let unread: Vec<&str> = logs
-        .iter()
-        .filter_map(|l| l.as_ref().err().map(String::as_str))
-        .collect();
-    let holds = |t: &Timed, named: &str| test_name::matches_run(named, &t.binary, &t.test);
+/// The tests named in a request, as it wrote them.
+fn named_tests(req: &Value) -> Vec<String> {
+    req["tests"]
+        .as_array()
+        .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// The tests named as the fast workflow takes them (`ci.tests_input` says how): each trimmed and followed by a line
+/// break, the last too, a blank one left out; empty when none is named.
+fn tests_input(tests: &[String]) -> String {
     tests
         .iter()
-        .map(|named| match found.iter().find(|t| holds(t, named)) {
-            Some(t) if t.status == "PASS" => json!({ "test": named, "result": "passed", "time": t.time }),
-            Some(t) => json!({ "test": named, "result": "failed", "time": t.time, "ended": t.status }),
-            None if found.is_empty() && !unread.is_empty() => json!({
-                "test": named, "result": "unread",
-                "why": format!("the logs of the run could not be read: {}", unread.join("; ")),
-            }),
-            None => json!({ "test": named, "result": "not_run" }),
-        })
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("{t}\n"))
         .collect()
+}
+
+/// Why the tests named cannot be given to the fast workflow, which takes each name followed by a line break: a name
+/// that holds a line break would be taken for two. None when each is one line.
+fn tests_refusal(tests: &[String]) -> Option<String> {
+    let broken: Vec<String> = tests
+        .iter()
+        .filter(|t| t.contains(['\n', '\r']))
+        .map(|t| format!("{t:?}"))
+        .collect();
+    (!broken.is_empty()).then(|| {
+        format!(
+            "A test's name is one line, and these hold a line break: {}; nothing was pushed",
+            broken.join(", ")
+        )
+    })
 }
 
 // Cell `X1`.
@@ -777,7 +759,8 @@ fn ci(
         .ok_or_else(|| (Failure::other("the work has no worktree"), String::new()))?;
     let branch = w.branch.clone().unwrap_or_default();
     let head = req["head"].as_str().unwrap_or_default();
-    if let Some(why) = push_refusal(&wt, head, pushed.as_deref(), &project.main) {
+    let tests = named_tests(req);
+    if let Some(why) = push_refusal(&wt, head, pushed.as_deref(), &project.main).or_else(|| tests_refusal(&tests)) {
         return Ok(json!({ "push": { "verdict": "refused", "why": why } }));
     }
     let sha = git::resolve(&wt, head).unwrap_or_default();
@@ -788,10 +771,6 @@ fn ci(
             p["body"].as_str().unwrap_or_default().to_string(),
         )
     });
-    let tests: Vec<String> = req["tests"]
-        .as_array()
-        .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
     let got = attempts(e, round, "ci", req, |e| {
         hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
         told(&sha);
@@ -813,15 +792,7 @@ fn ci(
         // A pull request that was open already, one a work took over among them, keeps the base it was opened with.
         hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
         let (run, checks) = fast_checks(e.github(), project, &branch, &sha, &tests)?;
-        let logs: Vec<Result<String, String>> = checks
-            .iter()
-            .map(|c| {
-                e.github()
-                    .job_log(&repo(project), c)
-                    .map_err(|f| format!("{}: {}", c.name, f.what))
-            })
-            .collect();
-        let tests = test_results(&tests, &logs);
+        let tests = named_results(e.github(), project, &checks, &tests);
         let mut push = json!({
             "verdict": "pushed", "head": sha, "run": run, "checks": checks_json(&checks), "tests": tests
         });
@@ -954,7 +925,7 @@ fn ci_before(
     for f in &files {
         if !git::under(f, &project.test_paths) {
             return refused(format!(
-                "{f} is outside the test paths: {}",
+                "{f} is outside the test paths: {}; nothing was pushed",
                 project.test_paths.join(", ")
             ));
         }
@@ -962,13 +933,13 @@ fn ci_before(
             return refused(format!("{f} is not on the head {sha}"));
         }
     }
+    let tests = named_tests(req);
+    if let Some(why) = tests_refusal(&tests) {
+        return refused(why);
+    }
     let base = git::git(&wt, &["merge-base", &sha, &format!("origin/{}", project.main)])
         .map(|s| s.trim().to_string())
         .map_err(|x| (Failure::other(x), String::new()))?;
-    let tests: Vec<String> = req["tests"]
-        .as_array()
-        .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
     // Where the fast CI takes the tests to run, it runs exactly the named ones, each to its end, by hand on the
     // temporary branch; else the push runs the whole of it, which stops at a job's first red test. A push runs it only
     // where the project says its fast CI runs on those branches: else nothing would run and the wait for a run would be
@@ -982,7 +953,7 @@ fn ci_before(
                 .to_string(),
         );
     }
-    let listed = tests.join(" ");
+    let listed = tests_input(&tests);
     let tag = format!("{}-{}-{n}", round.work, round.n);
     let branch = format!("{BEFORE}/{tag}");
     let refname = format!("refs/heads/{branch}");
@@ -1002,22 +973,13 @@ fn ci_before(
                 "GitHub refused to run {}: {}", project.ci.fast, f.what
             ) } }));
         }
-        let logs: Vec<Result<String, String>> = ran
-            .iter()
-            .flatten()
-            .map(|c| {
-                e.github()
-                    .job_log(&repo(project), c)
-                    .map_err(|f| format!("{}: {}", c.name, f.what))
-            })
-            .collect();
         let _ = hub::delete_ref(&wt, &refname);
         let checks = ran?;
         Ok(json!({ "ran": {
             "verdict": "ran",
             "run": if named.is_some() { "named" } else { "whole" },
             "checks": checks_json(&checks),
-            "tests": test_results(&tests, &logs),
+            "tests": named_results(e.github(), project, &checks, &tests),
         } }))
     })
 }
@@ -1659,66 +1621,23 @@ mod tests {
         assert!(words("pr view 'x").is_err());
     }
 
-    // Each named test is given what became of it in any job's log: passed with its time, failed with how it ended,
-    // or not run when no log shows it, as when its job stopped at an earlier red test; unread when no log could be
-    // read.
+    // The tests named go to the fast workflow each followed by a line break, the last too, so that a name with spaces
+    // in it stays one name even when it is named alone; each is trimmed and a blank one left out, and none named is an
+    // empty input. A name that holds a line break would be taken for two, and is refused.
     #[test]
-    fn a_named_test_is_given_its_result_from_any_job_s_log() {
-        let first = "    Starting 3 tests across 2 binaries (5 tests skipped)
-        PASS [   0.007s] (1/3) engine tools::tests::a_command_line_is_split_as_a_shell_would
-        SLOW [> 30.000s] (───────) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
-        PASS [  35.134s] (2/3) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
-     TIMEOUT [  60.003s] (3/3) engine::e2e a_work_s_pause_is_kept_across_a_restart
-------------
-     Summary [  60.010s] 3 tests run: 2 passed, 1 timed out, 5 skipped
-     TIMEOUT [  60.003s] (3/3) engine::e2e a_work_s_pause_is_kept_across_a_restart
-";
-        let second = "        FAIL [   1.250s] (1/1) flow::negative no_such_view\n";
-        let named = vec![
-            "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
-            "engine::tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
-            "engine::e2e a_work_s_pause_is_kept_across_a_restart".to_string(),
-            "no_such_view".to_string(),
-            "missing".to_string(),
-        ];
-        let results = test_results(&named, &[Ok(first.to_string()), Ok(second.to_string())]);
+    fn the_tests_named_go_one_on_each_line_and_a_name_with_a_line_break_is_refused() {
+        let tests = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let named = tests(&["a page > shows the list", " a_test ", "", "engine::e2e b"]);
+        assert_eq!(tests_input(&named), "a page > shows the list\na_test\nengine::e2e b\n");
         assert_eq!(
-            results[0],
-            json!({ "test": named[0], "result": "passed", "time": "35.134s" })
+            tests_input(&tests(&["a page > shows the list"])),
+            "a page > shows the list\n"
         );
-        assert_eq!(results[1]["time"], "0.007s");
-        assert_eq!(
-            (&results[2]["result"], &results[2]["time"], &results[2]["ended"]),
-            (&json!("failed"), &json!("60.003s"), &json!("TIMEOUT"))
-        );
-        assert_eq!(results[3]["ended"], "FAIL");
-        assert_eq!(results[4], json!({ "test": "missing", "result": "not_run" }));
-        let unread = test_results(&named[..1], &[Err("check: HTTP 404".to_string())]);
-        assert_eq!(unread[0]["result"], "unread");
-        assert_eq!(
-            unread[0]["why"],
-            "the logs of the run could not be read: check: HTTP 404"
-        );
-    }
-
-    // Lines copied from a real job log, as gh gives it: the job, the step and the time before each line, and the
-    // colour escapes nextest writes, their escape character written "^[" by gh.
-    #[test]
-    fn a_named_test_is_found_in_a_real_job_log() {
-        let log = concat!(
-            "test 1 of 3\tSet up job\t\u{feff}2026-10-30T00:54:03.1443351Z Current runner version: '2.338.0'\n",
-            "test 1 of 3\tTest\t2026-10-30T00:56:55.6846661Z ^[[32;1m    Starting^[[0m ^[[1m141^[[0m tests across ^[[1m14^[[0m binaries (^[[1m270^[[0m tests ^[[33;1mskipped^[[0m)\n",
-            "test 1 of 3\tTest\t2026-10-30T00:57:30.8321137Z ^[[32;1m        PASS^[[0m [   0.007s] ( 41/141) ^[[35;1mengine^[[0m ^[[36mtools::tests^[[0m^[[36m::^[[0m^[[34;1ma_command_line_is_split_as_a_shell_would^[[0m\n",
-            "test 1 of 3\tTest\t2026-10-30T00:59:08.9861466Z ^[[33;1m        SLOW^[[0m [> 30.000s] (───────) ^[[35;1mengine::e2e^[[0m ^[[34;1ma_takeover_waits_for_a_free_slot_at_the_head_of_the_queue^[[0m\n",
-            "test 1 of 3\tTest\t2026-10-30T00:59:14.1170419Z ^[[32;1m        PASS^[[0m [  35.134s] ( 64/141) ^[[35;1mengine::e2e^[[0m ^[[34;1ma_takeover_waits_for_a_free_slot_at_the_head_of_the_queue^[[0m\n",
-        );
-        let named = [
-            "tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
-            "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
-        ];
-        let results = test_results(&named, &[Ok(log.to_string())]);
-        assert_eq!(results[0]["time"], "0.007s");
-        assert_eq!(results[1]["time"], "35.134s");
+        assert_eq!(tests_input(&[]), "");
+        assert_eq!(tests_refusal(&named), None);
+        let why = tests_refusal(&tests(&["a_test", "two\nnames", "and\r"])).unwrap();
+        assert!(why.contains("\"two\\nnames\", \"and\\r\""), "{why}");
+        assert!(!why.contains("a_test"), "{why}");
     }
 
     #[test]
@@ -2166,6 +2085,9 @@ mod ci_on_demand {
     /// A workflow run by hand: the workflow, the branch and the inputs.
     type Dispatch = (String, String, Vec<(String, String)>);
 
+    /// The artifact a run of the rig's fast CI reports its tests' results in.
+    const RESULTS: &str = "test-results";
+
     #[derive(Default)]
     struct State {
         /// The runs that can be seen now.
@@ -2178,8 +2100,8 @@ mod ci_on_demand {
         /// What a run of a workflow that a push makes holds: a commit with no run of it gets one when it is looked for,
         /// as a push to a branch the workflow runs on does.
         on_push: BTreeMap<String, Made>,
-        /// The log of every job, where the tests ended are read from.
-        log: Option<String>,
+        /// The files of the artifact of test results ([`RESULTS`]) every run has; none, and no run has one.
+        reports: Option<Vec<hub::ArtifactFile>>,
         /// What GitHub says in refusing every request to run a workflow by hand, when it does.
         rejects: Option<String>,
         /// The head of a branch, where no repository tells.
@@ -2253,9 +2175,9 @@ mod ci_on_demand {
             self.state().on_push.insert(workflow.to_string(), made(checks));
         }
 
-        /// The log every job of a run has.
-        fn logs(&self, log: &str) {
-            self.state().log = Some(log.to_string());
+        /// The JUnit file the artifact of test results of every run holds from now on.
+        fn reports(&self, junit: &str) {
+            self.state().reports = Some(vec![("junit.xml".to_string(), junit.as_bytes().to_vec())]);
         }
 
         /// From now on GitHub refuses every request to run a workflow by hand with these words; none, it accepts them.
@@ -2352,11 +2274,13 @@ mod ci_on_demand {
             }
         }
 
-        fn job_log(&self, _repo: &str, _check: &CheckRun) -> Result<String, Failure> {
-            self.state()
-                .log
-                .clone()
-                .ok_or_else(|| Failure::other("no job logs here"))
+        fn artifact(
+            &self,
+            _repo: &str,
+            _check: &CheckRun,
+            name: &str,
+        ) -> Result<Option<Vec<hub::ArtifactFile>>, Failure> {
+            Ok(self.state().reports.clone().filter(|_| name == RESULTS))
         }
 
         fn latest_run_id(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Option<i64>, Failure> {
@@ -2465,7 +2389,7 @@ mod ci_on_demand {
                 [("lint", now), ("fast", now)],
                 "after a run that was {before}"
             );
-            let inputs = vec![("tests".to_string(), "a_test engine::another".to_string())];
+            let inputs = vec![("tests".to_string(), "a_test\nengine::another\n".to_string())];
             assert_eq!(runs.dispatched(), [("fast".to_string(), "work".to_string(), inputs)]);
         }
     }
@@ -2630,6 +2554,11 @@ mod ci_on_demand {
 
     /// A rig whose project's `[ci]` table holds `ci`.
     fn rig_with(name: &str, ci: &str) -> Rig {
+        rig_of(name, "test_paths = [\"tests/\"]\n", ci)
+    }
+
+    /// A rig whose project's file holds `top` above its `[ci]` table, which holds `ci`.
+    fn rig_of(name: &str, top: &str, ci: &str) -> Rig {
         let root = std::env::temp_dir().join(format!("wf-agents-ci-on-demand-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
@@ -2676,7 +2605,7 @@ timeout_ms = 1000
         std::fs::write(
             data.join("projects/p.toml"),
             format!(
-                "repo = \"o/p\"\ncheckout = \"{}\"\ndesign_goal = \"simple\"\ntest_paths = [\"tests/\"]\n[ci]\n{ci}",
+                "repo = \"o/p\"\ncheckout = \"{}\"\ndesign_goal = \"simple\"\n{top}[ci]\n{ci}",
                 wt.display()
             ),
         )
@@ -2753,10 +2682,15 @@ timeout_ms = 1000
 
         /// The tool `ci_before` asked to run the tests on the code before the change.
         fn ci_before(&mut self, tests: &[&str]) -> Value {
+            self.ci_before_of(&[], tests)
+        }
+
+        /// The tool `ci_before` asked to put the files on the code before the change and run the tests there.
+        fn ci_before_of(&mut self, files: &[&str], tests: &[&str]) -> Value {
             let w = Work::load(self.e.db.conn(), self.work, None).unwrap();
             let project = self.e.project_of(&w).unwrap();
             let round = RoundId { work: self.work, n: 1 };
-            let req = json!({ "tool": "ci_before", "head": self.head, "files": [], "tests": tests });
+            let req = json!({ "tool": "ci_before", "head": self.head, "files": files, "tests": tests });
             ci_before(
                 &mut self.e,
                 &w,
@@ -2813,7 +2747,7 @@ timeout_ms = 1000
         assert_eq!(v["push"]["run"], "named_and_lint");
         let checks = v["push"]["checks"].as_array().unwrap();
         assert!(checks.iter().all(|c| c["result"] == "green"), "{v}");
-        let inputs = vec![("tests".to_string(), "a_test engine::b".to_string())];
+        let inputs = vec![("tests".to_string(), "a_test\nengine::b\n".to_string())];
         assert_eq!(r.runs.dispatched(), [("fast".to_string(), "work".to_string(), inputs)]);
         // Naming no test, it is the lint only.
         r.runs.clear();
@@ -2846,14 +2780,17 @@ timeout_ms = 1000
 
     // A project whose fast CI takes no tests to run and does not say it stays off the temporary branches has the
     // tests run there as it always had: the push is the run, nothing is run by hand, and each test named is read from
-    // the logs of the whole run, which says what ran.
+    // the results of the whole run, which says what ran.
     #[test]
     fn the_tool_ci_before_waits_for_the_push_run_of_a_project_that_takes_no_tests_input() {
-        let mut r = rig_with("tool-ci-before-whole", NO_TESTS_INPUT);
+        let ci = format!("{NO_TESTS_INPUT}results = {{ artifact = \"{RESULTS}\", separators = [\"::\"] }}\n");
+        let mut r = rig_with("tool-ci-before-whole", &ci);
         r.runs.on_push("ci", &[("test 1 of 1", "red")]);
-        r.runs.logs(
-            "        PASS [   0.007s] (1/2) engine tools::tests::a_test\n\
-                     FAIL [   0.010s] (2/2) engine tools::tests::b_test\n",
+        r.runs.reports(
+            "<testsuites><testsuite name=\"engine\">\
+             <testcase name=\"tools::tests::a_test\" time=\"0.007\"/>\
+             <testcase name=\"tools::tests::b_test\" time=\"0.010\"><failure/></testcase>\
+             </testsuite></testsuites>",
         );
         let v = r.ci_before(&["a_test", "b_test", "c_test"]);
         assert_eq!(v["ran"]["verdict"], "ran", "{v}");
@@ -2909,7 +2846,83 @@ timeout_ms = 1000
         };
         assert_eq!(workflow, "fast");
         assert!(branch.starts_with(BEFORE), "{branch}");
-        assert_eq!(inputs, &[("tests".to_string(), "a_test".to_string())]);
+        assert_eq!(inputs, &[("tests".to_string(), "a_test\n".to_string())]);
+    }
+
+    // Item #11: a project whose test paths select its page's test files by a pattern in a segment
+    // (`client/src/*.test.ts`) has ci_before put such a file on the code before the change, and refuses the page's
+    // own file beside it, saying why, pushing and running nothing. Both tools read each page test named, as
+    // `describe > it` or as its title alone, from the JUnit results the configuration names, by its separators.
+    #[test]
+    fn page_tests_are_put_before_the_change_by_a_pattern_and_read_from_the_results() {
+        let ci = format!("{ON_DEMAND}results = {{ artifact = \"{RESULTS}\", separators = [\"::\", \" > \"] }}\n");
+        let mut r = rig_of("page-tests", "test_paths = [\"client/src/*.test.ts\"]\n", &ci);
+        std::fs::create_dir_all(r.wt.join("client/src")).unwrap();
+        std::fs::write(r.wt.join("client/src/a.ts"), "export const a = 1;\n").unwrap();
+        std::fs::write(r.wt.join("client/src/a.test.ts"), "it('shows the list', () => {});\n").unwrap();
+        r.head = commit(&r.wt, "page tests");
+        // The page's own file is refused: nothing is pushed and nothing runs.
+        let v = r.ci_before_of(&["client/src/a.test.ts", "client/src/a.ts"], &["shows the list"]);
+        assert_eq!(v["ran"]["verdict"], "refused", "{v}");
+        let why = v["ran"]["why"].as_str().unwrap();
+        assert!(
+            why.contains("client/src/a.ts is outside the test paths: client/src/*.test.ts; nothing was pushed"),
+            "{why}"
+        );
+        assert!(r.runs.dispatched().is_empty());
+        let branches = git::git(&r.origin, &["branch", "--list", "--format=%(refname:short)"]).unwrap();
+        assert!(!branches.contains(BEFORE), "something was pushed:\n{branches}");
+        // The test file alone is put on the code before the change, and its tests are read from the results.
+        r.runs.makes("fast", &[("fast", "red")]);
+        r.runs.reports(
+            "<testsuites><testsuite name=\"src/a.test.ts\">\
+             <testcase name=\"a page &gt; shows the list\" time=\"0.004\"/>\
+             <testcase name=\"a page &gt; fails\" time=\"0.002\"><failure message=\"expected 1\"/></testcase>\
+             </testsuite></testsuites>",
+        );
+        let named = [
+            "a page > shows the list",
+            "fails",
+            "src/a.test.ts > a page > shows the list",
+            "list",
+        ];
+        let read = |tests: &Value| -> Vec<(String, String)> {
+            let rows = tests.as_array().unwrap();
+            rows.iter()
+                .map(|t| {
+                    (
+                        t["test"].as_str().unwrap().to_string(),
+                        t["result"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect()
+        };
+        let want: Vec<(String, String)> = [
+            ("a page > shows the list", "passed"),
+            ("fails", "failed"),
+            ("src/a.test.ts > a page > shows the list", "passed"),
+            ("list", "not_run"),
+        ]
+        .iter()
+        .map(|(t, r)| (t.to_string(), r.to_string()))
+        .collect();
+        let v = r.ci_before_of(&["client/src/a.test.ts"], &named);
+        assert_eq!(v["ran"]["verdict"], "ran", "{v}");
+        assert_eq!(read(&v["ran"]["tests"]), want, "{v}");
+        let [(_, branch, inputs)] = &r.runs.dispatched()[..] else {
+            panic!("one run by hand: {:?}", r.runs.dispatched());
+        };
+        assert!(branch.starts_with(BEFORE), "{branch}");
+        assert_eq!(inputs, &[("tests".to_string(), format!("{}\n", named.join("\n")))]);
+        // The commit it ran on holds main's file and the test file, and not the page's own file.
+        let ran_on = r.runs.state().seen.last().map(|run| run.sha.clone()).unwrap();
+        let tree = git::git(&r.origin, &["ls-tree", "-r", "--name-only", &ran_on]).unwrap();
+        assert_eq!(tree.lines().collect::<Vec<_>>(), ["a.txt", "client/src/a.test.ts"]);
+        // ci on the head reads them alike.
+        r.runs.clear();
+        let v = r.ci(&named);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        assert_eq!(read(&v["push"]["tests"]), want, "{v}");
     }
 
     // No head merges on the fast CI's word. With the fast CI green on the head and no run of the full CI, the merge

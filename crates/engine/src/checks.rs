@@ -9,8 +9,7 @@
 //! left out.
 //!
 //! In this version some checks look at less than the flow says, because what they would compare is not recorded
-//! yet: CI gives each job's result, not each test's, so test results are checked only against what the jobs show;
-//! cited files are checked to exist, not to be in the diff; a table of findings is checked for one answer per id;
+//! yet: cited files are checked to exist, not to be in the diff; a table of findings is checked for one answer per id;
 //! a red check said not to be caused by the change is taken as written when main's checks cannot be read; a ruling
 //! said to be the advisor's, or the architect's or the owner's in its place, is taken as written once the advisor was
 //! asked.
@@ -23,7 +22,7 @@ use serde_json::Value;
 
 use crate::inputs::{answered, at_path, last_return};
 use crate::work::{self, Item, Round, RoundId, Work};
-use crate::{Engine, form_of, git, test_name, test_tables, values};
+use crate::{Engine, form_of, git, results, test_name, test_tables, values};
 use sessions::worktree::Unfit;
 
 pub use db::DESIGN_CARD_RULING;
@@ -609,6 +608,34 @@ impl Ctx<'_> {
             .map_err(|e| e.to_string())
     }
 
+    /// What each run of ci on the head pushed last reported (its `push`), newest first; none when nothing was pushed.
+    fn head_pushes(&self) -> Result<Vec<Value>, String> {
+        let Some(pushed) = self.pushed_head()? else {
+            return Ok(Vec::new());
+        };
+        Ok(self
+            .ci_runs("ci")?
+            .into_iter()
+            .filter(|r| r["push"]["head"].as_str() == Some(pushed.as_str()))
+            .map(|r| r["push"].clone())
+            .collect())
+    }
+
+    /// The separators of the parts of a test's name, as the project's configuration names them; none when it names
+    /// none, or the work is in no project.
+    fn separators(&self) -> Vec<String> {
+        self.project
+            .and_then(|p| p.ci.results.as_ref())
+            .map(|r| r.separators.clone())
+            .unwrap_or_default()
+    }
+
+    /// Whether the project's configuration names the results of its fast CI (`ci.results`), so that a run of ci or
+    /// ci_before can report a test's result; a work in no project is not judged by it.
+    fn results_named(&self) -> bool {
+        self.project.is_none_or(|p| p.ci.results.is_some())
+    }
+
     /// The names of the checks of the CI runs recorded for this work, newest run first: those of the fast CI (a `ci`
     /// run keeps them under `push`) and of the full CI (an attempt keeps its first run's under `first`, a run again
     /// its list as it is). A run that did not get as far as its checks has none.
@@ -875,17 +902,31 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .collect();
             let recheck = c.cell.id == "T1" && !c.accepted("T1")?.is_empty();
             let wt = c.wt()?;
-            // The CI runs recorded are looked up only for a row that names a job.
+            // The CI runs recorded are looked up only for a row that names one of their jobs or tests.
             let jobs = if rows.iter().any(|r| r["how"] == "ci_job") {
                 c.ci_jobs()?
             } else {
                 Vec::new()
             };
+            let on_head = if rows.iter().any(|r| r["how"] == "tested") {
+                c.head_pushes()?
+            } else {
+                Vec::new()
+            };
+            let seps = c.separators();
+            let named = c.results_named();
             conditions_problems(
                 &wanted,
                 &rows,
                 recheck,
-                |t| test_name::on_branch(wt, t),
+                |t| on_head.iter().any(|run| reported(run, t, &seps).is_some()),
+                |names| {
+                    if named {
+                        not_reported_on_head(names, on_head.first())
+                    } else {
+                        no_results(names)
+                    }
+                },
                 &jobs,
                 |s| text_on_branch(wt, s),
             )
@@ -1680,17 +1721,18 @@ fn cover_problems(wanted: &[String], ids: &[String], recheck: bool) -> Problems 
 }
 
 /// What is wrong with a table of condition rows (`rows`) against the acceptance conditions in force (`wanted`): what
-/// [`cover_problems`] says about their ids; each test a row of kind tested names that is not on the branch
-/// (`on_branch` says, with the reason when not); and, for a row of kind ci_job, each job that is not a check of a CI
-/// run recorded for the work (`ci`; when none is recorded, that once, since any name would pass) and each step that is
-/// not text in a file of the branch (`step_on_branch` says). A row of kind read_diff names nothing the engine can look
-/// up: the table review reads it. With no condition in force the rows are no rows of any condition, so what they name
-/// is not looked for.
+/// [`cover_problems`] says about their ids; the tests rows of kind tested name that no run of ci on the pushed head
+/// reported (`reported` says whether one did), all in one problem (`unreported` says it); and, for a row of kind ci_job, each job that is not
+/// a check of a CI run recorded for the work (`ci`; when none is recorded, that once, since any name would pass) and
+/// each step that is not text in a file of the branch (`step_on_branch` says). A row of kind read_diff names nothing
+/// the engine can look up: the table review reads it. With no condition in force the rows are no rows of any condition,
+/// so what they name is not looked for.
 fn conditions_problems(
     wanted: &[String],
     rows: &[Value],
     recheck: bool,
-    on_branch: impl Fn(&str) -> Result<(), String>,
+    reported: impl Fn(&str) -> bool,
+    unreported: impl Fn(&[String]) -> String,
     ci: &[String],
     step_on_branch: impl Fn(&str) -> Result<(), String>,
 ) -> Problems {
@@ -1702,12 +1744,16 @@ fn conditions_problems(
     if wanted.is_empty() && !ids.is_empty() {
         return problems;
     }
+    let mut missing: Vec<String> = Vec::new();
     for r in rows.iter().filter(|r| r["how"] == "tested") {
         for t in strs(r.get("tests")) {
-            if let Err(why) = on_branch(&t) {
-                problems.push(why);
+            if !reported(&t) && !missing.contains(&t) {
+                missing.push(t);
             }
         }
+    }
+    if !missing.is_empty() {
+        problems.push(unreported(&missing));
     }
     // A job or step several rows name is said once, as `push` keeps a problem word for word the same once.
     for r in rows.iter().filter(|r| r["how"] == "ci_job") {
@@ -1931,39 +1977,108 @@ fn ruled_ids(c: &Ctx<'_>) -> Result<BTreeSet<String>, String> {
     Ok(out)
 }
 
-/// Whether a log says a test failed: a line names it with a word of failure besides its name. A red run's log lists
-/// the tests that passed too.
-fn names_failing(log: &str, name: &str) -> bool {
-    const FAILED: [&str; 6] = ["FAIL", "fail", "panicked", "----", "\u{2715}", "\u{2717}"];
-    !name.is_empty()
-        && log.lines().filter(|l| l.contains(name)).any(|l| {
-            let rest = l.replace(name, "");
-            FAILED.iter().any(|w| rest.contains(w))
-        })
-}
-
 /// Whether every check of a run is green.
 fn all_green(checks: Option<&Value>) -> bool {
     items(checks).iter().all(|x| x["result"] == "green")
 }
 
-/// Whether the log of a red check of a run names a test failing.
-fn names_red(checks: Option<&Value>, name: &str) -> bool {
-    items(checks)
+/// What a recorded run of ci or ci_before (its `push` or its `ran`) reports of the test a table names (`name`): the
+/// result of the tests the name names among those the run's rows list, by [`test_name::names`] with the project's
+/// separators (`seps`); none when the rows list none the name names, as those of a run of an engine before the results
+/// were read from JUnit list none.
+fn reported(run: &Value, name: &str, seps: &[String]) -> Option<&'static str> {
+    let rows = items(run.get("tests"));
+    let outcomes = rows
         .iter()
-        .any(|x| x["result"] == "red" && x["log_tail"].as_str().is_some_and(|l| names_failing(l, name)))
+        .flat_map(results::matched_of)
+        .filter(|(t, _)| test_name::names(name, t, seps))
+        .map(|(_, o)| o);
+    results::combined(outcomes)
 }
 
-/// A test said to be green on the head while every run on the head was red names it, or said to be red while every
-/// check on the head was green, does not match the runs; the same for the code before the change.
+/// What a run of ci_before reports of the test a table names: what [`reported`] gives, with no reason; else, for a row
+/// that lists no test and whose request named the test as the table does, its result and why: not built, not run or
+/// unread. None when it reports neither.
+fn reported_before(ran: &Value, name: &str, seps: &[String]) -> Option<(String, Option<String>)> {
+    if let Some(result) = reported(ran, name, seps) {
+        return Some((result.to_string(), None));
+    }
+    items(ran.get("tests")).iter().find_map(|row| {
+        let result = row["result"].as_str()?;
+        let same = row["test"].as_str().is_some_and(|t| t.trim() == name.trim());
+        (same && matches!(result, "not_built" | "not_run" | "unread") && results::matched_of(row).is_empty())
+            .then(|| (result.to_string(), row["why"].as_str().map(str::to_string)))
+    })
+}
+
+/// What a return is sent back with for the tests it names that no run of ci on the pushed head reported (`names`), all
+/// of them in one problem, by why none did: the latest run there (`latest`) could not read its results, which naming
+/// the tests again does not mend ([`unread_on_head`]); else they were not named in a run that read them
+/// ([`unreported`]).
+fn not_reported_on_head(names: &[String], latest: Option<&Value>) -> String {
+    match latest.and_then(unread_why) {
+        Some(why) => unread_on_head(names, why),
+        None => unreported(names),
+    }
+}
+
+/// Why a recorded run of ci or ci_before (its `push` or its `ran`) could not read its results, as its first unread row
+/// says; none when it read them, or named no test.
+fn unread_why(run: &Value) -> Option<&str> {
+    run["tests"]
+        .as_array()?
+        .iter()
+        .find(|row| row["result"] == "unread")
+        .map(|row| row["why"].as_str().unwrap_or("its rows say no reason"))
+}
+
+/// What a return is sent back with for the tests it names (`names`) when the latest run of ci on the pushed head could
+/// not read its results (`why`).
+fn unread_on_head(names: &[String], why: &str) -> String {
+    format!(
+        "the latest run of ci on the pushed head reports none of these, since it could not read its results ({why}): \
+         {}. Run ci again naming them; if its results still cannot be read, ask the architect, since the project's \
+         fast CI then does not report them where the project's configuration says",
+        names.join(", ")
+    )
+}
+
+/// What a return is sent back with for the tests it names (`names`) when the project's configuration names no results
+/// of its fast CI, so that no run of ci or ci_before can report any of them.
+fn no_results(names: &[String]) -> String {
+    format!(
+        "the project's configuration names no results of its fast CI (`ci.results`), so no run of ci or ci_before \
+         can report a result for these: {}. Running them again does not help: ask the architect",
+        names.join(", ")
+    )
+}
+
+/// What a return is sent back with for the tests it names that no run of ci on the pushed head reported (`names`), all
+/// of them in one problem.
+fn unreported(names: &[String]) -> String {
+    format!(
+        "no run of ci on the pushed head reported a test that these name: {}. Name them in the tests of the next ci, \
+         together with the tests of the test table; {}",
+        names.join(", "),
+        test_name::FORMS
+    )
+}
+
+/// The tests of a table whose results do not match the runs of ci on the pushed head and the runs of ci_before.
 ///
 /// Every test that does not match is a problem, with everything that is wrong with it.
 fn test_results_match_runs(c: &Ctx<'_>, rows: &[Value]) -> Result<Problems, String> {
-    let pushed = c.pushed_head()?;
-    let ci = c.ci_runs("ci")?;
-    let on_head = ci.iter().find(|r| r["push"]["head"].as_str() == pushed.as_deref());
+    if !c.results_named() {
+        let mut problems = Problems::default();
+        let names = test_names(rows);
+        if !names.is_empty() {
+            problems.push(no_results(&names));
+        }
+        return Ok(problems);
+    }
+    let on_head = c.head_pushes()?;
     let before = c.before_runs()?;
-    Ok(results_vs_runs(rows, on_head.map(|run| &run["push"]), &before, |run| {
+    Ok(results_vs_runs(rows, &on_head, &before, &c.separators(), |run| {
         c.changed_since(run)
     }))
 }
@@ -1984,50 +2099,66 @@ struct BeforeRun {
     files: Vec<String>,
 }
 
-/// The run of ci_before whose result for a test counts: the latest that reported the test. A test none of them
-/// reported (a run of an engine that did not report each test, or a name the request left out) is judged by the latest
-/// run's checks alone, as it was when there was one run to look at.
-fn run_for<'a>(runs: &'a [BeforeRun], name: &str) -> Option<&'a BeforeRun> {
+/// The run of ci_before whose result for a test counts: the latest that reported the test ([`reported_before`]). A test
+/// none of them reported (a run of an engine before the results were read from JUnit, or a name the request left out)
+/// is judged by the latest run's checks alone, as it was when there was one run to look at.
+fn run_for<'a>(runs: &'a [BeforeRun], name: &str, seps: &[String]) -> Option<&'a BeforeRun> {
     runs.iter()
-        .find(|r| {
-            items(r.ran.get("tests"))
-                .iter()
-                .any(|t| t["test"].as_str() == Some(name))
-        })
+        .find(|r| reported_before(&r.ran, name, seps).is_some())
         .or_else(|| runs.first())
 }
 
-/// The tests of a table (`rows`) whose results do not match the run of ci on the head (`on_head`, the run's push, when
-/// there is one) and the run of ci_before whose result for the test counts (`before`, the runs that ran, the latest
-/// first; [`run_for`]), every test and every result once. A result before the change counts only while the files that
-/// run put on the code before the change are as they were (`changed_since` gives those of a run that changed after
+/// The tests of a table (`rows`) whose results do not match the runs of ci on the pushed head (`on_head`, the push of
+/// each, the latest first) and the run of ci_before whose result for the test counts (`before`, the runs that ran, the
+/// latest first; [`run_for`]), every test and every result once; `seps` are the project's separators. A result on the
+/// head is that of the latest run there that reported the test; one that none reported is to be named in the next ci,
+/// and the tests no run there reported are said in one problem. A result before the change counts only while the files
+/// that run put on the code before the change are as they were (`changed_since` gives those of a run that changed after
 /// its commit): a test whose result comes from a run they changed after is to be run again, and is not compared with
 /// that run.
 fn results_vs_runs(
     rows: &[Value],
-    on_head: Option<&Value>,
+    on_head: &[Value],
     before: &[BeforeRun],
+    seps: &[String],
     changed_since: impl Fn(&BeforeRun) -> Vec<String>,
 ) -> Problems {
     let mut problems = Problems::default();
+    let mut unreported_names: Vec<String> = Vec::new();
     for t in rows {
         let name = t["name"].as_str().unwrap_or_default();
-        if let Some(run) = on_head {
-            let checks = run.get("checks");
-            match t["on_head"].as_str() {
-                Some("red") if all_green(checks) => problems.push(format!(
-                    "{name} is said to be red on the head, and every check there is green"
-                )),
-                Some("green") if names_red(checks, name) => problems.push(format!(
-                    "{name} is said to be green on the head, and a red check's log names it"
-                )),
-                _ => {}
+        match (
+            t["on_head"].as_str(),
+            on_head.iter().find_map(|run| reported(run, name, seps)),
+        ) {
+            (_, None) => {
+                if !unreported_names.iter().any(|n| n == name) {
+                    unreported_names.push(name.to_string());
+                }
             }
+            (Some("green"), Some(result @ ("failed" | "not_run"))) => problems.push(format!(
+                "{name} is said to be green on the head, and the latest run of ci there that reported it reports it \
+                 {}",
+                if result == "failed" {
+                    "failed"
+                } else {
+                    "skipped, so that nothing measured it"
+                }
+            )),
+            (Some("red"), Some(result @ ("passed" | "not_run"))) => problems.push(format!(
+                "{name} is said to be red on the head, and the latest run of ci there that reported it reports it {}",
+                if result == "passed" {
+                    "passed"
+                } else {
+                    "skipped, so that nothing measured it"
+                }
+            )),
+            _ => {}
         }
-        if let Some(run) = run_for(before, name) {
+        if let Some(run) = run_for(before, name, seps) {
             let changed = changed_since(run);
             if changed.is_empty() {
-                problems.extend(base_matches_run(name, t["on_base"].as_str(), &run.ran));
+                problems.extend(base_matches_run(name, t["on_base"].as_str(), &run.ran, seps));
             } else {
                 let at = run
                     .head
@@ -2041,40 +2172,70 @@ fn results_vs_runs(
             }
         }
     }
+    if !unreported_names.is_empty() {
+        problems.push(not_reported_on_head(&unreported_names, on_head.first()));
+    }
     problems
 }
 
-/// Where what a test is said to give before the change does not match the run of ci_before that ran: said red while
-/// every check there is green, or green while a red check's log names it; said red or green while ci_before reports
-/// it not run, which nothing measured; said not run while it reports it passed or failed. Each that applies is a
-/// problem of its own. A test the run was named under no such name, or a run of an engine that did not report each
-/// test, is checked by the run's checks alone.
-fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Problems {
-    let checks = ran.get("checks");
-    let reported = items(ran.get("tests"))
-        .iter()
-        .find(|t| t["test"].as_str() == Some(name))
-        .and_then(|t| t["result"].as_str().map(str::to_string));
+/// The names of a table's tests, each once, in the table's order.
+fn test_names(rows: &[Value]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for name in rows.iter().filter_map(|t| t["name"].as_str()) {
+        if !names.iter().any(|n| n == name) {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
+/// Where what a test is said to give before the change (`said`) does not match what the run of ci_before (`ran`)
+/// reports of it ([`reported_before`]): passed is green, failed red, not built cannot_run, and not run not_run or
+/// cannot_run; a run whose results could not be read is to be run again. A test the run reports nothing of (a run of an
+/// engine before the results were read from JUnit, or a name the request left out) is judged by the run's checks alone:
+/// said red while every check there is green. A result not said is not judged here: [`missing_results`] says it.
+fn base_matches_run(name: &str, said: Option<&str>, ran: &Value, seps: &[String]) -> Problems {
     let mut problems = Problems::default();
-    if said == Some("red") && all_green(checks) {
+    let Some(said) = said else {
+        return problems;
+    };
+    let Some((result, why)) = reported_before(ran, name, seps) else {
+        if said == "red" && all_green(ran.get("checks")) {
+            problems.push(format!(
+                "{name} is said to be red before the change, and every check there is green"
+            ));
+        }
+        return problems;
+    };
+    let why = why.map(|w| format!(" ({w})")).unwrap_or_default();
+    let (fits, say) = match result.as_str() {
+        "passed" => (said == "green", "say green"),
+        "failed" => (said == "red", "say red"),
+        "not_built" => (
+            said == "cannot_run",
+            "say cannot_run, since what it tests cannot be built there",
+        ),
+        "not_run" => (
+            matches!(said, "not_run" | "cannot_run"),
+            "say not_run, or cannot_run when what it tests does not exist before the change",
+        ),
+        _ => {
+            problems.push(format!(
+                "{name}: the latest run of ci_before that named it could not read its results{why}; {RUN_AGAIN}, and \
+                 if its results still cannot be read, ask the architect, since the project's fast CI then does not \
+                 report them where the project's configuration says"
+            ));
+            return problems;
+        }
+    };
+    if !fits {
+        let reports = match result.as_str() {
+            "not_run" => "not run, so that nothing measured it".to_string(),
+            "not_built" => format!("not built{why}"),
+            other => other.to_string(),
+        };
         problems.push(format!(
-            "{name} is said to be red before the change, and every check there is green"
-        ));
-    }
-    if said == Some("green") && names_red(checks, name) {
-        problems.push(format!(
-            "{name} is said to be green before the change, and a red check's log names it"
-        ));
-    }
-    if let (Some(said @ ("red" | "green")), Some("not_run")) = (said, reported.as_deref()) {
-        problems.push(format!(
-            "{name} is said to be {said} before the change, and ci_before reports it not run, so that nothing \
-             measured it: say not_run, or cannot_run when what it tests does not exist before the change"
-        ));
-    }
-    if let (Some("not_run"), Some(result @ ("passed" | "failed"))) = (said, reported.as_deref()) {
-        problems.push(format!(
-            "{name} is said not to have run before the change, and ci_before reports it {result}"
+            "{name} is said to be {said} before the change, and ci_before reports it {reports}: {say}"
         ));
     }
     problems
@@ -2368,14 +2529,19 @@ mod tests {
         assert_eq!(red_checks_of_head(&[], "h"), None);
     }
 
-    #[test]
-    fn a_log_names_a_test_failing_only_on_a_line_that_says_so() {
-        let log = "test a::passes ... ok\ntest a::breaks ... FAILED\n---- a::panics stdout ----\ntest a::fails_cleanly ... ok";
-        assert!(!names_failing(log, "passes"));
-        assert!(!names_failing(log, "fails_cleanly"));
-        assert!(names_failing(log, "breaks"));
-        assert!(names_failing(log, "panics"));
-        assert!(!names_failing(log, ""));
+    /// The separators of a project whose tests are named by paths in the code and chains of titles.
+    fn seps() -> Vec<String> {
+        vec!["::".to_string(), " > ".to_string()]
+    }
+
+    /// A result row of ci or ci_before for the test named `test`, which names the tests `matched`, each its unit, its
+    /// name and what became of it.
+    fn row(test: &str, result: &str, matched: &[(&str, &str, &str)]) -> Value {
+        let matched: Vec<Value> = matched
+            .iter()
+            .map(|(unit, name, result)| json!({ "unit": unit, "name": name, "result": result }))
+            .collect();
+        json!({ "test": test, "result": result, "matched": matched })
     }
 
     // A test ci_before did not reach, as when its job stopped at an earlier red test, is said not run, never red or
@@ -2384,26 +2550,87 @@ mod tests {
     #[test]
     fn a_result_before_the_change_matches_what_ci_before_reports_of_the_test() {
         let ran = json!({
-            "checks": [{ "name": "test", "result": "red", "log_tail": "FAIL [ 0.1s] e::t first\n" }],
+            "checks": [{ "name": "test", "result": "red" }],
             "tests": [
-                { "test": "first", "result": "failed", "ended": "FAIL" },
-                { "test": "later", "result": "not_run" }
+                row("first", "failed", &[("e", "first", "failed")]),
+                row("later", "not_run", &[]),
+                row("skipped", "not_run", &[("e", "m::skipped", "skipped")]),
+                row("both", "passed", &[("e", "m::both", "passed")]),
             ]
         });
-        let said = |name: &str, said: &str| base_matches_run(name, Some(said), &ran).into_result();
+        let said = |name: &str, said: &str| base_matches_run(name, Some(said), &ran, &seps()).into_result();
         assert!(said("first", "red").is_ok());
-        assert!(said("first", "not_run").unwrap_err().texts()[0].contains("reports it failed"));
-        assert!(said("later", "not_run").is_ok());
-        assert!(said("later", "cannot_run").is_ok());
-        for wrong in ["red", "green"] {
-            let e = said("later", wrong).unwrap_err();
-            assert!(e.texts()[0].contains("reports it not run"), "{e:?}");
+        assert!(said("e first", "red").is_ok());
+        assert!(said("first", "not_run").unwrap_err().texts()[0].contains("reports it failed: say red"));
+        assert!(said("first", "green").unwrap_err().texts()[0].contains("reports it failed: say red"));
+        assert!(said("both", "green").is_ok());
+        assert!(said("m::both", "red").unwrap_err().texts()[0].contains("reports it passed: say green"));
+        for later in ["later", "skipped", "m::skipped"] {
+            assert!(said(later, "not_run").is_ok(), "{later}");
+            assert!(said(later, "cannot_run").is_ok(), "{later}");
+            for wrong in ["red", "green"] {
+                let e = said(later, wrong).unwrap_err();
+                assert!(e.texts()[0].contains("reports it not run"), "{later}: {e:?}");
+            }
         }
+        // A name the run reports nothing of is judged by the checks alone, which are red: nothing is wrong.
         assert!(said("unnamed", "not_run").is_ok());
         assert!(said("unnamed", "red").is_ok());
         let green = json!({ "checks": [{ "name": "test", "result": "green" }] });
-        assert!(base_matches_run("old", Some("red"), &green).into_result().is_err());
-        assert!(base_matches_run("old", Some("not_run"), &green).into_result().is_ok());
+        assert!(
+            base_matches_run("old", Some("red"), &green, &seps())
+                .into_result()
+                .is_err()
+        );
+        assert!(
+            base_matches_run("old", Some("not_run"), &green, &seps())
+                .into_result()
+                .is_ok()
+        );
+        // A row of an engine before the results were read from JUnit lists no test: it reports nothing.
+        let old = json!({ "checks": [{ "name": "test", "result": "green" }], "tests": [{ "test": "a", "result": "failed" }] });
+        assert!(
+            base_matches_run("a", Some("green"), &old, &seps())
+                .into_result()
+                .is_ok()
+        );
+    }
+
+    // Item #11: a test whose unit was not built before the change cannot run there, and is said so; green or red is
+    // sent back, saying which unit was not built and why. Results that could not be read are to be read again, by
+    // running ci_before again, whatever the test is said to be.
+    #[test]
+    fn a_test_whose_unit_was_not_built_before_the_change_is_said_unable_to_run() {
+        let why = "no test the run reported is named so, and these units were not built: db::rounds: error[E0599]";
+        let ran = json!({
+            "checks": [{ "name": "test", "result": "red" }],
+            "tests": [
+                row("built", "passed", &[("engine::e2e", "built", "passed")]),
+                { "test": "new_api", "result": "not_built", "matched": [], "why": why },
+                { "test": "unread", "result": "unread", "why": "the run uploaded no artifact test-results" },
+            ]
+        });
+        let said = |name: &str, said: &str| base_matches_run(name, Some(said), &ran, &seps()).into_result();
+        assert!(said("built", "green").is_ok());
+        assert!(said("new_api", "cannot_run").is_ok());
+        for wrong in ["green", "red", "not_run"] {
+            let e = said("new_api", wrong).unwrap_err();
+            assert_eq!(
+                e.texts(),
+                [format!(
+                    "new_api is said to be {wrong} before the change, and ci_before reports it not built ({why}): say \
+                     cannot_run, since what it tests cannot be built there"
+                )]
+            );
+        }
+        for any in ["green", "red", "not_run", "cannot_run"] {
+            let e = said("unread", any).unwrap_err();
+            assert!(e.texts()[0].contains("could not read its results"), "{e:?}");
+            assert!(e.texts()[0].contains(RUN_AGAIN), "{e:?}");
+            assert!(e.texts()[0].contains("ask the architect"), "{e:?}");
+        }
+        // The not-built row is tied to the table by the very name it was asked under; another name is not it.
+        assert!(said("db::rounds new_api", "red").is_ok());
     }
 
     // A ruling counts once the work asked its advisor, also when the advisor handed the question on and the architect
@@ -2959,37 +3186,71 @@ mod tests {
         assert!(cover_problems(&[], &[], false).is_empty());
     }
 
-    // The tests a table names that are not on the branch are each said, with the ids that are no condition and the
-    // conditions with no row, in one call; a row that is not of kind tested names no test to look for.
+    // The tests a table of conditions names that no run of ci on the pushed head reported are said together, each once,
+    // with the ids that are no condition and the conditions with no row, in one call; a row that is not of kind tested
+    // names no test to look for.
     #[test]
-    fn every_test_a_table_of_conditions_names_that_is_not_on_the_branch_is_said_with_its_ids() {
+    fn every_test_a_table_of_conditions_names_that_ci_did_not_report_is_said_with_its_ids() {
         let wanted = ids(&["A1", "A2", "A3"]);
         let rows = [
-            json!({ "id": "A1", "how": "tested", "tests": ["on_branch", "gone_one", "gone_two"] }),
-            json!({ "id": "X9", "how": "tested", "tests": ["on_branch"] }),
+            json!({ "id": "A1", "how": "tested", "tests": ["reported", "gone_one", "gone_two"] }),
+            json!({ "id": "X9", "how": "tested", "tests": ["reported", "gone_one"] }),
             json!({ "id": "A2", "how": "report_answer", "where": "gone_three" }),
         ];
-        let on_branch = |t: &str| {
-            if t.starts_with("gone") {
-                Err(format!("the test {t} is not on the branch"))
-            } else {
-                Ok(())
-            }
-        };
+        let reported = |t: &str| !t.starts_with("gone");
         assert_eq!(
-            said(conditions_problems(&wanted, &rows, false, on_branch, &[], found)),
+            said(conditions_problems(
+                &wanted,
+                &rows,
+                false,
+                reported,
+                unreported,
+                &[],
+                found
+            )),
             [
-                "X9 is not an acceptance condition",
-                "no row for acceptance condition A3",
-                "the test gone_one is not on the branch",
-                "the test gone_two is not on the branch"
+                "X9 is not an acceptance condition".to_string(),
+                "no row for acceptance condition A3".to_string(),
+                unreported(&ids(&["gone_one", "gone_two"])),
             ]
         );
+        let text = unreported(&ids(&["gone_one", "gone_two"]));
+        assert!(text.contains("these name: gone_one, gone_two."), "{text}");
+        assert!(text.contains("together with the tests of the test table"), "{text}");
+        assert!(text.contains("ci.results.separators"), "{text}");
         // With no condition in force, only that is said: their tests are not looked for.
         assert_eq!(
-            said(conditions_problems(&[], &rows, false, on_branch, &[], found)),
+            said(conditions_problems(&[], &rows, false, reported, unreported, &[], found)),
             [NO_ACCEPTANCE]
         );
+    }
+
+    // Item #11: the check that a test a condition names was reported on the head reads the runs of ci there with the
+    // same name rule as the results: `a_row` is reported by a run that ran `a_row`, never by one that ran only
+    // `a_row_into_the_asking_part`, and a run of an engine before the results were read from JUnit reports nothing.
+    #[test]
+    fn a_test_a_condition_names_is_reported_on_the_head_by_the_name_rule_of_the_results() {
+        let wanted = ids(&["A1"]);
+        let rows = [json!({ "id": "A1", "how": "tested", "tests": ["a_row"] })];
+        let check = |run: Value| {
+            let on_head = [run];
+            said(conditions_problems(
+                &wanted,
+                &rows,
+                false,
+                |t| on_head.iter().any(|r| reported(r, t, &seps()).is_some()),
+                |names| not_reported_on_head(names, on_head.first()),
+                &[],
+                found,
+            ))
+        };
+        let longer = json!({ "tests": [row("a_row_into_the_asking_part", "failed",
+            &[("engine::e2e", "a_row_into_the_asking_part", "failed")])] });
+        assert_eq!(check(longer), [unreported(&ids(&["a_row"]))]);
+        let old = json!({ "tests": [{ "test": "a_row", "result": "passed" }] });
+        assert_eq!(check(old), [unreported(&ids(&["a_row"]))]);
+        let ran = json!({ "tests": [row("engine::e2e a_row", "passed", &[("engine::e2e", "a_row", "passed")])] });
+        assert!(check(ran).is_empty());
     }
 
     /// A step as the branch's files have it, or not.
@@ -3009,47 +3270,42 @@ mod tests {
     fn a_ci_job_row_names_jobs_recorded_and_steps_on_the_branch_and_what_is_not_is_said_together() {
         let wanted = ids(&["A1", "A2", "A3", "A4"]);
         let ci = ids(&["lint", "test 1 of 3", "check"]);
-        let ok = |_: &str| -> Result<(), String> { Ok(()) };
+        let ok = |_: &str| true;
         let good = [
             json!({ "id": "A1", "how": "ci_job", "jobs": ["lint"], "steps": ["npm run check:ui"] }),
             json!({ "id": "A2", "how": "ci_job", "jobs": ["check", "test 1 of 3"], "steps": [] }),
             json!({ "id": "A3", "how": "read_diff", "where": "gone_file", "what": "gone_text" }),
             json!({ "id": "A4", "how": "ci_job", "jobs": ["check"] }),
         ];
-        assert!(conditions_problems(&wanted, &good, false, ok, &ci, found).is_empty());
+        assert!(conditions_problems(&wanted, &good, false, ok, unreported, &ci, found).is_empty());
         // Jobs that were never run, steps that are in no file, and a condition left without a row, together.
         let bad = [
             json!({ "id": "A1", "how": "ci_job", "jobs": ["lint", "build"], "steps": ["gone one", "npm run check:ui"] }),
             json!({ "id": "A2", "how": "ci_job", "jobs": ["build"], "steps": ["gone one", " ", "a\nb"] }),
             json!({ "id": "X9", "how": "tested", "tests": ["gone_test"] }),
         ];
-        let on_branch = |t: &str| {
-            if t.starts_with("gone") {
-                Err(format!("the test {t} is not on the branch"))
-            } else {
-                Ok(())
-            }
-        };
+        let reported = |t: &str| !t.starts_with("gone");
         assert_eq!(
-            said(conditions_problems(&wanted, &bad, false, on_branch, &ci, found)),
+            said(conditions_problems(&wanted, &bad, false, reported, unreported, &ci, found)),
             [
-                "X9 is not an acceptance condition",
-                "no row for acceptance conditions A3, A4",
-                "the test gone_test is not on the branch",
-                "the job build is not a check of any CI run of this work; the checks recorded are: lint, test 1 of 3, check",
-                "the step gone one is not in any file of the branch",
-                "a step names one command, written as one line of text"
+                "X9 is not an acceptance condition".to_string(),
+                "no row for acceptance conditions A3, A4".to_string(),
+                unreported(&ids(&["gone_test"])),
+                "the job build is not a check of any CI run of this work; the checks recorded are: lint, test 1 of 3, check"
+                    .to_string(),
+                "the step gone one is not in any file of the branch".to_string(),
+                "a step names one command, written as one line of text".to_string(),
             ]
         );
         // No CI run recorded: any job name would pass, so it is one problem and not one for each job.
         assert_eq!(
-            said(conditions_problems(&wanted, &good, false, ok, &[], found)),
+            said(conditions_problems(&wanted, &good, false, ok, unreported, &[], found)),
             ["no CI run of this work has recorded its checks, so a ci_job row cannot name a job"]
         );
         // A recheck of a row that changed is judged by what it names alone.
         let one = [json!({ "id": "A2", "how": "ci_job", "jobs": ["nothing"], "steps": [] })];
         assert_eq!(
-            said(conditions_problems(&wanted, &one, true, ok, &ci, found)),
+            said(conditions_problems(&wanted, &one, true, ok, unreported, &ci, found)),
             [
                 "the job nothing is not a check of any CI run of this work; the checks recorded are: lint, test 1 of 3, check"
             ]
@@ -3233,23 +3489,29 @@ mod tests {
     // run's result stands), and two runs that ran different tests (each test is judged by its own run).
     #[test]
     fn the_result_before_the_change_comes_from_the_latest_run_that_reported_the_test() {
-        let green = json!({ "checks": [{ "name": "test", "result": "green" }], "tests": [{ "test": "one", "result": "passed" }] });
-        let red = json!({
-            "checks": [{ "name": "test", "result": "red", "log_tail": "test a::two ... FAILED\n" }],
-            "tests": [{ "test": "two", "result": "failed" }],
+        let green = json!({
+            "checks": [{ "name": "test", "result": "green" }],
+            "tests": [row("one", "passed", &[("t", "one", "passed")])],
         });
+        let red = json!({
+            "checks": [{ "name": "test", "result": "red" }],
+            "tests": [row("two", "failed", &[("t", "two", "failed")])],
+        });
+        // The head reports both tests, so that only what is said before the change is judged here.
+        let head = [json!({ "tests": [row("one two", "passed", &[("t", "one", "passed"), ("t", "two", "passed")])] })];
         let rows = vec![json!({ "name": "one", "on_base": "red" })];
         let none_changed = |_: &BeforeRun| Vec::new();
-        // Said red, and the run where every check is green: said, when no file changed after it.
+        // Said red, and the run reports it passed: said, when no file changed after it.
         let runs = vec![before_run(green.clone(), "aaaaaaaaaaaa", &["t/one.rs"])];
+        let passed = "one is said to be red before the change, and ci_before reports it passed: say green";
         assert_eq!(
-            said(results_vs_runs(&rows, None, &runs, none_changed)),
-            ["one is said to be red before the change, and every check there is green"]
+            said(results_vs_runs(&rows, &head, &runs, &seps(), none_changed)),
+            [passed]
         );
         // A file changed after the run: the test is to be run again, and what the run says of it is not said.
         let changed = |run: &BeforeRun| run.files.clone();
         assert_eq!(
-            said(results_vs_runs(&rows, None, &runs, changed)),
+            said(results_vs_runs(&rows, &head, &runs, &seps(), changed)),
             [
                 "one: its result before the change comes from the latest run of ci_before that reported it, at \
                  aaaaaaaaaa, and t/one.rs changed after that; run ci_before again"
@@ -3266,10 +3528,10 @@ mod tests {
             json!({ "name": "two", "on_base": "green" }),
         ];
         assert_eq!(
-            said(results_vs_runs(&rows, None, &runs, |_| Vec::new())),
+            said(results_vs_runs(&rows, &head, &runs, &seps(), |_| Vec::new())),
             [
-                "one is said to be red before the change, and every check there is green",
-                "two is said to be green before the change, and a red check's log names it",
+                passed,
+                "two is said to be green before the change, and ci_before reports it failed: say red",
             ]
         );
         // Only the file of the run a test is reported in decides: `two.rs` changed after the later run and `one.rs`
@@ -3277,12 +3539,9 @@ mod tests {
         let after_later = |run: &BeforeRun| -> Vec<String> {
             run.files.iter().filter(|f| f.as_str() == "t/two.rs").cloned().collect()
         };
-        let said_both = said(results_vs_runs(&rows, None, &runs, after_later));
+        let said_both = said(results_vs_runs(&rows, &head, &runs, &seps(), after_later));
         assert_eq!(said_both.len(), 2, "{said_both:?}");
-        assert!(
-            said_both[0].starts_with("one is said to be red before the change"),
-            "{said_both:?}"
-        );
+        assert_eq!(said_both[0], passed, "{said_both:?}");
         assert!(
             said_both[1].starts_with("two: its result before the change comes from the latest run of ci_before"),
             "{said_both:?}"
@@ -3293,58 +3552,150 @@ mod tests {
             ..runs[1].clone()
         };
         assert!(
-            said(results_vs_runs(&rows[..1], None, &[lost], |r| r.files.clone()))[0]
+            said(results_vs_runs(&rows[..1], &head, &[lost], &seps(), |r| r
+                .files
+                .clone()))[0]
                 .contains("a commit the worktree lacks")
         );
-        // With no run, nothing is said.
-        assert!(results_vs_runs(&rows, None, &[], |_| Vec::new()).is_empty());
+        // With no run of ci_before, nothing is said of before the change.
+        assert!(results_vs_runs(&rows, &head, &[], &seps(), |_| Vec::new()).is_empty());
     }
 
+    // Item #11: each test's result on the head is that of the latest run of ci on the pushed head that reported it, by
+    // the name rule of the results, and every test that does not match is said with everything wrong with it; the
+    // tests no run there reported are said once, together, to be named in the next ci.
     #[test]
     fn every_test_whose_result_does_not_match_the_runs_is_said_with_everything_wrong_with_it() {
-        let green = json!({ "checks": [{ "name": "test", "result": "green" }] });
-        let red = json!({
-            "checks": [{ "name": "test", "result": "red", "log_tail": "test a::two ... FAILED\ntest a::one ... ok\n" }],
-        });
         let rows = vec![
             json!({ "name": "one", "on_head": "red", "on_base": "red" }),
             json!({ "name": "two", "on_head": "green", "on_base": "green" }),
             json!({ "name": "three", "on_head": "green", "on_base": "cannot_run" }),
+            json!({ "name": "a_row", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "skipped", "on_head": "green", "on_base": "not_run" }),
+            json!({ "name": "four", "on_head": "green", "on_base": "green" }),
         ];
-        // On a head where every check is green: `one` is not red there, and before the change nothing is red either.
-        let before = |ran: &Value| vec![before_run(ran.clone(), "aaaaaaaaaaaa", &["t/x.rs"])];
+        // The latest run on the head reports `two` passed, and an earlier one reported it failed: the latest counts.
+        let head = [
+            json!({ "tests": [row("two", "passed", &[("e", "two", "passed")])] }),
+            json!({ "tests": [
+                row("one", "passed", &[("e", "one", "passed")]),
+                row("two", "failed", &[("e", "two", "failed")]),
+                row("three", "passed", &[("e", "m::three", "passed")]),
+                row("a_row", "passed", &[("e", "a_row", "passed")]),
+                row("a_row_into_the_asking_part", "failed", &[("e", "a_row_into_the_asking_part", "failed")]),
+                row("skipped", "not_run", &[("e", "skipped", "skipped")]),
+            ] }),
+        ];
+        let before = vec![before_run(
+            json!({
+                "checks": [{ "name": "test", "result": "red" }],
+                "tests": [
+                    row("one", "passed", &[("e", "one", "passed")]),
+                    row("two", "failed", &[("e", "two", "failed")]),
+                    { "test": "three", "result": "not_built", "matched": [], "why": "u: no such method" },
+                    row("a_row", "passed", &[("e", "a_row", "passed")]),
+                    row("a_row_into_the_asking_part", "failed", &[("e", "a_row_into_the_asking_part", "failed")]),
+                ],
+            }),
+            "aaaaaaaaaaaa",
+            &["t/x.rs"],
+        )];
         assert_eq!(
-            said(results_vs_runs(&rows, Some(&green), &before(&green), |_| Vec::new())),
+            said(results_vs_runs(&rows, &head, &before, &seps(), |_| Vec::new())),
             [
-                "one is said to be red on the head, and every check there is green",
-                "one is said to be red before the change, and every check there is green",
+                "one is said to be red on the head, and the latest run of ci there that reported it reports it passed"
+                    .to_string(),
+                "one is said to be red before the change, and ci_before reports it passed: say green".to_string(),
+                "two is said to be green before the change, and ci_before reports it failed: say red".to_string(),
+                "skipped is said to be green on the head, and the latest run of ci there that reported it reports it \
+                 skipped, so that nothing measured it"
+                    .to_string(),
+                unreported(&ids(&["four"])),
             ]
         );
-        // On a head where a red check's log names `two`, and before the change the same.
+        // With no run on the head, every test is to be named in the next ci, said once.
         assert_eq!(
-            said(results_vs_runs(&rows, Some(&red), &before(&red), |_| Vec::new())),
-            [
-                "two is said to be green on the head, and a red check's log names it",
-                "two is said to be green before the change, and a red check's log names it",
-            ]
+            said(results_vs_runs(&rows[..2], &[], &[], &seps(), |_| Vec::new())),
+            [unreported(&ids(&["one", "two"]))]
         );
-        // With no run to look at, nothing is said.
-        assert!(results_vs_runs(&rows, None, &[], |_| Vec::new()).is_empty());
     }
 
-    // A test said red while every check is green, and also said so while ci_before reports it not run: two things
-    // wrong, said together.
+    // Item #11: when the latest run of ci on the pushed head could not read its results, the tests no run there
+    // reported are said with why, and to ask the architect if running again does not mend it, never only to be named
+    // again; a test an earlier run on the head reported is judged by that run. A project whose configuration names no
+    // results is told that running again does not help.
     #[test]
-    fn a_result_before_the_change_with_two_things_wrong_is_said_with_both() {
-        let ran = json!({
-            "checks": [{ "name": "test", "result": "green" }],
-            "tests": [{ "test": "later", "result": "not_run" }]
-        });
-        let both = said(base_matches_run("later", Some("red"), &ran));
-        assert_eq!(both.len(), 2, "{both:?}");
-        assert!(both[0].contains("every check there is green"), "{both:?}");
-        assert!(both[1].contains("reports it not run"), "{both:?}");
-        assert!(base_matches_run("later", Some("cannot_run"), &ran).is_empty());
+    fn tests_a_run_on_the_head_could_not_read_are_said_with_why_and_not_only_to_be_named_again() {
+        let rows = vec![
+            json!({ "name": "one", "on_head": "green" }),
+            json!({ "name": "two", "on_head": "green" }),
+        ];
+        let why = "the run's results could not be read: the run uploaded no artifact test-results";
+        let unread = json!({ "tests": [
+            { "test": "one", "result": "unread", "why": why },
+            { "test": "two", "result": "unread", "why": why },
+        ] });
+        let earlier = json!({ "tests": [row("one", "passed", &[("e", "one", "passed")])] });
+        let problems = said(results_vs_runs(&rows, &[unread.clone(), earlier], &[], &seps(), |_| {
+            Vec::new()
+        }));
+        assert_eq!(problems, [unread_on_head(&ids(&["two"]), why)]);
+        assert!(
+            problems[0].contains(why) && problems[0].contains("ask the architect"),
+            "{problems:?}"
+        );
+        assert!(
+            !problems[0].contains("together with the tests of the test table"),
+            "{problems:?}"
+        );
+        // An unread run before a later one that read its results but left the test out: the test is to be named.
+        let read = json!({ "tests": [row("one", "passed", &[("e", "one", "passed")])] });
+        assert_eq!(
+            said(results_vs_runs(&rows, &[read, unread], &[], &seps(), |_| Vec::new())),
+            [unreported(&ids(&["two"]))]
+        );
+        let text = no_results(&ids(&["one", "two"]));
+        assert!(text.contains("`ci.results`") && text.contains("one, two"), "{text}");
+        assert!(text.contains("does not help: ask the architect"), "{text}");
+    }
+
+    // Item #11: a table's name is tied to the tests a run reported by `names`, not to the row a request wrote: ci named
+    // `a_row`, which names a passing test of one unit and a failing one of another, and the row says failed. The table
+    // that names the passing test alone (`engine::e2e a_row`) said green rightly; one that names both (`a_row`) or the
+    // failing one did not; and ci_before is read the same way.
+    #[test]
+    fn a_table_s_name_is_judged_by_the_tests_it_names_not_by_the_row_it_was_run_under() {
+        let both = row(
+            "a_row",
+            "failed",
+            &[
+                ("engine::e2e", "a_row", "passed"),
+                ("engine", "tools::tests::a_row", "failed"),
+            ],
+        );
+        let head = [json!({ "tests": [both.clone()] })];
+        let before = vec![before_run(
+            json!({ "checks": [{ "name": "test", "result": "red" }], "tests": [both] }),
+            "aaaaaaaaaaaa",
+            &["t/x.rs"],
+        )];
+        let rows = vec![
+            json!({ "name": "engine::e2e a_row", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "e2e::a_row", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "a_row", "on_head": "green", "on_base": "green" }),
+            json!({ "name": "tests::a_row", "on_head": "red", "on_base": "red" }),
+            json!({ "name": "engine tools::tests::a_row", "on_head": "green", "on_base": "red" }),
+        ];
+        assert_eq!(
+            said(results_vs_runs(&rows, &head, &before, &seps(), |_| Vec::new())),
+            [
+                "a_row is said to be green on the head, and the latest run of ci there that reported it reports it \
+                 failed",
+                "a_row is said to be green before the change, and ci_before reports it failed: say red",
+                "engine tools::tests::a_row is said to be green on the head, and the latest run of ci there that \
+                 reported it reports it failed",
+            ]
+        );
     }
 
     #[test]

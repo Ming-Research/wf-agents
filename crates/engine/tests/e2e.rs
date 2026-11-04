@@ -634,8 +634,16 @@ struct ByHand {
 /// is `reject` is refused as GitHub refuses a request that lacks an input the workflow requires, one whose `command` is
 /// `timeout` does not finish in time, one whose `command` is `nostart` never gets a run, one whose `command` is `nojobs`
 /// has a run with no job, one whose `command` is `flaky_dispatch` fails to reach GitHub the first time it is asked for,
-/// and one whose `command` is `flaky` is run, but the first wait for it fails to reach GitHub.
+/// and one whose `command` is `flaky` is run, but the first wait for it fails to reach GitHub. The input is read one line
+/// at a time, as a workflow reads the tests the engine names, each followed by a line break.
 type ByHands = Arc<Mutex<Vec<ByHand>>>;
+
+/// Whether the inputs of a run by hand give `command` as `c`, on a line of its own.
+fn commanded(inputs: &[(String, String)], c: &str) -> bool {
+    inputs
+        .iter()
+        .any(|(k, v)| k == "command" && v.lines().any(|l| l.trim() == c))
+}
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
 /// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
@@ -763,10 +771,7 @@ impl GitHub for FakeHub {
 
     fn checks(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
         self.ci.pass();
-        let command = |c: &str| {
-            self.run_by_hand(sha)
-                .is_some_and(|d| d.inputs.contains(&("command".to_string(), c.to_string())))
-        };
+        let command = |c: &str| self.run_by_hand(sha).is_some_and(|d| commanded(&d.inputs, c));
         if command("timeout") {
             return Err(Failure {
                 kind: "timed_out",
@@ -811,11 +816,11 @@ impl GitHub for FakeHub {
             .output()
             .unwrap();
         let inputs: Vec<(String, String)> = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        let down = inputs.contains(&("command".to_string(), "down".to_string()));
-        let reject = inputs.contains(&("command".to_string(), "reject".to_string()));
+        let down = commanded(&inputs, "down");
+        let reject = commanded(&inputs, "reject");
         // A dispatch that fails to reach GitHub the first time it is made for a branch, and not the second.
-        let flaky = inputs.contains(&("command".to_string(), "flaky_dispatch".to_string()))
-            && !self.by_hand.lock().unwrap().iter().any(|d| d.branch == branch);
+        let flaky =
+            commanded(&inputs, "flaky_dispatch") && !self.by_hand.lock().unwrap().iter().any(|d| d.branch == branch);
         self.by_hand.lock().unwrap().push(ByHand {
             workflow: workflow.to_string(),
             branch: branch.to_string(),
@@ -854,6 +859,11 @@ impl GitHub for FakeHub {
         check: &CheckRun,
         name: &str,
     ) -> Result<Option<Vec<engine::hub::ArtifactFile>>, Failure> {
+        // Every run reports its tests' results; its check's link ends with its commit.
+        if name == RESULTS {
+            let sha = check.run.rsplit('/').next().unwrap_or_default();
+            return Ok(Some(vec![("junit.xml".to_string(), self.junit(sha).into_bytes())]));
+        }
         match self.run_of(check) {
             Some(_) => Ok((name == "measurement").then(|| vec![("pairs.tsv".to_string(), b"1\t2\t3\n".to_vec())])),
             None => Err(Failure::other("no artifacts here")),
@@ -898,7 +908,24 @@ impl GitHub for FakeHub {
 /// The regression test a bug fix of the light route adds, as a file in the test paths that names it.
 const REGRESSION: &str = "regression";
 
+/// The artifact every run of the fake GitHub's CI reports its tests' results in, as the project's configuration names it.
+const RESULTS: &str = "test-results";
+
 impl FakeHub {
+    /// The results a run of the commit reports, as JUnit: the feature's test, which passes, and the regression test,
+    /// which fails where the commit's CI is red for it.
+    fn junit(&self, sha: &str) -> String {
+        let regression = if self.regression_red(sha) {
+            "<failure message=\"the last line is dropped\"/>"
+        } else {
+            ""
+        };
+        format!(
+            "<testsuites><testsuite name=\"e2e\"><testcase name=\"feature\" time=\"0.001\"/>\
+             <testcase name=\"{REGRESSION}\" time=\"0.001\">{regression}</testcase></testsuite></testsuites>"
+        )
+    }
+
     /// Whether the commit holds the regression test and not the fix it tests, the word `fixed` in `src/lib.txt`: the
     /// CI of such a commit is red, as a regression test run on the code before its fix is. No other test makes either.
     fn regression_red(&self, sha: &str) -> bool {
@@ -1037,6 +1064,7 @@ rules = ["ground"]
 fast = "ci"
 full = ["ci"]
 merge_checks = ["check"]
+results = {{ artifact = "{RESULTS}" }}
 "#,
             checkout.display()
         ),

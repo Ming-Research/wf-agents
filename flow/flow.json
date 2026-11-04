@@ -894,6 +894,126 @@
         }
       ]
     },
+    "test_name": {
+      "type": "text",
+      "desc": "A test's name, one line. It names each test the run's results report that it is the name of; whose unit (a test binary, a test file) and name it is, joined by a space or by one of the separators `project.ci.results.separators`; or the end of one of these, cut right after a separator, so that `a_row` never names `a_row_into_the_asking_part`. One name may name several tests"
+    },
+    "named_results": {
+      "name": "tests",
+      "title": "The tests named",
+      "type": "list",
+      "desc": "What became of each test you named, one row each, from the results the run reported: passed, failed, not run (each test it names was skipped, the run did not reach it, or it names none), not built (it names none, and the run did not build some unit, which may be the one it is in), or unread (the run's results could not be read)",
+      "item": {
+        "type": "obj",
+        "fields": [
+          {
+            "name": "test",
+            "title": "Test",
+            "type": "text",
+            "desc": "The test's name, as you named it"
+          },
+          {
+            "name": "result",
+            "title": "Result",
+            "type": "enum",
+            "desc": "What became of it",
+            "values": [
+              [
+                "passed",
+                "Some test it names ran and passed, and none failed"
+              ],
+              [
+                "failed",
+                "Some test it names failed"
+              ],
+              [
+                "not_run",
+                "Every test it names was skipped, or it names none, as when the run did not reach it or there is no such test: it is no result"
+              ],
+              [
+                "not_built",
+                "It names no test, and the run did not build some unit, so that no test of that unit ran; why says which"
+              ],
+              [
+                "unread",
+                "The run's results could not be read"
+              ]
+            ]
+          },
+          {
+            "name": "matched",
+            "title": "Tests it names",
+            "type": "list",
+            "desc": "Each test of the run's results the name names, with what became of it",
+            "optional": true,
+            "item": {
+              "type": "obj",
+              "fields": [
+                {
+                  "name": "unit",
+                  "title": "Unit",
+                  "type": "text",
+                  "desc": "The unit the test is in: a test binary, a test file"
+                },
+                {
+                  "name": "name",
+                  "title": "Name",
+                  "type": "text",
+                  "desc": "The test's name within its unit"
+                },
+                {
+                  "name": "result",
+                  "title": "Result",
+                  "type": "enum",
+                  "values": [
+                    [
+                      "passed",
+                      ""
+                    ],
+                    [
+                      "failed",
+                      ""
+                    ],
+                    [
+                      "skipped",
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "name": "time",
+                  "title": "Time",
+                  "type": "text",
+                  "desc": "How long it took, in seconds",
+                  "optional": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "time",
+            "title": "Time",
+            "type": "text",
+            "desc": "How long it took, in seconds, when it names one test",
+            "optional": true
+          },
+          {
+            "name": "ended",
+            "title": "How it ended",
+            "type": "text",
+            "desc": "For a test that failed, the element of the results that says so: failure or error",
+            "optional": true
+          },
+          {
+            "name": "why",
+            "title": "Why",
+            "type": "text",
+            "desc": "Why the results could not be read, or which units were not built, each with the first line of why",
+            "optional": true
+          }
+        ]
+      }
+    },
     "checks_required": {
       "name": "checks",
       "title": "Checks",
@@ -3247,7 +3367,7 @@
     {
       "name": "ci",
       "desc": "Pushes your local commits and runs the repository's fast CI on the commit (where the project runs its CI on demand: the tests you list and the lint); when it is done, gives you the result of each check, and puts in your worktree, uncommitted, the files a red run generated that differ from yours, such as the files as the formatter makes them",
-      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the lint, or the lint only when none is listed, and it takes only the run it made, never one made before. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. The engine waits for the run to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
+      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the lint, or the lint only when none is listed, and it takes only the run it made, never one made before. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. The engine waits for the run to finish and downloads the logs of red checks. When tests are listed, it downloads the results the run reported, JUnit XML in the artifact the configuration names (`project.ci.results`), and reads from them what became of each test each listed name names and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
       "in": [
         {
           "name": "head",
@@ -3262,8 +3382,7 @@
           "desc": "The tests to read the results and times of, by their names. Where the project runs its CI on demand, these are also the only tests that run, beside the lint: naming none runs the lint only. Leave it out only when you hand in just the PR title and description, which still runs the lint and waits for it",
           "optional": true,
           "item": {
-            "type": "text",
-            "desc": "The test's name"
+            "$ref": "test_name"
           }
         },
         {
@@ -3331,66 +3450,7 @@
                   "$ref": "checks"
                 },
                 {
-                  "name": "tests",
-                  "title": "The tests named",
-                  "type": "list",
-                  "desc": "What became of each test you named, as the run's logs show it, one per row: passed, with its time; failed, with how it ended; not run, when no log shows it, as when its job stopped at an earlier red test or there is no such test, so that it is no result; or unread, when the run's logs could not be read",
-                  "item": {
-                    "type": "obj",
-                    "fields": [
-                      {
-                        "name": "test",
-                        "title": "Test",
-                        "type": "text",
-                        "desc": "The test's name, as you named it"
-                      },
-                      {
-                        "name": "result",
-                        "title": "Result",
-                        "type": "enum",
-                        "desc": "What became of it",
-                        "values": [
-                          [
-                            "passed",
-                            "It ran and passed"
-                          ],
-                          [
-                            "failed",
-                            "It ran and did not pass"
-                          ],
-                          [
-                            "not_run",
-                            "No log of the run shows it: the run did not reach it, or there is no such test"
-                          ],
-                          [
-                            "unread",
-                            "The run's logs could not be read"
-                          ]
-                        ]
-                      },
-                      {
-                        "name": "time",
-                        "title": "Time",
-                        "type": "text",
-                        "desc": "How long it took",
-                        "optional": true
-                      },
-                      {
-                        "name": "ended",
-                        "title": "How it ended",
-                        "type": "text",
-                        "desc": "How a test that did not pass ended, as the test runner says it, such as FAIL or TIMEOUT",
-                        "optional": true
-                      },
-                      {
-                        "name": "why",
-                        "title": "Why unread",
-                        "type": "text",
-                        "desc": "Why the logs could not be read",
-                        "optional": true
-                      }
-                    ]
-                  }
+                  "$ref": "named_results"
                 },
                 {
                   "name": "generated",
@@ -3427,7 +3487,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI where the project's CI runs on demand: the head is not the one handed in, it does not follow the last push, or it carries another branch"
+                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI where the project's CI runs on demand: the head is not the one handed in, it does not follow the last push, it carries another branch, or a test's name holds a line break"
                 }
               ]
             }
@@ -3438,7 +3498,7 @@
     {
       "name": "ci_before",
       "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch",
-      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end. Otherwise the push runs the whole fast CI, which stops a job at its first red test, where the project's configuration says its CI runs on those branches (runs_on_before_branches, true unless set); where it says it does not, nothing is pushed, and the tool refuses, saying so. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
+      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end. Otherwise the push runs the whole fast CI, which stops a job at its first red test, where the project's configuration says its CI runs on those branches (runs_on_before_branches, true unless set); where it says it does not, nothing is pushed, and the tool refuses, saying so. It waits for the run to finish, downloads the logs of red checks, deletes the temporary branch, and reads what became of each test each listed name names from the results the run reported, JUnit XML in the artifact the configuration names (`project.ci.results`). A unit of tests that could not be built on the code before the change, as one that uses what the change adds, is reported as not built, and the tests of every other unit still run",
       "in": [
         {
           "name": "head",
@@ -3450,7 +3510,7 @@
           "name": "files",
           "title": "Test files",
           "type": "list",
-          "desc": "The files to put on the code before the change: these tests' files, and only in the test paths the project's configuration names",
+          "desc": "The files to put on the code before the change: these tests' files, and only in the test paths the project's configuration names, `project.test_paths`, where a path ending in / holds what is below it, a * matches any run of characters within one part of a path and a part ** any number of parts",
           "item": {
             "type": "text",
             "desc": "A file path"
@@ -3461,10 +3521,9 @@
           "name": "tests",
           "title": "Tests to run",
           "type": "list",
-          "desc": "Which tests to run, by their names as the test runner prints them",
+          "desc": "Which tests to run, by their names",
           "item": {
-            "type": "text",
-            "desc": "The test's name"
+            "$ref": "test_name"
           },
           "min": 1
         }
@@ -3501,66 +3560,7 @@
                   "$ref": "checks"
                 },
                 {
-                  "name": "tests",
-                  "title": "The tests named",
-                  "type": "list",
-                  "desc": "What became of each test you named, as the run's logs show it, one per row: passed, with its time; failed, with how it ended; not run, when no log shows it, as when its job stopped at an earlier red test or there is no such test, so that it is no result; or unread, when the run's logs could not be read",
-                  "item": {
-                    "type": "obj",
-                    "fields": [
-                      {
-                        "name": "test",
-                        "title": "Test",
-                        "type": "text",
-                        "desc": "The test's name, as you named it"
-                      },
-                      {
-                        "name": "result",
-                        "title": "Result",
-                        "type": "enum",
-                        "desc": "What became of it",
-                        "values": [
-                          [
-                            "passed",
-                            "It ran and passed"
-                          ],
-                          [
-                            "failed",
-                            "It ran and did not pass"
-                          ],
-                          [
-                            "not_run",
-                            "No log of the run shows it: the run did not reach it, or there is no such test"
-                          ],
-                          [
-                            "unread",
-                            "The run's logs could not be read"
-                          ]
-                        ]
-                      },
-                      {
-                        "name": "time",
-                        "title": "Time",
-                        "type": "text",
-                        "desc": "How long it took",
-                        "optional": true
-                      },
-                      {
-                        "name": "ended",
-                        "title": "How it ended",
-                        "type": "text",
-                        "desc": "How a test that did not pass ended, as the test runner says it, such as FAIL or TIMEOUT",
-                        "optional": true
-                      },
-                      {
-                        "name": "why",
-                        "title": "Why unread",
-                        "type": "text",
-                        "desc": "Why the logs could not be read",
-                        "optional": true
-                      }
-                    ]
-                  }
+                  "$ref": "named_results"
                 }
               ]
             },
@@ -3572,7 +3572,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, a file is outside the test paths, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
+                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, a file is outside the test paths, a test's name holds a line break, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
                 }
               ]
             }
@@ -3917,10 +3917,10 @@
       "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first (ask to the advisor), whose reply with new_acceptance replaces all of them and is locked by the engine then, or, after the owner disagreed with a decision of the design or chose another option since they were locked, the design hands in the acceptance the ruling needs. A work that delivers a change has no report_answer condition.",
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it that ci made is green; so is the latest that ran tests, when a later run ran the lint only, which does not stand for them.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a report changes nothing outside `research/`.",
-      "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition); the tests named are on the branch, and the report sections named are in the report.",
-      "new_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each new-behaviour test this round's test changes add or extend (kind new_behaviour) has two results that match the ci run on the head and the latest ci_before run that reported the test, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red after the change or green before it is fixed in this round.",
-      "guard_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each old-behaviour test this round's test changes add or extend (kind old_behaviour) has two results that match the ci run on the head and the latest ci_before run that reported the test, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red in either run, or unable to run before the change, is fixed in this round; one not run before the change is the table review's to judge.",
-      "adversarial_test_results": "Each row's two results match the ci run on the head and the latest ci_before run that reported the test, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; at a re-check, those red or disputed last time were run again; when tests were written, the head was pushed with ci.",
+      "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition); each test named was reported by a run of ci on the pushed head, a name naming a test as the ci tool's tests say, and the tests none reported are named in the next ci, with the tests of the test table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; the report sections named are in the report.",
+      "new_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each new-behaviour test this round's test changes add or extend (kind new_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red after the change or green before it is fixed in this round.",
+      "guard_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each old-behaviour test this round's test changes add or extend (kind old_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red in either run, or unable to run before the change, is fixed in this round; one not run before the change is the table review's to judge.",
+      "adversarial_test_results": "Each row's two results match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; at a re-check, those red or disputed last time were run again; when tests were written, the head was pushed with ci.",
       "test_kinds_match": "Tests the engineer added or extended, which adversarial testing lists as the engineer's, are in the table of the kind the engineer gave in the test changes. A test the adversarial tester wrote whose result before the change does not fit its kind is fixed in this round and run again; one not run before the change is the table review's to judge.",
       "tests_only": "The commits from the head the engineer handed over to this head touch only the test paths the project's configuration names.",
       "disputed_tests_answered": "At a re-check, there is a row for each test the engineer called test_wrong or answered advisor_ruled.",

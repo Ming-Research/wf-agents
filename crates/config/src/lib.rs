@@ -796,19 +796,26 @@ pub struct Ci {
     pub full: Vec<String>,
     /// The checks a merge needs to have passed.
     pub merge_checks: Vec<String>,
-    /// The input of the fast CI's workflow that takes the tests to run, their names separated by spaces, when it has
-    /// one: given it, the workflow runs exactly those tests, every one to its end, and the ci_before tool runs it so on
-    /// its temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and
-    /// ci_before then pushes the temporary ref and waits for the whole run the push makes, as
-    /// `runs_on_before_branches` says it does.
+    /// The input of the fast CI's workflow that takes the tests to run, when it has one: given it, the workflow runs the
+    /// tests those names name ([`Results`] says which), every one to its end, and the ci_before tool runs it so on its
+    /// temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and ci_before
+    /// then pushes the temporary ref and waits for the whole run the push makes, as `runs_on_before_branches` says it
+    /// does. The engine gives each name followed by a line break, the last one too, and nothing when no test is named,
+    /// so that a name may hold spaces and an input that holds a test always holds a line break. A workflow that splits
+    /// the input at white space still reads every name that holds no space as it did before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
     /// Whether the fast CI runs when the engine pushes the temporary ref (`wf-agents-before/...`) that ci_before puts
     /// the code before the change on. Read only where `tests_input` is none: ci_before then waits for the run the push
-    /// makes, and for it to end it reads each listed test's result from its logs. Set to false where the CI ignores
-    /// those refs, so that ci_before refuses at once, saying so, instead of waiting for a run that does not come.
+    /// makes, and for it to end it reads each listed test's result from the run's results (`results`). Set to false
+    /// where the CI ignores those refs, so that ci_before refuses at once, saying so, instead of waiting for a run that
+    /// does not come.
     #[serde(default = "runs_on_before_branches_default", skip_serializing_if = "is_true")]
     pub runs_on_before_branches: bool,
+    /// Where a run of the fast CI reports what became of each test it ran, and how a test is named; none when it
+    /// reports nothing the engine reads, and the ci and ci_before tools then give each test named as unread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub results: Option<Results>,
     /// The artifact a red run of the fast CI uploads with the files the code generates, such as types generated
     /// from other types, each at its path in the repository: the ci tool puts those that differ from the head in the
     /// work's worktree, for the engineer to commit; none when the CI uploads none.
@@ -844,6 +851,33 @@ pub struct MeasureWorkflow {
     /// when it uploads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<String>,
+}
+
+/// How a project's fast CI reports its tests' results to the engine, which reads them only so, whatever runs the tests.
+/// The fast workflow and the engine hold to three conventions:
+///
+/// - The results are JUnit XML: the artifact holds one or more files ending in `.xml`. Each `testsuite` is a unit (a
+///   test binary, a test file), named by its `name`; each `testcase` in it is a test, named by its `name` within the
+///   unit. A testcase with a `failure` or an `error` element in it failed; one with a `skipped` element and neither of
+///   those did not run; any other passed. Its `time` is in seconds. A testcase in a testsuite inside another is of the
+///   innermost one.
+/// - A unit that was not built, so that none of its tests could run, is a `testsuite` with no `testcase` and an
+///   `error` element, named as the unit would be, whose text (or, when it has none, its `message`) says why.
+/// - The workflow runs at least every test a name it is given names, by the separators below: more, never fewer. The
+///   engine alone decides which test a name names.
+///
+/// A name names a test when it is the test's name; the test's unit and name joined by a space or by one of the
+/// separators; or what follows a separator in any of these, cut only right after one, so that `a_row` never names
+/// `a_row_into_the_asking_part`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Results {
+    /// The artifact a run of the fast workflow uploads with its JUnit files.
+    pub artifact: String,
+    /// The strings the project's test runners put between the parts of a test's name, such as those of a path in the
+    /// code or of a chain of titles; none, and a test is named by its name or its unit and name only.
+    #[serde(default)]
+    pub separators: Vec<String>,
 }
 
 /// A project that does not say otherwise has its fast CI run on the temporary refs, as every project's did before the
@@ -1366,6 +1400,21 @@ impl Config {
                 problems.push(format!(
                     "projects/{name}.toml: ci.tests_input is empty; it names the workflow's input"
                 ));
+            }
+            if let Some(r) = &p.ci.results {
+                // The artifact is downloaded by its name: an empty name is no artifact.
+                if r.artifact.trim().is_empty() {
+                    problems.push(format!(
+                        "projects/{name}.toml: ci.results.artifact is empty; it names the artifact of the results"
+                    ));
+                }
+                // A cut falls right after a separator: an empty one would cut anywhere, and `a_row` would name every
+                // test whose name ends in it.
+                if r.separators.iter().any(String::is_empty) {
+                    problems.push(format!(
+                        "projects/{name}.toml: ci.results.separators holds an empty separator"
+                    ));
+                }
             }
             // The fast workflow is run by hand with the tests named, and its green means those tests passed. As one of
             // the full CI's workflows (named alone or with this project's repository) it would give a merge a check
@@ -2521,6 +2570,43 @@ asks = 9
         assert!(!own("").unwrap().projects["q"].ci.on_demand);
         let e = own("on_demand = true\n").unwrap_err().to_string();
         assert!(e.contains("projects/q.toml: ci.on_demand needs ci.tests_input"), "{e}");
+    }
+
+    // A project says where its fast CI reports its tests' results and what separates the parts of a name, which an
+    // agent is shown; none, and it reports nothing the engine reads. An empty artifact, an empty separator and a field
+    // the table does not know are refused, all at once.
+    #[test]
+    fn a_project_says_where_its_tests_results_are_and_what_separates_a_name() {
+        const REPORTING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [ci.results]\nartifact = \"test-results\"\nseparators = [\"::\", \" > \"]\n";
+        assert_eq!(read(&files(&[])).unwrap().projects["p"].ci.results, None);
+        let c = read(&files(&[("projects/q.toml", REPORTING)])).unwrap();
+        assert_eq!(
+            c.projects["q"].ci.results,
+            Some(Results {
+                artifact: "test-results".to_string(),
+                separators: vec!["::".to_string(), " > ".to_string()],
+            })
+        );
+        assert_eq!(
+            c.named_settings("q", "`project.ci.results.separators`"),
+            [(
+                "project.ci.results.separators".to_string(),
+                "[\"::\",\" > \"]".to_string()
+            )]
+        );
+        let bad = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [ci.results]\nartifact = \" \"\nseparators = [\"::\", \"\"]\n";
+        let e = read(&files(&[("projects/q.toml", bad)])).unwrap_err().to_string();
+        assert!(e.contains("projects/q.toml: ci.results.artifact is empty"), "{e}");
+        assert!(
+            e.contains("projects/q.toml: ci.results.separators holds an empty separator"),
+            "{e}"
+        );
+        let unknown = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [ci.results]\nartifact = \"a\"\nformat = \"junit\"\n";
+        let e = read(&files(&[("projects/q.toml", unknown)])).unwrap_err().to_string();
+        assert!(e.contains("format"), "{e}");
     }
 
     // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else

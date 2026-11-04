@@ -1168,13 +1168,34 @@
         {
          "test": "match_int",
          "result": "passed",
-         "time": "results.push.tests.time"
+         "time": "results.push.tests.time",
+         "matched": [
+          {
+           "unit": "results.push.tests.matched.unit",
+           "name": "match_int",
+           "result": "passed",
+           "time": "results.push.tests.matched.time"
+          }
+         ]
         },
         {
          "test": "match_range",
          "result": "failed",
          "time": "results.push.tests.time",
-         "ended": "results.push.tests.ended"
+         "ended": "results.push.tests.ended",
+         "matched": [
+          {
+           "unit": "results.push.tests.matched.unit",
+           "name": "match_range",
+           "result": "failed"
+          }
+         ]
+        },
+        {
+         "test": "match_new",
+         "result": "not_built",
+         "matched": [],
+         "why": "results.push.tests.why"
         }
        ]
       }
