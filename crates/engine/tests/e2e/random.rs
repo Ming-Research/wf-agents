@@ -169,8 +169,6 @@ fn random_events(seed: u64, events: usize) {
             (vec![("outcome.next", next)], Vec::new())
         }),
     );
-    // The pick takes the first matter that can be picked: flow feedback that came after this work started waits.
-    let p = path.clone();
     // Whether to wait longer, at random.
     let d = dice.clone();
     agents.insert(

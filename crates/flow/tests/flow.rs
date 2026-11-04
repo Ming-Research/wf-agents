@@ -563,9 +563,11 @@ fn what_comes_next_is_taken_in_a_fixed_order_and_the_base_is_read_anew() {
     assert_eq!(row("H4", "found").to, "H5");
     let held = row("A3", "held");
     assert!(held.drops && held.to == "Q0");
-    // A row every agent's cell shares, as the wait for the command line's usage limit, is the engine's, not the graph's.
+    // A row every agent's cell has, as the wait for the command line's usage limit, is the engine's, not the graph's.
+    let agents: Vec<&flow::CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
+    let shared = |name: &str| agents.iter().all(|c| c.rows.iter().any(|r| r.name == name && r.waits));
     for cell in &g.cells {
-        for r in cell.rows.iter().filter(|r| r.waits && !r.common) {
+        for r in cell.rows.iter().filter(|r| r.waits && !shared(&r.name)) {
             assert!(cell.id == "S0" || cell.id == "X3", "{} {}", cell.id, r.name);
         }
     }

@@ -925,6 +925,7 @@ fn trying(s: &Setup, compiled: flow::Compiled) -> Engine {
         merging: s.merging.clone(),
         closing: s.closing.clone(),
         by_hand: s.by_hand.clone(),
+        watch_main: s.watch_main.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let (e, at) = Engine::trying(&s.data, committed, compiled, Box::new(agents), Box::new(hub)).unwrap();

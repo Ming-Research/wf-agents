@@ -573,8 +573,6 @@ fn a_design_written_again_withdraws_the_unanswered_question_on_the_earlier_one()
             ))
         }),
     );
-    // The architect's pick, when its queue holds several matters, takes an open question first.
-    let at = path.clone();
     let (mut e, said, item) = start(&s, agents);
     set_approach(&mut e, item, &format!("Decisions:\n- {OWNER_DECIDED}"));
     step_to(&mut e, item, "D12");
@@ -896,7 +894,6 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
 #[test]
 fn a_text_that_replaces_the_approach_of_the_item_kept_in_a_merge_keeps_the_decisions_the_merge_carried() {
     let s = setup("merge-then-edit");
-    let path = config::database(&s.data);
     let old = "Decision (2026-10-01, owner): Old one. Situation: s. Reason: r. Replaces: none. \
                Words: \"x\" (matter 99, 2026-10-01)";
     let mut agents = scripts();
