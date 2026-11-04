@@ -143,14 +143,14 @@ pub fn due(
     }
     let mut going: Option<(i64, String, Vec<Round>)> = None;
     for c in cells {
-        match choose::plan(conn, work, c, limit, on, now)? {
+        match choose::plan(conn, work, c, limit, on, now, None)? {
             Plan::Going {
                 id,
                 cli_session,
                 rounds,
                 ..
             } => going = Some((id, cli_session, rounds)),
-            Plan::New(_) => return Ok(None),
+            Plan::New(_) | Plan::Fork { .. } => return Ok(None),
         }
     }
     let Some((session, cli_session, rounds)) = going else {
@@ -280,6 +280,7 @@ pub fn ping(
         worktree: PathBuf::from(call["cwd"].as_str().unwrap_or(".")),
         config_dir: call["env"][crate::cli::CONFIG_DIR].as_str().map(PathBuf::from),
         resume: Some(due.cli_session.clone()),
+        fork: false,
         system: None,
         new_session: due.cli_session.clone(),
         prompt: MESSAGE.to_string(),

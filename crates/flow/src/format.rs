@@ -515,6 +515,10 @@ pub struct Line {
     /// Where the work goes when a new session of the line would start at one of its cells: a row every agent's cell
     /// of the line has, but those it names, which the engine takes itself in place of the cell's round.
     pub anew: Option<Anew>,
+    /// The line whose latest session a new session of this line forks from, so that it holds all that session held
+    /// and is given only what it lacks: a matter's session forked from the architect's base. Each matter a work takes
+    /// has a session of its own on such a line. None for a line whose new sessions start empty.
+    pub forks: Option<String>,
 }
 
 /// A colour a line's role is drawn in on the owner's page (its cells on a chart, its avatar and its bubbles), by the

@@ -845,6 +845,7 @@ pub fn cell_request(
         worktree,
         config_dir: e.cli_home(&level.cli),
         resume: None,
+        fork: false,
         system: None,
         new_session: String::new(),
         prompt: String::new(),

@@ -32,6 +32,9 @@ pub struct Request {
     pub config_dir: Option<PathBuf>,
     /// The CLI's session to resume; none for the line's first round, which starts `new_session`.
     pub resume: Option<String>,
+    /// The session to resume is forked, not resumed: the CLI copies it under `new_session`, which holds all it held and
+    /// goes on from there, and leaves it as it was. A matter of the architect forks its base so.
+    pub fork: bool,
     /// What the command line appends to its own system prompt: what every session of the round's line is given alike,
     /// which the session started with ([`crate::system`]); none for a session started without one.
     pub system: Option<String>,
@@ -325,9 +328,18 @@ pub fn command_line(r: &Request) -> Vec<String> {
         out.push("--settings".into());
         out.push(h.to_string());
     }
-    match &r.resume {
-        Some(s) => out.extend(["--resume".to_string(), s.clone()]),
-        None => out.extend(["--session-id".to_string(), r.new_session.clone()]),
+    // A fork resumes the base under the fork's own id, which the CLI takes only with its flag to fork (checked with
+    // claude 2.1.318: `--session-id` with `--resume` is refused without `--fork-session`).
+    match (&r.resume, r.fork) {
+        (Some(s), true) => out.extend([
+            "--resume".to_string(),
+            s.clone(),
+            "--fork-session".to_string(),
+            "--session-id".to_string(),
+            r.new_session.clone(),
+        ]),
+        (Some(s), false) => out.extend(["--resume".to_string(), s.clone()]),
+        (None, _) => out.extend(["--session-id".to_string(), r.new_session.clone()]),
     }
     out
 }
@@ -423,9 +435,10 @@ pub fn read_by_cli(vars: impl IntoIterator<Item = (OsString, OsString)>) -> BTre
 /// environment it runs with as far as the CLI reads it, the one the engine inherited and the variables the engine sets,
 /// the session it started or resumed, and the engine's and the CLI's versions.
 pub fn call(r: &Request, command: &[String], cli_version: &str, engine: &str) -> Value {
-    let session = match &r.resume {
-        Some(s) => json!({ "resumed": s }),
-        None => json!({ "started": r.new_session }),
+    let session = match (&r.resume, r.fork) {
+        (Some(s), true) => json!({ "forked": s, "started": r.new_session }),
+        (Some(s), false) => json!({ "resumed": s }),
+        (None, _) => json!({ "started": r.new_session }),
     };
     let mut env: serde_json::Map<String, Value> = read_by_cli(std::env::vars_os())
         .into_iter()
@@ -486,11 +499,13 @@ impl Claude {
 impl Agents for Claude {
     fn run(&self, r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
         let reply = Claude::once(r, watch);
-        // A session whose first round was cut off exists, though no round of it ever ended: resume it.
+        // A session whose first round was cut off exists, though no round of it ever ended: resume it. So does a fork
+        // whose first round was cut off once the CLI had copied the base: it is resumed, not forked again.
         let in_use = reply.error.as_deref().is_some_and(|e| e.contains("already in use"));
-        if r.resume.is_none() && reply.output.is_none() && in_use {
+        if (r.resume.is_none() || r.fork) && reply.output.is_none() && in_use {
             let again = Request {
                 resume: Some(r.new_session.clone()),
+                fork: false,
                 ..r.clone()
             };
             let mut reply = Claude::once(&again, watch);
@@ -571,7 +586,10 @@ impl Claude {
     /// `watch`, which may answer that the run be stopped.
     fn once(r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
         let mut reply = Reply {
-            session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
+            session: match &r.resume {
+                Some(s) if !r.fork => s.clone(),
+                _ => r.new_session.clone(),
+            },
             ..Reply::default()
         };
         let child = Claude::command(r)
@@ -2753,6 +2771,7 @@ mod tests {
             worktree: PathBuf::from("/w"),
             config_dir: Some(PathBuf::from("/data/agents/claude")),
             resume: Some("s1".into()),
+            fork: false,
             system: None,
             new_session: "s2".into(),
             prompt: "p".into(),
@@ -2918,6 +2937,7 @@ mod tests {
             worktree: PathBuf::from("/w"),
             config_dir: None,
             resume: None,
+            fork: false,
             system: None,
             new_session: "s1".into(),
             prompt: "# R1-2 · cell I1\n\nFrom the owner: look.\n\nImages: image:12, image:13\n".into(),
@@ -3121,6 +3141,7 @@ mod tests {
             worktree: dir.to_path_buf(),
             config_dir: None,
             resume: None,
+            fork: false,
             system: None,
             new_session: "s1".into(),
             prompt: "p".into(),

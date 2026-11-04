@@ -319,6 +319,7 @@ pub fn recover(
     );
     let ask = Request {
         resume: Some(reply.session.clone()),
+        fork: false,
         prompt: message.clone(),
         // The session holds the images the round's message gave.
         images: Vec::new(),
@@ -375,6 +376,7 @@ fn repair(
         worktree: req.worktree.clone(),
         config_dir: e.cli_home(&level.cli),
         resume: None,
+        fork: false,
         system: None,
         new_session: agent::new_session_id(),
         prompt,

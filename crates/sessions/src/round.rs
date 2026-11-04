@@ -79,8 +79,36 @@ pub fn read(r: &rusqlite::Row<'_>) -> rusqlite::Result<Round> {
 }
 
 /// The rounds run in a CLI session, oldest first: the architect's line goes on in one CLI session across its works,
-/// each work with a session row of its own, so these are the rounds of every work whose session has it.
+/// each work with a session row of its own, so these are the rounds of every work whose session has it. A fork holds
+/// what its base held when it was forked: its rounds come after the base's that started before the fork's first.
 pub fn of_cli_session(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String> {
+    let own = own_rounds(conn, cli_session)?;
+    let base: Option<String> = conn
+        .query_row(
+            "SELECT b.cli_session FROM sessions s JOIN sessions b ON b.id = s.fork_of
+             WHERE s.cli_session = ?1 ORDER BY s.id LIMIT 1",
+            [cli_session],
+            |r| r.get(0),
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e => Err(e.to_string()),
+        })?;
+    let Some(base) = base.filter(|b| b != cli_session) else {
+        return Ok(own);
+    };
+    let until = own.first().map(|r| r.started_at);
+    let mut out: Vec<Round> = own_rounds(conn, &base)?
+        .into_iter()
+        .filter(|r| until.is_none_or(|t| r.started_at < t))
+        .collect();
+    out.extend(own);
+    Ok(out)
+}
+
+/// The rounds run in a CLI session itself, oldest first.
+fn own_rounds(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String> {
     let mut st = conn
         .prepare(&format!(
             "SELECT {COLUMNS} FROM rounds r JOIN sessions s ON s.id = r.session

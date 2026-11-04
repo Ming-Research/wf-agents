@@ -33,7 +33,7 @@ use db::rusqlite::Connection;
 
 use flow::{CompiledCell, CompiledGraph};
 
-pub use choose::{On, Plan, Start};
+pub use choose::{Fork, On, Plan, Start};
 pub use held::Held;
 pub use round::{Round, RoundId};
 
@@ -94,7 +94,8 @@ impl Manager {
 
     /// Where a work's next round at a cell runs at `now` ([`choose::plan`]), unless the owner asked for a new session,
     /// which it then starts, recorded as the owner's; the session the line had going on ends as at any new session, and
-    /// is otherwise left as it is. `architect` names the project of a work of its architect's graph.
+    /// is otherwise left as it is. `architect` names the project of a work of its architect's graph; `fork` says, for a
+    /// cell whose line forks, the matter in hand and the base it forks from.
     #[allow(clippy::too_many_arguments)]
     pub fn plan(
         &self,
@@ -105,11 +106,12 @@ impl Manager {
         limit: u64,
         on: On,
         now: i64,
+        fork: Option<&Fork>,
     ) -> Result<Plan, String> {
         if self.asked_new(work, architect) {
             return Ok(Plan::New(Start::Owner));
         }
-        choose::plan(conn, work, cell, limit, on, now)
+        choose::plan(conn, work, cell, limit, on, now, fork)
     }
 
     /// The new session the owner asked for started: the work's next rounds go on in it.

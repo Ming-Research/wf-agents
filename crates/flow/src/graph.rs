@@ -1097,6 +1097,20 @@ impl<'s> Graph<'s> {
             }
         }
         for l in &flow.sessions.lines {
+            // A line forks from another line of the graph, which forks from none: a fork of a fork would hold what
+            // neither the base nor it was given.
+            if let Some(base) = &l.forks {
+                ensure!(
+                    base != &l.name
+                        && flow
+                            .sessions
+                            .lines
+                            .iter()
+                            .any(|b| &b.name == base && b.forks.is_none()),
+                    "a line forks from no other line of its graph that forks from none: {} forks {base}",
+                    l.name
+                );
+            }
             // Where the line goes when its session would start afresh: a cell, from cells of the line.
             if let Some(a) = &l.anew {
                 ensure!(
