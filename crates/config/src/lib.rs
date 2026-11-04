@@ -1002,6 +1002,57 @@ pub struct Ci {
     /// `none`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub measure: Vec<MeasureWorkflow>,
+    /// The commands the ci tool runs on the head in the work's worktree before it pushes ([`PushCheck`]), so that what
+    /// a command finds in seconds does not cost a run of the CI; none, and the tool pushes at once. Left out of the
+    /// settings an agent is shown when empty, which they read as `none`. An engine that does not include the field
+    /// refuses a project's file that has it, since a field the types do not know is an error: add it only once an
+    /// engine that includes it is installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub push_checks: Vec<PushCheck>,
+}
+
+/// One command the engine's ci tool runs on a work's head before it pushes. The tool knows no language: it runs the
+/// words of `command` in the root of the work's worktree, without a shell and in a process group of its own, and reads
+/// what they say by the exit code, 0 for a head that passes. A check that does not pass keeps the head from being
+/// pushed, so a command must not judge the head more strictly than the project's CI does: it is best the very command
+/// the CI runs, and it must read only what the head holds and write nothing, fetch nothing from the network.
+///
+/// Every check runs, in the order listed, and the ci tool tells all that failed at once. Written as `[[ci.push_checks]]`
+/// tables in the project's file, one for each check:
+///
+/// ```toml
+/// [[ci.push_checks]]
+/// # What the engineer is told the check is called; each name once.
+/// name = "format"
+/// # Run in the worktree's root, split into words as a shell would, never through one; the very command the CI's lint
+/// # runs first.
+/// command = "cargo fmt --all --check"
+/// # Optional: how many seconds the command may run before the engine stops it and what it started; 120 unless set.
+/// timeout = 120
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PushCheck {
+    /// What the check is called: the name the ci tool's result gives it, and a row of tool_runs.
+    pub name: String,
+    /// The command, as one line: split into words as a shell splits a line (quotes group, a backslash escapes), and
+    /// run without a shell in the root of the work's worktree.
+    pub command: String,
+    /// How many seconds the command may run before the engine stops it, and everything it started; none, and
+    /// [`PUSH_CHECK_TIMEOUT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+}
+
+/// How many seconds a push check may run where the project sets no other limit: a check that hangs is stopped, and the
+/// limit is far above what a check that runs before every push is meant to take.
+pub const PUSH_CHECK_TIMEOUT: u64 = 120;
+
+impl PushCheck {
+    /// How many seconds the command may run.
+    pub fn timeout_secs(&self) -> u64 {
+        self.timeout.unwrap_or(PUSH_CHECK_TIMEOUT)
+    }
 }
 
 /// A workflow of a project that the measure tool runs by hand on a temporary ref of the code to measure.
@@ -1590,6 +1641,25 @@ impl Config {
                 problems.push(format!(
                     "projects/{name}.toml: ci.named_checks holds an empty name; each is the name of a job"
                 ));
+            }
+            for (i, c) in p.ci.push_checks.iter().enumerate() {
+                let at = format!("projects/{name}.toml: ci.push_checks of {:?}", c.name);
+                // The engineer reads the name in the tool's result, and the tool's rows are told apart by it.
+                if c.name.trim().is_empty() || c.name.trim() != c.name {
+                    problems.push(format!("{at}: name is empty or has spaces around it"));
+                }
+                if p.ci.push_checks[..i].iter().any(|other| other.name == c.name) {
+                    problems.push(format!("{at}: name is listed twice"));
+                }
+                // The command is run as its words, never through a shell: it must have some, and a quote must close.
+                match words(&c.command) {
+                    Err(why) => problems.push(format!("{at}: command cannot be split into words: {why}")),
+                    Ok(w) if w.is_empty() => problems.push(format!("{at}: command holds no word")),
+                    Ok(_) => {}
+                }
+                if c.timeout == Some(0) {
+                    problems.push(format!("{at}: timeout is 0; it is the seconds the command may run"));
+                }
             }
             if let Some(r) = &p.ci.results {
                 // The artifact is downloaded by its name: an empty name is no artifact.

@@ -141,6 +141,40 @@ A project's file that has these tables is refused by an engine that does not inc
 is an error): install the engine that includes it first, then add the tables. The tables are the owner's, in the data
 directory; the decision behind the tool is `decisions/engine-runs-outside-commands.md`.
 
+## A project's checks before a push
+
+What a command finds in seconds should not cost a run of the CI. The engine's tool `ci` runs, on the head it is asked
+to push and before it pushes, each command the project's file lists as a push check, one `[[ci.push_checks]]` table
+for each (`name`, the `command`, and `timeout` in seconds, 120 unless set). The engine knows no language, so a project
+of any language lists the commands of its own. For wf-agents itself, the very command the CI's lint runs first:
+
+```toml
+[[ci.push_checks]]
+name = "format"
+command = "cargo fmt --all --check"
+```
+
+Every check runs, in the order listed, in the worktree's root, and the result tells all that failed at once. A check
+passes by its command ending with exit code 0. When any does not pass (an exit code but 0, or running past its time
+limit), `ci` pushes nothing, opens or changes no pull request and runs no CI: its result is `checks_failed`, which gives
+every check's name, command and verdict, and the exit code and output of those that failed. Each run is a row of
+`tool_runs` under the tool name `push_check`, which is how a check that keeps a head from a CI that would have passed it
+is found. A command that cannot be started (a program the engine's environment does not have) is a failed tool, tried
+again twice and then left to the architect, not a verdict on the head. A project that lists none is pushed to as it
+always was.
+
+A check must not judge a head more strictly than the project's CI does, since the head it keeps back is one the CI
+would have passed: it is best the very command the CI runs, and it only reads what the head holds, writes nothing and
+fetches nothing from the network. The command is split into words as a shell splits a line and run without a shell, in
+a process group of its own and with the engine's environment, which must hold the program and, for one that a file of
+the repository selects (as `rust-toolchain.toml` selects a toolchain), nothing that overrides the selection
+(`RUSTUP_TOOLCHAIN`). A command that needs a shell is written `sh -c '...'`. `wf-agents config check` tells every fault
+of the tables at once.
+
+A project's file that has these tables is refused by an engine that does not include them (a field it does not know is
+an error): install the engine that includes them first, then add the tables. The tables are the owner's, in the data
+directory.
+
 ## The agents' own configuration
 
 The engine runs every agent's command line with a configuration directory of its own (`CLAUDE_CONFIG_DIR` for

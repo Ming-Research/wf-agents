@@ -107,7 +107,7 @@ fn a_tool_without_the_network_waits_for_it() {
 }
 
 /// The branches there are on the fake GitHub's remote.
-fn remote_branches(s: &Setup) -> Vec<String> {
+pub(super) fn remote_branches(s: &Setup) -> Vec<String> {
     git(
         &s.root,
         &[

@@ -3840,8 +3840,8 @@
   "tools": [
     {
       "name": "ci",
-      "desc": "Pushes your local commits and runs the repository's fast CI on the commit; where the project runs its CI on demand, it runs only what you name: the tests you list, and the checks you name. When it is done, it gives you the result of each check and of each test you listed, and puts in your worktree, uncommitted, the files a red run generated that differ from yours, such as the files as the formatter makes them. The full CI, every check and every test, runs once, at the merge",
-      "runs": "The engine checks the request and the head, telling everything wrong with them at once, and pushes. On the first push of a commit beyond main it opens a draft PR with the title and description handed in, and updates them when new ones come; GitHub opens none for a branch with no commit beyond main, so a push of such a branch opens none and only runs the fast CI. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the checks named, among those the configuration lists (named_checks), given by the input it names (checks_input), and it takes only the run it made, never one made before; a job the run skipped, as the lint when it is not named, is not among the checks it gives. When no test is listed and no check named, it runs nothing and gives no check. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. GitHub runs a workflow by hand on a branch by the file of it the branch holds; where it refuses to, as on a branch made before main's workflow took the request, and main's CI files (.github/) differ from the branch's, the engine runs it on a temporary ref holding the head with main's CI files, those the work changed itself kept as the work has them, gives that run as the head's and deletes the ref. The engine waits for the run to finish and downloads the logs of red checks. When tests are listed, it downloads the results the run reported, JUnit XML in the artifact the configuration names (`project.ci.results`), and reads from them what became of each test each listed name names and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
+      "desc": "Before it pushes, it runs on your head, in your worktree, the checks the project lists, `project.ci.push_checks`, all of them: if one does not pass, nothing is pushed and no CI runs, and the result gives each check's verdict, with the exit code and output of those that failed. Then it pushes your local commits and runs the repository's fast CI on the commit; where the project runs its CI on demand, it runs only what you name: the tests you list, and the checks you name. When it is done, it gives you the result of each check and of each test you listed, and puts in your worktree, uncommitted, the files a red run generated that differ from yours, such as the files as the formatter makes them. The full CI, every check and every test, runs once, at the merge",
+      "runs": "The engine checks the request and the head, telling everything wrong with them at once. When both are right, it runs each push check the project's configuration lists (ci.push_checks) on the head, in the root of the work's worktree, in the order listed and all of them, whatever an earlier one found: each command is run without a shell, in a process group of its own, with the engine's environment, and with a time limit (timeout, 120 seconds unless the configuration sets it) past which it is stopped with everything it started, and it passes only by ending with exit code 0. Each run of a check is a row of tool_runs under the tool name push_check. When any check does not pass, the engine pushes nothing, opens or changes no PR and runs no CI, and gives the result checks_failed; a command that cannot be started is a failed tool, tried twice more, and no check after it runs. When the project lists no check, none runs. Then it pushes. On the first push of a commit beyond main it opens a draft PR with the title and description handed in, and updates them when new ones come; GitHub opens none for a branch with no commit beyond main, so a push of such a branch opens none and only runs the fast CI. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the checks named, among those the configuration lists (named_checks), given by the input it names (checks_input), and it takes only the run it made, never one made before; a job the run skipped, as the lint when it is not named, is not among the checks it gives. When no test is listed and no check named, it runs nothing and gives no check. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. GitHub runs a workflow by hand on a branch by the file of it the branch holds; where it refuses to, as on a branch made before main's workflow took the request, and main's CI files (.github/) differ from the branch's, the engine runs it on a temporary ref holding the head with main's CI files, those the work changed itself kept as the work has them, gives that run as the head's and deletes the ref. The engine waits for the run to finish and downloads the logs of red checks. When tests are listed, it downloads the results the run reported, JUnit XML in the artifact the configuration names (`project.ci.results`), and reads from them what became of each test each listed name names and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
       "in": [
         {
           "name": "head",
@@ -3983,6 +3983,78 @@
                       "desc": "What to do with them, or what could not be fetched or written"
                     }
                   ]
+                }
+              ]
+            },
+            {
+              "value": "checks_failed",
+              "desc": "A check the project has the engine run on your head before pushing did not pass: nothing was pushed, no PR was opened or changed, and no CI ran",
+              "fields": [
+                {
+                  "name": "head",
+                  "title": "Commit checked",
+                  "type": "text",
+                  "desc": "The head the checks ran on"
+                },
+                {
+                  "name": "push_checks",
+                  "title": "Push checks",
+                  "type": "list",
+                  "desc": "Every check the project lists, in the order listed, each with what became of it; at least one failed",
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "name",
+                        "title": "Check",
+                        "type": "text",
+                        "desc": "The check's name, as the project's configuration gives it"
+                      },
+                      {
+                        "name": "command",
+                        "title": "Command",
+                        "type": "text",
+                        "desc": "The command the engine ran, as the configuration gives it"
+                      },
+                      {
+                        "name": "verdict",
+                        "title": "Verdict",
+                        "type": "enum",
+                        "desc": "What became of it",
+                        "values": [
+                          [
+                            "passed",
+                            "The command ended with exit code 0"
+                          ],
+                          [
+                            "failed",
+                            "The command ended with another exit code, or was stopped for running past its time limit"
+                          ]
+                        ]
+                      },
+                      {
+                        "name": "exit",
+                        "title": "Exit code",
+                        "type": "int",
+                        "desc": "Only for a failed check: the command's exit code; left out when it was stopped, by the engine or by a signal, and has none",
+                        "optional": true
+                      },
+                      {
+                        "name": "timed_out",
+                        "title": "Stopped for time",
+                        "type": "bool",
+                        "desc": "Only for a failed check: true when the engine stopped the command, and everything it started, for running past its time limit",
+                        "optional": true
+                      },
+                      {
+                        "name": "output",
+                        "title": "Output",
+                        "type": "text",
+                        "desc": "Only for a failed check: what the command wrote to its standard output and error, as it wrote it; if it is too long, it is saved locally and this gives the path",
+                        "optional": true
+                      }
+                    ]
+                  }
                 }
               ]
             },

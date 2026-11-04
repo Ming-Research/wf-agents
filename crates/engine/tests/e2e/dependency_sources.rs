@@ -107,7 +107,7 @@ fn tool_cell_output(e: &Engine, item: i64) -> Value {
 }
 
 /// Whether the output fits what the compiled flow says cell `X1` returns.
-fn fits_the_flow(e: &mut Engine, work: i64, output: &Value) -> bool {
+pub(super) fn fits_the_flow(e: &mut Engine, work: i64, output: &Value) -> bool {
     let w = e.work(work).unwrap();
     let g = e.graph_of(&w).unwrap();
     let schema = g.cell("X1").and_then(|c| c.schema.clone()).unwrap();

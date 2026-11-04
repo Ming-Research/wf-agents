@@ -13,7 +13,9 @@ What an agent needs to know for this repository, beyond the rules every agent is
   and a push that fails it costs a whole CI call. `rustfmt --check <files>` shows the differences without rewriting
   them. Use `rustfmt` itself, since `cargo fmt` is refused on the engineer's command line. `rustfmt` reads
   `rustfmt.toml`, and rustup runs the toolchain that `rust-toolchain.toml` pins, so the `rustfmt` it provides formats
-  as CI does. Do not pass a glob such as `crates/**/*.rs`, so that no file is left out.
+  as CI does. Do not pass a glob such as `crates/**/*.rs`, so that no file is left out. Where the project lists a push
+  check (`ci.push_checks`, such as `cargo fmt --all --check`), the engine runs it before `ci` pushes and pushes nothing
+  when it does not pass; that costs a round, which running `rustfmt` first saves.
 - A new crate goes under `crates/` and takes its version, edition and lints from the workspace.
 - `db/schema.sql` is the only definition of the database: change the database by changing it, with the migration in
   the same pull request, a file of `db/migrations/` named by the minute it was written and what it does.

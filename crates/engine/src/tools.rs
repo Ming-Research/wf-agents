@@ -1,5 +1,6 @@
 //! The tool cells: the tools agents ask for (cell `X1`, in each graph; `dependency_sources` is in
-//! [`crate::dependency_sources`]), the full CI on the draft (`T2`), the merge queue (`M2`) and watching main (`L1`).
+//! [`crate::dependency_sources`], and the checks `ci` runs before it pushes are in [`crate::push_checks`]), the full CI
+//! on the draft (`T2`), the merge queue (`M2`) and watching main (`L1`).
 //! Each attempt of a tool is a row of tool_runs under the cell's round. A tool that fails is tried twice more; a
 //! refusal is a result, not a failure, and is not tried again.
 
@@ -16,7 +17,7 @@ use serde_json::{Value, json};
 use crate::hub::{self, CheckRun, Failure};
 use crate::inputs::Gathered;
 use crate::work::{self, Item, RoundId, Work};
-use crate::{Engine, git, results};
+use crate::{Engine, git, push_checks, results};
 use sessions::worktree::Unfit;
 
 /// How many times a tool is tried before it is given up.
@@ -99,8 +100,9 @@ pub(crate) fn attempts(
     unreachable!("the last attempt returns")
 }
 
-/// A text given inline when it is short, or saved under the data directory and given by its path.
-pub(crate) fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String) -> String {
+/// A text given inline when it is short, or saved under the data directory and given by its path. `n` names the file
+/// beside the round: the request's place among the round's, or more when one request saves several texts.
+pub(crate) fn inline_or_saved(e: &Engine, round: RoundId, n: impl std::fmt::Display, text: String) -> String {
     if text.len() <= LONG {
         return text;
     }
@@ -860,6 +862,14 @@ fn ci(
         );
     }
     let sha = git::resolve(&wt, head).unwrap_or_default();
+    // The project's own checks of the head come before the push: one that does not pass keeps the head, the pull request
+    // and the CI untouched, and every check is told at once. None listed, and nothing runs.
+    if !project.ci.push_checks.is_empty() {
+        let ran = push_checks::run_all(e, round, n, &wt, &sha, &project.ci.push_checks)?;
+        if !push_checks::all_passed(&ran) {
+            return Ok(json!({ "push": { "verdict": "checks_failed", "head": sha, "push_checks": ran } }));
+        }
+    }
     let fallback = pr_fallback(item);
     let title_body = req.get("pr").map(|p| {
         (
@@ -1062,7 +1072,10 @@ fn ci_before(
         return refused(format!("There is no commit {head}"));
     };
     if !pushed_covering(&wt, &sha, pushed, told) {
-        return refused(format!("The head {sha} is not pushed; hand it in together with ci"));
+        return refused(format!(
+            "The head {sha} is not pushed; hand it in together with ci (a ci that pushed nothing, as when a check the \
+             project runs before pushing did not pass, says why in its result)"
+        ));
     }
     let files: Vec<String> = req["files"]
         .as_array()
