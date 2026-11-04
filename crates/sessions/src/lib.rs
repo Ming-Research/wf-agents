@@ -186,8 +186,8 @@ mod tests {
         let all = flow::formats::common_format(g);
         let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()));
         assert_eq!(of("R1"), of("T6"));
-        assert_eq!(of("T3"), of("T4"));
-        for cell in ["R1", "T3", "T1", "A1"] {
+        assert_eq!(of("T2"), of("T4"));
+        for cell in ["R1", "T2", "T1", "A1"] {
             assert!(of(cell).len() <= all.len(), "{cell}");
         }
         assert!(
@@ -200,15 +200,16 @@ mod tests {
             .map(|c| c.id.as_str())
             .collect();
         assert!(
-            cells.contains(&"T3") && cells.contains(&"T4") && !cells.contains(&"I1"),
+            cells.contains(&"T2") && cells.contains(&"T4") && !cells.contains(&"I1"),
             "{cells:?}"
         );
     }
 
-    // The flow starts the engineer's new sessions at researching, implementing and fixing, the reader's at its first
-    // gathering, and the reviewer's at the blind review, which no plan the reviewer reviewed before may shape.
+    // The flow starts the engineer's new sessions at researching and at implementing a design, the reader's at its
+    // gathering of the background, the deep research's at its first round, the reviewer's at the first pass of the review
+    // and the adversarial tester's at its one round; the fix goes on in the implementation's session.
     #[test]
-    fn the_engineer_starts_new_sessions_at_researching_implementing_and_fixing() {
+    fn the_engineer_starts_new_sessions_at_researching_and_implementing() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let starts: Vec<&str> = g
@@ -217,6 +218,6 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["G1", "R1", "I1", "T3", "T6"]);
+        assert_eq!(starts, ["R0", "R1", "D1", "I1", "T2", "T1"]);
     }
 }

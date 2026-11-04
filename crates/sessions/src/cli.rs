@@ -1890,49 +1890,28 @@ mod tests {
         }
     }
 
-    // In the engineer's trial a return of cell D2 handed in its answer without `why`, which the answer requires and no
-    // other form of the graph has, and the engine sent it back, which cost a round (R18-6, $0.34): the shape of every
+    // In the engineer's trial a return of the design handed in its answer without `why`, which the answer required and
+    // no other form of the graph had, and the engine sent it back, which cost a round (R18-6, $0.34): the shape of every
     // form taken together could not require it. A form with a field of its own is now told apart by it, and the command
-    // line refuses such a return naming the missing field, as the installed one did when tried (2.1.312: "/outcome: must
-    // have required property 'why', /outcome: must match \"then\" schema"). So D2's answer without `why` is refused
-    // naming it, with it passes the envelope and the cell's schema, and beside a field of another form it is refused.
+    // line refuses such a return naming the missing field, as the installed one did when tried (2.1.312). So thinking
+    // again outside the frame without `changed`, its field of its own, is refused naming it, with it passes the envelope
+    // and the cell's schema, and beside a field of another form it is refused.
     #[test]
     fn a_cell_s_own_answer_without_a_field_it_requires_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let s = envelope(g, Some("engineer"));
+        let s = envelope(g, Some("designer"));
         let schema = g.cell("D2").unwrap().schema.clone().unwrap();
-        let mut ret = json!({
-            "tell_owner": [],
-            "side_reports": [],
-            "flow_feedback": "none",
-            "progress": "Chose one SQL statement with a total row",
-            "outcome": {
-                "chosen": "One SQL statement with a total row",
-                "why": "The total and the rows come from one read of the data",
-                "measure": { "verdict": "not_measured", "why": "Nothing here is slow" },
-                "design": {
-                    "solution": "Add a total row to the query",
-                    "where": "The cost command",
-                    "excluded": "A second query",
-                    "pitfalls": "The row limit must not cut the total",
-                },
-                "articles": [{ "article": "Article 1", "verdict": "untouched", "why": "It touches no project's settings" }],
-                "item_decisions": [],
-                "open_questions": [],
-                "acceptance": [{ "by": "test", "id": "A1", "condition": "The total row is shown past the limit" }],
-                "estimate": "One test file and one query",
-            },
-        });
+        let mut ret = samples()["D2"][0]["json"].clone();
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
-        let why = ret["outcome"].as_object_mut().unwrap().shift_remove("why").unwrap();
+        let changed = ret["outcome"].as_object_mut().unwrap().shift_remove("changed").unwrap();
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome: must have required property 'why'")
+            Some("/outcome: must have required property 'changed'")
         );
-        ret["outcome"]["why"] = why;
+        ret["outcome"]["changed"] = changed;
         ret["outcome"]["pause"] = json!({});
         let mixed = refused(&s, &ret, "").unwrap_or_default();
         assert!(mixed.contains("is not allowed"), "{mixed}");
@@ -2002,36 +1981,32 @@ mod tests {
         );
     }
 
-    // `considered` belongs to the branch `present_best` of the design's second look (R242-15 handed it in with `found`):
-    // the command line refuses it with `found`, naming it, and takes it with `present_best`.
+    // `what` belongs to the branch `revise` of the review taken in: the command line refuses it with `approved`, naming
+    // it, and takes it with `revise`.
     #[test]
-    fn a_better_design_found_with_the_approaches_considered_is_refused_by_the_command_line() {
+    fn a_field_of_another_branch_of_the_review_taken_in_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let s = envelope(g, Some("engineer"));
-        let schema = g.cell("D3").unwrap().schema.clone().unwrap();
-        let mut ret = samples()["D3"][0]["json"].clone();
-        assert_eq!(ret["outcome"]["better"]["verdict"], "present_best");
+        let s = envelope(g, Some("designer"));
+        let schema = g.cell("D4").unwrap().schema.clone().unwrap();
+        let mut ret = samples()["D4"][0]["json"].clone();
+        assert_eq!(ret["outcome"]["verdict"]["verdict"], "approved");
         assert_eq!(refused(&s, &ret, ""), None);
         assert!(flow::valid(&schema, &ret));
-        ret["outcome"]["better"] = json!({
-            "verdict": "found", "what": "A better one", "why": "It is simpler", "considered": ["Another"],
-        });
+        ret["outcome"]["verdict"] = json!({ "verdict": "approved", "choices": [], "what": "Change the cache" });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome/better: must NOT have additional properties ('considered' is not allowed)")
+            Some("/outcome/verdict: must NOT have additional properties ('what' is not allowed)")
         );
-        ret["outcome"]["better"]
-            .as_object_mut()
-            .unwrap()
-            .shift_remove("considered");
+        ret["outcome"]["verdict"] = json!({ "verdict": "revise", "what": "Change the cache", "whose": "The owner's" });
         assert!(flow::valid(&schema, &ret));
         assert_eq!(refused(&s, &ret, ""), None);
     }
 
-    // A null in a field of a form the return is not (`ask: null` beside a `brief`, R241-2 and R262-2; `why: null` in a
-    // `surprise`) is refused by the command line, which the agent puts right within its run; a return the command line
+    // A null in a field of a form the return is not (`ask: null` beside what was learned, as R241-2 and R262-2 beside a
+    // brief; `why: null` in a `surprise`) is refused by the command line, which the agent puts right within its run; a
+    // return the command line
     // did not check reaches the engine with it, which takes it as left out, so that the return fits the cell's schema,
     // and gives the path of each such null. A null in a field the return's own form requires, a value of nothing but
     // nulls, and a null in a field the form may leave out (which is left out as ever) are not among them.
@@ -2049,10 +2024,10 @@ mod tests {
             ["outcome.deviations[0].why"]
         );
         assert!(flow::valid(&schema, &surprise), "{surprise}");
-        // The same two lines of a `brief` of the reader of the history.
-        let reader = envelope(g, Some("librarian"));
-        let brief_schema = g.cell("G1").unwrap().schema.clone().unwrap();
-        let mut brief = samples()["G1"][0]["json"].clone();
+        // The same two lines of what the work learned.
+        let reader = envelope(g, Some("engineer"));
+        let brief_schema = g.cell("L2").unwrap().schema.clone().unwrap();
+        let mut brief = samples()["L2"][0]["json"].clone();
         brief["outcome"]["ask"] = Value::Null;
         assert!(refused(&reader, &brief, "").is_some_and(|r| r.contains("ask")));
         assert!(!flow::valid(&brief_schema, &brief));
@@ -2064,7 +2039,7 @@ mod tests {
         assert_eq!(flow::without_null_options(&schema, &mut required), Vec::<String>::new());
         assert!(!flow::valid(&schema, &required));
         // A value of nothing but nulls is no form's.
-        let mut only = samples()["G1"][0]["json"].clone();
+        let mut only = samples()["L2"][0]["json"].clone();
         only["outcome"] = json!({ "ask": null });
         assert_eq!(
             flow::without_null_options(&brief_schema, &mut only),

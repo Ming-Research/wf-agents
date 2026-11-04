@@ -5139,6 +5139,7 @@
       "desc": "How every agent works, whatever its cell",
       "lines": [
         "engineer",
+        "designer",
         "review",
         "adversarial",
         "advisor",
@@ -5373,6 +5374,7 @@
           "desc": "How an engineer works: writing code, design, evidence, experiments and the repository. The advisor is an engineer too",
           "lines": [
             "engineer",
+            "designer",
             "advisor"
           ],
           "text": [
@@ -6002,7 +6004,8 @@
         },
         "lines": {
           "tell_owner": [
-            "engineer"
+            "engineer",
+            "designer"
           ]
         }
       },
@@ -8249,7 +8252,7 @@
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
             "Write each option the owner chose for a decision point into the project's directory of decisions, one Markdown file for each decision, in English, saying: what is done now; why, what it is for and the reasons; each option not chosen, and why not; and one line for each challenge considered and turned down: when, what change was proposed, and why it was not made. It merges with this work's pull request. Name each file in decisions_written. A decision the owner overturned is rewritten in its file, and one withdrawn deleted, the commit message saying what changed and why.",
             "The acceptance may change: when it must, hand in the whole list as it is now in acceptance_changed, with why.",
-            "Write what changed in tests and checks: for each test added, what errors it catches and its kind; for a test that was there and now tests more, an extended row of the same; for each removed, skipped or relaxed, its technical reason. Run each test you add or extend once after the change with ci and once before it with ci_before, listing in a run of ci_before only the files of the tests it is for: the engine reads the two results from those runs, the latest that reported the test counting, and a test whose files changed after its run of ci_before is run again. A test that cannot run before the change says why in not_before. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere."
+            "Write what changed in tests and checks: for each test added, what errors it catches and its kind; for a test that was there and now tests more, an extended row of the same; for each removed, skipped or relaxed, its technical reason. Run each test you add or extend once after the change with ci and once before it with ci_before, listing in a run of ci_before only the files of the tests it is for: the engine reads the two results from those runs, the latest run of ci_before that reported the test counting, and when any of the files that run put on the code before the change changed after it, run ci_before again. A test that cannot run before the change says why in not_before. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere."
           ],
           "promptBy": {
             "by": "work",
@@ -11661,7 +11664,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, change an interface beyond this item, or when the root lies in another item, hand the question to the architect. The behaviour something the project specifies must have, a safety guarantee, the work's direction and what is under test rejecting a natural way of writing something are yours to decide, without asking the owner again: What only the owner can do or decide is the owner's alone: hand such a question to the architect, who puts it to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place. The code is read-only for you: change no file and commit nothing."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, change an interface beyond this item, or when the root lies in another item, hand the question to the architect. The behaviour something the project specifies must have, a safety guarantee, the work's direction and what is under test rejecting a natural way of writing something are yours to decide, without asking the owner again: What only the owner can do or decide is the owner's alone: hand such a question to the architect, who puts it to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place. The code is read-only for you: change no file and commit nothing."
           ],
           "out": [
             {
@@ -11686,7 +11689,7 @@
                   "name": "new_acceptance",
                   "title": "New acceptance",
                   "type": "list",
-                  "desc": "The acceptance conditions from now on, which are locked and cannot change during implementation. They replace all the locked conditions: list every condition that stays, as it is, as well as the changed and the new ones; a condition not listed is dropped. Leave it out if the acceptance does not change",
+                  "desc": "The acceptance conditions from now on. They replace all the conditions on the item: list every condition that stays, as it is, as well as the changed and the new ones; a condition not listed is dropped. Leave it out if the acceptance does not change",
                   "optional": true,
                   "item": {
                     "$ref": "acceptance_item"

@@ -3583,11 +3583,8 @@ mod tests {
     #[test]
     fn the_forms_and_the_retry_text_say_the_same_of_which_run_counts() {
         let flow: Value = serde_json::from_str(include_str!("../../../flow/flow.json")).unwrap();
-        let mut texts = vec![(
-            "the test changes".to_string(),
-            flow["shapes"]["test_changes"].to_string(),
-        )];
-        for id in ["I1", "T6", "T1"] {
+        let mut texts = Vec::new();
+        for id in ["I1", "T1"] {
             let cell = flow["flows"][0]["nodes"]
                 .as_array()
                 .unwrap()
