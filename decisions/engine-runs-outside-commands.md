@@ -49,9 +49,11 @@ language writes the command of its own. The types and the examples are in `crate
 
 ## Not covered
 
-The lock commands of #266 (`cargo update`, `cargo add`, `npm install --package-lock-only --ignore-scripts`) were
-written before this rule and still run in the agent's shell, by the command line's prefix permission. Whether they too
-become engine tools is item #280; until it is decided they keep to what #266 set.
+The lock commands of #266 have the tool `lock_update` (#280). The prefix permissions that let them run in the agent's
+shell stay until #283 removes them, once the tool has run on a real machine.
+
+What a command the engine runs can take from the files an agent writes in the worktree, and from the engine's own
+environment, is not settled: #284.
 
 ## How it was decided
 

@@ -36,6 +36,7 @@ mod guard;
 mod history;
 mod holds;
 mod line_sessions;
+mod lock_update;
 mod messages;
 mod notebook;
 mod observations;
