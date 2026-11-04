@@ -1126,25 +1126,39 @@ results = {{ artifact = "{RESULTS}" }}
 
 fn scripts() -> BTreeMap<&'static str, Script> {
     let mut s: BTreeMap<&'static str, Script> = BTreeMap::new();
+    // The research finds the work can start as it is, with a plan and its acceptance.
     s.insert(
-        "D2",
+        "R1",
         Box::new(|_: &Request, _: usize| {
             (
-                vec![("outcome.measure", "not_measured")],
+                vec![
+                    ("outcome.can_start", "yes"),
+                    ("outcome.departs", "no"),
+                    ("outcome.to_decide", "no"),
+                ],
                 vec![(
-                    "outcome.acceptance",
+                    "outcome.can_start.acceptance",
                     json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
                 )],
             )
         }),
     );
+    // A work that goes to deep research measures nothing, and its design keeps that acceptance.
     s.insert(
-        "D3",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.better", "present_best")], Vec::new())),
+        "D1",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.measure", "not_measured")], Vec::new())),
     );
     s.insert(
-        "D11",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
+        "D2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.design.acceptance",
+                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
+                )],
+            )
+        }),
     );
     // The owner's words of a batch settle nothing to record, a row for each of the matters it was given.
     s.insert(
@@ -1184,7 +1198,7 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             }
             let head = git(wt, &["rev-parse", "HEAD"]);
             (
-                Vec::new(),
+                vec![("outcome.departs", "no")],
                 vec![
                     ("outcome.head", json!(head)),
                     ("outcome.conditions", json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }])),
@@ -1192,8 +1206,11 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             )
         }),
     );
-    // The table review answers every column of its table.
-    s.insert("T4", answers_columns(|_| vec![("outcome.no_adversarial", "stands")]));
+    // The review's details find nothing to fix, and nothing that can go wrong silently.
+    s.insert(
+        "T3",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.silent", "no"), ("outcome.must_fix", "no")], Vec::new())),
+    );
     s
 }
 

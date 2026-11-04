@@ -2024,10 +2024,10 @@ mod tests {
             ["outcome.deviations[0].why"]
         );
         assert!(flow::valid(&schema, &surprise), "{surprise}");
-        // The same two lines of what the work learned.
-        let reader = envelope(g, Some("engineer"));
-        let brief_schema = g.cell("L2").unwrap().schema.clone().unwrap();
-        let mut brief = samples()["L2"][0]["json"].clone();
+        // The same two lines of a `brief` of the reader of the history.
+        let reader = envelope(g, Some("librarian"));
+        let brief_schema = g.cell("R0").unwrap().schema.clone().unwrap();
+        let mut brief = samples()["R0"][0]["json"].clone();
         brief["outcome"]["ask"] = Value::Null;
         assert!(refused(&reader, &brief, "").is_some_and(|r| r.contains("ask")));
         assert!(!flow::valid(&brief_schema, &brief));
@@ -2039,7 +2039,7 @@ mod tests {
         assert_eq!(flow::without_null_options(&schema, &mut required), Vec::<String>::new());
         assert!(!flow::valid(&schema, &required));
         // A value of nothing but nulls is no form's.
-        let mut only = samples()["L2"][0]["json"].clone();
+        let mut only = samples()["R0"][0]["json"].clone();
         only["outcome"] = json!({ "ask": null });
         assert_eq!(
             flow::without_null_options(&brief_schema, &mut only),

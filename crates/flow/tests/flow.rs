@@ -1552,7 +1552,8 @@ fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_di
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
     let fits = |cell: &str, sample: &Value, place: &str, value: Value| -> Result<String, String> {
         let mut x = sample.clone();
-        x["outcome"][place] = value;
+        let at = place.split('.').fold(&mut x["outcome"], |v, k| &mut v[k]);
+        *at = value;
         let given: Map<String, Value> = samples[cell][0]["given"].as_object().cloned().unwrap_or_default();
         g.take(cell, &x, &given).map(|r| r.name.clone())
     };
@@ -1563,9 +1564,15 @@ fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_di
             { "by": by, "id": "A2", "condition": "The page passes its check." }
         ])
     };
-    assert_eq!(fits("D2", design, "acceptance", acceptance("ci")).unwrap(), "first");
-    assert_eq!(fits("D2", design, "acceptance", acceptance("diff")).unwrap(), "first");
-    let e = fits("D2", design, "acceptance", acceptance("by_hand")).unwrap_err();
+    assert_eq!(
+        fits("D2", design, "design.acceptance", acceptance("ci")).unwrap(),
+        "done"
+    );
+    assert_eq!(
+        fits("D2", design, "design.acceptance", acceptance("diff")).unwrap(),
+        "done"
+    );
+    let e = fits("D2", design, "design.acceptance", acceptance("by_hand")).unwrap_err();
     assert!(e.contains("does not fit the schema"), "{e}");
     // Of the conditions table, adversarial testing's and the engineer's alike.
     let sample = &samples["T1"][0]["json"];
@@ -1670,8 +1677,8 @@ fn what_a_field_was_earlier_is_carried_and_never_handed_in_now() {
         .find(|f| f["name"] == "file")
         .unwrap();
     file["earlier"] = "absent".into();
-    let followup = out.iter_mut().find(|f| f["$ref"] == "followup").unwrap();
-    followup["earlier"] = "absent".into();
+    let note = out.iter_mut().find(|f| f["name"] == "note").unwrap();
+    note["earlier"] = "absent".into();
     let marked = flow::compile(&v.to_string(), &context()).unwrap_or_else(|e| panic!("{e}"));
     let (was, is) = (
         plain.graph("engineer").unwrap().cell("I1").unwrap(),
