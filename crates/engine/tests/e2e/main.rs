@@ -350,8 +350,7 @@ impl Agents for Scripted {
             Some(f) => f(r, n),
             None => (Vec::new(), Vec::new()),
         };
-        let pick: BTreeMap<String, String> =
-            pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let pick: BTreeMap<String, String> = pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         // The understanding and the plan rewrite their sections of the notebook, unless the script says otherwise.
         let sections: &[&str] = match r.cell.as_str() {
@@ -1144,21 +1143,6 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         "D11",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
-    // The owner's words of a batch settle nothing to record, a row for each of the matters it was given.
-    s.insert(
-        "B5",
-        Box::new(|r: &Request, _: usize| {
-            let given = given_value(&r.prompt, "·engine·batch_words").unwrap_or(json!({}));
-            let rows: Vec<Value> = given
-                .as_object()
-                .into_iter()
-                .flat_map(|o| o.keys())
-                .filter_map(|k| k.trim_start_matches('#').parse::<i64>().ok())
-                .map(|m| json!({ "matter": m, "verdict": "nothing", "why": "Nothing to record." }))
-                .collect();
-            (Vec::new(), vec![("outcome.looked", json!(rows))])
-        }),
-    );
     // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
     // work's branch says, by the commit the first made, since several works may implement, each in its own worktree:
     // the feature, or, when main holds it already from another work, a part of its own.
@@ -1796,26 +1780,6 @@ fn project_of(r: &Request) -> String {
         .unwrap_or_default()
 }
 
-/// The architect's cells an architect work would not get through with their first answers, scripted: the pick takes the
-/// first matter of its project's queue.
-fn picks_first(s: &Setup, scripts: &mut BTreeMap<&'static str, Script>) {
-    let path = config::database(&s.data);
-    scripts.insert(
-        "Q1",
-        Box::new(move |r: &Request, _: usize| {
-            let c = db::open_read(&path).unwrap();
-            let first: i64 = c
-                .query_row(
-                    "SELECT matter FROM architect_queue WHERE project = ?1 ORDER BY matter LIMIT 1",
-                    [project_of(r)],
-                    |x| x.get(0),
-                )
-                .unwrap();
-            (Vec::new(), vec![("outcome.pick.matter", json!(first))])
-        }),
-    );
-}
-
 /// The works of every architect, oldest first.
 fn architect_works(e: &Engine) -> Vec<i64> {
     let mut st =
@@ -1961,14 +1925,18 @@ fn architect_sessions(e: &Engine, first: i64, second: i64) -> Vec<(String, Strin
 /// Works of project p's architect run one after the other under `agents`: each of `talks` is the owner's words that
 /// start a work, said `age` milliseconds after the work before it ended (that work and what it was told made that much
 /// older; the first has none before it). The first words are said five seconds before the first work starts, so that
-/// no round of it begins in the millisecond they were said in. Gives the works' ids, oldest first.
+/// no round of it begins in the millisecond they were said in. With `rebuild`, every work after the first reads the
+/// project anew once its matters are handled ([`rebuild_every_work`]). Gives the works' ids, oldest first.
 fn architect_works_in(
     name: &str,
     agents: BTreeMap<&'static str, Script>,
     talks: &[(i64, &str)],
+    rebuild: bool,
 ) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Vec<i64>) {
     let s = setup(name);
-    understanding_each_session(&s);
+    if rebuild {
+        rebuild_every_work(&s);
+    }
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -2090,31 +2058,6 @@ fn asks_the_owner(question: &str) -> Hands {
     )
 }
 
-/// Sets the installation's wait for the owner's reply to none, so that a question the architect puts waits at the back
-/// of its queue at once.
-fn no_reply_wait(s: &Setup) {
-    agents_setting(s, "owner_reply_wait = 0");
-    git(&s.data, &["commit", "-q", "-am", "no wait for the owner's reply"]);
-}
-
-/// Sets a setting of the installation's agents, under the table `[agents]`, which it adds when there is none.
-fn agents_setting(s: &Setup, line: &str) {
-    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
-    let install = if install.contains("\n[agents]\n") {
-        install.replacen("\n[agents]\n", &format!("\n[agents]\n{line}\n"), 1)
-    } else {
-        format!("{install}\n[agents]\n{line}\n")
-    };
-    write(&s.data, "install.toml", &install);
-}
-
-/// Has every new session of the architect's understand the project first, as it did before a new session went on from
-/// the notebook: the understanding holds no time at all.
-fn understanding_each_session(s: &Setup) {
-    agents_setting(s, "understanding_life = 0");
-    git(&s.data, &["commit", "-q", "-am", "an understanding that holds no time"]);
-}
-
 /// Queues a message from project q's architect to project p's.
 fn from_q(e: &mut Engine, text: &str) -> i64 {
     let m = db::Matter {
@@ -2162,13 +2105,6 @@ fn at_head(e: &Engine) -> Vec<AtHead> {
         )
     })
     .collect()
-}
-
-/// Whether a work of the architect's last round waits at the look at the queue for the owner's reply.
-fn waits_at_queue(e: &Engine, work: i64) -> bool {
-    cells_of(e, work)
-        .last()
-        .is_some_and(|c| c == &("Q0".into(), Some("waits".into())))
 }
 
 /// A side report of one of project p's engineers, as the engine queues one: the engineer's work on an item of its own,
@@ -2884,4 +2820,81 @@ fn rows_taken(e: &Engine, work: i64) -> Vec<(String, Option<String>)> {
         .unwrap()
         .map(|x| x.unwrap())
         .collect()
+}
+
+/// Scripts that keep the request of every round of the cells named, before the script the cell had runs.
+fn keep_requests(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'static str]) -> Arc<Mutex<Vec<Request>>> {
+    let seen = Arc::new(Mutex::new(Vec::<Request>::new()));
+    for &cell in cells {
+        let kept = seen.clone();
+        let then = agents.remove(cell);
+        agents.insert(
+            cell,
+            Box::new(move |r: &Request, n: usize| {
+                kept.lock().unwrap().push(r.clone());
+                then.as_ref().map(|f| f(r, n)).unwrap_or_default()
+            }),
+        );
+    }
+    seen
+}
+
+/// The sessions of a work, oldest first: each one's line, why it started, whether it forks another session (and the
+/// CLI's id of that one), whether it is a matter's, and whether it ended.
+fn sessions_of(e: &Engine, work: i64) -> Vec<(String, String, Option<String>, bool, bool)> {
+    let mut st = e
+        .db
+        .conn()
+        .prepare(
+            "SELECT s.line, s.started, b.cli_session, s.matter IS NOT NULL, s.ended IS NOT NULL
+             FROM sessions s LEFT JOIN sessions b ON b.id = s.fork_of WHERE s.work = ?1 ORDER BY s.id",
+        )
+        .unwrap();
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The CLI's id of the latest session of the base, the architect's own line, in a work.
+fn base_session(e: &Engine, work: i64) -> String {
+    e.db.conn()
+        .query_row(
+            "SELECT cli_session FROM sessions WHERE work = ?1 AND line = 'architect' ORDER BY id DESC LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// Item changes as an agent drafts them on the items as the database at `path` has them now: each change that rewrites
+/// an item's text or acceptance, naming the item by its number, given the version it is drafted on, the item's latest
+/// change in the log of changes, unless it names one.
+fn versioned(path: &Path, mut changes: Value) -> Value {
+    let c = db::open_read(path).unwrap();
+    for ch in changes.as_array_mut().into_iter().flatten() {
+        let rewrites = matches!(ch["kind"].as_str(), Some("edit_item" | "edit_acceptance"));
+        let item = ch["item"].as_str().and_then(|i| i.parse::<i64>().ok());
+        if let (true, Some(item), None) = (rewrites, item, ch.get("version")) {
+            let version: i64 = c
+                .query_row(
+                    "SELECT coalesce(max(id), 0) FROM changes
+                     WHERE table_name = 'items' AND row_key = json_object('id', ?1)",
+                    [item],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            ch["version"] = json!(version);
+        }
+    }
+    changes
+}
+
+/// Has every work of the architect after the first read the project anew, once its matters are handled: the
+/// installation's amount of the decision log and what changed since the base (`[architect] carried_most`) is one
+/// character, which any base after its first matter has carried past.
+fn rebuild_every_work(s: &Setup) {
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &format!("{install}\n[architect]\ncarried_most = 1\n"));
+    git(&s.data, &["commit", "-q", "-am", "a base read anew at every work"]);
 }

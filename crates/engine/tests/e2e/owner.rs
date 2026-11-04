@@ -547,18 +547,18 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     say(&mut e, "Look at the queue.");
     let first = e.step_architect("p").unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("S1"), 1), "{log}");
+    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("Q0"), 1), "{log}");
     let arch = first.work.unwrap();
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
     assert_eq!(e.step(None).unwrap().work, None);
     let second = e.step_work(arch).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("U1"), 1), "{log}");
+    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("Q2"), 1), "{log}");
     let third = e.step_architect("p").unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         (third.work, third.cell.as_deref(), third.rounds.len()),
-        (Some(arch), Some("Q0"), 1),
+        (Some(arch), Some("H8"), 1),
         "{log}"
     );
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
@@ -813,9 +813,9 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect's Step in a new session starts one for its work, recorded as the owner's; the work's next rounds go on
-// in it, the understanding of the project first, since the session is new in the middle of the work: the cell it would
-// have started at takes the row back to understanding.
+// The architect's Step in a new session starts one for its work's next round, recorded as the owner's, here the session
+// of the matter in hand, in place of the one it would have had; the matter's next rounds go on in it, and it ends with
+// the matter.
 #[test]
 fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     let s = setup("own-new-architect-work-session");
@@ -824,12 +824,10 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     let c = api::Control::default();
     say(&mut e, "Look at the queue.");
     c.start(api::Fresh::Architect("p".into()), false);
-    // Starting takes the engine's own step, which finds the session has not understood the project; then the first
-    // round.
+    // Starting takes the engine's own steps: the look at what comes next and where the matter goes.
     let arch = turns(&mut e, &c, 2)[0];
     let log = said.lock().unwrap().join("\n");
-    let lines = line_sessions(&e, arch, "architect");
-    assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
+    assert!(line_sessions(&e, arch, "matter").is_empty(), "{log}");
     c.pause(&api::Fresh::Architect("p".into()));
     c.ask_step_architect("p", true).unwrap();
     turn(&mut e, &c);
@@ -839,12 +837,11 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     }
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
-    assert_eq!(path[..7], ["S1", "U1", "Q0", "Q2", "H8", "S1", "U1"], "{log}");
-    let lines = line_sessions(&e, arch, "architect");
-    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
-    assert!(lines[0].1, "{lines:?}");
-    assert_eq!((lines[1].0.as_str(), lines[1].1), ("owner", false), "{lines:?}");
-    assert!(lines[1].2.starts_with("U1"), "{lines:?}\n{log}");
+    assert_eq!(path[..3], ["Q0", "Q2", "H8"], "{log}");
+    let lines = line_sessions(&e, arch, "matter");
+    assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
+    assert_eq!((lines[0].0.as_str(), lines[0].1), ("owner", true), "{lines:?}");
+    assert!(lines[0].2.starts_with("H8"), "{lines:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

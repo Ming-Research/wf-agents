@@ -1073,7 +1073,7 @@ mod tests {
         // The version asks the crux of the question for a field the round's return lacks.
         needs_after(&mut new, "H2", "crux");
         let crux = json!({ "outcome": { "crux": { "root": "itself", "question": "q" } }, "progress": "p",
-                           "flow_feedback": "none" });
+                           "flow_feedback": "none", "tell_owner": [] });
         assert!(flow::valid(old.cell("H2").unwrap().schema.as_ref().unwrap(), &crux));
         assert!(!flow::valid(new.cell("H2").unwrap().schema.as_ref().unwrap(), &crux));
         let interjected = json!({ "actions": [{ "kind": "interject", "work": 7, "text": "Stop." }] });

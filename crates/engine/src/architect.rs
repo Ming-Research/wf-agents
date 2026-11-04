@@ -746,6 +746,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
             };
             if held { "needed" } else { "none" }.into()
         }
+        // What the base is read anew for, which the look at what comes next records as it sends the work there; a work
+        // that came to reading the project otherwise, as one brought to this flow version at the reading of a version
+        // before, reads it for a planning, which builds the base whatever the plan's verdict.
+        "rebuild_for" => "plan".into(),
         // A flow version from before asks lost their kinds weighed a question by its kind: the kind its matter was
         // queued with, when that version has a case of it, else another question. No question is queued with a kind
         // now.
@@ -2143,6 +2147,7 @@ fn queued_measures(tx: &Transaction<'_>, project: &str) -> Result<BTreeSet<Strin
 fn head_why(cell: &str) -> String {
     match cell {
         TAKES_EFFECT => "A new policy took effect".into(),
+        "U1" => "Reading the project anew asks for it".into(),
         other => format!("Cell {other} asked for it"),
     }
 }
@@ -2716,6 +2721,25 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
             Some(rest) => format!("item change {rest}"),
             None => l.to_string(),
         }));
+    }
+    // A cancel of an item the same answer creates, by its key, would make an item only to cancel it: the answer leaves
+    // all of it out instead, as a flow version before dropped such a create, the changes naming its key and the cancel
+    // from its batch.
+    let created: BTreeSet<&str> = new
+        .iter()
+        .filter(|ch| ch["kind"] == "create_item")
+        .map(|ch| text(&ch["key"]).trim())
+        .filter(|k| !k.is_empty())
+        .collect();
+    for (i, ch) in new.iter().enumerate() {
+        let key = text(&ch["item"]).trim();
+        if ch["kind"] == "cancel" && created.contains(key) {
+            problems.push(format!(
+                "item change {} (cancel) cancels {key}, which this answer creates: an item is never made only to be \
+                 cancelled, so leave out its create, every change that names {key} and the cancel",
+                i + 1
+            ));
+        }
     }
     let matter = picked(conn, c.w.id)?;
     for (i, ch) in new.iter().enumerate() {

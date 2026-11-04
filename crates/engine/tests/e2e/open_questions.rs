@@ -197,7 +197,7 @@ fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_ans
     let back = cells.iter().position(|c| c.0 == "Q2").expect(&log);
     assert_eq!(
         (cells[back].1.as_deref(), cells[back + 1].0.as_str()),
-        (Some("back_with_answer_to_ways"), "H3"),
+        (Some("back_to_ways"), "H3"),
         "{cells:?}\n{log}"
     );
     assert!(message_at(&e, again, "H3", true).contains("Take one table."), "{log}");
@@ -451,9 +451,8 @@ fn a_question_pinned_for_a_work_that_ended_is_pending_no_more() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A reply the batch's review holds back, because it comes with changes to items, is written once the batch is made, and
-// then too it begins with the owner's words as they were said and records that the owner answered; the engineer is
-// told it, and the merge goes on.
+// A reply that comes with changes to items goes out as they are made, and then too it begins with the owner's words as
+// they were said and records that the owner answered; the engineer is told it, and the merge goes on.
 #[test]
 fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
     let s = setup("pinned-reply-held");
@@ -475,17 +474,13 @@ fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
         let link = design_link_of(&path);
         asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
     });
-    let review: Script = Box::new(|_: &Request, _: usize| {
-        let ok = json!({ "change": 1, "verdict": "ok", "why": "Sound." });
-        (Vec::new(), vec![("outcome.review", json!([ok]))])
-    });
-    let (mut e, said, item, work, matter, ask) = pinned(&s, ways, vec![("B2", review)]);
+    let (mut e, said, item, work, matter, ask) = pinned(&s, ways, vec![]);
     api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[], db::Speaker::Owner).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
     let again = ways_work(&e, true);
-    assert!(path_of(&e, again).contains(&"B2".to_string()), "{log}");
+    assert!(path_of(&e, again).contains(&"G1".to_string()), "{log}");
     let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
     let body = matter_body(&e, matter);
     assert_eq!(
@@ -513,89 +508,6 @@ fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
     let way_on = message_at(&e, work, "A4", true);
     assert!(way_on.contains("The owner answered: Take one table."), "{way_on}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A reply that comes with item changes the batch review drops at its third look is held, and the owner is asked what to
-// do about the dropped changes in another ask that parks the same matter. The owner's words in that ask are not the
-// answer to the open question: the answer is made of the owner's words to the question pinned, which stay on the record,
-// and the engineer is not told the words about the changes as the owner's decision.
-#[test]
-fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_question() {
-    let s = setup("pinned-reply-dropped");
-    let path = config::database(&s.data);
-    let change = json!({ "kind": "create_item", "key": "one-table", "project": "p", "title": "Merge the tables",
-        "problem": "There are two.", "why": "The owner chose one.", "acceptance": ["One table."],
-        "level": "l", "deliver": "change", "reason": "The owner chose one table." });
-    let with_change = change.clone();
-    let ways: Script = Box::new(move |r: &Request, _: usize| {
-        let reply = json!({ "text": "Go on with one table.", "why": "The owner decided it." });
-        if r.prompt.contains("Leave them out.") {
-            return (Vec::new(), vec![("outcome.reply", reply)]);
-        }
-        if r.prompt.contains("Take one table.") {
-            return (
-                Vec::new(),
-                vec![
-                    ("outcome.reply", reply),
-                    ("outcome.effects", json!({ "item_changes": [with_change.clone()] })),
-                ],
-            );
-        }
-        let link = design_link_of(&path);
-        asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
-    });
-    // The review finds the change wrong at every look, and gives up at the third.
-    let review: Script = Box::new(|_: &Request, _: usize| {
-        let row = json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
-                          "what": "The title is no action.", "how": "Write it as one.", "cause": "rule_missing" });
-        (Vec::new(), vec![("outcome.review", json!([row]))])
-    });
-    let path = config::database(&s.data);
-    let revise: Script = Box::new(move |_: &Request, _: usize| {
-        let c = db::open_read(&path).unwrap();
-        let matter: i64 = c
-            .query_row(
-                "SELECT matter FROM architect_item_changes WHERE state = 'collected'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        (
-            Vec::new(),
-            vec![(
-                "outcome.changes",
-                json!([{ "matter": matter, "change": change.clone() }]),
-            )],
-        )
-    });
-    let (mut e, said, item, work, matter, first) = pinned(&s, ways, vec![("B2", review), ("B3", revise)]);
-    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[], db::Speaker::Owner).unwrap();
-    // The review drops the changes and asks the owner about them in another ask, which parks the matter.
-    let dropped = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
-    assert!(steps_until(&mut e, 120, dropped), "{}", said.lock().unwrap().join("\n"));
-    let second = parked_for(&e, matter).unwrap().0;
-    assert_eq!(open_questions(&e, work)[0].2, None);
-    api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[], db::Speaker::Owner).unwrap();
-    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
-    assert!(
-        steps_until(&mut e, 120, answered),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let log = said.lock().unwrap().join("\n");
-    let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
-    let body = matter_body(&e, matter);
-    assert_eq!(
-        (&body["answer"], &body["answered_by"], &body["owner_ask"]),
-        (&json!(words), &json!("owner"), &json!(first)),
-        "{log}"
-    );
-    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
-    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
-    let way_on = message_at(&e, work, "A4", true);
-    assert!(way_on.contains("The owner answered: Take one table."), "{way_on}");
-    assert!(!way_on.contains("Leave them out."), "{way_on}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

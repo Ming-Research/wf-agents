@@ -150,13 +150,6 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
             )
         }),
     );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
-            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
-        }),
-    );
     let (mut e, said, _) = start(&s, agents);
     e.db.write(Actor::Architect, |tx| {
         tx.execute(
@@ -259,7 +252,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
     let started = pass.jobs.iter().find(|s| s.work != work).expect(&log);
-    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
     let arch = started.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -296,14 +289,13 @@ fn flow_feedback_stays_in_its_round_and_comes_to_no_architect() {
     assert!(architect_works(&e).is_empty(), "{log}");
     assert!(matters(&e).is_empty(), "{log}");
     let kept: Vec<(String, String)> = {
-        let mut st = e
-            .db
-            .conn()
-            .prepare(
-                "SELECT cell, output ->> '$.flow_feedback' FROM rounds
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT cell, output ->> '$.flow_feedback' FROM rounds
                  WHERE cell IN ('R1', 'R2') AND output ->> '$.flow_feedback' <> 'none' ORDER BY work, n",
-            )
-            .unwrap();
+                )
+                .unwrap();
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
             .map(|x| x.unwrap())

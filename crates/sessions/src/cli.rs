@@ -1666,8 +1666,16 @@ mod tests {
         // The base and each matter's session tell the owner; the second eye and the search of observations do not.
         for line in ["architect", "matter"] {
             let arch = envelope(a, Some(line));
-            assert_eq!(keys(&arch), ["tell_owner", "progress", "flow_feedback", "outcome"], "{line}");
-            assert_eq!(arch["required"], json!(["tell_owner", "flow_feedback", "outcome"]), "{line}");
+            assert_eq!(
+                keys(&arch),
+                ["tell_owner", "progress", "flow_feedback", "outcome"],
+                "{line}"
+            );
+            assert_eq!(
+                arch["required"],
+                json!(["tell_owner", "flow_feedback", "outcome"]),
+                "{line}"
+            );
         }
         // The search of observations asks for no tools, so nothing it hands in leaves out `progress`.
         for (line, required) in [

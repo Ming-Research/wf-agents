@@ -76,7 +76,7 @@ fn the_search_of_observations_hands_back_candidates() {
     let at = path.iter().position(|c| c == "X2").expect(&log);
     assert_eq!(
         &path[at - 4..at + 3],
-        ["H4", "Q0", "Q2", "H5", "X2", "H5", "B1"],
+        ["Q0", "Q2", "H4", "H5", "X2", "H5", "G1"],
         "{log}"
     );
     let (line, model): (String, String) =

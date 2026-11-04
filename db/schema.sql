@@ -1750,7 +1750,8 @@ CREATE VIEW conversation_entries AS
   -- interface takes it to the group of every project the configuration connects them with), or wf-agents. source is
   -- what the entry is (message, notice, ask, interjection, words, talk, question, report, reply, card, ruling or
   -- between) and id its row in the table it comes from; an ask is one entry, the owner's answer to it shown in it, never
-  -- an entry of its own beside it. sender and recipient are a line, the owner, the engine or wf-agents, the recipient of
+  -- an entry of its own beside it. sender and recipient are a line (the architect, whichever of its lines' sessions
+  -- spoke: its base, a matter's session forked from it), the owner, the engine or wf-agents, the recipient of
   -- the owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
   -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. design_card: the decision
@@ -1767,17 +1768,19 @@ CREATE VIEW conversation_entries AS
                                            THEN 'work:' || json_extract(x.body, '$.work') END
                              FROM architect_matters x LEFT JOIN works y ON y.id = x.work
                              WHERE x.id = (
-                               SELECT coalesce(json_extract(p.output, '$.outcome.pick.matter'),
+                               SELECT coalesce(json_extract(p.output, '$.next.matter'),
+                                 json_extract(p.output, '$.outcome.pick.matter'),
                                  json_extract(p.output, '$.queue.matter'))
                                FROM rounds p
                                WHERE p.work = m.work AND p.n < m.round AND p.transition IS NOT NULL
-                                 AND coalesce(json_extract(p.output, '$.outcome.pick.matter'),
+                                 AND coalesce(json_extract(p.output, '$.next.matter'),
+                                   json_extract(p.output, '$.outcome.pick.matter'),
                                    json_extract(p.output, '$.queue.matter')) IS NOT NULL
                                ORDER BY p.n DESC LIMIT 1)
                                AND (x.handled_round IS NULL OR x.handled_work <> m.work OR x.handled_round >= m.round)),
                             'architect:' || w.project) END AS conversation,
     coalesce(w.project, i.project) AS project, 'message' AS source, m.id AS id,
-    coalesce(s.line, CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect' ELSE 'engineer' END) AS sender,
+    CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect' ELSE coalesce(s.line, 'engineer') END AS sender,
     'owner' AS recipient, m.text AS text, coalesce(r.ended_at, r.started_at) AS at, m.work AS work, m.round AS round,
     NULL AS ask, m.design_card AS design_card, NULL AS matter, m.read_at AS read_at, 0 AS waiting, 0 AS pending,
     0 AS undelivered, 0 AS answerable, NULL AS fault

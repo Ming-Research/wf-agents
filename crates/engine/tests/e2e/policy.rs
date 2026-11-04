@@ -65,46 +65,40 @@ fn head_after_a_new_session(name: &str, kept: &str, now: &str, newer: bool) -> V
     head
 }
 
-// A new session's check of the policy is not queued while the policy in force and the constitution are those the last
-// check handled had, since it would only come to the same end; its plan of what to do next is. Once the constitution
+// The check of the policy reading the project anew asks for is not queued while the policy in force and the
+// constitution are those the last check handled had, since it would only come to the same end. Once the constitution
 // changed, or another policy took effect since, the check is queued as before.
 #[test]
-fn a_new_session_checks_the_policy_only_once_the_policy_or_the_constitution_changed() {
+fn reading_the_project_anew_checks_the_policy_only_once_the_policy_or_the_constitution_changed() {
     let constitution = "## Article 1. Small\n\nKeep it small.\n";
-    let understood = "A new session understood the project".to_string();
+    let understood = "Reading the project anew asks for it".to_string();
     let last = (
         "check_policy".to_string(),
         true,
         vec![("H8".to_string(), "The owner asked for it.".to_string())],
     );
-    let check = (
-        "check_policy".to_string(),
-        false,
-        vec![("U1".to_string(), understood.clone())],
-    );
-    let plan = ("make_plan".to_string(), false, vec![("U1".to_string(), understood)]);
+    let check = ("check_policy".to_string(), false, vec![("U1".to_string(), understood)]);
     assert_eq!(
         head_after_a_new_session("check-same", constitution, constitution, false),
-        [last.clone(), plan.clone()]
+        [last.clone()]
     );
     let changed = "## Article 1. Small\n\nKeep it smaller.\n";
     assert_eq!(
         head_after_a_new_session("check-constitution", constitution, changed, false),
-        [last.clone(), check.clone(), plan.clone()]
+        [last.clone(), check.clone()]
     );
     assert_eq!(
         head_after_a_new_session("check-policy", constitution, constitution, true),
-        [last, check, plan]
+        [last, check]
     );
 }
 
-// The check of the policy in force, in doubt, asks the owner whether to research a new policy, which parks the check at
-// it while the architect waits for the reply; the reply brings it back, the check cannot hand in that the policy holds
-// while none is in force, and it goes on to write the new policy by the owner's stance. The engine asks the owner to approve the draft,
-// which parks the check at the writing: a reply other than approved brings it back there, to be written again by it,
-// and approved, exactly, has it take effect: it is the policy in force, no draft waits any longer, the check is closed,
-// and the plan of what to do next, which the new session's understanding queued and the new policy asked for again, is
-// made once, under it.
+// The check of the policy in force, in doubt, asks the owner whether to research a new policy, which parks the check
+// at it, and the work goes on and ends; the reply brings it back in a work of its own, the check cannot hand in that the
+// policy holds while none is in force, and it goes on to write the new policy by the owner's stance. The engine asks the
+// owner to approve the draft, which parks the check at the writing: a reply other than approved brings it back there,
+// to be written again by it, and approved, exactly, has it take effect: it is the policy in force, no draft waits any
+// longer, the check is closed, and the new policy calls for a planning, which is made once, under it.
 #[test]
 fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved() {
     let s = setup("policy-approved");
@@ -127,25 +121,24 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         { "measure": "Rounds sent back by cell", "signal": "Speed" }
     ]);
     agents.insert("P2", writes_a_policy_with(measures));
-    picks_first(&s, &mut agents);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
     from_q(&mut e, "Look at the queue.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    let waited = |e: &Engine| rows_at(e, arch, "Q0").iter().filter(|r| *r == "waits").count();
-    assert!(
-        steps_until(&mut e, 30, |e| waits_at_queue(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
+    // Each work of the architect runs to its end: one for the queue, and one for each reply of the owner.
+    let run = |e: &mut Engine| -> i64 {
+        let work = e.step(None).unwrap().work.unwrap();
+        assert!(
+            steps_until(e, 90, |e| architect_work_done(e, work)),
+            "{}",
+            said.lock().unwrap().join("\n")
+        );
+        work
+    };
+    let mut works = vec![run(&mut e)];
     let (research, _) = question_now(&e);
     api::reply_to_question(&mut e.db, "p", research, "Yes, research it.", &[], db::Speaker::Owner).unwrap();
-    assert!(
-        steps_until(&mut e, 30, |e| waited(e) == 2 && waits_at_queue(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
+    works.push(run(&mut e));
     let (approval, text) = question_now(&e);
     assert_eq!(text, "Approve this policy? Reply exactly: approved");
     let pinned: Value =
@@ -166,11 +159,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         db::Speaker::Owner,
     )
     .unwrap();
-    assert!(
-        steps_until(&mut e, 30, |e| waited(e) == 3 && waits_at_queue(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
+    works.push(run(&mut e));
     let (again, _) = question_now(&e);
     assert_ne!(again, approval);
     // No draft queued its new measures: a draft the owner has not approved queues nothing.
@@ -193,11 +182,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     })
     .unwrap();
     api::reply_to_question(&mut e.db, "p", again, " approved ", &[], db::Speaker::Owner).unwrap();
-    assert!(
-        steps_until(&mut e, 90, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
+    works.push(run(&mut e));
     let log = said.lock().unwrap().join("\n");
     // The draft that took effect queued its new measures, each once, but the one the queue held already.
     assert_eq!(
@@ -205,12 +190,13 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         ["Rounds sent back by cell", "How long a merge waits for CI"],
         "{log}"
     );
-    assert_eq!(rows_at(&e, arch, "P1"), ["ask_owner", "write_policy"], "{log}");
+    let rows = |cell: &str| -> Vec<String> { works.iter().flat_map(|w| rows_at(&e, *w, cell)).collect() };
+    assert_eq!(rows("P1"), ["ask_owner", "write_policy"], "{log}");
     let refused: String =
         e.db.conn()
             .query_row(
-                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'P1' AND rejected IS NOT NULL",
-                [arch],
+                "SELECT rejected FROM rounds WHERE cell = 'P1' AND rejected IS NOT NULL",
+                [],
                 |r| r.get(0),
             )
             .expect(&log);
@@ -218,16 +204,14 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         refused.contains("the owner replied and no policy is in force"),
         "{refused}"
     );
-    assert_eq!(rows_at(&e, arch, "P2"), ["written", "written"], "{log}");
-    // The writing is given the owner's reply that brought it back; the first, which the session was given at the
-    // check, by its address only.
+    assert_eq!(rows("P2"), ["written", "written"], "{log}");
+    // The writing is given the owner's reply that brought it back.
     assert!(
-        message_at(&e, arch, "P2", true).contains("Make the why shorter."),
+        message_at(&e, works[2], "P2", true).contains("Make the why shorter."),
         "{log}"
     );
-    let routes = rows_at(&e, arch, "Q2");
-    assert!(routes.contains(&"back_to_set_policy".to_string()), "{routes:?}");
-    assert_eq!(rows_at(&e, arch, "P12"), ["next"], "{log}");
+    assert!(rows("Q2").contains(&"back_to_set_policy".to_string()), "{log}");
+    assert_eq!(rows("P12"), ["next"], "{log}");
     let direction: String =
         e.db.conn()
             .query_row(
@@ -242,30 +226,18 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             .query_row("SELECT count(*) FROM policy_draft", [], |r| r.get(0))
             .unwrap();
     assert_eq!(drafts, 0);
-    let path = path_of(&e, arch);
-    let took_effect = path.iter().position(|c| c == "P12").expect(&log);
-    assert_eq!(rows_at(&e, arch, "N1").len(), 1, "{path:?}\n{log}");
-    assert!(
-        path.iter().position(|c| c == "N1").expect(&log) > took_effect,
-        "{path:?}"
-    );
+    // The new policy called for a planning, made once, after it took effect.
+    let last = path_of(&e, works[3]);
+    let took_effect = last.iter().position(|c| c == "P12").expect(&log);
+    assert_eq!(rows_at(&e, works[3], "N1").len(), 1, "{last:?}\n{log}");
+    assert!(last.iter().position(|c| c == "N1").expect(&log) > took_effect, "{last:?}");
     assert_eq!(
         at_head(&e),
-        [
-            (
-                "check_policy".to_string(),
-                true,
-                vec![("U1".to_string(), "A new session understood the project".to_string())]
-            ),
-            (
-                "make_plan".to_string(),
-                true,
-                vec![
-                    ("U1".to_string(), "A new session understood the project".to_string()),
-                    ("P12".to_string(), "A new policy took effect".to_string())
-                ]
-            )
-        ],
+        [(
+            "check_policy".to_string(),
+            true,
+            vec![("U1".to_string(), "Reading the project anew asks for it".to_string())]
+        )],
         "{log}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
@@ -388,7 +360,6 @@ fn measures_queued(e: &Engine) -> Vec<String> {
 #[test]
 fn the_writing_of_a_new_policy_is_given_the_design_goal() {
     let s = setup("study-goal");
-    no_reply_wait(&s);
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let (writing, _) = check_at(&mut e, "P2");
@@ -444,7 +415,6 @@ fn next_listed(e: &mut Engine, work: i64, number: usize) -> String {
 #[test]
 fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbers() {
     let s = setup("signals");
-    no_reply_wait(&s);
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let set = |e: &mut Engine, signals: Value| {
@@ -456,7 +426,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, ended, project)
-                 VALUES (NULL, ?1, 'architect', 'S1', 'over', 'p')",
+                 VALUES (NULL, ?1, 'architect', 'E2', 'over', 'p')",
                 [v],
             )?;
             let set = tx.last_insert_rowid();
@@ -483,6 +453,7 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         &mut e,
         json!([{ "what": "The owner is unhappy", "how": "something the owner says" }]),
     );
-    assert_eq!(next_listed(&mut e, arch, 4), "4. none");
+    // The signals measured are the fifth input of the check, after the policy in force.
+    assert_eq!(next_listed(&mut e, arch, 5), "5. none");
     let _ = std::fs::remove_dir_all(&s.root);
 }

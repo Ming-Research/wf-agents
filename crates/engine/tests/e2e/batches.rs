@@ -1,90 +1,60 @@
-//! The architect's batches of item changes: what they change, their review, the dependencies they make or remove,
-//! and what waits for them.
+//! The architect's item changes: what they change, the second eye on those that can lose something, the dependencies
+//! they make or remove, and what waits for them.
 
 use super::*;
 
-// The review of a batch finds an item change to fix: the revision hands in the whole set again, the review looks at it
-// again, and the revised change is made; what was handed in first is kept as revised, not made. The revision closes an
-// observation the review found done already, at once, as an answer's effects would: in the sixth trial it could hand in
-// item changes only, and the review's advice to close two observations went into its notebook, with no cell to do it.
+// A cancel loses what the item held, so a second eye forked from the same base looks before it is made: it finds a
+// problem, and the change goes back to the matter's session, at the cell that handed it in, with what it found; none of
+// it took effect. The session revises it there, with all it holds; the second eye looks again in its own session and
+// finds it sound, and only then is the item cancelled, the first hand-in kept as revised and the second as made.
 #[test]
-fn an_item_change_the_review_rejects_is_revised_and_then_made() {
-    let s = setup("revise");
+fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_found() {
     let mut agents = scripts();
     agents.insert(
         "H8",
-        Box::new(|_: &Request, _: usize| {
-            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "parser", "reason": "r" });
-            (
-                Vec::new(),
-                vec![("outcome.effects", json!({ "item_changes": [change] }))],
-            )
-        }),
-    );
-    agents.insert(
-        "B2",
         Box::new(|_: &Request, n: usize| {
-            let row = if n == 1 {
-                json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
-                        "what": "The title is no action.", "how": "Write it as one.", "cause": "rule_missing" })
-            } else {
-                json!({ "change": 1, "verdict": "ok", "why": "Now it is an action." })
-            };
-            (Vec::new(), vec![("outcome.review", json!([row]))])
+            if n == 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let reason = if n == 2 { "Not needed." } else { "Its acceptance is in #2 now." };
+            let cancel = json!({ "kind": "cancel", "item": "1", "goes": "Done by #2.", "reason": reason });
+            (Vec::new(), vec![("outcome.effects", json!({ "item_changes": [cancel] }))])
         }),
     );
-    let path = config::database(&s.data);
     agents.insert(
-        "B3",
-        Box::new(move |_: &Request, _: usize| {
-            let c = db::open_read(&path).unwrap();
-            let matter: i64 = c
-                .query_row(
-                    "SELECT matter FROM architect_item_changes WHERE state = 'collected'",
-                    [],
-                    |r| r.get(0),
-                )
-                .unwrap();
-            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
-                                 "reason": "An action, as the review asked." });
-            let close = json!({ "kind": "close", "id": 1, "why": "outdated", "text": "Main reads the token already.",
-                                "reason": "The review found it done." });
+        "G2",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let problem = json!({ "change": 1, "kind": "loses", "what": "Its acceptance has no other home.",
+                                  "fact": "Item 1's acceptance is in no other item.", "fix": "Move it first." });
             (
-                Vec::new(),
-                vec![
-                    ("outcome.changes", json!([{ "matter": matter, "change": change }])),
-                    ("outcome.observation_changes", json!([close])),
-                ],
+                vec![("outcome.check", "problems")],
+                vec![("outcome.check.problems", json!([problem]))],
             )
         }),
     );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO observations (project, what, source) VALUES ('p', 'The lexer drops a token.', 'A report')",
-            [],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    say(&mut e, "Name the parser's item.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
+    let seen = keep_requests(&mut agents, &["G2"]);
+    let (s, e, said, works) = architect_works_in(
+        "second-eye",
+        agents,
+        &[(0, "Look at the queue."), (60_000, "Drop item 1.")],
+        false,
     );
+    let (first, second) = (works[0], works[1]);
     let log = said.lock().unwrap().join("\n");
-    let path = path_of(&e, arch);
-    let at = path.iter().position(|c| c == "B2").expect(&log);
-    assert_eq!(&path[at..at + 4], ["B2", "B3", "B2", "B4"], "{log}");
-    let title: String =
+    assert_eq!(
+        path_of(&e, second),
+        ["Q0", "Q2", "H8", "G1", "G2", "Q2", "H8", "G1", "G2", "Q0", "E2"],
+        "{log}"
+    );
+    assert_eq!(rows_at(&e, second, "G2"), ["problems", "sound"], "{log}");
+    let cancelled: Option<String> =
         e.db.conn()
-            .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+            .query_row("SELECT cancelled FROM items WHERE id = 1", [], |r| r.get(0))
             .unwrap();
-    assert_eq!(title, "Write the parser", "{log}");
+    assert!(cancelled.is_some(), "{log}");
     let states: Vec<String> = {
         let mut st =
             e.db.conn()
@@ -92,18 +62,23 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
                 .unwrap();
         st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
     };
-    assert_eq!(states, ["revised", "made"]);
-    let closed: (String, String) =
-        e.db.conn()
-            .query_row("SELECT closed, closed_why FROM observations WHERE id = 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
+    assert_eq!(states, ["revised", "made"], "{log}");
+    // The session that handed the cancel in is told what the second eye found, and revises it in that session.
+    let again = message_at(&e, second, "H8", true);
+    assert!(again.contains("Its acceptance has no other home."), "{again}");
+    let base = base_session(&e, first);
     assert_eq!(
-        closed,
-        ("outdated".to_string(), "Main reads the token already.".to_string()),
+        sessions_of(&e, second),
+        [
+            ("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true),
+            ("second_eye".to_string(), "fork".to_string(), Some(base.clone()), true, true),
+        ],
         "{log}"
     );
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 2, "{log}");
+    assert_eq!((seen[0].fork, seen[0].resume.as_deref()), (true, Some(base.as_str())));
+    assert!(!seen[1].fork && seen[1].resume.is_some() && seen[1].resume.as_deref() != Some(base.as_str()));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -310,13 +285,6 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
             )
         }),
     );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
-            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
-        }),
-    );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     let first = an_item(&mut e);
@@ -352,37 +320,32 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
 #[test]
 fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
     let s = setup_titled("title-too-long");
+    let path = config::database(&s.data);
     let mut agents = scripts();
     agents.insert(
         "H8",
-        Box::new(|_: &Request, n: usize| {
+        Box::new(move |_: &Request, n: usize| {
             if n > 2 {
                 return (Vec::new(), Vec::new());
             }
-            // 26 wide and 25; then 24 and 24.
+            // 26 wide and 25; then 24 and 24. The retitle starts with a Chinese character, as a title in the owner's
+            // language does.
             let (title, retitle) = if n == 1 {
-                (chinese(13), "Abcdefghijklmnopqrstuvwxy".to_string())
+                (chinese(13), format!("{}Abcdefghijklmnopqrstuvw", chinese(1)))
             } else {
-                (chinese(12), "Abcdefghijklmnopqrstuvwx".to_string())
+                (chinese(12), format!("{}Abcdefghijklmnopqrstuv", chinese(1)))
             };
-            let changes = json!([
+            let changes = versioned(&path, json!([
                 { "kind": "create_item", "key": "match", "project": "p", "title": title, "problem": "No match.",
                   "why": "Needed.", "acceptance": ["It matches."], "level": "l", "deliver": "change", "reason": "r" },
                 { "kind": "edit_item", "item": "1", "part": "title", "text": retitle, "reason": "r" },
                 // Item 2 has a title wider than 24, which no change here gives it.
                 { "kind": "edit_acceptance", "item": "2", "acceptance": ["It holds."], "reason": "r" },
-            ]);
+            ]));
             (
                 Vec::new(),
                 vec![("outcome.effects", json!({ "item_changes": changes }))],
             )
-        }),
-    );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
-            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
         }),
     );
     let (mut e, said) = engine(&s, agents);
@@ -423,7 +386,7 @@ fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
     assert_eq!(
         titles,
         [
-            "Abcdefghijklmnopqrstuvwx".to_string(),
+            format!("{}Abcdefghijklmnopqrstuv", chinese(1)),
             "Abcdefghijklmnopqrstuvwxyzabcdefg".to_string(),
             chinese(12)
         ],
@@ -465,13 +428,6 @@ fn a_batch_removes_a_dependency_and_the_review_makes_it() {
                 Vec::new(),
                 vec![("outcome.effects", json!({ "item_changes": changes.clone() }))],
             )
-        }),
-    );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
-            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
         }),
     );
     let (mut e, said) = engine(&s, agents);
@@ -597,155 +553,6 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The review drops the removal of a dependency and keeps the change that reverses it. Each was valid in the state the
-// batch gave, but with the removal left out the reversal closes a cycle: the reversal alone is left out, saying why, the
-// batch is made, and the work of the architect does not fail.
-#[test]
-fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
-    let s = setup("remove-dependency-dropped");
-    let mut agents = scripts();
-    agents.insert(
-        "H8",
-        Box::new(|_: &Request, _: usize| {
-            // The parser (1) depends on the lexer (2); the batch turns that around.
-            let changes = json!([
-                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
-                { "kind": "add_dependency", "item": "2", "on": "1", "dependency": "blocking", "reason": "r" },
-                { "kind": "hold", "item": "1", "reason": "Held." },
-            ]);
-            (
-                Vec::new(),
-                vec![("outcome.effects", json!({ "item_changes": changes }))],
-            )
-        }),
-    );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let rows = json!([
-                { "change": 1, "verdict": "drop", "why": "The parser needs the lexer." },
-                { "change": 2, "verdict": "ok", "why": "Sound." },
-                { "change": 3, "verdict": "ok", "why": "Sound." },
-            ]);
-            (Vec::new(), vec![("outcome.review", rows)])
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let parser = an_item(&mut e);
-    let lexer = a_ready_item(&mut e, "Lex it");
-    e.db.write(Actor::Owner, |tx| {
-        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")
-    })
-    .unwrap();
-    say(&mut e, "Turn the parser and the lexer around.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let log = said.lock().unwrap().join("\n");
-    let rows = engine::query_json(
-        e.db.conn(),
-        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
-        &[],
-        10,
-    )
-    .unwrap();
-    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
-    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
-    let why = rows[1]["why"].as_str().unwrap();
-    assert!(why.contains("item 2 cannot depend on 1"), "{why}");
-    // The dependency stands, and the change after the refused one was made.
-    assert_eq!(links_of(&e), [(parser, lexer)], "{log}");
-    let held: Option<String> =
-        e.db.conn()
-            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
-            .unwrap();
-    assert_eq!(held.as_deref(), Some("Held."), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The review drops the removal of a dependency and keeps a merge that the removal made room for. With the removal left
-// out, the merge would make an item depend on the item that depends on it: the merge alone is left out, saying why, and
-// nothing of it stays (the absorbed item keeps its dependency and is not cancelled), the change after it is made, and
-// the work of the architect does not fail.
-#[test]
-fn a_merge_is_left_out_whole_when_the_review_drops_the_removal_it_needed() {
-    let s = setup("merge-dropped");
-    let mut agents = scripts();
-    agents.insert(
-        "H8",
-        Box::new(|_: &Request, _: usize| {
-            // The parser (1) depends on the lexer (2), and the tokens (3) on the parser.
-            let changes = json!([
-                { "kind": "remove_dependency", "item": "3", "on": "1", "reason": "r" },
-                { "kind": "merge", "keep": "3", "absorbed": ["2"], "reason": "The lexer is the tokens." },
-                { "kind": "hold", "item": "1", "reason": "Held." },
-            ]);
-            (
-                Vec::new(),
-                vec![("outcome.effects", json!({ "item_changes": changes }))],
-            )
-        }),
-    );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let rows = json!([
-                { "change": 1, "verdict": "drop", "why": "The tokens need the parser." },
-                { "change": 2, "verdict": "ok", "why": "Sound." },
-                { "change": 3, "verdict": "ok", "why": "Sound." },
-            ]);
-            (Vec::new(), vec![("outcome.review", rows)])
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let parser = an_item(&mut e);
-    let lexer = a_ready_item(&mut e, "Lex it");
-    let tokens = a_ready_item(&mut e, "Make the tokens");
-    assert_eq!((parser, lexer, tokens), (1, 2, 3));
-    e.db.write(Actor::Owner, |tx| {
-        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
-        db::add_dependency(tx, tokens, parser, "its parser", "parallel")
-    })
-    .unwrap();
-    say(&mut e, "Merge the lexer into the tokens.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let log = said.lock().unwrap().join("\n");
-    let rows = engine::query_json(
-        e.db.conn(),
-        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
-        &[],
-        10,
-    )
-    .unwrap();
-    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
-    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
-    let why = rows[1]["why"].as_str().unwrap();
-    assert!(why.contains("cannot depend on"), "{why}");
-    // Both dependencies stand, the lexer is not cancelled, and the change after the refused one was made.
-    assert_eq!(links_of(&e), [(parser, lexer), (tokens, parser)], "{log}");
-    let cancelled: Option<String> =
-        e.db.conn()
-            .query_row("SELECT cancelled FROM items WHERE id = 2", [], |r| r.get(0))
-            .unwrap();
-    assert_eq!(cancelled, None, "{log}");
-    let held: Option<String> =
-        e.db.conn()
-            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
-            .unwrap();
-    assert_eq!(held.as_deref(), Some("Held."), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
 // nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
 // its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes
@@ -845,10 +652,11 @@ fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_
 #[test]
 fn a_report_marked_for_the_light_route_is_sent_back() {
     let s = setup("route-of-a-report");
+    let path = config::database(&s.data);
     let mut agents = scripts();
     agents.insert(
         "H8",
-        Box::new(|_: &Request, n: usize| {
+        Box::new(move |_: &Request, n: usize| {
             if n > 2 {
                 return (Vec::new(), Vec::new());
             }
@@ -857,23 +665,16 @@ fn a_report_marked_for_the_light_route_is_sent_back() {
             } else {
                 ("normal", "1", "bugfix")
             };
-            let changes = json!([
+            let changes = versioned(&path, json!([
                 { "kind": "create_item", "key": "measure", "project": "p", "title": "Measure the parse",
                   "problem": "Its time is unknown.", "why": "Needed.", "acceptance": ["It is measured."], "level": "l",
                   "deliver": "report", "route": route, "reason": "r" },
                 { "kind": "edit_item", "item": item, "part": "route", "text": part, "reason": "r" },
-            ]);
+            ]));
             (
                 Vec::new(),
                 vec![("outcome.effects", json!({ "item_changes": changes }))],
             )
-        }),
-    );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
-            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
         }),
     );
     let (mut e, said) = engine(&s, agents);
@@ -919,12 +720,11 @@ fn a_report_marked_for_the_light_route_is_sent_back() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A cancel of an item the batch creates, named by its key, cancels the create out: the item is never made, and the
-// create, the changes that name its key and the cancel are dropped as they are collected, saying so, so that the review
-// is not given them; in the sixth trial a batch held a create, a move and a cancel of one item, which the review could
-// only say in words should go.
+// An answer that cancels an item it creates, named by its key, is sent back: an item is never made only to be
+// cancelled, and in the sixth trial a batch held a create, a move and a cancel of one item, which the review could only
+// say in words should go. Handed in again without them, nothing of them is made.
 #[test]
-fn a_batch_that_cancels_an_item_it_creates_never_makes_it() {
+fn an_answer_that_cancels_an_item_it_creates_is_sent_back_and_never_makes_it() {
     let s = setup("cancel-own");
     let mut agents = scripts();
     let changes = json!([
@@ -935,7 +735,10 @@ fn a_batch_that_cancels_an_item_it_creates_never_makes_it() {
     ]);
     agents.insert(
         "H8",
-        Box::new(move |_: &Request, _: usize| {
+        Box::new(move |_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
             (
                 Vec::new(),
                 vec![("outcome.effects", json!({ "item_changes": changes.clone() }))],
@@ -953,22 +756,10 @@ fn a_batch_that_cancels_an_item_it_creates_never_makes_it() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    assert!(!path_of(&e, arch).contains(&"B2".to_string()), "{log}");
-    let rows = engine::query_json(
-        e.db.conn(),
-        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
-        &[],
-        10,
-    )
-    .unwrap();
-    assert_eq!(rows.len(), 3, "{log}");
-    for r in &rows {
-        assert_eq!(r["state"], "dropped", "{rows:?}");
-        assert!(
-            r["why"].as_str().unwrap().contains("cancelled in the same batch"),
-            "{rows:?}"
-        );
-    }
+    let back = why_sent_back(&e, arch, "H8");
+    assert_eq!(back.len(), 1, "{log}");
+    assert!(back[0].contains("cancels spend, which this answer creates"), "{back:?}");
+    assert!(!path_of(&e, arch).contains(&"G2".to_string()), "{log}");
     let made: i64 =
         e.db.conn()
             .query_row(
@@ -981,115 +772,15 @@ fn a_batch_that_cancels_an_item_it_creates_never_makes_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The review drops a change that should not be made at all, by a row of its own, saying why: the change is left out,
-// and when nothing is left to fix the rest is made at once, with no revision; in the sixth trial the review could say
-// only in words that changes should go, and the revision had to read it there.
+// The plan, which judges what runs and what starts, is told, with the slots, whether the engine runs works or the owner
+// paused every work, and which run despite it: in the sixth trial the plan was told two slots were free while three
+// works stood mid-flow, and could not tell whether the engine ran.
 #[test]
-fn the_review_drops_a_change_and_the_rest_is_made_without_a_revision() {
-    let s = setup("review-drops");
-    let mut agents = scripts();
-    agents.insert(
-        "H8",
-        Box::new(|_: &Request, _: usize| {
-            let title = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
-                                "reason": "r" });
-            let hold = json!({ "kind": "hold", "item": "1", "reason": "r" });
-            (
-                Vec::new(),
-                vec![("outcome.effects", json!({ "item_changes": [title, hold] }))],
-            )
-        }),
-    );
-    agents.insert(
-        "B2",
-        Box::new(|_: &Request, _: usize| {
-            let rows = json!([
-                { "change": 1, "verdict": "ok", "why": "Now it is an action." },
-                { "change": 2, "verdict": "drop", "why": "Nothing it waits for is missing." }
-            ]);
-            (Vec::new(), vec![("outcome.review", rows)])
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    say(&mut e, "Name the parser's item, and hold it.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let log = said.lock().unwrap().join("\n");
-    let path = path_of(&e, arch);
-    let at = path.iter().position(|c| c == "B2").expect(&log);
-    assert_eq!(&path[at..at + 2], ["B2", "B4"], "{log}");
-    let rows = engine::query_json(
-        e.db.conn(),
-        "SELECT state, json_extract(outcome, '$.why') AS why FROM architect_item_changes ORDER BY id",
-        &[],
-        10,
-    )
-    .unwrap();
-    assert_eq!(rows[0]["state"], "made", "{rows:?}");
-    assert_eq!(
-        (&rows[1]["state"], &rows[1]["why"]),
-        (&json!("dropped"), &json!("Nothing it waits for is missing.")),
-        "{rows:?}"
-    );
-    let (title, held): (String, Option<String>) =
-        e.db.conn()
-            .query_row("SELECT title, held FROM items WHERE id = 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
-    assert_eq!((title.as_str(), held), ("Write the parser", None), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The cells that judge what runs and what starts, and the rethink after a batch, are told, with the slots, whether the
-// engine runs works or the owner paused every work, and which run despite it; and every cell that hands in item
-// changes, and the plan, is told, with the batch, the
-// changes collected so far, each whole with the key of an item it creates, not made until the review: in the sixth
-// trial `N1` and `H10` were told two slots were free while three works stood mid-flow and could not tell whether the
-// engine ran, `H12` could not cancel an item made earlier in the batch, for want of its key, and `N1`, given no batch,
-// planned as if the changes it had seen earlier in the batch were sure to be made.
-#[test]
-fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
+fn the_slots_say_whether_works_run() {
     let s = setup("engine-state");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "H10");
-    e.db.write(Actor::Engine, |tx| {
-        let m = db::queue_matter(
-            tx,
-            &db::Matter {
-                project: "p".into(),
-                kind: "slots_free".into(),
-                what: "2 slots are free, and no item of p is ready to start".into(),
-                body: json!({ "free": 2, "ready": 0 }),
-                ..db::Matter::default()
-            },
-        )?;
-        record_round(
-            tx,
-            arch,
-            1,
-            "Q0",
-            &json!({ "queue": { "verdict": "one", "matter": m } }),
-            "one",
-        )?;
-        let create = json!({ "kind": "create_item", "key": "cover", "project": "p", "title": "Cover the lexer",
-                             "problem": "p", "why": "w", "acceptance": ["It is covered."], "level": "l",
-                             "deliver": "change", "reason": "r" });
-        tx.execute(
-            "INSERT INTO architect_item_changes (work, round, matter, change, state)
-             VALUES (?1, 1, ?2, ?3, 'collected')",
-            params![arch, m, create.to_string()],
-        )?;
-        Ok(())
-    })
-    .unwrap();
+    let arch = architect_work_at(&mut e, "N1");
     e.set_global_pause(Some(engine::GlobalPause {
         warm: true,
         runs: [7].into(),
@@ -1099,40 +790,10 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
     let slots = given_value(&m, "·engine·slots").expect(&m);
     assert_eq!(slots["engine"]["runs"], "paused", "{slots}");
     assert_eq!(slots["engine"]["started"], json!([7]), "{slots}");
-    let batch = given_value(&m, "·engine·batch").expect(&m);
-    let change = &batch["item_changes"]["1"];
-    assert_eq!(
-        (&change["state"], &change["change"]["key"]),
-        (&json!("collected"), &json!("cover")),
-        "{batch}"
-    );
     e.set_global_pause(None);
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let slots = given_value(&m, "·engine·slots").expect(&m);
     assert_eq!(slots["engine"], json!({ "runs": "running" }), "{slots}");
-    // The rethink after a batch, which judges whether that calls for planning again, is told the same.
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute("UPDATE works SET at = 'B4' WHERE id = ?1", [arch])?;
-        Ok(())
-    })
-    .unwrap();
-    let m = engine::next_message(&mut e, arch).unwrap().text;
-    let slots = given_value(&m, "·engine·slots").expect(&m);
-    assert_eq!(slots["engine"], json!({ "runs": "running" }), "{slots}");
-    // The plan is told the batch's changes so far with their state, as every cell that hands in item changes is.
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute("UPDATE works SET at = 'N1' WHERE id = ?1", [arch])?;
-        Ok(())
-    })
-    .unwrap();
-    let m = engine::next_message(&mut e, arch).unwrap().text;
-    let batch = given_value(&m, "·engine·batch").expect(&m);
-    let change = &batch["item_changes"]["1"];
-    assert_eq!(
-        (&change["state"], &change["change"]["key"]),
-        (&json!("collected"), &json!("cover")),
-        "{batch}"
-    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
