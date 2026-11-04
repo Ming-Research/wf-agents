@@ -259,7 +259,12 @@ transition: string | null,
 /**
  * Why it was sent back, failed or was cut off; for a row the engine took as a session would start afresh, why.
  */
-why: string | null, started_at: number, ended_at: number | null, model: string | null, cost_usd: number | null, compactions: number, tool_runs: number,
+why: string | null,
+/**
+ * For a return taken with problems set aside, which only checks the work said it changes found: one line for
+ * each, its number in the work first (`S1 check (field): text`).
+ */
+set_aside: string | null, started_at: number, ended_at: number | null, model: string | null, cost_usd: number | null, compactions: number, tool_runs: number,
 /**
  * What the round said it did.
  */

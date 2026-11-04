@@ -49,6 +49,7 @@ mod reminders;
 mod results;
 mod review;
 pub mod schedule;
+mod set_aside;
 mod steps;
 mod test_name;
 mod test_tables;

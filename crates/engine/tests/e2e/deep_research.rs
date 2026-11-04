@@ -28,32 +28,6 @@ fn architect_replies(e: &mut Engine, matter: i64, text: &str) {
     .unwrap();
 }
 
-/// The work's latest ask of the owner not answered yet.
-fn open_ask(e: &Engine, work: i64) -> Option<(i64, Value)> {
-    e.db.conn()
-        .query_row(
-            "SELECT id, body FROM owner_asks WHERE work = ?1 AND answer IS NULL ORDER BY id DESC LIMIT 1",
-            [work],
-            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
-        )
-        .ok()
-        .map(|(id, body)| (id, serde_json::from_str(&body).unwrap()))
-}
-
-/// The owner's answer to an ask, in the owner's words.
-fn owner_answers(e: &mut Engine, ask: i64, text: &str) {
-    let answer = api::Answer {
-        text: text.into(),
-        speaker: "owner".into(),
-        relayed: None,
-        why: None,
-        reply: None,
-        to: None,
-        images: Vec::new(),
-    };
-    api::answer(&mut e.db, ask, &answer).unwrap();
-}
-
 /// The line of the session a work's first round at a cell ran in.
 fn line_at(e: &Engine, work: i64, cell: &str) -> String {
     e.db.conn()
@@ -64,19 +38,6 @@ fn line_at(e: &Engine, work: i64, cell: &str) -> String {
             |r| r.get(0),
         )
         .unwrap()
-}
-
-/// Has project p's owner approve every change under `src/` before it merges.
-fn owner_approves_src(s: &Setup) {
-    let path = s.data.join("projects/p.toml");
-    let text = std::fs::read_to_string(&path).unwrap();
-    let text = text.replacen(
-        "rules = [\"ground\"]\n",
-        "rules = [\"ground\"]\nowner_approves = [\"src/\"]\n",
-        1,
-    );
-    write(&s.data, "projects/p.toml", &text);
-    git(&s.data, &["commit", "-q", "-am", "the owner approves src/"]);
 }
 
 // A work whose research finds it must be designed goes to deep research, in a session of its own on the designer's

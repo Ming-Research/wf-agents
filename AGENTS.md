@@ -28,6 +28,11 @@ What an agent needs to know for this repository, beyond the rules every agent is
   (`crates/flow/tests/moves/`), never a line of one file: git's merge takes changes to neighbouring lines for a conflict.
 - Two works that add at one place conflict at the merge: add a test to the module of what it tests or a new one (as in
   `crates/engine/tests/e2e/`), never at the end of a file or a list that every work appends to.
+- A work that changes one of the engine's checks of returns (`engine.checks` in the flow) is judged until it is
+  installed by the check as it was, and would be sent back by the fault it mends: it names each check it changes in
+  its implementation's return (`checks_changed`), or a fix's when the fix changes one more. What only those checks
+  find in its returns is then set aside, not sent back ([`crates/engine/src/set_aside.rs`](crates/engine/src/set_aside.rs)),
+  and the review checks the declaration against the diff and judges each finding set aside.
 - A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
   a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
   returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a

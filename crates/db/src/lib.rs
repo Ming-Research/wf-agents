@@ -111,6 +111,13 @@ pub fn sent_back_text(rejected: &Value) -> Option<&str> {
     ["check", "format"].iter().find_map(|k| rejected.get(k)?.as_str())
 }
 
+/// The line a problem a check found makes wherever it is said whole, `check (place): problem`: in the text a return is
+/// sent back with, and on the owner's page for one set aside, which is what the return would have been sent back with.
+/// `field` is none for a problem about the return as a whole. The only place this line is made.
+pub fn problem_line(check: &str, field: Option<&str>, text: &str) -> String {
+    format!("{check} ({}): {text}", field.unwrap_or("the return"))
+}
+
 /// `rounds.rejected` without `problems`, the same reason in the form for counting by check and by field. A text that
 /// quotes what a round was sent back with quotes this, so that it says the reason once.
 pub fn without_problems(rejected: &Value) -> Value {
