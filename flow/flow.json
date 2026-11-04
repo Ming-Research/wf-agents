@@ -14319,9 +14319,12 @@
               "without": [
                 "progress"
               ],
-              "lines": [
-                "architect",
-                "matter"
+              "cells": [
+                "H1",
+                "H3",
+                "H5",
+                "H8",
+                "H9"
               ]
             },
             {
@@ -15378,8 +15381,7 @@
             }
           ],
           "without": [
-            "ask",
-            "search"
+            "ask"
           ],
           "promptBy": {
             "by": "rebuild_for",
@@ -15717,8 +15719,7 @@
             }
           ],
           "without": [
-            "ask",
-            "search"
+            "ask"
           ],
           "shown": [
             "missing",
@@ -16222,8 +16223,7 @@
             }
           ],
           "without": [
-            "ask",
-            "search"
+            "ask"
           ],
           "shown": [
             "crux"
@@ -16705,9 +16705,6 @@
               "main": true,
               "note": "It is taken in next, in the same session."
             }
-          ],
-          "without": [
-            "search"
           ],
           "promptBy": {
             "by": "report",
@@ -17223,8 +17220,7 @@
             }
           ],
           "without": [
-            "ask",
-            "search"
+            "ask"
           ],
           "always": [
             {
@@ -18169,9 +18165,6 @@
               "check": "closing_given"
             }
           ],
-          "without": [
-            "search"
-          ],
           "shown": [
             "red"
           ],
@@ -18457,9 +18450,6 @@
               "to": "P2",
               "note": "The owner wants a new policy, or with none in force replied that none is needed: it is written next, in the same session, by the owner's stance."
             }
-          ],
-          "without": [
-            "search"
           ],
           "checks": [
             {
@@ -18773,9 +18763,6 @@
           ],
           "rules": [
             "policy_scope"
-          ],
-          "without": [
-            "search"
           ],
           "checks": [
             {
@@ -19178,7 +19165,6 @@
           ],
           "without": [
             "ask",
-            "search",
             "history"
           ],
           "shown": [
