@@ -102,4 +102,19 @@ git show 3465a9670f7fd3f7ef5be5b7ad2028f6a8af1162:crates/web/tests/flow_cost.rs 
 
 Run Q2 again over the `ci` calls made after the merge. If calls whose only red check is the format still come at a rate
 near 3.1%, agents do not follow the sentence, and the check belongs in the `ci` tool (the engine runs a command the
-project's configuration writes before it pushes); if they are gone or rare, nothing more is needed.
+project's configuration writes before it pushes). That command would run on the owner's machine outside the agent's
+permission check, a kind of command the owner has not yet ruled on: the open question of #280's design (its round 7
+answer says the owner decides it). The check waits for that ruling. If the calls are gone or rare, nothing more is
+needed.
+
+## 6. Ways of making the check certain that were set aside
+
+None of these is built; each is judged against the sentence in AGENTS.md.
+
+- A hook that runs `rustfmt` after every edit of a Rust file (the engine already passes a `--settings` hook of the
+  command line, one that runs after a compaction, measured on the recorded command line) or a git pre-commit hook:
+  both run a command outside the agent's permission check, a hook of the command line rests on a feature of one agent's
+  command line, and a git hook needs a setting of the owner's clone that the repository cannot carry.
+- A `format` tool the agent asks for: one more round of the agent for what a command does in 2 s.
+- `cargo fmt` made runnable by listing it among the permissions' `locks` in the installation (inferred from
+  `Permissions::locks_of` and `refused`, not tried): the list names commands that update lock files, and #283 deletes it.
