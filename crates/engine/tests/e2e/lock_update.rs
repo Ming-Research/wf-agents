@@ -1,6 +1,13 @@
 //! The tool `lock_update`: the lock files a project lists, the command each runs in the directory that holds it in the
 //! work's worktree, and what the tool gives. The commands are `sh -c` stubs that write what the test reads, but for one
 //! test, which runs the real cargo.
+//!
+//! That test (`cargo_locks_what_a_manifest_newly_asks_for_and_changes_nothing_else`) took 2.2 s alone in CI, against 2.0 s
+//! for the stub test that only refuses (`a_project_that_lists_no_lock_file_refuses_and_says_what_to_do_instead`): nearly
+//! all of it is the engine's setup that every test here has, and real cargo adds about 0.1 s. It is worth that because it
+//! is the repository's one proof that the tool works with a real package manager: a stub cannot tell whether a command a
+//! project writes locks what the manifest asks for and leaves the rest alone. It cannot be smaller, since what it proves
+//! is the tool's run in a work's worktree, and it cannot fold into a stub test, whose command it would replace.
 
 use super::*;
 

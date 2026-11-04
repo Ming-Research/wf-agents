@@ -111,9 +111,7 @@ fn a_project_lists_the_lock_files_the_tool_brings_in_line_and_an_agent_is_told_t
         "colour",
         "[[lock_updates]]\nlock = \"a.lock\"\ncommand = \"true\"\ncolour = \"red\"\n",
     );
-    let e = config::working(colour.path())
-        .err()
-        .expect("an unknown field is refused");
+    let e = config::working(colour.path()).expect_err("an unknown field is refused");
     let said = e.to_string();
     assert!(said.contains("projects/p.toml") && said.contains("colour"), "{said}");
 }
@@ -131,7 +129,7 @@ fn the_check_tells_every_fault_of_the_lock_updates_at_once() {
          [[lock_updates]]\nlock = \"Cargo.lock\"\ncommand = \"true\"\n\
          [[lock_updates]]\nlock = \"./Cargo.lock\"\ncommand = \"true\"\n",
     );
-    let e = config::working(data.path()).err().expect("the faults are refused");
+    let e = config::working(data.path()).expect_err("the faults are refused");
     let said = e.to_string();
     for fault in [
         "projects/p.toml: lock_updates of \"../Cargo.lock\": lock is not a path in the project's repository",
