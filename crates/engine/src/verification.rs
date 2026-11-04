@@ -475,7 +475,7 @@ fn in_row(row: &Value, seen: &str) -> bool {
         .collect();
     let in_a_value = row.as_object().into_iter().flat_map(|o| o.values()).any(|v| match v {
         Value::String(s) => whole_in(s, seen),
-        other => other.to_string() == seen,
+        other => cell_text(other) == seen,
     });
     in_a_value || (whole_in(&row.to_string(), seen) && values.iter().any(|v| !v.is_empty() && whole_in(seen, v)))
 }
