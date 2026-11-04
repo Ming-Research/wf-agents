@@ -3,7 +3,8 @@
 //! `item_merge_conditions` works out from the answers where each stands, which is the one place that says whose answer
 //! judges one. Words that judge nothing go to the engineer, and the gate asks again with what it reports next. The
 //! implementation and the fix report on each they are given (`owner_conditions`), and that report is before the owner
-//! when the owner judges. The gate's levels, in order, are items, set_aside, conditions and owner ([`crate::values`]).
+//! when the owner judges. The gate's levels, in order, are items, set_aside, approvals, conditions and owner
+//! ([`crate::values`]).
 //! A general mechanism: nothing here is of one project.
 
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};

@@ -211,6 +211,9 @@ describe('the tick of a merge condition', () => {
       expect(tick(h)).toBeNull();
       await leave();
     }
+    h = await show(<QuestionAnswer work={5} matter={9} pastMerge />);
+    expect(tick(h)).toBeNull();
+    await leave();
   });
 });
 

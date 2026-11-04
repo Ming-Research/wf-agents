@@ -1,7 +1,7 @@
 //! Where the merge gate can go wrong with no error, the work merging all the same: a condition set late, the gate's two
 //! kinds of ask side by side, a condition judged before a fix, a start over at the gate, an item merged into another. The
 //! reference of each is the design the owner approved: a condition holds the work until the owner judges it, the levels
-//! go items, set_aside, conditions, owner, and a judgment is not bound to a head.
+//! go items, set_aside, approvals, conditions, owner, and a judgment is not bound to a head.
 
 use super::*;
 

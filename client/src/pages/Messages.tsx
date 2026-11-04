@@ -420,10 +420,15 @@ export function AskAnswer({ a }: { a: OwnerAsk }) {
 }
 
 /// How a question of an engineer's that the architect holds is answered in the group, in its bubble: the small box of
-/// the owner's words and Answer; the answer is the reply, and the architect is told. A merge condition may be ticked on it.
-export function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
+/// the owner's words and Answer; the answer is the reply, and the architect is told. A merge condition may be ticked on
+/// it, until the work is past its merge (`pastMerge`).
+export function QuestionAnswer({ work, matter, pastMerge = false }: {
+  work: number;
+  matter: number;
+  pastMerge?: boolean;
+}) {
   const { draft, post } = useAnswer(`question:${work}:${matter}`);
-  const tick = useConditionTick(`question:${work}:${matter}`, draft.text, true);
+  const tick = useConditionTick(`question:${work}:${matter}`, draft.text, !pastMerge);
   const ready = saysSomething(draft.text, draft.images) && tick.ready;
   return (
     <div className="talk-answer">
@@ -510,10 +515,12 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// then the owner's answer (`reply`). The question whether the draft of a new policy is approved leads to the draft, in
 /// the panel beside the one-to-one (`draft`). The owner's question about a decision card, and its answer, have the
 /// strip naming the card over their words.
-function Message({ e, to, reply, draft = null, onReply = null, approve = null }: {
+function Message({ e, to, reply, pastMerge = false, draft = null, onReply = null, approve = null }: {
   e: ConversationEntry;
   to: string | null;
   reply: ConversationEntry | null;
+  /// Whether the work of the question it holds is past its merge, which takes no merge condition any more.
+  pastMerge?: boolean;
   draft?: string | null;
   /// For an architect's question that waits for the owner's reply: what sets the box to reply to it.
   onReply?: (() => void) | null;
@@ -555,7 +562,9 @@ function Message({ e, to, reply, draft = null, onReply = null, approve = null }:
           <>
             {asks && ask !== null ? <AskAnswer a={ask} /> : null}
             {ask !== null && ask.answer !== null ? <AskAnswered a={ask} /> : null}
-            {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
+            {question !== null ? (
+              <QuestionAnswer work={question.work} matter={question.matter} pastMerge={pastMerge} />
+            ) : null}
             {reply !== null ? (
               <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} images={reply.images} />
             ) : null}
@@ -735,6 +744,8 @@ type EntryProps = {
   approval: boolean;
   /// The owner's answer to the question of an engineer's it is, once given; none for any other.
   reply: ConversationEntry | null;
+  /// Whether it is a question of an engineer's that can be answered, of a work past its merge.
+  pastMerge: boolean;
   /// Whether it is an architect's question that waits for the owner's reply.
   waits: boolean;
   /// What sets the box to reply to a question of the architect's; one function for the whole stream.
@@ -755,6 +766,7 @@ const Entry = memo(function Entry({
   forwarding,
   approval,
   reply,
+  pastMerge,
   waits,
   replyTo,
 }: EntryProps) {
@@ -774,6 +786,7 @@ const Entry = memo(function Entry({
       e={e}
       to={mentions(e, kind) ? mention(e, kind) : null}
       reply={reply}
+      pastMerge={pastMerge}
       draft={project !== null && approval ? sideHref(project, 'policy') : null}
       onReply={waits && replyTo !== null ? () => replyTo(e.id) : null}
       approve={waits && project !== null && approval ? project : null}
@@ -1209,6 +1222,7 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
                 forwarding={voiceOf(e) === 'fault' ? d.forwarding : null}
                 approval={asksApproval(e, draft)}
                 reply={e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null}
+                pastMerge={e.answerable && pastTheMerge(w)}
                 waits={e.source === 'ask' && questions.has(e.id)}
                 replyTo={replyTo}
               />
