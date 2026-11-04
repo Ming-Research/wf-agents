@@ -8,6 +8,9 @@
 //! graph for it, or where that row leads to its graph's end for a work stopped before its end. Nothing is written, and
 //! the whole is read as one moment of the database.
 
+use std::fmt;
+use std::path::Path;
+
 use db::rusqlite::OptionalExtension;
 
 use crate::versions::Plan;
@@ -57,6 +60,39 @@ pub struct WorkCost {
     pub effect: Result<Effect, String>,
 }
 
+impl WorkCost {
+    /// The group the work is told in, among those of what happens to the works: [`Group`].
+    pub fn group(&self) -> Group {
+        match &self.effect {
+            Err(_) => Group::Unreadable,
+            Ok(Effect::GoesBack { .. }) => Group::GoesBack,
+            Ok(Effect::Stuck { .. }) => Group::Stuck,
+            Ok(Effect::Ends { .. }) => Group::Ends,
+            Ok(Effect::Moves) => Group::Moves,
+            Ok(Effect::Stays) => Group::Stays,
+        }
+    }
+}
+
+/// What happens to a work, as the works are told: the command line and the owner's page both list them in this order,
+/// the ones that cost something first, and the one that cannot be worked out before all, since the engine stops when it
+/// brings such a work up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Group {
+    /// It cannot be worked out.
+    Unreadable,
+    /// It goes back through a cell to a cell it does again.
+    GoesBack,
+    /// It stays stuck at a cell, paused.
+    Stuck,
+    /// It ends.
+    Ends,
+    /// It moves where it stands.
+    Moves,
+    /// It is on the version already.
+    Stays,
+}
+
 /// What installing a flow would do: the version it would be stored as, whether the database has that version already,
 /// and each work that is neither ended nor done, by id, those paused included.
 #[derive(Debug, Clone)]
@@ -64,6 +100,53 @@ pub struct Cost {
     pub version: i64,
     pub stored: bool,
     pub works: Vec<WorkCost>,
+}
+
+/// [`Cost`] of a flow given as text, with the version the database was at when it was read.
+#[derive(Debug, Clone)]
+pub struct Costed {
+    pub cost: Cost,
+    /// The database's version before the engine that would run the flow migrates it: an older one is judged as that
+    /// engine finds it, on a copy migrated in memory.
+    pub database_at: i64,
+}
+
+/// Why a flow could not be costed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refused {
+    /// The flow does not compile against the database definition built into this program, or does not fit the committed
+    /// configuration: what the text says is the flow's.
+    Flow(String),
+    /// The data directory could not be read: its configuration or its database.
+    Data(String),
+}
+
+impl fmt::Display for Refused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (Refused::Flow(s) | Refused::Data(s)) = self;
+        f.write_str(s)
+    }
+}
+
+/// What installing the flow `text` on the data directory `data` would do with each work that is neither ended nor done:
+/// the flow is compiled and checked against the data directory's committed configuration as the engine does at its
+/// start, and each work judged by an engine made only to read, on the database opened only to read ([`Engine::trying`]).
+/// Nothing is written, so it runs beside a running engine. The command line and the owner's page both read the cost
+/// of a flow through this one function.
+pub fn of_text(data: &Path, text: &str) -> Result<Costed, Refused> {
+    let committed = config::committed(data).map_err(|e| Refused::Data(e.to_string()))?;
+    let compiled = crate::compile_flow_for(text, &committed.config).map_err(Refused::Flow)?;
+    let github = crate::hub::Gh::new(data.join("logs"));
+    let (mut e, database_at) = Engine::trying(
+        data,
+        committed,
+        compiled,
+        Box::new(crate::agent::Claude),
+        Box::new(github),
+    )
+    .map_err(Refused::Data)?;
+    let cost = e.flow_cost().map_err(Refused::Data)?;
+    Ok(Costed { cost, database_at })
 }
 
 impl Engine {
