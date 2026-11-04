@@ -69,17 +69,21 @@ fn group(text: &str) -> String {
 }
 
 // The fast workflow is run by hand and by nothing else (a push of a work's branch must start nothing), takes the tests
-// as the input the configuration names, and holds the lint, the tests and the summary, never a job named `check`: a
-// head that only this workflow has run must not look like one the full CI passed.
+// and the checks to run as the inputs the configuration names, and holds the lint, the tests and the summary, never a
+// job named `check`: a head that only this workflow has run must not look like one the full CI passed.
 #[test]
 fn the_fast_workflow_runs_only_by_hand_and_has_no_job_a_merge_waits_for() {
     let text = workflow("workflows/fast.yml");
     assert_eq!(children(&block(&text, "on")), ["workflow_dispatch"]);
     let on = block(&text, "on").join("\n");
-    assert!(
-        on.contains("inputs:") && on.contains("      tests:"),
-        "no input `tests`:\n{on}"
-    );
+    for input in ["tests", "checks"] {
+        assert!(
+            on.contains("inputs:") && on.contains(&format!("      {input}:")),
+            "no input `{input}`:\n{on}"
+        );
+    }
+    // A run asked for with no check names none: the default is an empty list.
+    assert!(on.contains("default: '[]'"), "{on}");
     let jobs = block(&text, "jobs");
     let names = children(&jobs);
     assert_eq!(names, ["lint", "test", "fast"], "the jobs of fast.yml");
@@ -122,14 +126,15 @@ fn the_two_workflows_do_not_share_a_concurrency_group() {
     assert_ne!(fast, full);
 }
 
-// The lint is skipped on the engine's temporary branches of the code before a change, named by the prefix the engine
-// gives them, and it is the same lint in both workflows: one action holds its steps, so that they cannot differ.
+// The fast workflow runs the lint only when it is named, by its job's name in the input of the checks, as the engine
+// gives them (`ci.named_checks`); and it is the same lint in both workflows: one action holds its steps, so that they
+// cannot differ.
 #[test]
-fn the_lint_is_one_action_and_the_fast_workflow_skips_it_on_a_temporary_branch() {
+fn the_lint_is_one_action_and_the_fast_workflow_runs_it_only_when_named() {
     let fast = workflow("workflows/fast.yml");
     let lint = job(&block(&fast, "jobs"), "lint").join("\n");
     assert!(
-        lint.contains("startsWith(github.ref_name, 'wf-agents-before/')"),
+        lint.contains("if: ${{ contains(fromJSON(inputs.checks || '[]'), 'lint') }}"),
         "{lint}"
     );
     assert!(lint.contains("uses: ./.github/actions/lint"), "{lint}");

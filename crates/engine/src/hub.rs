@@ -22,6 +22,19 @@ pub struct CheckRun {
     /// Where the red run's whole log is kept, for an agent to read with its tools.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
+    /// Whether the job did not run, its condition false, as a job of the fast CI that runs only when named: GitHub
+    /// concludes it skipped, which counts as green. Read from GitHub only, and never written: a tool that gives the
+    /// checks of a run gives such a job as green, or leaves it out ([`CheckRun::ran`]).
+    #[serde(skip)]
+    pub skipped: bool,
+}
+
+impl CheckRun {
+    /// The checks of a run that ran: a job GitHub skipped is none of them, though it counts as green, so that a check
+    /// the run was not asked for is not read as passed.
+    pub fn ran(checks: Vec<CheckRun>) -> Vec<CheckRun> {
+        checks.into_iter().filter(|c| !c.skipped).collect()
+    }
 }
 
 /// A tool that did not run, in the kinds the flow names.
@@ -283,7 +296,8 @@ impl Gh {
         let v = self.json(&["run", "view", &id, "-R", repo, "--json", "jobs"])?;
         let mut out = Vec::new();
         for j in v["jobs"].as_array().cloned().unwrap_or_default() {
-            let result = match j["conclusion"].as_str().unwrap_or_default() {
+            let conclusion = j["conclusion"].as_str().unwrap_or_default();
+            let result = match conclusion {
                 "success" | "skipped" | "neutral" => "green",
                 "cancelled" => "cancelled",
                 _ => "red",
@@ -294,6 +308,7 @@ impl Gh {
                 run: j["url"].as_str().unwrap_or_default().to_string(),
                 log_tail: None,
                 log_path: None,
+                skipped: conclusion == "skipped",
             };
             if result == "red" {
                 let job = j["databaseId"].as_i64().unwrap_or_default().to_string();

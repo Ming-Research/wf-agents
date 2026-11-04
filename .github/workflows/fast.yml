@@ -1,13 +1,15 @@
 name: fast
 
 # The fast CI of a work: what the engine's ci tool waits for while the code is being written. It runs only when asked,
-# by hand, on the work's branch, with the tests to run: those tests and the lint, which run side by side. It never runs
-# the whole set of tests, and has no job named `check`, the one a merge waits for (ci.yml): a head that only this
-# workflow has run is not one that may merge. The project's configuration names this workflow (`fast`) and its input
-# (`tests_input`).
+# by hand, on the work's branch, and runs only what it is asked for: it compiles and runs the tests named, and runs the
+# lint only when it is named, as while what the full CI's lint found is being fixed. Every other check, the lint and the
+# whole set of tests among them, is the full CI's (ci.yml), which runs once, at the merge. It has no job named `check`,
+# the one a merge waits for: a head that only this workflow has run is not one that may merge. The project's
+# configuration names this workflow (`fast`), its inputs (`tests_input`, `checks_input`) and the checks it runs by name
+# (`named_checks`, each the name of its job here).
 #
 # The engine's ci_before tool runs it too, on its temporary branches `wf-agents-before/...`, which hold the code before
-# a change with the tests of the change put on it. On those it runs exactly the tests listed, and skips the lint: the
+# a change with the tests of the change put on it. On those it runs exactly the tests listed, and names no check: the
 # lint would check the code before the change against the page's types of now, and say nothing of the tests.
 #
 # The tests job uploads what became of each test it ran as JUnit XML, in the artifact `test-results`, which the engine
@@ -17,18 +19,23 @@ name: fast
 #
 # GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one made before this file
 # took a request to run by hand. The engine then runs it with main's CI files: ci on a temporary branch
-# `wf-agents-main-ci/...` holding the work's head with them, where the lint runs as on the work's branch, and ci_before
-# on its own temporary branch.
+# `wf-agents-main-ci/...` holding the work's head with them, where it runs what is named as on the work's branch, and
+# ci_before on its own temporary branch.
 on:
   workflow_dispatch:
     inputs:
       tests:
         description: >-
           The tests to run, each name followed by a line break, so that a name may hold spaces (names separated by
-          spaces, with no line break, are read too, as an older engine gives them); each runs to its end. Empty for the
-          lint only
+          spaces, with no line break, are read too, as an older engine gives them); each runs to its end. Empty for none
         required: false
         default: ''
+      checks:
+        description: >-
+          The checks to run beside the tests, as a JSON array of the names of their jobs, such as ["lint"]; the engine
+          gives it only when it names one. Empty or [] for none
+        required: false
+        default: '[]'
 
 permissions:
   contents: read
@@ -40,10 +47,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Only when named: the full CI runs it once, at the merge, and a work runs it here while it fixes what that found.
   lint:
-    # The engine's temporary branches of the code before a change are named by this prefix; ci.yml leaves them alone by
-    # the same prefix.
-    if: ${{ !startsWith(github.ref_name, 'wf-agents-before/') }}
+    if: ${{ contains(fromJSON(inputs.checks || '[]'), 'lint') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -272,8 +278,8 @@ jobs:
           name: test-results
           path: ${{ runner.temp }}/test-results
 
-  # The one check the engine reads, red whenever a job that ran is. A job that did not run is skipped: the lint on a
-  # temporary branch of the code before a change, the tests when none are named.
+  # The one check the engine reads, red whenever a job that ran is. A job that did not run is skipped: the lint when it
+  # is not named, the tests when none are named.
   fast:
     needs: [lint, test]
     if: always()
