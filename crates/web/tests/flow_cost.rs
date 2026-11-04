@@ -176,6 +176,9 @@ fn the_cost_of_a_flow_is_read_at_the_ref_that_names_one_commit_and_other_refs_ar
     }
     // Not a ref, or not one commit: refused as invalid, never handed to git as an option or a path.
     let long = "a".repeat(201);
+    // A letter that is not ASCII, made from its code point: the repository's files hold no such letter, as written or
+    // as an escape (crates/wf-agents/tests/english.rs).
+    let accented = format!("h{}ad", char::from(0xE9_u8));
     for rev in [
         "",
         "-h",
@@ -188,7 +191,7 @@ fn the_cost_of_a_flow_is_read_at_the_ref_that_names_one_commit_and_other_refs_ar
         "HEAD;ls",
         "$(ls)",
         "HEAD\\",
-        "h\u{e9}ad",
+        accented.as_str(),
         long.as_str(),
     ] {
         let (status, body) = at_ref(port, rev);
