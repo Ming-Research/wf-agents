@@ -1417,7 +1417,10 @@ fn a_guard_test_that_cannot_be_built_before_the_change_does_not_send_testing_bac
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let clear = samples["T1"].iter().find(|s| s["row"] == "clear").expect("a sample of the row clear");
+    let clear = samples["T1"]
+        .iter()
+        .find(|s| s["row"] == "clear")
+        .expect("a sample of the row clear");
     let given: Map<String, Value> = clear["given"].as_object().cloned().unwrap_or_default();
     let row_with = |by: &str, base: &str| {
         let mut x = clear["json"].clone();

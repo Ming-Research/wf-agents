@@ -1174,7 +1174,10 @@ mod tests {
             { "name": "fails_before", "on_head": "green", "on_base": "red" },
             { "name": "red_after", "on_head": "red", "on_base": "green" },
         ]);
-        let names: Vec<_> = entries("guard_tests", &guards).iter().map(|m| m["name"].clone()).collect();
+        let names: Vec<_> = entries("guard_tests", &guards)
+            .iter()
+            .map(|m| m["name"].clone())
+            .collect();
         assert_eq!(names, [json!("fails_before"), json!("red_after")]);
         // New tests are as they were: cannot_run is right for them.
         let news = json!([{ "name": "n", "on_head": "green", "on_base": "cannot_run" }]);
