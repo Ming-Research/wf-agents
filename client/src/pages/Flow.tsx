@@ -279,7 +279,7 @@ export function costPath(r: FlowRoute): string | null {
 
 /// The flow at a ref, which no work runs on, compared with a stored version: the comparison's panel also says what
 /// installing the flow would do with each work going on (`costPath`). It is read once as the comparison opens, as the
-/// works stand then.
+/// works stand then; no event of a work changing reads it again, only the page reading everything it shows again.
 function AtRef({ r, at }: { r: FlowRoute; at: Resource<FlowAt> }) {
   const q = `project=${encodeURIComponent(r.project ?? '')}&ref=${encodeURIComponent(r.ref ?? '')}`;
   const diff = useResource<FlowDiff>(null, r.from !== null ? `/api/v1/flows/diff?from=${r.from}&${q}` : null);

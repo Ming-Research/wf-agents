@@ -2642,7 +2642,7 @@ export type CostEffect = { "kind": "unreadable", why: string, } | { "kind": "goe
 /**
  * The number, in the work, of the first round done again; none when no round is.
  */
-from: number | null, redone: number, } | { "kind": "stuck", at: string, why: string, back_to: string | null, pause: string, } | { "kind": "ends", why: string, taken_over: boolean, } | { "kind": "moves" } | { "kind": "stays" };
+from: number | null, redone: number, } | { "kind": "stuck", at: string, pause: string, } | { "kind": "ends", why: string, taken_over: boolean, } | { "kind": "moves" } | { "kind": "stays" };
 
 /**
  * The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they

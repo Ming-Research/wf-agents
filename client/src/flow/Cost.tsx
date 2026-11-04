@@ -114,7 +114,9 @@ function WorkRow({ w, titleOf }: { w: WorkCost; titleOf: CellTitle }) {
         {what}
         {s !== null ? (
           <span className="muted">
-            {inline(t('cost_work_on', { version: s.version, at: cellWords(titleOf, s.graph, s.at) }))}
+            {/* The cell is the one the work stands at in its own flow version, which the flow shown may not have, or
+                have with another meaning: its code alone, never the title the flow shown gives that code. */}
+            {inline(t('cost_work_on', { version: s.version, at: `\`${s.at}\`` }))}
             {s.paused !== null ? `${SEP}${t(PAUSED[s.paused])}` : null}
           </span>
         ) : null}

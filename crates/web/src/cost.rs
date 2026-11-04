@@ -64,15 +64,8 @@ fn effect(e: &Result<Effect, String>) -> CostEffect {
             from: from.as_ref().map(|r| r.n),
             redone: i64::try_from(*redone).unwrap_or(i64::MAX),
         },
-        Ok(Effect::Stuck {
-            at,
-            why,
-            back_to,
-            pause,
-        }) => CostEffect::Stuck {
+        Ok(Effect::Stuck { at, pause, .. }) => CostEffect::Stuck {
             at: at.clone(),
-            why: why.clone(),
-            back_to: back_to.clone(),
             pause: pause.clone(),
         },
         Ok(Effect::Ends { why, taken_over }) => CostEffect::Ends {

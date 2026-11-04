@@ -42,7 +42,7 @@ const WORKS: WorkCost[] = [
   {
     work: 2,
     stands: stands({ item: 2, title: 'Stuck', paused: 'owner' }),
-    effect: { kind: 'stuck', at: 'V1', why: 'cell Z1 is gone', back_to: null, pause: 'Start it over, or cancel its item' },
+    effect: { kind: 'stuck', at: 'V1', pause: 'Start it over, or cancel its item' },
   },
   {
     work: 4,
@@ -104,6 +104,16 @@ describe('the cost of installing a flow, on the comparison panel', () => {
     // A work with no item is named by the graph it runs through and its project.
     expect(said).toContain('policy work for p');
     expect(said).toContain('architect work for p');
+  });
+
+  it('names the cell a work stands at by its code alone, since the flow shown may give that code another meaning', () => {
+    const said = text(drawn(COST));
+    // Work 8 stands at R1 of its own version 3; the flow shown has an R1, with a title that is not that cell's.
+    expect(TITLES['engineer:R1']).toBeDefined();
+    expect(said).toContain('on v3 at R1');
+    expect(said).not.toContain('on v3 at R1 Whether it stands');
+    // The cells the flow shown is judged to go through and to keep their titles from it.
+    expect(said).toContain('back to R1 Whether it stands');
   });
 
   it('gives a line of what happens only to the works it happens to something', () => {

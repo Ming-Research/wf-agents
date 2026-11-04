@@ -1030,9 +1030,9 @@ fn page_cost(port: u16, query: &str) -> (u16, serde_json::Value) {
 // /api/v1/flows/cost` lists the same works in the same order, each under the kind the command's heading gives it, with
 // the same standing, cells, rounds done again and reasons, the work on a version that cannot be read among them, as
 // `flows_and_works` and that work leave them. A project or a ref that is not there is a 404, and a flow that does not
-// compile is a 422 with the words the command fails with; nothing is written. Each flow is compiled by the engine here
-// (the fixture's, the page's, the command's), which takes some 3 s each, so the test takes some 12 s: it is the one
-// that holds the page to the command through the socket, git's ref and the command itself, which no smaller test does.
+// compile is a 422 with the words the command fails with; nothing is written. The engine compiles the flow for the page
+// and again for the command, so the test takes some 3 s: it is the one that holds the page to the command through the
+// socket, git's ref and the command itself, which no smaller test does.
 #[test]
 fn the_page_tells_what_installing_a_flow_does_as_the_command_does() {
     let dir = temp("flow-cost-page");

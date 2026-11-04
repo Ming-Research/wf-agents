@@ -2696,8 +2696,9 @@ round it does again, or the cell it is stuck at and what the owner can do, or wh
 A flow this engine cannot judge, because it does not compile against the engine's database definition or does not fit
 the configuration, shows the reason in a warning in place of the runs, and says what judges it instead, because a cost
 that is missing must not read as no cost. The section is read once as the comparison opens, as the works stand then, and
-no event keeps it current: the owner rules on one moment's list, and a list that changed under the owner's eyes would
-not be the list ruled on. The owner rules a change to the flow with its cost before it, which only the command line
+no event of a work changing keeps it current, so that the list the owner reads does not move under the owner's eyes as
+works go on; it is worked out again only when the page reads everything it shows again (the event stream
+resynchronising, the engine restarting), which is when a new flow has often just been installed. The owner rules a change to the flow with its cost before it, which only the command line
 gave, and an owner who must ask for a command does not see it. A comparison of two stored versions, or with a decision
 card's flow, has no such section: what it would cost to install is asked of a flow that is not installed.
 

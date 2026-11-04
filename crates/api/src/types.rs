@@ -2510,14 +2510,8 @@ pub enum CostEffect {
         from: Option<i64>,
         redone: i64,
     },
-    /// It stays at cell `at`, paused for `pause`, which says what the owner can do; `back_to` is the cell the owner's
-    /// Start takes it back to, when there is one.
-    Stuck {
-        at: String,
-        why: String,
-        back_to: Option<String>,
-        pause: String,
-    },
+    /// It stays at cell `at`, paused for `pause`, which gives the reason and says what the owner can do.
+    Stuck { at: String, pause: String },
     /// It ends, for the reason `why`; a new work takes its item over when `taken_over`.
     Ends { why: String, taken_over: bool },
     /// It moves where it stands: the same work at the same cell, in the same sessions.
