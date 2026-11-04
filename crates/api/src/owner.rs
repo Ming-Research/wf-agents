@@ -2083,10 +2083,10 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO architect_matters (id, project, kind, what, body, item, asked, at) VALUES
-                 (10, 'p', 'owner_words', 'w', '{}', 1, 2, 1),
-                 (11, 'p', 'owner_words', 'w', '{}', 1, NULL, 1),
-                 (12, 'p', 'owner_words', 'w', '{}', 2, NULL, 1)",
+                "INSERT INTO architect_matters (id, project, kind, what, body, item, asked, resume_cell, at) VALUES
+                 (10, 'p', 'owner_words', 'w', '{}', 1, 2, 'H3', 1),
+                 (11, 'p', 'owner_words', 'w', '{}', 1, NULL, NULL, 1),
+                 (12, 'p', 'owner_words', 'w', '{}', 2, NULL, NULL, 1)",
                 [],
             )?;
             Ok(())
