@@ -799,10 +799,17 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
         }
         e.advance(arch).unwrap();
     }
-    assert_eq!(e.work(arch).unwrap().pos.at, "G2", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(
+        e.work(arch).unwrap().pos.at,
+        "G2",
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     let matter: i64 =
         e.db.conn()
-            .query_row("SELECT id FROM architect_matters WHERE kind = 'owner_words'", [], |r| r.get(0))
+            .query_row("SELECT id FROM architect_matters WHERE kind = 'owner_words'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
     let held = |e: &Engine| -> (bool, i64, bool) {
         e.db.conn()
@@ -908,7 +915,11 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
             .query_row("SELECT cancelled IS NOT NULL FROM items WHERE id = 1", [], |r| r.get(0))
             .unwrap()
     };
-    assert!(steps_until(&mut e, 40, cancelled), "{}", said.lock().unwrap().join("\n"));
+    assert!(
+        steps_until(&mut e, 40, cancelled),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     let log = said.lock().unwrap().join("\n");
     let (by, revised, made): (i64, i64, i64) =
         e.db.conn()
@@ -945,7 +956,12 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
         }
         e.advance(arch).unwrap();
     }
-    assert_eq!(e.work(arch).unwrap().pos.at, "G1", "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(
+        e.work(arch).unwrap().pos.at,
+        "G1",
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     let (matter, replied): (i64, i64) =
         e.db.conn()
             .query_row(
@@ -977,7 +993,11 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
     );
     let w = e.work(arch).unwrap();
     assert_eq!(w.pos.at, "C2", "{log}");
-    assert!(w.ended.as_deref().is_some_and(|x| x.starts_with(&why)), "{:?}\n{log}", w.ended);
+    assert!(
+        w.ended.as_deref().is_some_and(|x| x.starts_with(&why)),
+        "{:?}\n{log}",
+        w.ended
+    );
     let handled: (Option<i64>, Option<i64>) =
         e.db.conn()
             .query_row(
