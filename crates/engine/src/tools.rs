@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use db::Actor;
 use db::rusqlite::params;
-use flow::CompiledGraph;
 use serde_json::{Value, json};
 
 use crate::hub::{self, CheckRun, Failure};
@@ -504,22 +503,6 @@ pub(crate) fn red_beside_the_change(
         return Ok(None);
     };
     Ok(checks.iter().find(|c| c.name == check).map(|c| c.result == "red"))
-}
-
-/// Runs the red checks again on the same commit, and gives the latest run of every check.
-fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRun]) -> Result<Vec<CheckRun>, Failure> {
-    let (own, _) = own_full(project);
-    let mut out = Vec::new();
-    for wf in own {
-        out.extend(e.github().rerun(&repo(project), sha, &wf)?);
-    }
-    // A check the rerun did not give again keeps its first result.
-    for c in first {
-        if !out.iter().any(|x| x.name == c.name) {
-            out.push(c.clone());
-        }
-    }
-    Ok(out)
 }
 
 fn not_run(field: &str, (f, tried): (Failure, String)) -> Value {

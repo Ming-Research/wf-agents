@@ -339,52 +339,6 @@ fn table_problems(given: &[String], rows: &[&str], numbered: bool) -> Problems {
     problems
 }
 
-/// What is wrong with how a review carries the blind review's findings (`blind`) into its columns (`carried`) and its
-/// withdrawals (`withdrawn`): findings withdrawn that the blind review did not hand in, and findings of the blind
-/// review neither carried nor withdrawn, each kind said once with all its findings.
-fn blind_problems(blind: &[String], carried: &[String], withdrawn: &[String]) -> Problems {
-    let mut problems = Problems::default();
-    problems.about(
-        &once(withdrawn.iter().filter(|w| !blind.contains(w))),
-        |x| format!("{x} is withdrawn, and the blind review handed in no such finding"),
-        |xs| format!("{xs} are withdrawn, and the blind review handed in no such findings"),
-    );
-    problems.about(
-        &once(blind.iter().filter(|b| !carried.contains(b) && !withdrawn.contains(b))),
-        |x| format!("the blind review's finding {x} is neither carried into a column nor withdrawn"),
-        |xs| format!("the blind review's findings {xs} are neither carried into a column nor withdrawn"),
-    );
-    problems
-}
-
-/// The texts of an iterator, each once, in the order they come.
-fn once<'a>(texts: impl Iterator<Item = &'a String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for t in texts {
-        if !out.contains(t) {
-            out.push(t.clone());
-        }
-    }
-    out
-}
-
-/// The columns of a review that the engineer could not verify either (`both`) and that the review does not decide this
-/// time, each column once.
-fn unverified_problems(both: &BTreeSet<String>, columns: &[Value]) -> Problems {
-    let mut problems = Problems::default();
-    for id in columns
-        .iter()
-        .filter_map(|col| col["id"].as_str())
-        .filter(|id| both.contains(*id))
-    {
-        problems.push(format!(
-            "column {id}: the engineer could not verify it either; decide it now, a pass on what the work \
-             shows or findings that say what evidence is needed and how to get it, not cannot_verify again"
-        ));
-    }
-    problems
-}
-
 /// The texts at a place, a list flattened.
 fn strs(v: Option<&Value>) -> Vec<String> {
     match v {
@@ -1921,25 +1875,6 @@ fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
     }
     if unlocked {
         problems.push(LOCKED_ACCEPTANCE);
-    }
-    problems
-}
-
-/// What is wrong with the route the research said, `given`, for a work that goes the light route (`light`) or not:
-/// only the item's route lightens a work, and its engineer only turns it heavier. A work goes the light route by its
-/// item's mark before its research first answers, and by its research's answer after, so the words name the work's
-/// route, not the item's mark, which may have changed since.
-fn route_problems(light: bool, given: Option<&Value>) -> Problems {
-    let mut problems = Problems::default();
-    match (light, given) {
-        (true, None) => problems.push(
-            "the work goes the light route: say in route whether it goes on the light route (light) or turns to the \
-             normal route (to_normal)",
-        ),
-        (false, Some(_)) => {
-            problems.push("the work goes the normal route, and only the item's route lightens a work: leave route out")
-        }
-        _ => {}
     }
     problems
 }
@@ -3955,42 +3890,6 @@ mod tests {
     }
 
     #[test]
-    fn the_blind_reviews_findings_dropped_and_the_withdrawals_it_did_not_make_are_each_said_once_with_all() {
-        let blind = ids(&["b1", "b2", "b3", "b4", "b2"]);
-        assert_eq!(
-            said(blind_problems(&blind, &ids(&["b1"]), &ids(&["b2", "w9", "w8", "w9"]))),
-            [
-                "w9, w8 are withdrawn, and the blind review handed in no such findings",
-                "the blind review's findings b3, b4 are neither carried into a column nor withdrawn"
-            ]
-        );
-        assert_eq!(
-            said(blind_problems(&blind, &ids(&["b1", "b2", "b3"]), &ids(&["b4", "w9"]))),
-            ["w9 is withdrawn, and the blind review handed in no such finding"]
-        );
-        assert_eq!(
-            said(blind_problems(&blind, &ids(&["b1", "b2", "b3"]), &[])),
-            ["the blind review's finding b4 is neither carried into a column nor withdrawn"]
-        );
-        assert!(blind_problems(&blind, &ids(&["b1", "b2", "b3"]), &ids(&["b4"])).is_empty());
-    }
-
-    #[test]
-    fn every_column_the_engineer_could_not_verify_either_and_the_review_left_open_is_said() {
-        let both: BTreeSet<String> = ids(&["c2", "c4"]).into_iter().collect();
-        let columns = vec![json!({ "id": "c1" }), json!({ "id": "c2" }), json!({ "id": "c4" })];
-        let found = said(unverified_problems(&both, &columns));
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert!(
-            found[0].starts_with("column c2: the engineer could not verify it either; decide it now"),
-            "{found:?}"
-        );
-        assert!(found[1].starts_with("column c4: "), "{found:?}");
-        assert!(unverified_problems(&both, &[json!({ "id": "c1" })]).is_empty());
-        assert!(unverified_problems(&BTreeSet::new(), &columns).is_empty());
-    }
-
-    #[test]
     fn a_research_round_that_left_changes_uncommitted_and_changed_outside_research_is_told_both() {
         assert_eq!(
             said(research_problems(false, &ids(&["research/a.md", "src/x.rs", "y.rs"]))),
@@ -4009,28 +3908,6 @@ mod tests {
         );
         assert!(research_problems(true, &ids(&["research/a.md", "research/b/c.md"])).is_empty());
         assert!(research_problems(true, &[]).is_empty());
-    }
-
-    // A work on the light route says whether it goes that way, and a work on the normal route says nothing of the
-    // route: the engineer cannot lighten a work its item does not mark.
-    #[test]
-    fn the_research_says_the_route_only_on_the_light_route() {
-        let light = json!({ "verdict": "light", "why": "The root is in one function." });
-        let to_normal = json!({ "verdict": "to_normal", "why": "It changes an interface." });
-        assert!(route_problems(true, Some(&light)).is_empty());
-        assert!(route_problems(true, Some(&to_normal)).is_empty());
-        assert!(route_problems(false, None).is_empty());
-        assert_eq!(
-            said(route_problems(true, None)),
-            [
-                "the work goes the light route: say in route whether it goes on the light route (light) or turns to \
-                 the normal route (to_normal)"
-            ]
-        );
-        assert_eq!(
-            said(route_problems(false, Some(&light))),
-            ["the work goes the normal route, and only the item's route lightens a work: leave route out"]
-        );
     }
 
     #[test]

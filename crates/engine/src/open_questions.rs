@@ -205,20 +205,6 @@ pub fn ruling_due(conn: &Connection, work: i64, within: &str) -> Result<&'static
     })
 }
 
-/// Whether a ruling turned down a departure of the work's latest design: an answer against the design that the work
-/// must follow, so that it cannot carry on with this design.
-pub fn turned_down(conn: &Connection, work: i64, within: &str) -> Result<bool, String> {
-    let Some((design, departs)) = departures(conn, work, within)? else {
-        return Ok(false);
-    };
-    for d in departs {
-        if ruled(conn, design, &d)? == Ruled::Answered(Some(TURNED_DOWN.to_string())) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 /// Whether a work's question was put already, word for word: a design written again that hands it in does not put it
 /// again.
 fn put_before(tx: &Transaction<'_>, work: i64, question: &str) -> Result<bool, String> {

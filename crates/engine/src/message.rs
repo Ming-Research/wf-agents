@@ -1365,13 +1365,6 @@ fn last_unverified(e: &Engine, w: &Work, g: &CompiledGraph) -> Unverified {
     }
 }
 
-/// The numbers of the columns the last table review that handed in a table could not verify.
-pub(crate) fn unverified_last(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
-    last_table(e, w, g)
-        .map(|(_, table)| cannot_verify(&table))
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
