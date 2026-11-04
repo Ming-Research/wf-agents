@@ -874,15 +874,22 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
 fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
+    // A cell asks with a why of its own by a place that holds one, a `why`; reading the project asks at its plan's
+    // verdict, which holds none.
     let no_why: Vec<&str> = g
         .cells
         .iter()
         .filter(|cell| {
-            cell.rows.iter().any(|r| {
+            let by_row = cell.rows.iter().any(|r| {
                 r.actions
                     .iter()
-                    .any(|d| d.name() == "queue_check_policy" && d.at().is_none())
-            })
+                    .any(|d| d.name() == "queue_check_policy" && !d.at().is_some_and(|at| at.ends_with("why")))
+            });
+            let always = cell
+                .always
+                .iter()
+                .any(|a| a.action.as_deref() == Some("queue_check_policy") && !a.at.ends_with("why"));
+            by_row || always
         })
         .map(|cell| cell.id.as_str())
         .collect();

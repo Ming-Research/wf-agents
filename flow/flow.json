@@ -15317,9 +15317,6 @@
               ],
               "to": "N1",
               "main": true,
-              "do": [
-                "queue_check_policy"
-              ],
               "note": "The base was due for a planning: what to do next is planned in this session, whatever the plan's verdict."
             },
             {
@@ -15342,9 +15339,6 @@
               ],
               "to": "Q0",
               "main": true,
-              "do": [
-                "queue_check_policy"
-              ],
               "counts": "rebuilds",
               "note": "Only the base was due, and the plan holds: this session is the base, and the matters are taken."
             },
@@ -15367,9 +15361,6 @@
                 ]
               ],
               "to": "N1",
-              "do": [
-                "queue_check_policy"
-              ],
               "counts": "plans_from_rebuilds",
               "note": "Reading the project anew found the plan wrong: the rebuild turns into a planning, in this session."
             }
@@ -15405,6 +15396,10 @@
             {
               "at": "notebook",
               "do": "edit_notebook"
+            },
+            {
+              "at": "plan",
+              "do": "queue_check_policy"
             }
           ],
           "checks": [
