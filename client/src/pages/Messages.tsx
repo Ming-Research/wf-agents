@@ -1032,14 +1032,14 @@ export function Composer({ c, w, reply = null, onSent }: {
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
   const closed = closedWhy(c, w);
-  const tick = useConditionTick(
+  const condition = useConditionTick(
     `conv:${c.key}`,
     text,
     closed === null && (c.kind === 'work' || (c.kind === 'architect' && reply !== null && reply.aboutOneItem)),
   );
   if (choices.length === 0) return null;
   const busy = draft.busy;
-  const ready = closed === null && saysSomething(text, images) && sendTo.length > 0 && tick.ready;
+  const ready = closed === null && saysSomething(text, images) && sendTo.length > 0 && condition.ready;
   const send = () => {
     if (!ready) return;
     const said = text.trim();
@@ -1052,7 +1052,7 @@ export function Composer({ c, w, reply = null, onSent }: {
             speaker: SPEAKER,
             to,
             images: sentImages,
-            ...tick.sent,
+            ...condition.sent,
           });
         }
         if (c.kind === 'projects') {
@@ -1070,11 +1070,11 @@ export function Composer({ c, w, reply = null, onSent }: {
         return postJson(forProject('/api/v1/architect/say', c.project), {
           ...toArchitect(said, reply !== null ? reply.question : null),
           images: sentImages,
-          ...tick.sent,
+          ...condition.sent,
         });
       },
       () => {
-        tick.done();
+        condition.done();
         onSent?.();
         reread('messages', 'architect', 'works', 'work:*');
       },
@@ -1119,7 +1119,7 @@ export function Composer({ c, w, reply = null, onSent }: {
           {t('conv_send')}
         </Button>
       </div>
-      <ConditionLine tick={tick} disabled={busy} />
+      <ConditionLine tick={condition} disabled={busy} />
       {draft.error !== null ? <Flash variant="danger">{t('request_failed', { error: draft.error })}</Flash> : null}
     </div>
   );

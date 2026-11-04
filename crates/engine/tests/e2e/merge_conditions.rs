@@ -12,7 +12,10 @@ fn condition_on(db: &mut db::Db, item: i64, what: &str, quote: &str) -> i64 {
         tx.execute(
             "INSERT INTO architect_matters (project, kind, detail, what, body, item, at, withdrawn)
              VALUES ('p', 'owner_words', 'said', 'w', ?1, ?2, 1, 'kept out of the queue')",
-            params![json!({ "text": quote, "where": "item", "speaker": "owner" }).to_string(), item],
+            params![
+                json!({ "text": quote, "where": "item", "speaker": "owner" }).to_string(),
+                item
+            ],
         )?;
         let matter = tx.last_insert_rowid();
         db::record_merge_condition(
@@ -88,15 +91,19 @@ fn answers(e: &mut Engine, ask: i64, speaker: &str, choice: Option<&str>, text: 
 /// Where a condition stands, as the view works it out.
 fn status(e: &Engine, condition: i64) -> String {
     e.db.conn()
-        .query_row("SELECT status FROM item_merge_conditions WHERE id = ?1", [condition], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT status FROM item_merge_conditions WHERE id = ?1",
+            [condition],
+            |r| r.get(0),
+        )
         .unwrap()
 }
 
 /// The words of what the ask gives the owner to judge with, as the ask's points hold them.
 fn points(body: &Value) -> &str {
-    body["asked"][0]["value"]["points"][0]["what"].as_str().unwrap_or_default()
+    body["asked"][0]["value"]["points"][0]["what"]
+        .as_str()
+        .unwrap_or_default()
 }
 
 /// Steps the engine until the item's work stands at the gate with an ask other than `not` open; gives the work, the ask
@@ -156,9 +163,11 @@ fn the_gate_holds_the_work_until_the_owner_judges_each_condition_one_at_a_time()
     assert_eq!(body["condition"], json!(second), "{body}");
     let what: String =
         e.db.conn()
-            .query_row("SELECT what FROM blockers WHERE work = ?1 AND ended IS NULL", [work], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT what FROM blockers WHERE work = ?1 AND ended IS NULL",
+                [work],
+                |r| r.get(0),
+            )
             .unwrap();
     assert!(what.contains(&format!("merge condition C{second}")), "{what}");
     assert_eq!(status(&e, first), "met");
@@ -193,7 +202,10 @@ fn an_item_with_no_condition_goes_through_the_gate_as_before() {
             .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0);
-    assert_eq!(given_value(&message_at(&e, work, "I1", true), "·engine·merge_conditions"), None);
+    assert_eq!(
+        given_value(&message_at(&e, work, "I1", true), "·engine·merge_conditions"),
+        None
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -228,8 +240,14 @@ fn the_implementation_that_leaves_out_a_condition_it_was_given_is_sent_back() {
     let c = condition_on(&mut e.db, item, "Run it twice before the merge.", "Run it twice.");
     let (work, ask, body) = at_the_gate_asking(&mut e, item, &said, None);
     let back = why_sent_back(&e, work, "I1").join("\n");
-    assert!(back.contains(&format!("merge condition C{c} is not reported on")), "{back}");
-    assert!(points(&body).contains("not done. The permission check refuses the command."), "{body}");
+    assert!(
+        back.contains(&format!("merge condition C{c} is not reported on")),
+        "{back}"
+    );
+    assert!(
+        points(&body).contains("not done. The permission check refuses the command."),
+        "{body}"
+    );
     answers(&mut e, ask, "owner", Some("withdrawn"), "");
     step_until(&mut e, item, &said, "the merge", |e| {
         transitions(e, item, "M2").iter().any(|t| t == "merged")
@@ -308,14 +326,15 @@ fn words_with_no_option_go_to_the_engineer_and_the_gate_asks_again_with_the_new_
     assert_eq!(body["condition"], json!(first), "{body}");
     assert!(points(&body).contains("Done in T6."), "{body}");
     assert_eq!(status(&e, first), "open");
-    let relayed: String =
-        e.db.conn()
-            .query_row(
-                "SELECT text FROM interjections WHERE work = ?1 AND text LIKE 'Asked to judge%' ORDER BY id DESC LIMIT 1",
-                [work],
-                |r| r.get(0),
-            )
-            .unwrap();
+    let relayed: String = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT text FROM interjections WHERE work = ?1 AND text LIKE 'Asked to judge%' ORDER BY id DESC LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert!(
         relayed.ends_with("the owner replied: Run it on the real thing."),
         "{relayed}"
@@ -362,7 +381,10 @@ fn a_delegate_s_choice_judges_no_condition_and_only_the_owner_s_own_does() {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-    assert!(relayed.ends_with("the delegate that speaks for the owner replied: chose met"), "{relayed}");
+    assert!(
+        relayed.ends_with("the delegate that speaks for the owner replied: chose met"),
+        "{relayed}"
+    );
     assert_eq!(declared, "delegate");
     answers(&mut e, again, "owner", Some("met"), "");
     step_until(&mut e, item, &said, "the merge", |e| {

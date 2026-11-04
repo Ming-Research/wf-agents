@@ -28,7 +28,9 @@ fn every_cell_told_to_ask_the_architect_for_a_merge_condition_can() {
     assert!(told.iter().any(|x| x.id == "I1") && told.iter().any(|x| x.id == "T6"));
     for cell in told {
         assert!(
-            cell.rows.iter().any(|r| r.name == "ask_architect" || r.name == "to_architect"),
+            cell.rows
+                .iter()
+                .any(|r| r.name == "ask_architect" || r.name == "to_architect"),
             "{} cannot ask the architect: {:?}",
             cell.id,
             cell.rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>()

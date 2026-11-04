@@ -446,7 +446,11 @@ mod tests {
     }
 
     fn rows(xs: &[&str]) -> Value {
-        Value::Array(xs.iter().map(|x| json!({ "answer": "done", "id": x, "what": "w" })).collect())
+        Value::Array(
+            xs.iter()
+                .map(|x| json!({ "answer": "done", "id": x, "what": "w" }))
+                .collect(),
+        )
     }
 
     fn found(due: &[&str], open: &[&str], reported: Option<&Value>) -> String {

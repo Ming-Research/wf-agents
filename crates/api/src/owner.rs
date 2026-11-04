@@ -119,9 +119,7 @@ fn choice_fits(ask: i64, body: &Value, choice: Option<&str>) -> Result<(), Strin
         (Some(_), true) => Err(format!(
             "ask {ask} puts no merge condition: only the merge gate's ask of one takes a choice"
         )),
-        (Some(other), false) => Err(format!(
-            "the choice on ask {ask} is met or withdrawn, not {other}"
-        )),
+        (Some(other), false) => Err(format!("the choice on ask {ask} is met or withdrawn, not {other}")),
     }
 }
 
@@ -2032,9 +2030,13 @@ mod tests {
         type Row = (String, String, i64, String, String, String);
         let rows = |db: &Db| -> Vec<Row> {
             db.conn()
-                .prepare("SELECT what, source, source_id, quote, said_by, recorded_by FROM merge_conditions ORDER BY id")
+                .prepare(
+                    "SELECT what, source, source_id, quote, said_by, recorded_by FROM merge_conditions ORDER BY id",
+                )
                 .unwrap()
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+                .query_map([], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                })
                 .unwrap()
                 .map(Result::unwrap)
                 .collect()
@@ -2097,7 +2099,16 @@ mod tests {
         say_to_work(&mut db, 1, &said("engineer", "owner", Some("  Run it twice. "))).unwrap();
         say_to_work(&mut db, 1, &said("architect", "delegate", Some("Run it once more."))).unwrap();
         answer(&mut db, 1, &answered("OK", Some("Show me the output."))).unwrap();
-        reply_to_question_setting(&mut db, "p", 2, "Yes.", &[], db::Speaker::Owner, Some("Keep the old path.")).unwrap();
+        reply_to_question_setting(
+            &mut db,
+            "p",
+            2,
+            "Yes.",
+            &[],
+            db::Speaker::Owner,
+            Some("Keep the old path."),
+        )
+        .unwrap();
         // The matter of the words said to the architect is the first queued since the three written above.
         let matter: i64 = db
             .conn()

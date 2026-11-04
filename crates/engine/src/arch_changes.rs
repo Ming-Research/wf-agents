@@ -909,9 +909,11 @@ mod tests {
                 tx.execute(
                     "INSERT INTO architect_matters (project, kind, detail, what, body, at)
                      VALUES ('p', 'owner_words', 'said', 'w', ?1, 1)",
-                    [json!({ "text": "Run it twice first. Then ship.", "where": "page", "speaker": "delegate",
+                    [
+                        json!({ "text": "Run it twice first. Then ship.", "where": "page", "speaker": "delegate",
                              "relayed": ["Run it twice first."] })
-                    .to_string()],
+                        .to_string(),
+                    ],
                 )?;
                 tx.execute(
                     "INSERT INTO interjections (work, speaker, text) VALUES (1, 'architect', 'Run it once.')",
