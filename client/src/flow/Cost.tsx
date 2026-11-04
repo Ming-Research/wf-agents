@@ -69,10 +69,10 @@ function Effect({ w, titleOf }: { w: WorkCost; titleOf: CellTitle }) {
       const round = e.from === null ? null : roundName(w.work, e.from);
       const again =
         round === null
-          ? t('cost_again_none')
+          ? t('cost_again_nothing')
           : e.redone === 1
-            ? t('cost_again_one', { round })
-            : t('cost_again_more', { round, rest: e.redone - 1 });
+            ? t('cost_again_single', { round })
+            : t('cost_again_several', { round, rest: e.redone - 1 });
       return (
         <>
           {inline(t('cost_back', { through: cell(e.through), to: cell(e.to), again }))}: {e.why}

@@ -1015,9 +1015,8 @@ fn page_cost(port: u16, query: &str) -> (u16, serde_json::Value) {
     use std::io::{Read, Write};
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(std::time::Duration::from_secs(60))).unwrap();
-    let request = format!(
-        "GET /api/v1/flows/cost?{query} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    );
+    let request =
+        format!("GET /api/v1/flows/cost?{query} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     s.write_all(request.as_bytes()).unwrap();
     let mut out = String::new();
     s.read_to_string(&mut out).unwrap();
@@ -1150,7 +1149,10 @@ fn the_page_tells_what_installing_a_flow_does_as_the_command_does() {
             "stays" => ("On version", String::new()),
             kind => panic!("work {id}: {kind}"),
         };
-        assert!(heading.starts_with(group), "work {id} is under {heading:?}, not {group:?}: {text}");
+        assert!(
+            heading.starts_with(group),
+            "work {id} is under {heading:?}, not {group:?}: {text}"
+        );
         assert_eq!(line, format!("  {at}{tail}"), "work {id}: {page}");
     }
 
