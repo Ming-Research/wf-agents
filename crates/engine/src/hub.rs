@@ -1,8 +1,10 @@
 //! What the engine does on GitHub: pull requests, CI runs, merges and the gh commands agents ask for. It is a trait so
 //! that the engine's tests can stand in for GitHub; [`Gh`] does it with the gh CLI and the engine's own credentials.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -201,20 +203,23 @@ pub fn merge_into(github: &dyn GitHub, repo: &str, pr: i64, main: &str) -> Resul
 pub struct Gh {
     /// Where logs of red checks are kept.
     pub logs: PathBuf,
-    /// How long to wait between two looks at a run.
+    /// How long from the start of one look at a run to the start of the next.
     pub poll: Duration,
     /// How long a run may take to appear, and to finish.
     pub start_timeout: Duration,
     pub run_timeout: Duration,
+    /// The ids of the workflows found by their names, by repository and name: a workflow keeps its id.
+    workflow_ids: Mutex<BTreeMap<(String, String), String>>,
 }
 
 impl Gh {
     pub fn new(logs: PathBuf) -> Gh {
         Gh {
             logs,
-            poll: Duration::from_secs(20),
+            poll: Duration::from_secs(5),
             start_timeout: Duration::from_secs(600),
             run_timeout: Duration::from_secs(3 * 3600),
+            workflow_ids: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -241,22 +246,54 @@ impl Gh {
         serde_json::from_str(&out).map_err(|e| Failure::other(format!("gh {}: {e}", args.join(" "))))
     }
 
-    /// The workflow's runs on a commit, as gh lists them, the newest first.
+    /// The workflow's runs on a commit, as one look finds them, under the names gh's own listing of runs uses.
     fn runs(&self, repo: &str, sha: &str, workflow: &str) -> Result<Value, Failure> {
-        self.json(&[
-            "run",
-            "list",
-            "-R",
-            repo,
-            "--workflow",
-            workflow,
-            "--commit",
-            sha,
-            "--json",
-            "databaseId,status,conclusion,url,attempt",
-            "-L",
-            "20",
-        ])
+        match self.look(repo, sha, workflow, None)? {
+            Look::Changed { runs, .. } => Ok(runs),
+            Look::Unchanged => Err(Failure::other(NOT_MODIFIED_WITHOUT_TAG)),
+        }
+    }
+
+    /// One look at the workflow's runs on a commit, one request to GitHub. Given the entity tag of the answer to the
+    /// last look, GitHub answers 304 when nothing changed since, which costs nothing against the rate limit.
+    fn look(&self, repo: &str, sha: &str, workflow: &str, etag: Option<&str>) -> Result<Look, Failure> {
+        let workflow = self.workflow_in_path(repo, workflow)?;
+        let path = format!("repos/{repo}/actions/workflows/{workflow}/runs?head_sha={sha}&{RUNS_QUERY}");
+        let header = etag.map(|e| format!("If-None-Match: {e}"));
+        let mut gh = Command::new("gh");
+        gh.args(["api", path.as_str(), "-i"]);
+        if let Some(h) = &header {
+            gh.args(["-H", h.as_str()]);
+        }
+        // The exit status is not read: gh exits 1 on a 304, and the status line says what GitHub answered.
+        let out = gh.output().map_err(|e| Failure::other(format!("gh: {e}")))?;
+        parse_look(
+            &String::from_utf8_lossy(&out.stdout),
+            &String::from_utf8_lossy(&out.stderr),
+        )
+        .map_err(|f| Failure {
+            kind: f.kind,
+            what: format!("gh api {path}: {}", f.what),
+        })
+    }
+
+    /// How a workflow is written in the path of the API: its file name or its id as they are; any other name, as a
+    /// project's configuration may write it, by the id of the workflow of that name, found once in the repository's list
+    /// of workflows and remembered.
+    fn workflow_in_path(&self, repo: &str, workflow: &str) -> Result<String, Failure> {
+        if named_by_file_or_id(workflow) {
+            return Ok(workflow.to_string());
+        }
+        let key = (repo.to_string(), workflow.to_string());
+        if let Some(id) = self.workflow_ids.lock().ok().and_then(|ids| ids.get(&key).cloned()) {
+            return Ok(id);
+        }
+        let listed = self.json(&["api", &format!("repos/{repo}/actions/workflows?per_page=100")])?;
+        let id = workflow_named(&listed, workflow)?;
+        if let Ok(mut ids) = self.workflow_ids.lock() {
+            ids.insert(key, id.clone());
+        }
+        Ok(id)
     }
 
     /// The workflow's latest run on a commit, once it has finished: one at an attempt above `after` when that is
@@ -270,34 +307,20 @@ impl Gh {
         after: Option<i64>,
         run_above: Option<i64>,
     ) -> Result<Value, Failure> {
-        let started = Instant::now();
-        loop {
-            let runs = self.runs(repo, sha, workflow)?;
-            let latest = newest_above(&runs, run_above);
-            match latest {
-                None if started.elapsed() > self.start_timeout => {
-                    return Err(Failure {
-                        kind: "ci_did_not_start",
-                        what: format!("no run of {workflow} on {sha} after {} s", self.start_timeout.as_secs()),
-                    });
-                }
-                Some(r)
-                    if r["status"] == "completed" && after.is_none_or(|a| r["attempt"].as_i64().unwrap_or(0) > a) =>
-                {
-                    return Ok(r);
-                }
-                _ if started.elapsed() > self.run_timeout => {
-                    return Err(Failure {
-                        kind: "timed_out",
-                        what: format!(
-                            "the run of {workflow} on {sha} did not finish in {} s",
-                            self.run_timeout.as_secs()
-                        ),
-                    });
-                }
-                _ => std::thread::sleep(self.poll),
-            }
-        }
+        let waits = Waits {
+            poll: self.poll,
+            start_timeout: self.start_timeout,
+            run_timeout: self.run_timeout,
+        };
+        let wanted = Wanted {
+            workflow,
+            sha,
+            after,
+            run_above,
+        };
+        wait_for_run(&waits, &Wall(Instant::now()), &wanted, |etag| {
+            self.look(repo, sha, workflow, etag)
+        })
     }
 
     fn jobs(&self, repo: &str, run: &Value) -> Result<Vec<CheckRun>, Failure> {
@@ -345,6 +368,214 @@ fn newest_above(runs: &Value, above: Option<i64>) -> Option<Value> {
         .filter(|(id, _)| above.is_none_or(|a| *id > a))
         .max_by_key(|(id, _)| *id)
         .map(|(_, r)| r.clone())
+}
+
+/// What one look at a workflow's runs on a commit found.
+#[derive(Debug, Clone, PartialEq)]
+enum Look {
+    /// GitHub gave the runs, as [`run_fields`] names them, with the entity tag of its answer when it gave one: the next
+    /// look sends it back.
+    Changed { etag: Option<String>, runs: Value },
+    /// GitHub answered 304 to a look that sent the entity tag of the last answer: nothing changed since.
+    Unchanged,
+}
+
+/// What a look asks of the API of a workflow's runs besides the commit: up to 20 runs, without the pull requests each
+/// lists, which a look does not read.
+const RUNS_QUERY: &str = "per_page=20&exclude_pull_requests=true";
+
+/// What a look that sent no entity tag is told when GitHub answers that nothing changed, which it cannot.
+const NOT_MODIFIED_WITHOUT_TAG: &str = "GitHub answered that nothing changed to a look that sent no entity tag";
+
+/// The look in what `gh api <path> -i` printed: on stdout the status line, the headers, a blank line and the body; on
+/// stderr what gh says of a failure, which is also what it says of a 304. The exit status is no part of it: gh exits 1
+/// on a 304. A 200 gives the runs, a 304 `Unchanged`; any other status, and no status at all, a failure of the kind
+/// `network_or_api` with what gh or GitHub said.
+fn parse_look(stdout: &str, stderr: &str) -> Result<Look, Failure> {
+    let (head, body) = split_answer(stdout);
+    let status = head
+        .lines()
+        .next()
+        .filter(|l| l.starts_with("HTTP/"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok());
+    match status {
+        Some(304) => Ok(Look::Unchanged),
+        Some(200) => {
+            let etag = head.lines().skip(1).find_map(|l| {
+                let (name, value) = l.split_once(':')?;
+                name.trim()
+                    .eq_ignore_ascii_case("etag")
+                    .then(|| value.trim().to_string())
+            });
+            let answer: Value = serde_json::from_str(body)
+                .map_err(|e| Failure::other(format!("the answer is not JSON ({e}): {}", tail(body, 3))))?;
+            let runs = answer["workflow_runs"]
+                .as_array()
+                .ok_or_else(|| Failure::other("the answer has no workflow_runs"))?;
+            Ok(Look::Changed {
+                etag,
+                runs: Value::Array(runs.iter().map(run_fields).collect()),
+            })
+        }
+        Some(code) => {
+            let said = if stderr.trim().is_empty() { body } else { stderr };
+            Err(Failure::network(format!("HTTP {code}: {}", said.trim())))
+        }
+        None => Err(Failure::network(format!("no HTTP answer: {}", stderr.trim()))),
+    }
+}
+
+/// The head and the body of what `gh api -i` printed on stdout, cut at the first blank line after the status line. The
+/// status line ends in a line feed alone and every header in a carriage return and a line feed.
+fn split_answer(text: &str) -> (&str, &str) {
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        if at > 0 && line.trim_end_matches(['\r', '\n']).is_empty() {
+            return (&text[..at], &text[at + line.len()..]);
+        }
+        at += line.len();
+    }
+    (text, "")
+}
+
+/// A run as the API of runs gives it, under the names gh's own listing of runs uses (`databaseId`, `url`, `attempt`),
+/// which the rest of the engine reads.
+fn run_fields(run: &Value) -> Value {
+    serde_json::json!({
+        "databaseId": run["id"],
+        "status": run["status"],
+        "conclusion": run["conclusion"],
+        "url": run["html_url"],
+        "attempt": run["run_attempt"],
+    })
+}
+
+/// Whether the API takes a workflow written so in its path as it is: its file name or its id, as gh does.
+fn named_by_file_or_id(workflow: &str) -> bool {
+    workflow.parse::<u64>().is_ok() || workflow.ends_with(".yml") || workflow.ends_with(".yaml")
+}
+
+/// The id of the workflow a name names in a repository's list of workflows (`GET .../actions/workflows`): the one whose
+/// name or file name is that, compared as gh does, without regard to case. A failure, naming it, when none is, when
+/// several are, or when the list is cut short, since the one wanted may be past its end.
+fn workflow_named(listed: &Value, name: &str) -> Result<String, Failure> {
+    let all = listed["workflows"]
+        .as_array()
+        .ok_or_else(|| Failure::other("GitHub gave no list of workflows"))?;
+    let named: Vec<&Value> = all
+        .iter()
+        .filter(|w| {
+            let file = w["path"].as_str().and_then(|p| p.rsplit('/').next());
+            w["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name))
+                || file.is_some_and(|f| f.eq_ignore_ascii_case(name))
+        })
+        .collect();
+    match named.as_slice() {
+        [one] => one["id"]
+            .as_i64()
+            .map(|id| id.to_string())
+            .ok_or_else(|| Failure::other(format!("the workflow {name} has no id in GitHub's list"))),
+        [] if listed["total_count"].as_u64().unwrap_or(0) > all.len() as u64 => Err(Failure::other(format!(
+            "no workflow named {name} among the first {} of the repository's; name it by its file name",
+            all.len()
+        ))),
+        [] => Err(Failure::other(format!("the repository has no workflow named {name}"))),
+        many => Err(Failure::other(format!(
+            "{} workflows are named {name}; name it by its file name",
+            many.len()
+        ))),
+    }
+}
+
+/// How long a wait for a run lasts.
+struct Waits {
+    /// From the start of one look to the start of the next.
+    poll: Duration,
+    /// How long the run may take to appear, and to finish.
+    start_timeout: Duration,
+    run_timeout: Duration,
+}
+
+/// The run a wait is for: the latest of the workflow's runs on a commit that is numbered above `run_above` and, once
+/// finished, at an attempt above `after`, when those are given.
+struct Wanted<'a> {
+    workflow: &'a str,
+    sha: &'a str,
+    after: Option<i64>,
+    run_above: Option<i64>,
+}
+
+/// What a wait for a run needs of time: how long it has lasted, and a way to let time pass. The tests keep the time.
+trait Clock {
+    fn elapsed(&self) -> Duration;
+    fn sleep(&self, how_long: Duration);
+}
+
+/// The clock of the wall, from the start of the wait.
+struct Wall(Instant);
+
+impl Clock for Wall {
+    fn elapsed(&self) -> Duration {
+        self.0.elapsed()
+    }
+
+    fn sleep(&self, how_long: Duration) {
+        std::thread::sleep(how_long);
+    }
+}
+
+/// Looks at a workflow's runs on a commit until the run wanted has finished, and gives it. A look starts every
+/// `waits.poll`, counted from the start of the one before, so that the time a look takes is not added to the wait. Each
+/// look sends the entity tag of the last answer that gave runs, and an answer that nothing changed leaves those runs as
+/// they were. Fails when the run has not appeared in `waits.start_timeout` or has not finished in `waits.run_timeout`.
+fn wait_for_run(
+    waits: &Waits,
+    clock: &dyn Clock,
+    wanted: &Wanted,
+    mut look: impl FnMut(Option<&str>) -> Result<Look, Failure>,
+) -> Result<Value, Failure> {
+    let (workflow, sha) = (wanted.workflow, wanted.sha);
+    // The entity tag of the last answer, and the runs it gave.
+    let mut seen: Option<(Option<String>, Value)> = None;
+    loop {
+        let began = clock.elapsed();
+        let sent = seen.as_ref().and_then(|(etag, _)| etag.clone());
+        match look(sent.as_deref())? {
+            Look::Changed { etag, runs } => seen = Some((etag, runs)),
+            Look::Unchanged if sent.is_some() => {}
+            Look::Unchanged => return Err(Failure::other(NOT_MODIFIED_WITHOUT_TAG)),
+        }
+        let latest = seen.as_ref().and_then(|(_, runs)| newest_above(runs, wanted.run_above));
+        let waited = clock.elapsed();
+        match latest {
+            None if waited > waits.start_timeout => {
+                return Err(Failure {
+                    kind: "ci_did_not_start",
+                    what: format!(
+                        "no run of {workflow} on {sha} after {} s",
+                        waits.start_timeout.as_secs()
+                    ),
+                });
+            }
+            Some(r)
+                if r["status"] == "completed"
+                    && wanted.after.is_none_or(|a| r["attempt"].as_i64().unwrap_or(0) > a) =>
+            {
+                return Ok(r);
+            }
+            _ if waited > waits.run_timeout => {
+                return Err(Failure {
+                    kind: "timed_out",
+                    what: format!(
+                        "the run of {workflow} on {sha} did not finish in {} s",
+                        waits.run_timeout.as_secs()
+                    ),
+                });
+            }
+            _ => clock.sleep(waits.poll.saturating_sub(clock.elapsed().saturating_sub(began))),
+        }
+    }
 }
 
 /// The last `n` lines of a text.
@@ -923,6 +1154,307 @@ mod tests {
         assert_eq!(id(Some(100)), None);
         assert_eq!(newest_above(&serde_json::json!([]), None), None);
         assert_eq!(newest_above(&serde_json::json!({}), None), None);
+    }
+
+    /// What `gh api <path> -i` prints: the status line ends in a line feed alone, every header in a carriage return and
+    /// a line feed, and a blank line comes before the body.
+    fn printed(status: &str, headers: &[&str], body: &str) -> String {
+        let headers: String = headers.iter().map(|h| format!("{h}\r\n")).collect();
+        format!("{status}\n{headers}\r\n{body}")
+    }
+
+    // The answers gh printed on 2026-11-04 UTC to a look at the runs of fast.yml of Ming-Research/wf-agents, their headers
+    // cut to those the look reads and a few others, and the run's fields to those a look reads and a few others.
+    const SPENT: &str = "X-Ratelimit-Used: 1335";
+    const NO_RUNS: &str = "{\"total_count\":0,\"workflow_runs\":[]}";
+    const NO_RUNS_TAG: &str = "W/\"85b3e85b6d9542f753944c2b8e2861a56e4e32e247e249cf6e7e67cec4c8b2bf\"";
+    const ONE_RUN: &str = "{\"total_count\":356,\"workflow_runs\":[{\"id\":41932573157,\"name\":\"fast\",\
+        \"head_branch\":\"wf-agents/288-322\",\"head_sha\":\"4aa1516e75cfea2bad0eb94191a089c99d21db51\",\
+        \"path\":\".github/workflows/fast.yml\",\"run_number\":356,\"event\":\"workflow_dispatch\",\
+        \"status\":\"in_progress\",\"conclusion\":null,\"workflow_id\":405492466,\
+        \"url\":\"https://api.github.com/repos/Ming-Research/wf-agents/actions/runs/41932573157\",\
+        \"html_url\":\"https://github.com/Ming-Research/wf-agents/actions/runs/41932573157\",\
+        \"pull_requests\":[],\"created_at\":\"2026-11-04T23:17:48Z\",\"updated_at\":\"2026-11-04T23:17:53Z\",\
+        \"run_attempt\":1,\"run_started_at\":\"2026-11-04T23:17:48Z\"}]}";
+    const ONE_RUN_TAG: &str = "W/\"954e1d0912784720ad503b1b0fc68962566d434b632251e80968f5b78fbbac4c\"";
+
+    // A look reads what gh printed: a 200 gives the runs under the names the engine reads, not the API's own, and the
+    // entity tag as GitHub wrote it, to be sent back whole; a 304, which gh exits 1 on, gives that nothing changed; any
+    // other status, or none, is a failure carrying what gh or GitHub said.
+    #[test]
+    fn a_look_reads_what_gh_api_printed() {
+        fn headers(tag: &str) -> [&str; 5] {
+            [
+                "Cache-Control: private, max-age=60, s-maxage=60",
+                "Content-Type: application/json; charset=utf-8",
+                tag,
+                SPENT,
+                "X-Xss-Protection: 0",
+            ]
+        }
+        let none = printed("HTTP/2.0 200 OK", &headers(&format!("Etag: {NO_RUNS_TAG}")), NO_RUNS);
+        assert_eq!(
+            parse_look(&none, ""),
+            Ok(Look::Changed {
+                etag: Some(NO_RUNS_TAG.to_string()),
+                runs: serde_json::json!([])
+            })
+        );
+
+        let one = printed("HTTP/2.0 200 OK", &headers(&format!("Etag: {ONE_RUN_TAG}")), ONE_RUN);
+        let Ok(Look::Changed { etag, runs }) = parse_look(&one, "") else {
+            panic!("a 200 gives the runs");
+        };
+        assert_eq!(etag.as_deref(), Some(ONE_RUN_TAG));
+        // `url` is the API's address of the run and `html_url` the page's, which is what the engine's `url` is.
+        assert_eq!(
+            runs,
+            serde_json::json!([{
+                "databaseId": 41932573157_i64,
+                "status": "in_progress",
+                "conclusion": null,
+                "url": "https://github.com/Ming-Research/wf-agents/actions/runs/41932573157",
+                "attempt": 1,
+            }])
+        );
+        // The header's name is read in any case, and an answer with none sends none back.
+        let lower = printed("HTTP/1.1 200 OK", &["etag: W/\"x\""], NO_RUNS);
+        assert_eq!(
+            parse_look(&lower, ""),
+            Ok(Look::Changed {
+                etag: Some("W/\"x\"".to_string()),
+                runs: serde_json::json!([])
+            })
+        );
+        let untagged = printed("HTTP/2.0 200 OK", &[SPENT], NO_RUNS);
+        assert!(matches!(
+            parse_look(&untagged, ""),
+            Ok(Look::Changed { etag: None, .. })
+        ));
+
+        // The 304 as gh printed it: the entity tag in its strong form, no body, and `gh: HTTP 304` on stderr.
+        let strong = format!("Etag: {}", NO_RUNS_TAG.trim_start_matches("W/"));
+        let kept = printed("HTTP/2.0 304 Not Modified", &headers(&strong), "");
+        assert_eq!(parse_look(&kept, "gh: HTTP 304\n"), Ok(Look::Unchanged));
+
+        let refused = printed("HTTP/2.0 404 Not Found", &[SPENT], "{\"message\":\"Not Found\"}");
+        let f = parse_look(&refused, "gh: it is not there (HTTP 404)\n").unwrap_err();
+        assert_eq!(
+            (f.kind, f.what.as_str()),
+            ("network_or_api", "HTTP 404: gh: it is not there (HTTP 404)")
+        );
+        let f = parse_look(&refused, "").unwrap_err();
+        assert_eq!(f.what, "HTTP 404: {\"message\":\"Not Found\"}");
+        let f = parse_look("", "error connecting to api.github.com\n").unwrap_err();
+        assert_eq!(
+            (f.kind, f.what.as_str()),
+            ("network_or_api", "no HTTP answer: error connecting to api.github.com")
+        );
+        assert_eq!(
+            parse_look(&printed("HTTP/2.0 200 OK", &[SPENT], "not json"), "")
+                .unwrap_err()
+                .kind,
+            "other"
+        );
+    }
+
+    // A workflow written as a file name or an id goes into the path of the API as it is; any other name, as a project's
+    // configuration writes it (`fast`), is the one workflow of the repository's list that has it as its name or its
+    // file name, without regard to case; none, several, or a list cut short is a failure that names it.
+    #[test]
+    fn a_workflow_is_found_by_its_file_name_its_id_or_its_name() {
+        for as_is in ["fast.yml", "ci.yaml", "405492466"] {
+            assert!(named_by_file_or_id(as_is), "{as_is}");
+        }
+        for by_name in ["fast", "ci", "Fast CI"] {
+            assert!(!named_by_file_or_id(by_name), "{by_name}");
+        }
+        let workflow = |id: i64, name: &str, file: &str| serde_json::json!({ "id": id, "name": name, "path": format!(".github/workflows/{file}"), "state": "active" });
+        let listed = serde_json::json!({
+            "total_count": 4,
+            "workflows": [
+                workflow(405492466, "fast", "fast.yml"),
+                workflow(11, "ci", "ci.yml"),
+                workflow(12, "measure", "measure.yml"),
+                workflow(13, "ci", "ci-again.yml"),
+            ],
+        });
+        assert_eq!(workflow_named(&listed, "fast"), Ok("405492466".to_string()));
+        assert_eq!(workflow_named(&listed, "FAST"), Ok("405492466".to_string()));
+        assert_eq!(workflow_named(&listed, "measure.yml"), Ok("12".to_string()));
+        assert_eq!(
+            workflow_named(&listed, "ci").unwrap_err().what,
+            "2 workflows are named ci; name it by its file name"
+        );
+        assert_eq!(
+            workflow_named(&listed, "nightly").unwrap_err().what,
+            "the repository has no workflow named nightly"
+        );
+        let first: Vec<Value> = (0..100)
+            .map(|i| workflow(i, &format!("w{i}"), &format!("w{i}.yml")))
+            .collect();
+        let cut = serde_json::json!({ "total_count": 130, "workflows": first });
+        assert_eq!(workflow_named(&cut, "w7"), Ok("7".to_string()));
+        assert_eq!(
+            workflow_named(&cut, "w120").unwrap_err().what,
+            "no workflow named w120 among the first 100 of the repository's; name it by its file name"
+        );
+    }
+
+    /// The time of a wait kept by the test: letting time pass moves it, and so does each look, by what it takes.
+    struct Fake(std::cell::Cell<Duration>);
+
+    impl Clock for Fake {
+        fn elapsed(&self) -> Duration {
+            self.0.get()
+        }
+
+        fn sleep(&self, how_long: Duration) {
+            self.0.set(self.0.get() + how_long);
+        }
+    }
+
+    const LOOK_TAKES: Duration = Duration::from_millis(600);
+
+    /// A wait for a run whose n-th look (from 0) finds what `script` says, each look taking [`LOOK_TAKES`]: what the
+    /// wait gave, and for each look when it started and the entity tag it sent.
+    fn waited(
+        waits: &Waits,
+        wanted: &Wanted,
+        mut script: impl FnMut(usize) -> Look,
+    ) -> (Result<Value, Failure>, Vec<(Duration, Option<String>)>) {
+        let clock = Fake(std::cell::Cell::new(Duration::ZERO));
+        let mut looks = Vec::new();
+        let run = wait_for_run(waits, &clock, wanted, |etag| {
+            looks.push((clock.elapsed(), etag.map(str::to_string)));
+            clock.sleep(LOOK_TAKES);
+            Ok(script(looks.len() - 1))
+        });
+        (run, looks)
+    }
+
+    fn waits() -> Waits {
+        Waits {
+            poll: Duration::from_secs(5),
+            start_timeout: Duration::from_secs(60),
+            run_timeout: Duration::from_secs(120),
+        }
+    }
+
+    fn run_of(id: i64, status: &str, attempt: i64) -> Value {
+        serde_json::json!({ "databaseId": id, "status": status, "attempt": attempt })
+    }
+
+    fn changed(tag: &str, runs: Vec<Value>) -> Look {
+        Look::Changed {
+            etag: Some(tag.to_string()),
+            runs: Value::Array(runs),
+        }
+    }
+
+    // The engine looks at a run every 5 s, counted from the start of the look before; each look sends the entity tag of
+    // the last answer that gave runs, and an answer that nothing changed keeps those runs, so that it is neither a run
+    // that is not there nor a reason to stop. The wait ends with the look that shows the run finished.
+    #[test]
+    fn a_run_is_looked_at_every_five_seconds_with_the_tag_of_the_last_answer() {
+        assert_eq!(Gh::new(PathBuf::new()).poll, Duration::from_secs(5));
+        let wanted = Wanted {
+            workflow: "fast",
+            sha: "abc",
+            after: None,
+            run_above: None,
+        };
+        let (run, looks) = waited(&waits(), &wanted, |n| match n {
+            0 => changed("a", vec![]),
+            1 | 2 => Look::Unchanged,
+            3 => changed("b", vec![run_of(10, "queued", 1)]),
+            4 => Look::Unchanged,
+            5 => changed("c", vec![run_of(10, "in_progress", 1)]),
+            6 => Look::Unchanged,
+            _ => changed("d", vec![run_of(10, "completed", 1)]),
+        });
+        assert_eq!(run.unwrap(), run_of(10, "completed", 1));
+        let tags: Vec<Option<&str>> = looks.iter().map(|(_, t)| t.as_deref()).collect();
+        assert_eq!(
+            tags,
+            [
+                None,
+                Some("a"),
+                Some("a"),
+                Some("a"),
+                Some("b"),
+                Some("b"),
+                Some("c"),
+                Some("c")
+            ]
+        );
+        let starts: Vec<Duration> = looks.iter().map(|(at, _)| *at).collect();
+        let every_five: Vec<Duration> = (0..8).map(|n| Duration::from_secs(5 * n)).collect();
+        assert_eq!(starts, every_five);
+    }
+
+    // What the wait took before it looked at runs this way: a run numbered at or below the point is never the one; a
+    // finished run is the one only at an attempt above `after`; and a run that does not appear in the first, or finish
+    // in the second, of the times allowed ends the wait with the failure of that kind.
+    #[test]
+    fn a_wait_for_a_run_takes_the_run_asked_for_and_ends_at_its_times() {
+        let wait = |after, run_above| Wanted {
+            workflow: "fast",
+            sha: "abc",
+            after,
+            run_above,
+        };
+        let (run, _) = waited(&waits(), &wait(None, Some(7)), |_| {
+            changed("a", vec![run_of(7, "completed", 3)])
+        });
+        let f = run.unwrap_err();
+        assert_eq!(
+            (f.kind, f.what.as_str()),
+            ("ci_did_not_start", "no run of fast on abc after 60 s")
+        );
+
+        let (run, looks) = waited(&waits(), &wait(Some(1), None), |n| {
+            changed("a", vec![run_of(9, "completed", if n < 3 { 1 } else { 2 })])
+        });
+        assert_eq!(run.unwrap(), run_of(9, "completed", 2));
+        assert_eq!(looks.len(), 4);
+
+        let (run, _) = waited(&waits(), &wait(None, None), |_| {
+            changed("a", vec![run_of(9, "in_progress", 1)])
+        });
+        let f = run.unwrap_err();
+        assert_eq!(
+            (f.kind, f.what.as_str()),
+            ("timed_out", "the run of fast on abc did not finish in 120 s")
+        );
+    }
+
+    // GitHub answers 304 only to a look that sent an entity tag; if it says nothing changed to one that sent none, there
+    // are no runs to keep and the wait fails instead of going on with none.
+    #[test]
+    fn an_answer_that_nothing_changed_to_a_look_that_sent_no_tag_is_a_failure() {
+        let wanted = Wanted {
+            workflow: "fast",
+            sha: "abc",
+            after: None,
+            run_above: None,
+        };
+        let (run, looks) = waited(&waits(), &wanted, |_| Look::Unchanged);
+        assert_eq!(run.unwrap_err().what, NOT_MODIFIED_WITHOUT_TAG);
+        assert_eq!(looks.len(), 1);
+        // A tag-less 200 sends none back, and then a 304 cannot be told from this one: the same failure.
+        let (run, looks) = waited(&waits(), &wanted, |n| {
+            if n == 0 {
+                Look::Changed {
+                    etag: None,
+                    runs: serde_json::json!([]),
+                }
+            } else {
+                Look::Unchanged
+            }
+        });
+        assert_eq!(run.unwrap_err().what, NOT_MODIFIED_WITHOUT_TAG);
+        assert_eq!(looks.len(), 2);
     }
 
     // gh's messages for a workflow run by hand that GitHub refuses are told from a failure to reach GitHub and from a
