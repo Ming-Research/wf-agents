@@ -28,7 +28,8 @@ Pass: `git log --oneline -5 | head -2`; `git log --oneline | wc -l`; `git log --
 `git grep -n -E 'a|b' origin/main -- README.md | head -2` (a `|` inside quotes is not a pipe);
 `git log --format='%h %s' -2 --grep='checkout\|history'`; `git log -L :history_sources:<file> -s --oneline`;
 `git blame -L 1,2 README.md`; `git diff origin/main...HEAD --stat`; `git for-each-ref refs/remotes/origin | head -2`;
-`git worktree list | head -3`; `git -C <wt> grep -n history_sources -- flow/flow.json`; `cd <wt> && git log ...`.
+`git worktree list | head -3`; `git -C <wt> grep -n history_sources -- flow/flow.json`; `cd <wt> && git log ...`;
+`git log -S history_sources --oneline -2`; `git log --follow --oneline -2 -- README.md`; `git log --oneline -5 | tail -2`.
 
 Refused:
 
@@ -36,6 +37,7 @@ Refused:
 |---|---|
 | `git log --oneline -3 \| awk '{print $1}'` | This Bash command contains multiple operations. The following part requires approval: awk '{print $1}' |
 | `git show $(git rev-parse HEAD):README.md \| head -1` | A nested command in this command can't be checked before it runs |
+| ``git show `git rev-parse HEAD`:README.md \| head -1`` | the same message |
 
 ## Results on the checkout (`<checkout>`)
 
@@ -45,7 +47,7 @@ Refused:
 | `git -C <checkout> grep -n history_sources -- flow/flow.json` | refused: git in '<checkout>/--' was blocked. For security, Claude Code may only access files with git from the allowed working directories for this session: ... |
 | `git -C <checkout> grep -n history_sources HEAD` | refused, same message, for '<checkout>/HEAD' |
 | `git -C <checkout> diff --stat HEAD~1 HEAD` | refused, same message, for '<checkout>/HEAD~1' |
-| `git -C <checkout> log --oneline -1`; `log -2 -- README.md`; `show HEAD:README.md`; `show origin/main:README.md`; `ls-tree HEAD`; `ls-files \| head -2`; `branch --show-current`; `rev-parse origin/main main` | pass |
+| `git -C <checkout> log --oneline -1`; `log -2 -- README.md`; `show HEAD:README.md`; `show origin/main:README.md`; `ls-tree HEAD`; `ls-files \| head -2`; `branch --show-current`; `rev-parse origin/main main`; `log -S history_sources --oneline -1` | pass |
 
 `ls <dir outside the session's directories>` and `Read` of a file there are refused too.
 

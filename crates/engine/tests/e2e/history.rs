@@ -107,11 +107,23 @@ fn the_history_is_gathered_and_looked_up_by_the_reader_of_the_line_librarian() {
 }
 
 // The gatherer reads the live database by the address it is given: the database is in WAL mode, with the engine's
-// connection open, and what was committed to its log and not yet to the file is read too.
+// connection open, and what was committed to its log and not yet to the file is read too. It is given for git the
+// directory its own round runs in, where the permission check lets git run, and the project's main as git has it there,
+// not the project's checkout (#250).
 #[test]
 fn the_history_s_address_reads_the_live_database_in_wal_mode() {
     let s = setup("history-wal");
-    let (mut e, said, item) = start(&s, scripts());
+    let ran_in: Arc<Mutex<Option<PathBuf>>> = Arc::default();
+    let mut agents = scripts();
+    let seen = ran_in.clone();
+    agents.insert(
+        "R0",
+        Box::new(move |r: &Request, _: usize| {
+            *seen.lock().unwrap() = Some(r.worktree.clone());
+            (Vec::new(), vec![("outcome.brief", json!("The problem's history."))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
     step_to(&mut e, item, "R1");
     let (work, _, _) = state(&e, item).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -125,7 +137,17 @@ fn the_history_s_address_reads_the_live_database_in_wal_mode() {
             .starts_with("sqlite3 -safe -readonly '"),
         "{sources}"
     );
-    assert!(sources["checkout"].is_string(), "{sources}");
+    let ran_in = ran_in.lock().unwrap().clone().expect(&log);
+    assert_eq!(sources["git"]["directory"].as_str(), ran_in.to_str(), "{sources}");
+    assert!(sources.get("checkout").is_none(), "{sources}");
+    // Git runs there: the main it names is a commit of the repository the directory is a worktree of, the project's.
+    let main = sources["git"]["main"].as_str().unwrap();
+    assert_eq!(main, "origin/main", "{sources}");
+    assert_eq!(
+        git(&ran_in, &["rev-parse", "--verify", &format!("{main}^{{commit}}")]),
+        git(&s.origin, &["rev-parse", "main"]),
+        "{sources}"
+    );
     e.db.write(Actor::Owner, |tx| {
         tx.execute("UPDATE items SET title = 'Only in the log' WHERE id = ?1", [item])?;
         Ok(())
@@ -276,5 +298,13 @@ fn the_architect_s_look_up_of_the_history_is_given_the_rule_for_gathering_it() {
         "{text}"
     );
     assert!(text.contains("(gone: moved to <path> in <commit>)"), "{text}");
+    // Its git runs in the worktree it works in, at the project's main, and the check's limits on git are told it there
+    // (#250), not the project's checkout.
+    let sources = given_value(&message_at(&e, arch, "X5", false), "·engine·history_sources").expect(&text);
+    let architect = s.data.join("worktrees").join("architect").join("p");
+    assert_eq!(sources["git"]["directory"].as_str(), architect.to_str(), "{sources}");
+    assert_eq!(sources["git"]["main"], "origin/main", "{sources}");
+    assert!(sources.get("checkout").is_none(), "{sources}");
+    assert!(text.contains("judges each command of a chain"), "{text}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

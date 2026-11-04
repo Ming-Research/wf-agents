@@ -972,7 +972,7 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
          project's main, the branch {main}, which the engine brings to the latest main before each round: you only \
          read, and change and commit nothing, there or anywhere. Read another branch there without switching: `git \
          fetch origin <branch>`, then `git show origin/<branch>:<path>`, `git diff origin/{main}...origin/<branch>` \
-         or `git log origin/<branch>`.",
+         or `git log origin/<branch>`. {GIT_CHECK}",
         dir.display()
     );
     let others: Vec<&String> = e.config.config.projects.keys().filter(|n| *n != project).collect();
@@ -989,8 +989,8 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
 
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
 /// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree, and one on a line that
-/// writes code the commands it may update a lock file with, `locks`. None for a work of no project the configuration
-/// knows.
+/// writes code the commands it may update a lock file with, `locks`. Every agent in a worktree is told how it runs git
+/// there ([`git_reads`], [`GIT_CHECK`]). None for a work of no project the configuration knows.
 fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool, locks: &[String]) -> Option<String> {
     let p = project?;
     let main = format!(
@@ -999,21 +999,45 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool, locks
          be missing or out of date.",
         p.main
     );
+    let git = format!("{} {GIT_CHECK}", git_reads(&p.main_ref()));
     Some(match (&w.worktree, &w.branch) {
         (Some(wt), Some(branch)) if read_only => format!(
             "Your working directory is the worktree {}, on the branch {branch}: you only read it, and change and \
-             commit nothing there. {main}",
+             commit nothing there. {main} {git}",
             wt.display()
         ),
         (Some(wt), Some(branch)) => format!(
             "Your working directory is the worktree {}, on the branch {branch}: commit there, and the engine pushes \
-             when you ask it to with a tool.{} {main}",
+             when you ask it to with a tool.{} {main} {git}",
             wt.display(),
             lock_commands(locks)
         ),
         _ => main,
     })
 }
+
+/// Where an agent runs git and how it reads with it, whatever the project: in its working directory, a worktree of the
+/// project's repository, which holds all the history the project's checkout does. `main` is the ref of the project's
+/// main there ([`config::Project::main_ref`]).
+fn git_reads(main: &str) -> String {
+    format!(
+        "Run git in your working directory, which holds the whole repository: other branches are there as \
+         `origin/<branch>`. Read with `git log` (also `-S`, `-L`, `--follow`), `git show {main}:<path>` and \
+         `git grep -n <text> {main} -- <path>`."
+    )
+}
+
+/// What the permission check of the agents' command line lets through of git, which they would find out only by being
+/// refused. It is the installed `claude`'s own check, not the configuration's, so each form named here was run on it
+/// (#250): when a new version or the owner's settings change one, this text is wrong and the agents' flow feedback says
+/// so. The same for every line and project: what a line may not do, such as push or, on a line that only reads, change
+/// the repository, is the configuration's ([`config::Permissions`]).
+const GIT_CHECK: &str = "The permission check judges each command of a chain (`&&`, `;`) or a pipe by itself: a \
+                         chain of git commands passes, and so does a pipe into `head`, `tail`, `sed -n`, `wc`, `grep`, \
+                         `sort` or `cut`; a pipe into `awk`, and `$(...)` or backticks, are refused. Run git only \
+                         where you work: a `cd` to another directory before git is refused, and `git -C <another \
+                         directory>` runs `log`, `show` and `ls-tree` but has its `grep` and `diff` refused. The \
+                         project's checkout is such a directory, and holds no history your working directory lacks.";
 
 /// What an agent that writes code is told of the commands it updates a lock file with, after a space; nothing when
 /// there are none. A bare `cargo update` upgrades every dependency, which would fill the work's diff with changes it
@@ -1570,12 +1594,9 @@ mod tests {
         assert_eq!(narrowed(now, &last(&[], &[])), ReviewColumns::default());
     }
 
-    // An agent on a line that writes code is told the commands it updates a lock file with, word for word as the
-    // configuration names them, which its line's rules allow; one on a line that only reads is told none, and nor is
-    // one where the installation names none.
-    #[test]
-    fn a_line_that_writes_code_is_told_how_it_updates_a_lock_file() {
-        let w = Work {
+    // An engineer's work of an item, in a worktree on a branch.
+    fn work_in_a_worktree() -> Work {
+        Work {
             id: 7,
             item: Some(1),
             flow_version: 1,
@@ -1590,12 +1611,64 @@ mod tests {
             ended: None,
             paused_by: None,
             project: None,
-        };
-        let p: config::Project = serde_json::from_value(json!({
+        }
+    }
+
+    // A project whose main branch is `main`, or the one named.
+    fn project_with_main(main: Option<&str>) -> config::Project {
+        let mut p = json!({
             "repo": "o/p", "checkout": "/checkout", "design_goal": "simple", "test_paths": ["tests/"],
             "ci": { "fast": "fast", "full": ["ci"], "merge_checks": ["check"] }
-        }))
-        .unwrap();
+        });
+        if let Some(m) = main {
+            p["main"] = json!(m);
+        }
+        serde_json::from_value(p).unwrap()
+    }
+
+    // An agent in a worktree, on any line, is told to run git there and what the permission check lets through of it,
+    // with the project's main as its configuration names it (#250); the text names no path of the project's checkout,
+    // which is where the agents were once pointed and where git was refused.
+    #[test]
+    fn an_agent_is_told_where_it_runs_git_and_what_the_check_lets_through() {
+        let w = work_in_a_worktree();
+        for (main, line_only_reads) in [(None, false), (Some("trunk"), false), (Some("trunk"), true)] {
+            let p = project_with_main(main);
+            let text = workspace(&w, Some(&p), line_only_reads, &[]).unwrap();
+            let r = format!("origin/{}", main.unwrap_or("main"));
+            for told in [
+                "Run git in your working directory, which holds the whole repository".to_string(),
+                format!("`git show {r}:<path>`"),
+                format!("`git grep -n <text> {r} -- <path>`"),
+                "judges each command of a chain (`&&`, `;`) or a pipe by itself".to_string(),
+                "pipe into `head`, `tail`, `sed -n`, `wc`, `grep`, `sort` or `cut`".to_string(),
+                "a pipe into `awk`, and `$(...)` or backticks, are refused".to_string(),
+                "a `cd` to another directory before git is refused".to_string(),
+                "`git -C <another directory>` runs `log`, `show` and `ls-tree` but has its `grep` and `diff` refused"
+                    .to_string(),
+            ] {
+                assert!(text.contains(&told), "{told}: {text}");
+            }
+            assert!(!text.contains("/checkout"), "{text}");
+            // The main a project names is the only one told: no other branch is written into the text.
+            assert_eq!(text.contains("origin/main"), main.is_none(), "{text}");
+        }
+        // A work with no worktree runs git in no directory of its own, and is told nothing of it.
+        let none = Work {
+            worktree: None,
+            ..work_in_a_worktree()
+        };
+        let told = workspace(&none, Some(&project_with_main(None)), false, &[]).unwrap();
+        assert!(!told.contains("Run git"), "{told}");
+    }
+
+    // An agent on a line that writes code is told the commands it updates a lock file with, word for word as the
+    // configuration names them, which its line's rules allow; one on a line that only reads is told none, and nor is
+    // one where the installation names none.
+    #[test]
+    fn a_line_that_writes_code_is_told_how_it_updates_a_lock_file() {
+        let w = work_in_a_worktree();
+        let p = project_with_main(None);
         let permissions = config::Permissions::default();
         let cli = |args: &[&str]| config::Cli {
             kind: config::CliKind::Claude,
