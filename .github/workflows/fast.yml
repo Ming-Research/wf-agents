@@ -162,7 +162,7 @@ jobs:
       - uses: ./.github/actions/page
         with:
           modules: ${{ steps.names.outputs.page }}
-          save: false
+          save: true
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
       # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
       #
