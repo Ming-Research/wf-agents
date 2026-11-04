@@ -507,7 +507,12 @@ pub(crate) fn red_beside_the_change(
 }
 
 /// Runs the red checks again on the same commit, and gives the latest run of every check.
-pub(crate) fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRun]) -> Result<Vec<CheckRun>, Failure> {
+pub(crate) fn rerun_full(
+    e: &Engine,
+    project: &config::Project,
+    sha: &str,
+    first: &[CheckRun],
+) -> Result<Vec<CheckRun>, Failure> {
     let (own, _) = own_full(project);
     let mut out = Vec::new();
     for wf in own {

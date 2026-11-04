@@ -224,7 +224,7 @@ fn a_flow_with_a_colour_the_page_no_longer_draws_is_only_shown() {
     // engineer's graph) and lime on the observer line (the architect's).
     let edit = |v: &mut Value| {
         graph(v)["sessions"]["lines"][4]["colour"] = json!("olive");
-        v["flows"][1]["sessions"]["lines"][2]["colour"] = json!("lime");
+        v["flows"][1]["sessions"]["lines"][3]["colour"] = json!("lime");
     };
     refused_by(flow::compile, edit, "a line with no colour: librarian");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();

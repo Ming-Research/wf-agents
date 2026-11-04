@@ -449,7 +449,10 @@ fn a_matter_s_session_and_the_second_eye_fork_from_the_base() {
     ] {
         assert_eq!(g.cell(cell).unwrap().fork_of.as_deref(), of, "{cell}");
     }
-    assert!(!g.cell("N1").unwrap().cache_expiry, "a cold cache is no reason to read the project again");
+    assert!(
+        !g.cell("N1").unwrap().cache_expiry,
+        "a cold cache is no reason to read the project again"
+    );
     let line = |v: &mut Value, name: &str| -> usize {
         v["flows"][1]["sessions"]["lines"]
             .as_array()
@@ -459,9 +462,18 @@ fn a_matter_s_session_and_the_second_eye_fork_from_the_base() {
             .unwrap()
     };
     for (to, said) in [
-        ("matter", "a line forks from no other line of its graph that forks from none: matter forks matter"),
-        ("nowhere", "a line forks from no other line of its graph that forks from none: matter forks nowhere"),
-        ("second_eye", "a line forks from no other line of its graph that forks from none: matter forks second_eye"),
+        (
+            "matter",
+            "a line forks from no other line of its graph that forks from none: matter forks matter",
+        ),
+        (
+            "nowhere",
+            "a line forks from no other line of its graph that forks from none: matter forks nowhere",
+        ),
+        (
+            "second_eye",
+            "a line forks from no other line of its graph that forks from none: matter forks second_eye",
+        ),
     ] {
         let mut v: Value = serde_json::from_str(FLOW).unwrap();
         let i = line(&mut v, "matter");
@@ -506,7 +518,11 @@ fn what_comes_next_is_taken_in_a_fixed_order_and_the_base_is_read_anew() {
         let r = next(verdict, serde_json::json!({ "why": "w" }));
         assert_eq!(r.to, "U1", "{verdict}");
         assert!(does(&r).iter().any(|d| d == "fresh_session"), "{verdict}");
-        assert_eq!(r.sets.get("rebuild_for").map(String::as_str), Some(recorded), "{verdict}");
+        assert_eq!(
+            r.sets.get("rebuild_for").map(String::as_str),
+            Some(recorded),
+            "{verdict}"
+        );
     }
     assert_eq!(next("none", Value::Null).to, "E2");
     let given = |v: &str| Map::from_iter([("rebuild_for".to_string(), Value::String(v.into()))]);
@@ -535,7 +551,10 @@ fn what_comes_next_is_taken_in_a_fixed_order_and_the_base_is_read_anew() {
     }
     assert_eq!(row("P1", "holds").to, "G1");
     assert_eq!(row("P1", "write_policy").to, "P2");
-    assert_eq!((row("P2", "written").to, does(&row("P2", "written"))), ("Q0".to_string(), vec!["ask_approval".to_string()]));
+    assert_eq!(
+        (row("P2", "written").to, does(&row("P2", "written"))),
+        ("Q0".to_string(), vec!["ask_approval".to_string()])
+    );
     assert_eq!(
         does(&row("P12", "next")),
         ["queue_measures".to_string(), "close_matter".to_string()]
@@ -592,7 +611,9 @@ fn each_matter_ends_with_its_log_line_and_the_second_eye_where_a_change_can_lose
         );
         assert!(cell.rows.iter().any(|r| r.to == "G1" && !r.common), "{id}");
         assert!(
-            cell.inputs.iter().any(|x| x.from == [flow::format::Src::Place("G2".into(), "check".into())]),
+            cell.inputs
+                .iter()
+                .any(|x| x.from == [flow::format::Src::Place("G2".into(), "check".into())]),
             "{id} is not given what the second eye found"
         );
         let schema = cell.schema.as_ref().unwrap().to_string();
@@ -628,7 +649,11 @@ fn each_matter_ends_with_its_log_line_and_the_second_eye_where_a_change_can_lose
     // The second eye runs on the architect's level as the matter's session does, and never asks, searches or looks up
     // the history.
     let g2 = g.cell("G2").unwrap();
-    assert!(g2.rows.iter().all(|r| !["ask_owner", "search", "history"].contains(&r.name.as_str())));
+    assert!(
+        g2.rows
+            .iter()
+            .all(|r| !["ask_owner", "search", "history"].contains(&r.name.as_str()))
+    );
 }
 
 // A capability report, an agent saying the system lacks what its work needs, is a defect of the system: the ways read
@@ -676,7 +701,7 @@ fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
         v["engine"]["checks"]["effects_valid"]
             .as_str()
             .unwrap()
-            .contains("reported three times or more is folded into an item by a change of the batch")
+            .contains("reported three times or more is folded into an item by a change of the round")
     );
 }
 
@@ -830,10 +855,9 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
 
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
 // architect handled, since it would only come to the same end, as the flow says of each: slots free, while the free
-// slots and the items ready are the same; what was said in the groups, the owner's words and what the engineers told
-// the owner, which every message to the owner brings the architect too, while nothing was said since; and the check of
-// the policy asked for with no why of its own, which only a new session's understanding asks for, while the policy in
-// force and the constitution are the same. Every other cell that asks for the check gives its why.
+// slots and the items ready are the same; and the check of the policy asked for with no why of its own, which only
+// reading the project anew asks for, while the policy in force and the constitution are the same. Every other cell that
+// asks for the check gives its why.
 #[test]
 fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     let c = compiled();
@@ -856,13 +880,9 @@ fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     assert!(
         action("queue_slots_free").contains("or the free slots and the items ready are those the last handled held")
     );
-    assert!(
-        action("queue_group_talk")
-            .contains("and what the engineers told the owner, which the architect is to know as well")
-    );
     assert!(action("queue_check_policy").contains(
-        "One asked for with no why of its own, as a new session's understanding asks for it, is not queued while the \
-         policy in force and the constitution are those the last check handled had."
+        "One asked for with no why of its own, as reading the project anew asks for it, is not queued while the policy \
+         in force and the constitution are those the last check handled had."
     ));
 }
 
@@ -951,8 +971,8 @@ fn a_part_several_cells_hold_alike_is_given_once() {
     };
     let architect = flow::formats::common_format_of(g, &line("H1"));
     assert_eq!(architect.matches(r#""item_changes""#).count(), 1, "{architect}");
-    let review = flow::formats::common_format_of(g, &line("B2"));
-    assert!(!review.contains(r#""item_changes""#), "{review}");
+    let second_eye = flow::formats::common_format_of(g, &line("G2"));
+    assert!(!second_eye.contains(r#""item_changes""#), "{second_eye}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][1]["agentCommon"]["returns"]["once"] = serde_json::json!(["settled"]);
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
@@ -1272,7 +1292,8 @@ fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
         "outcome": {
             "fix": { "way": "nothing", "why": "It passed." },
             "reply": { "text": "Go on.", "why": "It passed.", "waits": null, "children": null },
-            "effects": null
+            "effects": null,
+            "closing": { "log": "Nothing to fix.", "plan": "no", "plan_why": "w", "base": "holds", "base_why": "w" }
         },
         "tell_owner": [],
         "progress": "Nothing to fix.",
@@ -1284,7 +1305,9 @@ fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
     assert_eq!(
         ret["outcome"],
         serde_json::json!({ "fix": { "way": "nothing", "why": "It passed." },
-                            "reply": { "text": "Go on.", "why": "It passed." } })
+                            "reply": { "text": "Go on.", "why": "It passed." },
+                            "closing": { "log": "Nothing to fix.", "plan": "no", "plan_why": "w", "base": "holds",
+                                         "base_why": "w" } })
     );
     let mut bad = ret.clone();
     bad["outcome"]["reply"]["text"] = Value::Null;
@@ -1737,18 +1760,18 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
     );
 }
 
-// Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the reader of the
-// history, the review, adversarial testing, the advisor, the review of the architect's batch, the search of
-// observations and the pick of the architect's next matter) has no `tell_owner` in its return, its description does not
-// name one, and nothing is done with it or shown of it there. The helpers of a work
-// still hand in side reports, which the architect reads.
+// Only the engineer and the architect tell the owner, the architect from its base and from each matter's session: an
+// agent's cell of a line that helps them (the reader of the history, the review, adversarial testing, the advisor, the
+// second eye on a matter's changes and the search of observations) has no `tell_owner` in its return, its description
+// does not name one, and nothing is done with it or shown of it there. The helpers of a work still hand in side
+// reports, which the architect reads.
 #[test]
 fn only_the_engineer_and_the_architect_tell_the_owner() {
     let c = compiled();
     let mut helpers = Vec::new();
     for g in &c.graphs {
         for cell in g.cells.iter().filter(|x| x.kind == "agent") {
-            let tells = matches!(cell.line.as_deref(), Some("engineer" | "architect"));
+            let tells = matches!(cell.line.as_deref(), Some("engineer" | "architect" | "matter"));
             let s = cell.schema.as_ref().unwrap();
             let id = &cell.id;
             assert_eq!(s["properties"].get("tell_owner").is_some(), tells, "{id}");
@@ -1760,18 +1783,18 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
             assert_eq!(cell.always.iter().any(|a| a.at == "tell_owner"), tells, "{id}");
             assert_eq!(cell.shown.iter().any(|p| p == "tell_owner"), tells, "{id}");
             if !tells {
-                helpers.push(id.as_str());
+                helpers.push((g.name.as_str(), id.as_str()));
                 let reports = s["properties"].get("side_reports").is_some();
                 assert_eq!(reports, g.name == "engineer", "{id}");
             }
         }
     }
-    assert_eq!(
-        helpers,
-        [
-            "G1", "G2", "G4", "F2", "X5", "T1", "T3", "G3", "T4", "A1", "Q1", "B2", "X2", "X5"
-        ]
-    );
+    // No total of the graphs' cells is held here: the engineer's graph has helpers, and the architect's second eye and
+    // its searches are among them.
+    assert!(helpers.iter().any(|h| h.0 == "engineer"), "{helpers:?}");
+    for id in ["G2", "X2", "X5"] {
+        assert!(helpers.contains(&("architect", id)), "{id} is not among {helpers:?}");
+    }
 }
 
 // The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the

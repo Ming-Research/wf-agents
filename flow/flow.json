@@ -4208,7 +4208,7 @@
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions and its failures, saying why.",
       "reply_to_owner": "Puts the reply to the owner's words, as the architect's message, in the conversation the words were said in: the group of the work they were said in, else the owner's one-to-one with the architect; and notifies the owner.",
       "queue_measures": "Queues each new measure the signals of the policy that takes effect need, as the approved draft hands them in, as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it; a measure the queue holds already is not queued again.",
-      "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy, taken with what the plan queued, with why: what the cell's place given says. One open already, queued or parked for the owner's reply, stands instead, and takes the why.",
+      "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy, taken with what the plan queued, with why: what the cell's place given says. One open already, queued or parked for the owner's reply, stands instead, and takes the why. One asked for with no why of its own, as reading the project anew asks for it, is not queued while the policy in force and the constitution are those the last check handled had.",
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
       "post_open_questions": "Sends the design's open questions to the project's architect, each a matter of its own, and each place the design departs from a decision of its item as an open question of its own; the work waits on none of them here.",
@@ -4219,7 +4219,8 @@
       "close_planning": "Marks the matters the planning answers as handled by this round: slots free with nothing of the project to start, and a plan of what to do next a flow version before queued.",
       "log_matter": "Keeps the matter's line of the decision log and its two answers, whether it changes the plan and whether the base is wrong, as the session hands them in: the latest hand-in of the matter stands.",
       "redo_matters": "Undoes what the rounds the architect's work goes back to do again did that has not taken effect: what waits for a second eye is dropped, to be handed in again, and the matters they closed whose reply has not gone out go back to the queue, a reply held dropped, to be written again.",
-      "keep_flow_feedback": "Keeps the round's flow feedback where it is, in the round's return the engine keeps with the round, for the owner and the assistant to go through later. It goes to no agent's queue and starts nothing."
+      "keep_flow_feedback": "Keeps the round's flow feedback where it is, in the round's return the engine keeps with the round, for the owner and the assistant to go through later. It goes to no agent's queue and starts nothing.",
+      "fresh_session": "The line of the cell the row goes to starts a new session there each time the work takes the row, whatever session the line had going on: the session manager ends that one."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -4867,7 +4868,10 @@
       "check_main": [
         "tool_runs"
       ],
-      "keep_flow_feedback": []
+      "keep_flow_feedback": [],
+      "fresh_session": [
+        "sessions"
+      ]
     },
     "reads": {
       "ask_architect": {
@@ -14215,6 +14219,18 @@
             "desc": "The times the architect had the project's open observations searched"
           },
           {
+            "name": "handled",
+            "desc": "The matters handled, each in its session forked from the base: back to the look at what comes next, once for each"
+          },
+          {
+            "name": "plans",
+            "desc": "The times the base planned what to do next"
+          },
+          {
+            "name": "policies_drafted",
+            "desc": "The times a new policy was drafted and waits for the owner's approval"
+          },
+          {
             "name": "rebuilds",
             "desc": "The times only the base was built anew, and the plan held"
           },
@@ -15304,6 +15320,9 @@
               ],
               "to": "N1",
               "main": true,
+              "do": [
+                "queue_check_policy"
+              ],
               "note": "The base was due for a planning: what to do next is planned in this session, whatever the plan's verdict."
             },
             {
@@ -15326,6 +15345,9 @@
               ],
               "to": "Q0",
               "main": true,
+              "do": [
+                "queue_check_policy"
+              ],
               "counts": "rebuilds",
               "note": "Only the base was due, and the plan holds: this session is the base, and the matters are taken."
             },
@@ -15348,6 +15370,9 @@
                 ]
               ],
               "to": "N1",
+              "do": [
+                "queue_check_policy"
+              ],
               "counts": "plans_from_rebuilds",
               "note": "Reading the project anew found the plan wrong: the rebuild turns into a planning, in this session."
             }
@@ -15635,7 +15660,8 @@
                 "release_straight_hold",
                 "close_planning"
               ],
-              "note": "This session is the base from now on: the matters are taken, each in a session forked from it."
+              "note": "This session is the base from now on: the matters are taken, each in a session forked from it.",
+              "counts": "plans"
             },
             {
               "name": "some_to_change",
@@ -15660,7 +15686,8 @@
                 },
                 "release_straight_hold",
                 "close_planning"
-              ]
+              ],
+              "counts": "plans"
             },
             {
               "name": "set_straight",
@@ -15685,7 +15712,8 @@
                   "do": "queue_fixes"
                 },
                 "close_planning"
-              ]
+              ],
+              "counts": "plans"
             }
           ],
           "without": [
@@ -17865,7 +17893,8 @@
               "do": [
                 "close_matter"
               ],
-              "note": "Nothing is broken that any work caused: the matter is closed, and the merge queue goes on."
+              "note": "Nothing is broken that any work caused: the matter is closed, and the merge queue goes on.",
+              "counts": "handled"
             },
             {
               "name": "red",
@@ -18726,7 +18755,8 @@
               "do": [
                 "ask_approval"
               ],
-              "note": "The draft waits for the owner's approval: the engine pins its short question in the owner's one-to-one, which parks the matter, and its session, at this cell, and the architect goes on with the next matter. A reply of exactly approved has it take effect; any other comes back here."
+              "note": "The draft waits for the owner's approval: the engine pins its short question in the owner's one-to-one, which parks the matter, and its session, at this cell, and the architect goes on with the next matter. A reply of exactly approved has it take effect; any other comes back here.",
+              "counts": "policies_drafted"
             },
             {
               "name": "kept",
@@ -18851,7 +18881,8 @@
               "do": [
                 "close_matter"
               ],
-              "note": "No change needs a second eye: the engine's checks at the hand-in were the last, what the session handed in took effect then, and the matter is closed."
+              "note": "No change needs a second eye: the engine's checks at the hand-in were the last, what the session handed in took effect then, and the matter is closed.",
+              "counts": "handled"
             },
             {
               "name": "needed",
@@ -19128,7 +19159,8 @@
                 "apply_checked",
                 "close_matter"
               ],
-              "note": "What the matter's session handed in takes effect now, its reply goes, and the matter is closed."
+              "note": "What the matter's session handed in takes effect now, its reply goes, and the matter is closed.",
+              "counts": "handled"
             },
             {
               "name": "problems",

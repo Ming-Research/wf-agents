@@ -1644,7 +1644,6 @@ impl Config {
         }
     }
 
-
     /// The level the reading of a work's history runs at: the one the installation names, or else the lowest.
     pub fn librarian_level(&self) -> String {
         match &self.install.agents.librarian {

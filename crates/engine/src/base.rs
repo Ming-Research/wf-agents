@@ -103,11 +103,7 @@ pub fn fork_of(e: &Engine, w: &Work, cell: &CompiledCell, can_fork: bool) -> Res
         return Ok(None);
     };
     let base = latest(e.db.conn(), project)?.map(|b| (b.session, b.cli_session));
-    Ok(Some(sessions::Fork {
-        matter,
-        base,
-        can_fork,
-    }))
+    Ok(Some(sessions::Fork { matter, base, can_fork }))
 }
 
 // The fixed order.
@@ -300,8 +296,10 @@ pub fn due(e: &Engine, project: &str) -> Result<Due, String> {
     }
     let gathered = q.iter().filter(|(_, c)| *c == Class::Gathered).count();
     let most = e.config.config.install.architect.gathered_most;
-    d.facts
-        .insert("waiting_for_planning".into(), json!({ "matters": gathered, "most": most }));
+    d.facts.insert(
+        "waiting_for_planning".into(),
+        json!({ "matters": gathered, "most": most }),
+    );
     if u64::try_from(gathered).unwrap_or(u64::MAX) >= most.max(1) {
         d.plan.push(format!(
             "{gathered} matters wait for the planning, the installation's amount being {most}"
@@ -333,7 +331,8 @@ pub fn due(e: &Engine, project: &str) -> Result<Due, String> {
     let moved = structure_moved(e, project, &base)?;
     d.facts.insert("structure".into(), json!(moved));
     if let Some(m) = moved.first() {
-        d.rebuild.push(format!("a merge since the base moved the project's structure ({m})"));
+        d.rebuild
+            .push(format!("a merge since the base moved the project's structure ({m})"));
     }
     let wrong: Vec<String> = said
         .iter()
@@ -342,7 +341,8 @@ pub fn due(e: &Engine, project: &str) -> Result<Due, String> {
         .collect();
     d.facts.insert("base_wrong".into(), json!(wrong));
     if let Some(w) = wrong.first() {
-        d.rebuild.push(format!("a matter handled since found the base wrong ({w})"));
+        d.rebuild
+            .push(format!("a matter handled since found the base wrong ({w})"));
     }
     let level = e.config.config.architect_level();
     let model = e.config.config.level(&level).map(|(l, _)| l.model.clone());
@@ -590,7 +590,8 @@ fn since_at(e: &Engine, project: &str, at: i64, main: Option<&str>) -> Result<Va
             json!({ "at": x["at"].as_i64().map(crate::utc), "said": excerpt(text(&x["text"])) }),
         );
     }
-    let mut out = json!({ "since": crate::utc(at), "items": changed, "works": works, "merged": merged, "owner": owner });
+    let mut out =
+        json!({ "since": crate::utc(at), "items": changed, "works": works, "merged": merged, "owner": owner });
     if let Some(m) = main {
         out["main_then"] = json!(m);
     }
@@ -724,13 +725,22 @@ mod tests {
         assert_eq!(class(&row("main_red", None, "none"), &none), Class::MainRed);
         assert_eq!(class(&row("engineer_question", None, "agent"), &none), Class::Waiting);
         assert_eq!(class(&row("open_question", None, "none"), &none), Class::Waiting);
-        assert_eq!(class(&row("failure", Some("tool_failed"), "agent"), &none), Class::Waiting);
+        assert_eq!(
+            class(&row("failure", Some("tool_failed"), "agent"), &none),
+            Class::Waiting
+        );
         assert_eq!(class(&row("slots_free", None, "none"), &none), Class::Planning);
-        assert_eq!(class(&row("set_straight", Some("order"), "none"), &none), Class::Planned);
+        assert_eq!(
+            class(&row("set_straight", Some("order"), "none"), &none),
+            Class::Planned
+        );
         assert_eq!(class(&row("check_policy", None, "none"), &none), Class::Planned);
         assert_eq!(class(&row("report", Some("defect"), "none"), &none), Class::Gathered);
         assert_eq!(class(&row("report", Some("answer"), "none"), &none), Class::Gathered);
-        assert_eq!(class(&row("other_architect", Some("message"), "none"), &none), Class::Gathered);
+        assert_eq!(
+            class(&row("other_architect", Some("message"), "none"), &none),
+            Class::Gathered
+        );
         let mut harms = row("report", Some("defect"), "none");
         harms["urgent"] = json!(1);
         assert_eq!(class(&harms, &none), Class::Waiting);
@@ -750,12 +760,22 @@ mod tests {
         let checks = |c: Value| second_eye_checks(conn, &c).unwrap();
         assert!(checks(json!({ "kind": "cancel", "item": "4" })));
         assert!(checks(json!({ "kind": "merge", "keep": "4", "absorbed": ["5"] })));
-        assert!(checks(json!({ "kind": "edit_acceptance", "item": "4", "acceptance": ["x"] })));
-        assert!(checks(json!({ "kind": "create_item", "key": "k", "under": { "item": "4", "dependency": "blocking" } })));
-        assert!(checks(json!({ "kind": "move", "item": "4", "to": { "place": "under", "item": "5" } })));
+        assert!(checks(
+            json!({ "kind": "edit_acceptance", "item": "4", "acceptance": ["x"] })
+        ));
+        assert!(checks(
+            json!({ "kind": "create_item", "key": "k", "under": { "item": "4", "dependency": "blocking" } })
+        ));
+        assert!(checks(
+            json!({ "kind": "move", "item": "4", "to": { "place": "under", "item": "5" } })
+        ));
         assert!(!checks(json!({ "kind": "create_item", "key": "k", "title": "t" })));
-        assert!(!checks(json!({ "kind": "edit_item", "item": "4", "part": "title", "text": "t" })));
-        assert!(!checks(json!({ "kind": "move", "item": "4", "to": { "place": "first" } })));
+        assert!(!checks(
+            json!({ "kind": "edit_item", "item": "4", "part": "title", "text": "t" })
+        ));
+        assert!(!checks(
+            json!({ "kind": "move", "item": "4", "to": { "place": "first" } })
+        ));
         assert!(!checks(json!({ "kind": "hold", "item": "4" })));
         assert!(!checks(json!({ "kind": "set_level", "item": "4", "level": "l" })));
     }

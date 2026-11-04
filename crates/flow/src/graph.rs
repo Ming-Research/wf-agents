@@ -1101,12 +1101,7 @@ impl<'s> Graph<'s> {
             // neither the base nor it was given.
             if let Some(base) = &l.forks {
                 ensure!(
-                    base != &l.name
-                        && flow
-                            .sessions
-                            .lines
-                            .iter()
-                            .any(|b| &b.name == base && b.forks.is_none()),
+                    base != &l.name && flow.sessions.lines.iter().any(|b| &b.name == base && b.forks.is_none()),
                     "a line forks from no other line of its graph that forks from none: {} forks {base}",
                     l.name
                 );

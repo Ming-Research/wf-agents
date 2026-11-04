@@ -1544,7 +1544,10 @@ fn make_changes(ctx: &Ctx, tx: &Transaction<'_>, matter: i64, changes: &[Value])
     let refused: BTreeMap<usize, &String> = written.refused.iter().map(|(i, why)| (*i, why)).collect();
     for (i, c) in changes.iter().enumerate() {
         let (state, outcome) = match refused.get(&i) {
-            Some(why) => ("dropped", Some(json!({ "what": format!("It could not be made: {why}") }))),
+            Some(why) => (
+                "dropped",
+                Some(json!({ "what": format!("It could not be made: {why}") })),
+            ),
             None => (
                 "made",
                 (c["kind"] == "create_item")
@@ -1608,9 +1611,11 @@ fn apply_checked(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let (w, project) = architect_work_of(ctx)?;
     let matter = matter_of(tx, w)?;
     let held: Option<String> = tx
-        .query_row("SELECT effects_held FROM architect_matters WHERE id = ?1", [matter], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT effects_held FROM architect_matters WHERE id = ?1",
+            [matter],
+            |r| r.get(0),
+        )
         .map_err(sql)?;
     let Some(held) = json_col(held) else {
         return Ok(());
@@ -1627,7 +1632,10 @@ fn apply_checked(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
         let refused: BTreeMap<usize, &String> = written.refused.iter().map(|(i, why)| (*i, why)).collect();
         for (i, (id, _, c)) in rows.iter().enumerate() {
             let (state, outcome) = match refused.get(&i) {
-                Some(why) => ("dropped", Some(json!({ "what": format!("It could not be made: {why}") }))),
+                Some(why) => (
+                    "dropped",
+                    Some(json!({ "what": format!("It could not be made: {why}") })),
+                ),
                 None => (
                     "made",
                     (c["kind"] == "create_item")
@@ -1786,12 +1794,20 @@ fn reply_to_owner_now(
 }
 
 /// Sends the reply to the architect whose message the matter was, as a message in its queue.
-fn answer_architect_now(tx: &Transaction<'_>, work: i64, project: &str, matter: i64, words: &str) -> Result<(), String> {
+fn answer_architect_now(
+    tx: &Transaction<'_>,
+    work: i64,
+    project: &str,
+    matter: i64,
+    words: &str,
+) -> Result<(), String> {
     if words.trim().is_empty() {
         return Ok(());
     }
     let body: String = tx
-        .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| r.get(0))
+        .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| {
+            r.get(0)
+        })
         .map_err(sql)?;
     let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     let Some(to) = body["from"].as_str() else {
@@ -2820,12 +2836,7 @@ fn merged(conn: &Connection, item: i64) -> Result<bool, String> {
 /// work's own question with no word of why the work must change, or merged into or folded into, which takes in work
 /// from outside; an observation it folds in was folded into another item; a dependency it makes is on an item merged,
 /// cancelled or held. `matter` is the matter in hand, whose work's own item it may change.
-fn changed_under(
-    c: &checks::Ctx<'_>,
-    project: &str,
-    matter: Option<i64>,
-    ch: &Value,
-) -> Result<Vec<String>, String> {
+fn changed_under(c: &checks::Ctx<'_>, project: &str, matter: Option<i64>, ch: &Value) -> Result<Vec<String>, String> {
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
     let kind = text(&ch["kind"]);
@@ -3634,7 +3645,13 @@ fn policy_text_problems(policy: &Value, said: &[String], cell: Option<String>) -
 
 /// One of the engine's inputs of the architect's graph, computed for the work; `main` is the commit of the project's main
 /// the round is pinned to, which the inputs that read the project's files read at.
-pub fn input(e: &Engine, w: &Work, _g: &CompiledGraph, name: &str, main: Option<&str>) -> Result<Option<Value>, String> {
+pub fn input(
+    e: &Engine,
+    w: &Work,
+    _g: &CompiledGraph,
+    name: &str,
+    main: Option<&str>,
+) -> Result<Option<Value>, String> {
     let project = project_of(w)?;
     match name {
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
@@ -3730,7 +3747,9 @@ fn handed_in(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         return Ok(None);
     };
     let held: Option<String> = conn
-        .query_row("SELECT effects_held FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
+        .query_row("SELECT effects_held FROM architect_matters WHERE id = ?1", [m], |r| {
+            r.get(0)
+        })
         .map_err(sql)?;
     let Some(held) = json_col(held) else {
         return Ok(None);
@@ -3741,7 +3760,9 @@ fn handed_in(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
             o.remove(k);
         }
     }
-    Ok(Some(json!({ "cell": held["cell"], "round": held["round"], "answer": outcome })))
+    Ok(Some(
+        json!({ "cell": held["cell"], "round": held["round"], "answer": outcome }),
+    ))
 }
 
 /// What the architect knows of its project that a cell of an engineer's work is given, as the architect has it: the
@@ -5077,9 +5098,9 @@ fn similar_items(e: &Engine, w: &Work) -> Result<Value, String> {
         ROWS,
     )?;
     if let Some(mine) = running
-            .iter()
-            .find(|r| r["work"].as_i64() == from_work)
-            .and_then(changed_by)
+        .iter()
+        .find(|r| r["work"].as_i64() == from_work)
+        .and_then(changed_by)
     {
         for r in running.iter().filter(|r| r["work"].as_i64() != from_work) {
             let theirs = changed_by(r).unwrap_or_default();
@@ -5482,7 +5503,10 @@ mod tests {
     // wide character, one of English none; another language's characters tell nothing.
     #[test]
     fn a_title_s_language_is_told_by_its_wide_characters() {
-        let wide: String = char::from_u32(0x4E2D).into_iter().chain(char::from_u32(0x6587)).collect();
+        let wide: String = char::from_u32(0x4E2D)
+            .into_iter()
+            .chain(char::from_u32(0x6587))
+            .collect();
         assert!(title_language_problem("Chinese", "Parse the input first").is_some());
         assert!(title_language_problem("Chinese", &format!("{wide} input")).is_none());
         assert!(title_language_problem("English", &format!("{wide} input")).is_some());

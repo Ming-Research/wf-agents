@@ -65,7 +65,10 @@ fn architect_cell() -> CompiledCell {
     let tables = db::index_of(db::SCHEMA).unwrap();
     let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
     let mut cell = f.graph("architect").unwrap().cell("N1").unwrap().clone();
-    assert!(!cell.cache_expiry, "the architect's base does not expire with the cache");
+    assert!(
+        !cell.cache_expiry,
+        "the architect's base does not expire with the cache"
+    );
     cell.cache_expiry = true;
     cell
 }
