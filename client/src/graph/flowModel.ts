@@ -387,11 +387,14 @@ export function stageLetter(letters: string[]): string {
 
 /// The stages of a graph in the order its cells first name them, each with its letter, as the chart's groups have them
 /// (`stageLetter` over the codes of the stage's cells): the stages a work goes through, for the bar that shows how far
-/// it has come. A cell at no stage names none.
+/// it has come. A cell at no stage names none, and neither do the two ends a work does not go through to come to its end:
+/// the cell a cancelled work ends at (`cancel`) and the cell a work on an older flow version comes to (`version`), whose
+/// stage is no step on the way but where a work stopped.
 export function stagesOf(g: CompiledGraph): Array<{ stage: string; letter: string }> {
   const letters = new Map<string, string[]>();
   for (const c of g.cells) {
     if (c.stage === null || c.stage === undefined) continue;
+    if (c.id === g.cancel || c.id === g.version) continue;
     letters.set(c.stage, [...(letters.get(c.stage) ?? []), letterOf(c.id)]);
   }
   return [...letters].map(([stage, of]) => ({ stage, letter: stageLetter(of) }));

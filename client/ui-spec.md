@@ -1415,7 +1415,7 @@ makes worth having. The name is a button in the heading, a chevron before it, so
 alone; the folded groups are kept in the browser, as the columns' widths are.
 
 How far a work has come is one column, a row of narrow cells (`StageBar`), one for each stage of the flow version the
-work runs on, each as wide as the one letter in it, the letter the one most of the stage's cells' codes start with, as
+work runs on, except the stage where a cancelled work ends (it is no step a work goes through), each as wide as the one letter in it, the letter the one most of the stage's cells' codes start with, as
 the chart's minimap has it (`stageLetter`), instead of the cell it is at and the stage in words, because the owner reads
 how far a work is at a glance, and a cell wider than its letter adds nothing but takes room. The stages gone through
 are the colour of success and the one the work is at stands out in the accent, in the colour of waiting while the work

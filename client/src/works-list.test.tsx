@@ -44,11 +44,13 @@ vi.mock('./route', async (importOriginal) => ({
 const cell = (id: string, stage: string | null) => ({ id, stage });
 
 /// An engineer graph shaped as version 34 of the flow: the cells of another line (G1 to G3, the librarian's) stand among
-/// the research and the design cells, and the first cell of each of those two stages is one of them.
+/// the research and the design cells, and the first cell of each of those two stages is one of them. It ends as the flow
+/// does: the stages verify and end after learn, and the cancelled stage, whose one cell C1 is `cancel`.
 const compiled = {
   graphs: [
     {
       name: 'engineer',
+      cancel: 'C1',
       cells: [
         cell('S0', 'start'),
         cell('S1', 'start'),
@@ -67,13 +69,20 @@ const compiled = {
         cell('M1', 'merge'),
         cell('M2', 'merge'),
         cell('L2', 'learn'),
+        cell('V1', 'verify'),
+        cell('V2', 'verify'),
+        cell('E1', 'end'),
+        cell('C1', 'cancelled'),
         cell('A2', null),
       ],
     },
   ],
 } as unknown as Compiled;
 
-const STAGES = ['start', 'research', 'design', 'implement', 'test', 'merge', 'learn'];
+const STAGES = ['start', 'research', 'design', 'implement', 'test', 'merge', 'learn', 'verify', 'end'];
+
+/// The looks of the bar's cells: those given, then every stage after them ahead.
+const looks = (...given: string[]) => [...given, ...STAGES.slice(given.length).map(() => 'ahead')];
 
 const status = (extra: Partial<Status> = {}): Status =>
   ({
@@ -158,14 +167,14 @@ const cellsOf = (row: string) =>
 
 describe('the bar of how far a work has come', () => {
   it('has the stage gone through, the one it is at, the one it waits at, and those ahead, each its own look', () => {
-    expect(stageLooks(STAGES, 'design', 'ready', false)).toEqual(['done', 'done', 'now', 'ahead', 'ahead', 'ahead', 'ahead']);
+    expect(stageLooks(STAGES, 'design', 'ready', false)).toEqual(looks('done', 'done', 'now'));
     // While it waits, the stage it is at takes the colour of waiting and none is added.
-    expect(stageLooks(STAGES, 'design', 'waiting', true)).toEqual(['done', 'done', 'wait', 'ahead', 'ahead', 'ahead', 'ahead']);
+    expect(stageLooks(STAGES, 'design', 'waiting', true)).toEqual(looks('done', 'done', 'wait'));
     // Going back to an earlier stage, the later cells are plain again.
-    expect(stageLooks(STAGES, 'research', 'ready', false)).toEqual(['done', 'now', 'ahead', 'ahead', 'ahead', 'ahead', 'ahead']);
+    expect(stageLooks(STAGES, 'research', 'ready', false)).toEqual(looks('done', 'now'));
     // Done: every stage gone through; ended before its end: the stage it stopped at is no stage it is at now.
-    expect(stageLooks(STAGES, 'learn', 'done', false)).toEqual(STAGES.map(() => 'done'));
-    expect(stageLooks(STAGES, 'test', 'ended', false)).toEqual(['done', 'done', 'done', 'done', 'ahead', 'ahead', 'ahead']);
+    expect(stageLooks(STAGES, 'end', 'done', false)).toEqual(STAGES.map(() => 'done'));
+    expect(stageLooks(STAGES, 'test', 'ended', false)).toEqual(looks('done', 'done', 'done', 'done'));
     // A stage the flow does not name marks none gone through.
     expect(stageLooks(STAGES, null, 'ready', false)).toEqual(STAGES.map(() => 'ahead'));
     expect(stageLooks(STAGES, 'elsewhere', 'ready', false)).toEqual(STAGES.map(() => 'ahead'));
@@ -174,6 +183,7 @@ describe('the bar of how far a work has come', () => {
   it("takes each stage's letter from the flow version's cells by the minimap's rule, as the research and design keep theirs", () => {
     const letters = stagesOf(compiled.graphs[0]);
     // A cell of another line first in a stage does not take its letter: research is R though G1 comes first, design is D.
+    // The cancelled stage, whose one cell is where a cancelled work ends, is no cell of the bar.
     expect(letters.map((s) => `${s.stage}:${s.letter}`)).toEqual([
       'start:S',
       'research:R',
@@ -182,18 +192,34 @@ describe('the bar of how far a work has come', () => {
       'test:T',
       'merge:M',
       'learn:L',
+      'verify:V',
+      'end:E',
     ]);
   });
 
   it('draws one cell for each stage in a work\'s row, the stage it is at standing out, and says its stage on hovering', () => {
     read.works = [work(9, { stage: 'design' })];
     const cells = cellsOf(rowOf(view(), 9));
-    expect(cells.map((c) => c.letter).join('')).toBe('SRDITML');
-    expect(cells.map((c) => c.look)).toEqual(['done', 'done', 'now', 'ahead', 'ahead', 'ahead', 'ahead']);
-    expect(cells.map((c) => c.title)).toEqual(['start', 'research', 'design, where it is now', 'implement', 'test', 'merge', 'learn']);
+    expect(cells.map((c) => c.letter).join('')).toBe('SRDITMLVE');
+    expect(cells.map((c) => c.look)).toEqual(looks('done', 'done', 'now'));
+    expect(cells.map((c) => c.title)).toEqual([
+      'start',
+      'research',
+      'design, where it is now',
+      'implement',
+      'test',
+      'merge',
+      'learn',
+      'verify',
+      'end',
+    ]);
     // The same work back at research: the bar goes back with it.
     read.works = [work(9, { stage: 'research' })];
-    expect(cellsOf(rowOf(view(), 9)).map((c) => c.look)).toEqual(['done', 'now', 'ahead', 'ahead', 'ahead', 'ahead', 'ahead']);
+    expect(cellsOf(rowOf(view(), 9)).map((c) => c.look)).toEqual(looks('done', 'now'));
+    // A work done has every stage gone through, and no cell for the stage a cancelled work ends at.
+    read.works = [work(9, { stage: 'end', state: 'done' })];
+    expect(cellsOf(rowOf(view(), 9)).map((c) => c.look)).toEqual(STAGES.map(() => 'done'));
+    expect(rowOf(view(), 9)).not.toContain('cancelled');
   });
 
   it('shows the colour of waiting on the stage a work waits at, whether for an answer, the architect or items', () => {
@@ -205,7 +231,7 @@ describe('the bar of how far a work has come', () => {
     for (const waits of kinds) {
       read.works = [work(6, { stage: 'research', state: 'waiting', waits })];
       const cells = cellsOf(rowOf(view(), 6));
-      expect(cells.map((c) => c.look), waits.kind).toEqual(['done', 'wait', 'ahead', 'ahead', 'ahead', 'ahead', 'ahead']);
+      expect(cells.map((c) => c.look), waits.kind).toEqual(looks('done', 'wait'));
       expect(cells[1].title).toBe('research, where it waits');
     }
   });
