@@ -46,4 +46,27 @@ logarithms of each ratio over the pairs (Student's t) is taken.
 
 ## Result
 
-Not measured yet.
+Measured on the workflow's runner (Linux, 4 processors), 30 interleaved pairs, the sides built each in its own target
+directory; the figure of a pair is the median of its 30 reads, in microseconds, read from `command.log`. The
+intervals were worked out by hand from the 30 pairs (the differences in microseconds of each side with the base, their
+mean, their standard deviation over 29 degrees of freedom and Student's t of 2.045), not by a script: a run of `awk` or
+`node` on the engineer's machine needs the owner's approval.
+
+| | reads (median of the pairs' medians) | against the base, mean of the 30 differences | 95% interval of that mean | as a ratio to the base |
+|---|---|---|---|---|
+| base | about 37.0 ms | | | |
+| twin (the noise) | about 37.0 ms | −3 µs | −188 to +182 µs | 0.995 to 1.005 |
+| candidate | about 37.0 ms | −18 µs | −210 to +174 µs | 0.994 to 1.005 |
+
+- The new code ran: the candidate's answer is 187,345 bytes against the base's and the twin's 126,661 (60,684 bytes more,
+  202 bytes for each of the 300 works, 48% more), so that none of the sides took another's build.
+- The twin's interval holds 1 and is as wide as the candidate's: the run's noise is about ±0.5% of a read, and a
+  slowdown of that size or more would have been seen. The candidate's interval crosses 1, so no change of the read is
+  detected; A12 holds.
+- The page's JSON written from the answer (`write_median_us`, taken in the same process) went from 240 to 304 µs in the
+  base (mostly 245 to 265) to 318 to 360 µs in the candidate (mostly 320 to 350): about 75 µs more, against a read of
+  37 ms.
+- Not measured: a database whose rounds are as long as real ones (their inputs and outputs are `{}` here, since the list
+  reads neither), and the owner's machine. The workload has 300 works of 150 rounds each, in the range the item names
+  (hundreds of works, over a hundred rounds each).
+- The first run, of two pairs, only showed the harness built and ran; its three sides shared one build and are not used.

@@ -754,6 +754,13 @@ has ended, its round's timer is not shown, and it has no Start, Pause, Step or S
 change that. It is a state of its own and not a note beside the running chip, because the same word then stands for it
 on the left and in the head, and the list's buttons can show or hide it as any other state.
 
+While the engine itself stops (its status says so once it has seen its stop file), it dispatches nothing more and waits
+for the steps in flight to end, so that a work which goes on by itself reads as running only while a step or a tool of it
+is under way; the others read as the row reads them (ready), because running says a round goes on and none does. The
+round list has the same reading: a round that has not ended reads as left open only where no stage of its work works
+now, never in the moments between two steps of the engine, and the halo and the stage's ring go out at the same moments
+as it.
+
 ### A count
 
 A count is a `CounterLabel`: `variant="primary"` for what waits for the owner, secondary otherwise; a count in a
