@@ -159,8 +159,11 @@ class Sink:
 
 
 class Builder:
-    def __init__(self, path, scale):
+    def __init__(self, path, scale, stretch=1):
         self.scale = scale
+        # The architect's longest work (3330 rounds in the field) has this many times its rounds: it never ends, so it
+        # grows with the engine's age by itself, apart from the number of works.
+        self.stretch = stretch
         self.rnd = random.Random(248)
         self.pool = "".join(self.rnd.choice(LETTERS) for _ in range(1 << 20))
         self.members = ['"k%d":"%s"' % (i, self.txt(60)) for i in range(8192)]
@@ -228,6 +231,8 @@ class Builder:
         r.shuffle(rest_states)
         arch = [("architect", c, s) for c, s in big] + [("architect", c, s) for c, s in zip(rest_counts, rest_states)]
         base = eng + arch
+        if self.stretch != 1:
+            base = [(g, c * self.stretch if (g == "architect" and c == 3330) else c, s) for g, c, s in base]
         out = []
         copies = max(1, int(round(self.scale)))
         for _ in range(copies):
@@ -656,18 +661,28 @@ class Builder:
         log("built in %.0fs" % (time.time() - t_start))
 
 
-def database(scale, cache):
-    """The path of the database at `scale`, built if it is not in the cache."""
+def parse_scale(label):
+    """A scale is written 10 (ten times the field), 0.2, or 1L10: the field, with its longest architect work stretched
+    ten times. Gives the scale and the stretch."""
+    if "L" in label:
+        base, stretch = label.split("L", 1)
+        return float(base), int(stretch)
+    return float(label), 1
+
+
+def database(label, cache):
+    """The path of the database at the scale `label` names, built if it is not in the cache."""
+    scale, stretch = parse_scale(label)
     key = hashlib.sha1((Path(__file__).read_bytes() + SCHEMA.read_bytes())).hexdigest()[:10]
     cache.mkdir(parents=True, exist_ok=True)
-    path = cache / ("scale-%s-%s.db" % (("%g" % scale), key))
+    path = cache / ("scale-%s-%s.db" % (label, key))
     if path.exists():
         return path
     tmp = Path(str(path) + ".tmp")
     if tmp.exists():
         tmp.unlink()
     log("building %s" % path.name)
-    Builder(str(tmp), scale).build()
+    Builder(str(tmp), scale, stretch).build()
     tmp.rename(path)
     return path
 
@@ -1097,7 +1112,7 @@ def run(args):
     cache = Path(args.cache) if args.cache else Path(os.environ.get("REPEATED_PATHS_CACHE") or
                                                     (Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) /
                                                      "repeated-paths-db"))
-    scales = [float(s) for s in args.scales.split(",")]
+    scales = args.scales.split(",")
     side = os.path.basename(os.getcwd())
     print("PROCESS\t%s\t%s" % (side, time.strftime("%Y-%m-%dT%H:%M:%S")), flush=True)
     print("SQLITE\t%s" % sqlite3.sqlite_version, flush=True)
@@ -1111,17 +1126,17 @@ def run(args):
         c.execute("PRAGMA query_only=ON")
         P[s] = params(c, uri)
         conns[s] = c
-        print("DBSIZE\t%g\t%d" % (s, path.stat().st_size), flush=True)
+        print("DBSIZE\t%s\t%d" % (s, path.stat().st_size), flush=True)
         intended = P[s]["intended"]
         for table, n in sorted(intended.items()):
             got = c.execute("SELECT count(*) FROM %s" % table).fetchone()[0]
             ok = got == n
             failed = failed or not ok
             field = RECIPE.get(table)
-            print("TABLE\t%g\t%s\t%d\t%s\t%s" % (s, table, got, "ok" if ok else "FAIL intended %d" % n,
+            print("TABLE\t%s\t%s\t%d\t%s\t%s" % (s, table, got, "ok" if ok else "FAIL intended %d" % n,
                                                  ("field %d" % field) if field else ""), flush=True)
         # the recipe against the field, at scale 1
-        if s == 1.0:
+        if s == "1":
             for table, n in RECIPE.items():
                 if table in ASSUMED:
                     continue
@@ -1152,19 +1167,19 @@ def run(args):
             missing = [k for k in re.findall(r"(?<!\w):([a-z_][a-z_0-9]*)", " ".join(getattr(fn, "statements", ())))
                        if p.get(k) is None]
             if missing:
-                print("SKIP\t%s\t%g\tno value for %s" % (pid, s, ",".join(sorted(set(missing)))), flush=True)
+                print("SKIP\t%s\t%s\tno value for %s" % (pid, s, ",".join(sorted(set(missing)))), flush=True)
                 continue
             try:
                 first, samples, rows, size = measure_path(c, fn, p, args.limit_s)
             except Timeout:
-                print("TIMEOUT\t%s\t%g\t%d s" % (pid, s, args.limit_s), flush=True)
+                print("TIMEOUT\t%s\t%s\t%d s" % (pid, s, args.limit_s), flush=True)
                 continue
             except Exception as e:  # a path that fails is reported, and the others go on
                 failed = True
-                print("ERROR\t%s\t%g\t%s" % (pid, s, str(e).replace("\n", " ")[:300]), flush=True)
+                print("ERROR\t%s\t%s\t%s" % (pid, s, str(e).replace("\n", " ")[:300]), flush=True)
                 continue
             ms = [x * 1000 for x in samples]
-            print("PATHTIME\t%s\t%g\t%d\t%.3f\t%.3f\t%.3f\t%d\t%d" % (
+            print("PATHTIME\t%s\t%s\t%d\t%.3f\t%.3f\t%.3f\t%d\t%d" % (
                 pid, s, len(ms), statistics.median(ms), min(ms), first * 1000, rows, size), flush=True)
             if s == scales[0]:
                 plan = plan_of(c, fn, p)
@@ -1211,10 +1226,50 @@ def summarize(args):
         elif f[0] in ("ERROR", "TIMEOUT", "SKIP"):
             errors.append(line)
     paths = sorted({k[0] for p in procs for k in p["t"]})
-    scales = sorted({float(k[1]) for p in procs for k in p["t"]})
-    lo, hi = scales[0], scales[-1]
+    labels = []
+    for p in procs:
+        for k in p["t"]:
+            if k[1] not in labels:
+                labels.append(k[1])
     print("processes: %d (%s)" % (len(procs), ", ".join(p["side"] for p in procs)))
-    print("| path | rows %g | bytes %g | ms %g | ms %g | ratio %g/%g (95%% interval) | class | noise of ms %g (twin/base) |"
+    for hi in labels[1:]:
+        print()
+        table(procs, paths, labels[0], hi)
+    flush_cost(procs, labels)
+    print()
+    for pid, plan in sorted(plans.items()):
+        print("PLAN %s: %s" % (pid, plan))
+    for e in sorted(set(errors)):
+        print(e)
+
+
+# What the page reads again after one batch of events that name a round (`client/src/live.ts`, `named`): the lists of
+# works, items, conversations and the system view.
+FLUSH = ["api.works", "api.items_extra", "api.conversations", "api.system.works_of", "api.system.rounds_since",
+         "api.system.counted", "api.system.work_changes", "api.system.item_events"]
+
+
+def flush_cost(procs, labels):
+    print()
+    print("One flush of the page (the statements of %s), median over the processes:" % ", ".join(FLUSH))
+    for lab in labels:
+        ms = []
+        size = []
+        for p in procs:
+            got = [p["t"].get((pid, lab)) for pid in FLUSH]
+            if all(got):
+                ms.append(sum(g["med"] for g in got))
+                size.append(sum(g["bytes"] for g in got))
+        if ms:
+            print("  scale %s: %.1f ms, %d bytes of result (%d processes)" % (lab, statistics.median(ms),
+                                                                              statistics.median(size), len(ms)))
+
+
+def table(procs, paths, lo, hi):
+    """The table of one scale against the first: per path the rows and bytes it returns at the first, the time at
+    both, and the ratio of the two with its 95% interval over the processes."""
+    factor = parse_scale(hi)[1] if "L" in hi else parse_scale(hi)[0] / parse_scale(lo)[0]
+    print("| path | rows %s | bytes %s | ms %s | ms %s | ratio %s/%s (95%% interval) | class | noise of ms %s (twin/base) |"
           % (lo, lo, lo, hi, hi, lo, lo))
     print("|---|---|---|---|---|---|---|---|")
     for pid in paths:
@@ -1222,22 +1277,21 @@ def summarize(args):
         small = []
         big = []
         for p in procs:
-            a = p["t"].get((pid, "%g" % lo))
-            b = p["t"].get((pid, "%g" % hi))
+            a = p["t"].get((pid, lo))
+            b = p["t"].get((pid, hi))
             if a:
                 small.append(a["med"])
             if b:
                 big.append(b["med"])
             if a and b and a["med"] > 0 and b["med"] > 0:
                 logs.append(math.log(b["med"] / a["med"]))
-        first = next((p["t"][(pid, "%g" % lo)] for p in procs if (pid, "%g" % lo) in p["t"]), None)
+        first = next((p["t"][(pid, lo)] for p in procs if (pid, lo) in p["t"]), None)
         if not logs or first is None:
             print("| %s | | | %s | %s | no pair | | |" % (pid, "%.3f" % statistics.median(small) if small else "",
                                                        "%.3f" % statistics.median(big) if big else ""))
             continue
         m, h = interval(logs)
         r_lo, r_hi = math.exp(m - h) if h == h else float("nan"), math.exp(m + h) if h == h else float("nan")
-        factor = hi / lo
         if h != h:
             cls = "one pair"
         elif r_hi < 1:
@@ -1253,7 +1307,7 @@ def summarize(args):
         # the noise: the time at the small scale of the twin over the base of each pair of three processes
         noise = []
         for i in range(0, len(procs) - 2, 3):
-            grp = {q["side"]: q["t"].get((pid, "%g" % lo)) for q in procs[i:i + 3]}
+            grp = {q["side"]: q["t"].get((pid, lo)) for q in procs[i:i + 3]}
             if grp.get("twin") and grp.get("base") and grp["twin"]["med"] > 0 and grp["base"]["med"] > 0:
                 noise.append(math.log(grp["twin"]["med"] / grp["base"]["med"]))
         if len(noise) >= 2:
@@ -1264,11 +1318,6 @@ def summarize(args):
         print("| %s | %d | %d | %.3f | %.3f | %.2f to %.2f (mean %.2f) | %s | %s |" % (
             pid, first["rows"], first["bytes"], statistics.median(small), statistics.median(big), r_lo, r_hi,
             math.exp(m), cls, nz))
-    print()
-    for pid, plan in sorted(plans.items()):
-        print("PLAN %s: %s" % (pid, plan))
-    for e in sorted(set(errors)):
-        print(e)
 
 
 def main():
