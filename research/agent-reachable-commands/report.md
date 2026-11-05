@@ -13,6 +13,15 @@ Taken on 2026-11-04 and 2026-11-05 UTC. Each conclusion says how it is known:
 "Inferred" after a label says the conclusion is drawn from that evidence and was not itself observed. "Not run" says no
 run stands behind it.
 
+## The problem
+
+The engine has no definition of what an agent can reach on the owner's machines. The limits are written as Claude Code's
+tool rules, and the commands the engine runs for an agent do not pass those rules. The example that started this: an agent
+writes a `rust-toolchain.toml` whose `path` names another directory, then asks for the tool `dependency_sources`, and the
+`cargo` the configuration names may turn out to be a program in that directory. What goes wrong there might not be
+undoable. The report answers three questions: can a file in the worktree do that; what can these commands do that the
+agent's own shell cannot; and which limits rest only on Claude Code's rules.
+
 ## 1. The conclusions
 
 1. **A file in the worktree can make these commands execute a program the configuration does not name.** On a GitHub
@@ -88,8 +97,9 @@ its design #280's lock commands use the same code.
 
 [The run](https://github.com/Ming-Research/wf-agents/actions/runs/41939701531), through the `measure` tool, on
 `ubuntu24` image 20261026.354.1: rustup 1.29.2, cargo and rustc 1.99.1, npm 10.9.9, node 22.23.4, git 2.56.0.
-`RUSTUP_TOOLCHAIN` was not set, and `cargo` is a rustup proxy. The workflow ran the matrix three times, and the three
-passes gave the same results in every row.
+`RUSTUP_TOOLCHAIN` was not set, and `cargo` resolves to rustup ([an earlier probe of this
+work](https://github.com/Ming-Research/wf-agents/actions/runs/41930847827)). The workflow ran the matrix three times, and
+the three passes gave the same results in every row.
 
 Each cell is built in a temporary directory, with a harmless stand-in that only writes a marker named after itself and
 exits 0.
@@ -277,7 +287,8 @@ credential has only the owner can read.
 
 - The repository is public. No repository or organization secret is visible to it. The default workflow permission is
   `read`, and a workflow can ask for more with `permissions:` (docs), so a branch's own workflow might get a token that
-  can write (inferred; not run). GitHub requires no check on main (observation O163).
+  can write (inferred; not run). The only rules on main forbid deleting it and pushing to it without a fast-forward, so
+  a push to main needs no check to pass.
 - The list of the repository's own runners is empty, so the runner is registered above it, for the organization (inferred).
   Other repositories of the organization may then be able to use it (docs).
 - No workflow here has a `pull_request` trigger (read), but a fork's pull request can add one. GitHub warns that a public
@@ -438,6 +449,17 @@ These are judgments. Each says the evidence it rests on.
   section 5 comes first (read; inferred).
 
 ## 9. Reproducing it, and the sources
+
+Three ways of getting the evidence were compared. The owner chose the first:
+
+- **A script through the `measure` tool, on a GitHub runner.** It runs the real commands on real files, leaves a record and a
+  link, and changes nothing outside `research/`. What it does not run is the engine's own `run_command`, which section 3.2
+  reads instead.
+- **An integration test in `crates/engine`.** It would run the same commands on the same kind of machine, and add only the
+  few lines of `run_command` already read. A report cannot change a file outside `research/`, so it would need an item of
+  its own. A test that expects the marker would hold the behaviour in place, not guard against it; a real guard belongs
+  with the boundary.
+- **The documents alone.** The item asks for real runs, and a decision that may not be undoable should not rest on deduction.
 
 The run: `measure` with `command=bash research/agent-reachable-commands/reproduce.sh`, `base` the same commit as the head,
 `pairs=1`. A pass took 4.55 s, 2.49 s and 2.49 s on that runner (run). A pass counts only if it ends in
