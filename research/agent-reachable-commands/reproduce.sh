@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Item #284: can a file an agent writes in a worktree make a command the engine runs for it execute a program the
-# configuration does not name? Each case is built in a temporary directory and the command is run there as the engine's
-# `run_command` runs it: no shell, nothing on its standard input, the worktree as its working directory. One row is
-# printed for each run: which stand-ins it left a marker from, and its exit code.
+# Items #284 and #304: can a file an agent writes in a worktree make a command the engine runs for it, or one the
+# agent's own shell may run (`rustfmt`), execute a program the configuration does not name? Each case is built in a
+# temporary directory and the command is run there as the engine's `run_command` runs it: no shell, nothing on its
+# standard input, the worktree as its working directory. One row is printed for each run: which stand-ins it left a
+# marker from, and its exit code. The cargo commands run twice, as the README writes them (behind
+# `env RUSTUP_AUTO_INSTALL=0`) and bare, which is what a project's command without the prefix would run.
 #
 # A stand-in only writes a marker named after itself and exits 0. It reads no credential, and nothing here reaches the
 # network: the one dependency is a local git repository, and npm's registry is pointed at a closed local port.
@@ -29,12 +31,17 @@ echo "image=${ImageOS:-} ${ImageVersion:-}"
 for name in PATH RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME; do
   echo "$name=${!name:-(not set)}"
 done
-for tool in rustup cargo rustc npm node git; do
+for tool in rustup cargo rustc rustfmt npm node git; do
   echo "$tool at $(command -v "$tool")"
+done
+# Which program rustup's proxy runs for each name, here outside any checkout: a proxy is what a toolchain file steers.
+for tool in cargo rustc rustfmt; do
+  echo "rustup which $tool: $(rustup which "$tool" 2>&1)"
 done
 rustup --version 2>&1 | head -n 1
 rustc --version
 cargo --version
+rustfmt --version
 echo "npm $(npm --version)"
 echo "node $(node --version)"
 git --version
@@ -51,6 +58,10 @@ export npm_config_update_notifier=false
 
 vendor='cargo vendor --locked --versioned-dirs target/dependency-sources'
 update='cargo update --workspace'
+# The form the README writes the project's cargo commands in: the engine runs `env`, and `env` runs cargo.
+prefix='env RUSTUP_AUTO_INSTALL=0'
+# The command an agent's own shell may run (`Bash(rustfmt *)`), as AGENTS.md has it run before a ci call.
+format='rustfmt --check src/lib.rs'
 ci='npm ci --ignore-scripts --no-audit --no-fund --prefix client'
 install='npm install --package-lock-only --ignore-scripts'
 
@@ -125,6 +136,7 @@ version = "0.1.0"
 EOF
   standin "$case_dir/toolchain/bin" cargo
   standin "$case_dir/toolchain/bin" rustc
+  standin "$case_dir/toolchain/bin" rustfmt
   standin "$case_dir/programs" rustc
   standin "$case_dir/programs" rustc-wrapper
 }
@@ -176,8 +188,8 @@ scripts() {
 }
 
 echo
-echo "== cargo: baseline, then the two files, for each command"
-for command in "$vendor" "$update"; do
+echo "== cargo and rustfmt: baseline, then the two files, for each command (cargo with and without the env prefix)"
+for command in "$vendor" "$update" "$prefix $vendor" "$prefix $update" "$format"; do
   cargo_case
   try baseline "no such file" "$case_dir" . $command
   cargo_case
@@ -193,6 +205,7 @@ echo "== cargo: does each file take effect at all"
 cargo_case
 toolchain_file
 try control "rust-toolchain.toml path" "$case_dir" . rustup show active-toolchain
+try control "rust-toolchain.toml path, the rustfmt rustup runs" "$case_dir" . rustup which rustfmt
 cargo_case
 cargo_config
 try control ".cargo/config.toml rustc, rustc-wrapper" "$case_dir" . cargo check
