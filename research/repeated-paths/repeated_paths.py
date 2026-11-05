@@ -946,7 +946,7 @@ def build_paths():
                  "ORDER BY r.work, r.n" % COLS))
     add("engine.round.opens", "engine", "choose::opens: the last row that opened a session",
         sql_path("SELECT max(n) FROM rounds WHERE work = :w_eng_big AND transition IS NOT NULL "
-                 "AND cell || '·' || transition IN (SELECT value FROM json_each('[\"I1·done\",\"T1·done\"]'))"))
+                 "AND cell || '/' || transition IN (SELECT value FROM json_each('[\"I1/done\",\"T1/done\"]'))"))
     add("engine.round.time_limit", "engine", "limits::stretch_ms: the work's time since its last pause",
         sql_path("SELECT coalesce(sum(coalesce(ended_at, :t_end) - started_at), 0) FROM rounds WHERE work = :w_eng_big "
                  "AND n > 0 AND n <= 100000 AND (session IS NOT NULL OR cell IN ('X1', '13', 'tools', 'TOOLS'))"))
