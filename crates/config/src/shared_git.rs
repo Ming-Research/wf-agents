@@ -83,7 +83,17 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// - `core.sshCommand` is the program git starts for a remote reached over ssh, on `fetch` and `push`.
 /// - `credential.helper` is a list, which an empty value clears: git then asks no helper, the repository's, a URL's
 ///   (`credential.<url>.helper`) and the system's alike.
-/// - `commit.gpgSign` makes git start `gpg.program` for every commit it makes, the commit of a merge included.
+/// - `commit.gpgSign` makes git start `gpg.program` for every commit it makes, the commit of a merge included;
+///   `push.gpgSign` for every push, when the other end takes a signed push; `log.showSignature` for each signed commit
+///   a `log` lists; `merge.verifySignatures` for the commit a merge takes. All four are off. The four `gpg.*.program`
+///   settings name the program for each signature format; they are pinned to `false`, which only fails, so that a
+///   place that would ask for a signature in a way not listed here finds no program to run.
+/// - `protocol.ext.allow` lets a remote URL of the form `ext::<command>` run the command as its transport; git allows
+///   it by default for no one, and the configuration can say otherwise, so `never` is set.
+/// - `uploadpack.packObjectsHook` is a shell command that `git upload-pack` runs in place of `git pack-objects`, which
+///   a fetch from a remote that is a path on this machine starts here; git reads it from the system's, the global and
+///   the command-line configuration only, and the command line is the last of them. `env` runs the command it is given,
+///   so the pack is made as it always was.
 /// - `core.attributesFile` is a file of gitattributes outside the repository; see [`ATTRIBUTE_SOURCE`].
 const PINNED: &[(&str, &str)] = &[
     ("core.hooksPath", "/dev/null"),
@@ -91,6 +101,15 @@ const PINNED: &[(&str, &str)] = &[
     ("core.sshCommand", "ssh"),
     ("credential.helper", ""),
     ("commit.gpgSign", "false"),
+    ("push.gpgSign", "false"),
+    ("log.showSignature", "false"),
+    ("merge.verifySignatures", "false"),
+    ("gpg.program", "false"),
+    ("gpg.openpgp.program", "false"),
+    ("gpg.x509.program", "false"),
+    ("gpg.ssh.program", "false"),
+    ("protocol.ext.allow", "never"),
+    ("uploadpack.packObjectsHook", "env"),
     ("core.attributesFile", "/dev/null"),
 ];
 

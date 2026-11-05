@@ -252,10 +252,12 @@ pub fn changed_since(dir: &Path, from: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// The diff from one commit to another, of some paths or of all.
+/// The diff from one commit to another, of some paths or of all. It is git's own diff text: a program the
+/// configuration names for diffs (`diff.external`, which no attribute is needed to run) is not asked, as in
+/// [`own_lines`].
 pub fn diff(dir: &Path, from: &str, to: &str, paths: &[String]) -> Result<String, String> {
     let range = format!("{from}..{to}");
-    let mut args = vec!["diff", range.as_str()];
+    let mut args = vec!["diff", "--no-ext-diff", "--no-textconv", range.as_str()];
     if !paths.is_empty() {
         args.push("--");
         args.extend(paths.iter().map(String::as_str));
