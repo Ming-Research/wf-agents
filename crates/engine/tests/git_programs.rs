@@ -526,3 +526,205 @@ fn a_git_proxy_in_the_configuration_is_not_run_by_the_engines_git() {
     assert_eq!(fx.ran(), NONE, "the engine's git ran the proxy program");
     fx.finish();
 }
+
+// The same `core.sshCommand` for a fetch, which the test of the push does not reach: the engine's `catch_up` and its
+// fetch of main start the `ssh` of the machine, which finds nothing at a closed port, not the configured program.
+#[test]
+fn a_ssh_command_in_the_configuration_is_not_run_by_the_engines_fetch() {
+    let fx = Fixture::new("ssh-fetch", &[]);
+    let work = fx.root.join("worktree-work");
+    create_worktree(&fx.checkout, &work, "work", "main").unwrap();
+    let ssh = fx.program("ssh", "exit 1");
+    fx.configure("core.sshCommand", &ssh);
+    fx.configure("remote.origin.url", "ssh://127.0.0.1:1/project.git");
+
+    // The reference: plain git fetching over ssh runs the program.
+    let control = plain(&work, &["fetch", "-q", "origin"]);
+    assert!(!control.status.success(), "a fetch over ssh went through");
+    assert_eq!(
+        fx.ran(),
+        ["ssh"],
+        "plain git did not run the ssh command: the fixture does not make it run"
+    );
+
+    assert!(catch_up(&work, "main").is_err());
+    assert!(git(&work, &["fetch", "-q", "origin", &config::main_refspec("main")]).is_err());
+    assert_eq!(fx.ran(), NONE, "the engine's fetch ran the ssh command");
+    fx.finish();
+}
+
+// A remote whose URL is `ext::<command>` makes git run the command as its transport, once `protocol.ext.allow` lets it:
+// git does not allow `ext` by default, and a configuration that allows it and points a remote at a program is a way to
+// run a program on the engine's `fetch` and `push` that no setting of the program itself shows. The URL here is the
+// remote's own, as an agent that writes the shared configuration writes it.
+#[test]
+fn an_ext_remote_in_the_configuration_is_not_run_by_the_engines_git() {
+    let fx = Fixture::new("ext-remote", &[]);
+    let work = fx.root.join("worktree-work");
+    create_worktree(&fx.checkout, &work, "work", "main").unwrap();
+    let transport = fx.program("ext", "exit 1");
+    fx.configure("protocol.ext.allow", "always");
+    fx.configure("remote.origin.url", &format!("ext::{transport}"));
+    fx.configure("remote.origin.pushurl", &format!("ext::{transport}"));
+
+    // The reference: plain git runs the program to fetch, and to push.
+    let control = plain(&work, &["fetch", "-q", "origin"]);
+    assert!(
+        !control.status.success(),
+        "a fetch through a program that fails went through"
+    );
+    assert_eq!(
+        fx.ran(),
+        ["ext"],
+        "plain git did not run the ext program: the fixture does not make it run"
+    );
+
+    assert!(catch_up(&work, "main").is_err());
+    let sha = head(&work).unwrap();
+    assert!(push(&work, &sha, "refs/heads/work", false).is_err());
+    assert!(delete_ref(&work, "refs/heads/work").is_err());
+    assert_eq!(fx.ran(), NONE, "the engine's git ran the program of an ext remote");
+    fx.finish();
+}
+
+// `push.gpgSign` makes git sign the push itself, with `gpg.program`, when the receiving end offers to take a signed push
+// (`receive.certNonceSeed`). It is not `commit.gpgSign`, and the engine's push must not start the program either. The
+// engine's push is a plain push that goes through.
+#[test]
+fn a_push_signing_program_in_the_configuration_is_not_run_by_the_engines_git() {
+    let fx = Fixture::new("push-signing", &[]);
+    let work = fx.root.join("worktree-work");
+    create_worktree(&fx.checkout, &work, "work", "main").unwrap();
+    setup(
+        &fx.root.join("origin.git"),
+        &["config", "receive.certNonceSeed", "seed"],
+    );
+    let signer = fx.program("gpg", "exit 1");
+    fx.configure("push.gpgSign", "true");
+    fx.configure("gpg.program", &signer);
+
+    // The reference: plain git signs the push, which fails, since the program signs nothing.
+    let control = plain(&work, &["push", "-q", "origin", "HEAD:refs/heads/control"]);
+    assert!(!control.status.success(), "plain git pushed without a signature");
+    assert_eq!(
+        fx.ran(),
+        ["gpg"],
+        "plain git did not run the program: the fixture does not make it run"
+    );
+
+    let sha = head(&work).unwrap();
+    push(&work, &sha, "refs/heads/work", false).unwrap();
+    delete_ref(&work, "refs/heads/work").unwrap();
+    assert_eq!(fx.ran(), NONE, "the engine's push ran the signing program");
+    fx.finish();
+}
+
+// `diff.external` names a program that `git diff` runs in place of its own diff, for every file that changed; the
+// attributes do not come into it, so the engine's reading of no attributes does not stop it. The engine's `diff` is the
+// text the cells read, and it has to be git's diff.
+#[test]
+fn an_external_diff_in_the_configuration_is_not_run_by_the_engines_git() {
+    let fx = Fixture::new("external-diff", &[]);
+    let work = fx.root.join("worktree-work");
+    create_worktree(&fx.checkout, &work, "work", "main").unwrap();
+    let (from, to) = {
+        let from = head(&work).unwrap();
+        commit_in(&work, "first", "changed\n");
+        (from, head(&work).unwrap())
+    };
+    let external = fx.program("diff", "exit 0");
+    fx.configure("diff.external", &external);
+
+    // The reference: plain git runs the program for the changed file.
+    plain(&work, &["diff", &format!("{from}..{to}")]);
+    assert_eq!(
+        fx.ran(),
+        ["diff"],
+        "plain git did not run the external diff: the fixture does not make it run"
+    );
+
+    let text = engine::git::diff(&work, &from, &to, &[]).unwrap();
+    let of_paths = engine::git::diff(&work, &from, &to, &["first".to_string()]).unwrap();
+    assert_eq!(fx.ran(), NONE, "the engine's diff ran the external diff");
+    assert!(text.contains("+changed"), "the engine's diff is not git's: {text:?}");
+    assert!(
+        of_paths.contains("+changed"),
+        "the engine's diff is not git's: {of_paths:?}"
+    );
+    fx.finish();
+}
+
+/// The commit `HEAD` of the worktree, made again with a signature header that no key made, so that git, asked to check
+/// signatures, starts `gpg.program` for it. `HEAD` of the worktree is moved to it.
+fn sign_head(fx: &Fixture, dir: &Path, name: &str) {
+    let text = setup(dir, &["cat-file", "commit", "HEAD"]);
+    let signature = "gpgsig -----BEGIN PGP SIGNATURE-----\n \n fake\n -----END PGP SIGNATURE-----";
+    let signed = text.replacen("\n\n", &format!("\n{signature}\n\n"), 1) + "\n";
+    let file = fx.root.join(format!("signed-{name}"));
+    std::fs::write(&file, signed).unwrap();
+    let id = setup(dir, &["hash-object", "-t", "commit", "-w", &file.to_string_lossy()]);
+    setup(dir, &["reset", "-q", "--hard", &id]);
+}
+
+// `log.showSignature` makes `git log` check each signed commit with `gpg.program` and print the result among the log;
+// `merge.verifySignatures` makes `git merge` check the commit it takes. The engine's reading of the branch's log and its
+// merge of main run neither, and the log is the commits and nothing else.
+#[test]
+fn a_signature_check_in_the_configuration_is_not_run_by_the_engines_git() {
+    let fx = Fixture::new("verify", &[]);
+    let work = fx.root.join("worktree-work");
+    create_worktree(&fx.checkout, &work, "work", "main").unwrap();
+    let control = control_worktree(&fx);
+    let base = head(&work).unwrap();
+    commit_in(&work, "work-own", "work-own\n");
+    sign_head(&fx, &work, "work");
+    commit_in(&control, "control-own", "control-own\n");
+    sign_head(&fx, &control, "control");
+    // Main moves on by a signed commit.
+    fx.advance("second", "second\n");
+    std::fs::write(fx.seed.join("third"), "third\n").unwrap();
+    setup(&fx.seed, &["add", "-A"]);
+    setup(&fx.seed, &["commit", "-q", "-m", "third"]);
+    sign_head(&fx, &fx.seed, "main");
+    setup(&fx.seed, &["push", "-q", "--force", "origin", "HEAD:main"]);
+    fx.ran();
+
+    let checker = fx.program("gpg", "exit 1");
+    fx.configure("gpg.program", &checker);
+    fx.configure("log.showSignature", "true");
+    fx.configure("merge.verifySignatures", "true");
+
+    // The reference: plain git checks the signature of the commit in the log, and of the commit it merges.
+    plain(&control, &["log", "--format=%H", "HEAD~1..HEAD"]);
+    assert_eq!(
+        fx.ran(),
+        ["gpg"],
+        "plain git did not check the signature in a log: the fixture does not make it"
+    );
+    plain(
+        &control,
+        &["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"],
+    );
+    let merge = plain(&control, &["merge", "--no-edit", "-q", "origin/main"]);
+    assert!(
+        !merge.status.success(),
+        "plain git merged a commit whose signature fails"
+    );
+    assert_eq!(
+        fx.ran(),
+        ["gpg"],
+        "plain git did not check the signature of a merge: the fixture does not make it"
+    );
+
+    let log = engine::git::log_since(&work, &base, "HEAD").unwrap();
+    assert_eq!(fx.ran(), NONE, "the engine's log ran the signature check");
+    assert_eq!(
+        log.commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(),
+        ["work-own"],
+        "the engine's log is not the commits"
+    );
+    let caught_up = catch_up(&work, "main").unwrap();
+    assert!(caught_up.is_ok(), "the merge of main did not go through: {caught_up:?}");
+    assert_eq!(fx.ran(), NONE, "the engine's merge ran the signature check");
+    fx.finish();
+}
