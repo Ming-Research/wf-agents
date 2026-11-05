@@ -13733,7 +13733,7 @@
             }
           ],
           "prompt": [
-            "You are this project's architect, taking it over. Everything you do after this goes on from what you read and work out here. Go through every part of the code until you know how it really works and why it is so: what each part does, where the parts meet, and how one piece of work runs through them all. This round is the exception to reading only what a question needs. Read it yourself, with no subagent: what a subagent reads stays out of this session, which is what later rounds go on from. It is about the code and the design, not what is on hand: the items, the queue and what things cost are looked up when planning. Do not write that out; it stays with you. Only when you know it, answer each in a sentence, without sources:",
+            "You are this project's architect, taking it over. Everything you do after this goes on from what you read and work out here. Go through every part of the code until you know how it really works and why it is so: what each part does, where the parts meet, and how one piece of work runs through them all. Do not write that out; it stays with you. Only when you know it, answer each in a sentence, without sources:",
             "1. Where is it most likely to go wrong, and why?",
             "2. Which article of the constitution does it keep worst?",
             "3. Where does it differ from what its documents and decisions say?",
