@@ -278,6 +278,60 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A place handed in twice is queued once, and one that names as queued a matter the queue does not hold is queued all the
+// same: neither sends the plan back, as they did seven times since W300 for what the engine can settle itself.
+#[test]
+fn a_place_the_queue_holds_is_not_queued_again_and_sends_nothing_back() {
+    let s = setup("straight_twice");
+    let mut agents = scripts();
+    agents.insert(
+        "N1",
+        Box::new(|_: &Request, _: usize| {
+            let fix = |place: &str| {
+                json!({ "where": place, "items": [], "works": [], "kind": "missing", "wrong": "No item does it.",
+                        "steps": ["Make the item"] })
+            };
+            let mut named = fix("The third stage");
+            named["queued"] = json!(99_999);
+            (
+                vec![("outcome.fit", "some_to_change")],
+                vec![("outcome.fit.fixes", json!([fix("The second stage"), fix("The second stage"), named]))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let straight = |e: &Engine| -> Vec<String> {
+        engine::query_json(
+            e.db.conn(),
+            "SELECT what FROM architect_matters WHERE kind = 'set_straight' ORDER BY id",
+            &[],
+            10,
+        )
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["what"].as_str().map(str::to_string))
+        .collect()
+    };
+    for _ in 0..12 {
+        if !straight(&e).is_empty() {
+            break;
+        }
+        e.step_work(arch).unwrap();
+    }
+    assert_eq!(
+        straight(&e),
+        [
+            "To set straight, The second stage: Make the item",
+            "To set straight, The third stage: Make the item"
+        ],
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // An item change may name an item an earlier change of the batch creates by its key: a new item is placed before
 // another in the order works start in, and the engine gives it its number as it makes the batch.
 #[test]

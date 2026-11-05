@@ -2336,8 +2336,24 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let (_, project) = architect_work_of(ctx)?;
             let fit = &ctx.unwrapped["fit"];
             // One matter for each place, with every step the plan meant to take there; a place the queue holds
-            // already, which the fix names, is not queued again.
-            for fix in items(at).into_iter().filter(|x| x["queued"].as_i64().is_none()) {
+            // already, by the matter the fix names or as the same place, is not queued again.
+            let mut open = query_json(
+                tx,
+                "SELECT id, json_extract(body, '$.fix') AS fix FROM architect_matters
+                 WHERE project = ?1 AND handled_round IS NULL AND withdrawn IS NULL
+                 ORDER BY id",
+                &[&project],
+                ROWS,
+            )?;
+            for fix in items(at) {
+                let named = fix["queued"].as_i64();
+                if open
+                    .iter()
+                    .any(|o| named.is_some_and(|m| o["id"].as_i64() == Some(m)) || same_place(&o["fix"], &fix))
+                {
+                    continue;
+                }
+                open.push(json!({ "fix": fix }));
                 let what = format!(
                     "To set straight, {}: {}",
                     db::one_sentence(text(&fix["where"])),
@@ -2959,7 +2975,7 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
     let matter = picked(conn, c.w.id)?;
     for (i, ch) in new.iter().enumerate() {
         let n = i + 1;
-        for p in changed_under(c, project, matter, ch)? {
+        for p in changed_under(c, matter, ch)? {
             problems.push(format!("item change {n} ({}): {p}", text(&ch["kind"])));
         }
         for p in words_problems(conn, project, ch)? {
@@ -3076,9 +3092,9 @@ type ItemState = (String, Option<String>, Option<String>, Option<String>);
 /// merged or was cancelled; a text it changes is at another version than the one it was drafted on, the item as it is
 /// now said; an acceptance it changes is locked by a work's design; an item a work runs on is changed from outside that
 /// work's own question with no word of why the work must change, or merged into or folded into, which takes in work
-/// from outside; an observation it folds in was folded into another item; a dependency it makes is on an item merged,
+/// from outside; a dependency it makes is on an item merged,
 /// cancelled or held. `matter` is the matter in hand, whose work's own item it may change.
-fn changed_under(c: &checks::Ctx<'_>, project: &str, matter: Option<i64>, ch: &Value) -> Result<Vec<String>, String> {
+fn changed_under(c: &checks::Ctx<'_>, matter: Option<i64>, ch: &Value) -> Result<Vec<String>, String> {
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
     let kind = text(&ch["kind"]);
@@ -3145,24 +3161,6 @@ fn changed_under(c: &checks::Ctx<'_>, project: &str, matter: Option<i64>, ch: &V
                      on from a work is a new item that depends on it"
                 )),
                 _ => {}
-            }
-        }
-    }
-    if kind == "fold_observations" {
-        for o in items(ch.get("observations")) {
-            let Some(id) = o.as_i64() else { continue };
-            let into: Option<Option<i64>> = conn
-                .query_row(
-                    "SELECT folded_into FROM observations WHERE id = ?1 AND project = ?2",
-                    params![id, project],
-                    |r| r.get(0),
-                )
-                .optional()
-                .map_err(sql)?;
-            if let Some(Some(other)) = into
-                && item_number(&ch["item"]) != Some(other)
-            {
-                problems.push(format!("observation {id} was folded into item {other} already"));
             }
         }
     }
@@ -3464,44 +3462,9 @@ fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems
 }
 
 /// Runs a check of the architect's graph.
-pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
+pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), Problems> {
     let conn = c.e.db.conn();
     match name {
-        "fix_not_queued_again" => {
-            let fixes = match (at, v) {
-                (Some("fit"), Some(fit)) => items(fit.get("fixes")),
-                (_, v) => items(v),
-            };
-            let open = query_json(
-                conn,
-                "SELECT id, json_extract(body, '$.fix') AS fix FROM architect_matters
-                 WHERE project = ?1 AND kind = 'set_straight' AND handled_round IS NULL AND withdrawn IS NULL
-                 ORDER BY id",
-                &[&project_of(c.w)?],
-                ROWS,
-            )?;
-            let row = if at == Some("fit") { "fix" } else { "thing missing" };
-            let mut problems = Vec::new();
-            for (i, x) in fixes.iter().enumerate() {
-                let n = i + 1;
-                if let Some(m) = x["queued"].as_i64() {
-                    if !open.iter().any(|o| o["id"].as_i64() == Some(m)) {
-                        problems.push(format!(
-                            "{row} {n} names matter {m} as queued, which is no place to set straight your queue holds"
-                        ));
-                    }
-                    continue;
-                }
-                if let Some(o) = open.iter().find(|o| same_place(&o["fix"], x)) {
-                    problems.push(format!(
-                        "{row} {n} is matter {}, which your queue holds already: name it in queued, and it is not \
-                         queued again",
-                        o["id"]
-                    ));
-                }
-            }
-            Problems::from(problems).into_result()
-        }
         "effects_valid" => {
             let Some(effects) = v else { return Ok(()) };
             Problems::from(effects_problems(c, project_of(c.w)?, effects)?).into_result()

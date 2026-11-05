@@ -762,8 +762,9 @@ fn write_one(
         "fold_observations" => {
             let item = item_of(&c["item"], keys)?;
             for o in items(c.get("observations")) {
+                // One folded already stays in the item that took it first.
                 tx.execute(
-                    "UPDATE observations SET folded_into = ?2 WHERE id = ?1",
+                    "UPDATE observations SET folded_into = ?2 WHERE id = ?1 AND folded_into IS NULL",
                     params![number(&o).unwrap_or_default(), item],
                 )
                 .map_err(sql)?;

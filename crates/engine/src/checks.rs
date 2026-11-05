@@ -1387,7 +1387,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let verdict = c.unwrapped.pointer(REVIEW_VERDICT).and_then(Value::as_str);
             verdict_problems(&refuted(&tried), verdict).into_result()
         }
-        other => crate::architect::check(c, other, at, v),
+        other => crate::architect::check(c, other, v),
     }
 }
 

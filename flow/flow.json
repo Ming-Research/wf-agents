@@ -4898,7 +4898,6 @@
       "reply_fits_changes": "The reply names each sub-item and each item to wait for by its number or by the key a change of this round makes it under.",
       "learned_holds_no_decision": "No line of the text starts a decision (`Decision (`): a decision is handed in as a decision, from the records it quotes, and the engine makes its line; what is learned holds facts and approaches dropped.",
       "candidates_known": "At most ten candidates, each an open observation of the project.",
-      "fix_not_queued_again": "A thing missing or a place to set straight that the queue holds already, as a matter not handled of the same kind and the same place or the same items, is not handed in again unless it names that matter in queued; a matter it names so is one the queue holds.",
       "holds_needs_policy": "Once the owner replied to the question whether to research a new policy, the check of the policy hands in that it holds only while a policy is in force; with none, it writes the course the project keeps by the reply, or asks again.",
       "policy_or_kept": "The writing of the policy hands in the whole policy with a draft written, or, with a draft kept, no policy and no new measures.",
       "notebook_fits": "The notebook's sections the round rewrote are each named once, each at most 4,000 characters, and with the sections it leaves as they are at most 12,000 characters in all.",
@@ -15524,14 +15523,6 @@
             "policy_scope"
           ],
           "checks": [
-            {
-              "at": "missing",
-              "check": "fix_not_queued_again"
-            },
-            {
-              "at": "fit",
-              "check": "fix_not_queued_again"
-            },
             {
               "at": "notebook",
               "check": "notebook_fits"
