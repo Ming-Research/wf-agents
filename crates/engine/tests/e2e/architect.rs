@@ -126,7 +126,7 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
         sessions,
         [
             ("architect".to_string(), "line".to_string(), None, false, false),
-            ("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true),
+            ("matter".to_string(), "fork".to_string(), Some(base.clone()), false, true),
         ],
         "{log}"
     );
@@ -285,6 +285,53 @@ fn a_fork_that_misses_its_warmed_base_is_a_fault_named_by_the_ping() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The matters of one run share one session forked from the base, the later one given its own material and not what the
+// session holds; the next run forks anew from the base.
+#[test]
+fn a_run_handles_its_matters_in_one_fork_and_the_next_run_forks_anew() {
+    let s = setup("one-fork-a-run");
+    let mut agents = scripts();
+    let seen = keep_requests(&mut agents, &["H1"]);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "FIRSTWORDS");
+    say(&mut e, "SECONDWORDS");
+    let first = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, first)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let base = base_session(&e, first);
+    say(&mut e, "THIRDWORDS");
+    let second = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, second)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let fork = ("matter".to_string(), "fork".to_string(), Some(base.clone()), false, true);
+    assert_eq!(
+        sessions_of(&e, first),
+        [
+            ("architect".to_string(), "line".to_string(), None, false, false),
+            fork.clone()
+        ],
+        "{log}"
+    );
+    assert_eq!(sessions_of(&e, second), [fork], "{log}");
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 3, "{log}");
+    assert_eq!((seen[0].fork, seen[0].resume.as_deref()), (true, Some(base.as_str())));
+    assert!(!seen[1].fork && seen[1].resume.as_deref() == Some(seen[0].new_session.as_str()), "{log}");
+    assert_eq!((seen[2].fork, seen[2].resume.as_deref()), (true, Some(base.as_str())));
+    let later = message_at(&e, first, "H1", true);
+    assert!(later.contains("SECONDWORDS"), "{later}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work of the architect after the one that built the base takes its matter in a session forked from that base, though
 // the base's prompt cache has long been let go: neither time nor a cold cache reads the project again, and the
 // project's next work goes from the look at what comes next straight to the matter, told what changed since the base.
@@ -313,7 +360,7 @@ fn the_next_work_forks_its_matter_from_the_base_however_long_after() {
     let base = base_session(&e, first);
     assert_eq!(
         sessions_of(&e, second),
-        [("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true)],
+        [("matter".to_string(), "fork".to_string(), Some(base.clone()), false, true)],
         "{log}"
     );
     let seen = seen.lock().unwrap();

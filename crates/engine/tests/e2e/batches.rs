@@ -77,7 +77,7 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
     assert_eq!(
         sessions_of(&e, second),
         [
-            ("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true),
+            ("matter".to_string(), "fork".to_string(), Some(base.clone()), false, true),
             (
                 "second_eye".to_string(),
                 "fork".to_string(),

@@ -139,8 +139,8 @@ fn what_a_matter_adds_is_read_by_the_next_matter_and_the_parts_stay() {
 }
 
 // What the architect asks the owner and what the owner answers come after the base as a matter's record does: the matter
-// forked next reads the question, and once the owner answered, the matter that asked starts a new fork of the base, whose
-// session is not the one that asked, and reads both there.
+// taken next reads the question, and once the owner answered, the next run takes the matter that asked in a new fork of
+// the base, whose session is not the one that asked, and reads both there.
 #[test]
 fn what_is_asked_of_the_owner_and_answered_is_read_after_the_base() {
     let s = setup("notebook-asked");
@@ -186,7 +186,7 @@ fn what_is_asked_of_the_owner_and_answered_is_read_after_the_base() {
     let base = base_session(&e, first);
     assert_eq!(
         sessions_of(&e, again),
-        [("matter".to_string(), "fork".to_string(), Some(base), true, true)],
+        [("matter".to_string(), "fork".to_string(), Some(base), false, true)],
         "{log}"
     );
     let answered = message_at(&e, again, "H1", false);

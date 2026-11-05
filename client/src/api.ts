@@ -3005,6 +3005,11 @@ cache_expiry?: boolean,
  */
 fork_of?: string | null,
 /**
+ * All the matters a work takes share one session of the cell's line ([`crate::format`]'s `wholeRun`); false on any
+ * other line, and in a flow version stored before a line could.
+ */
+whole_run?: boolean,
+/**
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.
  */
