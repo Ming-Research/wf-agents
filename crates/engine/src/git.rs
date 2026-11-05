@@ -4,7 +4,6 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
 
 /// A work's worktree is the session manager's: it sets it up, removes it, and says what its head is and whether it is
 /// clean.
@@ -219,9 +218,7 @@ pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
         "-U1",
         range.as_str(),
     ];
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
+    let out = config::shared_git::command(dir)
         .args(args)
         .output()
         .map_err(|e| format!("git: {e}"))?;
@@ -345,9 +342,7 @@ fn in_own_index<T>(dir: &Path, tag: &str, f: impl FnOnce(Indexed<'_>) -> Result<
     let tmp = Path::new(gitdir.trim()).join(format!("wf-agents-index-{tag}"));
     let index = tmp.to_string_lossy().into_owned();
     let run = |args: &[&str]| -> Result<String, String> {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(dir)
+        let out = config::shared_git::command(dir)
             .args(args)
             .env("GIT_INDEX_FILE", &index)
             .output()
