@@ -51,4 +51,28 @@ the 95% interval of the mean over the pairs (Student's t) is taken, and divided 
 
 ## Result
 
-Not measured yet on the code as it now is.
+Measured on the workflow's runner (Linux, 4 processors), 30 interleaved pairs, the sides built each in its own target
+directory, with this work's head dc5d2d33 as the candidate and e541b375 as the base. The figure of a pair and a set is
+the median of its 20 reads, in microseconds, read from `command.log`. The intervals were worked out by hand from the
+30 pairs (the difference of each side with the base, their mean, their standard deviation over 29 degrees of freedom
+and Student's t of 2.045), not by a script: a run of `awk` or `node` on the engineer's machine needs the owner's
+approval. The sets `models` and `tools` were run and printed but not worked out.
+
+| set | base, mean read | twin - base, mean and 95% interval | candidate - base, mean and 95% interval | as a share of the base |
+|---|---|---|---|---|
+| mixed | about 39.2 ms | +185 us, -125 to +495 us | +1,488 us, +1,157 to +1,819 us | +3.8% (3.0% to 4.6%) |
+| engine | about 38.4 ms | +53 us, -275 to +381 us | +341 us, +49 to +634 us | +0.9% (0.1% to 1.7%) |
+
+- The new code ran: for `mixed` the candidate's answer is 187,345 bytes against the base's and the twin's 126,661
+  (60,684 bytes more, 202 bytes for each of the 300 works, 48% more); for `engine` 182,845 against 125,161.
+- The twin's interval holds 0 for both sets, so the run's noise is about 0.8% of a read and the runs count.
+- The candidate's interval for `mixed` lies wholly above 0: the candidate was slower in 29 of the 30 pairs. This is a
+  slowdown of the list's read, about 1.5 ms on 45,000 rounds, 33 ns for each round.
+- Where it comes from: about 0.34 ms of it is in `engine`, where no bar is drawn, so it is what every round now costs
+  (one more column read from the database, the passes over a work's rounds for its span and its bar); the other
+  1.15 ms or so is drawing the bar of the rounds a model or the tools ran.
+- The page's JSON written from the answer (`write_median_us`, taken in the same process) went from about 270 us in the
+  base to about 360 us in the candidate, against a read of 39 ms.
+- Not measured: a database whose rounds are as long as real ones (their inputs and outputs are `{}` here, since the list
+  reads neither), and the owner's machine. The workload has 300 works of 150 rounds each, in the range the item names
+  (hundreds of works, over a hundred rounds each).
