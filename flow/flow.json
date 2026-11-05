@@ -13697,15 +13697,6 @@
                   "engine": "slots"
                 }
               ]
-            },
-            {
-              "name": "Project numbers",
-              "what": "The numbers the engine measures for the project, each up to the moment this input is given (`up_to`, UTC), the rounds of this work of the architect until then counted, and earlier for the trend: the size of its records and of the files the project holds on main; items made, merged and cancelled, and what its items' works and its architect's works spent, week by week; and the engine's other health numbers, each with what it is and its unit, week by week for the same four weeks, one split by cell giving the cells with the largest values and how many more there are. Merged counts the pull requests the flow merged; the commits that came onto main without the flow, and the merges whose commit main does not hold, are numbers of their own. A number that had nothing to measure in a week has no value there and says why",
-              "from": [
-                {
-                  "engine": "numbers"
-                }
-              ]
             }
           ],
           "prompt": [

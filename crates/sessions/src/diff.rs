@@ -10,6 +10,9 @@ const CONTEXT: usize = 2;
 /// start and end are given as all removed and all added, which is still what changed.
 const MOST: usize = 4_000_000;
 
+/// The length in bytes past which a line is compared in pieces.
+const LONG: usize = 2_000;
+
 /// The entries of a later object that differ from an earlier one's: each entry the later one changed or added, an
 /// object inside both written the same way, and null for an entry the later one no longer has. Empty when they are
 /// the same.
@@ -35,11 +38,32 @@ pub fn entries(earlier: &Value, later: &Value) -> Value {
     Value::Object(out)
 }
 
+/// The lines of a text as a diff compares them, a line longer than [`LONG`] cut before each `,"`: a schema is one line of
+/// JSON, and a change in it would otherwise give the whole line twice, more than the text itself.
+fn pieces(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if line.len() <= LONG {
+            out.push(line);
+            continue;
+        }
+        let mut start = 0;
+        for (at, _) in line.match_indices(",\"") {
+            if at > start {
+                out.push(&line[start..at]);
+                start = at;
+            }
+        }
+        out.push(&line[start..]);
+    }
+    out
+}
+
 /// The lines of a later text that differ from an earlier one's, as a unified diff: each hunk headed by where it is in
 /// both, `-` before a line removed, `+` before a line added, and a space before a line around them that stayed.
 pub fn lines(earlier: &str, later: &str) -> String {
-    let a: Vec<&str> = earlier.lines().collect();
-    let b: Vec<&str> = later.lines().collect();
+    let a = pieces(earlier);
+    let b = pieces(later);
     // Each line as the diff has it: ' ', '-' or '+', and its number in each text, counted from 0.
     let mut ops: Vec<(char, usize, usize)> = Vec::new();
     let start = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
@@ -120,6 +144,21 @@ pub fn lines(earlier: &str, later: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A change in one long line of JSON gives the piece that changed, not the whole line twice, and the pieces put back
+    // together are the line.
+    #[test]
+    fn a_change_in_a_long_line_gives_only_the_piece_that_changed() {
+        let fields: Vec<String> = (0..400).map(|i| format!("\"field{i}\":\"value{i}\"")).collect();
+        let was = format!("{{{}}}", fields.join(","));
+        let is = was.replace("value200", "changed");
+        let changed = lines(&format!("head\n{was}\n"), &format!("head\n{is}\n"));
+        assert!(changed.contains("-,\"field200\":\"value200\""), "{changed}");
+        assert!(changed.contains("+,\"field200\":\"changed\""), "{changed}");
+        assert!(changed.len() < 300, "{}", changed.len());
+        assert_eq!(pieces(&was).concat(), was);
+    }
+
     use serde_json::json;
 
     // A text's change is its lines that differ with two lines around them, in hunks a unified diff reads.

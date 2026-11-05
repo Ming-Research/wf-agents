@@ -288,7 +288,7 @@ impl<'a> Giver<'a> {
         let earlier = self.version(held, content)?;
         let what = match (&earlier, content) {
             (Value::String(was), Value::String(is)) => format!(
-                "What changed since {}, given in {}, as a unified diff of its lines:\n{}",
+                "What changed since {}, given in {}, as a unified diff of its lines, a long line cut before each `,\"`:\n{}",
                 held.address,
                 held.round,
                 diff::lines(was, is)
