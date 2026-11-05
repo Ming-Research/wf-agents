@@ -1,7 +1,7 @@
 //! What the engine does at each kind of cell: an agent's round, its own steps, the tool cells, and asking the owner.
 
 use db::Actor;
-use db::rusqlite::{OptionalExtension, Transaction, params};
+use db::rusqlite::{OptionalExtension, params};
 use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledRow};
 use serde_json::{Map, Value, json};
@@ -1283,18 +1283,32 @@ pub fn finish(
     Ok(Advance::Moved)
 }
 
-/// What the end of a graph writes besides its round, in the round's transaction.
-type AtEnd<'a> = &'a dyn Fn(&Transaction<'_>) -> Result<(), String>;
-
-/// Ends the round at the graph's end, which has no rows: the work is done.
-fn finish_end(e: &mut Engine, w: &Work, round: RoundId, output: Value, also: AtEnd<'_>) -> Result<Advance, String> {
+/// Ends the round at the graph's end, which has no rows: the work is done. In the same write the work ends
+/// ([`crate::ending::end`]), so that it is never left ended with its last round open, or done and still loaded by the
+/// engine's loop, and the matter `followup` is queued for the architect.
+fn finish_end(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    round: RoundId,
+    output: Value,
+    followup: Option<db::Matter>,
+) -> Result<Advance, String> {
     let ended = Ended {
         output: Some(output),
         ..Ended::default()
     };
+    let projects = &e.config.config.projects;
     e.db.write(Actor::Engine, |tx| {
         work::finish_round(tx, round, &ended).map_err(db::Error::Abort)?;
-        also(tx).map_err(db::Error::Abort)
+        if cell.id == g.end {
+            crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)?;
+        }
+        if let Some(m) = &followup {
+            db::queue_matter(tx, m)?;
+        }
+        Ok(())
     })
     .map_err(sql)?;
     e.say(&format!("work {} done", w.id));
@@ -1517,11 +1531,11 @@ pub fn engine(
         None => json!({}),
     };
     if cell.rows.is_empty() {
-        let output = match step.as_deref() {
+        let (output, followup) = match step.as_deref() {
             Some("end_work") => end_work(e, w, g, cell)?,
-            _ => output,
+            _ => (output, None),
         };
-        return finish_end(e, w, round, output, &|_| Ok(()));
+        return finish_end(e, w, g, cell, round, output, followup);
     }
     let row = g.take(&cell.id, &output, &given)?.clone();
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
@@ -1771,13 +1785,20 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     Ok(json!({ "place": place }))
 }
 
-/// Cell `E1`: the work ends as every work does ([`crate::ending::end`]): its sessions end, and its worktree is removed
-/// once the round is written; the branch stays. A work that delivered a report and handed in what to do next queues it
-/// for the architect, as a matter of its own, when the cell names that (`queue_followup`), as a flow version before
-/// the cell named what it does did too. What was said to the work and never handed in stays so: no round runs off the
-/// graph to answer it, the way on no longer changes, and the owner's page marks it on the words themselves as not
-/// received, in place of the notice a flow version's `tell_undelivered` named, which tells nothing now.
-fn end_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Value, String> {
+/// Cell `E1`: what the engine records of the work as it ends (`numbers`), and, for a work that delivered a report and
+/// handed in what to do next, the matter that queues it for the architect, when the cell names that
+/// (`queue_followup`), as a flow version before the cell named what it does did too. The work then ends as every work
+/// does ([`crate::ending::end`]) in the write that completes the round ([`finish_end`]): its sessions end, and its
+/// worktree is removed once that write is in; the branch stays. What was said to the work and never handed in stays
+/// so: no round runs off the graph to answer it, the way on no longer changes, and the owner's page marks it on the
+/// words themselves as not received, in place of the notice a flow version's `tell_undelivered` named, which tells
+/// nothing now.
+fn end_work(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+) -> Result<(Value, Option<db::Matter>), String> {
     let project = e.project_of(w)?;
     let numbers = numbers(e, w, g)?;
     let follows = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "queue_followup");
@@ -1786,16 +1807,7 @@ fn end_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) ->
     } else {
         None
     };
-    let projects = &e.config.config.projects;
-    e.db.write(Actor::Engine, |tx| {
-        crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)?;
-        if let Some(m) = &followup {
-            db::queue_matter(tx, m)?;
-        }
-        Ok(())
-    })
-    .map_err(sql)?;
-    Ok(json!({ "numbers": numbers }))
+    Ok((json!({ "numbers": numbers }), followup))
 }
 
 /// What the engine records of a work as it ends (cell `E1`'s `numbers`), the data the flow's convergence is judged by:

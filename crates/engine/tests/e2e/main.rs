@@ -30,6 +30,7 @@ mod declared_checks;
 mod deep_research;
 mod dependency_sources;
 mod dependency_sources_left_behind;
+mod ended;
 mod engine_faults;
 mod engine_runs;
 mod failures;
@@ -2611,8 +2612,19 @@ fn cancelled_why(e: &Engine, item: i64) -> Option<String> {
         .unwrap()
 }
 
-/// Why a work ended; none while it goes on.
+/// Why a work was stopped before its end; none while it goes on, and none for a work that reached the end of its
+/// graph, which ends as `done` ([`ended_done`]).
 fn ended_why(e: &Engine, work: i64) -> Option<String> {
+    ended_of(e, work).filter(|why| why != db::ENDED_DONE)
+}
+
+/// Whether a work reached the end of its graph and ended as `done`.
+fn ended_done(e: &Engine, work: i64) -> bool {
+    ended_of(e, work).as_deref() == Some(db::ENDED_DONE)
+}
+
+/// What the work's column `ended` holds.
+fn ended_of(e: &Engine, work: i64) -> Option<String> {
     e.db.conn()
         .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
         .unwrap()

@@ -252,9 +252,17 @@ fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkR
         .collect())
 }
 
+impl WorkRow {
+    /// Why the work was stopped before its end; none for a work that is going on or reached the end of its graph
+    /// (`works.ended` holds `done` for it).
+    fn stopped(&self) -> Option<&str> {
+        self.ended.as_deref().filter(|why| *why != db::ENDED_DONE)
+    }
+}
+
 /// Where a work stands, as the engine sees it.
 fn state(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> WorkState {
-    if w.ended.is_some() {
+    if w.stopped().is_some() {
         return WorkState::Ended;
     }
     if let Some(g) = g
@@ -333,7 +341,7 @@ fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&
 /// waiting for one, else the row. A cell whose last round failed in a way the flow runs again waits to run again
 /// (`Waits::Retry`). A paused work is said to wait too, so that the owner sees both.
 fn waits(conn: &Connection, w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> Result<Option<Waits>> {
-    if w.ended.is_some() {
+    if w.stopped().is_some() {
         return Ok(None);
     }
     if let Some(held) = held_by(conn, w.id)? {
@@ -516,7 +524,7 @@ fn summary(
         },
         paused,
         paused_by,
-        ended: w.ended.clone(),
+        ended: w.stopped().map(str::to_string),
         waits,
         branch: w.branch.clone(),
         pr: w.pr,
