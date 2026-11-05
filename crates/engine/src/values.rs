@@ -91,8 +91,11 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         "merge_failures" => s(if merge_failures(e, w)? >= 2 { "third" } else { "fewer" }),
         // Where the review of the work's latest design stands.
         "review" => s(crate::review::stage(e.db.conn(), w.id)?),
-        // What the merge gate waits for: the items it depends on while one is not merged, then the findings set aside
-        // no review judged, then the owner's approval of a change that touches a path the owner approves.
+        // What the merge gate waits for, in this order: items, the items it depends on while one is not merged; set_aside,
+        // the findings set aside no review judged; approvals, the answers the work asked for while it went on; conditions,
+        // the owner's merge conditions not judged; owner, the owner's approval of a change that touches a path the owner
+        // approves. A condition comes after the answers, which may change the work it is judged on, and before the approval
+        // so that the owner does not approve a change a condition then sends back to be fixed and approved again.
         "gates" => {
             let waits_for_items = dependencies(e, item.id)?
                 .iter()
@@ -102,6 +105,13 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
             if !crate::set_aside::unjudged(e, w, g)?.is_empty() {
                 return s(crate::set_aside::INPUT);
+            }
+            if crate::approval::awaited(e.db.conn(), w.id)? {
+                return s("approvals");
+            }
+            let conditions = crate::conditions::gate(e.db.conn(), item.id, w.id)?;
+            if conditions != crate::conditions::CLEAR {
+                return s(conditions);
             }
             s(crate::approval::gate(e.db.conn(), &e.project_of(w)?, w)?)
         }

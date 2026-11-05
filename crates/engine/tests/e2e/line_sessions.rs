@@ -620,6 +620,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
                 to: None,
                 question: None,
                 design_card: None,
+                condition: None,
                 images: two_images(),
             };
             api::say_to_work(&mut db, r.work, &said).unwrap();

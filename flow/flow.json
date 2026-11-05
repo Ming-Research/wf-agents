@@ -743,6 +743,55 @@
         ]
       }
     },
+    "owner_conditions": {
+      "name": "owner_conditions",
+      "title": "Merge conditions, reported on",
+      "type": "list",
+      "optional": true,
+      "desc": "Only when you are given merge conditions: one row for each, by its number (C1, C2, ...), none left out; leave it out when you are given none. The owner reads it at the merge gate to judge each one",
+      "item": {
+        "type": "union",
+        "by": "answer",
+        "branches": [
+          {
+            "value": "done",
+            "desc": "It is done as the owner set it",
+            "fields": [
+              {
+                "name": "id",
+                "title": "Merge condition",
+                "type": "text",
+                "desc": "Its number, such as C1"
+              },
+              {
+                "name": "what",
+                "title": "What was done",
+                "type": "text",
+                "desc": "What was done, and where the owner sees it: a round, the pull request, an output"
+              }
+            ]
+          },
+          {
+            "value": "not_done",
+            "desc": "It is not done, or cannot be: this hands it back to the owner, who judges it at the merge gate, or says what to do next",
+            "fields": [
+              {
+                "name": "id",
+                "title": "Merge condition",
+                "type": "text",
+                "desc": "Its number, such as C1"
+              },
+              {
+                "name": "why",
+                "title": "Why it is not done",
+                "type": "text",
+                "desc": "Why it is not done or cannot be, and what it would need"
+              }
+            ]
+          }
+        ]
+      }
+    },
     "set_aside_answers": {
       "name": "set_aside",
       "title": "Findings set aside, judged",
@@ -2685,6 +2734,64 @@
                 "desc": "An observation's number"
               },
               "min": 1
+            }
+          ]
+        },
+        {
+          "value": "add_merge_condition",
+          "desc": "Record something the owner set to be done before the item's work merges: the merge gate holds the work until it is judged, and holds nothing neither ticked by the owner nor recorded here. When words of the owner's that you are given make something a thing to be done before a merge, record it in this round. You write the sentence; the engine finds the quotation in its record and says who the record says said it: the owner, the owner relayed by the delegate, or the delegate in its own words",
+          "fields": [
+            {
+              "name": "item",
+              "title": "Item",
+              "type": "text",
+              "desc": "Number, or key of an item this round creates"
+            },
+            {
+              "name": "what",
+              "title": "What must be done",
+              "type": "text",
+              "desc": "One sentence that reads alone, since the words it rests on may be only \"OK\": the engineer reports on it and the owner judges it, in the owner's language (the setting `owner.language`) with technical terms in their English original"
+            },
+            {
+              "name": "source",
+              "title": "The record its words are in",
+              "type": "obj",
+              "desc": "The record of what the owner or the delegate said; one of your own words or the engine's is refused",
+              "fields": [
+                {
+                  "name": "from",
+                  "title": "Kept in",
+                  "type": "enum",
+                  "desc": "Where the record is kept",
+                  "values": [
+                    [
+                      "matter",
+                      "A matter of the owner's words, or an engineer's question the owner answered"
+                    ],
+                    [
+                      "ask",
+                      "The answer to an ask of an agent"
+                    ],
+                    [
+                      "interjection",
+                      "What was said to an engineer's work"
+                    ]
+                  ]
+                },
+                {
+                  "name": "id",
+                  "title": "Number",
+                  "type": "int",
+                  "desc": "The record's number"
+                },
+                {
+                  "name": "quote",
+                  "title": "The words",
+                  "type": "text",
+                  "desc": "The words as the record has them, letter for letter"
+                }
+              ]
             }
           ]
         }
@@ -4800,7 +4907,8 @@
       "record_acceptance": "Writes the acceptance conditions of the plan or the design the work implements onto the item: the research's plan when the work goes straight to implement, the design the owner approved otherwise; later the implementation, a fix or the advisor may change them, saying why. If they are the same as those on the item, nothing changes.",
       "post_design_review": "Queues the work's latest design, with what thinking again outside the frame examined, for the project's architect to review at the project's level, as an engineer's question of the kind design_review, which starts a work of the architect when none runs. The work does not wait for it: once the architect replied, the engine puts the design to the owner with the architect's comments, as an ask of the owner in the work's group of the kind design_review, and notifies the owner, who replies exactly approved to approve it, or says what to change and chooses an option for each decision point. An answer other than approved reaches the engineer as the owner's words. One queued already and not answered is not queued again.",
       "ask_owner_approval": "Puts the change before the owner, as an ask of the owner in the work's group with the files the owner approves and the pull request to compare them on, and notifies the owner: reply exactly approved to approve it. The ask stands for the work's blocker; one put already and not answered is not put again.",
-      "relay_owner_answer": "Gives the owner's answer to the ask of the change, which was not exactly approved, to the work's engineer as the owner's words, which the way on chosen next takes in.",
+      "ask_owner_condition": "Puts the first merge condition of the item not judged before the owner, as an ask of the owner in the work's group with two options, met and withdrawn: its sentence, the words it rests on and who said them, a link to the record they are in, who recorded it and when, the engineer's latest report on it, or that there is none yet, and the pull request; and notifies the owner. The ask stands for the work's blocker, which says which condition it waits on; one put already and not answered is not put again.",
+      "relay_owner_answer": "Gives the answer to the merge gate's ask, of the change when it was not exactly approved, or of a merge condition when it judged nothing, to the work's engineer as the owner's words, saying what was asked and who answered, the owner or the delegate; the way on chosen next takes it in.",
       "apply_checked": "Makes what the matter's session handed in and the second eye found sound: its item changes, its changes to observations, its actions and its messages, as `apply_effects` makes them; its reply goes, with the numbers of the items made, and the work that reported is told what became of it.",
       "return_checked": "Sends what the matter's session handed in back to it, at the cell that handed it in, with what the second eye found: none of it takes effect, its reply does not go, and the session hands it in again, revised.",
       "queue_main_red": "Watches main's CI for every project, at most once a minute each: when the full CI of main's latest commit has finished and a check that counts against a merge is red, and no matter of main red was queued for that commit, queues one, with the commit, the red checks and their runs. While a matter of main red is open, the project's merge queue is stopped: no work merges onto a red main.",
@@ -4831,6 +4939,7 @@
       "fact_basis_ran": "A basis of fact names a run the engine recorded, and its result is what that run gave.",
       "previous_findings_answered": "At the re-check, there is a row for each row the latest fix answered, by its number, and none for another.",
       "set_aside_answered": "Each finding set aside the round was given is answered once, by its number, and no other; one answered real names a finding of this return that carries it.",
+      "owner_conditions_answered": "Each merge condition the round was given is reported on once, by its number, and no other; a round given none leaves the field out. A condition recorded while the round ran it was not given, and it need not report on it.",
       "table_answered": "Every row of the table is answered once, with an answer the table allows for that row.",
       "no_disagreeing_after_insist": "A finding the re-check insisted on is not answered disagree again; when neither side gives way, the engineer asks the advisor.",
       "not_caused_by_change": "For a red check said not to be caused by the change, the engine checks it itself: the check is red on main as the worktree last fetched it, or in the table of known red checks; a flaky one is answered unrelated_flake. When main's checks cannot be read, it is taken as written.",
@@ -4839,7 +4948,7 @@
       "constitution_covered": "There is exactly one row for each article of the project's constitution, in the constitution's order.",
       "departure_ruled_by_owner": "A reply to an open question that says a design departs from a decision of its item that someone other than the architect made comes only once the owner has answered an ask that holds the question: only whoever made a decision rules on a departure from it. A reply that answers such a question says its ruling in departure (stands or turned_down); a reply to any other matter says none.",
       "policy_text_clean": "The policy quotes none of the owner's words; it names no cell of the flow, no item and no date the owner said something.",
-      "effects_valid": "Every change and action holds, all its problems told at once. The change is well formed: an item named is there, or made by an earlier change of the round; a key is used once in the round; no item the round creates is cancelled in it; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a title is within `items.title_max` and in the owner's language as far as its characters show it (for Chinese, Japanese or Korean, some character of East Asian wide width; for English, none); a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; a dependency removed is one the items have then; after the round's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a merge that makes an observation no item took in yet reported three times or more is folded into an item by a change of the round, which a change moves ahead, not last, unless that item's work runs; a work paused, resumed or interjected into is running; a message goes to another project's architect; no text of an item holds a line of a decision it did not hold, and a text that replaces an item's approach keeps every line of the item's decisions, letter for letter, in their order, under their head. The situation has not changed under it: an item it changes has not merged, nor been cancelled; a text it changes is at the version the change was drafted on; an acceptance it changes is not locked by a work's design; an item a work runs on is changed only by an answer to that work's own question, or with why the work must change; an observation it folds in was not folded into another item; a dependency it makes is not on an item merged, cancelled or held. The owner's words it rests on hold: each quotation is found letter for letter in its record, the record is the project's and the owner said it, not a delegate's session, and one it says the owner accepted is the owner's answer.",
+      "effects_valid": "Every change and action holds, all its problems told at once. The change is well formed: an item named is there, or made by an earlier change of the round; a key is used once in the round; no item the round creates is cancelled in it; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a title is within `items.title_max` and in the owner's language as far as its characters show it (for Chinese, Japanese or Korean, some character of East Asian wide width; for English, none); a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; a dependency removed is one the items have then; after the round's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a merge that makes an observation no item took in yet reported three times or more is folded into an item by a change of the round, which a change moves ahead, not last, unless that item's work runs; a work paused, resumed or interjected into is running; a message goes to another project's architect; no text of an item holds a line of a decision it did not hold, and a text that replaces an item's approach keeps every line of the item's decisions, letter for letter, in their order, under their head. The situation has not changed under it: an item it changes has not merged, nor been cancelled; a text it changes is at the version the change was drafted on; an acceptance it changes is not locked by a work's design; an item a work runs on is changed only by an answer to that work's own question, or with why the work must change; an observation it folds in was not folded into another item; a dependency it makes is not on an item merged, cancelled or held. The owner's words it rests on hold: each quotation is found letter for letter in its record, the record is the project's and the owner said it, not a delegate's session, and one it says the owner accepted is the owner's answer. A merge condition has its sentence, and its quotation is found letter for letter in its record, which is not the architect's own words; unlike the owner's words above, it may rest on what a delegate said, told as the delegate's.",
       "reply_fits_changes": "The reply names each sub-item and each item to wait for by its number or by the key a change of this round makes it under.",
       "learned_holds_no_decision": "No line of the text starts a decision (`Decision (`): a decision is handed in as a decision, from the records it quotes, and the engine makes its line; what is learned holds facts and approaches dropped.",
       "candidates_known": "At most ten candidates, each an open observation of the project.",
@@ -4894,6 +5003,7 @@
       "main_changes": "Before the first round of cells `R1`, `D1` and `I1` each time the work comes to them, the engine merges the latest main into the work's branch when its worktree is clean: the files main changed since the branch last took it, or the files in conflict when it could not merge cleanly, the merge then undone; none when main changed nothing since.",
       "decisions": "The project's decisions in force, as its main has them at the commit the round is pinned to: every file of the directory its configuration names as decisions (decisions unless set) but a README.md, each by its path with its text; none when there are none. A decision a work writes or changes on its own branch is not here until it merges; it is in the work's diff.",
       "owner_approval": "The files of the work's change against main that match a path of the project's `owner_approves`, with the pull request and, for the flow, the flow page that compares it with main; whether the owner approved the work's design at its review, or replied exactly approved to the ask of this change since its last fix; none when the change touches none.",
+      "merge_conditions": "The merge conditions of the work's item not judged yet, oldest first: what the owner set to be done before the work merges, each with its number (C1, C2, ...), the sentence that says it, the record its words are in, those words and who the record says said them, and who recorded it and when. None when there are none.",
       "design_review": "The review of the work's latest design: what the architect replied at the project's level, and the owner's answer with the images it sent, as cell `D3` brought them.",
       "since_last_base": "What happened in the project since its base before this one was built: commits merged on main, works ended or stopped, the CI on main, the owner's words and decision cards ruled, reports that came in; with no base before, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters.",
       "decision_log": "The decision log since the project's base was built: the line of each matter handled since, oldest first, with the matter and the round that wrote it.",
@@ -4909,7 +5019,7 @@
       "came_by": "How the work came to choose the way on.",
       "cancelled": "Whether an item the work's item depended on was cancelled, and the line the work stands on has not taken it up yet.",
       "due": "Whether a matter is due for the project's architect, which starts a work of it.",
-      "gates": "What the merge gate waits for: the items it depends on while one is not merged, then the findings set aside in this work that no review has judged, then the approvals the work asked for while it went on (the review of its design, the decision points the research left), then the owner's approval of a change that touches a path the owner approves.",
+      "gates": "What the merge gate waits for, in this order: items, the items it depends on while one is not merged; set_aside, the findings set aside in this work that no review has judged; approvals, the approvals the work asked for while it went on (the review of its design, the decision points the research left); conditions, the owner's merge conditions on the item not judged; owner, the owner's approval of a change that touches a path the owner approves.",
       "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the line the work stands on",
       "interjection": "Whether an interjection for the line the work stands on is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
@@ -5064,6 +5174,19 @@
         "computed": true,
         "desc": "Which items merged, from the rounds of the merge queue that merged them",
         "inputs": []
+      },
+      "merge_conditions": {
+        "title": "Merge conditions",
+        "layer": "item",
+        "desc": "What the owner set to be done before an item's work merges: each with the sentence that says it, the record its words are in and who said them, and where it stands, worked out from the owner's answers at the merge gate",
+        "relations": [
+          "merge_conditions",
+          "item_merge_conditions"
+        ],
+        "owner": "ticks a merge condition on words said or an answer given, and judges each at the merge gate, as a delegate may for the owner, marked as the delegate's",
+        "inputs": [
+          "merge_conditions"
+        ]
       },
       "place": {
         "title": "The work's place",
@@ -5278,7 +5401,8 @@
         "interjections",
         "holds",
         "architect_queue",
-        "known_red_checks"
+        "known_red_checks",
+        "merge_conditions"
       ],
       "ask_architect": [
         "architect_queue"
@@ -5441,6 +5565,11 @@
         "blockers",
         "owner_notices"
       ],
+      "ask_owner_condition": [
+        "owner_asks",
+        "blockers",
+        "owner_notices"
+      ],
       "relay_owner_answer": [
         "interjections"
       ],
@@ -5453,7 +5582,8 @@
         "interjections",
         "holds",
         "architect_queue",
-        "known_red_checks"
+        "known_red_checks",
+        "merge_conditions"
       ],
       "return_checked": [
         "batch",
@@ -5525,11 +5655,13 @@
         ]
       },
       "gates": {
-        "says": "dependencies merged; every finding set aside judged by a review after it; every open question of the work answered",
+        "says": "in this order: dependencies merged; every finding set aside judged by a review after it; the answers the work asked for while it went on; every merge condition judged by the owner, or by a delegate for the owner; the owner's approval of a change that touches a path the owner approves",
         "stores": [
           "dependencies",
           "merge_record",
           "set_aside",
+          "merge_conditions",
+          "owner_asks",
           "architect_queue"
         ]
       },
@@ -5693,6 +5825,7 @@
         "Judging: read what a judgment needs, on every side, until you can say it, and no further. Each matter is handled in a session forked from your base, which read the project; what the base knew is how things stood then, and what changed since is given you with the decision log: before you act on what the base knew, check it against what changed.",
         "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which the engine checks as you hand them in, and a second eye looks at before those that can lose something are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, observations). The owner reads your rounds afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the owner's answers; loosening a line the policy writes; accepting a slowdown; what only the owner can do, such as a step that cannot be undone, publishing or a permission.",
         "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what only the owner decides, such as what an engineer asks that only the owner can do: pin the question for the owner, or pause the work until the owner has done it; and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
+        "Merge conditions: when words of the owner's you are given, an answer to what you asked or words said to you or to a work, make something a thing to be done before a work merges, record it in this round, with the item change `add_merge_condition`. The merge gate holds what the owner ticked or you recorded, and nothing else. Only an answer at the merge gate judges it, the owner's or a delegate's for the owner: you neither mark it met nor withdraw it.",
         "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
         "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
         "The engineers' work: look at a work where it meets the whole: whether it still serves the policy's direction; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
@@ -5934,6 +6067,7 @@
             "Design judgment: judge a design only on itself: correct, elegant, sound, maintainable, robust. How much code, tests and documents it changes, how hard it is to build and what it costs are no reason for or against it; cost decides only which work comes first.",
             "Design judgment: work a design needs only because of a poor abstraction is a flaw of that design.",
             "Design judgment: how often a form appears in a project's own tests and programs is no evidence of how much real programs need it.",
+            "The owner's merge conditions: when you hear the owner wanting something done before this work merges and the Merge conditions you are given do not hold it, ask the architect to record it: you do not record it yourself, and the merge gate holds only what is recorded.",
             "The repository: put new material in the directory that owns its kind; when none fits, ask the advisor.",
             "The repository: a lock file is never written by hand. Where the project lists it for the tool `lock_update`, change its manifest and have the tool bring the lock file in line with it; where it does not, use the lock commands the work's message names, and ask the architect when it names none.",
             "The repository: keep no TODO file. Open work is an item, which code and documents cite by its number, and a public repository by its number alone.",
@@ -5998,7 +6132,7 @@
           },
           {
             "name": "merge",
-            "desc": "Judging whether the work may enter the merge queue, the owner's approval where the project's configuration asks it; in the queue, catching up with main, running the full CI and merging",
+            "desc": "Judging whether the work may enter the merge queue, the owner's judgment of each merge condition on the item, and the owner's approval where the project's configuration asks it; in the queue, catching up with main, running the full CI and merging",
             "nodes": [
               "M1",
               "M2"
@@ -6133,6 +6267,10 @@
           {
             "name": "merge_failures",
             "desc": "The times the merge queue found a conflict or a red check and sent the work back: to the engineer, or the third time in a row to the architect"
+          },
+          {
+            "name": "late_merge_conditions",
+            "desc": "The times the merge queue found a merge condition recorded after the merge gate was passed and sent the work back to the gate"
           },
           {
             "name": "verification_looks",
@@ -6968,6 +7106,16 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Merge conditions",
+              "what": "What the owner already set to be done before this work merges, for the research to take in: each with its number (C1, C2, ...), the sentence that says it, the words it rests on and who said them; none when there are none",
+              "from": [
+                {
+                  "engine": "merge_conditions"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -7416,6 +7564,16 @@
                   "@from",
                   "reply"
                 ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Merge conditions",
+              "what": "What the owner already set to be done before this work merges, for the design to take in: each with its number (C1, C2, ...), the sentence that says it, the words it rests on and who said them; none when there are none",
+              "from": [
+                {
+                  "engine": "merge_conditions"
+                }
               ],
               "maybe": true
             }
@@ -8166,6 +8324,16 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Merge conditions",
+              "what": "What the owner set to be done before this work merges and has not judged yet, each with its number (C1, C2, ...), the sentence that says it, the words it rests on and who said them; none when there are none",
+              "from": [
+                {
+                  "engine": "merge_conditions"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -8177,6 +8345,7 @@
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
             "Write each option the owner chose for a decision point into the project's directory of decisions, one Markdown file for each decision, in English, saying: what is done now; why, what it is for and the reasons; each option not chosen, and why not; and one line for each challenge considered and turned down: when, what change was proposed, and why it was not made. It merges with this work's pull request. Name each file in decisions_written. A decision the owner overturned is rewritten in its file, and one withdrawn deleted, the commit message saying what changed and why.",
             "The acceptance may change: when it must, hand in the whole list as it is now in acceptance_changed, with why.",
+            "Report on each merge condition you are given in owner_conditions: done, with what was done and where the owner sees it; or not_done, with why, which hands it back to the owner to judge at the merge gate. Never leave one out because it cannot be done.",
             "Write what changed in tests and checks: for each test added, what errors it catches and its kind; for a test that was there and now tests more, an extended row of the same; for each removed, skipped or relaxed, its technical reason. Run each test you add or extend once after the change with ci and once before it with ci_before, listing in a run of ci_before only the files of the tests it is for: the engine reads the two results from those runs, the latest run of ci_before that reported the test counting, and when any of the files that run put on the code before the change changed after it, run ci_before again. A test that cannot run before the change says why in not_before. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere."
           ],
           "promptBy": {
@@ -8209,6 +8378,9 @@
             },
             {
               "$ref": "checks_changed"
+            },
+            {
+              "$ref": "owner_conditions"
             },
             {
               "name": "decisions_written",
@@ -8445,6 +8617,10 @@
               "check": "checks_changed_known"
             },
             {
+              "at": "owner_conditions",
+              "check": "owner_conditions_answered"
+            },
+            {
               "at": "acceptance_changed.acceptance",
               "check": "in_effect_known"
             },
@@ -8469,6 +8645,7 @@
             "deviations",
             "followup",
             "conditions",
+            "owner_conditions",
             "decisions_written",
             "acceptance_changed",
             "holds",
@@ -9495,6 +9672,16 @@
               "maybe": true
             },
             {
+              "name": "Merge conditions",
+              "what": "What the owner set to be done before this work merges and has not judged yet, each with its number (C1, C2, ...), the sentence that says it, the words it rests on and who said them; none when there are none",
+              "from": [
+                {
+                  "engine": "merge_conditions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "The item",
               "what": "The item",
               "from": [
@@ -9822,6 +10009,9 @@
               "$ref": "checks_changed"
             },
             {
+              "$ref": "owner_conditions"
+            },
+            {
               "$ref": "followup"
             }
           ],
@@ -9846,6 +10036,10 @@
             {
               "at": "checks_changed",
               "check": "checks_changed_known"
+            },
+            {
+              "at": "owner_conditions",
+              "check": "owner_conditions_answered"
             },
             {
               "at": "acceptance_changed.acceptance",
@@ -9884,6 +10078,7 @@
             "deviations",
             "followup",
             "conditions",
+            "owner_conditions",
             "acceptance_changed"
           ],
           "prompt": [
@@ -9895,6 +10090,7 @@
             "- A red check of the full CI in the merge queue: fix what turned it red and answer fixed; when this change did not cause it, answer not_caused_by_change with the evidence, such as the same check red on main, or unrelated_flake.",
             "- A change to the code an interjection asked for, as the way on chose it: make it, with the test that shows it, and answer fixed; when it turns out to need the design or the acceptance changed, ask.",
             "- A fix of any of these rows that is in no commit, such as a pull request description to correct: make it (for the description, hand in ci with pr and no tests) and answer fixed_outside_commit with where it is; do not answer fixed with the head as its commit. The side that raised the row looks at it again.",
+            "Report on each merge condition you are given in owner_conditions: done, with what was done and where the owner sees it; or not_done, with why, which hands it back to the owner to judge at the merge gate.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
             "Before handing in, your last commit must have run with ci and the fast CI must be green: name the tests the fix touches, and for a red lint only the lint; the full CI runs once more in the merge queue, not before every problem is fixed. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; and the rows of the acceptance table that changed. The engine reads the results of each test added or extended from the runs of ci and ci_before."
           ],
@@ -10239,6 +10435,16 @@
               "maybe": true
             },
             {
+              "name": "Merge conditions",
+              "what": "What the owner set to be done before this work merges and has not judged yet, each with its number (C1, C2, ...), the sentence that says it, the words it rests on and who said them; none when there are none",
+              "from": [
+                {
+                  "engine": "merge_conditions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "Interjections",
               "what": "Interjections for the engineer that came while the work stood at this step, or while tools ran, and are not delivered yet; none if there are none",
               "from": [
@@ -10400,6 +10606,73 @@
               "note": "The merge waits for the answers the work asked for while it went on: the architect's comments on its design, the owner's answer to its review, the owner's choices on the decision points the research left. One that is not approved comes back as the owner's words, which take the work on to choose the way on."
             },
             {
+              "name": "owner_judges",
+              "if": [
+                [
+                  "inp",
+                  "gates",
+                  [
+                    "conditions"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "M1",
+              "do": [
+                "raise_blocker",
+                "ask_owner_condition"
+              ],
+              "waits": true,
+              "note": "A merge condition on the item is not judged: the owner is asked of the first still open, met or withdrawn, with the engineer's latest report, and the work waits, holding no slot. It comes after the answers the work asked for, which may change the work, and before the owner's approval, so that the owner does not approve a change a condition then sends back to be fixed and approved again."
+            },
+            {
+              "name": "condition_answered",
+              "if": [
+                [
+                  "inp",
+                  "gates",
+                  [
+                    "condition_answered"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "cancelled",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "A4",
+              "do": [
+                "relay_owner_answer",
+                "withdraw_blocker"
+              ],
+              "counts": "interjections",
+              "interject": true,
+              "note": "The answer judged nothing, being words with no option: it goes to the engineer as words, the work chooses the way on, and the gate asks again with what the engineer reports next."
+            },
+            {
               "name": "owner_approves",
               "if": [
                 [
@@ -10545,7 +10818,7 @@
             "gates": [
               [
                 "clear",
-                "Every item depended on is merged, every finding set aside is judged, and the owner approved what it must"
+                "Every item depended on is merged, every finding set aside is judged, every merge condition is judged, and the owner approved what it must"
               ],
               [
                 "items",
@@ -10560,8 +10833,16 @@
                 "Every item depended on is merged, every finding set aside is judged, and the review of the design or the decision points the research left wait for an answer"
               ],
               [
+                "conditions",
+                "Every item depended on is merged, every finding set aside is judged, every approval asked is answered, and a merge condition on the item is not judged: the owner is to be asked of it, or is asked and has not answered"
+              ],
+              [
+                "condition_answered",
+                "The answer to the ask of a merge condition judged nothing, and has not gone to the engineer yet"
+              ],
+              [
                 "owner",
-                "Every item depended on is merged, every finding set aside is judged, every approval asked is answered, and the change touches a path the owner approves, which the owner has approved neither at the review of its design nor by an answer of approved"
+                "Every item depended on is merged, every finding set aside is judged, every approval asked is answered, every merge condition is judged, and the change touches a path the owner approves, which the owner has approved neither at the review of its design nor by an answer of approved"
               ],
               [
                 "answered",
@@ -10682,6 +10963,11 @@
                 {
                   "value": "stopped",
                   "desc": "A cancel or a start over came before the merge: nothing merged",
+                  "fields": []
+                },
+                {
+                  "value": "condition_set",
+                  "desc": "A merge condition on the item is not judged, recorded after the merge gate was passed: nothing merged",
                   "fields": []
                 },
                 {
@@ -10835,6 +11121,28 @@
               "to": "M2",
               "waits": true,
               "note": "A cancel or a start over came before the merge: nothing merges, and the work ends here."
+            },
+            {
+              "name": "condition_set",
+              "if": [
+                [
+                  "is",
+                  "result.kind",
+                  [
+                    "condition_set"
+                  ]
+                ],
+                [
+                  "inp",
+                  "turn",
+                  [
+                    "first"
+                  ]
+                ]
+              ],
+              "to": "M1",
+              "counts": "late_merge_conditions",
+              "note": "A merge condition was recorded while the merge waited its turn or for its full CI: nothing merges, and the merge gate asks of it. The full CI on this head is read again, not run again."
             },
             {
               "name": "behind",
@@ -13228,7 +13536,8 @@
         "A design holds its decision points itself: there are no cards. What deep research leaves uncertain, where at least two options stand and choosing wrong costs much, is a decision point of the design, with its options, the one recommended, how sure it is and why it is uncertain.",
         "When the design is done, cell `D3` puts it to its review and the work implements by it without waiting: first the architect reviews it, at the project's level only, then the owner, with the architect's comments. The owner approves it exactly, or says what to change and chooses an option for each decision point; that answer reaches the engineer as the owner's words, and a design the owner would have otherwise is written again. The merge waits for the owner's answer.",
         "The implementation writes each option the owner chose into `decisions/` in the repository, one file for each decision, which merges with the work's pull request.",
-        "Whatever the work asks the owner while it goes on (the decision points and departures the research left, the review of its design, the approval of a change that touches a path the project's configuration has the owner approve, asked once its branch touches one) it does not wait for: it goes on by what it recommended, and cell `M1` holds the merge while one has no answer. A change to such a path is approved by the owner's approval of the work's design or by an answer of exactly approved."
+        "Whatever the work asks the owner while it goes on (the decision points and departures the research left, the review of its design, the approval of a change that touches a path the project's configuration has the owner approve, asked once its branch touches one) it does not wait for: it goes on by what it recommended, and cell `M1` holds the merge while one has no answer. A change to such a path is approved by the owner's approval of the work's design or by an answer of exactly approved.",
+        "What the owner set to be done before the work merges, recorded as a merge condition, waits at cell `M1` for a judgment before that approval. The levels of `M1`'s value `gates`, in order, are items, set_aside, approvals, conditions and owner."
       ],
       "interject": {
         "name": "interjection",
@@ -13997,7 +14306,7 @@
           },
           {
             "name": "Owner's answer",
-            "what": "The owner's reply, in words, to the question you asked, when the matter you asked about comes back to you with it. When it does not answer your question, or asks you to say more, ask again, at more length when asked; none when you did not ask",
+            "what": "The owner's reply, in words, to the question you asked, when the matter you asked about comes back to you with it. When it does not answer your question, or asks you to say more, ask again, at more length when asked. When it makes something a thing to be done before a work merges, record it in this round (`add_merge_condition`); none when you did not ask",
             "from": [
               {
                 "engine": "owner_answer"
@@ -15913,7 +16222,7 @@
             },
             {
               "name": "The owner's reply",
-              "what": "The owner's reply to the question you pinned for them while weighing the ways of this matter, with the question, when the matter comes back with it; none otherwise",
+              "what": "The owner's reply to the question you pinned for them while weighing the ways of this matter, with the question, when the matter comes back with it; none otherwise. When it makes something a thing to be done before a work merges, record it in this round (`add_merge_condition`)",
               "from": [
                 {
                   "engine": "owner_answer"
@@ -16844,7 +17153,7 @@
           "inputs": [
             {
               "name": "The owner's words",
-              "what": "The owner's words you answer, with where they were said: in your one-to-one with the owner, or in the group of a work, which your reply goes to; when they ask about a decision card of the work, the card, the design it stands in and the change to the records on the branch",
+              "what": "The owner's words you answer, with where they were said: in your one-to-one with the owner, or in the group of a work, which your reply goes to; when they ask about a decision card of the work, the card, the design it stands in and the change to the records on the branch. When they make something a thing to be done before a work merges, record it in this round (`add_merge_condition`)",
               "from": [
                 {
                   "engine": "matter"
@@ -16893,7 +17202,7 @@
             },
             {
               "name": "The owner's reply",
-              "what": "The owner's reply to what you asked of these words, with the question, when they come back with it; none otherwise",
+              "what": "The owner's reply to what you asked of these words, with the question, when they come back with it; none otherwise. When it makes something a thing to be done before a work merges, record it in this round (`add_merge_condition`)",
               "from": [
                 {
                   "engine": "owner_answer"

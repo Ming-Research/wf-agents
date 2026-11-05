@@ -190,6 +190,10 @@ pub struct Answer {
     pub why: Option<String>,
     /// For what the architect is asked: the rest of the architect's reply, as JSON (children, rest, waits).
     pub reply: Option<Value>,
+    /// For the merge gate's ask of a merge condition: the option chosen, met or withdrawn.
+    pub choice: Option<String>,
+    /// The sentence of a merge condition the answer sets.
+    pub condition: Option<String>,
 }
 
 /// Answers an ask of the owner, as the page does.
@@ -202,6 +206,8 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
         why: a.why,
         reply: a.reply,
         to: None,
+        choice: a.choice,
+        condition: a.condition,
         images: Vec::new(),
     };
     api::answer(&mut db, a.ask, &given)
@@ -260,7 +266,15 @@ pub fn say_to_architect(
 }
 
 /// Says something in a running work's group, as the page does: to its engineer, its project's architect or both.
-pub fn say(data: &Path, work: i64, to: &str, text: &str, speaker: &str, relayed: &[String]) -> Result<String, String> {
+pub fn say(
+    data: &Path,
+    work: i64,
+    to: &str,
+    text: &str,
+    speaker: &str,
+    relayed: &[String],
+    condition: Option<&str>,
+) -> Result<String, String> {
     let said = api::WorkSaid {
         text: text.to_string(),
         speaker: speaker.to_string(),
@@ -268,6 +282,7 @@ pub fn say(data: &Path, work: i64, to: &str, text: &str, speaker: &str, relayed:
         to: Some(to.to_string()),
         question: None,
         design_card: None,
+        condition: condition.map(str::to_string),
         images: Vec::new(),
     };
     api::say_to_work(&mut open(data)?, work, &said)
