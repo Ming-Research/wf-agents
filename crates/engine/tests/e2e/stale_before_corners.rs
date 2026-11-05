@@ -21,10 +21,12 @@ fn implementing() -> Script {
     let base = scripts().remove("I1").unwrap();
     Box::new(move |r: &Request, n: usize| {
         let wt = &r.worktree;
+        // The first commit is the one the default script takes for the feature's: it adds nothing of its own after it.
         let commit = |file: &str, text: &str| {
             write(wt, file, text);
             git(wt, &["add", "-A"]);
-            git(wt, &["commit", "-q", "-m", "Change a file"]);
+            let message = if n == 1 { "Add the feature" } else { "Change a file" };
+            git(wt, &["commit", "-q", "-m", message]);
             git(wt, &["rev-parse", "HEAD"])
         };
         let pr = json!({ "title": "Add the feature", "body": "It adds it." });
