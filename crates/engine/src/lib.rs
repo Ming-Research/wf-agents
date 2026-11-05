@@ -26,6 +26,7 @@ pub mod flow_cost;
 pub mod git;
 pub mod hub;
 pub mod limits;
+pub mod lock;
 
 mod actions;
 mod approval;
@@ -81,6 +82,7 @@ pub use sessions::cli as agent;
 pub use architect::stopped_why;
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, network_reachable, utc};
+pub use lock::{Holder, Lock, Refused};
 pub use schedule::{Ask, Go, Passed};
 pub use steps::{cell_request, next_message};
 pub use warm::GlobalPause;
@@ -225,6 +227,9 @@ struct Shared {
     /// The fetches of main made for an installed build the project's checkout lacks ([`verification`]), so that a value
     /// worked out at every step of a wait does not reach the network at each.
     build_fetches: Mutex<verification::Fetches>,
+    /// The data directory's lock, kept until the last context of the engine is dropped; none for an engine made only to
+    /// read, which runs beside one that holds it.
+    _lock: Option<Lock>,
 }
 
 impl Shared {
@@ -253,6 +258,7 @@ impl Shared {
             hooks,
             main_looked: Mutex::default(),
             build_fetches: Mutex::default(),
+            _lock: None,
         }
     }
 
@@ -343,15 +349,18 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Engine {
-    /// An engine on a data directory, with its committed configuration, telling `hooks` what runs; the flow built into
-    /// it is stored as a flow version if it is new.
+    /// An engine on the data directory the lock is on, with its committed configuration, telling `hooks` what runs; the
+    /// flow built into it is stored as a flow version if it is new. The engine keeps the lock until it and every
+    /// context made from it ([`Engine::fork`]) are dropped.
     pub fn new(
-        data: &Path,
+        lock: Lock,
         config: config::Committed,
         agents: Box<dyn Agents>,
         github: Box<dyn GitHub>,
         hooks: Hooks,
     ) -> Result<Engine, String> {
+        let data = lock.dir().to_path_buf();
+        let data = data.as_path();
         let mut db = database::open(data)?;
         let compiled = compile_for(&config.config)?;
         let digest = compiled.digest();
@@ -374,7 +383,9 @@ impl Engine {
             db.on_commit(Arc::clone(f)).map_err(|e| e.to_string())?;
         }
         let flows = BTreeMap::from([(flow_now, Arc::new(compiled))]);
-        let e = Engine::on(Shared::new(config, flows, agents, github, hooks), db, data, flow_now);
+        let mut shared = Shared::new(config, flows, agents, github, hooks);
+        shared._lock = Some(lock);
+        let e = Engine::on(shared, db, data, flow_now);
         let names: Vec<String> = e.config.config.install.agents.clis.keys().cloned().collect();
         for name in names {
             e.cli_version(&name);

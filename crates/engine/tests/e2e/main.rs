@@ -1274,8 +1274,34 @@ fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Arc<Mu
     engine_with(s, scripts, Hooks::default())
 }
 
+/// An engine made only to read over a setup, which takes no lock and so runs beside an engine that holds it: it reads
+/// the database as an engine started afresh finds it.
+fn reading_engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> Engine {
+    let (agents, hub) = fakes(s, scripts);
+    let committed = config::committed(&s.data).unwrap();
+    Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap()
+}
+
 /// The engine over a setup as it starts, telling `hooks` what runs, with what it says kept.
 fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks) -> (Engine, Arc<Mutex<Vec<String>>>) {
+    let (agents, hub) = fakes(s, scripts);
+    let committed = config::committed(&s.data).unwrap();
+    let said = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = said.clone();
+    let hooks = Hooks {
+        say: Arc::new(move |x: &str| log.lock().unwrap().push(x.to_string())),
+        ..hooks
+    };
+    // The lock of the data directory, as the command takes it: a test that starts a second engine on the same data
+    // drops the first first.
+    let lock = engine::Lock::acquire(&s.data).unwrap();
+    let mut e = Engine::new(lock, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
+    e.retry_wait = std::time::Duration::ZERO;
+    (e, said)
+}
+
+/// The scripted agents and the fake GitHub over a setup.
+fn fakes(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Scripted, FakeHub) {
     let agents = Scripted {
         scripts,
         rounds: Mutex::new(BTreeMap::new()),
@@ -1290,16 +1316,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         by_hand: s.by_hand.clone(),
         watch_main: s.watch_main.clone(),
     };
-    let committed = config::committed(&s.data).unwrap();
-    let said = Arc::new(Mutex::new(Vec::<String>::new()));
-    let log = said.clone();
-    let hooks = Hooks {
-        say: Arc::new(move |x: &str| log.lock().unwrap().push(x.to_string())),
-        ..hooks
-    };
-    let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
-    e.retry_wait = std::time::Duration::ZERO;
-    (e, said)
+    (agents, hub)
 }
 
 fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {
