@@ -1070,6 +1070,7 @@ fn the_page_tells_what_installing_a_flow_does_as_the_command_does() {
         port: 0,
         bus: std::sync::Arc::new(api::Bus::new(5)),
         control: std::sync::Arc::new(api::Control::default()),
+        reads: std::sync::Arc::new(health::PageReads::default()),
     })
     .unwrap();
 

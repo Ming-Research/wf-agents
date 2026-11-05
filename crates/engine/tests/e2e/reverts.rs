@@ -21,7 +21,7 @@ fn the_revert_the_architect_asks_for_is_recorded_and_counted() {
     agents.insert(
         "L2",
         Box::new(move |_: &Request, _: usize| {
-            let action = json!({ "kind": "revert_merge", "merge_commit": asked });
+            let action = json!({ "kind": "revert_merge", "merge_commit": asked, "reason": "It made main red." });
             (
                 Vec::new(),
                 vec![

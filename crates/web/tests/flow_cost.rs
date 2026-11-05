@@ -98,6 +98,7 @@ fn serve(name: &str, checkout: &Path) -> (PathBuf, u16) {
         port: 0,
         bus: Arc::new(api::Bus::new(5)),
         control: Arc::new(api::Control::default()),
+        reads: Arc::new(health::PageReads::default()),
     })
     .unwrap();
     (dir, port)
