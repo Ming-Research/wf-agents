@@ -320,3 +320,7 @@ PLAN view.work_review_record: SCAN works USING COVERING INDEX works_by_item
 PLAN view.work_routes: SCAN w
 PLAN view.work_set_aside: SCAN r / SCAN p VIRTUAL TABLE INDEX 1:
 PLAN view.work_state: SCAN works USING COVERING INDEX works_by_item
+
+NOTE added after the run, not printed by `summarize`: the class column above is the program's. For api.architect.matters,
+api.items_extra and view.architect_queue the interval of the noise (twin/base) lies wholly below 1, so by the criterion of
+item #248 (A3) these three paths are unresolved and their class is withdrawn; research/repeated-paths.md section 2 says so.
