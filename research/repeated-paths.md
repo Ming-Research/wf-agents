@@ -25,20 +25,28 @@ python3 -I research/repeated-paths/repeated_paths.py run --scales 1,1L10,10 | te
 python3 -I research/repeated-paths/repeated_paths.py summarize "$RUNNER_TEMP/rp-all.log"
 ```
 
+The program has changed since (item #315); the command that compares a commit with a base commit in one run, and the
+files of the run after #312 and #313, are in [repeated-paths-after-312-313.md](repeated-paths-after-312-313.md).
+
 Each claim says how it is known: (measured) by that run, (read) from the source or the records, (inferred) from
 those, not tried.
 
 ## 1. The answers
 
+**Superseded in part (item #315).** This report is the state of 2026-11-05 before #312 (indexes) and #313 (finished works
+ended). The rows below that name E1, E2, R2, R5, R7, I3 and I5, the ranking table of section 3, section 5 and the steps 1,
+4 and 5 of section 7 are marked where they changed; the numbers after those two items, with the ranking again, are in
+[repeated-paths-after-312-313.md](repeated-paths-after-312-313.md).
+
 | Question | Answer |
 |---|---|
 | In what order | By the ranking table at the head of section 3: the cost of one occurrence at ten times the data times the occurrences in 10 s at a rate measured from the engine's records. First are the writes (E2), the page's reads (P1, I1, I2) and the conversation read (I3); the loop's passes (E1) are the largest cost that is always there. |
-| What is the biggest cause of the loop's load | Finished works are never marked `ended`: 252 of the 316 works with `ended IS NULL` are done (at their graph's last cell), and every pass of the loop that lists "the works that go on" loads each of them (read: `crates/engine/src/ending.rs:88-102` sets `ended` only for a work stopped before its end; measured by `query`). One pass that loads the 304 unpaused unended works takes 26.0 ms now and 262 ms at ten times the works (measured); a turn of the loop makes at least 4 such passes (section 3, E1). |
-| The worst burst | Every write of the engine first scans the whole change log for its next transaction number: 33.1 ms per write now (55,886 change rows), 334 ms at ten times, inside the write lock (E2, measured, read). 18,867 writes that changed a tracked table have been made, on average 0.077 in 10 s, and 87 in the busiest 10 s (measured: the transactions in `changes`), so at ten times the lock would be held 29 s in that 10 s. |
-| What the loop costs a turn | Adding the measured parts by the number of times the source calls each: 167 to 220 ms per turn now, 1.1 to 1.7 s at ten times (E1; the sum is inferred from measured parts). A turn runs when a job ends and at least every 10 s (read: `crates/wf-agents/src/main.rs:1046`). |
+| What is the biggest cause of the loop's load | **Mended by #313 in the code: the passes load 54 works, not 304, and take 1.4 to 2.2 ms (after-312-313 report, section 3, E1).** As found on 2026-11-05: finished works are never marked `ended`: 252 of the 316 works with `ended IS NULL` are done (at their graph's last cell), and every pass of the loop that lists "the works that go on" loads each of them (read: `crates/engine/src/ending.rs:88-102` sets `ended` only for a work stopped before its end; measured by `query`). One pass that loads the 304 unpaused unended works takes 26.0 ms now and 262 ms at ten times the works (measured); a turn of the loop makes at least 4 such passes (section 3, E1). |
+| The worst burst | **Mended by #312: the next number is read through an index, 0.006 ms at ten times (after-312-313 report, E2).** As found on 2026-11-05: every write of the engine first scans the whole change log for its next transaction number: 33.1 ms per write now (55,886 change rows), 334 ms at ten times, inside the write lock (E2, measured, read). 18,867 writes that changed a tracked table have been made, on average 0.077 in 10 s, and 87 in the busiest 10 s (measured: the transactions in `changes`), so at ten times the lock would be held 29 s in that 10 s. |
+| What the loop costs a turn | **After #313: 53 to 57 ms per turn now and 132 to 175 ms at ten times (after-312-313 report, E1).** As found on 2026-11-05: adding the measured parts by the number of times the source calls each: 167 to 220 ms per turn now, 1.1 to 1.7 s at ten times (E1; the sum is inferred from measured parts). A turn runs when a job ends and at least every 10 s (read: `crates/wf-agents/src/main.rs:1046`). |
 | What the owner's page costs the interface | The two reads every page holds (`/works` and `/conversations`, section 3 I2) cost 77 ms of database time per flush now and 2.6 s at ten times; the page flushes at most once in 3 s while events keep coming (read: `client/src/live.ts`). One flush of the eight reads listed in the results file (the `/works`, `/items`, `/conversations` and `/system` reads; not `/observations` and not the pages of open items, so a lower bound) costs 438 ms and 2.8 MB of result now, 6.2 s and 19 MB at ten times (measured; the bytes are the rows' text, not the JSON the interface sends); adding `/observations` (17.1 and 180.7 ms) makes 455 ms and 6.4 s (sum of medians). |
 | What grows by itself | The architect's longest work (3,330 rounds, 22% of all rounds) never ends and is read whole by every step that composes a round of it: 27 ms and 29 MB per read now, 294 ms at ten times its rounds (measured at scale 1L10: 10.7 to 11.0 times; about 290 MB is ten times the bytes, inferred). Its page, `GET /works/{id}`, is 29.8 MB (R1, I4, measured). |
-| Is anything already fixed | `graph_of` caches the cut graph (read: `crates/engine/src/lib.rs:1090-1107`); the page batches events into one flush in 3 s and reads nothing while hidden (read: `client/src/live.ts`). `work_counters` no longer parses the compiled flow: the counter is kept on the round (`rounds.counts`), and the remaining cost is a scan of all rounds (R4). #226 and #220 are both merged (section 5). The parse of the compiled flow that #226 names now happens only for a sent-back round and takes 2.0 ms, the same at ten times (measured; 322 of about 14,850 rounds). |
+| Is anything already fixed | **Since this report: #312 (eleven indexes and the next number through `changes_by_tx`) and #313 (a finished work is `ended` as `done`) are merged; their effect, and the two reads #312 made slower (`/items`, item #316, and the architect's long session in `own_rounds`), are in the after-312-313 report.** `graph_of` caches the cut graph (read: `crates/engine/src/lib.rs:1090-1107`); the page batches events into one flush in 3 s and reads nothing while hidden (read: `client/src/live.ts`). `work_counters` no longer parses the compiled flow: the counter is kept on the round (`rounds.counts`), and the remaining cost is a scan of all rounds (R4). #226 and #220 are both merged (section 5). The parse of the compiled flow that #226 names now happens only for a sent-back round and takes 2.0 ms, the same at ten times (measured; 322 of about 14,850 rounds). |
 | What does not grow | The paths of section 4 do not grow with the data: the lookups bounded by a work's key, one work's rounds, one round. They show the program tells a flat path from a growing one. |
 | What was not measured | The page's main-thread time and redraws (CI has no browser: inferred from the source, section 3 P1 to P3); the tables `pings`, `round_calls`, `round_measures`, `cache_misses`, which the research environment's `query` tool cannot read (built empty); the Rust code itself (section 2). The per-turn session reads of `keep_warm` are the largest unknown (E6). |
 
@@ -229,6 +237,8 @@ there to fix the paths below.
   answer with the last text changes nothing, the architect's notebook, handled matters and item changes are read apart
   from the rest (`/architect/panel`), a conversation gives its latest 100 entries, and unchanged entries are not drawn
   again; #16 (merged as `36e8928`): the design check and the table review now ask how a cost grows with the load.
+- Since this report #312 and #313 are merged too (E1, E2 and the indexes of R2, R5, R7, I3, I5; effects in the
+  after-312-313 report), and item #316 covers `/items`, which #312 made slower. The next bullet is the state before them.
 - Still slow after those merges (measured on the synthetic database of 2026-11-05, which has those merges' code and
   schema), and covered by no item: R4, the scan of all rounds in `total_time` that #226 left (40.5 ms, 408 ms at ten
   times); I2, `/works` answering every round of every work (58.5 ms, 479 kB) that every page holds, and `/conversations`;
@@ -252,7 +262,8 @@ there to fix the paths below.
   not known, so the program builds them empty. It can be measured once the owner reads the counts of those tables on the
   engine's machine and puts them in `RECIPE`.
 - Whether the engine at the owner's machine uses a full core because of E1 to E6: the sum of the measured parts is
-  167 to 220 ms per 10 s of an idle engine, about 2% of a core now and 11 to 17% at ten times; more when jobs end often.
+  167 to 220 ms per 10 s of an idle engine, about 2% of a core now and 11 to 17% at ten times; more when jobs end often
+  (before #313; after it, 53 to 57 ms and 132 to 175 ms, the after-312-313 report section 5).
   The owner's observation of a full core is not explained by the measured parts alone, which is what E6 may hold.
 - That the program's count check fails on a short build (section 2).
 
@@ -261,16 +272,18 @@ there to fix the paths below.
 Fix items, in the order of the ranking table of section 3 (the rank of each is in brackets), each as small as its cause (the
 architect splits them and merges the small ones):
 
-1. Number transactions without a scan: an index on `changes(tx)` or a counter row (E2, rank 1).
+1. Number transactions without a scan: an index on `changes(tx)` or a counter row (E2, rank 1). Done by #312.
 2. Bound the page's reads by what the page shows: `/system`, `/works`, `/conversations`, `/items`, and the size of one
    flush (P1, I1, I2, I5; ranks 2 to 4 and 11). `/works` should not answer every round of every work.
 3. Build `conversation_entries` for one conversation, not for all, and check what #220's window does (I3, rank 5).
 4. Index the columns the plans scan: `rounds(session)`, `rounds(cell)`, `interjections(matter)`, `engine_notices(ask)`,
    `architect_matters(work)`, `architect_matters(asked)`, `blockers(ask)`, `works(flow_version)` (R2, R5, R7, I3, I5; ranks
-   6, 7, 12). R6 needs its own bound by project and time.
+   6, 7, 12). R6 needs its own bound by project and time. Done by #312 for the columns named; R6 is not done, and two of
+   its indexes slow a read (`rounds(cell)`: `/items`, item #316; `rounds(session)`: the architect's long session in R2).
 5. Stop listing finished works: set `ended` when a work completes its end cell, or list works by SQL that leaves them out.
    The views `ready_items` and `open_items` define "done" as `ended IS NULL AND at IN ('E1', '20', 'end')`, so the change
    needs a design that moves those too (E1, rank 8; the largest cost the loop always has, and the cause of every pass).
+   Done by #313 (`ended = 'done'`, and the two views read `ended IS NULL OR ended = 'done'`).
 6. Read a work's rounds by need, not whole, for the composing of a round and the page (R1, I4; rank 10).
 7. Compare the configuration's commit before reading its files (E3, rank 15), and the other per-turn reads (E4, E5).
 8. Record how long each turn of the loop takes, and how many calls each pass made, in the engine's records (Article 4), so
