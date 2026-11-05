@@ -419,7 +419,7 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
             Ok(tx.last_insert_rowid())
         })
         .unwrap();
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     let mut lines = 0;
     for id in [work, arch] {
         let w = e.work(id).unwrap();
@@ -451,7 +451,7 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
             }
         }
     }
-    // The engineer's graph has six lines, the architect's four.
-    assert_eq!(lines, 10);
+    // The engineer's graph has six lines, the architect's three.
+    assert_eq!(lines, 9);
     let _ = std::fs::remove_dir_all(&s.root);
 }

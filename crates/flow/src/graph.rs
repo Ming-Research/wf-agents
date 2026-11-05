@@ -115,6 +115,7 @@ pub(crate) struct Cell {
     pub rules: Vec<String>,
     pub prompt: Vec<String>,
     pub prompt_by: Option<PromptBy>,
+    pub no_input_list: bool,
     /// An agent's own answer; for any other cell, its output.
     pub main: Vec<Field>,
     /// Everything a return may hold: the own answer and, for an agent, the common fields its forms have.
@@ -974,6 +975,7 @@ impl<'s> Graph<'s> {
                 rules,
                 prompt: n.prompt.clone().unwrap_or_default(),
                 prompt_by: n.prompt_by.clone(),
+                no_input_list: n.no_input_list,
                 main,
                 out,
                 forms,
@@ -1781,6 +1783,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate) -> Result<Node, String> {
         rules: None,
         prompt: Some(vec![format!("{question} {prompt}")]),
         prompt_by: None,
+        no_input_list: false,
         out: Some(vec![answer]),
         cases: Some(rows),
         always: n.always.clone(),

@@ -1,7 +1,7 @@
 // The panel beside the owner's one-to-one with a project's architect, which the owner closes and opens again, as this
-// browser keeps it, in tabs: the architect's notebook, each of its four sections (what the project is now, the plan,
-// what is unclear, anything else) as it stands, under the round and cell that last wrote it, with its earlier versions
-// folded under it, newest first; its policy, the draft that waits for the owner's approval on top while one does, then
+// browser keeps it, in tabs: the architect's notebook, each of its two parts (how it understands the project, the plan)
+// as it stands, under the round and cell that last wrote it, with its earlier versions folded under it, newest first,
+// then what came since the base wrote them; its policy, the draft that waits for the owner's approval on top while one does, then
 // the policy in force with the project's constitution folded under it; and its queue, how many matters are left, how
 // long the oldest waited and how many it handled today, over the matters in the order they came, the one in hand
 // marked, and those an ask of the owner holds, then those it handled with nothing to do, each with why folded, which
@@ -11,7 +11,7 @@
 import { Flash, Label } from '@primer/react';
 import { useEffect, useState } from 'react';
 
-import type { Architect, ArchitectPanel, NotebookSection } from '../api';
+import type { Appended, Architect, ArchitectPanel, NotebookSection } from '../api';
 import { architectState, queueParts } from '../architect';
 import { duration, time } from '../format';
 import { useResource } from '../live';
@@ -70,8 +70,6 @@ export function keepSide(open: boolean): void {
 const SECTIONS: Record<string, Key> = {
   project_now: 'notebook_project_now',
   plan: 'notebook_plan',
-  unclear: 'notebook_unclear',
-  other: 'notebook_other',
 };
 
 /// One section of the notebook, folded at first as the owner asked: its text as it stands, under the round and cell
@@ -106,13 +104,31 @@ function NotebookPart({ s, onRound }: { s: NotebookSection; onRound: OpenRound }
   );
 }
 
-/// The architect's notebook, its four sections in their order.
+/// What came since the base the notebook's two parts were written in: a matter handled with its record and the lines it
+/// added to them, or an item merged or cancelled, oldest first. A new base clears it.
+function SinceBase({ entries }: { entries: Appended[] }) {
+  return (
+    <Section title={t('notebook_since_base')} n={entries.length}>
+      {entries.length === 0 ? <p className="muted">{t('notebook_since_base_none')}</p> : null}
+      {entries.map((x) => (
+        <Block key={`${x.at}-${x.who}`} by={<By who={x.who} at={x.at} />}>
+          <Markdown text={x.text} />
+          {x.plan !== null ? <Markdown text={`${t('notebook_adds_to_plan')}: ${x.plan}`} /> : null}
+          {x.understanding !== null ? <Markdown text={`${t('notebook_adds_to_understanding')}: ${x.understanding}`} /> : null}
+        </Block>
+      ))}
+    </Section>
+  );
+}
+
+/// The architect's notebook: its two parts in their order, and what came since the base wrote them.
 function Notebook({ p, onRound }: { p: ArchitectPanel; onRound: OpenRound }) {
   return (
     <>
       {p.notebook.map((s) => (
         <NotebookPart key={s.section} s={s} onRound={onRound} />
       ))}
+      <SinceBase entries={p.appended} />
     </>
   );
 }

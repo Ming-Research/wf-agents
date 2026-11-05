@@ -167,7 +167,7 @@ fn a_round_keeps_the_counter_of_the_row_it_took() {
 }
 
 // Item #230: a work on an older flow version, one of whose earlier answers the version the engine runs no longer takes,
-// is the same work after. It comes to cell `V1`, which records the versions, the cell it goes back to and why, and goes
+// is the same work after. It comes to cell `Y1`, which records the versions, the cell it goes back to and why, and goes
 // back from there to the cell of that answer, the owner told; it does that cell again and goes on to the merge.
 #[test]
 fn a_work_whose_earlier_answer_no_longer_fits_goes_back_to_that_cell_and_on_to_the_merge() {
@@ -308,8 +308,8 @@ fn a_work_at_an_engine_s_cell_not_run_moves_and_takes_the_row_its_version_added(
 }
 
 // Item #230, as the owner asked: a cell under way that the version the engine runs puts on another line, or has read
-// other inputs of its own, is done again from its start. The same work comes to cell `V1` and goes back from there to
-// that cell, whose next round, in the session of its line in that version, is told it came from `V1`.
+// other inputs of its own, is done again from its start. The same work comes to cell `Y1` and goes back from there to
+// that cell, whose next round, in the session of its line in that version, is told it came from `Y1`.
 #[test]
 fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
     let changes: [Changed; 2] = [
@@ -381,7 +381,7 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
         assert_eq!(works_of(&e, item).len(), 1, "{log}");
         let m = message_at(&e, work, "I1", true);
         assert!(
-            m.contains("Came from cell V1 (Bring the work to the new version) by its row `went_back`"),
+            m.contains("Came from cell Y1 (Bring the work to the new version) by its row `went_back`"),
             "{m}"
         );
         let engineer: i64 =
@@ -408,7 +408,7 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
 // Item #230: the advisor's session is under way while the advisor's own tools run, as much as while it stands at its
 // cell: a version that puts the advisor on another line while the work is at the tools for it does not move the work,
 // whose tools' results would go back to a session of the new line that never asked for them. The same work comes to
-// cell `V1` and goes back to the cell that asked the advisor, as it does when the advisor stands at its cell.
+// cell `Y1` and goes back to the cell that asked the advisor, as it does when the advisor stands at its cell.
 #[test]
 fn an_advisor_whose_tools_run_when_its_line_changes_is_done_again() {
     let s = setup("advisor-tools");
@@ -468,7 +468,7 @@ fn an_advisor_whose_tools_run_when_its_line_changes_is_done_again() {
 }
 
 // Item #230, W245: an architect's work brought to a new flow version while its changes wait for the second eye makes
-// them once the second eye finds them sound, whether it moves where it stands or goes back through cell `V1` to the
+// them once the second eye finds them sound, whether it moves where it stands or goes back through cell `Y1` to the
 // second eye it had begun, which the version puts on another line; its ask of the owner stays the owner's to answer,
 // and is answered.
 #[test]
@@ -478,12 +478,12 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
         let mut agents = scripts();
         let change = json!({ "kind": "cancel", "item": "1", "goes": "Not needed.", "reason": "Done elsewhere." });
         agents.insert(
-            "H8",
+            "H1",
             Box::new(move |_: &Request, _: usize| {
                 (
-                    vec![("outcome.answer", "done")],
+                    Vec::new(),
                     vec![
-                        ("outcome.answer.reply", json!("I cancel it.")),
+                        ("outcome.reply", json!({ "text": "I cancel it." })),
                         (
                             "outcome.effects",
                             json!({ "item_changes": [change.clone()], "observation_changes": null }),
@@ -494,7 +494,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
         );
         // The second eye's first round asks for tools, and it stands at the second eye once they ran.
         agents.insert(
-            "G2",
+            "C2",
             Box::new(|_: &Request, n: usize| {
                 if n > 1 {
                     return (Vec::new(), Vec::new());
@@ -518,7 +518,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
                         |r| r.get(0),
                     )
                     .unwrap();
-            e.work(arch).unwrap().pos.at == "G2" && ran > 0
+            e.work(arch).unwrap().pos.at == "C2" && ran > 0
         };
         // One cell at a time, since a step of the work runs the tools and the round after them as one.
         for _ in 0..40 {
@@ -539,7 +539,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
             })
             .unwrap();
         let v = older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
-            let g2 = g.cells.iter_mut().find(|c| c.id == "G2").unwrap();
+            let g2 = g.cells.iter_mut().find(|c| c.id == "C2").unwrap();
             if back {
                 g2.line = Some("observer".into());
             } else {
@@ -557,7 +557,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
         match back {
             true => assert_eq!(
                 (v1.len(), v1[0].0.as_str(), &v1[0].1["back_to"]),
-                (1, "went_back", &json!("G2")),
+                (1, "went_back", &json!("C2")),
                 "{log}"
             ),
             false => assert!(v1.is_empty(), "{v1:?}\n{log}"),
@@ -579,8 +579,6 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
             why: None,
             reply: None,
             to: None,
-            choice: None,
-            condition: None,
             images: Vec::new(),
         };
         api::answer(&mut e.db, ask, &answer).unwrap();
@@ -588,7 +586,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
     }
 }
 
-// Item #230: a work that the version the engine runs can take on at none of the cells it walked comes to cell `V1` and
+// Item #230: a work that the version the engine runs can take on at none of the cells it walked comes to cell `Y1` and
 // stays there, paused, the owner told why and its project's architect asked to set it straight; no new work takes it
 // over. The owner's Start has the engine look again: it stays, and the architect is asked nothing more.
 #[test]
@@ -632,7 +630,7 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
         e.step(None).unwrap();
         let log = said.lock().unwrap().join("\n");
         let (_, at, paused) = state(&e, item).unwrap();
-        assert_eq!(at, "V1", "{log}");
+        assert_eq!(at, "Y1", "{log}");
         assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
         assert!(
             paused.as_deref().is_some_and(|p| p.starts_with(&format!(
@@ -681,7 +679,7 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
 }
 
 // Item #230, A8 and A13: an engineer's work whose merge stands and that the version the engine runs can take on at none
-// of the cells it walked since its merge stays at cell `V1`, paused; neither its pause nor the matter its architect is
+// of the cells it walked since its merge stays at cell `Y1`, paused; neither its pause nor the matter its architect is
 // given offers a start over or a cancel of its item, which its merge refuses, only the owner's Start once a version
 // with a cell it walked is installed. Its architect is asked once on this version: once the architect has handled that
 // matter, the owner's Start, which finds it stuck again, asks nothing more.
@@ -723,7 +721,7 @@ fn a_merged_work_the_version_can_take_on_nowhere_is_offered_only_the_start_and_a
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "V1", "{log}");
+    assert_eq!(at, "Y1", "{log}");
     let paused = paused.unwrap_or_default();
     assert!(
         paused.ends_with(". Start it once a flow version that has a cell it walked is installed, and it looks again")
@@ -757,7 +755,7 @@ fn a_merged_work_the_version_can_take_on_nowhere_is_offered_only_the_start_and_a
     .unwrap();
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(state(&e, item).unwrap().1, "V1", "{log}");
+    assert_eq!(state(&e, item).unwrap().1, "Y1", "{log}");
     assert_eq!(brought(&e, work).len(), 2, "{log}");
     assert_eq!(asked(&e).len(), 1, "{:?}\n{log}", asked(&e));
     let _ = std::fs::remove_dir_all(&s.root);
@@ -765,7 +763,7 @@ fn a_merged_work_the_version_can_take_on_nowhere_is_offered_only_the_start_and_a
 
 // An architect's work that the version the engine runs can take on at none of the cells it walked ends at once, at its
 // graph's end for a work stopped before its end, saying why, as what installing the version does told beforehand: it
-// has no item to start over or cancel, and waiting at `V1` it would hold its project's architect for good. What it
+// has no item to start over or cancel, and waiting at `Y1` it would hold its project's architect for good. What it
 // handed in that waited for the second eye is dropped and the matter goes back to the queue, not handled; it asks no
 // architect to set anything straight, its ask of the owner stays the owner's to answer, and a new work of the
 // architect starts, takes the matter afresh and handles it.
@@ -775,12 +773,12 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
     let mut agents = scripts();
     let change = json!({ "kind": "cancel", "item": "1", "goes": "Not needed.", "reason": "Done elsewhere." });
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("I cancel it.")),
+                    ("outcome.reply", json!({ "text": "I cancel it." })),
                     (
                         "outcome.effects",
                         json!({ "item_changes": [change.clone()], "observation_changes": null }),
@@ -796,14 +794,14 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
     let arch = e.step(None).unwrap().work.unwrap();
     // It stands at the second eye, the cancel the owner's words had it hand in waiting there, and it asked the owner.
     for _ in 0..40 {
-        if e.work(arch).unwrap().pos.at == "G2" {
+        if e.work(arch).unwrap().pos.at == "C2" {
             break;
         }
         e.advance(arch).unwrap();
     }
     assert_eq!(
         e.work(arch).unwrap().pos.at,
-        "G2",
+        "C2",
         "{}",
         said.lock().unwrap().join("\n")
     );
@@ -838,7 +836,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
         .unwrap();
     // On the version before, it stood at a cell the version the engine runs lacks, having walked only such a cell.
     older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
-        for (id, like) in [("Z0", "Q0"), ("Z1", "G2")] {
+        for (id, like) in [("Z0", "N0"), ("Z1", "C2")] {
             let mut c = g.cell(like).unwrap().clone();
             c.id = id.into();
             g.cells.push(c);
@@ -873,7 +871,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
     let w = e.work(arch).unwrap();
     assert_eq!(
         (w.pos.at.as_str(), w.ended.as_deref(), w.paused.as_deref()),
-        ("C2", Some(why.as_str()), None),
+        ("E1", Some(why.as_str()), None),
         "{log}"
     );
     let v1 = brought(&e, arch);
@@ -887,7 +885,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
     let out: Value =
         e.db.conn()
             .query_row(
-                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'C2'",
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'E1'",
                 [arch],
                 |r| r.get::<_, String>(0),
             )
@@ -936,7 +934,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
             .unwrap();
     assert!(by > arch, "{log}");
     assert_eq!((revised, made), (1, 1), "{log}");
-    assert_eq!(path_of(&e, by).first().map(String::as_str), Some("Q0"), "{log}");
+    assert_eq!(path_of(&e, by).first().map(String::as_str), Some("N0"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -953,21 +951,21 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
     let arch = e.step(None).unwrap().work.unwrap();
     // It stands at the cell after the answer, which replied to the owner, and has not closed the matter.
     for _ in 0..40 {
-        if e.work(arch).unwrap().pos.at == "G1" {
+        if e.work(arch).unwrap().pos.at == "C1" {
             break;
         }
         e.advance(arch).unwrap();
     }
     assert_eq!(
         e.work(arch).unwrap().pos.at,
-        "G1",
+        "C1",
         "{}",
         said.lock().unwrap().join("\n")
     );
     let (matter, replied): (i64, i64) =
         e.db.conn()
             .query_row(
-                "SELECT m.id, (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = 'H8')
+                "SELECT m.id, (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = 'H1')
                  FROM architect_matters m WHERE m.kind = 'owner_words' AND m.handled_round IS NULL",
                 [arch],
                 |r| Ok((r.get(0)?, r.get(1)?)),
@@ -975,7 +973,7 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
             .unwrap();
     // On the version before, the cell after the answer was one the version the engine runs lacks.
     older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
-        let mut c = g.cell("G1").unwrap().clone();
+        let mut c = g.cell("C1").unwrap().clone();
         c.id = "Z1".into();
         g.cells.push(c);
     });
@@ -989,12 +987,12 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
     let why = engine::stopped_why(
         e.flow_now,
         &format!(
-            "cell Z1 is gone; going back to cell H8 would do round {} again, which ",
+            "cell Z1 is gone; going back to cell H1 would do round {} again, which ",
             engine::RoundId::new(arch, replied)
         ),
     );
     let w = e.work(arch).unwrap();
-    assert_eq!(w.pos.at, "C2", "{log}");
+    assert_eq!(w.pos.at, "E1", "{log}");
     assert!(
         w.ended.as_deref().is_some_and(|x| x.starts_with(&why)),
         "{:?}\n{log}",
@@ -1011,7 +1009,7 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
     assert_eq!(handled, (Some(arch), Some(replied)), "{log}");
     let replies: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM rounds WHERE cell = 'H8'", [], |r| r.get(0))
+            .query_row("SELECT count(*) FROM rounds WHERE cell = 'H1'", [], |r| r.get(0))
             .unwrap();
     assert_eq!(replies, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -1128,10 +1126,10 @@ fn rows_held(e: &Engine) -> Vec<i64> {
 
 // Item #272: what installing a flow would do with each work that is neither ended nor done, worked out beside the
 // engine on one made only to read, writes nothing and is what the engine then does: a work at a cell the version lacks
-// goes back through `V1` to the cell it stopped at, doing again the round it had begun there; a paused one that walked
-// no cell the version has is told with its pause, and stays stuck at `V1`, paused for that, once the owner steps it; one
+// goes back through `Y1` to the cell it stopped at, doing again the round it had begun there; a paused one that walked
+// no cell the version has is told with its pause, and stays stuck at `Y1`, paused for that, once the owner steps it; one
 // whose graph the version lacks ends; one on the version already stays. A flow the database has no version of is told
-// as the next, and what a work does at `V1` is read from the row that version's `V1` takes: one whose row back pauses
+// as the next, and what a work does at `Y1` is read from the row that version's `Y1` takes: one whose row back pauses
 // the work leaves it stuck at the cell it went back to.
 #[test]
 fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
@@ -1180,7 +1178,7 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
             let ends = tx.last_insert_rowid();
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, project, paused, paused_by)
-                 VALUES (NULL, ?1, 'architect', 'Q0', 'p', 'Held.', 'owner')",
+                 VALUES (NULL, ?1, 'architect', 'N0', 'p', 'Held.', 'owner')",
                 [now],
             )?;
             Ok((begun, stuck, ends, tx.last_insert_rowid(), last))
@@ -1200,7 +1198,7 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
     assert_eq!(
         effect(back),
         Ok(Effect::GoesBack {
-            through: "V1".into(),
+            through: "Y1".into(),
             to: "I1".into(),
             why: gone.into(),
             from: Some(engine::RoundId::new(back, begun)),
@@ -1215,7 +1213,7 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
     assert_eq!(
         effect(stuck),
         Ok(Effect::Stuck {
-            at: "V1".into(),
+            at: "Y1".into(),
             why: nowhere.clone(),
             back_to: None,
             pause: pause.clone(),
@@ -1248,12 +1246,12 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
         next.works.iter().find(|c| c.id == stays).unwrap().effect,
         Ok(Effect::Moves)
     );
-    // That version's V1 pauses the work it sends back.
+    // That version's Y1 pauses the work it sends back.
     let v1 = other
         .graphs
         .iter_mut()
         .find(|g| g.name == engine::ENGINEER)
-        .and_then(|g| g.cells.iter_mut().find(|c| c.id == "V1"))
+        .and_then(|g| g.cells.iter_mut().find(|c| c.id == "Y1"))
         .unwrap();
     v1.rows.iter_mut().find(|r| r.name == "went_back").unwrap().pauses = true;
     let next = trying(&s, other).flow_cost().unwrap();
@@ -1270,7 +1268,7 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
         })
     );
     assert_eq!(rows_held(&e), before);
-    // The engine does what was told: the work goes back to I1 through V1, doing again the round it had begun there,
+    // The engine does what was told: the work goes back to I1 through Y1, doing again the round it had begun there,
     // and the work of a graph the version lacks ends.
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -1287,7 +1285,7 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
         Some(format!("stopped: {no_graph}")),
         "{log}"
     );
-    // The paused work stays where it was until the owner steps it, and then stays stuck at V1.
+    // The paused work stays where it was until the owner steps it, and then stays stuck at Y1.
     assert_eq!(versions_of(&e, stuck), (v, None), "{log}");
     e.step_work(stuck).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -1362,8 +1360,6 @@ fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes
         why: None,
         reply: None,
         to: None,
-        choice: None,
-        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
@@ -1421,7 +1417,7 @@ fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes
 
 // Item #230: a work standing at the owner's cell of an older flow version, waiting for its ask of the owner, cannot stay
 // where it stands in the version the engine runs, which has no such cell. When it next goes on it is the same work: it
-// comes to cell `V1` and goes back from there to the cell it stopped at, which does it again; the ask it had out needs no
+// comes to cell `Y1` and goes back from there to the cell it stopped at, which does it again; the ask it had out needs no
 // answer, and the owner is told where the work went back and why. No new work starts.
 #[test]
 fn a_work_at_a_cell_the_version_lacks_goes_back_through_v1_to_where_it_stopped() {

@@ -811,16 +811,9 @@ async fn say_to_architect(
     decide(&app, move |db| {
         let images = api::images(&s.images)?;
         let speaker = db::Declared::parse(&s.speaker, s.relayed.as_deref().unwrap_or_default())?;
-        match (s.reply_to, s.condition.as_deref()) {
-            (Some(ask), condition) => {
-                api::reply_to_question_setting(db, &project, ask, &s.text, &images, speaker, condition)
-            }
-            (None, None) => db::say_to_architect(db, &project, s.item, None, &s.text, &images, speaker),
-            (None, Some(_)) => Err(
-                "words said to the architect alone set no merge condition: tick it where they answer a question about \
-                 one item, or in a work's group; the architect records it from your words"
-                    .to_string(),
-            ),
+        match s.reply_to {
+            Some(ask) => api::reply_to_question(db, &project, ask, &s.text, &images, speaker),
+            None => db::say_to_architect(db, &project, s.item, None, &s.text, &images, speaker),
         }
     })
     .await

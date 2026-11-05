@@ -112,7 +112,7 @@ function flowOfCells(cells: CompiledCell[]): { compiled: Compiled; view: FlowVie
 
 // The flow version the work ran on: H8 hands back `take.way`, and `done` leads to B1 as it was titled then.
 const before = flowOfCells([
-  cell('Q2', 'Route the matter', [row('to_owner_words', 'H8', { if: [['inp', 'route', ['H8']]] })]),
+  cell('N2', 'Route the matter', [row('to_owner_words', 'H8', { if: [['inp', 'route', ['H8']]] })]),
   cell(
     'H8',
     'What you ask',
@@ -129,9 +129,9 @@ const before = flowOfCells([
 
 // The flow version the chart shows now: H8's return and rows changed, and so did B1's title.
 const now = flowOfCells([
-  cell('Q2', 'Route the matter', [row('to_owner_words', 'H8', { if: [['inp', 'route', ['H8']]] })]),
-  cell('H8', 'What you ask', [row('done', 'N1', { if: [['is', 'talk.verdict', ['done']]] })], { kind: 'agent' }),
-  cell('N1', 'What to do next', []),
+  cell('N2', 'Route the matter', [row('to_owner_words', 'H8', { if: [['inp', 'route', ['H8']]] })]),
+  cell('H8', 'What you ask', [row('done', 'B2', { if: [['is', 'talk.verdict', ['done']]] })], { kind: 'agent' }),
+  cell('B2', 'What to do next', []),
   cell('B1', 'Where the batch stands', []),
 ]);
 
@@ -157,7 +157,7 @@ const summary = (n: number, at: string, transition: string | null): RoundSummary
   new_session: null,
 });
 
-const rounds = [summary(1, 'Q2', 'to_owner_words'), summary(2, 'H8', 'done'), summary(3, 'B1', null)];
+const rounds = [summary(1, 'N2', 'to_owner_words'), summary(2, 'H8', 'done'), summary(3, 'B1', null)];
 
 const detail: RoundDetail = {
   round: rounds[1],
@@ -218,7 +218,7 @@ describe("a round's panel", () => {
     expect([...html.matchAll(/<h2[^>]*section-title[^>]*>([^<]*)</g)].map((m) => m[1])).toEqual(['In', 'Out', 'From', 'To']);
     const table = lines(html);
     // From: the row it came in by, marked, with the round it came from.
-    expect(table).toContain("* |Q2 Route the matter|to_owner_words|the engine's value route is H8|R7-1|");
+    expect(table).toContain("* |N2 Route the matter|to_owner_words|the engine's value route is H8|R7-1|");
     expect(table).toContain('- |X2 Search observations|found|always|');
     // To: done, worked out from the return's `outcome.take.way`, to B1 as titled then, with the round it led to.
     expect(table).toContain('* |done main path|outcome.take.way is do_now|B1 Where the batch stood · close matter|R7-3|');
@@ -282,7 +282,7 @@ describe("a cell's panel", () => {
     );
     expect(lines(html)).toEqual([
       '|From|Row|When|',
-      "|Q2 Route the matter|to_owner_words|the engine's value route is H8|",
+      "|N2 Route the matter|to_owner_words|the engine's value route is H8|",
       '|X2 Search observations|found|always|',
       '|Row|When|Leads to|',
       '|done main path|outcome.take.way is do_now|B1 Where the batch stood · close matter|',

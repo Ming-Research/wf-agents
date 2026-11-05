@@ -20,7 +20,6 @@ pub mod backup;
 mod cells;
 mod holds;
 mod matters;
-mod merge_conditions;
 mod questions;
 mod slots;
 mod start_over;
@@ -28,10 +27,10 @@ mod start_over;
 pub use cells::{cells_sql, code_of, is_cell};
 pub use holds::{HoldReason, hold_starts, holds_of, release_starts};
 pub use matters::{
-    Declared, FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause,
-    one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
+    Appended, BASE_BUILT, Declared, FAULT, Forwarder, Matter, Speaker, appended_since, base_built_at, fault_forwarding,
+    forward_fault, forward_new_fault, lift_pause, one_sentence, plan_written_at, project_of_item, queue_matter,
+    say_to_architect, set_fault_forwarding, without_final_terminal,
 };
-pub use merge_conditions::{MergeCondition, item_of_ask, record_merge_condition};
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
 pub use start_over::{
@@ -207,8 +206,8 @@ pub fn stopped_by_architect(paused: Option<&str>, by: Option<&str>) -> bool {
 }
 
 /// What the reason of a work the engine paused for returns sent back in a row starts with, when the work's project's
-/// architect has been asked to look at why (a matter for each of the returns): the architect may let such a work go on,
-/// as it may one it stopped itself. The view `architect_queue` in `db/schema.sql` tells the matters of such a work from
+/// architect has been asked to look at why (a report for each of the returns): the architect may let such a work go on,
+/// as it may one it stopped itself. The view `architect_queue` in `db/schema.sql` tells the reports of such a work from
 /// the others by the same start, written there apart: `crates/db/tests/sent_back_lines.rs` keeps the two the same.
 pub const SENT_BACK_FOR_ARCHITECT: &str = "returns were sent back";
 
@@ -1544,6 +1543,57 @@ mod tests {
         );
     }
 
+    // What is on hand, each item with its state: a work on it gives its number and cell, what is ready here is what
+    // ready_items starts, and an item done or cancelled is not there. A work paused or an item held that a work is on
+    // is at that work; nothing but the items' own order sorts them.
+    #[test]
+    fn open_items_gives_each_item_not_done_or_cancelled_with_its_state() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let [running, paused, held, blocked, ready, done, cancelled] =
+                ["running", "paused", "held", "blocked", "ready", "done", "cancelled"].map(|t| item(tx, t).unwrap());
+            add_dependency(tx, blocked, ready, "its part", "blocking")?;
+            tx.execute("UPDATE items SET held = 'later' WHERE id = ?1", [held])?;
+            tx.execute("UPDATE items SET cancelled = 'no' WHERE id = ?1", [cancelled])?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at) VALUES (1, ?1, 1, 'engineer', 'R1')",
+                [running],
+            )?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at, paused, paused_by)
+                 VALUES (2, ?1, 1, 'engineer', 'D1', 'to look', 'owner')",
+                [paused],
+            )?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at) VALUES (3, ?1, 1, 'engineer', 'E1')",
+                [done],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, config_commit, started_at, ended_at)
+                 VALUES (3, 1, 'E1', '{}', '{}', 'c', 1, 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let rows = |sql: &str| names(db.conn(), sql).unwrap();
+        assert_eq!(
+            rows("SELECT title || ' ' || state || ' ' || coalesce(work || ' ' || at, '-') FROM open_items"),
+            [
+                "running running 1 R1",
+                "paused paused 2 D1",
+                "held held -",
+                "blocked blocked -",
+                "ready ready -",
+            ]
+        );
+        assert_eq!(
+            rows("SELECT title FROM open_items WHERE state = 'ready'"),
+            rows("SELECT title FROM ready_items")
+        );
+    }
+
     /// Three works of project `p`, each of an item of its own, in the order of their numbers, all at `T6`; the
     /// database they are in has the one flow version they run on.
     fn three_works() -> (Db, [i64; 3]) {
@@ -2266,7 +2316,7 @@ mod tests {
             )?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
-                 VALUES (1, 1, 'U1', 1, '{}', 'c', 1)",
+                 VALUES (1, 1, 'B1', 1, '{}', 'c', 1)",
                 [],
             )?;
             Ok(())

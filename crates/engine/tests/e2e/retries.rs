@@ -316,13 +316,13 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// The architect's work at `U1`, with its project's remote at `url` from now on, and no wait for a step that failed to
+/// The architect's work at `B1`, with its project's remote at `url` from now on, and no wait for a step that failed to
 /// be taken again.
 fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
     let (mut e, said) = engine(s, scripts());
     quiet(&mut e);
     e.backoff_unit = Duration::ZERO;
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     git(&s.root.join("checkout"), &["remote", "set-url", "origin", url]);
     (e, said, arch)
 }
@@ -405,7 +405,7 @@ fn a_step_that_fails_like_the_network_is_taken_again() {
     assert_eq!(paused_by(&e, arch), None, "{log}");
     assert_eq!(
         rows_taken(&e, arch),
-        [("U1".to_string(), Some("step_network".to_string()))],
+        [("B1".to_string(), Some("step_network".to_string()))],
         "{log}"
     );
     assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
@@ -432,7 +432,7 @@ fn a_step_that_fails_like_the_network_is_taken_again() {
     }
     let log = said.lock().unwrap().join("\n");
     let rows = rows_taken(&e, arch);
-    assert_eq!(rows[0], ("U1".to_string(), Some("step_network".to_string())), "{log}");
+    assert_eq!(rows[0], ("B1".to_string(), Some("step_network".to_string())), "{log}");
     assert!(
         rows.len() > 1 && rows[1].1.as_deref() != Some("step_network"),
         "{rows:?}\n{log}"
@@ -440,9 +440,9 @@ fn a_step_that_fails_like_the_network_is_taken_again() {
     assert_eq!(paused_by(&e, arch), None, "{log}");
     assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
     // The round that ran is the cell's last; its message says nothing of the step that failed before it.
-    let message = message_at(&e, arch, "U1", true);
+    let message = message_at(&e, arch, "B1", true);
     assert!(
-        message.contains("cell U1") && !message.contains("step_network"),
+        message.contains("cell B1") && !message.contains("step_network"),
         "{message}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
@@ -542,16 +542,16 @@ fn failures_with_a_return_between_are_not_in_a_row() {
     let s = setup("far-apart");
     let mut scripts = scripts();
     scripts.insert(
-        "U1",
+        "B1",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))])),
     );
     let (mut e, said) = engine(&s, scripts);
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     // Eight failures, as many as the flow runs again, and a return of an agent after them.
     let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
-    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..8).map(|_| ("U1", None, transient.clone())).collect();
-    past.push(("H9", Some("done"), None));
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..8).map(|_| ("B1", None, transient.clone())).collect();
+    past.push(("H1", Some("done"), None));
     past_rounds(&mut e, arch, &past);
     // The next failure is the first in its row: it is run again, not paused (it would be past the bound if the eight
     // before the return were counted).
@@ -635,8 +635,8 @@ fn advance_to_pause(e: &mut Engine, work: i64, most: usize) {
 fn step_failures_before_a_return_of_an_agent_are_not_in_a_row_with_those_after_it() {
     let s = setup("step-reset");
     let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
-    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..5).map(|_| ("U1", None, step_failed())).collect();
-    past.push(("H9", Some("done"), None));
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..5).map(|_| ("B1", None, step_failed())).collect();
+    past.push(("H1", Some("done"), None));
     past_rounds(&mut e, arch, &past);
     advance_to_pause(&mut e, arch, 12);
     let log = said.lock().unwrap().join("\n");
@@ -656,14 +656,14 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
     let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
     let cut_off = Some(json!({ "interrupted": "the engine stopped before this round ended; it runs again" }));
     let past: Vec<(&str, Option<&str>, Option<Value>)> = vec![
-        ("U1", None, step_failed()),
-        ("U1", None, step_failed()),
-        ("U1", None, step_failed()),
-        ("Q0", Some("plan"), None),
-        ("U1", None, transient),
-        ("U1", None, cut_off),
-        ("U1", None, step_failed()),
-        ("U1", None, step_failed()),
+        ("B1", None, step_failed()),
+        ("B1", None, step_failed()),
+        ("B1", None, step_failed()),
+        ("N0", Some("plan"), None),
+        ("B1", None, transient),
+        ("B1", None, cut_off),
+        ("B1", None, step_failed()),
+        ("B1", None, step_failed()),
     ];
     past_rounds(&mut e, arch, &past);
     advance_to_pause(&mut e, arch, 12);
@@ -687,7 +687,7 @@ fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
     let s = setup("refused-at-once");
     let mut scripts = scripts();
     scripts.insert(
-        "U1",
+        "B1",
         Box::new(|_: &Request, _: usize| {
             let flagged = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)";
             (Vec::new(), vec![("@error", json!(flagged))])
@@ -695,9 +695,9 @@ fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
     );
     let (mut e, said) = engine(&s, scripts);
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
-    past_rounds(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
+    past_rounds(&mut e, arch, &[("B1", None, flagged), ("B1", None, step_failed())]);
     e.advance(arch).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
@@ -849,7 +849,7 @@ fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
     limit_on(&s, &[("retries", 1)]);
     let mut scripts = scripts();
     scripts.insert(
-        "U1",
+        "B1",
         Box::new(|_: &Request, n: usize| {
             let fail = vec![("@error", json!("API Error: 529 Overloaded"))];
             (Vec::new(), if n <= 2 { fail } else { Vec::new() })
@@ -857,9 +857,9 @@ fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
     );
     let (mut e, said) = engine(&s, scripts);
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     // One step taken again already: the count is at the limit, not past it.
-    past_rounds(&mut e, arch, &[("U1", None, step_failed())]);
+    past_rounds(&mut e, arch, &[("B1", None, step_failed())]);
     let phrase = "passed the limit its project sets on retries";
     for _ in 0..6 {
         e.advance(arch).unwrap();

@@ -84,7 +84,6 @@ import {
   CardTalk,
   enterSends,
   handsBack,
-  judgesCondition,
   needsWords,
   pickAfter,
   useAskPick,
@@ -101,11 +100,11 @@ import {
 } from '../components';
 import {
   aboutCard,
+  askInWords,
   architectAsk,
   asksApproval,
   cardTalk,
   closedWhy,
-  pastTheMerge,
   CONVERSATION_WINDOW,
   CONVERSATION_WINDOW_MOST,
   conversationTitle,
@@ -151,7 +150,6 @@ import { useNarrow, useWidth, type Width } from '../width';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble, BubbleHead } from './Bubble';
-import { ConditionLine, useConditionTick } from './ConditionTick';
 import { AskView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkGroupName, WorkHead } from './TalkHead';
 import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
@@ -300,10 +298,13 @@ function MissesLine({ m }: { m: Misses }) {
 
 /// What a message of the owner's or an agent's says: its words as written, in the page's markdown, and the images the
 /// owner sent with them as thumbnails under them; a ruling, which card; an ask, in full while it waits, so that it is
-/// read where it is answered, and once answered its words with the ask in full folded under them.
+/// read where it is answered, and once answered its words with the ask in full folded under them, as a change to approve
+/// or a design to review always is, whose body would fill the conversation.
 function Words({ e }: { e: ConversationEntry }) {
   if (e.source === 'ruling') return <p>{t('conv_ruling', { id: e.design_card ?? e.id })}</p>;
-  if (e.ask_detail !== null && e.ask_detail.answer === null) return <AskIn a={e.ask_detail} />;
+  if (e.ask_detail !== null && e.ask_detail.answer === null && !askInWords(e.ask_detail)) {
+    return <AskIn a={e.ask_detail} />;
+  }
   return (
     <>
       {e.text !== '' ? <Markdown text={e.text} /> : null}
@@ -370,15 +371,12 @@ function AnswerBox({ draft, placeholder, ready, send, children = null }: {
 
 /// What answering in a bubble needs: the draft of its words and images, kept under `key` (made of the number of what is
 /// answered), which knows whether they are being sent and what failed, and how to send them, the images with the words.
-function useAnswer(key: string): { draft: Draft; post: (url: string, body: object, sent: () => void) => void } {
+function useAnswer(key: string): { draft: Draft; post: (url: string, body: object) => void } {
   const draft = useDraft(key);
-  const post = (url: string, body: object, sent: () => void) =>
+  const post = (url: string, body: object) =>
     draft.send(
       () => postJson(url, { ...body, images: imagesSent(draft.images) }),
-      () => {
-        sent();
-        reread('messages', 'architect', 'works', 'work:*');
-      },
+      () => reread('messages', 'architect', 'works', 'work:*'),
     );
   return { draft, post };
 }
@@ -386,24 +384,20 @@ function useAnswer(key: string): { draft: Draft; post: (url: string, body: objec
 /// How an ask that waits is answered, in its bubble, under its card, whose option boxes pick what it offers (a click
 /// picking one and a second clearing it, the one picked marked): the small box of the owner's words and Answer, which
 /// sends the option picked. The words are needed for an ask in words alone and for an option ask with none picked, else
-/// they are free; an engineer's ask the owner holds can be handed back to the architect with them. An ask about one item
-/// takes a merge condition ticked on its answer, but the merge gate's ask of a condition, which judges one.
+/// they are free; an engineer's ask the owner holds can be handed back to the architect with them.
 export function AskAnswer({ a }: { a: OwnerAsk }) {
   const pick = useAskPick(a.id)?.picked ?? '';
   const [back, setBack] = useState(false);
   const { draft, post } = useAnswer(`ask:${a.id}`);
-  const judges = judgesCondition(a);
-  const tick = useConditionTick(`ask:${a.id}`, draft.text, !judges && a.condition_item !== null);
-  const answer = askAnswer(pick, draft.text, handsBack(a) && back, draft.images.length > 0, judges);
-  const ready = answer !== null && tick.ready;
+  const answer = askAnswer(pick, draft.text, handsBack(a) && back, draft.images.length > 0);
   return (
     <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
       <AnswerBox
         draft={draft}
         placeholder={t(needsWords(pick) ? 'conv_answer_words' : 'conv_answer_more')}
-        ready={ready}
+        ready={answer !== null}
         send={() => {
-          if (ready) post(`/api/v1/asks/${a.id}/answer`, { ...answer, ...tick.sent }, tick.done);
+          if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
         }}
       >
         {handsBack(a) ? (
@@ -413,23 +407,16 @@ export function AskAnswer({ a }: { a: OwnerAsk }) {
             <FormControl.Caption>{t('answer_to_architect_hint')}</FormControl.Caption>
           </FormControl>
         ) : null}
-        <ConditionLine tick={tick} disabled={draft.busy} />
       </AnswerBox>
     </div>
   );
 }
 
 /// How a question of an engineer's that the architect holds is answered in the group, in its bubble: the small box of
-/// the owner's words and Answer; the answer is the reply, and the architect is told. A merge condition may be ticked on
-/// it, until the work is past its merge (`pastMerge`).
-export function QuestionAnswer({ work, matter, pastMerge = false }: {
-  work: number;
-  matter: number;
-  pastMerge?: boolean;
-}) {
+/// the owner's words and Answer; the answer is the reply, and the architect is told.
+export function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
   const { draft, post } = useAnswer(`question:${work}:${matter}`);
-  const tick = useConditionTick(`question:${work}:${matter}`, draft.text, !pastMerge);
-  const ready = saysSomething(draft.text, draft.images) && tick.ready;
+  const ready = saysSomething(draft.text, draft.images);
   return (
     <div className="talk-answer">
       <AnswerBox
@@ -437,17 +424,9 @@ export function QuestionAnswer({ work, matter, pastMerge = false }: {
         placeholder={t('conv_answer_words')}
         ready={ready}
         send={() => {
-          if (ready) {
-            post(
-              `/api/v1/works/${work}/say`,
-              { text: draft.text.trim(), speaker: SPEAKER, question: matter, ...tick.sent },
-              tick.done,
-            );
-          }
+          if (ready) post(`/api/v1/works/${work}/say`, { text: draft.text.trim(), speaker: SPEAKER, question: matter });
         }}
-      >
-        <ConditionLine tick={tick} disabled={draft.busy} />
-      </AnswerBox>
+      />
     </div>
   );
 }
@@ -515,12 +494,10 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// then the owner's answer (`reply`). The question whether the draft of a new policy is approved leads to the draft, in
 /// the panel beside the one-to-one (`draft`). The owner's question about a decision card, and its answer, have the
 /// strip naming the card over their words.
-function Message({ e, to, reply, pastMerge = false, draft = null, onReply = null, approve = null }: {
+function Message({ e, to, reply, draft = null, onReply = null, approve = null }: {
   e: ConversationEntry;
   to: string | null;
   reply: ConversationEntry | null;
-  /// Whether the work of the question it holds is past its merge, which takes no merge condition any more.
-  pastMerge?: boolean;
   draft?: string | null;
   /// For an architect's question that waits for the owner's reply: what sets the box to reply to it.
   onReply?: (() => void) | null;
@@ -562,9 +539,7 @@ function Message({ e, to, reply, pastMerge = false, draft = null, onReply = null
           <>
             {asks && ask !== null ? <AskAnswer a={ask} /> : null}
             {ask !== null && ask.answer !== null ? <AskAnswered a={ask} /> : null}
-            {question !== null ? (
-              <QuestionAnswer work={question.work} matter={question.matter} pastMerge={pastMerge} />
-            ) : null}
+            {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
             {reply !== null ? (
               <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} images={reply.images} />
             ) : null}
@@ -744,8 +719,6 @@ type EntryProps = {
   approval: boolean;
   /// The owner's answer to the question of an engineer's it is, once given; none for any other.
   reply: ConversationEntry | null;
-  /// Whether it is a question of an engineer's that can be answered, of a work past its merge.
-  pastMerge: boolean;
   /// Whether it is an architect's question that waits for the owner's reply.
   waits: boolean;
   /// What sets the box to reply to a question of the architect's; one function for the whole stream.
@@ -766,7 +739,6 @@ const Entry = memo(function Entry({
   forwarding,
   approval,
   reply,
-  pastMerge,
   waits,
   replyTo,
 }: EntryProps) {
@@ -786,7 +758,6 @@ const Entry = memo(function Entry({
       e={e}
       to={mentions(e, kind) ? mention(e, kind) : null}
       reply={reply}
-      pastMerge={pastMerge}
       draft={project !== null && approval ? sideHref(project, 'policy') : null}
       onReply={waits && replyTo !== null ? () => replyTo(e.id) : null}
       approve={waits && project !== null && approval ? project : null}
@@ -990,10 +961,9 @@ function Approve({ project, question }: { project: string; question: number }) {
   );
 }
 
-/// The question the box at the bottom of the one-to-one replies to: its number, its words, what takes the reply off, the
-/// box's words then going to the architect as any words do, and whether it is about one item, which a merge condition
-/// ticked on the reply goes on.
-export type Reply = { question: number; words: string; clear: () => void; aboutOneItem: boolean };
+/// The question the box at the bottom of the one-to-one replies to: its number, its words, and what takes the reply
+/// off, the box's words then going to the architect as any words do.
+export type Reply = { question: number; words: string; clear: () => void };
 
 /// The decision card the owner's question asks about, or an answer answers about, over its words as the strip over the
 /// box quotes the question a reply answers: a `ReplyIcon` and the card by its number and question on one line, cut
@@ -1028,9 +998,8 @@ function ReplyStrip({ reply }: { reply: Reply }) {
 /// work's group to the engineer, the architect or both; in a group of projects to one architect or every one; in the
 /// one-to-one to the architect, as the owner's words it takes first, or, with the strip over it, as the reply to the
 /// question it names (`reply`), after which it replies to what the architect waits on again (`onSent`). It never
-/// answers a bubble: an ask of a work's, and a question the architect holds, are answered in their bubbles. A merge
-/// condition may be ticked on the words in a work's group and on a reply to a question about one item. Closed, it says
-/// why: a work at its end no longer changes its way on.
+/// answers a bubble: an ask of a work's, and a question the architect holds, are answered in their bubbles. Closed, it
+/// says why: a work at its end no longer changes its way on.
 export function Composer({ c, w, reply = null, onSent }: {
   c: Conversation;
   w: WorkSummary | null;
@@ -1046,15 +1015,9 @@ export function Composer({ c, w, reply = null, onSent }: {
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
   const closed = closedWhy(c, w);
-  const condition = useConditionTick(
-    `conv:${c.key}`,
-    text,
-    closed === null &&
-      ((c.kind === 'work' && !pastTheMerge(w)) || (c.kind === 'architect' && reply !== null && reply.aboutOneItem)),
-  );
   if (choices.length === 0) return null;
   const busy = draft.busy;
-  const ready = closed === null && saysSomething(text, images) && sendTo.length > 0 && condition.ready;
+  const ready = closed === null && saysSomething(text, images) && sendTo.length > 0;
   const send = () => {
     if (!ready) return;
     const said = text.trim();
@@ -1062,13 +1025,7 @@ export function Composer({ c, w, reply = null, onSent }: {
     draft.send(
       () => {
         if (c.kind === 'work') {
-          return postJson(`/api/v1/works/${c.work ?? 0}/say`, {
-            text: said,
-            speaker: SPEAKER,
-            to,
-            images: sentImages,
-            ...condition.sent,
-          });
+          return postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: said, speaker: SPEAKER, to, images: sentImages });
         }
         if (c.kind === 'projects') {
           return Promise.all(
@@ -1085,11 +1042,9 @@ export function Composer({ c, w, reply = null, onSent }: {
         return postJson(forProject('/api/v1/architect/say', c.project), {
           ...toArchitect(said, reply !== null ? reply.question : null),
           images: sentImages,
-          ...condition.sent,
         });
       },
       () => {
-        condition.done();
         onSent?.();
         reread('messages', 'architect', 'works', 'work:*');
       },
@@ -1134,7 +1089,6 @@ export function Composer({ c, w, reply = null, onSent }: {
           {t('conv_send')}
         </Button>
       </div>
-      <ConditionLine tick={condition} disabled={busy} />
       {draft.error !== null ? <Flash variant="danger">{t('request_failed', { error: draft.error })}</Flash> : null}
     </div>
   );
@@ -1222,7 +1176,6 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
                 forwarding={voiceOf(e) === 'fault' ? d.forwarding : null}
                 approval={asksApproval(e, draft)}
                 reply={e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null}
-                pastMerge={e.answerable && pastTheMerge(w)}
                 waits={e.source === 'ask' && questions.has(e.id)}
                 replyTo={replyTo}
               />
@@ -1296,15 +1249,7 @@ export function Open({ c, works, side }:{ c: Conversation; works: WorkSummary[] 
   // replies to the one the architect waits on.
   const [chosen, setChosen] = useState<number | null | undefined>(undefined);
   const to = replyingTo(d !== null ? pinnedQuestions(d) : [], chosen, d?.waits_on ?? null);
-  const reply: Reply | null =
-    to !== null
-      ? {
-          question: to.id,
-          words: to.text,
-          clear: () => setChosen(null),
-          aboutOneItem: (to.ask_detail?.condition_item ?? null) !== null,
-        }
-      : null;
+  const reply: Reply | null = to !== null ? { question: to.id, words: to.text, clear: () => setChosen(null) } : null;
   // One function for as long as the conversation is open, so that the entries that hold it are not drawn again for it.
   const replyTo = useCallback((question: number) => {
     setChosen(question);

@@ -49,7 +49,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let s = setup("ask-holds");
     let mut agents = scripts();
     agents.insert(
-        "H9",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             // Its first round, on the matter picked first, asks the owner.
             if n == 1 {
@@ -83,7 +83,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let asked = path.iter().position(|c| c == "A3").expect(&log);
     assert_eq!(
         &path[asked - 1..asked + 6],
-        ["H9", "A3", "Q0", "Q2", "H9", "G1", "Q0"],
+        ["H1", "A3", "N0", "N2", "H1", "C1", "N0"],
         "{log}"
     );
     assert_eq!(cells_of(&e, arch)[asked].1.as_deref(), Some("held"));
@@ -97,7 +97,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
             )
             .unwrap();
     let ask = held.1.expect(&log);
-    assert_eq!((held.2.as_deref(), held.3), (Some("H9"), None), "{log}");
+    assert_eq!((held.2.as_deref(), held.3), (Some("H1"), None), "{log}");
     assert_eq!(
         matters(&e),
         [
@@ -135,10 +135,10 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     );
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, again);
-    let at = path.iter().position(|c| c == "Q2").expect(&log);
-    assert_eq!(&path[at..at + 3], ["Q2", "H9", "G1"], "{log}");
-    assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_answer_architect"));
-    let answered = message_at(&e, again, "H9", false);
+    let at = path.iter().position(|c| c == "N2").expect(&log);
+    assert_eq!(&path[at..at + 3], ["N2", "H1", "C1"], "{log}");
+    assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_handle"));
+    let answered = message_at(&e, again, "H1", false);
     assert!(answered.contains("Yes, hold it."), "{answered}");
     let handled: Option<i64> =
         e.db.conn()
@@ -160,7 +160,7 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     let s = setup("answered-first");
     let mut agents = scripts();
     agents.insert(
-        "H9",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             // Its first round, on the only matter queued then, asks the owner.
             if n == 1 {
@@ -207,8 +207,6 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
         why: None,
         reply: None,
         to: None,
-        choice: None,
-        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, ask, &yes).unwrap();
@@ -220,20 +218,20 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     );
     let log = said.lock().unwrap().join("\n");
     let cells = cells_of(&e, again);
-    let at = cells.iter().position(|c| c.0 == "Q0").expect(&log);
+    let at = cells.iter().position(|c| c.0 == "N0").expect(&log);
     assert_eq!(cells[at].1.as_deref(), Some("owner"), "{cells:?}\n{log}");
     assert_eq!(
         cells[at + 1..at + 3].iter().map(|c| c.0.as_str()).collect::<Vec<_>>(),
-        ["Q2", "H9"],
+        ["N2", "H1"],
         "{cells:?}\n{log}"
     );
-    assert!(message_at(&e, again, "H9", false).contains("Yes, hold it."), "{log}");
+    assert!(message_at(&e, again, "H1", false).contains("Yes, hold it."), "{log}");
     assert_eq!(
         matters(&e),
         [
             ("other_architect".to_string(), false, true),
-            ("other_architect".to_string(), true, false),
-            ("other_architect".to_string(), true, false)
+            ("other_architect".to_string(), false, true),
+            ("other_architect".to_string(), false, true)
         ],
         "{log}"
     );
@@ -256,7 +254,7 @@ fn a_question_parks_its_matter_and_a_reply_to_a_closed_question_is_the_owner_s_w
     let s = setup("question-words");
     let mut agents = scripts();
     agents.insert(
-        "H9",
+        "H1",
         Box::new(|r: &Request, _: usize| {
             if r.prompt.contains("Hold the release?") {
                 return asks_the_owner("Should the release wait for the parser?");
@@ -280,7 +278,7 @@ fn a_question_parks_its_matter_and_a_reply_to_a_closed_question_is_the_owner_s_w
         cells.contains(&("A3".to_string(), Some("held".to_string()))),
         "{cells:?}\n{log}"
     );
-    assert_eq!(cells.last().map(|c| c.0.as_str()), Some("E2"), "{log}");
+    assert_eq!(cells.last().map(|c| c.0.as_str()), Some("R1"), "{log}");
     // The question still waits, its matter parked.
     let ask = parked_by(&e, held);
     let pending = |e: &Engine| -> i64 {
@@ -332,11 +330,11 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
     let s = setup("words-in-group");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             (
-                vec![("outcome.answer", "done")],
-                vec![("outcome.answer.reply", json!("The tests run on every push."))],
+                Vec::new(),
+                vec![("outcome.reply", json!({ "text": "The tests run on every push." }))],
             )
         }),
     );
@@ -370,7 +368,7 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(rows_at(&e, arch, "H8"), ["done"], "{log}");
+    assert_eq!(rows_at(&e, arch, "H1"), ["done"], "{log}");
     let reply_in = |conversation: &str| -> i64 {
         e.db.conn()
             .query_row(
@@ -397,13 +395,13 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
     let s = setup("head-twice");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             (
-                vec![("outcome.answer", "new_policy")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("I see.")),
-                    ("outcome.answer.why", json!("The owner doubts the direction.")),
+                    ("outcome.reply", json!({ "text": "I see." })),
+                    ("outcome.policy_check_why", json!("The owner doubts the direction.")),
                 ],
             )
         }),
@@ -412,6 +410,7 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Check the policy.");
+    say(&mut e, "Check it, really.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
@@ -422,19 +421,19 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
     assert_eq!(
         path_of(&e, arch),
         [
-            "Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
+            "N0", "B1", "B2", "N0", "N2", "H1", "C1", "N0", "N2", "H1", "C1", "N0", "N2", "P1", "C1", "N0", "R1"
         ],
         "{log}"
     );
-    assert_eq!(rows_at(&e, arch, "H8"), ["new_policy"], "{log}");
+    assert_eq!(rows_at(&e, arch, "H1"), ["done", "done"], "{log}");
     assert_eq!(
         at_head(&e),
         [(
             "check_policy".to_string(),
             true,
             vec![
-                ("H8".to_string(), "The owner doubts the direction.".to_string()),
-                ("U1".to_string(), "Reading the project anew asks for it".to_string())
+                ("H1".to_string(), "The owner doubts the direction.".to_string()),
+                ("H1".to_string(), "The owner doubts the direction.".to_string())
             ]
         )],
         "{log}"
@@ -485,7 +484,7 @@ fn the_owner_s_words_come_first_while_new_starts_are_held_to_set_things_straight
             .position(|c| c == cell)
             .unwrap_or_else(|| panic!("{cell}: {path:?}\n{log}"))
     };
-    assert!(at("H8") < at("H1") && at("H1") < at("P1"), "{path:?}");
-    assert_eq!(rows_at(&e, arch, "Q0")[0], "owner", "{log}");
+    assert!(at("B1") < at("H1"), "{path:?}");
+    assert_eq!(rows_at(&e, arch, "N0")[1], "owner", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

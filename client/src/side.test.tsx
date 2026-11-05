@@ -107,19 +107,18 @@ const panel: ArchitectPanel = {
   policy: {
     work: 3,
     round: 4,
-    cell: 'P12',
+    cell: 'P3',
     at: 40,
     policy: { direction: 'Keep it small.', why: 'Small is quick.', principles: [], signals: [] },
   },
+  appended: [{ at: 50, who: 'matter 4 (report)', text: 'Took the report in.', plan: 'The parser first.', understanding: null }],
   notebook: [
     {
       section: 'project_now',
-      now: version('Two parsers.', 5, 'U1'),
-      versions: [version('Two parsers.', 5, 'U1'), version('One parser.', 2, 'U1')],
+      now: version('Two parsers.', 5, 'B1'),
+      versions: [version('Two parsers.', 5, 'B1'), version('One parser.', 2, 'B1')],
     },
-    { section: 'plan', now: version('Merge them.', 6, 'N1'), versions: [version('Merge them.', 6, 'N1')] },
-    { section: 'unclear', now: null, versions: [] },
-    { section: 'other', now: null, versions: [] },
+    { section: 'plan', now: version('Merge them.', 6, 'B2'), versions: [version('Merge them.', 6, 'B2')] },
   ],
   constitution: {
     name: 'CONSTITUTION.md',
@@ -170,11 +169,11 @@ describe('the panel beside the one-to-one with an architect', () => {
     expect(html).toMatch(/octicon-x"[\s\S]*>Close</);
   });
 
-  it('shows each section of the notebook folded under the round and cell that last wrote it, its earlier versions folded', () => {
+  it('shows each part of the notebook folded under the round and cell that last wrote it, its earlier versions folded, then what came since the base', () => {
     const html = side('notebook');
     const titles = [...html.matchAll(/class="section-title[^"]*">([^<]*)</g)].map((m) => m[1]);
-    expect(titles).toEqual(['What the project is now', 'Earlier versions', 'The plan', 'What is unclear', 'Anything else']);
-    const now = section(html, 'What the project is now');
+    expect(titles).toEqual(['How it understands the project', 'Earlier versions', 'The plan', 'Since the base']);
+    const now = section(html, 'How it understands the project');
     expect(now).not.toMatch(/^<details class="section[^"]*"[^>]* open=""/);
     expect(now.slice(0, now.indexOf('Earlier versions'))).toContain('R9-5');
     expect(now).toContain('Two parsers.');
@@ -183,7 +182,9 @@ describe('the panel beside the one-to-one with an architect', () => {
     expect(earlier.slice(0, earlier.indexOf('The plan'))).toContain('One parser.');
     expect(earlier.slice(0, earlier.indexOf('The plan'))).not.toContain('Two parsers.');
     expect(section(html, 'The plan')).not.toContain('Earlier versions');
-    expect(section(html, 'What is unclear')).toContain('Nothing written yet.');
+    const since = section(html, 'Since the base');
+    expect(since).toContain('Took the report in.');
+    expect(since).toContain('The parser first.');
   });
 
   it('shows the draft awaiting the owner’s approval on top of its policy, then the policy in force, the constitution folded', () => {

@@ -10,7 +10,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let s = setup("architect-stop");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let pause = json!({ "kind": "pause_work", "item": 1, "reason": "It waits for the parser." });
@@ -26,7 +26,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
     let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
     assert!(steps_until(&mut e, 40, stopped), "{}", said.lock().unwrap().join("\n"));
@@ -73,7 +73,7 @@ fn the_architect_starts_a_work_over() {
     let s = setup("architect-start-over");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             let item = if n == 1 { 2 } else { 1 };
             let over = json!({ "kind": "start_work_over", "item": item, "reason": "Its design went the wrong way." });
@@ -98,7 +98,7 @@ fn the_architect_starts_a_work_over() {
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
     let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     let over = |e: &mut Engine| works_of(e, item).len() == 2;
     assert!(steps_until(&mut e, 40, over), "{}", said.lock().unwrap().join("\n"));
@@ -118,7 +118,7 @@ fn the_architect_starts_a_work_over() {
     let sent_back: String =
         e.db.conn()
             .query_row(
-                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL",
+                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H1' AND rejected IS NOT NULL",
                 [arch],
                 |r| r.get(0),
             )
@@ -146,7 +146,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     let (mut e, said) = engine(&s, scripts());
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     let body: String =
         e.db.conn()
@@ -162,7 +162,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
         "{}",
         said.lock().unwrap().join("\n")
     );
-    assert!(path_of(&e, arch).contains(&"N1".to_string()));
+    assert!(path_of(&e, arch).contains(&"B2".to_string()));
     assert_eq!(e.step(None).unwrap().work, None);
     let count = |e: &Engine| -> i64 {
         e.db.conn()
@@ -197,7 +197,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     .unwrap();
     let again = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(again.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(again.cell.as_deref(), Some("N0"), "{log}");
     assert_eq!(count(&e), 2);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -316,7 +316,7 @@ fn no_matter_of_free_slots_is_queued_while_every_work_is_paused() {
     assert_eq!(slots_free_matters(&e), 0);
     // With every work going on again, it is queued as before and starts a work of the architect.
     let again = e.step(None).unwrap();
-    assert_eq!(again.cell.as_deref(), Some("Q0"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(again.cell.as_deref(), Some("N0"), "{}", said.lock().unwrap().join("\n"));
     assert_eq!(slots_free_matters(&e), 1);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -344,7 +344,7 @@ fn no_matter_of_free_slots_is_queued_while_the_owner_holds_the_project() {
     // Released, it is queued as before and starts a work of the architect.
     api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
     let again = e.step(None).unwrap();
-    assert_eq!(again.cell.as_deref(), Some("Q0"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(again.cell.as_deref(), Some("N0"), "{}", said.lock().unwrap().join("\n"));
     assert_eq!(slots_free_matters(&e), 1);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -413,20 +413,20 @@ fn an_owner_hold_lets_the_running_work_merge_and_starts_the_next_item_only_once_
 
 // Item #239: the architect's hold and its release leave the owner's hold alone. With the owner's hold in place, the
 // architect holds new starts in its effects: its own row is written beside the owner's, as the architect; it releases
-// its own, and only its own: the owner's stays, and the board of its later cells still lists it.
+// its own, and only its own: the owner's stays.
 #[test]
 fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_beside_it() {
     let s = setup("architect-and-owner-hold");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
             let release = json!({ "kind": "release_starts", "reason": "The plan is right again." });
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("I hold, then let go.")),
+                    ("outcome.reply", json!({ "text": "I hold, then let go." })),
                     ("outcome.effects", json!({ "actions": [hold, release] })),
                 ],
             )
@@ -444,7 +444,7 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
     say(&mut e, "Hold and release.");
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -484,79 +484,40 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
             row("architect", "architect", true)
         ]
     );
-    // The board the architect was given at its first cell lists the owner's hold. A later work of the architect, after
-    // its hold and release, is given no other: its session already holds that board, which the message refers to by
-    // its address because nothing in it changed, the architect's own hold gone and the owner's there.
-    let m = message_at(&e, arch, "U1", false);
-    let board = given_value(&m, "·engine·board").expect(&m);
-    let held = &board["starts_held"];
-    assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");
-    assert_eq!(
-        (&held[0]["reason"], &held[0]["why"]),
-        (&json!("owner"), &json!("Leaving for a week.")),
-        "{board}"
-    );
-    let address = m
-        .lines()
-        .find(|l| l.starts_with("### ") && l.ends_with("·engine·board"))
-        .map(|l| l.trim_start_matches("### ").to_string())
-        .expect(&m);
-    let later = architect_work_at(&mut e, "N1");
-    let m = engine::next_message(&mut e, later).unwrap().text;
-    assert!(given_value(&m, "·engine·board").is_none(), "{m}");
-    assert!(work_from(&m).iter().any(|l| l.ends_with(&address)), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Item #239: the board of a cell that can hold or release new starts lists each hold on the project with its reason,
-// since when and why, whoever holds, and has no such key while nothing holds; the owner's release of any reason takes
-// its row, and one of a reason not there is refused saying so.
+// Item #239: `dispatch_holds`, which agents query, has each hold on the project with its reason, since when and why,
+// whoever holds; the owner's release of any reason takes its row, and one of a reason not there is refused saying so.
 #[test]
-fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
-    let s = setup("board-holds");
+fn each_hold_is_there_to_query_and_the_owner_releases_any_of_them() {
+    let s = setup("holds-to-query");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "N1");
-    let board = |e: &mut Engine| -> Value {
-        let m = engine::next_message(e, arch).unwrap().text;
-        given_value(&m, "·engine·board").expect(&m)
-    };
-    assert_eq!(board(&mut e).get("starts_held"), None);
     api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving.").unwrap();
     e.db.write(Actor::Architect, |tx| {
         db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
         db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
     })
     .unwrap();
-    let held = board(&mut e)["starts_held"].clone();
-    let reasons: Vec<&str> = held
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|h| h["reason"].as_str().unwrap())
-        .collect();
-    let mut sorted = reasons.clone();
-    sorted.sort();
-    assert_eq!(sorted, ["architect", "owner", "set_straight"], "{held}");
-    let of = |reason: &str| {
-        held.as_array()
+    let why = |reason: &str| -> Option<String> {
+        e.db.conn()
+            .query_row(
+                "SELECT why FROM dispatch_holds WHERE project = 'p' AND reason = ?1 AND since IS NOT NULL",
+                [reason],
+                |r| r.get(0),
+            )
             .unwrap()
-            .iter()
-            .find(|h| h["reason"] == reason)
-            .unwrap()
-            .clone()
     };
-    assert_eq!(of("owner")["why"], "Leaving.");
-    assert_eq!(of("architect")["why"], "Wrong order.");
-    assert_eq!(of("set_straight").get("why"), None);
-    assert!(of("owner")["since"].is_string(), "{held}");
+    assert_eq!(why("owner").as_deref(), Some("Leaving."));
+    assert_eq!(why("architect").as_deref(), Some("Wrong order."));
+    assert_eq!(why("set_straight"), None);
     for reason in ["set_straight", "architect", "owner"] {
         api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap();
         assert!(!hold_reasons(&e).contains(&reason.to_string()), "{reason}");
         let again = api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap_err();
         assert!(again.contains("has no hold of the reason"), "{again}");
     }
-    assert_eq!(board(&mut e).get("starts_held"), None);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -569,7 +530,7 @@ fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight(
     let s = setup("takeover-holds");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
-    let work = architect_work_at(&mut e, "N1");
+    let work = architect_work_at(&mut e, "B2");
     // The work ran on a flow version where it was a setting of a policy, a graph the version the engine runs lacks.
     let now = e.flow_now;
     let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
@@ -632,7 +593,7 @@ fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_wo
     let path = config::database(&s.data);
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             // The owner releases their hold while the architect is answering.
             let mut db = db::Db::open(&path).unwrap();
@@ -643,9 +604,9 @@ fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_wo
             let release = json!({ "kind": "release_starts", "reason": "Nothing to hold any more." });
             let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("Let go, then hold.")),
+                    ("outcome.reply", json!({ "text": "Let go, then hold." })),
                     ("outcome.effects", json!({ "actions": [release, hold] })),
                 ],
             )

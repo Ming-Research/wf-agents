@@ -199,6 +199,10 @@ pub struct CompiledCell {
     /// line whose new sessions start empty, and in a flow version stored before lines forked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_of: Option<String>,
+    /// All the matters a work takes share one session of the cell's line ([`crate::format`]'s `wholeRun`); false on any
+    /// other line, and in a flow version stored before a line could.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub whole_run: bool,
     /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
     /// declared one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -215,6 +219,9 @@ pub struct CompiledCell {
     pub prompt: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_by: Option<PromptBy>,
+    /// The cell's message has no `inputs:<cell>`: what it is given says what it is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_input_list: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forms: Vec<Form>,
     /// What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
@@ -1192,6 +1199,10 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     .find(|l| &l.name == line)
                     .and_then(|l| l.forks.clone())
             }),
+            whole_run: c
+                .line
+                .as_ref()
+                .is_some_and(|line| g.flow.sessions.lines.iter().any(|l| &l.name == line && l.whole_run)),
             effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),
@@ -1223,6 +1234,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 .collect(),
             prompt: c.prompt.clone(),
             prompt_by: c.prompt_by.clone(),
+            no_input_list: c.no_input_list,
             forms: c.forms.clone(),
             schema,
             carried,
@@ -1491,9 +1503,9 @@ fn too_often_row(name: &str, n: u32) -> CompiledRow {
 
 /// The engine's fallback, the shared rows every agent's cell has for a round that ends in no return it takes, as the
 /// rounds section says: a return sent back runs the cell again, and so many in a row pause the work first; a failed
-/// run of each kind runs it again once the cause passes, or after a wait, or once the owner lets the paused work go on,
-/// and one that runs again has a row of its own for so many in a row, which pauses the work; and each of the engine's
-/// own cases does as it says.
+/// run of each kind runs it again once the cause passes, or after a wait, or once the owner lets the paused work go
+/// on, and one that runs again has a row of its own for so many in a row, which pauses the work; and each of the
+/// engine's own cases does as it says.
 fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
     let row = |name: &str, atom: Atom, note: &str| CompiledRow {
         name: name.to_string(),

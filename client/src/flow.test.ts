@@ -129,7 +129,7 @@ function limitsOf(m: Measures): Limits {
 /// the owner through its queue (CI run 41030724258), the look at the queue taking the owner's words before a matter back
 /// with the owner's reply and waiting by a row of its own on a question just put, which measured far 97; and for the
 /// architect graph's level runs, on the flow where a matter of two cells goes back to the queue between them and the
-/// look at the queue waits for the owner's next words, rows from `H2`, `H4`, `P1` and `B1` back up to `Q0` that spread
+/// look at the queue waits for the owner's next words, rows from `H2`, `H4`, `P1` and `B1` back up to `N0` that spread
 /// the matters' paths apart, which measured run 6650; and for the engineer graph's beside each, on the flow where the
 /// history is gathered, with cells of a new line beside the research and the design, which measured 83.1; and for the
 /// architect graph's length of a row, on the flow where the ways (`H3`) may ask the owner about an open question (CI run
@@ -344,14 +344,10 @@ describe('the flow as the engine stores it', () => {
         c.edges.some((e) => e.source === n.id && e.target === m1),
     );
     expect(back).toHaveLength(1);
-    expect(back[0].actions).toEqual(['raise_blocker', 'hold_for_approvals', 'ask_owner_condition', 'ask_owner_approval']);
-    expect(back[0].only).toEqual({
-      hold_for_approvals: ['approvals'],
-      ask_owner_condition: ['owner_judges'],
-      ask_owner_approval: ['owner_approves'],
-    });
+    expect(back[0].actions).toEqual(['raise_blocker', 'hold_for_approvals', 'ask_owner_approval']);
+    expect(back[0].only).toEqual({ hold_for_approvals: ['approvals'], ask_owner_approval: ['owner_approves'] });
     expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe(
-      'wait, approvals, owner_judges, owner_approves',
+      'wait, approvals, owner_approves',
     );
     expect(actionLine('ask_owner_approval', ['owner_approves'])).toBe('ask owner approval (on owner_approves)');
     expect(actionLine('raise_blocker', undefined)).toBe('raise blocker');

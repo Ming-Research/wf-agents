@@ -999,11 +999,11 @@ fn flows_and_works(dir: &Path) {
                    (2, 2, 1, 'engineer', 'Z1', NULL, 'Held.', 'owner', NULL),
                    (3, 3, 1, 'engineer', 'R0', NULL, NULL, NULL, NULL),
                    (4, NULL, 1, 'policy', 'P1', 'p', NULL, NULL, NULL),
-                   (5, NULL, 2, 'architect', 'Q0', 'p', NULL, NULL, NULL),
+                   (5, NULL, 2, 'architect', 'N0', 'p', NULL, NULL, NULL),
                    (6, 4, 1, 'engineer', 'Z1', NULL, NULL, NULL, 'over'),
-                   (7, NULL, 2, 'architect', 'E2', 'p', NULL, NULL, NULL);
+                   (7, NULL, 2, 'architect', 'R1', 'p', NULL, NULL, NULL);
                INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-               VALUES (1, 1, 'R1', '{}', '{}', 'done', 'c', 1, 1), (7, 1, 'E2', '{}', '{}', 'done', 'c', 1, 1);"#,
+               VALUES (1, 1, 'R1', '{}', '{}', 'done', 'c', 1, 1), (7, 1, 'R1', '{}', '{}', 'done', 'c', 1, 1);"#,
         )?;
         Ok(())
     })
@@ -1180,7 +1180,7 @@ fn the_page_tells_what_installing_a_flow_does_as_the_command_does() {
 // `flow cost` tells what installing a flow would do with each work that is neither ended nor done, the works told by
 // what happens to them and the paused marked, and writes nothing: the database's file stays as it was, and the side
 // files SQLite reads it through come back beside it, empty. Worked out by hand from `flows_and_works`: work 1 goes back
-// through V1 to the cell it walked, which it does again; work 2 walked no cell the version has and stays stuck at V1,
+// through Y1 to the cell it walked, which it does again; work 2 walked no cell the version has and stays stuck at Y1,
 // paused as the engine pauses it; work 4's graph is gone, so it ends; work 3 moves and work 5 is on the version
 // already; works 6 and 7 are not told. A branch's flow on the standard input, which the database has no version of, is
 // told as the next version, and work 5 moves to it; a work on a version that cannot be read is told first, as the engine
@@ -1201,9 +1201,9 @@ fn flow_cost_tells_what_installing_a_flow_does_with_each_work_and_writes_nothing
             "Installing the flow built into this command on {}: it is flow version 2, which the database has.
 Each work that is neither ended nor done, as it next goes on (one paused, once it is started):
 Goes back through a cell to a cell it does again (1):
-  work 1 (item 1: Back), on version 1 at Z1: through V1 back to R1, doing round R1-1 again: cell Z1 is gone
+  work 1 (item 1: Back), on version 1 at Z1: through Y1 back to R1, doing round R1-1 again: cell Z1 is gone
 Stays stuck at a cell, paused (1):
-  work 2 (item 2: Stuck), on version 1 at Z1, paused by the owner: stays at V1, paused: it cannot go on in flow \
+  work 2 (item 2: Stuck), on version 1 at Z1, paused by the owner: stays at Y1, paused: it cannot go on in flow \
 version 2: cell Z1 is gone, and the version has none of the cells the work walked. Start it over, or cancel its item; \
 or Start it once a flow version that has a cell it walked is installed, and it looks again
 Ends (1):
@@ -1211,7 +1211,7 @@ Ends (1):
 Moves where it stands (1):
   work 3 (item 3: Moves), on version 1 at R0
 On version 2 already (1):
-  work 5 (the architect of p), on version 2 at Q0
+  work 5 (the architect of p), on version 2 at N0
 ",
             dir.display()
         )
@@ -1267,7 +1267,7 @@ Cannot be worked out, and the engine stops with that error when it brings it up 
     assert!(
         out.contains(
             "Moves where it stands (2):\n  work 3 (item 3: Moves), on version 1 at R0\n  work 5 (the architect of p), \
-             on version 2 at Q0\n"
+             on version 2 at N0\n"
         ),
         "{out}"
     );

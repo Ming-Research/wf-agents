@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
+use crate::{ARCHITECT, Advance, Engine, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -71,7 +71,7 @@ pub fn new_session_why(
         ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
-        sessions::Start::Fork => "the matter's session, forked from the base".into(),
+        sessions::Start::Fork => "forked from the base".into(),
     }
 }
 
@@ -281,8 +281,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     };
     // The matter a session of a line whose sessions are each a matter's is for: the matter in hand.
     let matter = match cell.fork_of {
-        Some(_) => architect::picked(e.db.conn(), w.id)?,
-        None => None,
+        Some(_) if !cell.whole_run => architect::picked(e.db.conn(), w.id)?,
+        _ => None,
     };
     let (sid, resume, new_session, fork) = match plan {
         Plan::Going {
@@ -904,8 +904,7 @@ pub fn cell_request(
 
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
 /// advisor, which is the engineer with a higher model; for the architect's base, each matter's session and the second
-/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks; for
-/// the search of observations, the level it names for the observer.
+/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -914,7 +913,6 @@ pub fn level_of(
 ) -> Result<(String, config::Level, config::Cli), String> {
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
-        None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e
@@ -1448,7 +1446,24 @@ pub fn engine(
             crate::reasoning::check(e, &project, wt, &fork)?
         }
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
-        Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
+        Some("end_architect_work") => {
+            // The run is over: the session its matters shared ends with it, and the next run forks anew.
+            let lines: Vec<&str> = g
+                .cells
+                .iter()
+                .filter(|c| c.whole_run)
+                .filter_map(|c| c.line.as_deref())
+                .collect();
+            e.db.write(Actor::Engine, |tx| {
+                for line in &lines {
+                    sessions::choose::end_line(tx, w.id, line).map_err(db::Error::Abort)?;
+                }
+                Ok(())
+            })
+            .map_err(sql)?;
+            json!({})
+        }
+        Some("end_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some("check_main") => crate::main_watch::check(e, w, round)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
@@ -1638,19 +1653,12 @@ pub fn waits_for_slot(w: &Work) -> Advance {
 }
 
 /// Whether a row that waits was the last the work took, at this cell: taken again with nothing new, it is not
-/// recorded again. The merge gate's row for merge conditions has something new once the condition it asked of is judged
-/// and another is open: it is taken again, and asks of that one.
+/// recorded again.
 fn waits_again(e: &Engine, w: &Work, cell: &CompiledCell, row: &CompiledRow) -> Result<bool, String> {
     let last = work::rounds(e.db.conn(), w.id)?.pop();
-    let same = last.is_some_and(|r| {
+    Ok(last.is_some_and(|r| {
         r.cell.as_deref() == Some(cell.id.as_str()) && r.transition.as_deref() == Some(row.name.as_str())
-    });
-    match w.item {
-        Some(item) if same && row.name == crate::conditions::JUDGES => {
-            crate::conditions::asked(e.db.conn(), item, w.id)
-        }
-        _ => Ok(same),
-    }
+    }))
 }
 
 /// Takes a row that waits, which the engine chose without running the cell's step: recorded once, with what chose it.

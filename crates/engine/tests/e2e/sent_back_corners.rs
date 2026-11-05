@@ -53,33 +53,32 @@ fn the_owner_s_start_lifts_the_pause_and_the_count_of_returns_in_a_row_starts_af
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work paused for three returns in a row is waited for by the architect's queue: it takes the matters of that work's
-// returns before a place to set straight that came earlier and nothing waits for. Its look at the queue, the first
-// round of its work, takes the first of them.
+// A work paused for three returns in a row is waited for by the architect's queue: the look at the queue that follows
+// the architect's first plan takes the first report of that work's returns as one a work waits on (`waiting`), not as
+// one of the rest of the queue (`queued`). The plan that came first withdraws the places to set straight of the plan
+// before that no session took, as it always does, and leaves the reports: a return sent back is a report, which no plan
+// replaces, so that its cause is still looked for.
 #[test]
-fn the_architect_takes_the_matters_of_a_paused_work_before_an_older_place_to_set_straight() {
+fn the_architect_takes_the_reports_of_a_paused_work_as_ones_a_work_waits_on_and_the_plan_leaves_them() {
     let s = setup("look-first");
     let (mut e, said, item) = start(
         &s,
         returns_sent_back(vec![both_wrong(), outcome_wrong(), progress_wrong()]),
     );
     let work = e.step(None).unwrap().work.unwrap();
-    // A place to set straight that nothing waits for, which came an hour before any return was sent back.
-    let older =
+    // A step of an earlier plan, which nothing waits for and no session took.
+    let step =
         e.db.write(Actor::Engine, |tx| {
-            let id = db::queue_matter(
+            db::queue_matter(
                 tx,
                 &db::Matter {
                     project: "p".into(),
                     kind: "set_straight".into(),
-                    detail: Some("order".into()),
                     what: "Put the parser before the lexer.".into(),
-                    body: json!({}),
+                    body: json!({ "fix": { "where": "Put the parser before the lexer.", "steps": [] } }),
                     ..db::Matter::default()
                 },
-            )?;
-            tx.execute("UPDATE architect_matters SET at = at - 3600000 WHERE id = ?1", [id])?;
-            Ok(id)
+            )
         })
         .unwrap();
     let held = Go {
@@ -90,36 +89,49 @@ fn the_architect_takes_the_matters_of_a_paused_work_before_an_older_place_to_set
     let log = said.lock().unwrap().join("\n");
     assert!(paused, "{log}");
     assert_eq!(state(&e, item).unwrap().1, "R1", "{log}");
-    let first: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT min(id) FROM architect_matters WHERE kind = 'set_straight' AND detail = 'sent_back'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-    // The architect's work starts at its look at the queue.
+    let first: i64 = number(
+        &e,
+        "SELECT min(id) FROM architect_matters WHERE kind = 'report' AND detail = 'sent_back'",
+    );
+    // The architect's work starts at its look at the queue, which calls for a plan first: the project has no base yet.
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     assert!(
-        steps_until(&mut e, 5, |e| !rows_at(e, arch, "Q0").is_empty()),
+        steps_until(&mut e, 40, |e| rows_at(e, arch, "N0").len() >= 2),
         "{}",
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(rows_at(&e, arch, "Q0")[0], "waiting", "{log}");
+    assert_eq!(rows_at(&e, arch, "N0")[..2], ["plan", "waiting"], "{log}");
     let taken: i64 =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(output, '$.next.matter') FROM rounds WHERE work = ?1 AND cell = 'Q0' ORDER BY n",
+                "SELECT json_extract(output, '$.next.matter') FROM rounds
+                 WHERE work = ?1 AND cell = 'N0' AND transition IS NOT NULL ORDER BY n LIMIT 1 OFFSET 1",
                 [arch],
                 |r| r.get(0),
             )
             .unwrap();
-    assert_ne!(taken, older, "{log}");
     assert_eq!(taken, first, "{log}");
+    // The plan withdrew the step of the plan before and none of the three reports.
+    let withdrawn = |sql: &str| number(&e, sql);
+    assert_eq!(
+        withdrawn(&format!(
+            "SELECT count(*) FROM architect_matters WHERE id = {step} AND withdrawn IS NOT NULL"
+        )),
+        1,
+        "{log}"
+    );
+    assert_eq!(
+        withdrawn(
+            "SELECT count(*) FROM architect_matters
+             WHERE kind = 'report' AND detail = 'sent_back' AND withdrawn IS NULL AND handled_round IS NULL"
+        ),
+        3,
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -131,7 +143,7 @@ fn the_architect_cannot_let_go_on_a_work_the_owner_paused() {
     let s = setup("look-owner-paused");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             let go = json!({ "kind": "resume_work", "item": 1, "reason": "It looks well." });
             (Vec::new(), vec![("outcome.effects", json!({ "actions": [go] }))])
@@ -144,7 +156,7 @@ fn the_architect_cannot_let_go_on_a_work_the_owner_paused() {
     let refused = steps_until(&mut e, 60, |e| {
         number(
             e,
-            "SELECT count(*) FROM rounds WHERE cell = 'H8' AND rejected LIKE '%nor for a return sent back%'",
+            "SELECT count(*) FROM rounds WHERE cell = 'H1' AND rejected LIKE '%nor for a return sent back%'",
         ) > 0
     });
     let log = said.lock().unwrap().join("\n");

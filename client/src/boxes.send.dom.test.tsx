@@ -127,7 +127,6 @@ const ask: OwnerAsk = {
   answer: null,
   answer_images: [],
   asked_at: 1,
-  condition_item: null,
 };
 const card = { id: 42, work: 5 } as DesignCard;
 const observation = { id: 9 } as Observation;

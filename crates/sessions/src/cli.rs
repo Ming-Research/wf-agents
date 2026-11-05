@@ -109,10 +109,12 @@ pub fn sign_in(kind: config::CliKind) -> (&'static str, &'static str) {
 
 /// The environment every agent's command line starts with, besides its configuration directory: each tool input
 /// streamed whole, not in pieces, so that the service checks its JSON; three attempts at a return, not five, since
-/// each attempt writes the whole return again; and no Rust toolchain installed by rustup when a command the agent may
+/// each attempt writes the whole return again; no Rust toolchain installed by rustup when a command the agent may
 /// run, such as `cargo update` or `rustfmt`, asks for one the machine lacks: the command fails instead of downloading
-/// it.
-pub const ENVIRONMENT: [(&str, &str); 3] = [
+/// it; and no background tasks, so that a round waits for its subagents: one left in the background has the command
+/// line demand the return before it is back, and again each time one comes back.
+pub const ENVIRONMENT: [(&str, &str); 4] = [
+    ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
     ("RUSTUP_AUTO_INSTALL", "0"),
@@ -1073,7 +1075,7 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// ([`told_apart`]), so that a return of a cell's own answer without a field the answer requires is refused naming it,
 /// as `why` of the engineer's `D2`, which no other form has and which the shape of every form taken together cannot
 /// require. A form all of whose fields other forms have too, such as the engineer's `I1`, whose fields `T6`'s form has
-/// as well, `T5`, whose `columns` `T4`'s has, or the architect's `U1`, whose `notebook` most of its forms have, is told
+/// as well, `T5`, whose `columns` `T4`'s has, or the architect's `B1`, whose `notebook` most of its forms have, is told
 /// apart by no field of its own and is checked by the shape of every form taken together alone: which form a return of
 /// it is cannot be told from its fields, and a rule read from the fields it lacks would be a guess. The command line
 /// refuses such a return saying where and why, and the model hands it in again within the run, one more call that
@@ -1752,12 +1754,9 @@ mod tests {
             json!(["tell_owner", "side_reports", "flow_feedback", "outcome"])
         );
         assert_eq!(s["properties"][&g.within]["additionalProperties"], false);
-        // The reader of the history asks for no tools, so nothing it hands in leaves out `progress`.
+        // The reader of the history asks for tools too, and so leaves out `progress` with them.
         let reader = envelope(g, Some("librarian"));
-        assert_eq!(
-            reader["required"],
-            json!(["progress", "side_reports", "flow_feedback", "outcome"])
-        );
+        assert_eq!(reader["required"], json!(["side_reports", "flow_feedback", "outcome"]));
         for line in ["review", "adversarial", "advisor"] {
             let h = envelope(g, Some(line));
             assert_eq!(
@@ -1784,10 +1783,6 @@ mod tests {
             );
             assert_eq!(arch["required"], json!(["flow_feedback", "outcome"]), "{line}");
         }
-        // The search of observations asks for no tools, so nothing it hands in leaves out `progress`.
-        let h = envelope(a, Some("observer"));
-        assert_eq!(keys(&h), ["progress", "flow_feedback", "outcome"]);
-        assert_eq!(h["required"], json!(["progress", "flow_feedback", "outcome"]));
         // A project that does not ask for flow feedback gives its agents no such field.
         let off = envelope(&g.clone().as_asked(|_| false), Some("engineer"));
         assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
@@ -1853,7 +1848,6 @@ mod tests {
             assert!(together.contains(&line(l)), "{l}: {together:?}");
             assert_eq!(forked_together(a, Some(l)), together, "{l}");
         }
-        assert_eq!(forked_together(a, Some("observer")), [line("observer")]);
         assert_eq!(forked_together(a, None), [None]);
         let g = f.graph("engineer").unwrap();
         assert_eq!(forked_together(g, Some("engineer")), [line("engineer")]);
@@ -1869,7 +1863,7 @@ mod tests {
         let f = compiled();
         let g = f.graph("architect").unwrap();
         let s = envelope(g, Some("second_eye"));
-        let schema = g.cell("G2").unwrap().schema.clone().unwrap();
+        let schema = g.cell("C2").unwrap().schema.clone().unwrap();
         let mut check = json!({
             "progress": "Looking at what the change loses",
             "flow_feedback": "none",
@@ -1987,7 +1981,7 @@ mod tests {
         None
     }
 
-    // In a trial, a round of the architect's cell U1 handed in no `tell_owner`, which every return of the architect's
+    // In a trial, a round of the architect's cell B1 handed in no `tell_owner`, which every return of the architect's
     // line holds, and the engine sent the return back, which cost a whole round. The command line now refuses it, saying
     // what is missing, as the installed one did when tried (2.1.312), and the agent hands it in again within its run.
     // The search of observations, a line that tells the owner nothing, has it refused.
@@ -1995,16 +1989,12 @@ mod tests {
     fn a_return_without_a_field_every_return_holds_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let schema = g.cell("U1").unwrap().schema.clone().unwrap();
+        let schema = g.cell("B1").unwrap().schema.clone().unwrap();
         let s = envelope(g, Some("architect"));
-        let notebook = json!([
-            { "section": "project_now", "text": "The parser: half done." },
-            { "section": "unclear", "text": "Nothing." }
-        ]);
         let mut ret = json!({
             "progress": "Reading where each line stands",
             "flow_feedback": "",
-            "outcome": { "notebook": notebook, "plan": { "verdict": "holds", "why": "Nothing it rests on moved." } },
+            "outcome": { "understanding": "The parser: half done." },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
@@ -2020,45 +2010,32 @@ mod tests {
             refused(&s, &ret, "").as_deref(),
             Some("/outcome: must NOT have additional properties ('tell_owner' is not allowed)")
         );
-        let observer = envelope(g, Some("observer"));
-        let search = json!({
-            "tell_owner": [],
-            "progress": "Found none",
-            "flow_feedback": "none",
-            "outcome": { "candidates": [] },
-        });
-        assert_eq!(
-            refused(&observer, &search, "").as_deref(),
-            Some("root: must NOT have additional properties ('tell_owner' is not allowed)")
-        );
     }
 
-    // In a trial, a round of the architect's cell H5 wrote `effects` inside `take`, beside `way` and `why`, instead of
+    // In a trial, a round of the architect's cell that takes a report in wrote `effects` inside `take`, beside `way` and `why`, instead of
     // beside `take`, and the engine sent the return back, which cost a whole round. The command line now refuses it,
     // saying where, as the installed one did when tried (2.1.312), where the agent moved it beside `take`.
     #[test]
     fn a_field_written_inside_a_form_it_does_not_belong_to_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let schema = g.cell("H5").unwrap().schema.clone().unwrap();
+        let schema = g.cell("H1").unwrap().schema.clone().unwrap();
         let s = envelope(g, Some("matter"));
-        let closing = json!({ "log": "Took nothing in.", "plan": "no", "plan_why": "w", "base": "holds",
-                              "base_why": "w" });
-        let take = json!({ "way": "nothing", "why": "Nothing in it to take in" });
-        let mut inside = take.clone();
+        let reply = json!({ "text": "Nothing in it to take in" });
+        let mut inside = reply.clone();
         inside["effects"] = json!({});
         let mut ret = json!({
             "tell_owner": [],
             "progress": "Taking in an observation",
             "flow_feedback": "",
-            "outcome": { "take": inside, "closing": closing },
+            "outcome": { "reply": inside },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome/take: must NOT have additional properties ('effects' is not allowed)")
+            Some("/outcome/reply: must NOT have additional properties ('effects' is not allowed)")
         );
-        ret["outcome"] = json!({ "take": take, "effects": {}, "closing": closing });
+        ret["outcome"] = json!({ "reply": reply, "effects": {} });
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
     }
@@ -2075,11 +2052,13 @@ mod tests {
         let f = compiled();
         let g = f.graph("architect").unwrap();
         let s = envelope(g, Some("matter"));
-        let schema = g.cell("H4").unwrap().schema.clone().unwrap();
+        let schema = g.cell("H1").unwrap().schema.clone().unwrap();
         let mut ret = json!({
             "tell_owner": [],
             "flow_feedback": "none",
-            "outcome": { "finding": { "what": "A slow parser.", "grounds": "Ran it.", "sure": "checked" } },
+            "outcome": {
+                "reply": { "text": "Nothing to take in." }
+            },
         });
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
@@ -2525,14 +2504,8 @@ mod tests {
             }
         }
         assert!(taken > 20 && refused_with > 5, "{taken} {refused_with}");
-        // The one union whose branches are not told apart on its line: `answer` of the architect's `H8`, a union by
-        // `way` there and a plain object in another cell of the line, so that the merge keeps no branches (it must take
-        // what either cell does). A union that stops being told apart anywhere else, or this one that starts to be,
-        // changes the list and fails here.
-        assert_eq!(
-            skipped.into_iter().collect::<Vec<_>>(),
-            ["graph architect, cell H8, at [Some(\"outcome\"), Some(\"answer\")] by way"]
-        );
+        // Every union is told apart on its line; one that stops being told apart fails here.
+        assert_eq!(skipped.into_iter().collect::<Vec<_>>(), Vec::<String>::new());
     }
 
     // A line's schema is the same each time it is made, and from the flow as the engine reads it back from what it
@@ -3062,6 +3035,7 @@ mod tests {
         assert_eq!(c["env"]["CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING"], "0");
         assert_eq!(c["env"]["MAX_STRUCTURED_OUTPUT_RETRIES"], "3");
         assert_eq!(c["env"]["RUSTUP_AUTO_INSTALL"], "0");
+        assert_eq!(c["env"]["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"], "1");
         // The structured-output schema is in the command line, and not recorded again beside it.
         assert!(c.get("schema").is_none());
         assert!(
@@ -3086,7 +3060,8 @@ mod tests {
                 && want("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0")
                 && want("MAX_STRUCTURED_OUTPUT_RETRIES", "3")
                 && want("RUSTUP_AUTO_INSTALL", "0")
-                && env.len() == 4,
+                && want("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1")
+                && env.len() == 5,
             "{env:?}"
         );
         // A bare call, as a repair, is offered no tools and given no structured output.

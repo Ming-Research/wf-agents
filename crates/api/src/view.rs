@@ -383,7 +383,7 @@ impl<'a> Ways<'a> {
                 holds: Some(flow::formats::cell_format(self.g, c)),
                 ..given(CellInputOf::CellFormat, format!("format:{}", c.id))
             });
-            if c.inputs.iter().any(|x| x.from.iter().any(|s| *s != Src::Itself)) {
+            if !c.no_input_list && c.inputs.iter().any(|x| x.from.iter().any(|s| *s != Src::Itself)) {
                 out.push(CellInput {
                     holds: Some(flow::formats::cell_inputs(c)),
                     ..given(CellInputOf::CellInputs, format!("inputs:{}", c.id))
@@ -1218,7 +1218,6 @@ mod tests {
                 ("architect", Colour::Purple),
                 ("matter", Colour::Cyan),
                 ("second_eye", Colour::Indigo),
-                ("observer", Colour::Brown),
             ]
         );
         assert!(graphs.iter().flat_map(|g| &g.lines).all(|l| !l.desc.is_empty()));

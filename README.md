@@ -215,16 +215,15 @@ exactly as on main, never read from the checkout's files) and its architect chec
 level-two headings that start with "Article"), and the tags its observations may carry, each with what it covers:
 `observation_tags = [{ name = "ui", desc = "What the owner sees on the page" }]`.
 
-The architect works from a base: a session that read the project and planned what to do next, built anew when a fact
-calls for it (no base yet, a new policy, slots free, enough matters gathered for a planning, a matter that said the plan
-changes or the base is wrong, a merge that deleted or moved files or changed the guide, a decision log and changes since
-past `[architect] carried_most` characters, or another model). The engine takes what comes next in a fixed order, by
-fact: the owner's words and replies, main's CI red, a matter a work waits on, the planning, what the plan queued, and
-what waited for the planning, which it gathers until `[architect] gathered_most` matters wait. Each matter is handled
-alone in a session forked from the base (where the agent's command line cannot fork one, a new session given whole what
-it reads), which ends with one line of the decision log; a change that can lose something (a cancel, a merge, a split, a
-rewritten or removed acceptance, a change to an item a work runs on) is made only once a second eye, forked from the
-same base on the same model, finds it sound. A fork reads the base from the prompt cache, instead of writing it again,
+The architect works from a base: a session that read the project and planned what to do next, which only saves tokens,
+built anew when the project has none, the policy changed, or what came since it passed `[architect] carried_most`
+characters. The engine takes what comes next in a fixed order, by fact: a new base when one is due, the owner's words and
+replies, main's CI red, the matter a work stopped at its question waits on, then the rest of the queue, oldest first. The
+matters of one run, from the work leaving its wait until the queue is empty, are handled one at a time in one session
+forked from the base (where the agent's command line cannot fork one, a new session given only what its cells read); it
+forks anew at the next matter when a new base was built or it passed the limit of a session's context. Each matter leaves one record and any line it adds to the plan or the understanding; a change that can lose something (a cancel, a merge, a split, a
+rewritten or removed acceptance, a change to an item a work runs on) is made only once a second eye, a session of that
+matter's own forked from the same base on the same model, finds it sound. A fork reads the base from the prompt cache, instead of writing it again,
 because it shares with the base all that comes before the base's messages in the prompt: the model, the base's system
 prompt, the same tools, and one schema of the return for the base, each matter's session and the second eye, made from
 the forms of all their cells (the engine then checks each return against its own cell's schema); only the messages and

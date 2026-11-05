@@ -45,7 +45,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   graph: 'architect',
   flow_version: 2,
   moved_from: null,
-  at: 'E2',
+  at: 'R1',
   at_title: 'This work is done',
   stage: 'record',
   state: 'done',
@@ -170,7 +170,7 @@ describe("the architect's page", () => {
       listens: false,
       waiting: 3,
     });
-    expect(architectState([architectWork(10, { state: 'running', at: 'Q0' })], [])).toMatchObject({ handling: null, waiting: 0 });
+    expect(architectState([architectWork(10, { state: 'running', at: 'N0' })], [])).toMatchObject({ handling: null, waiting: 0 });
   });
 
   it('adds up the rounds, run time and cost of all its works, and takes the latest activity and the cell of the one that goes on', () => {
@@ -180,11 +180,11 @@ describe("the architect's page", () => {
       queue,
       asking: false,
     });
-    const newest = architectWork(9, { rounds: 4, ran_ms: 1_000, cost_usd: 1.5, last_at: 950, at: 'E2' });
+    const newest = architectWork(9, { rounds: 4, ran_ms: 1_000, cost_usd: 1.5, last_at: 950, at: 'R1' });
     const older = architectWork(7, { rounds: 6, ran_ms: 2_000, cost_usd: 0.25, last_at: 750, at: 'E1' });
     // Sums over all its works, and the latest activity of them; none going on, the newest work's cell.
     expect(architectTotals(stand([newest, older]))).toMatchObject({ rounds: 10, ran_ms: 3_000, cost_usd: 1.75, last_at: 950 });
-    expect(architectTotals(stand([newest, older])).work?.at).toBe('E2');
+    expect(architectTotals(stand([newest, older])).work?.at).toBe('R1');
     // The latest activity is the greatest, in whatever order the works come, and a work with none lowers nothing.
     const late = architectWork(5, { last_at: 5_000 });
     const quiet = architectWork(4, { last_at: null });
@@ -221,7 +221,7 @@ describe("the architect's page", () => {
       architects_started: [],
       flow_version: 2,
     } as unknown as Status;
-    const listening = { ...architectWork(10, { state: 'waiting', at: 'Q0' }), listens: true };
+    const listening = { ...architectWork(10, { state: 'waiting', at: 'N0' }), listens: true };
     expect(architectMark(standing(page({ works: [listening] })), status)).toEqual({
       state: 'waiting',
       words: 'waiting for your next words',
@@ -496,7 +496,7 @@ const view = (name: string): GraphView => ({ name, cells: [], common_format: '' 
 describe('the flow page with both graphs', () => {
   const graphs = [
     { g: graph('engineer', ['S0', 'R1', 'X1', 'E1']), view: view('engineer') },
-    { g: graph('architect', ['S0', 'S1', 'X1', 'E2']), view: view('architect') },
+    { g: graph('architect', ['S0', 'S1', 'X1', 'R1']), view: view('architect') },
   ];
 
   it('lays the graphs side by side, their tops in line under their names', () => {

@@ -1,9 +1,9 @@
 -- Takes a database to one whose view of the architect's queue says that the project's architect is waited for on the
--- matter of a return sent back (kind `set_straight`, detail `sent_back`) while the engine has paused the work for
--- returns sent back in a row: the engine queues such a matter at each return sent back now, and the work goes on without
--- waiting for it until three in a row pause it. The view of the problems of returns sent back says what reads it now. No
--- table changes and no row is written: a matter queued before this had no such kind, and a work paused for returns sent
--- back before has a reason that does not start as the view reads it.
+-- report of a return sent back (kind `report`, detail `sent_back`) while the engine has paused the work for returns sent
+-- back in a row: the engine queues such a report at each return sent back now, and the work goes on without waiting for
+-- it until three in a row pause it. The view of the problems of returns sent back says what reads it now. No table
+-- changes and no row is written: a report queued before this had no such detail, and a work paused for returns sent back
+-- before has a reason that does not start as the view reads it.
 -- Each statement below that defines something is written exactly as db/schema.sql writes it.
 
 DROP VIEW sent_back_problems;
@@ -17,7 +17,7 @@ CREATE VIEW sent_back_problems AS
   -- `field` together. One return may hold several problems of one check and field: count returns with
   -- `count(DISTINCT work || '-' || round)` and problems with the rows. Read by: people and agents who query it, to
   -- count the returns sent back by check and by field. The matter the engine queues for the architect at each return
-  -- sent back (kind `set_straight`, detail `sent_back`) holds the same problems in its body, as `problems`, and the
+  -- sent back (kind `report`, detail `sent_back`) holds the same problems in its body, as `problems`, and the
   -- merging of like ones (#257) will read either.
   SELECT r.work, r.n AS round, r.cell, p.key AS position,
     json_extract(p.value, '$.check') AS check_name,
@@ -29,22 +29,22 @@ DROP VIEW architect_queue;
 
 CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
-  -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question, or, for the
-  -- matter of a return sent back (kind `set_straight`, detail `sent_back`), an engineer's work the engine paused for
+  -- each with who waits for it (an agent: an engineer stopped at the architect's cell on this very matter, or, for the
+  -- matter of a return sent back (kind `report`, detail `sent_back`), an engineer's work the engine paused for
   -- returns sent back in a row, whose reason starts as `SENT_BACK_FOR_ARCHITECT` in crates/db/src/lib.rs does, until
   -- it goes on; the owner, for the owner's words; or no one), when it came and how long it has waited, whether it comes
   -- back with the owner's answer and to which cell, the second cell a flow version before had a matter of two cells go
   -- on at, and whether its reporter marked it as harming now (urgent).
-  -- Read by: cells `S0` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
+  -- Read by: cells `S0` and `N0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
   -- work, and takes the next matter by it in its fixed order; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
-        SELECT 1 FROM works w
+        SELECT 1 FROM works w JOIN blockers b ON b.work = w.id
         WHERE w.id = m.work AND w.graph = 'engineer' AND w.at IN ('A2', '15', 'to_architect', 'ask.architect')
-          AND w.ended IS NULL)
+          AND w.ended IS NULL AND b.matter = m.id AND b.ended IS NULL)
         THEN 'agent'
-      WHEN m.kind = 'set_straight' AND m.detail = 'sent_back' AND EXISTS (
+      WHEN m.kind = 'report' AND m.detail = 'sent_back' AND EXISTS (
         SELECT 1 FROM works w
         WHERE w.id = json_extract(m.body, '$.work') AND w.ended IS NULL
           AND w.paused_by = 'engine' AND w.paused LIKE 'returns were sent back%')

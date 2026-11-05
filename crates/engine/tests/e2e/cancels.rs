@@ -640,7 +640,7 @@ fn the_architect_s_resume_waits_for_a_free_slot() {
     let r = resuming.clone();
     let mut agents = held_in_r1(&hold, &free);
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, n: usize| {
             let kind = match (r.load(Ordering::SeqCst), n) {
                 (0, 1) => "pause_work",

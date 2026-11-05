@@ -80,7 +80,7 @@ fn the_architect_may_let_go_on_only_a_pause_the_engine_made_for_it() {
         (look.replacen("returns", "return", 1), Some("engine")),
         // The pause the engine makes when no architect looks: the owner's alone, and worded to say so.
         (
-            "3 returns in a row were sent back, the last at cell H8, for:\nx".to_string(),
+            "3 returns in a row were sent back, the last at cell H1, for:\nx".to_string(),
             Some("engine"),
         ),
         (String::new(), Some("engine")),
@@ -90,32 +90,62 @@ fn the_architect_may_let_go_on_only_a_pause_the_engine_made_for_it() {
     assert!(!db::architect_may_resume(None, Some("engine")));
 }
 
-// The view of the architect's queue says an engineer's work waits for the matters of its returns sent back while the
+// The view of the architect's queue says an engineer's work waits for the reports of its returns sent back while the
 // engine has paused it for returns in a row, as the architect's leave to let it go on reads that pause: and only then.
 // The reference is the words of the view, not the code that makes the reason: a work paused by the owner with the same
-// words, one the engine paused for the owner alone, one that ended, one that runs, and a matter of another kind are
-// not waited for.
+// words, one the engine paused for the owner alone, one that ended, one that runs, a report of another detail and a
+// place to set straight of the same detail are not waited for.
 #[test]
-fn the_queue_says_a_paused_work_waits_for_the_matters_of_its_returns_sent_back_and_nothing_else_does() {
+fn the_queue_says_a_paused_work_waits_for_the_reports_of_its_returns_sent_back_and_nothing_else_does() {
     let mut conn = db::Db::in_memory().unwrap();
     let look = format!(
         "{} 3 times in a row, the last at cell R1, and its project's architect is asked to look at why",
         db::SENT_BACK_FOR_ARCHITECT
     );
-    let owners_alone = "3 returns in a row were sent back, the last at cell H8, for:\nx";
-    // The work's pause, who paused it, why it ended, the detail of its matter, and what the queue says of the matter.
-    let cases: [(Option<&str>, Option<&str>, Option<&str>, &str, &str); 6] = [
-        (Some(look.as_str()), Some("engine"), None, "sent_back", "agent"),
-        (Some(look.as_str()), Some("owner"), None, "sent_back", "none"),
-        (Some(owners_alone), Some("engine"), None, "sent_back", "none"),
-        (Some(look.as_str()), Some("engine"), Some("done"), "sent_back", "none"),
-        (None, None, None, "sent_back", "none"),
-        (Some(look.as_str()), Some("engine"), None, "order", "none"),
+    let owners_alone = "3 returns in a row were sent back, the last at cell H1, for:\nx";
+    // The work's pause, who paused it, why it ended, the kind and detail of its matter, and what the queue says of it.
+    type Case<'a> = (
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+        &'a str,
+        &'a str,
+        &'a str,
+    );
+    let cases: [Case<'_>; 7] = [
+        (
+            Some(look.as_str()),
+            Some("engine"),
+            None,
+            "report",
+            "sent_back",
+            "agent",
+        ),
+        (Some(look.as_str()), Some("owner"), None, "report", "sent_back", "none"),
+        (Some(owners_alone), Some("engine"), None, "report", "sent_back", "none"),
+        (
+            Some(look.as_str()),
+            Some("engine"),
+            Some("done"),
+            "report",
+            "sent_back",
+            "none",
+        ),
+        (None, None, None, "report", "sent_back", "none"),
+        (Some(look.as_str()), Some("engine"), None, "report", "defect", "none"),
+        (
+            Some(look.as_str()),
+            Some("engine"),
+            None,
+            "set_straight",
+            "sent_back",
+            "none",
+        ),
     ];
     conn.write(db::Actor::Engine, |tx| {
         tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
         let version = tx.last_insert_rowid();
-        for (paused, by, ended, detail, _) in cases {
+        for (paused, by, ended, kind, detail, _) in cases {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, paused, paused_by, ended)
                  VALUES (NULL, ?1, 'engineer', 'R1', ?2, ?3, ?4)",
@@ -126,7 +156,7 @@ fn the_queue_says_a_paused_work_waits_for_the_matters_of_its_returns_sent_back_a
                 tx,
                 &db::Matter {
                     project: "p".into(),
-                    kind: "set_straight".into(),
+                    kind: kind.into(),
                     detail: Some(detail.into()),
                     what: "A return was sent back.".into(),
                     body: json!({ "work": work }),
@@ -142,7 +172,7 @@ fn the_queue_says_a_paused_work_waits_for_the_matters_of_its_returns_sent_back_a
         .prepare("SELECT waits FROM architect_queue ORDER BY matter")
         .unwrap();
     let waits: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
-    let want: Vec<&str> = cases.iter().map(|c| c.4).collect();
+    let want: Vec<&str> = cases.iter().map(|c| c.5).collect();
     assert_eq!(waits, want);
 }
 

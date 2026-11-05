@@ -7,7 +7,7 @@ use super::*;
 // engineer's work waits at its question, holding no slot. The architect finds the crux, the question going back to the
 // queue between, weighs the ways and replies, and the reply takes the work on from there unchanged.
 #[test]
-fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
+fn an_engineer_s_question_is_answered_in_one_round() {
     let s = setup("question");
     let mut agents = scripts();
     agents.insert(
@@ -28,7 +28,7 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let reply = json!({ "text": "Keep it one work.", "why": "Both changes share their tests." });
     let given = reply.clone();
     agents.insert(
-        "H3",
+        "H1",
         Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.reply", given.clone())])),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -65,17 +65,9 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let log = said.lock().unwrap().join("\n");
     assert!(replied, "{log}");
     let path = path_of(&e, arch);
-    let at = path.iter().position(|c| c == "H2").expect(&log);
-    // The crux found, the question goes on to the ways in the same session, which reply.
-    assert_eq!(&path[at - 1..at + 3], ["Q2", "H2", "H3", "G1"], "{log}");
-    // The ways were given the crux by its address in the session, not again.
-    let ways = message_at(&e, arch, "H3", false);
-    assert!(ways.contains("·H2·crux"), "{ways}");
-    assert!(
-        ways.contains("What the question needs, judge from what it says"),
-        "{ways}"
-    );
-    assert!(!ways.contains("What is asked is whether to split the work"), "{ways}");
+    let at = path.iter().position(|c| c == "H1").expect(&log);
+    // The question is handled in one round, which replies.
+    assert_eq!(&path[at - 1..at + 2], ["N2", "H1", "C1"], "{log}");
     let (output, _) = question(&e).unwrap();
     let output: Value = serde_json::from_str(&output.unwrap()).unwrap();
     assert_eq!(output, json!({ "reply": reply }));
@@ -130,7 +122,7 @@ fn t1_asks_with_words_waiting(
     agents.insert("T1", asks_about_a_gap("The test paths do not name the page's tests."));
     let reply = json!({ "text": "Leave the page's tests out.", "why": "They are another work's." });
     agents.insert(
-        "H3",
+        "H1",
         Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.reply", reply.clone())])),
     );
     let (mut e, said, item) = start(s, agents);
@@ -353,13 +345,8 @@ fn a_capability_gap_is_unblocked_by_a_way_around_and_its_work_told_what_became_o
         )
     });
     let ask = asks_about_a_gap("The `jq` command is not on the machine.");
-    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let (e, said, _, work, _) = a_gap_asked(&s, ask, vec![("H1", ways)]);
     let log = said.lock().unwrap().join("\n");
-    let ways = message_at(&e, arch, "H3", false);
-    assert!(
-        ways.contains("A capability gap, the system lacking what the work needs"),
-        "{ways}"
-    );
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
     let id: i64 =
         e.db.conn()
@@ -405,7 +392,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
         )
     });
     let ask = asks_about_a_gap("There is no token to read the registry with.");
-    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H1", ways)]);
     assert_eq!(item, 1);
     let log = said.lock().unwrap().join("\n");
     let paused: (Option<String>, Option<String>) =
@@ -482,7 +469,7 @@ fn a_choice_only_the_owner_can_make_is_an_open_question_and_the_work_goes_on() {
         (Vec::new(), vec![("outcome.reply", reply)])
     });
     let ask = asks_about_a_gap("The change makes parsing 3% slower, measured over 30 pairs.");
-    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let (e, said, _, work, _) = a_gap_asked(&s, ask, vec![("H1", ways)]);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
     assert_eq!(paused_by(&e, work), None, "{log}");
@@ -491,11 +478,6 @@ fn a_choice_only_the_owner_can_make_is_an_open_question_and_the_work_goes_on() {
             .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0, "{log}");
-    let ways = message_at(&e, arch, "H3", false);
-    assert!(
-        ways.contains("put to the owner as an open question of its design"),
-        "{ways}"
-    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -518,7 +500,7 @@ fn a_flow_anomaly_at_choosing_the_way_on_reaches_the_architect() {
         }),
     );
     agents.insert(
-        "H3",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             let text = if n == 1 {
                 "Go on as you planned."
@@ -618,7 +600,7 @@ fn a_capability_gap_with_no_way_around_has_its_work_wait_for_the_item_that_fixes
     });
     let way_on: Script = Box::new(|_: &Request, _: usize| (vec![("outcome.next", "wait_for_items")], Vec::new()));
     let ask = asks_about_a_gap("The `jq` command is not on the machine.");
-    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways), ("A4", way_on)]);
+    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H1", ways), ("A4", way_on)]);
     assert_eq!(item, 1);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
