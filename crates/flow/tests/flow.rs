@@ -238,9 +238,15 @@ fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
             "Cancel an item; its work ends",
             "whose merge comes first, is not cancelled",
         ),
-        ("Let a work you paused go on", "once its machine has a slot free"),
-        ("Let a work you paused go on", "later Pause or Step"),
-        ("Let a work you paused go on", "the engine's pause for a problem"),
+        ("Let a work go on, once its machine has a slot free", "one you paused"),
+        (
+            "Let a work go on, once its machine has a slot free",
+            "later Pause or Step",
+        ),
+        (
+            "Let a work go on, once its machine has a slot free",
+            "the engine's pause for a problem",
+        ),
     ] {
         let line = FLOW.lines().find(|l| l.contains(said)).unwrap();
         assert!(line.contains(want), "{line}");
@@ -993,7 +999,16 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let r = g.rounds.clone().expect("the rounds section");
-    assert_eq!(r.sent_back.pause_after, 3);
+    // Each return sent back of the engineer's work is the project's architect's to look at, and three in a row pause
+    // the work; the architect's own work has none above it, and pauses for the owner after three in a row all the same.
+    assert_eq!((r.sent_back.pause_after, r.sent_back.look), (3, true));
+    let architect = c
+        .graph("architect")
+        .unwrap()
+        .rounds
+        .clone()
+        .expect("the architect's rounds section");
+    assert_eq!((architect.sent_back.pause_after, architect.sent_back.look), (3, false));
     let kinds: Vec<&str> = r.failed.kinds.iter().map(|k| k.name.as_str()).collect();
     assert_eq!(
         kinds,

@@ -4,7 +4,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use flow::Compiled;
@@ -42,9 +41,7 @@ impl Sources {
 }
 
 fn git(checkout: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(checkout)
+    let out = config::shared_git::command(checkout)
         .args(args)
         .output()
         .map_err(|e| Error::Failed(format!("git in {}: {e}", checkout.display())))?;
@@ -120,6 +117,8 @@ pub fn refs(checkout: &Path) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+
     use super::*;
 
     fn run(dir: &Path, args: &[&str]) {

@@ -146,7 +146,10 @@ describe('the Observations view', () => {
     });
   const view = (project: string | null, open: number | null) =>
     renderToStaticMarkup(<Observations route={{ page: 'observations', project, open }} />);
-  const rows = (html: string) => [...html.matchAll(/class="obs-what" title="([^"]+)"/g)].map((m) => m[1]);
+  /// What each row leads with: its title, or, for one with none, its content, as the row says it whole on hovering.
+  const rows = (html: string) => [...html.matchAll(/class="obs-what[^"]*" title="([^"]+)"/g)].map((m) => m[1]);
+  /// The content a row with a title shows under it.
+  const contents = (html: string) => [...html.matchAll(/class="obs-content" title="([^"]+)"/g)].map((m) => m[1]);
   const buttons = (html: string) =>
     [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)].map((b) => ({
       text: b[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' '),
@@ -165,15 +168,18 @@ describe('the Observations view', () => {
     const html = view(null, null);
     expect(html).toContain('list-split list-split-whole');
     expect([...html.matchAll(/<h2[^>]*>([^<]+)<\/h2>/g)].map((m) => m[1])).toEqual(['p', 'q']);
-    // A row leads with its title, and one with none with the words its text starts with.
+    // A row leads with its title, and one with none with its content, cut to a few lines and whole on hovering.
     expect(rows(html)).toEqual([
       'Stale slot count',
-      'Observation 4 says this.',
-      'Observation 3 says this.',
-      'Observation 2 says this.',
-      'Observation 1 says this.',
-      'Observation 6 says this.',
+      'Observation 4 says this. And more after it.',
+      'Observation 3 says this. And more after it.',
+      'Observation 2 says this. And more after it.',
+      'Observation 1 says this. And more after it.',
+      'Observation 6 says this. And more after it.',
     ]);
+    // A row with a title shows its content under it, so that the list says what each is without opening it.
+    expect(contents(html)).toEqual(['Observation 5 says this. And more after it.']);
+    expect(html).toContain('<span class="obs-what obs-body"');
     // A handled row is muted in place.
     expect([...html.matchAll(/class="[^"]*obs-row[^"]*"/g)].map((m) => m[0].includes('obs-handled'))).toEqual([
       false,
@@ -210,7 +216,7 @@ describe('the Observations view', () => {
   it('shows what matches the picks, each button counting under the other picks, with the clear of every pick', () => {
     kept(['perf'], ['open']);
     const html = view(null, null);
-    expect(rows(html)).toEqual(['Stale slot count', 'Observation 4 says this.']);
+    expect(rows(html)).toEqual(['Stale slot count', 'Observation 4 says this. And more after it.']);
     const p = buttons(of(html, 'p'));
     expect(p.map((b) => [b.text, b.pressed])).toEqual([
       ['ui1 (1)', 'false'],
@@ -236,7 +242,7 @@ describe('the Observations view', () => {
 
   it("shows one project's alone when the address names it, with the way back to every project's", () => {
     const html = view('q', null);
-    expect(rows(html)).toEqual(['Observation 6 says this.']);
+    expect(rows(html)).toEqual(['Observation 6 says this. And more after it.']);
     expect(html).toContain("q&#x27;s observations only.");
     expect(html).toContain('href="/observations"');
   });
@@ -245,7 +251,10 @@ describe('the Observations view', () => {
     const html = view(null, 5);
     expect(html).not.toContain('list-split-whole');
     expect(html).toContain('aria-current="page"');
-    expect(html).toContain('Observation O5</h1>');
+    // Its title is the one its row has in the list, with its number among its facts.
+    expect(html).toMatch(/<h1[^>]*>Stale slot count<\/h1>/);
+    expect(html).not.toContain('Observation O5');
+    expect(html).toContain('O5');
     expect(html).toContain('And more after it.');
     expect(html).toContain('Where it came from');
     expect(html).toContain('Close it');
@@ -259,7 +268,7 @@ describe('the Observations view', () => {
     expect(taken).toContain('Close it');
     // The one open stays in its list though the picks leave it out.
     kept([], ['open']);
-    expect(rows(view(null, 2))).toContain('Observation 2 says this.');
+    expect(rows(view(null, 2))).toContain('Observation 2 says this. And more after it.');
     const closed = view(null, 1);
     expect(closed).toContain('Closed: outdated');
     expect(closed).toContain('Gone with');

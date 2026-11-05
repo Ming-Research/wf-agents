@@ -747,12 +747,17 @@ fn a_return_that_changes_the_acceptance_answers_for_the_list_it_hands_in() {
         }),
     );
     let (mut e, _, item) = start(&s, agents);
-    step_to(&mut e, item, "V1");
-    let (work, _, _) = state(&e, item).unwrap();
+    // The return sent back queues a report for the project's architect, whose work would run beside this one and take
+    // the passes that carry it past a cell; so the work is stepped alone, as the tests of returns sent back do.
+    let work = e.step(None).unwrap().work.unwrap();
+    let at = |e: &Engine| state(e, item).unwrap().1;
+    advance_until(&mut e, work, |e| at(e) == "V1");
+    assert_eq!(at(&e), "V1");
     let sent_back = why_sent_back(&e, work, "I1");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}");
     assert!(sent_back[0].contains("A2"), "{sent_back:?}");
-    step_to(&mut e, item, "E1");
+    advance_until(&mut e, work, |e| at(e) == "E1");
+    assert_eq!(at(&e), "E1");
     assert_eq!(looks(&e, item), ["verified"]);
     let _ = std::fs::remove_dir_all(&s.root);
 }

@@ -63,8 +63,9 @@ export type SessionRow = {
   /// What its rounds and its keep-warm pings cost.
   cost: number;
   pings: number;
-  /// Its context after each of its rounds, each at the round's place among all the rounds counted, from 0.
-  points: Array<RoundOf & { at: number; context: number; compacted: boolean }>;
+  /// Its context after each of its rounds, each at the round's place among all the rounds counted, from 0, with the
+  /// context the round opened with, from its first call; none for a round recorded without it.
+  points: Array<RoundOf & { at: number; context: number; opening: number | null; compacted: boolean }>;
 };
 
 /// A keep-warm ping, with the session it went to as the sessions are numbered by line.
@@ -219,7 +220,13 @@ export function usageOf(works: WorkPart[], cells: Map<string, CellInfo>, now: nu
     s.cost += cost;
     if (x.context_end !== null) {
       s.context = x.context_end;
-      s.points.push({ ...of(r), at: at.get(r) ?? 0, context: x.context_end, compacted: r.compactions > 0 });
+      s.points.push({
+        ...of(r),
+        at: at.get(r) ?? 0,
+        context: x.context_end,
+        opening: x.context_first,
+        compacted: r.compactions > 0,
+      });
     }
     s.window = x.window ?? s.window;
     sessions.set(session, s);
@@ -393,4 +400,23 @@ export function axisTicks(start: number, end: number, width: number, least = 64)
     marks.push({ at: x, label: midnight && days ? dayOf(at) : clockOf(at), end: null });
   }
   return [first, ...marks, last];
+}
+
+/// How far before a round's place the context chart starts the round, as a share of the distance between two rounds:
+/// the round's rise from where it opened to where it ended is drawn in that space.
+export const OPENING_SHIFT = 0.4;
+
+/// The vertices of a session's line on the context chart. A round whose first call is recorded gives two: where it
+/// opened, a little before its place, and where it ended, at its place, so that how much the context grew within the
+/// round shows, and a session that opened small does not look like the line before it carried on; a round without its
+/// first call gives only where it ended.
+export function contextLine(s: Pick<SessionRow, 'points'>): Array<{ at: number; context: number }> {
+  return s.points.flatMap((p) =>
+    p.opening !== null
+      ? [
+          { at: Math.max(0, p.at - OPENING_SHIFT), context: p.opening },
+          { at: p.at, context: p.context },
+        ]
+      : [{ at: p.at, context: p.context }],
+  );
 }

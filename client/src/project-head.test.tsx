@@ -79,6 +79,7 @@ const work = (id: number, project: string, state: WorkSummary['state']): WorkSum
   started_at: id,
   last_at: id,
   ran_ms: 1,
+  time: { from: 0, until: 0, model_ms: 0, tool_ms: 0, engine_ms: 0, bar: '' },
   rounds: 1,
   sent_back: 0,
   failed: 0,
@@ -131,12 +132,15 @@ function heads(html: string): Array<{ name: string; controls: string | null }> {
   const open = '<div class="project-head">';
   for (let at = html.indexOf(open); at >= 0; at = html.indexOf(open, at + open.length)) {
     const from = at + open.length;
-    const m = /^<h2[^>]*>([^<]*)<\/h2>/.exec(html.slice(from));
-    expect(m, 'the name is a heading of text alone, first in the head').not.toBeNull();
+    // The heading holds the name alone: text, or, where the group folds, the button that folds it (a chevron and the name).
+    const m = /^<h2[^>]*>(?:<button[^>]*>(?:<svg[^>]*>(?:(?!<\/svg>)[\s\S])*<\/svg>)?([^<]*)<\/button>|([^<]*))<\/h2>/.exec(
+      html.slice(from),
+    );
+    expect(m, 'the name is a heading of text alone, or of the button that folds the group, first in the head').not.toBeNull();
     const after = from + (m?.[0].length ?? 0);
     const container = '<div class="project-head-controls">';
     const controls = html.startsWith(container, after) ? innerOf(html, after + container.length) : null;
-    out.push({ name: m?.[1] ?? '', controls });
+    out.push({ name: m?.[1] ?? m?.[2] ?? '', controls });
     // The head's container closes right after its controls, or else its heading: nothing else is in it.
     const end = controls === null ? after : after + container.length + controls.length + '</div>'.length;
     expect(html.startsWith('</div>', end), 'nothing else in the head').toBe(true);
@@ -176,6 +180,21 @@ describe('a project head', () => {
       const html = renderToStaticMarkup(<ProjectHead name="p">{none}</ProjectHead>);
       expect(html).not.toContain('project-head-controls');
       expect(heads(html)).toEqual([{ name: 'p', controls: null }]);
+    }
+  });
+
+  it('is the name as the button that folds the group, inside its heading, where the group folds', () => {
+    const fold = (open: boolean) => ({ open, onToggle: () => undefined, controls: 'body', hint: 'Show or hide' });
+    for (const open of [true, false]) {
+      const html = renderToStaticMarkup(
+        <ProjectHead id="h" name="wf-agents" fold={fold(open)}>
+          <button type="button">one</button>
+        </ProjectHead>,
+      );
+      // The heading is still the name alone, and the controls stay out of it.
+      expect(heads(html)).toEqual([{ name: 'wf-agents', controls: '<button type="button">one</button>' }]);
+      expect(html).toContain(`aria-expanded="${open}"`);
+      expect(html).toContain('aria-controls="body"');
     }
   });
 
