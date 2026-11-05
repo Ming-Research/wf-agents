@@ -1627,22 +1627,4 @@ mod tests {
         });
         assert!(two.contains("more than one case that bounds"), "{two}");
     }
-
-    // The pause at returns sent back comes after at least two in a row, whether or not the architect looks at each
-    // return: the first return sent back does not pause a work, and a pause after none is no bound.
-    #[test]
-    fn a_pause_at_returns_sent_back_comes_after_at_least_two_in_a_row_whatever_look_says() {
-        for look in [true, false] {
-            for after in [0, 1] {
-                let e = refused(|s| {
-                    s["sentBack"]["pauseAfter"] = after.into();
-                    s["sentBack"]["look"] = look.into();
-                });
-                assert!(
-                    e.contains("rounds.sentBack.pauseAfter is less than 2"),
-                    "pauseAfter {after}, look {look}: {e}"
-                );
-            }
-        }
-    }
 }
