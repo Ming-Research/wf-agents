@@ -173,6 +173,7 @@ const ask = (id: number): OwnerAsk => ({
   answer: null,
   answer_images: [],
   asked_at: 1,
+  condition_item: null,
 });
 
 const card = (id: number): DesignCard => ({ id, work: 5 }) as DesignCard;
@@ -184,9 +185,9 @@ describe('the box at the bottom of a conversation', () => {
     await leave();
     // Whom the words are for: a work's group says to the engineer at first; the architect ticked too is kept.
     let h = await show(<Composer c={work(5)} w={null} />);
-    const ticks = () => [...h.querySelectorAll('input[type="checkbox"]')].map((x) => (x as HTMLInputElement).checked);
+    const ticks = () => [...h.querySelectorAll('.talk-say-to input[type="checkbox"]')].map((x) => (x as HTMLInputElement).checked);
     expect(ticks()).toEqual([true, false]);
-    await click(must(h.querySelectorAll('input[type="checkbox"]')[1]));
+    await click(must(h.querySelectorAll('.talk-say-to input[type="checkbox"]')[1]));
     expect(ticks()).toEqual([true, true]);
     await leave();
     forgetMemory();

@@ -77,6 +77,13 @@ enum Command {
         /// For what the architect is asked: the rest of the reply as JSON, such as children, rest and waits.
         #[arg(long)]
         reply: Option<String>,
+        /// For the merge gate's ask of a merge condition: the option chosen, `met` or `withdrawn`.
+        #[arg(long)]
+        choice: Option<String>,
+        /// Sets a merge condition with the answer: what must be done before the work merges, in a sentence that reads
+        /// alone.
+        #[arg(long)]
+        condition: Option<String>,
     },
     /// The current decision cards, open or ruled, each with its key and question.
     DesignCards {
@@ -118,6 +125,10 @@ enum Command {
         /// engineer, architect or both.
         #[arg(long, default_value = "engineer")]
         to: String,
+        /// Sets a merge condition with the words: what must be done before the work merges, in a sentence that reads
+        /// alone.
+        #[arg(long)]
+        condition: Option<String>,
     },
     /// A project's architect: what the owner says to it.
     #[command(subcommand)]
@@ -673,6 +684,8 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             relayed,
             why,
             reply,
+            choice,
+            condition,
         } => {
             let reply: Option<serde_json::Value> = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
@@ -687,6 +700,8 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                     relayed,
                     why,
                     reply,
+                    choice,
+                    condition,
                 },
             ))
         }
@@ -728,7 +743,16 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             speaker,
             relayed,
             to,
-        } => print(owner::say(d, work, &to, &text, &speaker, &relayed)),
+            condition,
+        } => print(owner::say(
+            d,
+            work,
+            &to,
+            &text,
+            &speaker,
+            &relayed,
+            condition.as_deref(),
+        )),
         Command::Pause { work, why } => print(owner::pause(d, work, &why)),
         Command::Resume { work } => print(owner::resume(d, work)),
         Command::Hold { project, why } => print(owner::hold_starts(d, project.as_deref(), &why)),
