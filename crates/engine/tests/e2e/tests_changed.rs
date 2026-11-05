@@ -51,6 +51,13 @@ fn implementing_with(file: &'static str, rows: Value) -> Script {
     Box::new(move |r: &Request, n: usize| {
         write(&r.worktree, file, "a test\n");
         let (pick, mut set) = base(r, n);
+        // The fake CI reports two tests, `feature` and `regression`; the round that asks for ci names both, so that
+        // the rows of the end naming them find a run that reported them.
+        for (field, value) in set.iter_mut() {
+            if *field == "outcome.tools" {
+                value[0]["tests"] = json!(["feature", "regression"]);
+            }
+        }
         if !pick
             .iter()
             .any(|(field, value)| *field == "outcome" && *value == "tools")
@@ -82,17 +89,18 @@ fn last_round(e: &Engine, work: i64, cell: &str) -> String {
 #[test]
 fn the_rows_of_a_stored_return_make_the_tests_and_the_weakened_tests_in_the_order_written() {
     let s = setup("tests-changed-rows");
-    let new = |test: &str| json!({ "change": "added", "test": test, "catches": "c", "kind": "new_behaviour" });
+    // The fake CI reports two tests only, `feature` and `regression`, and the engine requires every test an added or
+    // extended row names to be reported by a run of ci; a row says why its test cannot run before the change.
+    let new = |change: &str, test: &str| json!({ "change": change, "test": test, "catches": "c", "kind": "new_behaviour", "not_before": "needs the change" });
     let reason = |change: &str, test: &str| json!({ "change": change, "test": test, "reason": "technical" });
     let rows = json!([
-        new("alpha"),
-        { "change": "added", "test": "beta", "catches": "c", "kind": "old_behaviour" },
-        reason("removed", "beta"),
-        { "change": "extended", "test": "gamma", "catches": "more", "kind": "new_behaviour" },
-        reason("skipped", "gamma"),
+        new("added", "feature"),
+        new("added", "regression"),
+        reason("removed", "feature"),
+        new("extended", "feature"),
+        reason("skipped", "regression"),
         reason("relaxed", "delta"),
-        reason("removed", "alpha"),
-        new("alpha"),
+        reason("removed", "delta"),
     ]);
     let mut agents = scripts();
     agents.insert("T3", adversarial());
@@ -120,8 +128,8 @@ fn the_rows_of_a_stored_return_make_the_tests_and_the_weakened_tests_in_the_orde
     assert_eq!(
         tests,
         [
-            ("gamma", "extended", round.as_str()),
-            ("alpha", "added", round.as_str())
+            ("regression", "added", round.as_str()),
+            ("feature", "extended", round.as_str())
         ],
         "{changed}\n{log}"
     );
@@ -133,7 +141,7 @@ fn the_rows_of_a_stored_return_make_the_tests_and_the_weakened_tests_in_the_orde
         .collect();
     assert_eq!(
         weakened,
-        [("removed", "beta"), ("skipped", "gamma"), ("relaxed", "delta")],
+        [("skipped", "regression"), ("relaxed", "delta"), ("removed", "delta")],
         "{changed}\n{log}"
     );
     assert_eq!(changed["weakened"][0]["reason"], "technical", "{changed}");
@@ -165,13 +173,19 @@ fn a_project_with_no_test_paths_is_given_an_empty_list_and_no_tests_changed() {
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     let m = message_at(&e, work, "T1", false);
+    // The round's list of inputs names the test paths, whether the line's system prompt holds them or the message gives
+    // them: the adversarial tester is not left without knowing that no path may be changed.
+    assert!(
+        work_from(&m).iter().any(|l| l.ends_with(". config:test_paths")),
+        "{m}\n{log}"
+    );
     let flow = e.flow(e.flow_now).unwrap();
     let g = flow.graphs.iter().find(|g| g.name == engine::ENGINEER).unwrap();
     let parts = engine::message::line_parts(&e, g, g.cell("T1").unwrap(), "p");
-    let paths = parts.iter().find(|(address, _)| address == "config:test_paths");
-    assert_eq!(paths.map(|(_, v)| v), Some(&json!([])), "{parts:?}");
+    let in_prompt = parts.iter().find(|(address, _)| address == "config:test_paths");
+    let in_message = given_value(&m, "config:test_paths");
     assert!(
-        work_from(&m).iter().any(|l| l.ends_with(". config:test_paths")),
+        in_prompt.is_some_and(|(_, v)| *v == json!([])) || in_message == Some(json!([])),
         "{m}\n{log}"
     );
     assert_eq!(given_value(&m, "\u{b7}engine\u{b7}tests_changed"), None, "{m}\n{log}");

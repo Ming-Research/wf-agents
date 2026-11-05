@@ -175,11 +175,13 @@ fn the_files_of_the_work_are_told_whole_and_those_of_main_are_left_out() {
     );
     fetched_main(&dir);
     git(&dir, &["checkout", "-q", "-b", "work"]);
+    // A letter beyond ASCII, made from its code (the repository holds no such letter in its files).
+    let accented = format!("tests/{}n.rs", char::from(0xfc_u8));
     let odd = [
         "tests/with space.rs",
         "tests/q\"uote.rs",
         "tests/new\nline.rs",
-        "tests/\u{fc}n\u{ef}.rs",
+        accented.as_str(),
         "tests/back\\slash.rs",
     ];
     let mut files: Vec<(&str, &str)> = odd.iter().map(|f| (*f, "fn t() {}\n")).collect();
