@@ -1,0 +1,25 @@
+name: browser
+description: Makes Chromium available to the page's browser tests, for the workflows ci and fast
+
+# Installs the Chromium that the version of Playwright the page's lock file locks drives, into Playwright's cache in the
+# runner user's home (~/.cache/ms-playwright). Playwright does nothing when that version of Chromium is there already,
+# so the project's own machine, whose runners keep and share their home between runs, downloads it once for each version
+# of Playwright. GitHub's machines start clean and have root: they download it, and install the system libraries it
+# needs, each time. A workflow has no root on the project's machine: the libraries Chromium needs are installed there by
+# hand, and a run there that lacks one fails in the browser tests with the missing libraries named.
+#
+# The page's dependencies are installed before this runs (Playwright is one of them).
+runs:
+  using: composite
+  steps:
+    - name: Install Chromium
+      working-directory: client
+      env:
+        ENVIRONMENT: ${{ runner.environment }}
+      run: |
+        if [ "$ENVIRONMENT" = github-hosted ]; then
+          npx --no-install playwright install --with-deps chromium
+        else
+          npx --no-install playwright install chromium
+        fi
+      shell: bash
