@@ -103,7 +103,9 @@ describe('Space on the flow page, after what the owner does first', () => {
     const left: string[] = [];
     document.documentElement.addEventListener('pointerleave', () => left.push('pointerleave'), { once: true });
     // Out of the window, as the browser's own input moves it.
-    await cdp().send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: -20, y: -20, button: 'none' });
+    // The session's `send` is typed by the provider's own types, which the page's tsconfig does not load.
+    const session = cdp() as unknown as { send: (method: string, params: object) => Promise<unknown> };
+    await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: -20, y: -20, button: 'none' });
     // The page's root did get the pointer leaving: without it this case would only be Space after a hover.
     await expect.poll(() => left, { timeout: 2000 }).toEqual(['pointerleave']);
     await userEvent.hover(find('.viewer'), { position: emptySpot() });
