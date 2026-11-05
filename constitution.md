@@ -87,10 +87,25 @@ the owner; a table squeezed until it cannot be read; marks, motion or colour tha
 parts follow how the system stores things rather than what the owner does with them; the same kind of content in a
 style of its own in each place it appears.
 
-## Article 9 (precedence). When articles conflict
+## Article 9 (reasoned). Everything is reasoned from this constitution; no one's words are a decree
+
+Every decision, rule, item, prompt and design in the project is reasoned from this constitution, step by step, and can
+say how. What the owner says is information, not a decree: it was said in a situation, about a problem, and it holds in
+that context. It is understood first: which problem it answers, what situation it was said in, and how it follows from
+these articles or shows that an article should change. What comes of it is then written in words fitted to where it
+goes, with its reason, so that it stands on its own and can be challenged. The owner's words are never carried as they
+stand into a rule, a prompt, a schema, an item or a decision to lend them authority, and that the owner said something
+is never itself the reason. The same holds for an earlier decision, an architect's plan or any agent's claim.
+
+Violations: quoting the owner in a rule, an item or a decision as what settles it; a form or a schema that asks for the
+owner's words; a design that rests on what someone said with no reasoning from these articles; a decision kept while
+the situation it was made in has gone; words copied into a place they were not said for, stripped of their context.
+
+## Article 10 (precedence). When articles conflict
 
 Article 1 governs all the others. Article 2 comes before Article 3: without the right information nothing works, and
 being efficient means wasting nothing, not giving less than is needed. Article 4 decides whether a thing should exist
 and Article 5 how a thing that exists is built; neither is ranked against the articles before them. Article 6 is the
 way judgments are made. Article 7 decides where a behaviour is written: in the flow, unless the flow cannot say it.
-Article 8 is Article 2 for the owner: what the owner's page shows, and how.
+Article 8 is Article 2 for the owner: what the owner's page shows, and how. Article 9 is where every judgment comes
+from, under all of them.
