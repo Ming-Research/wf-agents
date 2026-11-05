@@ -689,6 +689,50 @@ fn a_step_whose_thread_panics_pauses_its_work_and_lets_it_go_on_later() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Each start of the loop writes a row of `engine_runs` with the build, the configuration commit and the flow version;
+// the stop completes it with the time and why; a start that finds a row never completed (the process was killed) marks
+// it lost and leaves the time of its stop unknown.
+#[test]
+fn each_run_of_the_loop_is_recorded_from_its_start_to_its_stop() {
+    type Run = (i64, String, String, i64, Option<i64>, Option<String>);
+    let row = |e: &Engine, id: i64| -> Run {
+        e.db.conn()
+            .query_row(
+                "SELECT started_at, built_from, config_commit, flow_version, stopped_at, stop_reason
+                 FROM engine_runs WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            )
+            .unwrap()
+    };
+    let s = setup("engine-runs");
+    let (mut e, _) = engine(&s, scripts());
+    let first = e.record_start().unwrap();
+    let (at, built, config, flow, stopped, why) = row(&e, first);
+    assert!(at <= db::now() && at > db::now() - 60_000, "{at}");
+    assert_eq!(built, engine::VERSION);
+    assert_eq!(config, e.config.commit);
+    assert_eq!(flow, e.flow_now);
+    assert_eq!((stopped, why), (None, None));
+    e.record_stop(first, "stop file").unwrap();
+    let (.., stopped, why) = row(&e, first);
+    assert!(stopped.is_some_and(|t| t >= at));
+    assert_eq!(why.as_deref(), Some("stop file"));
+    // A run that ends in an error says so.
+    let second = e.record_start().unwrap();
+    e.record_stop(second, "error: it went wrong").unwrap();
+    assert_eq!(row(&e, second).5.as_deref(), Some("error: it went wrong"));
+    // A run never completed is lost when the next starts; the runs completed are left as they were.
+    let third = e.record_start().unwrap();
+    let fourth = e.record_start().unwrap();
+    let (.., stopped, why) = row(&e, third);
+    assert_eq!((stopped, why.as_deref()), (None, Some("lost")));
+    assert_eq!(row(&e, first).5.as_deref(), Some("stop file"));
+    assert_eq!(row(&e, second).5.as_deref(), Some("error: it went wrong"));
+    assert_eq!(row(&e, fourth).5, None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The owner's Step of a work whose step is under way waits until that step has ended: the loop's turn meanwhile
 // dispatches no second step of the work and leaves the Step asked, so that the step under way ends as a step of its
 // own and the work is not paused by it; the turn after takes the owner's round, after which the owner holds the work

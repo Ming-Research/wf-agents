@@ -30,6 +30,7 @@ mod declared_checks;
 mod deep_research;
 mod dependency_sources;
 mod dependency_sources_left_behind;
+mod engine_faults;
 mod failures;
 mod flow_versions;
 mod guard;
