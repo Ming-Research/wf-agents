@@ -19,6 +19,12 @@ What an agent needs to know for this repository, beyond the rules every agent is
   the same pull request, a file of `db/migrations/` named by the minute it was written and what it does.
 - A change to the owner's page follows its UI spec, [client/ui-spec.md](client/ui-spec.md), and passes its check,
   `npm run check:ui` in `client/`.
+- The page's tests are three Vitest projects (`client/vite.config.ts`): `unit` (Node, or happy-dom for a file that says
+  so), `ui` and `browser`. What depends on a real browser's layout, pointer, focus or keys (the graph's viewer in
+  `client/src/graph/` above all) is tested in a file named `*.browser.test.tsx`, which draws the page in Chromium;
+  the rest stays in `unit`, since the browser costs its own start. A work that changes such code names the browser tests
+  in `ci` (`client/src/graph/Viewer.browser.test.tsx`), because the fast CI starts Chromium only for a run that names
+  one; the full CI runs them once, at the merge, whenever the page's files changed.
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
   passes `wf-agents flow check`; the flow crate's tests run the same check. Such a change merges once the owner
   approved it at the merge (M1), with a link to the flow page's comparison; it is no reason by itself to go to deep
