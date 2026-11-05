@@ -1,0 +1,200 @@
+## candidate: the last candidate process of the run (lines 16565 to 17048 of command.log); PLAN, path, plan as SQLite 3.45.1 gave it at the field's size
+PLAN	engine.turn.stopping	SCAN w / CORRELATED SCALAR SUBQUERY 1 / SCAN o
+PLAN	engine.turn.ready_items	SCAN i / LIST SUBQUERY 3 / SCAN w / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 6 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 7
+PLAN	engine.turn.reminder	SEARCH engine_notices || CO-ROUTINE (subquery-31) / CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	engine.turn.architect_queue	SEARCH m USING INDEX architect_matters_waiting (project=?) / CORRELATED SCALAR SUBQUERY 4 / SEARCH a USING INTEGER PRIMARY KEY (rowid=?) / SEARCH m USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH b USING INDEX blockers_open (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.turn.slots_free_history	SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.turn.architect_running	SEARCH works
+PLAN	engine.turn.main_watch_matters	SCAN architect_matters
+PLAN	engine.write.next_tx	SCAN CONSTANT ROW / SCALAR SUBQUERY 1 / SEARCH changes USING COVERING INDEX changes_by_tx
+PLAN	engine.step.stop_asked	SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 1 / SCAN o
+PLAN	engine.step.take_if_past	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.step.resumed_at	SEARCH changes USING INDEX changes_by_row (table_name=?)
+PLAN	engine.step.open_round.eng	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.step.open_round.arch	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds.eng	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds.eng_big	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds.arch	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds_at	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.own_rounds.eng	SEARCH s USING COVERING INDEX sessions_by_cli_session (cli_session=?) / SEARCH r USING INDEX rounds_by_session (session=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.round.own_rounds.arch	SEARCH s USING COVERING INDEX sessions_by_cli_session (cli_session=?) / SEARCH r USING INDEX rounds_by_session (session=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.round.opens	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 1 / SCAN json_each VIRTUAL TABLE INDEX 1:
+PLAN	engine.round.time_limit	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=? AND n>? AND n<?)
+PLAN	engine.round.counter_of_work	CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SEARCH r USING COVERING INDEX rounds_counts (work=? AND counts=?) / UNION ALL / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH work_counters
+PLAN	engine.round.counters_all	CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN r USING COVERING INDEX rounds_counts / UNION ALL / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SCAN work_counters
+PLAN	engine.round.counts_from_flow	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH v USING INTEGER PRIMARY KEY (rowid=?) / SCAN g VIRTUAL TABLE INDEX 3: / SCAN c VIRTUAL TABLE INDEX 3: / SCAN row VIRTUAL TABLE INDEX 3:
+PLAN	engine.round.ci_results	SEARCH tool_runs USING INDEX tool_runs_by_round (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.round.fact_basis	SEARCH tool_runs USING INDEX tool_runs_by_round (work=?)
+PLAN	engine.round.item_merged	SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.asked_matters	SEARCH architect_matters USING INDEX architect_matters_by_work (work=? AND kind=?)
+PLAN	engine.round.interjections_words	SEARCH interjections USING COVERING INDEX interjections_by_work_delivered (work=? AND delivered_round>?) / SCALAR SUBQUERY 1 / SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds_of_matter	SEARCH r USING INDEX rounds_by_cell (cell=?) / LIST SUBQUERY 1 / SCAN sessions / CORRELATED SCALAR SUBQUERY 2 / SEARCH l USING INDEX sqlite_autoindex_rounds_1 (work=? AND n<?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.round.architect_time	SCAN w / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.rare.merges_of_commit	SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.works	SCAN owner_asks USING INDEX owner_asks_by_round || SCAN design_cards USING INDEX design_cards_by_round || SCAN p / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY || SCAN tool_runs USING INDEX tool_runs_by_round || SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN || SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 1 / SCAN w
+PLAN	api.items_extra	SCAN l USING INDEX sqlite_autoindex_item_links_1 / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH d USING INTEGER PRIMARY KEY (rowid=?) || SCAN i / SEARCH q USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH w USING INDEX works_by_item (item=?) / CORRELATED SCALAR SUBQUERY 4 / SEARCH r USING COVERING INDEX rounds_counts (work=? AND counts=?) / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX rounds_by_cell (cell=?) || SCAN item_links USING INDEX sqlite_autoindex_item_links_1
+PLAN	api.item.outputs	SEARCH w USING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.item.level_changes	SEARCH changes USING INDEX changes_by_row (table_name=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.work.eng	SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.work.arch	SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.round	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.content	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.conversations	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 31 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.conversation.work	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.conversation.architect	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.architect.matters	SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.architect.notebook	SEARCH e USING INDEX notebook_edits_by_section (project=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.architect.rounds_window	SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.system.works_of	SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.system.rounds_since	SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	api.system.counted	SCAN rounds USING INDEX sqlite_autoindex_rounds_1
+PLAN	api.system.work_changes	SEARCH c USING INDEX changes_by_row (table_name=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.system.item_events	SCAN i / SEARCH c USING INDEX changes_by_row (table_name=? AND row_key=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.observations	MATERIALIZE m / SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SEARCH o USING INDEX observations_by_project (project=?) / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 4
+PLAN	api.flows	SCAN v / CORRELATED SCALAR SUBQUERY 1 / SEARCH w USING COVERING INDEX works_by_flow_version (flow_version=?)
+PLAN	view.adversarial_directions	SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SCAN d VIRTUAL TABLE INDEX 3:
+PLAN	view.advisor_rulings	SEARCH r USING INDEX rounds_by_cell (cell=?) / SCAN x VIRTUAL TABLE INDEX 3:
+PLAN	view.architect_queue	CO-ROUTINE architect_queue / SCAN m / CORRELATED SCALAR SUBQUERY 4 / SEARCH a USING INTEGER PRIMARY KEY (rowid=?) / SCAN architect_queue
+PLAN	view.conversation_entries	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	view.conversation_shown	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_acceptance	SCAN items
+PLAN	view.item_asks	SCAN a USING COVERING INDEX owner_asks_by_round / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_blocked_by	SCAN l / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH d USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_body	SCAN items
+PLAN	view.item_context	CO-ROUTINE item_context / COMPOUND QUERY / LEFT-MOST SUBQUERY / CO-ROUTINE up / SETUP / SCAN item_links / RECURSIVE STEP / SCAN up
+PLAN	view.item_dependencies	SCAN l USING COVERING INDEX item_links_by_depends_on / SEARCH d USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_design_cards	SCAN c USING COVERING INDEX design_cards_by_round / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_problem	SCAN items
+PLAN	view.item_research	SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_verifications	SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SCAN v VIRTUAL TABLE INDEX 3:
+PLAN	view.known_red_counts	CO-ROUTINE known_red_counts / SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / USE TEMP B-TREE FOR GROUP BY / SCAN known_red_counts
+PLAN	view.merge_queue	CO-ROUTINE merge_queue / SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 3 / SEARCH c USING INDEX changes_by_row (table_name=? AND row_key=?) / USE TEMP B-TREE FOR ORDER BY / SCAN merge_queue
+PLAN	view.not_applicable_answers	SCAN r
+PLAN	view.notebook	CO-ROUTINE (subquery-3) / CO-ROUTINE (subquery-4) / SCAN notebook_edits USING INDEX notebook_edits_by_section / USE TEMP B-TREE FOR RIGHT PART OF ORDER BY / SCAN (subquery-4) / SCAN (subquery-3)
+PLAN	view.observations_all	MATERIALIZE m / SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SCAN o / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN
+PLAN	view.observations_open	MATERIALIZE m / SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SCAN o / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN
+PLAN	view.open_items	CO-ROUTINE open_items / SCAN i / SEARCH w USING INDEX works_by_item (item=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 4 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 5 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH q USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	view.parent_design_cards	SCAN c USING INDEX design_cards_current / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH l USING COVERING INDEX sqlite_autoindex_item_links_1 (item=?)
+PLAN	view.policy_current	CO-ROUTINE (subquery-3) / CO-ROUTINE (subquery-8) / SEARCH a USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY / SCAN (subquery-8) / CORRELATED SCALAR SUBQUERY 4 / SEARCH t USING INDEX rounds_by_cell (cell=?)
+PLAN	view.policy_draft	CO-ROUTINE d / CO-ROUTINE (subquery-5) / SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY / SCAN (subquery-5) / SCAN d / CORRELATED SCALAR SUBQUERY 4
+PLAN	view.ready_items	CO-ROUTINE ready_items / SCAN i / LIST SUBQUERY 3 / SCAN w / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 6 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	view.round_rows	SCAN rounds USING COVERING INDEX rounds_by_session
+PLAN	view.sent_back_problems	SCAN r / SCAN p VIRTUAL TABLE INDEX 3:
+PLAN	view.side_reports	SCAN r / SCAN s VIRTUAL TABLE INDEX 3:
+PLAN	view.waited_items	SCAN l USING COVERING INDEX sqlite_autoindex_item_links_1 / SEARCH d USING INTEGER PRIMARY KEY (rowid=?) / SEARCH w USING COVERING INDEX works_by_item (item=?)
+PLAN	view.waiting_interjections	SCAN j USING INDEX interjections_waiting / SEARCH c USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	view.work_asking	SCAN works USING COVERING INDEX works_by_flow_version
+PLAN	view.work_ci	SCAN works USING COVERING INDEX works_by_flow_version
+PLAN	view.work_counters	CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN r USING COVERING INDEX rounds_counts / UNION ALL / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SCAN work_counters
+PLAN	view.work_design_cards	SCAN c USING INDEX design_cards_current
+PLAN	view.work_followups	SEARCH r USING INDEX rounds_by_cell (cell=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.work_handled	CO-ROUTINE work_handled / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY / SCAN work_handled
+PLAN	view.work_history	SCAN rounds USING COVERING INDEX rounds_by_session
+PLAN	view.work_measurements	SCAN t
+PLAN	view.work_open_questions	SCAN m USING COVERING INDEX architect_matters_by_work
+PLAN	view.work_owner_words	CO-ROUTINE work_owner_words / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / UNION ALL / SCAN m / UNION ALL / SEARCH j USING INDEX interjections_by_matter (matter=?)
+PLAN	view.work_progress	SCAN r
+PLAN	view.work_review_record	SCAN works USING COVERING INDEX works_by_flow_version
+PLAN	view.work_routes	SCAN w
+PLAN	view.work_set_aside	SCAN r / SCAN p VIRTUAL TABLE INDEX 1:
+PLAN	view.work_state	SCAN works USING COVERING INDEX works_by_flow_version
+## base: the last base process (lines 17921 to 18404)
+PLAN	engine.turn.stopping	SCAN w / CORRELATED SCALAR SUBQUERY 1 / SCAN o
+PLAN	engine.turn.ready_items	SCAN i / LIST SUBQUERY 3 / SCAN w / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 6 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 7
+PLAN	engine.turn.reminder	SEARCH engine_notices || CO-ROUTINE (subquery-31) / CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	engine.turn.architect_queue	SEARCH m USING INDEX architect_matters_waiting (project=?) / CORRELATED SCALAR SUBQUERY 4 / SEARCH a USING INTEGER PRIMARY KEY (rowid=?) / SEARCH m USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH b USING INDEX blockers_open (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.turn.slots_free_history	SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.turn.architect_running	SEARCH works
+PLAN	engine.turn.main_watch_matters	SCAN architect_matters
+PLAN	engine.write.next_tx	SEARCH changes
+PLAN	engine.step.stop_asked	SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 1 / SCAN o
+PLAN	engine.step.take_if_past	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.step.resumed_at	SEARCH changes USING INDEX changes_by_row (table_name=?)
+PLAN	engine.step.open_round.eng	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.step.open_round.arch	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds.eng	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds.eng_big	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds.arch	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds_at	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.own_rounds.eng	SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH s USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	engine.round.own_rounds.arch	SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH s USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	engine.round.opens	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 1 / SCAN json_each VIRTUAL TABLE INDEX 1:
+PLAN	engine.round.time_limit	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=? AND n>? AND n<?)
+PLAN	engine.round.counter_of_work	CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SEARCH r USING COVERING INDEX rounds_counts (work=? AND counts=?) / UNION ALL / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH work_counters
+PLAN	engine.round.counters_all	CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN r USING COVERING INDEX rounds_counts / UNION ALL / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SCAN work_counters
+PLAN	engine.round.counts_from_flow	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH v USING INTEGER PRIMARY KEY (rowid=?) / SCAN g VIRTUAL TABLE INDEX 3: / SCAN c VIRTUAL TABLE INDEX 3: / SCAN row VIRTUAL TABLE INDEX 3:
+PLAN	engine.round.ci_results	SEARCH tool_runs USING INDEX tool_runs_by_round (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.round.fact_basis	SEARCH tool_runs USING INDEX tool_runs_by_round (work=?)
+PLAN	engine.round.item_merged	SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.asked_matters	SCAN architect_matters
+PLAN	engine.round.interjections_words	SCAN interjections / SCALAR SUBQUERY 1 / SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.round.rounds_of_matter	SCAN r / LIST SUBQUERY 1 / SCAN sessions / CORRELATED SCALAR SUBQUERY 2 / SEARCH l USING INDEX sqlite_autoindex_rounds_1 (work=? AND n<?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	engine.round.architect_time	SCAN w / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	engine.rare.merges_of_commit	SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.works	SCAN owner_asks USING INDEX owner_asks_by_round || SCAN design_cards USING INDEX design_cards_by_round || SCAN p / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY || SCAN tool_runs USING INDEX tool_runs_by_round || SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN || SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 1 / SCAN w
+PLAN	api.items_extra	SCAN l USING INDEX sqlite_autoindex_item_links_1 / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH d USING INTEGER PRIMARY KEY (rowid=?) || SCAN i / SEARCH q USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH w USING INDEX works_by_item (item=?) / CORRELATED SCALAR SUBQUERY 4 / SEARCH r USING COVERING INDEX rounds_counts (work=? AND counts=?) / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) || SCAN item_links USING INDEX sqlite_autoindex_item_links_1
+PLAN	api.item.outputs	SEARCH w USING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.item.level_changes	SEARCH changes USING INDEX changes_by_row (table_name=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.work.eng	SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.work.arch	SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.round	SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.content	SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.conversations	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 31 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.conversation.work	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.conversation.architect	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	api.architect.matters	SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.architect.notebook	SEARCH e USING INDEX notebook_edits_by_section (project=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.architect.rounds_window	SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.system.works_of	SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	api.system.rounds_since	SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	api.system.counted	SCAN rounds USING INDEX sqlite_autoindex_rounds_1
+PLAN	api.system.work_changes	SEARCH c USING INDEX changes_by_row (table_name=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.system.item_events	SCAN i / SEARCH c USING INDEX changes_by_row (table_name=? AND row_key=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN	api.observations	MATERIALIZE m / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SEARCH o USING INDEX observations_by_project (project=?) / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 4
+PLAN	api.flows	SCAN v / CORRELATED SCALAR SUBQUERY 1 / SCAN w
+PLAN	view.adversarial_directions	SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SCAN d VIRTUAL TABLE INDEX 3:
+PLAN	view.advisor_rulings	SCAN r / SCAN x VIRTUAL TABLE INDEX 3:
+PLAN	view.architect_queue	CO-ROUTINE architect_queue / SCAN m / CORRELATED SCALAR SUBQUERY 4 / SEARCH a USING INTEGER PRIMARY KEY (rowid=?) / SCAN architect_queue
+PLAN	view.conversation_entries	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	view.conversation_shown	CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_acceptance	SCAN items
+PLAN	view.item_asks	SCAN a USING COVERING INDEX owner_asks_by_round / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_blocked_by	SCAN l / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH d USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_body	SCAN items
+PLAN	view.item_context	CO-ROUTINE item_context / COMPOUND QUERY / LEFT-MOST SUBQUERY / CO-ROUTINE up / SETUP / SCAN item_links / RECURSIVE STEP / SCAN up
+PLAN	view.item_dependencies	SCAN l USING COVERING INDEX item_links_by_depends_on / SEARCH d USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_design_cards	SCAN c USING COVERING INDEX design_cards_by_round / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_problem	SCAN items
+PLAN	view.item_research	SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.item_verifications	SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SCAN v VIRTUAL TABLE INDEX 3:
+PLAN	view.known_red_counts	CO-ROUTINE known_red_counts / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / USE TEMP B-TREE FOR GROUP BY / SCAN known_red_counts
+PLAN	view.merge_queue	CO-ROUTINE merge_queue / SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 3 / SEARCH c USING INDEX changes_by_row (table_name=? AND row_key=?) / USE TEMP B-TREE FOR ORDER BY / SCAN merge_queue
+PLAN	view.not_applicable_answers	SCAN r
+PLAN	view.notebook	CO-ROUTINE (subquery-3) / CO-ROUTINE (subquery-4) / SCAN notebook_edits USING INDEX notebook_edits_by_section / USE TEMP B-TREE FOR RIGHT PART OF ORDER BY / SCAN (subquery-4) / SCAN (subquery-3)
+PLAN	view.observations_all	MATERIALIZE m / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SCAN o / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN
+PLAN	view.observations_open	MATERIALIZE m / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SCAN o / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN
+PLAN	view.open_items	CO-ROUTINE open_items / SCAN i / SEARCH w USING INDEX works_by_item (item=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 4 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 5 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH q USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	view.parent_design_cards	SCAN c USING INDEX design_cards_current / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH l USING COVERING INDEX sqlite_autoindex_item_links_1 (item=?)
+PLAN	view.policy_current	CO-ROUTINE (subquery-3) / CO-ROUTINE (subquery-8) / SCAN a / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY / SCAN (subquery-8) / CORRELATED SCALAR SUBQUERY 4 / SCAN t USING INDEX sqlite_autoindex_rounds_1
+PLAN	view.policy_draft	CO-ROUTINE d / CO-ROUTINE (subquery-5) / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY / SCAN (subquery-5) / SCAN d / CORRELATED SCALAR SUBQUERY 4
+PLAN	view.ready_items	CO-ROUTINE ready_items / SCAN i / LIST SUBQUERY 3 / SCAN w / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 6 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN	view.round_rows	SCAN rounds USING COVERING INDEX sqlite_autoindex_rounds_1
+PLAN	view.sent_back_problems	SCAN r / SCAN p VIRTUAL TABLE INDEX 3:
+PLAN	view.side_reports	SCAN r / SCAN s VIRTUAL TABLE INDEX 3:
+PLAN	view.waited_items	SCAN l USING COVERING INDEX sqlite_autoindex_item_links_1 / SEARCH d USING INTEGER PRIMARY KEY (rowid=?) / SEARCH w USING COVERING INDEX works_by_item (item=?)
+PLAN	view.waiting_interjections	SCAN j USING INDEX interjections_waiting / SEARCH c USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN	view.work_asking	SCAN works USING COVERING INDEX works_by_item
+PLAN	view.work_ci	SCAN works USING COVERING INDEX works_by_item
+PLAN	view.work_counters	CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN r USING COVERING INDEX rounds_counts / UNION ALL / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SCAN work_counters
+PLAN	view.work_design_cards	SCAN c USING INDEX design_cards_current
+PLAN	view.work_followups	SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN	view.work_handled	CO-ROUTINE work_handled / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY / SCAN work_handled
+PLAN	view.work_history	SCAN rounds USING COVERING INDEX sqlite_autoindex_rounds_1
+PLAN	view.work_measurements	SCAN t
+PLAN	view.work_open_questions	SCAN m
+PLAN	view.work_owner_words	CO-ROUTINE work_owner_words / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / UNION ALL / SCAN m / UNION ALL / SCAN j
+PLAN	view.work_progress	SCAN r
+PLAN	view.work_review_record	SCAN works USING COVERING INDEX works_by_item
+PLAN	view.work_routes	SCAN w
+PLAN	view.work_set_aside	SCAN r / SCAN p VIRTUAL TABLE INDEX 1:
+PLAN	view.work_state	SCAN works USING COVERING INDEX works_by_item
