@@ -41,7 +41,6 @@ pub const INPUTS: &[&str] = &[
     "constitution",
     "decisions",
     "guide",
-    "board",
     "numbers",
     "observations_overview",
     "observation_tags",
@@ -507,27 +506,6 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
         "SELECT count(*) FROM dispatch_holds WHERE project = ?1 AND reason = 'set_straight'",
         &[&project],
     )? > 0)
-}
-
-/// A project's holds on new starts as its board gives them, oldest first: each one's reason, since when and why as
-/// whoever held said it, or none when nothing holds the project's new starts.
-fn starts_held(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
-    let rows = query_json(
-        conn,
-        "SELECT reason, since, why FROM dispatch_holds WHERE project = ?1 ORDER BY since, reason",
-        &[&project],
-        ROWS,
-    )?;
-    Ok(rows
-        .into_iter()
-        .map(|r| {
-            let mut hold = json!({ "reason": r["reason"], "since": r["since"].as_i64().map(utc_minute) });
-            if let Some(why) = r["why"].as_str() {
-                hold["why"] = json!(why);
-            }
-            hold
-        })
-        .collect())
 }
 
 /// The questions a project's architect put to the owner that wait for the owner's reply, newest first, as the owner's
@@ -3553,7 +3531,6 @@ pub fn input(
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
         "decisions" => decisions(e, project, main),
         "guide" => guide(e, project, main).map(Some),
-        "board" => board(e, project).map(Some),
         "numbers" => numbers(e, w, project).map(Some),
         "observations_overview" => observations_overview(e, project).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
@@ -3657,17 +3634,10 @@ fn handed_in(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 }
 
 /// What the architect knows of its project that a cell of an engineer's work is given, as the architect has it: the
-/// constitution, which every agent's cell is given, the decisions in force, the board of the project's items, the
-/// decision cards of the others, the policy in force, and two sections of its notebook, the plan (with the owner's
-/// lasting instructions) and what the project is now.
-pub const KNOWLEDGE: &[&str] = &[
-    "constitution",
-    "decisions",
-    "board",
-    "items_decided",
-    "policy",
-    "notebook_plan",
-];
+/// constitution, which every agent's cell is given, the decisions in force, the decision cards of the others, the
+/// policy in force, and two sections of its notebook, the plan (with the owner's lasting instructions) and what the
+/// project is now.
+pub const KNOWLEDGE: &[&str] = &["constitution", "decisions", "items_decided", "policy", "notebook_plan"];
 
 /// What a cell of an engineer's work on an item (`item`) of a project is given of the architect's knowledge
 /// ([`KNOWLEDGE`]); none when there is nothing. `main` is the commit of the project's main the round is pinned to, for
@@ -3682,7 +3652,6 @@ pub fn knowledge(
     match name {
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
         "decisions" => decisions(e, project, main),
-        "board" => board(e, project).map(Some),
         "items_decided" => items_decided(e.db.conn(), project, item),
         "policy" => policy(e, project),
         "notebook_plan" => Ok(notebook_section(e.db.conn(), project, "plan")?.map(Value::String)),
@@ -3836,172 +3805,6 @@ fn work_waits(e: &Engine, g: Option<&CompiledGraph>, work: i64, at: &str) -> Res
         return Ok(Some("the architect's reply to its question".into()));
     }
     Ok(None)
-}
-
-/// What a project's works spent, in US dollars, by work, as their rounds recorded it.
-fn spent(e: &Engine, work: i64) -> Result<f64, String> {
-    e.db.conn()
-        .query_row(
-            "SELECT coalesce(sum(json_extract(usage, '$.cost_usd')), 0) FROM rounds WHERE work = ?1",
-            [work],
-            |r| r.get(0),
-        )
-        .map_err(sql)
-}
-
-/// A project's items running and queued, each by its number, with its rank, its level, what it delivers, the way its
-/// latest work went (`work_routes`), its cell and stage, what it waits for and who
-/// waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
-/// with who paused it (the owner, the engine or the architect) and why, or why its last work stopped, as one queued
-/// again, and for one with no work running, the items not merged yet that it waits for by
-/// a blocking dependency before it starts, and its place in the owner's start queue; the owner's start queue, the
-/// project's items the owner put first to start, in the owner's order, which start ahead of the ranks (`dispatch_queue`);
-/// the release items, each an item nothing depends on with items under it, with the items under it; and the
-/// dependencies with other projects' items. A work at a cell of no stage, which asks or
-/// runs tools for another, is at the stage of the cell it stopped at, or else of the innermost cell that waits for it
-/// with one.
-fn board(e: &Engine, project: &str) -> Result<Value, String> {
-    let f = flow_now(e);
-    let g = engineer_graph(f.as_deref());
-    let end = g.map(|g| g.end.clone()).unwrap_or_default();
-    let rows = query_json(
-        e.db.conn(),
-        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver,
-                (SELECT max(c.id) FROM changes c WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id))
-                  AS version,
-                (SELECT t.route FROM work_routes t WHERE t.work = w.id) AS route_taken, w.id AS work, w.at,
-                w.resume_at, w.waiting,
-                w.paused, w.paused_by, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
-                (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
-                  AS waits_for,
-                (SELECT json_group_object('#' || l.item, l.kind) FROM item_links l WHERE l.depends_on = i.id)
-                  AS waited_by,
-                EXISTS (SELECT 1 FROM ready_items r WHERE r.item = i.id) AS ready,
-                (SELECT json_group_array('#' || b.depends_on) FROM item_blocked_by b WHERE b.item = i.id)
-                  AS blocked_by,
-                CASE WHEN EXISTS (SELECT 1 FROM dispatch_queue p WHERE p.item = i.id) THEN
-                  (SELECT count(*) FROM dispatch_queue q JOIN items y ON y.id = q.item
-                   WHERE y.project = i.project
-                     AND q.position <= (SELECT p.position FROM dispatch_queue p WHERE p.item = i.id)) END
-                  AS in_owner_queue
-         FROM items i LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id)
-         WHERE i.project = ?1 AND i.cancelled IS NULL
-         ORDER BY i.rank NULLS LAST, i.id",
-        &[&project],
-        10_000,
-    )?;
-    let mut out = Map::new();
-    let mut open: BTreeSet<i64> = BTreeSet::new();
-    for mut r in rows {
-        let at = r["at"].as_str().unwrap_or_default().to_string();
-        if !at.is_empty() && at == end {
-            continue;
-        }
-        let id = r["item"].as_i64().unwrap_or_default();
-        open.insert(id);
-        let stopped = r["ended"].as_str().map(str::to_string);
-        if let (Some(work), None) = (r["work"].as_i64(), &stopped) {
-            let stage_of = |c: &str| g.and_then(|g| g.cell(c)).and_then(|c| c.stage.clone());
-            let callers = items(r.get("waiting"));
-            let stage = stage_of(&at)
-                .or_else(|| r["resume_at"].as_str().and_then(stage_of))
-                .or_else(|| callers.iter().rev().find_map(|c| c.as_str().and_then(stage_of)));
-            r["stage"] = json!(stage);
-            r["waits"] = json!(work_waits(e, g, work, &at)?);
-            r["since"] = json!(r["since"].as_i64().map(utc_minute));
-            r["spent_usd"] = json!((spent(e, work)? * 100.0).round() / 100.0);
-            if let Some(why) = r["paused"].as_str().map(str::to_string) {
-                let by = if why.starts_with(db::STOPPED_BY_ARCHITECT) {
-                    json!("architect")
-                } else {
-                    r["paused_by"].clone()
-                };
-                r["paused"] = json!({ "by": by, "why": why });
-            }
-            // A work that runs goes on whatever it depends on.
-            if let Some(o) = r.as_object_mut() {
-                o.remove("blocked_by");
-            }
-        } else if let Some(o) = r.as_object_mut() {
-            for k in ["work", "at", "paused", "since"] {
-                o.remove(k);
-            }
-        }
-        if let Some(o) = r.as_object_mut() {
-            for k in ["resume_at", "waiting", "ended", "paused_by"] {
-                o.remove(k);
-            }
-        }
-        if let Some(why) = stopped {
-            r["last_work_ended"] = json!(why);
-        }
-        r["ready"] = json!(r["ready"] == 1);
-        if let Some(o) = r.as_object_mut() {
-            o.remove("item");
-            o.retain(|_, v| !v.is_null() && *v != json!([]) && *v != json!({}));
-        }
-        out.insert(format!("#{id}"), r);
-        if out.len() >= ROWS {
-            break;
-        }
-    }
-    let releases = releases(e, project, &open)?;
-    let queue: Vec<String> = query_json(
-        e.db.conn(),
-        "SELECT q.item FROM dispatch_queue q JOIN items i ON i.id = q.item WHERE i.project = ?1 ORDER BY q.position",
-        &[&project],
-        ROWS,
-    )?
-    .iter()
-    .map(|r| format!("#{}", r["item"]))
-    .collect();
-    let mut board = json!({
-        "items": out,
-        "owner_start_queue": queue,
-        "releases": releases,
-        "other_projects": cross_project(e, project)?,
-    });
-    // Read from the table the engine reads to hold new starts, at the same moment, so that the architect sees what
-    // the engine acts on, the owner's hold included.
-    let held = starts_held(e.db.conn(), project)?;
-    if !held.is_empty() {
-        board["starts_held"] = json!(held);
-    }
-    Ok(board)
-}
-
-/// A project's release items: each item nothing depends on that items are under, with the items under it, how many of
-/// them are done, and which are open.
-fn releases(e: &Engine, project: &str, open: &BTreeSet<i64>) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let roots = query_json(
-        conn,
-        "SELECT i.id, i.title FROM items i WHERE i.project = ?1 AND i.cancelled IS NULL
-           AND NOT EXISTS (SELECT 1 FROM item_links l WHERE l.depends_on = i.id)
-           AND EXISTS (SELECT 1 FROM item_links l WHERE l.item = i.id)
-         ORDER BY i.rank NULLS LAST, i.id",
-        &[&project],
-        ROWS,
-    )?;
-    let mut out = Map::new();
-    for r in roots {
-        let id = r["id"].as_i64().unwrap_or_default();
-        let under = query_json(
-            conn,
-            "WITH RECURSIVE down(id) AS (SELECT depends_on FROM item_links WHERE item = ?1
-               UNION SELECT l.depends_on FROM item_links l JOIN down ON l.item = down.id)
-             SELECT id FROM down ORDER BY id",
-            &[&id],
-            10_000,
-        )?;
-        let ids: Vec<i64> = under.iter().filter_map(|x| x["id"].as_i64()).collect();
-        let open_under: Vec<i64> = ids.iter().copied().filter(|x| open.contains(x)).collect();
-        out.insert(
-            format!("#{id}"),
-            json!({ "title": r["title"], "under": ids.len(), "done": ids.len() - open_under.len(), "open": open_under }),
-        );
-    }
-    Ok(Value::Object(out))
 }
 
 /// The dependencies between a project's items and other projects' items, each with its kind: what its items wait for

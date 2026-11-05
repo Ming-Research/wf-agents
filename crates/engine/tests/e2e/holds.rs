@@ -413,7 +413,7 @@ fn an_owner_hold_lets_the_running_work_merge_and_starts_the_next_item_only_once_
 
 // Item #239: the architect's hold and its release leave the owner's hold alone. With the owner's hold in place, the
 // architect holds new starts in its effects: its own row is written beside the owner's, as the architect; it releases
-// its own, and only its own: the owner's stays, and the board of its later cells still lists it.
+// its own, and only its own: the owner's stays.
 #[test]
 fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_beside_it() {
     let s = setup("architect-and-owner-hold");
@@ -484,79 +484,40 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
             row("architect", "architect", true)
         ]
     );
-    // The board the architect was given at its first cell lists the owner's hold. A later work of the architect, after
-    // its hold and release, is given no other: its session already holds that board, which the message refers to by
-    // its address because nothing in it changed, the architect's own hold gone and the owner's there.
-    let m = message_at(&e, arch, "N1", false);
-    let board = given_value(&m, "·engine·board").expect(&m);
-    let held = &board["starts_held"];
-    assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");
-    assert_eq!(
-        (&held[0]["reason"], &held[0]["why"]),
-        (&json!("owner"), &json!("Leaving for a week.")),
-        "{board}"
-    );
-    let address = m
-        .lines()
-        .find(|l| l.starts_with("### ") && l.ends_with("·engine·board"))
-        .map(|l| l.trim_start_matches("### ").to_string())
-        .expect(&m);
-    let later = architect_work_at(&mut e, "N1");
-    let m = engine::next_message(&mut e, later).unwrap().text;
-    assert!(given_value(&m, "·engine·board").is_none(), "{m}");
-    assert!(work_from(&m).iter().any(|l| l.ends_with(&address)), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Item #239: the board of a cell that can hold or release new starts lists each hold on the project with its reason,
-// since when and why, whoever holds, and has no such key while nothing holds; the owner's release of any reason takes
-// its row, and one of a reason not there is refused saying so.
+// Item #239: `dispatch_holds`, which agents query, has each hold on the project with its reason, since when and why,
+// whoever holds; the owner's release of any reason takes its row, and one of a reason not there is refused saying so.
 #[test]
-fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
-    let s = setup("board-holds");
+fn each_hold_is_there_to_query_and_the_owner_releases_any_of_them() {
+    let s = setup("holds-to-query");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "N1");
-    let board = |e: &mut Engine| -> Value {
-        let m = engine::next_message(e, arch).unwrap().text;
-        given_value(&m, "·engine·board").expect(&m)
-    };
-    assert_eq!(board(&mut e).get("starts_held"), None);
     api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving.").unwrap();
     e.db.write(Actor::Architect, |tx| {
         db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
         db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
     })
     .unwrap();
-    let held = board(&mut e)["starts_held"].clone();
-    let reasons: Vec<&str> = held
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|h| h["reason"].as_str().unwrap())
-        .collect();
-    let mut sorted = reasons.clone();
-    sorted.sort();
-    assert_eq!(sorted, ["architect", "owner", "set_straight"], "{held}");
-    let of = |reason: &str| {
-        held.as_array()
+    let why = |reason: &str| -> Option<String> {
+        e.db.conn()
+            .query_row(
+                "SELECT why FROM dispatch_holds WHERE project = 'p' AND reason = ?1 AND since IS NOT NULL",
+                [reason],
+                |r| r.get(0),
+            )
             .unwrap()
-            .iter()
-            .find(|h| h["reason"] == reason)
-            .unwrap()
-            .clone()
     };
-    assert_eq!(of("owner")["why"], "Leaving.");
-    assert_eq!(of("architect")["why"], "Wrong order.");
-    assert_eq!(of("set_straight").get("why"), None);
-    assert!(of("owner")["since"].is_string(), "{held}");
+    assert_eq!(why("owner").as_deref(), Some("Leaving."));
+    assert_eq!(why("architect").as_deref(), Some("Wrong order."));
+    assert_eq!(why("set_straight"), None);
     for reason in ["set_straight", "architect", "owner"] {
         api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap();
         assert!(!hold_reasons(&e).contains(&reason.to_string()), "{reason}");
         let again = api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap_err();
         assert!(again.contains("has no hold of the reason"), "{again}");
     }
-    assert_eq!(board(&mut e).get("starts_held"), None);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

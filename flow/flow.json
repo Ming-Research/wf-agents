@@ -2409,7 +2409,7 @@
               "name": "version",
               "title": "Version drafted on",
               "type": "int",
-              "desc": "The item's version as you were given it, which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now; 0 for an item this round creates"
+              "desc": "The item's version as you read it (the column `version` of `open_items`), which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now; 0 for an item this round creates"
             },
             {
               "name": "part",
@@ -2464,7 +2464,7 @@
               "name": "version",
               "title": "Version drafted on",
               "type": "int",
-              "desc": "The item's version as you were given it, which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now; 0 for an item this round creates"
+              "desc": "The item's version as you read it (the column `version` of `open_items`), which you wrote the change on: a change drafted on another version than the item has now is sent back, with the item as it is now; 0 for an item this round creates"
             },
             {
               "name": "acceptance",
@@ -2766,7 +2766,7 @@
         },
         {
           "value": "release_starts",
-          "desc": "New works of this project start again, if you held them: the owner's hold, listed in your board as `starts_held`, stays until the owner releases it, however you ask",
+          "desc": "New works of this project start again, if you held them: the owner's hold, a row of `dispatch_holds`, stays until the owner releases it, however you ask",
           "fields": []
         },
         {
@@ -4474,7 +4474,7 @@
     },
     {
       "name": "query",
-      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden. Rows too long to give here come as the first of them, how many there are and the file that holds them: narrow the query, or read the file",
+      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden. Rows too long to give here come as the first of them, how many there are and the file that holds them: narrow the query, or read the file. What is on hand is in `open_items`: count it by state before you read it all",
       "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long gives its first rows and is saved locally, its path given; a result past the row limit is counted. The description of the tables given to agents is generated from the database's own definition. A query that names a column or a table there is not is told, after the error, the columns of each table and view it names, and for a table there is not, every table's and view's name",
       "tables": "The tables and views it reads, with their columns and the start of what each holds; for one in full, each column explained, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
@@ -4675,7 +4675,6 @@
       "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, decision cards and asks of the owner, and what each asked the architect and had withdrawn when it ended; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, the way its latest work went (direct, on the research's plan; designed; or turned, a work that began on the research's plan and then went to the design), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items; and, when there are any, the holds on the project's new starts (`starts_held`), each with its reason (owner, architect or set_straight), since when and why, so that the architect sees the owner's hold and does not plan as if new works could start.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
@@ -4750,7 +4749,6 @@
           "item_research"
         ],
         "inputs": [
-          "board",
           "numbers",
           "similar_items",
           "item_log",
@@ -4801,9 +4799,7 @@
         "relations": [
           "dispatch_holds"
         ],
-        "inputs": [
-          "board"
-        ],
+        "inputs": [],
         "owner": "holds a project's new starts, saying why, and releases any hold, the architect's too"
       },
       "known_red_checks": {
@@ -6728,16 +6724,6 @@
                   "R0",
                   "brief"
                 ]
-              ]
-            },
-            {
-              "name": "Where this work sits in the whole",
-              "what": "Where this work sits in the whole. Above: from its parent up to the root, the first paragraph of each one's problem and why. Beside: its siblings under the same parent, with a one-line conclusion for those done, how far those running got, and only the title for those not started. Around: the items just before and after it in its parent's plan. Whom it waits for, blocking or parallel, and how far they are; who waits for it and for what",
-              "from": [
-                {
-                  "db": "item_context",
-                  "by": "item"
-                }
               ]
             },
             {
@@ -14527,15 +14513,6 @@
               "maybe": true
             },
             {
-              "name": "Items running and queued",
-              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
-                }
-              ]
-            },
-            {
               "name": "Slots",
               "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
               "from": [
@@ -14809,15 +14786,6 @@
               "from": [
                 {
                   "engine": "matter_items"
-                }
-              ]
-            },
-            {
-              "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
                 }
               ]
             },
@@ -15110,15 +15078,6 @@
               "maybe": true
             },
             {
-              "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
-                }
-              ]
-            },
-            {
               "name": "Levels",
               "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
               "from": [
@@ -15256,15 +15215,6 @@
               "from": [
                 {
                   "engine": "matter_items"
-                }
-              ]
-            },
-            {
-              "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
                 }
               ]
             },
@@ -15459,15 +15409,6 @@
               ]
             },
             {
-              "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
-                }
-              ]
-            },
-            {
               "name": "Slots",
               "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
               "from": [
@@ -15604,15 +15545,6 @@
               ]
             },
             {
-              "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
-                }
-              ]
-            },
-            {
               "name": "Levels",
               "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
               "from": [
@@ -15731,15 +15663,6 @@
               "from": [
                 {
                   "engine": "matter_items"
-                }
-              ]
-            },
-            {
-              "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
                 }
               ]
             },
@@ -15920,15 +15843,6 @@
               "from": [
                 {
                   "engine": "cross_project"
-                }
-              ]
-            },
-            {
-              "name": "Items running and queued",
-              "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the holds on the project's new starts (the owner's, the architect's), when there are any",
-              "from": [
-                {
-                  "engine": "board"
                 }
               ]
             },
@@ -16218,15 +16132,6 @@
                 {
                   "db": "known_red_checks",
                   "by": "project"
-                }
-              ]
-            },
-            {
-              "name": "Items running and queued",
-              "what": "The project's items running and queued, each with its rank, cell, version and what it waits for; the holds on new starts",
-              "from": [
-                {
-                  "engine": "board"
                 }
               ]
             },
@@ -16576,7 +16481,7 @@
           ],
           "prompt": [
             "This round writes the new policy, which takes effect once the owner approves it. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and what the project is now: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
-            "Start from the owner's reply. When the owner wants a new policy researched, find out which direction the owner wants and what for, from the owner's words, the project's design goal and the constitution, and read until you can say it: the documents, records, code and specifications concerned, and the items and running works on the board. With no policy in force and the owner saying none is needed, write the course the project keeps, with why none is needed in its why. When the owner's reply is about your draft, change what it asks, and hand in the whole policy again; when it drops the draft and keeps the policy in force, hand in the draft as kept, with the reply as why, and no policy.",
+            "Start from the owner's reply. When the owner wants a new policy researched, find out which direction the owner wants and what for, from the owner's words, the project's design goal and the constitution, and read until you can say it: the documents, records, code and specifications concerned, and the items and running works. With no policy in force and the owner saying none is needed, write the course the project keeps, with why none is needed in its why. When the owner's reply is about your draft, change what it asks, and hand in the whole policy again; when it drops the draft and keeps the policy in force, hand in the draft as kept, with the reply as why, and no policy.",
             "Write the text in the owner's language (the setting `owner.language`), with technical terms in their English original. Every architect session started later gets only this text and the constitution: it does not see the discussion, and must judge by it, so the text must stand on its own. Quote none of the owner's words, and write none of the discussion.",
             "The text has four parts: the direction, where to take the project in the near-to-middle term and how to tell it got there; why, written fully: the situation, the lessons, the directions ruled out and the articles of the constitution it rests on, so that a reader meeting a situation never seen can still work it out; the principles for judging what matters and what comes first, from which what to do next is thought out; and the signals that the direction may have to change. It names no item, no order of work, no hold or release, and no number the owner did not give: those are what to do next, which the architect thinks out under the policy.",
             "A signal shows by a number the engine measures, given here and named as it names it, or by something that happens. A signal that needs a number the engine does not measure yet says so, needs a new measure, and you hand that measure in under new_measures: once the owner approves the draft, the engine queues it as a matter of yours, to have an item make the engine measure it.",

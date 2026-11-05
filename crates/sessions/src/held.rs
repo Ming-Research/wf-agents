@@ -52,12 +52,11 @@ const GUIDE_INPUT: &str = "engine·project_guide";
 /// is given it once and after that only what changed in it. For the architect's cells, what they read of the project,
 /// what came since the base, which grows by its entries, and the queue. For the reviews, the CI on the work, whose runs
 /// change one at a time (`work_ci`).
-const ENGINE_STANDARD: [&str; 11] = [
+const ENGINE_STANDARD: [&str; 10] = [
     "constitution",
     "guide",
     "policy",
     "policy_signals",
-    "board",
     "numbers",
     "observations_overview",
     "observation_tags",
@@ -334,11 +333,11 @@ mod tests {
     // else the engine computes for a round is not standard context.
     #[test]
     fn the_architect_s_standard_context_is_known_by_its_input() {
-        assert_eq!(standard("R3-4·engine·board"), Some("engine·board"));
+        assert_eq!(standard("R3-4·engine·numbers"), Some("engine·numbers"));
         assert_eq!(standard("R3-9·engine·queued"), Some("engine·queued"));
         assert_eq!(standard("R3-4·engine·appended"), Some("engine·appended"));
         assert_eq!(standard("R3-4·engine·matter"), None);
-        assert_eq!(standard("x·engine·board"), None);
+        assert_eq!(standard("x·engine·numbers"), None);
         assert_eq!(standard("R3-4·engine·project_guide"), Some("engine·project_guide"));
         assert_eq!(standard("rule:ground"), Some("rule:ground"));
     }

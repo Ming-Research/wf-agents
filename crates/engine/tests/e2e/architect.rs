@@ -764,14 +764,11 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// At a project's first base its architect is told what happened in the week before it, as at a later base since the
-// one before; its board holds every item not done: one whose last work stopped, queued again, with why; one whose
-// work asks the owner, at the stage of the cell it stopped at, its pause said once, with who paused it; and one whose
-// work runs tools, at the stage of the cell that waits for them; and the owner's start queue, the stopped item first in
-// it, which starts ahead of the ranks: in the sixth trial a plan put an item first while the owner's queue started
-// another, which no cell was given.
+// `open_items` holds every item not done, in the order they start: one whose last work stopped, queued again by the
+// owner, first, since the owner's start queue starts ahead of the ranks; one whose work asks the owner, at the cell it
+// stopped at; and one whose work runs tools, at the tool cell. One at the end of the graph is not there.
 #[test]
-fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done() {
+fn open_items_holds_every_item_not_done_in_the_order_they_start() {
     let s = setup("first-work");
     let (mut e, said) = engine(&s, scripts());
     let merged = an_item(&mut e);
@@ -816,36 +813,27 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
             Ok((stopped, asking, tools))
         })
         .unwrap();
-    say(&mut e, "Look at the items.");
-    // A work of the architect starts for what was said, beside the step of the work that merged.
-    e.tick().unwrap();
-    let arch: i64 =
-        e.db.conn()
-            .query_row("SELECT id FROM works WHERE graph = 'architect'", [], |r| r.get(0))
-            .unwrap();
-    assert!(
-        steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+    let rows: Vec<(i64, String, Option<String>)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT item, state, at FROM open_items WHERE project = 'p'")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(
+        rows,
+        [
+            (stopped, "ready".to_string(), None),
+            (asking, "paused".to_string(), Some("A2".to_string())),
+            (tools, "paused".to_string(), Some("X1".to_string())),
+        ],
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let m = message_at(&e, arch, "N1", false);
-    let board = given_value(&m, "·engine·board").expect(&m);
-    let row = |id: i64| board["items"][format!("#{id}")].clone();
-    assert_eq!(row(merged), Value::Null, "{board}");
-    assert_eq!(row(stopped)["last_work_ended"], "stopped: by hand", "{board}");
-    assert_eq!(row(stopped)["ready"], true, "{board}");
-    assert_eq!(row(stopped).get("work"), None, "{board}");
-    assert_eq!(row(asking)["stage"], "implement", "{board}");
-    assert_eq!(
-        row(asking)["paused"],
-        json!({ "by": "owner", "why": "later" }),
-        "{board}"
-    );
-    assert_eq!(row(asking)["waits"], "the architect's reply to its question", "{board}");
-    assert_eq!(row(tools)["stage"], "implement", "{board}");
-    assert_eq!(board["owner_start_queue"], json!([format!("#{stopped}")]), "{board}");
-    assert_eq!(row(stopped)["in_owner_queue"], 1, "{board}");
-    assert_eq!(row(asking).get("in_owner_queue"), None, "{board}");
+    assert!(!rows.iter().any(|r| r.0 == merged));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
