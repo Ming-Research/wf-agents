@@ -1688,8 +1688,9 @@ pub struct Matter {
     pub resume_cell: Option<String>,
     /// Whether the owner answered that ask, so that it is back in the queue, for the cell that asked.
     pub answered: bool,
-    /// For a matter in the queue: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
-    /// `none`), and how long since it came, in milliseconds.
+    /// For a matter in the queue: who waits for it (`agent`: an engineer stopped for its question, or, for the
+    /// report of a return sent back, the engineer's work the engine paused for returns sent back in a row; `owner`;
+    /// or `none`), and how long since it came, in milliseconds.
     pub waits: Option<String>,
     pub waited_ms: Option<i64>,
     /// Whether the report it holds was marked urgent.
