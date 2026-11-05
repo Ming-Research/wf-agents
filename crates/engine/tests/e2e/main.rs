@@ -54,6 +54,7 @@ mod retries;
 mod returns;
 mod review;
 mod routes;
+mod sent_back_looks;
 mod side_reports;
 mod slots;
 mod takeovers;
@@ -1297,7 +1298,41 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
     };
     let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
     e.retry_wait = std::time::Duration::ZERO;
+    // The tests send returns back to test the checks, and the pause at a return sent back is the subject of a few. The
+    // engine runs the flow with the owner's pause at three in a row, which the flow had before the architect looked at
+    // each; the tests of the look run it as built ([`sent_back_pause`]).
+    sent_back_pause(&mut e, 3, false);
     (e, said)
+}
+
+/// Makes the engine run the flow it runs now with the engineer's pause at returns sent back changed: after
+/// `pause_after` in a row, and the architect's to look at when `look`. The version is stored as the flow it is, so that
+/// the flow as built is the one with the built values (1 and `true`). Works started from here on run it.
+fn sent_back_pause(e: &mut Engine, pause_after: u32, look: bool) {
+    let now = e.flow_now;
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
+    let section = f
+        .graphs
+        .iter_mut()
+        .find(|g| g.name == engine::ENGINEER)
+        .and_then(|g| g.rounds.as_mut())
+        .unwrap();
+    section.sent_back.pause_after = pause_after;
+    section.sent_back.look = look;
+    let (digest, text) = (f.digest(), f.json());
+    e.flow_now =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (digest, compiled) VALUES (?1, ?2) ON CONFLICT (digest) DO NOTHING",
+                params![digest, text],
+            )?;
+            Ok(
+                tx.query_row("SELECT id FROM flow_versions WHERE digest = ?1", [&digest], |r| {
+                    r.get(0)
+                })?,
+            )
+        })
+        .unwrap();
 }
 
 fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {

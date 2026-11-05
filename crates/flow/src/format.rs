@@ -347,6 +347,10 @@ pub struct Rounds {
 /// The kind of failed run a round the guard stopped is.
 pub const GUARDED: &str = "guarded";
 
+/// The name of the shared row that pauses a work at a return sent back for its project's architect to look at why
+/// (`rounds.sentBack.look`).
+pub const SENT_BACK_LOOKED_AT: &str = "sent_back_looked_at";
+
 /// The run guard's rule: how a running round is compared with the rounds before it. The lines themselves are not here:
 /// they are computed from those rounds.
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -422,6 +426,12 @@ pub struct SentBack {
     /// The counter that counts each return sent back, one of the flow's counters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counts: Option<String>,
+    /// Whether the pause is the project's architect's to look at, which allows `pauseAfter` to be 1: the work pauses at
+    /// a return sent back, the architect is asked why, by a matter to set straight that lists each problem the return
+    /// was sent back with, and it may let the work go on itself, as the owner may. Without it the pause is the owner's
+    /// alone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub look: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

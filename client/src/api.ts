@@ -2891,7 +2891,14 @@ pauseAfter: number, pause: string,
 /**
  * The counter that counts each return sent back, one of the flow's counters.
  */
-counts?: string | null, };
+counts?: string | null,
+/**
+ * Whether the pause is the project's architect's to look at, which allows `pauseAfter` to be 1: the work pauses at
+ * a return sent back, the architect is asked why, by a matter to set straight that lists each problem the return
+ * was sent back with, and it may let the work go on itself, as the owner may. Without it the pause is the owner's
+ * alone.
+ */
+look?: boolean, };
 
 export type Failed = { desc: string, kinds: Array<Failure>, };
 

@@ -13,8 +13,8 @@ use crate::check::Analysis;
 use crate::field::{Earlier, Field, segment};
 use crate::format::{
     Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, FRESH_SESSION, Form,
-    GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src, Then,
-    too_often,
+    GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, SENT_BACK_LOOKED_AT,
+    Src, Then, too_often,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -1322,7 +1322,11 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
 /// The rounds section as written, once every row that runs again is bounded and ends in a pause, every counter it names
 /// is one the flow has, and every agent's cell can have a shared row of each kind's name.
 fn rounds(r: &Rounds, counters: &[Counter], cells: &[CompiledCell]) -> Result<Rounds, String> {
-    ensure!(r.sent_back.pause_after > 1, "rounds.sentBack.pauseAfter is less than 2");
+    ensure!(
+        r.sent_back.pause_after > 1 || (r.sent_back.pause_after == 1 && r.sent_back.look),
+        "rounds.sentBack.pauseAfter is less than 2, and only a pause the architect looks at (look) may come after the \
+         first return sent back"
+    );
     for k in &r.failed.kinds {
         let at = format!("rounds.failed.kinds[{}]", k.name);
         if k.handle == Handle::Retry {
@@ -1476,10 +1480,11 @@ fn too_often_row(name: &str, n: u32) -> CompiledRow {
 }
 
 /// The engine's fallback, the shared rows every agent's cell has for a round that ends in no return it takes, as the
-/// rounds section says: a return sent back runs the cell again, and so many in a row pause the work first; a failed
-/// run of each kind runs it again once the cause passes, or after a wait, or once the owner lets the paused work go
-/// on, and one that runs again has a row of its own for so many in a row, which pauses the work; and each of the
-/// engine's own cases does as it says.
+/// rounds section says: a return sent back runs the cell again, and so many in a row pause the work first (the row
+/// `sent_back_looked_at` where the section says `look`: the first return sent back, for the architect to look at why);
+/// a failed run of each kind runs it again once the cause passes, or after a wait, or once the owner lets the paused
+/// work go on, and one that runs again has a row of its own for so many in a row, which pauses the work; and each of
+/// the engine's own cases does as it says.
 fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
     let row = |name: &str, atom: Atom, note: &str| CompiledRow {
         name: name.to_string(),
@@ -1502,7 +1507,11 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
         CompiledRow {
             pauses: true,
             ..row(
-                "sent_back_too_often",
+                if r.sent_back.look {
+                    SENT_BACK_LOOKED_AT
+                } else {
+                    "sent_back_too_often"
+                },
                 Atom::SentBack(Some(r.sent_back.pause_after)),
                 &r.sent_back.pause,
             )
@@ -1600,5 +1609,20 @@ mod tests {
             s["engine"].as_array_mut().unwrap().push(k);
         });
         assert!(two.contains("more than one case that bounds"), "{two}");
+    }
+
+    // A pause after the first return sent back is only the architect's to look at: the owner's own pause comes after
+    // at least two in a row, and none comes after none.
+    #[test]
+    fn a_pause_at_the_first_return_sent_back_is_one_the_architect_looks_at() {
+        let owners = refused(|s| {
+            s["sentBack"].as_object_mut().unwrap().remove("look");
+        });
+        assert!(
+            owners.contains("rounds.sentBack.pauseAfter is less than 2, and only a pause the architect looks at"),
+            "{owners}"
+        );
+        let none = refused(|s| s["sentBack"]["pauseAfter"] = 0.into());
+        assert!(none.contains("rounds.sentBack.pauseAfter is less than 2"), "{none}");
     }
 }

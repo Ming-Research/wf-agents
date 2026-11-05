@@ -198,16 +198,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .collect::<Vec<_>>();
     let pause_after = section.sent_back.pause_after as usize;
     if sent_back.len() >= pause_after {
-        let reason = sent_back
-            .first()
-            .map(|t| failed::sent_back_reason(e, t.round))
-            .unwrap_or_default();
-        let why = format!(
-            "{} returns in a row were sent back, the last at cell {}: {reason}",
-            sent_back.len(),
-            cell.id
-        );
-        return failed::pause(e, w, &why);
+        return crate::sent_back::pause(e, w, &cell.id, &section, &sent_back);
     }
     // A round of a project's architect reads the project at the latest main: for a cell on its line, its graph's worktree
     // is brought there first, by the one fetch the round makes. A failure of the network that passes by itself is

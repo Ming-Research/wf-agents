@@ -1099,7 +1099,16 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let r = g.rounds.clone().expect("the rounds section");
-    assert_eq!(r.sent_back.pause_after, 3);
+    // A return sent back pauses the engineer's work at once, for its project's architect to look at why; the
+    // architect's own work has none above it, and pauses for the owner after three in a row.
+    assert_eq!((r.sent_back.pause_after, r.sent_back.look), (1, true));
+    let architect = c
+        .graph("architect")
+        .unwrap()
+        .rounds
+        .clone()
+        .expect("the architect's rounds section");
+    assert_eq!((architect.sent_back.pause_after, architect.sent_back.look), (3, false));
     let kinds: Vec<&str> = r.failed.kinds.iter().map(|k| k.name.as_str()).collect();
     assert_eq!(
         kinds,
@@ -1131,7 +1140,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         assert_eq!(
             names,
             [
-                "sent_back_too_often",
+                "sent_back_looked_at",
                 "sent_back",
                 "usage_limit",
                 "offline",
@@ -1171,7 +1180,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         assert_eq!(
             pauses,
             [
-                "sent_back_too_often",
+                "sent_back_looked_at",
                 "transient_too_often",
                 "flagged",
                 "guarded",
@@ -1185,7 +1194,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         );
         let waits: Vec<&str> = shared.iter().filter(|x| x.waits).map(|x| x.name.as_str()).collect();
         assert_eq!(waits, ["usage_limit", "offline", "cannot_run"]);
-        assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
+        assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(1))]);
     }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][0]["rounds"]["failed"]["kinds"][3]["later"] = "A3".into();

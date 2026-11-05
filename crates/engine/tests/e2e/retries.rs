@@ -41,8 +41,12 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
         "{why}"
     );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
-    // The text the owner is paused with is the reason alone, without the problems the column keeps for counting.
-    assert!(!why.contains("problems"), "{why}");
+    // The owner is paused with the problem as a line by its check and field, not as the column holds it.
+    assert!(
+        why.contains("format (outcome): outcome must be an object, and is a string"),
+        "{why}"
+    );
+    assert!(!why.contains('{') && !why.contains("problems"), "{why}");
     api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
         e.tick().unwrap();
@@ -183,10 +187,11 @@ fn a_work_past_the_bound_on_steps_without_an_agent_pauses_and_has_the_architect_
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// How many returns sent back pause a work is the number the flow the work runs on says. The return is sent back for not
-// fitting the schema in two places, which `rounds.rejected` keeps as the text it is sent back with under `format` and as
-// two problems of check `format`, each with the path of its field; the text the owner is paused with, and the one the
-// agent is told, are that text alone, word for word as they were before the problems were kept.
+// How many returns sent back pause a work for the owner is the number the flow the work runs on says. The return is
+// sent back for not fitting the schema in two places, which `rounds.rejected` keeps as the text it is sent back with
+// under `format` and as two problems of check `format`, each with the path of its field; the owner is paused with a line
+// for each problem by its check and field, and the agent is told the text it was sent back with, word for word as it
+// was before the problems were kept.
 #[test]
 fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let s = setup("pause");
@@ -272,13 +277,22 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     );
     assert!(text.contains("outcome must be an object, and is a string"), "{text}");
     assert!(text.contains("progress must be a string, and is a number"), "{text}");
-    // The work is paused with that text alone, in the form the column had before the problems were kept.
+    // The work is paused with one line for each problem, by its check and field, and no JSON.
     assert_eq!(
         paused.as_deref(),
         Some(
             format!(
-                "2 returns in a row were sent back, the last at cell R1: {}",
-                json!({ "format": text })
+                "2 returns in a row were sent back, the last at cell R1, for:\n{}\n{}",
+                db::problem_line(
+                    "format",
+                    problems[0]["field"].as_str(),
+                    problems[0]["text"].as_str().unwrap()
+                ),
+                db::problem_line(
+                    "format",
+                    problems[1]["field"].as_str(),
+                    problems[1]["text"].as_str().unwrap()
+                )
             )
             .as_str()
         ),

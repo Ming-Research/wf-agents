@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use db::Actor;
-use db::rusqlite::params;
+use db::rusqlite::{Transaction, params};
 use flow::format::{Atom, Failure, GUARDED, Handle, Rounds, STEP_NETWORK};
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
@@ -207,26 +207,6 @@ pub fn count(took: &[Took], row: &str) -> usize {
     took.iter().filter(|t| t.row.as_deref() == Some(row)).count()
 }
 
-/// The text a round was sent back with, for the owner: the column as it is stored, without `problems`, which says the
-/// same again for counting.
-pub fn sent_back_reason(e: &Engine, round: RoundId) -> String {
-    let stored =
-        e.db.conn()
-            .query_row(
-                "SELECT rejected FROM rounds WHERE work = ?1 AND n = ?2",
-                params![round.work, round.n],
-                |r| r.get::<_, Option<String>>(0),
-            )
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-    match serde_json::from_str::<serde_json::Value>(&stored) {
-        Ok(rejected) if rejected.get("problems").is_some() => db::without_problems(&rejected).to_string(),
-        // A column recorded without `problems` is quoted as it is stored.
-        _ => stored,
-    }
-}
-
 /// Whether the error text of a step of the engine's is a failure of the network that passes by itself, as git and ssh
 /// word it: a connection refused, reset or closed, a host that does not resolve, a timeout, a server that fails. Text
 /// it does not know is not the network's, so that a step that fails for any other cause (the configuration, a
@@ -367,6 +347,17 @@ fn about(e: &Engine, w: &Work) -> Result<String, String> {
 
 /// Pauses a work and tells the owner why; once the owner lets it go on, its cell runs again.
 pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
+    pause_and(e, w, why, |_| Ok(()))
+}
+
+/// Pauses a work as [`pause`] does, and in the same write does `also`, so that what goes with the pause (a matter
+/// queued for the project's architect) is never there without it, nor the pause without it.
+pub fn pause_and(
+    e: &mut Engine,
+    w: &Work,
+    why: &str,
+    also: impl FnOnce(&Transaction<'_>) -> Result<(), String>,
+) -> Result<Advance, String> {
     let text = format!("{} is paused: {why}", about(e, w)?);
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -374,6 +365,7 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
             params![w.id, why],
         )?;
         db::withdraw_resume(tx, w.id)?;
+        also(tx).map_err(db::Error::Abort)?;
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;

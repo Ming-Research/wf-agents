@@ -2850,7 +2850,7 @@
         },
         {
           "value": "resume_work",
-          "desc": "Let a work you paused go on, once its machine has a slot free; until then the request waits, and the owner's later Pause or Step or the engine's pause for a problem withdraws it",
+          "desc": "Let a work go on, once its machine has a slot free, when you paused it or the engine paused it for a return sent back that you were asked to look at; until then the request waits, and the owner's later Pause or Step or the engine's pause for a problem withdraws it",
           "fields": [
             {
               "name": "item",
@@ -13256,9 +13256,10 @@
         "desc": "What the engine does with an agent's round that does not end in a return the cell takes: a return can be sent back, or the agent's command line can end without handing in a return at all. Every agent's cell has a shared row for each, written here once: two for a return sent back, and one for each kind of failed run below, named after it. No return takes these rows; the engine takes them itself.",
         "sentBack": {
           "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
-          "pauseAfter": 3,
-          "pause": "When 3 returns in a row are sent back, with no return of an agent, a tool or the owner taken in between, the engine pauses the work at the cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted.",
-          "counts": "sent_back"
+          "pauseAfter": 1,
+          "pause": "When a return is sent back, the engine pauses the work at the cell and tells the owner, with every problem the return was sent back with, one line each: the check, the field and what is wrong. In the same step it asks the project's architect to look at why, by a matter to set straight that lists each problem by its check and field, so that the cause is found, recorded as an observation and mended; the architect or the owner lets the work go on, and the cell runs again in the same session. A round the engine cut off itself, a run that ended without a return, and a round that started before the work last went on are not counted.",
+          "counts": "sent_back",
+          "look": true
         },
         "failed": {
           "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports, but for `guarded`, the one it stopped itself. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
@@ -15322,7 +15323,7 @@
           "inputs": [
             {
               "name": "Place to set straight",
-              "what": "The place to set straight, as your queue holds it: the fix or the thing missing the plan of what to do next gave (where, what kind, what is wrong and on what grounds, the steps it meant to take there) with its verdict on the whole; or a look you set before the flow changed, a new policy taking effect, an item that depended on one cancelled, or a work that used up its time budget for a stretch",
+              "what": "The place to set straight, as your queue holds it: the fix or the thing missing the plan of what to do next gave (where, what kind, what is wrong and on what grounds, the steps it meant to take there) with its verdict on the whole; or a look you set before the flow changed, a new policy taking effect, an item that depended on one cancelled, a work that used up its time budget for a stretch, or a work whose return was sent back (detail `sent_back`: the cell, and each problem by its check and field, as `problems` and in `reason`; the work waits paused: find why it was sent back, record the cause as an observation or mend it by an item, and let the work go on with `resume_work` when going on is right)",
               "from": [
                 {
                   "engine": "matter"
