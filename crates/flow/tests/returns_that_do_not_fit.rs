@@ -533,7 +533,7 @@ fn a_name_the_agent_wrote_is_the_field_as_it_wrote_it() {
 
 /// A return a cell refuses is refused with the places it is about besides the text `take` gives: a return that does not
 /// fit the schema with each place of it, one that no row takes with its sentence as its one place of no field (the row
-/// of cell R1 that takes a return is chosen by the values the engine gives it), and a cell that is not there likewise.
+/// of cell A4 that takes a return is chosen by the values the engine gives it too), and a cell that is not there likewise.
 /// Part of the test of the four statements, which has the flow compiled already.
 fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String, Vec<Value>>) {
     let sample = samples["R1"]
@@ -545,8 +545,9 @@ fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String
     let row = g.take_or_places("R1", &sample["json"], &given).unwrap();
     assert_eq!(row.name, "start");
     // Given nothing, no row takes it: the one sentence, said as `take` says it.
-    let none = g.take_or_places("R1", &sample["json"], &Map::new()).unwrap_err();
-    assert_eq!(none.text, "no row of R1 takes the return");
+    let way_on = &samples["A4"][0]["json"];
+    let none = g.take_or_places("A4", way_on, &Map::new()).unwrap_err();
+    assert_eq!(none.text, "no row of A4 takes the return");
     assert_eq!(
         none.places,
         [flow::Misfit {
@@ -554,7 +555,7 @@ fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String
             text: none.text.clone()
         }]
     );
-    assert_eq!(g.take("R1", &sample["json"], &Map::new()).unwrap_err(), none.text);
+    assert_eq!(g.take("A4", way_on, &Map::new()).unwrap_err(), none.text);
     // A cell that is not there.
     let missing = g.take_or_places("ZZ", &json!({}), &Map::new()).unwrap_err();
     assert_eq!(missing.text, "no such cell: ZZ");

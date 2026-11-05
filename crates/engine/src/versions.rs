@@ -310,12 +310,12 @@ fn read_later<'r>(
 }
 
 /// The cells whose returns the engine's own code reads by their id, beside any input, by graph, whatever cell the work
-/// is at: the engineer's start (where its branch came from), its research and its plan, its design, the review of it
-/// taken in and the split of it, the first pass of the review, the fix, its merge and its end; the architect's look at
+/// is at: the engineer's start (where its branch came from), its research and its plan, its design, the first pass of
+/// the review, the fix, its merge and its end; the architect's look at
 /// its queue and its pick, its understanding of the project, the owner's talk, its policy written and taken into
 /// effect, and the cells whose answers say what a matter became.
 const READ_BY_CODE: [(&str, &[&str]); 2] = [
-    (crate::ENGINEER, &["S1", "R1", "D2", "D4", "D5", "T2", "T6", "M2", "E1"]),
+    (crate::ENGINEER, &["S1", "R1", "D2", "T2", "T6", "M2", "E1"]),
     (crate::ARCHITECT, &["Q0", "Q1", "U1", "H8", "H12", "E1", "P2", "P12"]),
 ];
 

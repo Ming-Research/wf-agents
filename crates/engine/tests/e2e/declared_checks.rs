@@ -87,8 +87,9 @@ fn checks_of(rejected: &Value) -> Vec<String> {
 
 // In the project the engine is built from, a work names the check it changes at the implementation; adversarial
 // testing then hands in a return only that check refuses. The return is taken, its problem kept on its round as S1;
-// no review judged it, so the merge gate sends it to the fix, before it asks the owner to approve the change: the fix
-// answers it old_rule and the re-check holds the answer. Only then does the gate ask the owner, and the work merges.
+// no review judged it, so the merge gate sends it to the fix, before it waits for the owner to approve the change: the
+// fix answers it old_rule and the re-check holds the answer. Only then does the gate wait for the owner, and the work
+// merges.
 #[test]
 fn a_finding_of_a_check_the_work_changes_is_judged_before_the_owner_approves_and_the_work_merges() {
     let s = setup("declared-check");
@@ -125,8 +126,9 @@ fn a_finding_of_a_check_the_work_changes_is_judged_before_the_owner_approves_and
         }),
     );
     let (mut e, said, item) = start(&s, agents);
-    step_until(&mut e, item, &said, "the gate's ask", |e| {
-        state(e, item).is_some_and(|(w, at, _)| at == "M1" && open_ask(e, w).is_some())
+    step_until(&mut e, item, &said, "the gate's wait for the owner", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "owner_approves")
+            && state(e, item).is_some_and(|(w, _, _)| open_ask(e, w).is_some())
     });
     let log = said.lock().unwrap().join("\n");
     // Adversarial testing's return was taken, and what the check found kept on its round, numbered in the work.
