@@ -117,7 +117,8 @@ commit_all() {
 cargo_case() {
   new_case
   mkdir -p "$case_dir/src"
-  : >"$case_dir/src/lib.rs"
+  # Formatted as rustfmt wants it: an empty file is not, and the baseline of `rustfmt --check` must exit 0.
+  printf '//! A crate with nothing in it.\n' >"$case_dir/src/lib.rs"
   cat >"$case_dir/Cargo.toml" <<'EOF'
 [package]
 name = "fixture"
