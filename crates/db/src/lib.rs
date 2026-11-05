@@ -206,13 +206,15 @@ pub fn stopped_by_architect(paused: Option<&str>, by: Option<&str>) -> bool {
     by == Some("engine") && paused.is_some_and(|p| p.starts_with(STOPPED_BY_ARCHITECT))
 }
 
-/// What the reason of a work the engine paused for a return sent back starts with, when the work's project's architect
-/// is asked to look at why: the architect may let such a work go on, as it may one it stopped itself.
-pub const SENT_BACK_FOR_ARCHITECT: &str = "a return was sent back";
+/// What the reason of a work the engine paused for returns sent back in a row starts with, when the work's project's
+/// architect has been asked to look at why (a matter for each of the returns): the architect may let such a work go on,
+/// as it may one it stopped itself. The view `architect_queue` in `db/schema.sql` tells the matters of such a work from
+/// the others by the same start, written there apart: `crates/db/tests/sent_back_lines.rs` keeps the two the same.
+pub const SENT_BACK_FOR_ARCHITECT: &str = "returns were sent back";
 
 /// Whether the architect may let a work go on, by why it is paused and who paused it as its row has them: the work it
-/// stopped itself ([`stopped_by_architect`]), or the work the engine paused for a return sent back that the architect
-/// is asked to look at ([`SENT_BACK_FOR_ARCHITECT`]).
+/// stopped itself ([`stopped_by_architect`]), or the work the engine paused for returns sent back in a row that the
+/// architect has been asked to look at ([`SENT_BACK_FOR_ARCHITECT`]).
 pub fn architect_may_resume(paused: Option<&str>, by: Option<&str>) -> bool {
     stopped_by_architect(paused, by)
         || (by == Some("engine") && paused.is_some_and(|p| p.starts_with(SENT_BACK_FOR_ARCHITECT)))
@@ -1179,12 +1181,12 @@ mod tests {
         assert!(sent_back_lines(&Value::Null).is_empty());
     }
 
-    // The architect may let a work go on that it stopped itself, and one the engine paused for a return sent back that
-    // the architect was asked to look at; nothing the owner paused, nor another pause of the engine's.
+    // The architect may let a work go on that it stopped itself, and one the engine paused for returns sent back in a
+    // row that the architect was asked to look at; nothing the owner paused, nor another pause of the engine's.
     #[test]
     fn the_architect_may_let_go_on_what_it_stopped_and_what_was_sent_back_for_it() {
         let stopped = format!("{STOPPED_BY_ARCHITECT}: it waits for the parser");
-        let sent_back = format!("{SENT_BACK_FOR_ARCHITECT} at cell R1, and the architect is asked why");
+        let sent_back = format!("{SENT_BACK_FOR_ARCHITECT} 3 times in a row, the last at cell R1");
         assert!(architect_may_resume(Some(&stopped), Some("engine")));
         assert!(architect_may_resume(Some(&sent_back), Some("engine")));
         assert!(!architect_may_resume(Some(&sent_back), Some("owner")));

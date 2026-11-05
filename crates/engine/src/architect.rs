@@ -1330,7 +1330,9 @@ fn release(tx: &Transaction<'_>, project: &str, reason: HoldReason) -> Result<()
 }
 
 /// Releases the hold to set a project straight once no matter that sets it straight is left and no change waits for
-/// the second eye.
+/// the second eye. The matter of a return sent back is none that sets the project straight: the engine queues one at
+/// each return sent back of any running work, so that waiting for none of them would keep the hold for as long as works
+/// run, and the new starts it holds to set the project straight with them.
 fn settle_hold(tx: &Transaction<'_>, project: &str) -> Result<(), String> {
     if !held_straight(tx, project)? {
         return Ok(());
@@ -1338,8 +1340,8 @@ fn settle_hold(tx: &Transaction<'_>, project: &str) -> Result<(), String> {
     let left = count(
         tx,
         "SELECT count(*) FROM architect_matters WHERE project = ?1 AND kind = 'set_straight' AND handled_round IS NULL
-           AND withdrawn IS NULL",
-        &[&project],
+           AND withdrawn IS NULL AND detail IS NOT ?2",
+        &[&project, &crate::sent_back::SENT_BACK],
     )?;
     let waiting = count(
         tx,
@@ -5577,6 +5579,48 @@ mod tests {
         let v = commits(&log(61), "2026-10-23 11:35 UTC");
         assert_eq!(v[60], "and 1 earlier commit since 2026-10-23 11:35 UTC");
         assert_eq!(commits(&log(60), "x").as_array().unwrap().len(), 60);
+    }
+
+    // The hold of a project's new starts to set it straight is released once no place to set straight is left. The
+    // matter of a return sent back is none: the engine queues one at each return sent back of any running work, so that
+    // counting them would keep the hold for as long as works run. A place to set straight of any other detail, or of
+    // none, keeps it until it is handled or withdrawn.
+    #[test]
+    fn the_matters_of_returns_sent_back_do_not_keep_the_hold_to_set_a_project_straight() {
+        let mut db = db::Db::in_memory().unwrap();
+        let matter = |detail: Option<&str>| Matter {
+            project: "p".into(),
+            kind: "set_straight".into(),
+            detail: detail.map(str::to_string),
+            what: "A place to set straight.".into(),
+            body: json!({}),
+            ..Matter::default()
+        };
+        let held = |tx: &Transaction<'_>| held_straight(tx, "p").map_err(db::Error::Abort);
+        db.write(Actor::Architect, |tx| {
+            // Only the matters of returns sent back are left: the hold goes.
+            db::hold_starts(tx, "p", HoldReason::SetStraight, None)?;
+            queue_matter(tx, &matter(Some(crate::sent_back::SENT_BACK)))?;
+            queue_matter(tx, &matter(Some(crate::sent_back::SENT_BACK)))?;
+            settle_hold(tx, "p").map_err(db::Error::Abort)?;
+            assert!(!held(tx)?, "released with only the matters of returns sent back left");
+            // Another place to set straight, with a detail or with none, keeps it.
+            for detail in [Some("order"), None] {
+                db::hold_starts(tx, "p", HoldReason::SetStraight, None)?;
+                let other = queue_matter(tx, &matter(detail))?;
+                settle_hold(tx, "p").map_err(db::Error::Abort)?;
+                assert!(held(tx)?, "kept by a place to set straight with detail {detail:?}");
+                // Once it is withdrawn, nothing keeps it.
+                tx.execute(
+                    "UPDATE architect_matters SET withdrawn = 'not needed' WHERE id = ?1",
+                    [other],
+                )?;
+                settle_hold(tx, "p").map_err(db::Error::Abort)?;
+                assert!(!held(tx)?, "released once it was withdrawn, detail {detail:?}");
+            }
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[test]

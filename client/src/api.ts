@@ -2969,11 +2969,12 @@ pauseAfter: number, pause: string,
  */
 counts?: string | null,
 /**
- * Whether the pause is the project's architect's to look at, which allows `pauseAfter` to be 1: the work pauses at
- * a return sent back, the architect is asked why, by a matter to set straight that lists each problem the return
- * was sent back with, and it may let the work go on itself, as the owner may. Without it the pause is the owner's
- * alone. Only a graph whose tasks an architect holds a blocker of (`blockers`) may say it; a work on no item is
- * paused for the owner all the same.
+ * Whether each return sent back is the project's architect's to look at: in the write that ends the round the
+ * engine queues a matter to set straight for it, listing each problem the return was sent back with, so that the
+ * cause is found and recorded, and the work goes on without waiting for it. The pause after `pauseAfter` in a row
+ * is then one the architect may let go on itself, as the owner may. Without it the pause is the owner's alone.
+ * Only a graph whose tasks an architect holds a blocker of (`blockers`) may say it; a work on no item queues
+ * nothing.
  */
 look?: boolean, };
 

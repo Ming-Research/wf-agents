@@ -1,5 +1,6 @@
-//! The corners of the lines a return sent back is said with (`db::sent_back_lines`) and of who may let go on a work
-//! paused for it (`db::architect_may_resume`), read through the public interface.
+//! The corners of the lines a return sent back is said with (`db::sent_back_lines`), of who may let go on a work paused
+//! for returns sent back (`db::architect_may_resume`), and of the view of the architect's queue that says the work is
+//! waited for, read through the public interface.
 
 use serde_json::json;
 
@@ -59,13 +60,14 @@ fn a_record_without_usable_problems_is_said_by_the_text_it_was_sent_back_with() 
     }
 }
 
-// The architect may let go on only what it stopped itself or what the engine paused for a return it was asked to look
-// at, and only when the engine paused it. The reference is the two constants the reasons are made from: a reason that
-// only resembles one, in another case, with something before it, or with the owner as the one who paused, is not one.
+// The architect may let go on only what it stopped itself or what the engine paused for returns in a row it was asked
+// to look at, and only when the engine paused it. The reference is the two constants the reasons are made from: a
+// reason that only resembles one, in another case, with something before it, or with the owner as the one who paused,
+// is not one.
 #[test]
 fn the_architect_may_let_go_on_only_a_pause_the_engine_made_for_it() {
     let look = format!(
-        "{} at cell R1, and its project's architect is asked to look at why",
+        "{} 3 times in a row, the last at cell R1, and its project's architect is asked to look at why",
         db::SENT_BACK_FOR_ARCHITECT
     );
     assert!(db::architect_may_resume(Some(&look), Some("engine")));
@@ -75,12 +77,8 @@ fn the_architect_may_let_go_on_only_a_pause_the_engine_made_for_it() {
         (look.clone(), None),
         (format!(" {look}"), Some("engine")),
         (look.to_uppercase(), Some("engine")),
-        (look.replacen("a return", "the return", 1), Some("engine")),
-        // The pause the engine makes when no architect looks, and the one it makes after several in a row.
-        (
-            "the return was sent back at cell R1, for:\nformat (outcome): x".to_string(),
-            Some("engine"),
-        ),
+        (look.replacen("returns", "return", 1), Some("engine")),
+        // The pause the engine makes when no architect looks: the owner's alone, and worded to say so.
         (
             "3 returns in a row were sent back, the last at cell H8, for:\nx".to_string(),
             Some("engine"),
@@ -90,4 +88,68 @@ fn the_architect_may_let_go_on_only_a_pause_the_engine_made_for_it() {
         assert!(!db::architect_may_resume(Some(&reason), by), "{reason:?} by {by:?}");
     }
     assert!(!db::architect_may_resume(None, Some("engine")));
+}
+
+// The view of the architect's queue says an engineer's work waits for the matters of its returns sent back while the
+// engine has paused it for returns in a row, as the architect's leave to let it go on reads that pause: and only then.
+// The reference is the words of the view, not the code that makes the reason: a work paused by the owner with the same
+// words, one the engine paused for the owner alone, one that ended, one that runs, and a matter of another kind are
+// not waited for.
+#[test]
+fn the_queue_says_a_paused_work_waits_for_the_matters_of_its_returns_sent_back_and_nothing_else_does() {
+    let mut conn = db::Db::in_memory().unwrap();
+    let look = format!(
+        "{} 3 times in a row, the last at cell R1, and its project's architect is asked to look at why",
+        db::SENT_BACK_FOR_ARCHITECT
+    );
+    let owners_alone = "3 returns in a row were sent back, the last at cell H8, for:\nx";
+    // The work's pause, who paused it, why it ended, the detail of its matter, and what the queue says of the matter.
+    let cases: [(Option<&str>, Option<&str>, Option<&str>, &str, &str); 6] = [
+        (Some(look.as_str()), Some("engine"), None, "sent_back", "agent"),
+        (Some(look.as_str()), Some("owner"), None, "sent_back", "none"),
+        (Some(owners_alone), Some("engine"), None, "sent_back", "none"),
+        (Some(look.as_str()), Some("engine"), Some("done"), "sent_back", "none"),
+        (None, None, None, "sent_back", "none"),
+        (Some(look.as_str()), Some("engine"), None, "order", "none"),
+    ];
+    conn.write(db::Actor::Engine, |tx| {
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        let version = tx.last_insert_rowid();
+        for (paused, by, ended, detail, _) in cases {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, paused, paused_by, ended)
+                 VALUES (NULL, ?1, 'engineer', 'R1', ?2, ?3, ?4)",
+                db::rusqlite::params![version, paused, by, ended],
+            )?;
+            let work = tx.last_insert_rowid();
+            db::queue_matter(
+                tx,
+                &db::Matter {
+                    project: "p".into(),
+                    kind: "set_straight".into(),
+                    detail: Some(detail.into()),
+                    what: "A return was sent back.".into(),
+                    body: json!({ "work": work }),
+                    ..db::Matter::default()
+                },
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let mut st = conn
+        .conn()
+        .prepare("SELECT waits FROM architect_queue ORDER BY matter")
+        .unwrap();
+    let waits: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+    let want: Vec<&str> = cases.iter().map(|c| c.4).collect();
+    assert_eq!(waits, want);
+}
+
+// The view names the start of the reason by words of its own, which the constant that the architect's leave to let a
+// work go on reads must be the same as: the two are written apart, so a change to one alone is caught here.
+#[test]
+fn the_view_of_the_queue_reads_the_start_of_the_reason_the_constant_names() {
+    let like = format!("w.paused LIKE '{}%'", db::SENT_BACK_FOR_ARCHITECT);
+    assert!(db::SCHEMA.contains(&like), "{like}");
 }

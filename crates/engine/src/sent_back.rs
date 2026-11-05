@@ -1,18 +1,21 @@
-//! The pause at returns sent back. A work whose returns were sent back as often in a row as the flow's rounds section
-//! says (`rounds.sentBack.pauseAfter`) is paused at the cell, and the reason says every problem of the last return, one
-//! line each by its check and field. Where the section has `look`, the pause is the project's architect's to look at: it
-//! comes after the first return sent back, and the engine queues a matter to set straight for the architect in the same
-//! write, with each problem as the return was sent back with it, so that the cause is found and recorded; the architect
-//! may let the work go on itself ([`db::architect_may_resume`]). Without `look`, or for a work on no item, the pause is
-//! the owner's alone.
+//! Returns sent back, as the flow's rounds section says what the engine does with them (`rounds.sentBack`). Where the
+//! section has `look`, each return sent back queues a matter to set straight for the project's architect in the write
+//! that ends its round ([`matter`]), and the work goes on at once: it waits for nothing. As many returns in a row as
+//! `pauseAfter` pause the work at the cell ([`pause`]); the reason says every problem of the last return, one line each
+//! by its check and field. Where the section has `look` too, the architect may let such a pause go on itself
+//! ([`db::architect_may_resume`]), and the matters of the work's returns are then ones the work waits on (the view
+//! `architect_queue`).
 
 use db::rusqlite::{Connection, params};
 use flow::format::Rounds;
 use serde_json::{Value, json};
 
 use crate::failed::{self, Took};
-use crate::work::{Item, Work};
+use crate::work::{RoundId, Work};
 use crate::{Advance, Engine};
+
+/// The detail of the matter to set straight that asks the architect why a return was sent back.
+pub const SENT_BACK: &str = "sent_back";
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -43,10 +46,25 @@ fn checks_of(problems: &Value) -> Vec<String> {
     checks
 }
 
-/// The matter for the architect: why a return of the work was sent back, and what to change, while the work waits paused
-/// at the cell. `problems` holds `rounds.rejected`'s own, `{check, field, text}` each, so that the matters of one check
-/// and field can be told apart and counted; `reason` says them as the owner reads them.
-fn matter(w: &Work, item: &Item, cell: &str, round: i64, rejected: &Value, lines: &[String]) -> db::Matter {
+/// The matter to queue for the architect of the work's project when a return of the work at `cell` was sent back with
+/// `rejected` (the column as `rounds.rejected` keeps it): why it was sent back, and what to change. None where the
+/// section does not say `look`, and for a work on no item. `problems` holds the column's own, `{check, field, text}`
+/// each, so that the matters of one check and field can be told apart and counted; `reason` says them as the owner
+/// reads them. The matter is for the architect to look at after the fact: it says nothing of the work waiting.
+pub fn matter(
+    e: &Engine,
+    w: &Work,
+    section: &Rounds,
+    cell: &str,
+    round: RoundId,
+    rejected: &Value,
+) -> Result<Option<db::Matter>, String> {
+    if !section.sent_back.look {
+        return Ok(None);
+    }
+    let Some(item) = e.subject(w)? else {
+        return Ok(None);
+    };
     let problems = rejected
         .get("problems")
         .cloned()
@@ -58,57 +76,44 @@ fn matter(w: &Work, item: &Item, cell: &str, round: i64, rejected: &Value, lines
     } else {
         format!(" for the checks {}", crate::cards::and_list(&checks))
     };
-    db::Matter {
+    Ok(Some(db::Matter {
         project: item.project.clone(),
         kind: "set_straight".into(),
         detail: Some(SENT_BACK.into()),
         what: format!(
-            "Work {} on item {} ({}) had a return sent back at cell {cell}{by}, and waits paused at the cell: why it \
-             was sent back, and what to change",
+            "Work {} on item {} ({}) had a return sent back at cell {cell}{by}: why it was sent back, and what to \
+             change",
             w.id, item.id, item.title
         ),
         body: json!({
             "work": w.id,
-            "round": round,
+            "round": round.n,
             "cell": cell,
             "problems": problems,
-            "reason": lines.join("\n"),
+            "reason": db::sent_back_lines(rejected).join("\n"),
         }),
         item: Some(item.id),
+        // The matter is not the work's question: it is raised by no round the work waits at.
         raised: None,
-    }
+    }))
 }
 
-/// The detail of the matter to set straight that asks the architect why a return was sent back.
-pub const SENT_BACK: &str = "sent_back";
-
 /// Pauses the work at `cell`, where `sent_back` (the latest first) returns in a row were sent back as often as the
-/// section says; for a work on an item, with the architect's look when the section says it.
+/// section says. Where the section says `look` and the work is on an item, its project's architect has the matter of
+/// each return and may let the work go on, as the owner may; otherwise the pause is the owner's alone.
 pub fn pause(e: &mut Engine, w: &Work, cell: &str, section: &Rounds, sent_back: &[&Took]) -> Result<Advance, String> {
     let last = sent_back.first().ok_or("no return was sent back")?.round;
     let rejected = rejected_of(e.db.conn(), last.work, last.n)?;
-    let lines = db::sent_back_lines(&rejected);
-    let item = match e.subject(w)? {
-        Some(i) if section.sent_back.look => Some(i),
-        _ => None,
+    let list = db::sent_back_lines(&rejected).join("\n");
+    let n = sent_back.len();
+    let why = if section.sent_back.look && e.subject(w)?.is_some() {
+        format!(
+            "{} {n} times in a row, the last at cell {cell}, and its project's architect is asked to look at why; the \
+             architect or the owner lets the work go on. Problems of the last return:\n{list}",
+            db::SENT_BACK_FOR_ARCHITECT
+        )
+    } else {
+        format!("{n} returns in a row were sent back, the last at cell {cell}, for:\n{list}")
     };
-    let list = lines.join("\n");
-    let Some(item) = item else {
-        let how = match sent_back.len() {
-            1 => "the return was sent back".to_string(),
-            n => format!("{n} returns in a row were sent back, the last"),
-        };
-        let why = format!("{how} at cell {cell}, for:\n{list}");
-        return failed::pause(e, w, &why);
-    };
-    let why = format!(
-        "{} at cell {cell}, and its project's architect is asked to look at why; the architect or the owner lets the \
-         work go on. Problems:\n{list}",
-        db::SENT_BACK_FOR_ARCHITECT
-    );
-    let m = matter(w, &item, cell, last.n, &rejected, &lines);
-    failed::pause_and(e, w, &why, |tx| {
-        db::queue_matter(tx, &m).map_err(sql)?;
-        Ok(())
-    })
+    failed::pause(e, w, &why)
 }

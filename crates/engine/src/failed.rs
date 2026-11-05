@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use db::Actor;
-use db::rusqlite::{Transaction, params};
+use db::rusqlite::params;
 use flow::format::{Atom, Failure, GUARDED, Handle, Rounds, STEP_NETWORK};
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
@@ -347,17 +347,6 @@ fn about(e: &Engine, w: &Work) -> Result<String, String> {
 
 /// Pauses a work and tells the owner why; once the owner lets it go on, its cell runs again.
 pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
-    pause_and(e, w, why, |_| Ok(()))
-}
-
-/// Pauses a work as [`pause`] does, and in the same write does `also`, so that what goes with the pause (a matter
-/// queued for the project's architect) is never there without it, nor the pause without it.
-pub fn pause_and(
-    e: &mut Engine,
-    w: &Work,
-    why: &str,
-    also: impl FnOnce(&Transaction<'_>) -> Result<(), String>,
-) -> Result<Advance, String> {
     let text = format!("{} is paused: {why}", about(e, w)?);
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -365,7 +354,6 @@ pub fn pause_and(
             params![w.id, why],
         )?;
         db::withdraw_resume(tx, w.id)?;
-        also(tx).map_err(db::Error::Abort)?;
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;

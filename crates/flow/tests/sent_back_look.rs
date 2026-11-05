@@ -1,4 +1,5 @@
-//! The corners of `rounds.sentBack.look`: which rounds sections the compiler accepts with it, and the row it gives.
+//! The corners of `rounds.sentBack.look`: which rounds sections the compiler accepts with it, and the row that pauses at
+//! returns sent back.
 
 use serde_json::Value;
 
@@ -41,51 +42,54 @@ fn pause_row(c: &flow::Compiled, graph: &str) -> (String, Vec<flow::format::Atom
     (row.name.clone(), row.conditions.clone())
 }
 
-// The reference is the field's own comment: `look` allows `pauseAfter` to be 1 and makes the pause the architect's to
-// look at, so the row is the architect's whatever the number is; without it the row keeps the owner's name for any
-// number from 2. `pauseAfter` 0 means a pause after none, which neither allows.
+// The reference is the field's own comment: with `look` each return sent back is the architect's to look at, and the
+// pause still comes after `pauseAfter` in a row, which is at least 2 whether or not the architect looks: the first
+// return sent back never pauses a work, and a pause after none is no bound. The row that pauses is named the same, and
+// takes the number, either way.
 #[test]
-fn the_row_is_named_by_whom_the_pause_is_for_whatever_the_number_is() {
-    let looked = compile_with("engineer", |s| s["pauseAfter"] = 3.into()).unwrap();
-    assert_eq!(
-        pause_row(&looked, "engineer"),
-        (
-            "sent_back_looked_at".to_string(),
-            vec![flow::format::Atom::SentBack(Some(3))]
-        )
-    );
-    let owners = compile_with("engineer", |s| {
-        s.as_object_mut().unwrap().remove("look");
-        s["pauseAfter"] = 2.into();
-    })
-    .unwrap();
-    assert_eq!(
-        pause_row(&owners, "engineer"),
-        (
-            "sent_back_too_often".to_string(),
-            vec![flow::format::Atom::SentBack(Some(2))]
-        )
-    );
-    let none = compile_with("engineer", |s| s["pauseAfter"] = 0.into()).unwrap_err();
-    assert!(none.contains("rounds.sentBack.pauseAfter is less than 2"), "{none}");
+fn a_pause_at_returns_sent_back_comes_after_at_least_two_in_a_row_whatever_look_says() {
+    for look in [true, false] {
+        let two = compile_with("engineer", |s| {
+            s["pauseAfter"] = 2.into();
+            s["look"] = look.into();
+        })
+        .unwrap();
+        assert_eq!(
+            pause_row(&two, "engineer"),
+            (
+                "sent_back_too_often".to_string(),
+                vec![flow::format::Atom::SentBack(Some(2))]
+            ),
+            "look {look}"
+        );
+        for after in [0, 1] {
+            let refused = compile_with("engineer", |s| {
+                s["pauseAfter"] = after.into();
+                s["look"] = look.into();
+            })
+            .unwrap_err();
+            assert!(
+                refused.contains("rounds.sentBack.pauseAfter is less than 2"),
+                "pauseAfter {after}, look {look}: {refused}"
+            );
+        }
+    }
 }
 
-// The architect's own graph has no architect above it, and the engine pauses its work for the owner whatever `look`
-// says. A flow that says it looks at a return sent back there would draw a row, `sent_back_looked_at`, that nothing
-// takes: the chart is how the owner checks the flow, so the compiler must not accept it.
+// The architect's own graph has no architect above it, and the engine queues nothing for it: a flow that says each of
+// its returns sent back is looked at there would have a matter queued for no one, so the compiler refuses it, whatever
+// the number of returns in a row that pause.
 #[test]
-fn the_architect_s_own_graph_cannot_say_its_pause_is_looked_at() {
-    let architect = compile_with("architect", |s| {
-        s["pauseAfter"] = 1.into();
-        s["look"] = true.into();
-    });
-    // The compiler either refuses the flow, or the architect's graph has no row that says its pause is looked at.
-    let looked = architect
-        .as_ref()
-        .is_ok_and(|c| pause_row(c, "architect").0 == flow::format::SENT_BACK_LOOKED_AT);
-    assert!(
-        !looked,
-        "the architect's own graph compiled, with the row {}",
-        flow::format::SENT_BACK_LOOKED_AT
-    );
+fn the_architect_s_own_graph_cannot_say_its_returns_sent_back_are_looked_at() {
+    for after in [2, 3] {
+        let refused = compile_with("architect", |s| {
+            s["pauseAfter"] = after.into();
+            s["look"] = true.into();
+        })
+        .unwrap_err();
+        assert!(
+            refused.contains("rounds.sentBack.look is set in graph architect"),
+            "pauseAfter {after}: {refused}"
+        );
+    }
 }

@@ -756,6 +756,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 e,
                 w,
                 &section,
+                &cell.id,
                 round,
                 Ended {
                     output: Some(output),
@@ -788,6 +789,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 e,
                 w,
                 &section,
+                &cell.id,
                 round,
                 Ended {
                     output: Some(output),
@@ -1096,23 +1098,31 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
 }
 
 /// Ends a round whose return is sent back, and tells the owner once if the work passes the limit its project sets on
-/// the counter that counts the returns sent back.
+/// the counter that counts the returns sent back. Where the flow's section says `look`, the same write queues the
+/// matter for the project's architect to find why it was sent back ([`crate::sent_back::matter`]): the work goes on
+/// without waiting for it, and the matter is never there without the round that raised it, nor the round without it.
 fn reject(
     e: &mut Engine,
     w: &Work,
     section: &flow::format::Rounds,
+    cell: &str,
     round: RoundId,
     ended: Ended,
     why: Value,
 ) -> Result<Advance, String> {
     e.say(&format!("{round} sent back: {}", db::without_problems(&why)));
+    let matter = crate::sent_back::matter(e, w, section, cell, round, &why)?;
     let ended = Ended {
         rejected: Some(why),
         transition: None,
         ..ended
     };
     e.db.write(Actor::Engine, |tx| {
-        work::finish_round(tx, round, &ended).map_err(db::Error::Abort)
+        work::finish_round(tx, round, &ended).map_err(db::Error::Abort)?;
+        if let Some(m) = &matter {
+            db::queue_matter(tx, m)?;
+        }
+        Ok(())
     })
     .map_err(sql)?;
     if let Some(counter) = &section.sent_back.counts {
