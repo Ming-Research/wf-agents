@@ -328,11 +328,7 @@ pub fn relay(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
         .filter(|s| matches!(*s, "owner" | "delegate"));
     tx.execute(
         "INSERT INTO interjections (work, line, speaker, declared, text) VALUES (?1, 'engineer', 'owner', ?2, ?3)",
-        params![
-            w.id,
-            declared,
-            format!("Asked to approve the change before it merges, the owner replied: {text}")
-        ],
+        params![w.id, declared, format!("{} {text}", db::RELAY_APPROVAL)],
     )
     .map_err(sql)?;
     Ok(())

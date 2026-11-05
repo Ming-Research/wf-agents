@@ -76,6 +76,7 @@ import type {
   OwnerAsk,
   PolicyDraft,
   Status,
+  TakenBack,
   WordsState,
   WorkState,
   WorkSummary,
@@ -93,6 +94,7 @@ import {
 } from '../answer';
 import { architectMark, architectState } from '../architect';
 import {
+  BACK_MARK,
   course,
   heldWords,
   liveState,
@@ -144,8 +146,8 @@ import {
 import { useActions } from '../course';
 import { type Draft, putDraft, useDraft } from '../drafts';
 import { cost, time } from '../format';
-import { postJson, SPEAKER } from '../http';
-import { imagesSent, saysSomething } from '../images';
+import { postJson, postJsonFor, SPEAKER } from '../http';
+import { imageFromSent, imagesSent, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useShared, useStatus } from '../live';
 import { Markdown } from '../markdown';
@@ -491,6 +493,48 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
   );
 }
 
+/// What the head of the owner's words says while no agent has taken them up: that, and, while they can be taken back,
+/// the button that puts them back in the box of the conversation (`into`, its draft) with their images and whom they
+/// were for, and they leave the stream; once an agent has them without having recorded them taken up, that they cannot
+/// be taken back.
+function NotTakenUp({ e, into }: { e: ConversationEntry; into: string }) {
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  if (e.retract === 'given') return <span className="talk-state">{t('conv_given')}</span>;
+  const take = () => {
+    setBusy(true);
+    setRefused(null);
+    postJsonFor<TakenBack>('/api/v1/conversation/retract', { source: e.source, id: e.id }).then(
+      (back) => {
+        putDraft(into, { text: back.text, images: back.images.map(imageFromSent), to: back.to }, 'append');
+        reread('messages', 'architect', 'works', 'work:*');
+      },
+      (x: unknown) => {
+        setBusy(false);
+        setRefused(x instanceof Error ? x.message : String(x));
+      },
+    );
+  };
+  return (
+    <>
+      <span className="talk-state">{t('conv_pending')}</span>
+      {e.retract === 'yes' ? (
+        <Button
+          size="small"
+          variant="invisible"
+          leadingVisual={BACK_MARK}
+          title={t('conv_take_back_hint')}
+          disabled={busy}
+          onClick={take}
+        >
+          {t('conv_take_back')}
+        </Button>
+      ) : null}
+      {refused !== null ? <span className="talk-state talk-state-bad">{refused}</span> : null}
+    </>
+  );
+}
+
 /// One message of the owner's or an agent's: who it is from, to whom (in a group, at its head), when, its round, and
 /// what it says; the owner's on the right in the look of what is sent to an agent, an agent's beside its avatar in the
 /// look of what an agent handed back, in its colour; what the architect's policy setting says, as the architect's. The
@@ -502,8 +546,10 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// the panel beside the one-to-one (`draft`). The owner's question about a decision card, and its answer, have the
 /// strip naming the card over their words. Where the box at the bottom can take words, the head ends with the button
 /// that quotes the bubble into it (`onQuote`, given what the owner selected in the bubble, if anything).
-function Message({ e, to, reply, draft = null, onQuote = null, onReply = null, approve = null }: {
+function Message({ e, into, to, reply, draft = null, onQuote = null, onReply = null, approve = null }: {
   e: ConversationEntry;
+  /// The draft of the conversation's box, where words taken back go.
+  into: string;
   to: string | null;
   reply: ConversationEntry | null;
   draft?: string | null;
@@ -540,7 +586,7 @@ function Message({ e, to, reply, draft = null, onQuote = null, onReply = null, a
               </Link>
             ) : null}
             {draft !== null ? <Link to={draft}>{t('conv_draft')}</Link> : null}
-            {e.pending && own ? <span className="talk-state">{t('conv_pending')}</span> : null}
+            {e.pending && own ? <NotTakenUp e={e} into={into} /> : null}
             {e.undelivered ? <span className="talk-state talk-state-bad">{t('conv_undelivered')}</span> : null}
             {onQuote !== null ? (
               <IconButton
@@ -729,6 +775,8 @@ type EntryProps = {
   e: ConversationEntry;
   /// What kind of conversation it is in, and its project.
   kind: Conversation['kind'];
+  /// The draft of the conversation's box, where words taken back go; one string for the whole stream.
+  into: string;
   project: string | null;
   /// How the work of the stage the bubble is of goes on (the stage bubble of the work now at it); none for any other.
   stageWork: WorkSummary | null;
@@ -757,6 +805,7 @@ type EntryProps = {
 const Entry = memo(function Entry({
   e,
   kind,
+  into,
   project,
   stageWork,
   matterWork,
@@ -781,6 +830,7 @@ const Entry = memo(function Entry({
   return (
     <Message
       e={e}
+      into={into}
       to={mentions(e, kind) ? mention(e, kind) : null}
       reply={reply}
       draft={project !== null && approval ? sideHref(project, 'policy') : null}
@@ -1208,6 +1258,7 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
                 key={`${e.source}-${e.id}-${e.at}`}
                 e={e}
                 kind={c.kind}
+                into={boxDraftKey(c)}
                 project={c.project}
                 stageWork={e.stage !== null && e.stage.current ? w : null}
                 matterWork={e.matter_card !== null && e.matter_card.state === 'working' ? aw : null}

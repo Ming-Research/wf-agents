@@ -16,7 +16,7 @@ use serde_json::Value;
 use crate::read::{self, Error, Flows};
 use crate::{
     Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Gap, Handled, MadeThing,
-    MatterProgress, Misses, PlanChange, ReviewFindings, StageCard, StageNote, WordsState,
+    MatterProgress, Misses, PlanChange, Retract, ReviewFindings, StageCard, StageNote, WordsState,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -289,6 +289,7 @@ pub fn conversation(
                 stage: None,
                 matter_card: None,
                 words_state: None,
+                retract: Retract::No,
                 policy: None,
                 plan: None,
             },
@@ -309,6 +310,7 @@ pub fn conversation(
     misses(conn, &mut entries)?;
     forwards(conn, &mut entries)?;
     words_states(conn, &mut entries)?;
+    crate::retract::states(conn, &mut entries)?;
     images(conn, &mut entries)?;
     // Each ask in full.
     let ids: Vec<String> = entries
@@ -655,6 +657,7 @@ fn blank() -> ConversationEntry {
         stage: None,
         matter_card: None,
         words_state: None,
+        retract: Retract::No,
         policy: None,
         plan: None,
     }
