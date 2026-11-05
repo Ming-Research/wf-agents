@@ -42,13 +42,14 @@ jobs:
       - uses: ./.github/actions/lint
 
   test:
-    name: test ${{ matrix.shard }} of 3
+    name: test ${{ matrix.shard }} of ${{ github.event_name == 'workflow_dispatch' && 1 || 3 }}
     runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted", "14900k"]') || 'ubuntu-24.04' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        # GitHub's machines are small, so the tests are split there; a run by hand has one of the project's whole machine.
+        shard: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[1]') || fromJSON('[1, 2, 3]') }}
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -91,8 +92,8 @@ jobs:
         if: runner.environment != 'github-hosted'
         with:
           node-version: 24.21.0
-      # Before any cargo step that compiles the crate the page is built into; on the project's machine, only when the
-      # page's files changed since this runner built it, and its dependencies only when their lock changed.
+      # Before any cargo step that compiles the crate the page is built into; on the project's machine the build of the
+      # page's files as they are is kept for every runner, and its dependencies are installed only when their lock changed.
       - name: Build the page
         working-directory: client
         run: |
@@ -102,17 +103,26 @@ jobs:
             npm ci
             echo "$lock" > node_modules/.wf-lock
           fi
-          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" != "$tree" ] || [ ! -f dist/index.html ]; then
+          kept="$HOME/page-builds/$tree"
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+            :
+          elif [ -f "$kept/index.html" ]; then
+            rm -rf dist && cp -a "$kept" dist
+          else
             npm run build
-            echo "$tree" > node_modules/.wf-tree
+            mkdir -p "$HOME/page-builds"
+            tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
+            find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
           fi
+          echo "$tree" > node_modules/.wf-tree
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test
       # at 60 s; each job runs a third of every test binary's tests, and stops at its first red test, which keeps a
       # red run short.
       - name: Test
         env:
           SHARD: ${{ matrix.shard }}
-        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3"
+          SHARDS: ${{ github.event_name == 'workflow_dispatch' && 1 || 3 }}
+        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/$SHARDS"
       # Main keeps the incremental state for the next runs.
       - if: ${{ matrix.shard == 1 && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
