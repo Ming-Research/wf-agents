@@ -1,0 +1,326 @@
+processes: 9 (base, twin, candidate, twin, candidate, base, candidate, base, twin)
+
+| path | rows 1 | bytes 1 | ms 1 | ms 1L10 | ratio 1L10/1 (95% interval) | class | noise of ms 1 (twin/base) |
+|---|---|---|---|---|---|---|---|
+| api.architect.matters | 100 | 202226 | 3.479 | 3.675 | 1.04 to 1.06 (mean 1.05) | grows, below linear | 0.953 to 0.979 |
+| api.architect.notebook | 410 | 866382 | 3.046 | 3.309 | 1.07 to 1.12 (mean 1.10) | grows, below linear | 0.912 to 1.017 |
+| api.architect.rounds_window | 100 | 2400 | 22.816 | 116.342 | 5.08 to 5.12 (mean 5.10) | grows, below linear | 0.923 to 1.022 |
+| api.content | 0 | 0 | 3.625 | 3.273 | 0.89 to 0.91 (mean 0.90) | faster | 0.917 to 1.030 |
+| api.conversation.architect | 129 | 25026 | 5.839 | 6.005 | 1.02 to 1.03 (mean 1.02) | grows, below linear | 0.946 to 1.020 |
+| api.conversation.work | 9 | 2682 | 5.670 | 5.889 | 1.03 to 1.05 (mean 1.04) | grows, below linear | 0.947 to 1.048 |
+| api.conversations | 1096 | 61757 | 18.610 | 19.149 | 1.03 to 1.04 (mean 1.03) | grows, below linear | 0.947 to 1.027 |
+| api.events.row_lookups | 200 | 0 | 4.098 | 4.108 | 1.00 to 1.01 (mean 1.00) | flat | 0.890 to 1.098 |
+| api.flows | 56 | 1390 | 0.975 | 0.972 | 0.99 to 1.01 (mean 1.00) | flat | 0.967 to 1.051 |
+| api.item.level_changes | 0 | 0 | 7.134 | 7.082 | 0.99 to 1.00 (mean 1.00) | flat | 0.934 to 1.034 |
+| api.item.outputs | 17 | 35829 | 0.074 | 0.075 | 0.94 to 1.39 (mean 1.14) | flat | 0.669 to 1.328 |
+| api.items_extra | 713 | 56525 | 9.293 | 9.435 | 1.02 to 1.06 (mean 1.04) | grows, below linear | 0.927 to 0.969 |
+| api.observations | 280 | 238861 | 17.073 | 42.719 | 2.50 to 2.55 (mean 2.52) | grows, below linear | 0.969 to 1.030 |
+| api.round | 1 | 4675 | 0.036 | 0.035 | 0.88 to 1.07 (mean 0.97) | flat | 0.970 to 1.050 |
+| api.system.counted | 14284 | 543019 | 67.288 | 198.359 | 2.94 to 2.98 (mean 2.96) | grows, below linear | 0.958 to 1.033 |
+| api.system.item_events | 311 | 20526 | 44.775 | 44.962 | 0.99 to 1.01 (mean 1.00) | flat | 0.957 to 1.039 |
+| api.system.rounds_since | 14845 | 1230280 | 108.988 | 179.755 | 1.64 to 1.66 (mean 1.65) | grows, below linear | 0.932 to 1.036 |
+| api.system.work_changes | 15774 | 378889 | 63.880 | 64.261 | 1.00 to 1.01 (mean 1.01) | grows, below linear | 0.961 to 1.042 |
+| api.system.works_of | 363 | 38716 | 66.646 | 228.568 | 3.42 to 3.44 (mean 3.43) | grows, below linear | 0.945 to 1.019 |
+| api.work.arch | 3330 | 29812160 | 73.802 | 767.497 | 10.34 to 10.46 (mean 10.40) | superlinear | 0.955 to 1.020 |
+| api.work.eng | 85 | 1023288 | 2.044 | 2.005 | 0.98 to 1.01 (mean 0.99) | flat | 0.893 to 1.062 |
+| api.works | 7727 | 478993 | 58.543 | 58.152 | 0.99 to 1.00 (mean 0.99) | faster | 0.973 to 1.005 |
+| engine.rare.merges_of_commit | 0 | 0 | 75.553 | 198.210 | 2.62 to 2.63 (mean 2.62) | grows, below linear | 0.972 to 1.036 |
+| engine.round.architect_time | 1 | 8 | 21.535 | 103.477 | 4.77 to 4.82 (mean 4.79) | grows, below linear | 0.991 to 1.032 |
+| engine.round.asked_matters | 0 | 0 | 0.084 | 0.088 | 1.00 to 1.07 (mean 1.04) | grows, below linear | 0.942 to 1.029 |
+| engine.round.ci_results | 45 | 207766 | 0.360 | 0.391 | 1.07 to 1.11 (mean 1.09) | grows, below linear | 0.906 to 1.167 |
+| engine.round.counter_of_work | 1 | 8 | 0.017 | 0.016 | 0.88 to 1.09 (mean 0.98) | flat | 0.794 to 1.215 |
+| engine.round.counters_all | 838 | 19017 | 40.500 | 108.137 | 2.65 to 2.68 (mean 2.67) | grows, below linear | 0.966 to 1.042 |
+| engine.round.counts_from_flow | 1 | 7 | 1.956 | 1.855 | 0.93 to 0.96 (mean 0.95) | faster | 0.865 to 1.127 |
+| engine.round.fact_basis | 1 | 8 | 1.187 | 1.513 | 1.27 to 1.29 (mean 1.28) | grows, below linear | 0.962 to 1.035 |
+| engine.round.interjections_words | 1 | 8 | 0.031 | 0.031 | 0.97 to 1.15 (mean 1.06) | flat | 0.944 to 1.037 |
+| engine.round.item_merged | 1 | 8 | 0.020 | 0.020 | 0.90 to 1.10 (mean 1.00) | flat | 0.680 to 1.739 |
+| engine.round.opens | 1 | 8 | 0.019 | 0.018 | 0.90 to 1.05 (mean 0.97) | flat | 0.838 to 1.116 |
+| engine.round.own_rounds.arch | 1689 | 18622637 | 28.151 | 178.484 | 6.27 to 6.36 (mean 6.32) | grows, below linear | 0.976 to 1.046 |
+| engine.round.own_rounds.eng | 29 | 334120 | 13.866 | 40.428 | 2.88 to 2.92 (mean 2.90) | grows, below linear | 0.967 to 1.048 |
+| engine.round.rounds.arch | 3330 | 29317282 | 27.179 | 294.494 | 10.68 to 10.99 (mean 10.83) | superlinear | 0.954 to 1.056 |
+| engine.round.rounds.eng | 85 | 1010216 | 0.608 | 0.620 | 1.00 to 1.03 (mean 1.02) | flat | 0.959 to 1.075 |
+| engine.round.rounds.eng_big | 326 | 3756461 | 2.884 | 2.810 | 0.91 to 1.01 (mean 0.96) | flat | 0.668 to 1.307 |
+| engine.round.rounds_at | 27 | 377151 | 0.337 | 0.244 | 0.72 to 0.76 (mean 0.74) | faster | 0.830 to 1.156 |
+| engine.round.rounds_of_matter | 0 | 0 | 17.107 | 75.832 | 4.38 to 4.45 (mean 4.42) | grows, below linear | 0.983 to 1.018 |
+| engine.round.time_limit | 1 | 8 | 0.987 | 0.919 | 0.91 to 0.98 (mean 0.94) | faster | 0.956 to 1.092 |
+| engine.step.open_round.arch | 0 | 0 | 3.316 | 33.977 | 10.16 to 10.83 (mean 10.49) | superlinear | 0.889 to 1.082 |
+| engine.step.open_round.eng | 0 | 0 | 0.033 | 0.034 | 1.02 to 1.08 (mean 1.05) | grows, below linear | 0.967 to 1.056 |
+| engine.step.resumed_at | 1 | 0 | 4.079 | 4.037 | 0.98 to 1.00 (mean 0.99) | flat | 0.980 to 1.028 |
+| engine.step.stop_asked | 1 | 8 | 0.011 | 0.011 | 0.90 to 1.20 (mean 1.04) | flat | 0.900 to 1.184 |
+| engine.step.take_if_past | 10 | 261 | 0.025 | 0.025 | 0.95 to 1.05 (mean 1.00) | flat | 0.702 to 1.291 |
+| engine.turn.active_pass | 304 | 54 | 26.038 | 25.943 | 0.99 to 1.00 (mean 1.00) | flat | 0.970 to 1.027 |
+| engine.turn.architect_queue | 34 | 56179 | 0.287 | 0.236 | 0.81 to 0.83 (mean 0.82) | faster | 0.939 to 1.070 |
+| engine.turn.architect_running | 1 | 8 | 0.011 | 0.012 | 1.00 to 1.12 (mean 1.06) | grows, below linear | 0.909 to 1.166 |
+| engine.turn.job_open | 1 | 0 | 2.214 | 2.181 | 0.98 to 1.00 (mean 0.99) | faster | 0.958 to 1.012 |
+| engine.turn.keep_warm_scan | 318 | 0 | 27.348 | 27.325 | 1.00 to 1.00 (mean 1.00) | flat | 0.982 to 1.009 |
+| engine.turn.main_watch_matters | 1 | 8 | 0.101 | 0.099 | 0.97 to 1.01 (mean 0.99) | flat | 0.903 to 1.214 |
+| engine.turn.ready_items | 48 | 936 | 5.441 | 6.173 | 1.12 to 1.14 (mean 1.13) | grows, below linear | 0.913 to 1.088 |
+| engine.turn.reload_config | | | 30.827 |  | no pair | | |
+| engine.turn.reminder | 2 | 32 | 0.356 | 0.608 | 1.40 to 1.72 (mean 1.55) | grows, below linear | 0.921 to 1.050 |
+| engine.turn.slots_free_history | 1 | 84 | 0.150 | 0.144 | 0.89 to 0.95 (mean 0.92) | faster | 0.989 to 1.166 |
+| engine.turn.slots_pass | 304 | 54 | 26.456 | 26.434 | 1.00 to 1.00 (mean 1.00) | flat | 0.987 to 1.009 |
+| engine.turn.stopping | 0 | 0 | 0.045 | 0.045 | 0.96 to 1.04 (mean 1.00) | flat | 0.821 to 1.152 |
+| engine.write.next_tx | 1 | 8 | 33.072 | 33.091 | 1.00 to 1.01 (mean 1.00) | flat | 0.968 to 1.046 |
+| view.adversarial_directions | 1 | 8 | 15.901 | 41.384 | 2.59 to 2.65 (mean 2.62) | grows, below linear | 0.939 to 1.045 |
+| view.advisor_rulings | 1 | 8 | 16.196 | 42.082 | 2.59 to 2.62 (mean 2.61) | grows, below linear | 0.992 to 1.005 |
+| view.architect_queue | 1 | 8 | 0.109 | 0.101 | 0.89 to 1.04 (mean 0.96) | flat | 0.874 to 0.953 |
+| view.conversation_entries | 1 | 8 | 6.614 | 6.739 | 1.01 to 1.03 (mean 1.02) | grows, below linear | 0.932 to 1.088 |
+| view.conversation_shown | 1 | 8 | 9.002 | 9.340 | 1.02 to 1.05 (mean 1.04) | grows, below linear | 0.975 to 1.008 |
+| view.item_acceptance | 1 | 8 | 0.014 | 0.013 | 0.96 to 1.01 (mean 0.98) | flat | 0.922 to 1.140 |
+| view.item_asks | 1 | 8 | 0.019 | 0.017 | 0.86 to 0.95 (mean 0.91) | faster | 0.851 to 1.296 |
+| view.item_blocked_by | 1 | 8 | 4.265 | 4.932 | 1.13 to 1.18 (mean 1.15) | grows, below linear | 0.937 to 1.065 |
+| view.item_body | 1 | 8 | 0.014 | 0.013 | 0.93 to 1.01 (mean 0.97) | flat | 0.832 to 1.202 |
+| view.item_context | 1 | 8 | 2.591 | 2.594 | 0.99 to 1.00 (mean 0.99) | flat | 0.887 to 1.076 |
+| view.item_dependencies | 1 | 8 | 0.030 | 0.030 | 0.96 to 1.07 (mean 1.01) | flat | 0.919 to 1.088 |
+| view.item_design_cards | 1 | 8 | 0.012 | 0.012 | 0.96 to 1.03 (mean 0.99) | flat | 0.916 to 1.152 |
+| view.item_problem | 1 | 8 | 0.013 | 0.013 | 0.94 to 1.02 (mean 0.98) | flat | 1.000 to 1.000 |
+| view.item_research | 1 | 8 | 13.869 | 40.854 | 2.93 to 2.98 (mean 2.96) | grows, below linear | 0.932 to 1.077 |
+| view.item_verifications | 1 | 8 | 11.957 | 35.652 | 2.97 to 3.02 (mean 3.00) | grows, below linear | 0.946 to 1.073 |
+| view.known_red_counts | 1 | 8 | 13.197 | 39.256 | 2.96 to 3.01 (mean 2.99) | grows, below linear | 0.919 to 1.090 |
+| view.merge_queue | 1 | 8 | 0.050 | 0.049 | 0.97 to 1.01 (mean 0.99) | flat | 0.966 to 1.022 |
+| view.not_applicable_answers | 1 | 8 | 75.324 | 197.177 | 2.61 to 2.63 (mean 2.62) | grows, below linear | 0.981 to 1.016 |
+| view.notebook | 1 | 8 | 1.519 | 1.427 | 0.93 to 0.96 (mean 0.94) | faster | 0.932 to 1.043 |
+| view.observations_all | 1 | 8 | 13.255 | 39.118 | 2.94 to 2.99 (mean 2.97) | grows, below linear | 0.891 to 1.101 |
+| view.observations_open | 1 | 8 | 13.314 | 39.067 | 2.91 to 2.98 (mean 2.94) | grows, below linear | 0.909 to 1.087 |
+| view.open_items | 1 | 8 | 0.375 | 0.374 | 0.98 to 1.02 (mean 1.00) | flat | 0.918 to 1.079 |
+| view.parent_design_cards | 1 | 8 | 0.017 | 0.016 | 0.87 to 1.04 (mean 0.95) | flat | 0.601 to 1.387 |
+| view.policy_current | 1 | 8 | 12.959 | 38.827 | 2.97 to 3.02 (mean 2.99) | grows, below linear | 0.899 to 1.068 |
+| view.policy_draft | 1 | 8 | 12.968 | 38.831 | 2.96 to 3.01 (mean 2.98) | grows, below linear | 0.943 to 1.003 |
+| view.ready_items | 1 | 8 | 5.181 | 5.797 | 1.12 to 1.14 (mean 1.13) | grows, below linear | 0.854 to 1.151 |
+| view.round_rows | 1 | 8 | 0.012 | 0.016 | 1.18 to 1.56 (mean 1.36) | grows, below linear | 0.683 to 1.197 |
+| view.sent_back_problems | 1 | 8 | 13.858 | 40.199 | 2.89 to 2.93 (mean 2.91) | grows, below linear | 0.958 to 1.028 |
+| view.side_reports | 1 | 8 | 71.773 | 187.186 | 2.61 to 2.62 (mean 2.62) | grows, below linear | 0.967 to 1.015 |
+| view.waited_items | 1 | 8 | 0.087 | 0.086 | 0.94 to 1.02 (mean 0.98) | flat | 0.681 to 1.258 |
+| view.waiting_interjections | 1 | 8 | 0.019 | 0.019 | 0.91 to 1.20 (mean 1.04) | flat | 0.913 to 1.058 |
+| view.work_asking | 1 | 8 | 0.010 | 0.010 | 0.98 to 1.09 (mean 1.03) | flat | 0.770 to 1.299 |
+| view.work_ci | 1 | 8 | 0.010 | 0.010 | 0.93 to 1.01 (mean 0.97) | flat | 0.900 to 1.184 |
+| view.work_counters | 1 | 8 | 39.071 | 105.521 | 2.69 to 2.72 (mean 2.71) | grows, below linear | 0.951 to 1.041 |
+| view.work_design_cards | 1 | 8 | 0.011 | 0.011 | 0.97 to 1.03 (mean 1.00) | flat | 0.909 to 1.166 |
+| view.work_followups | 1 | 8 | 21.817 | 48.260 | 2.20 to 2.23 (mean 2.21) | grows, below linear | 0.904 to 1.092 |
+| view.work_handled | 1 | 8 | 0.796 | 1.329 | 1.65 to 1.69 (mean 1.67) | grows, below linear | 0.903 to 1.043 |
+| view.work_history | 1 | 8 | 0.012 | 0.017 | 1.30 to 1.55 (mean 1.42) | grows, below linear | 1.000 to 1.000 |
+| view.work_measurements | 1 | 8 | 4.181 | 4.329 | 1.01 to 1.04 (mean 1.03) | grows, below linear | 0.844 to 1.105 |
+| view.work_open_questions | 1 | 8 | 0.081 | 0.080 | 0.95 to 1.00 (mean 0.97) | faster | 0.795 to 1.298 |
+| view.work_owner_words | 1 | 8 | 0.347 | 0.358 | 1.02 to 1.04 (mean 1.03) | grows, below linear | 0.951 to 1.060 |
+| view.work_progress | 1 | 8 | 11.971 | 35.464 | 2.95 to 3.00 (mean 2.98) | grows, below linear | 0.949 to 1.090 |
+| view.work_review_record | 1 | 8 | 0.010 | 0.010 | 0.89 to 1.02 (mean 0.95) | flat | 0.638 to 1.235 |
+| view.work_routes | 1 | 8 | 0.030 | 0.030 | 0.97 to 1.00 (mean 0.99) | faster | 0.965 to 1.060 |
+| view.work_set_aside | 1 | 8 | 12.690 | 37.965 | 2.99 to 3.03 (mean 3.01) | grows, below linear | 0.889 to 1.097 |
+| view.work_state | 1 | 8 | 0.010 | 0.010 | 0.89 to 1.02 (mean 0.95) | flat | 0.645 to 1.536 |
+
+| path | rows 1 | bytes 1 | ms 1 | ms 10 | ratio 10/1 (95% interval) | class | noise of ms 1 (twin/base) |
+|---|---|---|---|---|---|---|---|
+| api.architect.matters | 100 | 202226 | 3.479 | 19.667 | 5.52 to 5.67 (mean 5.59) | grows, below linear | 0.953 to 0.979 |
+| api.architect.notebook | 410 | 866382 | 3.046 | 52.304 | 17.22 to 17.75 (mean 17.48) | superlinear | 0.912 to 1.017 |
+| api.architect.rounds_window | 100 | 2400 | 22.816 | 231.627 | 10.09 to 10.20 (mean 10.14) | superlinear | 0.923 to 1.022 |
+| api.content | 0 | 0 | 3.625 | 3.653 | 0.99 to 1.02 (mean 1.01) | flat | 0.917 to 1.030 |
+| api.conversation.architect | 129 | 25026 | 5.839 | 1018.437 | 171.21 to 175.49 (mean 173.34) | superlinear | 0.946 to 1.020 |
+| api.conversation.work | 9 | 2682 | 5.670 | 1014.698 | 174.60 to 182.86 (mean 178.68) | superlinear | 0.947 to 1.048 |
+| api.conversations | 1096 | 61757 | 18.610 | 1972.408 | 104.72 to 108.81 (mean 106.75) | superlinear | 0.947 to 1.027 |
+| api.events.row_lookups | 200 | 0 | 4.098 | 4.162 | 1.01 to 1.02 (mean 1.01) | grows, below linear | 0.890 to 1.098 |
+| api.flows | 56 | 1390 | 0.975 | 91.997 | 92.82 to 96.09 (mean 94.44) | superlinear | 0.967 to 1.051 |
+| api.item.level_changes | 0 | 0 | 7.134 | 65.648 | 9.09 to 9.33 (mean 9.21) | grows, below linear | 0.934 to 1.034 |
+| api.item.outputs | 17 | 35829 | 0.074 | 0.055 | 0.71 to 0.81 (mean 0.76) | faster | 0.669 to 1.328 |
+| api.items_extra | 713 | 56525 | 9.293 | 124.298 | 13.25 to 13.80 (mean 13.52) | superlinear | 0.927 to 0.969 |
+| api.observations | 280 | 238861 | 17.073 | 180.652 | 10.54 to 10.79 (mean 10.66) | superlinear | 0.969 to 1.030 |
+| api.round | 1 | 4675 | 0.036 | 0.044 | 1.12 to 1.23 (mean 1.18) | grows, below linear | 0.970 to 1.050 |
+| api.system.counted | 14284 | 543019 | 67.288 | 691.446 | 10.17 to 10.40 (mean 10.28) | superlinear | 0.958 to 1.033 |
+| api.system.item_events | 311 | 20526 | 44.775 | 664.323 | 14.64 to 15.00 (mean 14.82) | superlinear | 0.957 to 1.039 |
+| api.system.rounds_since | 14845 | 1230280 | 108.988 | 623.844 | 5.62 to 5.75 (mean 5.68) | grows, below linear | 0.932 to 1.036 |
+| api.system.work_changes | 15774 | 378889 | 63.880 | 798.877 | 12.40 to 12.62 (mean 12.51) | superlinear | 0.961 to 1.042 |
+| api.system.works_of | 363 | 38716 | 66.646 | 678.131 | 10.08 to 10.19 (mean 10.13) | superlinear | 0.945 to 1.019 |
+| api.work.arch | 3330 | 29812160 | 73.802 | 72.507 | 0.97 to 1.00 (mean 0.99) | faster | 0.955 to 1.020 |
+| api.work.eng | 85 | 1023288 | 2.044 | 2.050 | 1.01 to 1.04 (mean 1.02) | grows, below linear | 0.893 to 1.062 |
+| api.works | 7727 | 478993 | 58.543 | 619.551 | 10.54 to 10.63 (mean 10.59) | superlinear | 0.973 to 1.005 |
+| engine.rare.merges_of_commit | 0 | 0 | 75.553 | 762.587 | 10.05 to 10.15 (mean 10.10) | superlinear | 0.972 to 1.036 |
+| engine.round.architect_time | 1 | 8 | 21.535 | 204.304 | 9.41 to 9.55 (mean 9.48) | grows, below linear | 0.991 to 1.032 |
+| engine.round.asked_matters | 0 | 0 | 0.084 | 4.102 | 46.41 to 50.31 (mean 48.32) | superlinear | 0.942 to 1.029 |
+| engine.round.ci_results | 45 | 207766 | 0.360 | 0.470 | 1.28 to 1.34 (mean 1.31) | grows, below linear | 0.906 to 1.167 |
+| engine.round.counter_of_work | 1 | 8 | 0.017 | 0.016 | 0.89 to 1.00 (mean 0.94) | faster | 0.794 to 1.215 |
+| engine.round.counters_all | 838 | 19017 | 40.500 | 408.359 | 10.01 to 10.13 (mean 10.07) | superlinear | 0.966 to 1.042 |
+| engine.round.counts_from_flow | 1 | 7 | 1.956 | 1.869 | 0.92 to 1.04 (mean 0.98) | flat | 0.865 to 1.127 |
+| engine.round.fact_basis | 1 | 8 | 1.187 | 1.481 | 1.23 to 1.27 (mean 1.25) | grows, below linear | 0.962 to 1.035 |
+| engine.round.interjections_words | 1 | 8 | 0.031 | 0.642 | 20.44 to 21.00 (mean 20.72) | superlinear | 0.944 to 1.037 |
+| engine.round.item_merged | 1 | 8 | 0.020 | 0.020 | 0.87 to 1.05 (mean 0.96) | flat | 0.680 to 1.739 |
+| engine.round.opens | 1 | 8 | 0.019 | 0.024 | 1.25 to 1.34 (mean 1.30) | grows, below linear | 0.838 to 1.116 |
+| engine.round.own_rounds.arch | 1689 | 18622637 | 28.151 | 152.239 | 5.36 to 5.47 (mean 5.42) | grows, below linear | 0.976 to 1.046 |
+| engine.round.own_rounds.eng | 29 | 334120 | 13.866 | 137.284 | 9.79 to 9.97 (mean 9.88) | grows, below linear | 0.967 to 1.048 |
+| engine.round.rounds.arch | 3330 | 29317282 | 27.179 | 27.833 | 1.01 to 1.04 (mean 1.03) | grows, below linear | 0.954 to 1.056 |
+| engine.round.rounds.eng | 85 | 1010216 | 0.608 | 0.621 | 0.99 to 1.03 (mean 1.01) | flat | 0.959 to 1.075 |
+| engine.round.rounds.eng_big | 326 | 3756461 | 2.884 | 2.881 | 0.93 to 1.05 (mean 0.98) | flat | 0.668 to 1.307 |
+| engine.round.rounds_at | 27 | 377151 | 0.337 | 0.323 | 0.96 to 0.99 (mean 0.98) | faster | 0.830 to 1.156 |
+| engine.round.rounds_of_matter | 0 | 0 | 17.107 | 178.433 | 10.28 to 10.45 (mean 10.37) | superlinear | 0.983 to 1.018 |
+| engine.round.time_limit | 1 | 8 | 0.987 | 0.968 | 0.92 to 1.01 (mean 0.96) | flat | 0.956 to 1.092 |
+| engine.step.open_round.arch | 0 | 0 | 3.316 | 3.174 | 0.94 to 1.06 (mean 0.99) | flat | 0.889 to 1.082 |
+| engine.step.open_round.eng | 0 | 0 | 0.033 | 0.033 | 1.00 to 1.07 (mean 1.03) | grows, below linear | 0.967 to 1.056 |
+| engine.step.resumed_at | 1 | 0 | 4.079 | 41.224 | 10.04 to 10.19 (mean 10.12) | superlinear | 0.980 to 1.028 |
+| engine.step.stop_asked | 1 | 8 | 0.011 | 0.011 | 0.95 to 1.01 (mean 0.98) | flat | 0.900 to 1.184 |
+| engine.step.take_if_past | 10 | 261 | 0.025 | 0.025 | 0.95 to 1.04 (mean 0.99) | flat | 0.702 to 1.291 |
+| engine.turn.active_pass | 304 | 54 | 26.038 | 262.036 | 10.03 to 10.12 (mean 10.08) | superlinear | 0.970 to 1.027 |
+| engine.turn.architect_queue | 34 | 56179 | 0.287 | 3.537 | 11.54 to 13.12 (mean 12.30) | superlinear | 0.939 to 1.070 |
+| engine.turn.architect_running | 1 | 8 | 0.011 | 0.011 | 0.93 to 1.00 (mean 0.96) | faster | 0.909 to 1.166 |
+| engine.turn.job_open | 1 | 0 | 2.214 | 2.178 | 0.98 to 0.99 (mean 0.98) | faster | 0.958 to 1.012 |
+| engine.turn.keep_warm_scan | 318 | 0 | 27.348 | 276.870 | 10.07 to 10.17 (mean 10.12) | superlinear | 0.982 to 1.009 |
+| engine.turn.main_watch_matters | 1 | 8 | 0.101 | 3.134 | 30.69 to 32.40 (mean 31.53) | superlinear | 0.903 to 1.214 |
+| engine.turn.ready_items | 48 | 936 | 5.441 | 84.170 | 15.31 to 15.99 (mean 15.65) | superlinear | 0.913 to 1.088 |
+| engine.turn.reload_config | | | 30.827 |  | no pair | | |
+| engine.turn.reminder | 2 | 32 | 0.356 | 88.273 | 243.10 to 253.17 (mean 248.08) | superlinear | 0.921 to 1.050 |
+| engine.turn.slots_free_history | 1 | 84 | 0.150 | 5.290 | 33.31 to 35.55 (mean 34.41) | superlinear | 0.989 to 1.166 |
+| engine.turn.slots_pass | 304 | 54 | 26.456 | 268.232 | 10.05 to 10.13 (mean 10.09) | superlinear | 0.987 to 1.009 |
+| engine.turn.stopping | 0 | 0 | 0.045 | 0.369 | 7.80 to 8.26 (mean 8.03) | grows, below linear | 0.821 to 1.152 |
+| engine.write.next_tx | 1 | 8 | 33.072 | 333.920 | 10.00 to 10.16 (mean 10.08) | linear | 0.968 to 1.046 |
+| view.adversarial_directions | 1 | 8 | 15.901 | 160.045 | 9.99 to 10.27 (mean 10.13) | linear | 0.939 to 1.045 |
+| view.advisor_rulings | 1 | 8 | 16.196 | 165.647 | 10.17 to 10.35 (mean 10.26) | superlinear | 0.992 to 1.005 |
+| view.architect_queue | 1 | 8 | 0.109 | 3.238 | 28.34 to 30.55 (mean 29.43) | superlinear | 0.874 to 0.953 |
+| view.conversation_entries | 1 | 8 | 6.614 | 1040.676 | 154.90 to 160.27 (mean 157.56) | superlinear | 0.932 to 1.088 |
+| view.conversation_shown | 1 | 8 | 9.002 | 1067.102 | 116.53 to 120.15 (mean 118.33) | superlinear | 0.975 to 1.008 |
+| view.item_acceptance | 1 | 8 | 0.014 | 0.871 | 58.91 to 67.52 (mean 63.07) | superlinear | 0.922 to 1.140 |
+| view.item_asks | 1 | 8 | 0.019 | 0.106 | 5.34 to 5.86 (mean 5.59) | grows, below linear | 0.851 to 1.296 |
+| view.item_blocked_by | 1 | 8 | 4.265 | 71.038 | 16.24 to 16.96 (mean 16.60) | superlinear | 0.937 to 1.065 |
+| view.item_body | 1 | 8 | 0.014 | 0.922 | 61.64 to 70.35 (mean 65.85) | superlinear | 0.832 to 1.202 |
+| view.item_context | 1 | 8 | 2.591 | 63.201 | 24.16 to 24.45 (mean 24.31) | superlinear | 0.887 to 1.076 |
+| view.item_dependencies | 1 | 8 | 0.030 | 0.967 | 31.21 to 33.30 (mean 32.23) | superlinear | 0.919 to 1.088 |
+| view.item_design_cards | 1 | 8 | 0.012 | 0.037 | 2.93 to 3.27 (mean 3.10) | grows, below linear | 0.916 to 1.152 |
+| view.item_problem | 1 | 8 | 0.013 | 0.859 | 58.88 to 67.18 (mean 62.89) | superlinear | 1.000 to 1.000 |
+| view.item_research | 1 | 8 | 13.869 | 139.205 | 10.00 to 10.24 (mean 10.12) | linear | 0.932 to 1.077 |
+| view.item_verifications | 1 | 8 | 11.957 | 121.061 | 10.04 to 10.39 (mean 10.21) | superlinear | 0.946 to 1.073 |
+| view.known_red_counts | 1 | 8 | 13.197 | 133.475 | 10.05 to 10.24 (mean 10.15) | superlinear | 0.919 to 1.090 |
+| view.merge_queue | 1 | 8 | 0.050 | 0.383 | 7.56 to 7.97 (mean 7.76) | grows, below linear | 0.966 to 1.022 |
+| view.not_applicable_answers | 1 | 8 | 75.324 | 760.392 | 10.09 to 10.15 (mean 10.12) | superlinear | 0.981 to 1.016 |
+| view.notebook | 1 | 8 | 1.519 | 28.650 | 18.62 to 19.24 (mean 18.93) | superlinear | 0.932 to 1.043 |
+| view.observations_all | 1 | 8 | 13.255 | 133.460 | 10.07 to 10.26 (mean 10.16) | superlinear | 0.891 to 1.101 |
+| view.observations_open | 1 | 8 | 13.314 | 133.990 | 9.99 to 10.14 (mean 10.06) | linear | 0.909 to 1.087 |
+| view.open_items | 1 | 8 | 0.375 | 5.436 | 14.30 to 14.81 (mean 14.55) | superlinear | 0.918 to 1.079 |
+| view.parent_design_cards | 1 | 8 | 0.017 | 0.091 | 4.88 to 5.54 (mean 5.20) | grows, below linear | 0.601 to 1.387 |
+| view.policy_current | 1 | 8 | 12.959 | 131.915 | 10.06 to 10.29 (mean 10.17) | superlinear | 0.899 to 1.068 |
+| view.policy_draft | 1 | 8 | 12.968 | 132.106 | 10.06 to 10.30 (mean 10.18) | superlinear | 0.943 to 1.003 |
+| view.ready_items | 1 | 8 | 5.181 | 82.603 | 15.73 to 16.23 (mean 15.98) | superlinear | 0.854 to 1.151 |
+| view.round_rows | 1 | 8 | 0.012 | 0.616 | 44.62 to 51.86 (mean 48.10) | superlinear | 0.683 to 1.197 |
+| view.sent_back_problems | 1 | 8 | 13.858 | 139.880 | 10.09 to 10.22 (mean 10.16) | superlinear | 0.958 to 1.028 |
+| view.side_reports | 1 | 8 | 71.773 | 727.920 | 10.11 to 10.17 (mean 10.14) | superlinear | 0.967 to 1.015 |
+| view.waited_items | 1 | 8 | 0.087 | 2.022 | 22.07 to 24.15 (mean 23.09) | superlinear | 0.681 to 1.258 |
+| view.waiting_interjections | 1 | 8 | 0.019 | 0.119 | 5.80 to 6.37 (mean 6.08) | grows, below linear | 0.913 to 1.058 |
+| view.work_asking | 1 | 8 | 0.010 | 0.010 | 1.00 to 1.09 (mean 1.05) | grows, below linear | 0.770 to 1.299 |
+| view.work_ci | 1 | 8 | 0.010 | 0.010 | 0.95 to 1.05 (mean 1.00) | flat | 0.900 to 1.184 |
+| view.work_counters | 1 | 8 | 39.071 | 395.538 | 10.02 to 10.14 (mean 10.08) | superlinear | 0.951 to 1.041 |
+| view.work_design_cards | 1 | 8 | 0.011 | 0.019 | 1.66 to 1.74 (mean 1.70) | grows, below linear | 0.909 to 1.166 |
+| view.work_followups | 1 | 8 | 21.817 | 217.529 | 9.95 to 10.02 (mean 9.98) | linear | 0.904 to 1.092 |
+| view.work_handled | 1 | 8 | 0.796 | 16.092 | 19.85 to 20.47 (mean 20.16) | superlinear | 0.903 to 1.043 |
+| view.work_history | 1 | 8 | 0.012 | 0.553 | 43.47 to 48.11 (mean 45.73) | superlinear | 1.000 to 1.000 |
+| view.work_measurements | 1 | 8 | 4.181 | 44.305 | 10.34 to 10.79 (mean 10.57) | superlinear | 0.844 to 1.105 |
+| view.work_open_questions | 1 | 8 | 0.081 | 3.029 | 35.16 to 37.96 (mean 36.53) | superlinear | 0.795 to 1.298 |
+| view.work_owner_words | 1 | 8 | 0.347 | 9.845 | 27.81 to 28.95 (mean 28.37) | superlinear | 0.951 to 1.060 |
+| view.work_progress | 1 | 8 | 11.971 | 119.862 | 9.97 to 10.20 (mean 10.09) | linear | 0.949 to 1.090 |
+| view.work_review_record | 1 | 8 | 0.010 | 0.010 | 0.90 to 1.05 (mean 0.97) | flat | 0.638 to 1.235 |
+| view.work_routes | 1 | 8 | 0.030 | 0.213 | 7.00 to 7.21 (mean 7.10) | grows, below linear | 0.965 to 1.060 |
+| view.work_set_aside | 1 | 8 | 12.690 | 128.985 | 10.08 to 10.32 (mean 10.20) | superlinear | 0.889 to 1.097 |
+| view.work_state | 1 | 8 | 0.010 | 0.011 | 0.93 to 1.10 (mean 1.01) | flat | 0.645 to 1.536 |
+
+One flush of the page (the statements of api.works, api.items_extra, api.conversations, api.system.works_of, api.system.rounds_since, api.system.counted, api.system.work_changes, api.system.item_events), median over the processes:
+  scale 1: 438.2 ms, 2808705 bytes of result (9 processes)
+  scale 1L10: 802.3 ms, 3736455 bytes of result (9 processes)
+  scale 10: 6181.7 ms, 19148265 bytes of result (9 processes)
+
+PLAN api.architect.matters: SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN api.architect.notebook: SEARCH e USING INDEX notebook_edits_by_section (project=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN api.architect.rounds_window: SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN api.content: SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN api.conversation.architect: CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN api.conversation.work: CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN api.conversations: CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 31 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN api.flows: SCAN v / CORRELATED SCALAR SUBQUERY 1 / SCAN w
+PLAN api.item.level_changes: SEARCH changes USING INDEX changes_by_row (table_name=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN api.item.outputs: SEARCH w USING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN api.items_extra: SCAN l USING INDEX sqlite_autoindex_item_links_1 / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH d USING INTEGER PRIMARY KEY (rowid=?) || SCAN i / SEARCH q USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH w USING INDEX works_by_item (item=?) / CORRELATED SCALAR SUBQUERY 4 / SEARCH r USING COVERING INDEX rounds_counts (work=? AND counts=?) / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) || SCAN item_links USING INDEX sqlite_autoindex_item_links_1
+PLAN api.observations: MATERIALIZE m / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SEARCH o USING INDEX observations_by_project (project=?) / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 4
+PLAN api.round: SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN api.system.counted: SCAN rounds USING INDEX sqlite_autoindex_rounds_1
+PLAN api.system.item_events: SCAN i / SEARCH c USING INDEX changes_by_row (table_name=? AND row_key=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN api.system.rounds_since: SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN api.system.work_changes: SEARCH c USING INDEX changes_by_row (table_name=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN api.system.works_of: SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN api.work.arch: SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN api.work.eng: SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 1 / SEARCH t USING COVERING INDEX tool_runs_by_round (work=? AND round=?) / CORRELATED SCALAR SUBQUERY 2 / SEARCH x USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN api.works: SCAN owner_asks USING INDEX owner_asks_by_round || SCAN design_cards USING INDEX design_cards_by_round || SCAN p / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY || SCAN tool_runs USING INDEX tool_runs_by_round || SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN || SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 1 / SCAN w
+PLAN engine.rare.merges_of_commit: SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN engine.round.architect_time: SCAN w / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.round.asked_matters: SCAN architect_matters
+PLAN engine.round.ci_results: SEARCH tool_runs USING INDEX tool_runs_by_round (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN engine.round.counter_of_work: CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SEARCH r USING COVERING INDEX rounds_counts (work=? AND counts=?) / UNION ALL / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH work_counters
+PLAN engine.round.counters_all: CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN r USING COVERING INDEX rounds_counts / UNION ALL / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SCAN work_counters
+PLAN engine.round.counts_from_flow: SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH v USING INTEGER PRIMARY KEY (rowid=?) / SCAN g VIRTUAL TABLE INDEX 3: / SCAN c VIRTUAL TABLE INDEX 3: / SCAN row VIRTUAL TABLE INDEX 3:
+PLAN engine.round.fact_basis: SEARCH tool_runs USING INDEX tool_runs_by_round (work=?)
+PLAN engine.round.interjections_words: SCAN interjections / SCALAR SUBQUERY 1 / SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.round.item_merged: SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.round.opens: SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 1 / SCAN json_each VIRTUAL TABLE INDEX 1:
+PLAN engine.round.own_rounds.arch: SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH s USING INTEGER PRIMARY KEY (rowid=?)
+PLAN engine.round.own_rounds.eng: SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH s USING INTEGER PRIMARY KEY (rowid=?)
+PLAN engine.round.rounds.arch: SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.round.rounds.eng: SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.round.rounds.eng_big: SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.round.rounds_at: SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.round.rounds_of_matter: SCAN r / LIST SUBQUERY 1 / SCAN sessions / CORRELATED SCALAR SUBQUERY 2 / SEARCH l USING INDEX sqlite_autoindex_rounds_1 (work=? AND n<?) / USE TEMP B-TREE FOR ORDER BY
+PLAN engine.round.time_limit: SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=? AND n>? AND n<?)
+PLAN engine.step.open_round.arch: SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.step.open_round.eng: SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.step.resumed_at: SEARCH changes USING INDEX changes_by_row (table_name=?)
+PLAN engine.step.stop_asked: SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 1 / SCAN o
+PLAN engine.step.take_if_past: SEARCH rounds USING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN engine.turn.architect_queue: SEARCH m USING INDEX architect_matters_waiting (project=?) / CORRELATED SCALAR SUBQUERY 4 / SEARCH a USING INTEGER PRIMARY KEY (rowid=?) / SEARCH m USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH b USING INDEX blockers_open (work=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN engine.turn.architect_running: SEARCH works
+PLAN engine.turn.main_watch_matters: SCAN architect_matters
+PLAN engine.turn.ready_items: SCAN i / LIST SUBQUERY 3 / SCAN w / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 6 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?) / LIST SUBQUERY 7
+PLAN engine.turn.reminder: SEARCH engine_notices || CO-ROUTINE (subquery-31) / CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN engine.turn.slots_free_history: SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY
+PLAN engine.turn.stopping: SCAN w / CORRELATED SCALAR SUBQUERY 1 / SCAN o
+PLAN engine.write.next_tx: SEARCH changes
+PLAN view.adversarial_directions: SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SCAN d VIRTUAL TABLE INDEX 3:
+PLAN view.advisor_rulings: SCAN r / SCAN x VIRTUAL TABLE INDEX 3:
+PLAN view.architect_queue: CO-ROUTINE architect_queue / SCAN m / CORRELATED SCALAR SUBQUERY 4 / SEARCH a USING INTEGER PRIMARY KEY (rowid=?) / SCAN architect_queue
+PLAN view.conversation_entries: CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / SEARCH s USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN view.conversation_shown: CO-ROUTINE conversation_entries / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 30 / SEARCH x USING INTEGER PRIMARY KEY (rowid=?)
+PLAN view.item_acceptance: SCAN items
+PLAN view.item_asks: SCAN a USING COVERING INDEX owner_asks_by_round / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN view.item_blocked_by: SCAN l / CORRELATED SCALAR SUBQUERY 3 / SEARCH w USING COVERING INDEX works_by_item (item=?) / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH d USING INTEGER PRIMARY KEY (rowid=?)
+PLAN view.item_body: SCAN items
+PLAN view.item_context: CO-ROUTINE item_context / COMPOUND QUERY / LEFT-MOST SUBQUERY / CO-ROUTINE up / SETUP / SCAN item_links / RECURSIVE STEP / SCAN up
+PLAN view.item_dependencies: SCAN l USING COVERING INDEX item_links_by_depends_on / SEARCH d USING INTEGER PRIMARY KEY (rowid=?)
+PLAN view.item_design_cards: SCAN c USING COVERING INDEX design_cards_by_round / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN view.item_problem: SCAN items
+PLAN view.item_research: SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN view.item_verifications: SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SCAN v VIRTUAL TABLE INDEX 3:
+PLAN view.known_red_counts: CO-ROUTINE known_red_counts / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN / USE TEMP B-TREE FOR GROUP BY / SCAN known_red_counts
+PLAN view.merge_queue: CO-ROUTINE merge_queue / SCAN w / SEARCH i USING INTEGER PRIMARY KEY (rowid=?) / CORRELATED SCALAR SUBQUERY 3 / SEARCH c USING INDEX changes_by_row (table_name=? AND row_key=?) / USE TEMP B-TREE FOR ORDER BY / SCAN merge_queue
+PLAN view.not_applicable_answers: SCAN r
+PLAN view.notebook: CO-ROUTINE (subquery-3) / CO-ROUTINE (subquery-4) / SCAN notebook_edits USING INDEX notebook_edits_by_section / USE TEMP B-TREE FOR RIGHT PART OF ORDER BY / SCAN (subquery-4) / SCAN (subquery-3)
+PLAN view.observations_all: MATERIALIZE m / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SCAN o / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN
+PLAN view.observations_open: MATERIALIZE m / SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR GROUP BY / SCAN o / BLOOM FILTER ON m (item=?) / SEARCH m USING AUTOMATIC COVERING INDEX (item=?) LEFT-JOIN
+PLAN view.open_items: CO-ROUTINE open_items / SCAN i / SEARCH w USING INDEX works_by_item (item=?) LEFT-JOIN / CORRELATED SCALAR SUBQUERY 4 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 5 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?) / SEARCH q USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN view.parent_design_cards: SCAN c USING INDEX design_cards_current / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / SEARCH l USING COVERING INDEX sqlite_autoindex_item_links_1 (item=?)
+PLAN view.policy_current: CO-ROUTINE (subquery-3) / CO-ROUTINE (subquery-8) / SCAN a / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY / SCAN (subquery-8) / CORRELATED SCALAR SUBQUERY 4 / SCAN t USING INDEX sqlite_autoindex_rounds_1
+PLAN view.policy_draft: CO-ROUTINE d / CO-ROUTINE (subquery-5) / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SEARCH w USING INTEGER PRIMARY KEY (rowid=?) / USE TEMP B-TREE FOR ORDER BY / SCAN (subquery-5) / SCAN d / CORRELATED SCALAR SUBQUERY 4
+PLAN view.ready_items: CO-ROUTINE ready_items / SCAN i / LIST SUBQUERY 3 / SCAN w / CORRELATED SCALAR SUBQUERY 5 / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / CORRELATED SCALAR SUBQUERY 6 / SEARCH x USING COVERING INDEX sqlite_autoindex_rounds_1 (work=?)
+PLAN view.round_rows: SCAN rounds USING COVERING INDEX sqlite_autoindex_rounds_1
+PLAN view.sent_back_problems: SCAN r / SCAN p VIRTUAL TABLE INDEX 3:
+PLAN view.side_reports: SCAN r / SCAN s VIRTUAL TABLE INDEX 3:
+PLAN view.waited_items: SCAN l USING COVERING INDEX sqlite_autoindex_item_links_1 / SEARCH d USING INTEGER PRIMARY KEY (rowid=?) / SEARCH w USING COVERING INDEX works_by_item (item=?)
+PLAN view.waiting_interjections: SCAN j USING INDEX interjections_waiting / SEARCH c USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN
+PLAN view.work_asking: SCAN works USING COVERING INDEX works_by_item
+PLAN view.work_ci: SCAN works USING COVERING INDEX works_by_item
+PLAN view.work_counters: CO-ROUTINE work_counters / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN r USING COVERING INDEX rounds_counts / UNION ALL / SCAN r USING INDEX sqlite_autoindex_rounds_1 / SCAN work_counters
+PLAN view.work_design_cards: SCAN c USING INDEX design_cards_current
+PLAN view.work_followups: SCAN r / SEARCH w USING INTEGER PRIMARY KEY (rowid=?)
+PLAN view.work_handled: CO-ROUTINE work_handled / SCAN m / SEARCH r USING INDEX sqlite_autoindex_rounds_1 (work=? AND n=?) / USE TEMP B-TREE FOR ORDER BY / SCAN work_handled
+PLAN view.work_history: SCAN rounds USING COVERING INDEX sqlite_autoindex_rounds_1
+PLAN view.work_measurements: SCAN t
+PLAN view.work_open_questions: SCAN m
+PLAN view.work_owner_words: CO-ROUTINE work_owner_words / COMPOUND QUERY / LEFT-MOST SUBQUERY / SCAN m / UNION ALL / SCAN m / UNION ALL / SCAN j
+PLAN view.work_progress: SCAN r
+PLAN view.work_review_record: SCAN works USING COVERING INDEX works_by_item
+PLAN view.work_routes: SCAN w
+PLAN view.work_set_aside: SCAN r / SCAN p VIRTUAL TABLE INDEX 1:
+PLAN view.work_state: SCAN works USING COVERING INDEX works_by_item
+
+NOTE added after the run, not printed by `summarize`: the class column above is the program's. For api.architect.matters,
+api.items_extra and view.architect_queue the interval of the noise (twin/base) lies wholly below 1, so by the criterion of
+item #248 (A3) these three paths are unresolved and their class is withdrawn; research/repeated-paths.md section 2 says so.
