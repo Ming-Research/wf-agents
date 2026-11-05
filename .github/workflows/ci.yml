@@ -59,7 +59,11 @@ jobs:
         run: git clean -ffdxq -e target -e client/node_modules -e client/dist
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: rustup toolchain install
+      # The project's machine has it from an earlier run: its runners share a home, and installing at once they collide.
+      - id: nextest
+        run: if cargo nextest --version 2>/dev/null | grep -q '0.9.146'; then echo "have=true" >> "$GITHUB_OUTPUT"; fi
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        if: steps.nextest.outputs.have != 'true'
         with:
           tool: cargo-nextest@0.9.146
       # The three jobs build the same, so one of them keeps the cache.
