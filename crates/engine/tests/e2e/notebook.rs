@@ -87,7 +87,7 @@ fn what_a_matter_adds_is_read_by_the_next_matter_and_the_parts_stay() {
     let s = setup("notebook-lines");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -123,7 +123,7 @@ fn what_a_matter_adds_is_read_by_the_next_matter_and_the_parts_stay() {
         ],
         "{log}"
     );
-    let later = input_at(&e, arch, "H8", true);
+    let later = input_at(&e, arch, "H1", true);
     assert_eq!(given_ending(&later, "·engine·appended"), Some(true), "{later}");
     let came = later["message"].as_str().unwrap();
     assert!(came.contains("Noted the parser."), "{came}");
@@ -146,7 +146,7 @@ fn what_is_asked_of_the_owner_and_answered_is_read_after_the_base() {
     let s = setup("notebook-asked");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 asks_the_owner("The parser first? QUESTIONWORDS")
@@ -166,7 +166,7 @@ fn what_is_asked_of_the_owner_and_answered_is_read_after_the_base() {
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let next = message_at(&e, first, "H8", true);
+    let next = message_at(&e, first, "H1", true);
     assert!(
         next.contains("architect to owner: The parser first? QUESTIONWORDS"),
         "{next}"
@@ -189,7 +189,7 @@ fn what_is_asked_of_the_owner_and_answered_is_read_after_the_base() {
         [("matter".to_string(), "fork".to_string(), Some(base), true, true)],
         "{log}"
     );
-    let answered = message_at(&e, again, "H8", false);
+    let answered = message_at(&e, again, "H1", false);
     assert!(answered.contains("The parser first? QUESTIONWORDS"), "{answered}");
     assert!(answered.contains("The owner answered: Yes. ANSWERWORDS"), "{answered}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -203,7 +203,7 @@ fn a_new_base_writes_its_understanding_from_nothing_and_its_plan_takes_in_what_c
     let s = setup("notebook-new-base");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             let lines = json!({ "plan": "The parser comes first.", "understanding": "The parser moved." });
             (Vec::new(), vec![("outcome.notebook", lines)])
@@ -230,7 +230,7 @@ fn a_new_base_writes_its_understanding_from_nothing_and_its_plan_takes_in_what_c
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["Q0", "U1", "N1", "Q0", "Q2", "H8", "G1", "Q0", "E2"],
+        ["Q0", "U1", "N1", "Q0", "Q2", "H1", "G1", "Q0", "E2"],
         "{log}"
     );
     let understanding = message_at(&e, second, "U1", false);
@@ -260,7 +260,7 @@ fn a_new_base_writes_its_understanding_from_nothing_and_its_plan_takes_in_what_c
         ],
         "{log}"
     );
-    let answer = message_at(&e, second, "H8", false);
+    let answer = message_at(&e, second, "H1", false);
     assert!(
         !answer.contains("It adds to the plan: The parser comes first."),
         "{answer}"

@@ -1772,19 +1772,20 @@
       "name": "reply",
       "title": "Architect's reply",
       "type": "obj",
-      "desc": "The reply to the side that asked you",
+      "desc": "The reply to whoever the matter came from; leave it out when no one waits. To the owner in the owner's language (the setting `owner.language`), to another architect in English",
       "fields": [
         {
           "name": "text",
           "title": "What was done and decided",
           "type": "text",
-          "desc": "What was done and decided, concretely enough that the side that asked can carry on from it; if it must change its design, or what its work must deliver has changed, say so plainly; if sub-items were split off, say plainly that the work must redesign for the part that remains"
+          "desc": "What was done and decided, concretely enough that the side that asked can carry on from it"
         },
         {
           "name": "why",
           "title": "Why",
           "type": "text",
-          "desc": "Why it was done this way"
+          "desc": "Why it was done this way",
+          "optional": true
         },
         {
           "name": "departure",
@@ -1923,107 +1924,6 @@
           ]
         }
       ]
-    },
-    "arch_judgment": {
-      "type": "obj",
-      "fields": [
-        {
-          "name": "principles",
-          "title": "Articles of the constitution touched",
-          "type": "list",
-          "desc": "Which articles of the constitution this touches and what each implies here, one per row; if it touches none, an empty list, and say why in fit",
-          "item": {
-            "type": "obj",
-            "fields": [
-              {
-                "name": "principle",
-                "title": "Article",
-                "type": "text",
-                "desc": "Which article, by its name in the constitution"
-              },
-              {
-                "name": "implies",
-                "title": "What it implies",
-                "type": "text",
-                "desc": "What it implies in this matter"
-              }
-            ]
-          }
-        },
-        {
-          "name": "touches",
-          "title": "Items touched",
-          "type": "list",
-          "desc": "Which items this touches and how, one per row; an empty list if none",
-          "item": {
-            "type": "obj",
-            "fields": [
-              {
-                "name": "item",
-                "title": "Item",
-                "type": "int",
-                "desc": "The item's number"
-              },
-              {
-                "name": "how",
-                "title": "How",
-                "type": "text",
-                "desc": "How: a duplicate, a dependency, it blocks this, the root lies in it, or something else"
-              }
-            ]
-          }
-        },
-        {
-          "name": "options",
-          "title": "Ways thought through",
-          "type": "list",
-          "desc": "The ways there really are, each with what follows from it; for one the owner's answer decided, only that one",
-          "item": {
-            "type": "obj",
-            "fields": [
-              {
-                "name": "name",
-                "title": "Name",
-                "type": "text",
-                "desc": "What it is called, in a few words"
-              },
-              {
-                "name": "does",
-                "title": "What it does",
-                "type": "text",
-                "desc": "What it does, concretely"
-              },
-              {
-                "name": "result",
-                "title": "What follows",
-                "type": "text",
-                "desc": "What follows from it: the gain, the cost and the risk"
-              },
-              {
-                "name": "why",
-                "title": "Why chosen or not",
-                "type": "text",
-                "desc": "For the one chosen, why it is chosen; for the others, why not"
-              }
-            ]
-          }
-        },
-        {
-          "name": "fit",
-          "title": "Fit with the policy",
-          "type": "text",
-          "desc": "Whether it fits the policy: by which principle of the policy, and where it puts the items concerned in the order works start in"
-        },
-        {
-          "name": "inferred",
-          "title": "Inferred, not yet checked",
-          "type": "text",
-          "desc": "Which conclusions were deduced from reading code and not yet checked; for an inference that decides the direction, which item checks it first. If all were checked, say so"
-        }
-      ],
-      "name": "judgment",
-      "title": "Judgment",
-      "desc": "What this touches, how you judged and why: the owner reads it as your log"
     },
     "policy": {
       "type": "obj",
@@ -2871,70 +2771,6 @@
         }
       ],
       "optional": true
-    },
-    "finding_sure": {
-      "name": "sure",
-      "title": "How sure",
-      "type": "enum",
-      "desc": "How sure you are",
-      "values": [
-        [
-          "checked",
-          "You checked it: read it in the code or had it reproduced"
-        ],
-        [
-          "likely",
-          "It follows from what you read, and is not checked"
-        ],
-        [
-          "unsure",
-          "You could not tell"
-        ]
-      ]
-    },
-    "take_way": {
-      "name": "way",
-      "title": "Which way",
-      "type": "enum",
-      "desc": "Which way",
-      "values": [
-        [
-          "fold_in",
-          "An existing item takes it in"
-        ],
-        [
-          "move_up",
-          "An existing item takes it, moved up"
-        ],
-        [
-          "split_out",
-          "The urgent part is split out of an existing item"
-        ],
-        [
-          "new_item",
-          "A new item, now"
-        ],
-        [
-          "merged",
-          "The same observation is recorded already: reported once more"
-        ],
-        [
-          "new_observation",
-          "A new observation"
-        ],
-        [
-          "need_will_hit",
-          "Not recorded: a need that will certainly come hits it anyway"
-        ],
-        [
-          "forwarded",
-          "Another project's architect takes it: forwarded in messages"
-        ],
-        [
-          "nothing",
-          "Nothing to take in"
-        ]
-      ]
     },
     "straight_fix": {
       "type": "obj",
@@ -4525,7 +4361,6 @@
       "check_main": "Checks main's red CI mechanically, holding the project's merge queue stopped: runs each red check again on the same commit, looks in the table of known red checks, and runs the red checks on main's commit before the merges since main was last green, in that order, and lists those merges. A later commit of main that is green clears it."
     },
     "actions": {
-      "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
       "answer_reporter": "Tells the work that handed in the matter, a side report or a question, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why; for a question, only what its reply does not say. As the round ends, or, when its changes wait for a second eye, once that finds them sound; a work that ended is told nothing.",
       "apply_effects": "Carries out the effects of an answer, which the round's checks found sound: when none of its item changes is of a kind a second eye checks (a cancel, a merge, a split, a change that rewrites or removes an item's acceptance, a change on an item a work runs on), its item changes are made as the architect, in order, a key an earlier change made an item under given its number, and its changes to observations, actions and messages to other architects are made, each logged; otherwise everything it hands in waits for the second eye, made only once that finds it sound. A change to an item a work runs on that says why the work must change is said to that work.",
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
@@ -4549,7 +4384,6 @@
       "release_straight_hold": "New works of the project start again, if they were held to set it straight.",
       "remove_worktree": "Removes the work's worktree; its branch stays. A work taken over leaves it to the new work.",
       "replace_design_cards": "Marks the work's current decision cards replaced: the owner can no longer rule on them.",
-      "reply_to_engineer": "Gives the reply to the engineer waiting at its question, with the numbers of the items the round made in place of their keys: as the round ends, or, when its changes wait for a second eye, once that finds them sound; a reply that names an item no change made does not go out, and its matter goes back to the queue, not handled, with that reply and why, to be answered again.",
       "resolve_blocker": "Resolves the task's blocker with what its holder decided and did: the reply, the answer, or the items delivered.",
       "tell_owner": "Puts each message the return tells the owner in the owner's interface, unread, and notifies the owner; the work goes on, and no answer comes back.",
       "tell_went_back": "Tells the owner that the work went back to a cell of the new flow version, naming the round, the versions, the cell and why.",
@@ -4558,7 +4392,6 @@
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions and its failures, saying why.",
-      "reply_to_owner": "Puts the reply to the owner's words, as the architect's message, in the conversation the words were said in: the group of the work they were said in, else the owner's one-to-one with the architect; and notifies the owner.",
       "queue_measures": "Queues each new measure the signals of the policy that takes effect need, as the approved draft hands them in, as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it; a measure the queue holds already is not queued again.",
       "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy, taken with what the plan queued, with why: what the cell's place given says. One open already, queued or parked for the owner's reply, stands instead, and takes the why. One asked for with no why of its own, as reading the project anew asks for it, is not queued while the policy in force and the constitution are those the last check handled had.",
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
@@ -4582,7 +4415,8 @@
       "hold_for_approvals": "Has the work's blocker at the merge gate stand for what the merge waits for: the architect's review of its design while the architect has not replied, then the owner's answer to the review, then the oldest ask of the decision points the research left that has no answer yet.",
       "write_understanding": "Keeps the understanding the round handed in as the notebook's new understanding; the versions before stay, for the owner to look at.",
       "write_plan": "Keeps the plan the round handed in as the notebook's new plan; the versions before stay, for the owner to look at.",
-      "add_lines": "Keeps the lines the round adds to the plan or the understanding with the matter's record: the latest hand-in of the matter stands."
+      "add_lines": "Keeps the lines the round adds to the plan or the understanding with the matter's record: the latest hand-in of the matter stands.",
+      "deliver_reply": "Gives the reply to whoever the matter came from, by its kind: to the engineer waiting at its question, with the numbers of the items the round made in place of their keys, and with what the round's progress says when it wrote no reply, so that no engineer is left waiting; a reply that names an item no change made does not go out, and its matter goes back to the queue, not handled, with that reply and why, to be answered again. To the owner, as the architect's message in the conversation the words were said in, the group of the work they were said in, else the owner's one-to-one, and notifies the owner. To another project's architect, as a message in its queue. As the round ends, or, when its changes wait for a second eye, once that finds them sound."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -4635,10 +4469,8 @@
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
       "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work.",
       "matter": "The matter in hand, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not.",
-      "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
-      "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "owner_talk": "What was said in the project's one-to-one between the owner and its architect since the first round of the architect's previous session (the session of the project's latest understanding that was answered, across the works it ran in): each entry as the owner's page shows it, whole and oldest first, with when, who said it to whom and the words, an ask of the architect's with the owner's answer (counted as made when it was answered, if that was after the session began), and only how many images came with an entry. Before the project's first session there is no lower bound. Over 60,000 characters, the latest whole entries, then one line saying how many earlier ones there are; none when nothing was said since.",
       "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked.",
       "notebook_plan": "The project's architect's plan as the latest round that planned wrote it, without what was added since; none before any did.",
@@ -4655,7 +4487,7 @@
       "design_review": "The review of the work's latest design: what the architect replied at the project's level, and the owner's answer with the images it sent, as cell `D3` brought them.",
       "base_due": "Whether a new base is due, and on what: the project has none, the policy changed since the base was built, or what came since it, in characters, against the installation's amount.",
       "changes_to_check": "The item changes of the matter in hand that wait for the second eye, numbered, each whole with its reason, and each item it touches in full, with the work running on it; at a look after a revision, which are new or changed since the second eye's last look.",
-      "handed_in": "What the round that handed the changes in handed in besides them: its reply, its judgment and what it found.",
+      "handed_in": "What the round that handed the changes in handed in besides them: its reply.",
       "appended": "What came since the project's base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and the architect said to each other, whole; and what merged or was cancelled.",
       "since_plan": "What came since the plan before was written, as `appended` is worked out, for the round that writes the next plan: the base before is still the project's latest until that round ends.",
       "queued": "The matters waiting in the project's queue that nothing stopped waits on, oldest first, each by its number with its kind, item, since when, what it is and an excerpt of its text."
@@ -4669,7 +4501,6 @@
       "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the line the work stands on",
       "interjection": "Whether an interjection for the line the work stands on is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
-      "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, a fault of wf-agents forwarded to the architect, or what became of a work's check after its change took effect.",
       "route": "Where the matter taken goes: the first cell of its kind's path; the cell that asked when it comes back with the owner's reply, the cell of the owner's words when the flow no longer has that cell; the cell that handed its changes in when the second eye sent them back; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "start": "What holds an item back from starting, if anything.",
@@ -4703,7 +4534,6 @@
         "inputs": [
           "numbers",
           "similar_items",
-          "item_log",
           "changes_to_check",
           "appended"
         ],
@@ -4721,7 +4551,6 @@
         ],
         "inputs": [
           "matter",
-          "cross_project",
           "appended",
           "since_plan",
           "queued",
@@ -5009,9 +4838,6 @@
       }
     },
     "writes": {
-      "answer_architect": [
-        "architect_queue"
-      ],
       "answer_reporter": [
         "interjections"
       ],
@@ -5103,9 +4929,6 @@
       "replace_design_cards": [
         "design_cards"
       ],
-      "reply_to_engineer": [
-        "architect_queue"
-      ],
       "resolve_blocker": [
         "blockers"
       ],
@@ -5150,9 +4973,6 @@
       ],
       "withdraw_matters": [
         "architect_queue"
-      ],
-      "reply_to_owner": [
-        "owner_messages"
       ],
       "queue_measures": [
         "architect_queue"
@@ -5241,6 +5061,10 @@
       ],
       "add_lines": [
         "architect_queue"
+      ],
+      "deliver_reply": [
+        "architect_queue",
+        "owner_messages"
       ]
     },
     "reads": {
@@ -5307,12 +5131,6 @@
         "says": "the reply's items to wait for, against the merge record",
         "stores": [
           "merge_record"
-        ]
-      },
-      "report": {
-        "says": "the kind of report taken: beside a work, what to do next, an answer, or a fault",
-        "stores": [
-          "architect_queue"
         ]
       },
       "route": {
@@ -5457,7 +5275,16 @@
         "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in flow_feedback where it is and what it cost, and if you cannot go on, ask the owner. When an agent did not follow a rule, first ask it why by an interjection while its work runs: which rule or input led it, or whether it never read it. Changing the flow, the rules or the engine is the owner's to decide: an item that changes how they work, rather than fixing a defect, is made only once the owner agreed: put it to the owner where your cell can ask, and otherwise say it in flow_feedback.",
         "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Say it in flow_feedback.",
         "What the owner says is information given in a context: understand what it is for. When it holds beyond the matter in hand, propose it as a rule in fitting words, as short as it can be and merged into one already there where it can: for the constitution when it is a lasting value, which the owner sets; for the project's own documents when it is a standing rule of how work is done, through an item; for the policy when it holds for now. The reason stays in the item or observation concerned, as its requirement or a decision point. An owner having to say a thing again means the system lost it: say so to the owner the same way.",
-        "To learn why the code or a decision is as it is, read its address (#item, R<work>-<n>, a commit) with `query` or git; with none, search the items and git yourself the same way."
+        "To learn why the code or a decision is as it is, read its address (#item, R<work>-<n>, a commit) with `query` or git; with none, search the items and git yourself the same way.",
+        "Handling a matter. A place to set straight (`set_straight`): the plan judged it, and you do not judge it again. Take every step in effects, in order, a change naming an item an earlier change of this round makes by its key. Where a step can no longer be taken because a fact it rests on changed, as what came since shows, leave it out and say so in your progress. For a look you set before, or a work that used up its time budget, find first where it is stuck and the root cause, from its item, its rounds and its pull request, and say them in your progress.",
+        "An engineer's question: first what the question that really has to be answered is, since what shows on the surface is often not it, and whether it is one corner of a deeper problem, to handle now or as one of its own. Then think of the ways there are, by the articles of the constitution and the items it touches (a duplicate, a dependency, blocking others, a root elsewhere), and choose one; when the matter is back with the owner's answer, write only the way that follows from it. A defect or a root outside the work is fixed where it lies, by an item or a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings go to the item kept by an interjection. A capability gap (a tool, an input, a permission, a rule, data the work cannot reach) is a defect of the system, not of the agent: unblock the work first by the first way that works, then take the gap in as a report is. A flow anomaly the engine reports is such a gap: the reply says which way fits.",
+        "Reply to an engineer concretely enough to carry on from: if sub-items were split off, that the work must redesign for the part that remains; if it must stop and wait for other items, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this round creates by its key. The reply goes once this round ends, or once a second eye finds its changes sound; if an item it names is not made, it does not go out, and the question comes back with why.",
+        "What only the owner can decide about a work (a measured slowdown, a safety guarantee, its direction), the reply has the engineer put to the owner as an open question of its design, going on with the option it recommends: an engineer that asked waits for your reply, so never ask the owner about its question and wait. An open question of a design waits for nothing and is yours to answer by the plan, the policy and the owner's earlier decisions. One left to the owner you do not answer: ask the owner, with a markdown link to the design, and reply by the answer when it comes back, saying plainly where it goes against the design. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has started it. What belongs to a related project's architect, hand over with the reply's hand_over. A question saying a design departs from a decision of its item is ruled on only by whoever made the decision: one of your own you may answer, any other goes to the owner, quoting the decision's line and the design's reason; the reply says the ruling in departure.",
+        "A report, a fault, an engineer's answer or what to do next: first what it really is, on what grounds; read the code or reproduce it when the report alone does not settle it. Then, in this order: an existing item that covers or needs it takes it, moved up or split when urgent; else, if it is urgent (it blocks a running work, harms main, touches security or data) or the plan reaches it soon, a new item; else an observation, merged into the same one when it is recorded already, with tags from the set. When nothing is recorded, say why in reply: it goes to the work that reported. A report's what to do next: read the report itself, and take in a gap under test it names. An engineer's answer: read it against what you said to its work. A fault of wf-agents the owner forwarded: find its cause in wf-agents' code or flow, and take it in; one the evidence shows has stopped needs nothing more than saying so. What became of a work's check once its change took effect: work out whether the change is wrong and needs an item, an item there is takes it, something only the owner can do is missing, or the condition itself is wrong and nothing is to be done.",
+        "A failure of a work's tool or check: how it gets fixed; you do not fix it yourself. What needs the code changed becomes an item; a check main fails for a reason outside the work is added to the known red checks, with the item that fixes it; what only the owner can do, as above. One that passed and will not come back needs nothing: say why. Reply to the work what was done, and whether it goes on now (the engine runs the failed step again) or waits for an item, listed in the reply's waits.",
+        "The owner's words: find out what the owner asks and what for, say what you see that the owner may not, and answer in reply, which goes where the words were said. When they touch the direction itself, hand in policy_check_why: whether the policy still holds is checked. Words that change what comes first or how you work add a line to your notebook's plan, in fitting words with why. You change neither the constitution nor the policy yourself. When the words leave open what the owner wants, ask the owner. Words clearly meant as the answer to a question pending: say in your reply that the owner ticks that question and replies there; never take them as its answer. Words about a decision card: answer them; the card stays the owner's, and when you find it wrong, have its engineer change it by an interjection.",
+        "Another project's architect: what it asks of your items is yours to decide by your constitution and your policy; reply when it needs to know what you did or decided. Slots free with nothing of the project to start: see why each queued item is not ready and what the plan says comes next; release or reorder what may start, or make the items the plan's next steps need; when under the policy nothing should start, say why in your progress.",
+        "Works start in the order you give: first the items the owner queued, then each project's items by rank. A new item goes last, and moving one puts it first, last, or just before or after another. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them."
       ],
       "lines": [
         "architect",
@@ -13079,24 +12906,10 @@
         {
           "name": "handle",
           "nodes": [
-            "H1",
-            "H2",
-            "H3",
-            "H4",
-            "H7",
-            "H8",
-            "H9",
-            "H11"
+            "H1"
           ],
           "entries": [
-            "H1",
-            "H2",
-            "H3",
-            "H4",
-            "H7",
-            "H8",
-            "H9",
-            "H11"
+            "H1"
           ]
         },
         {
@@ -13275,14 +13088,7 @@
             "name": "handle",
             "desc": "One matter at a time, by its kind, in a session forked from the base",
             "nodes": [
-              "H1",
-              "H2",
-              "H3",
-              "H4",
-              "H7",
-              "H8",
-              "H9",
-              "H11"
+              "H1"
             ]
           },
           {
@@ -13864,7 +13670,7 @@
           "out": [],
           "cases": [
             {
-              "name": "to_set_straight",
+              "name": "to_handle",
               "if": [
                 [
                   "inp",
@@ -13875,106 +13681,8 @@
                 ]
               ],
               "to": "H1",
-              "main": true
-            },
-            {
-              "name": "to_crux",
-              "if": [
-                [
-                  "inp",
-                  "route",
-                  [
-                    "H2"
-                  ]
-                ]
-              ],
-              "to": "H2",
-              "main": true
-            },
-            {
-              "name": "back_to_ways",
-              "if": [
-                [
-                  "inp",
-                  "route",
-                  [
-                    "H3"
-                  ]
-                ]
-              ],
-              "to": "H3",
               "main": true,
-              "note": "A matter coming back with the owner's answer, or with what the second eye found, goes on at the cell that asked or handed the changes in."
-            },
-            {
-              "name": "to_take_in",
-              "if": [
-                [
-                  "inp",
-                  "route",
-                  [
-                    "H4"
-                  ]
-                ]
-              ],
-              "to": "H4",
-              "main": true
-            },
-            {
-              "name": "to_nothing_to_start",
-              "if": [
-                [
-                  "inp",
-                  "route",
-                  [
-                    "H11"
-                  ]
-                ]
-              ],
-              "to": "H11",
-              "main": true
-            },
-            {
-              "name": "to_have_fixed",
-              "if": [
-                [
-                  "inp",
-                  "route",
-                  [
-                    "H7"
-                  ]
-                ]
-              ],
-              "to": "H7",
-              "main": true
-            },
-            {
-              "name": "to_owner_words",
-              "if": [
-                [
-                  "inp",
-                  "route",
-                  [
-                    "H8"
-                  ]
-                ]
-              ],
-              "to": "H8",
-              "main": true
-            },
-            {
-              "name": "to_answer_architect",
-              "if": [
-                [
-                  "inp",
-                  "route",
-                  [
-                    "H9"
-                  ]
-                ]
-              ],
-              "to": "H9",
-              "main": true
+              "note": "A matter coming back with the owner's answer, or with what the second eye found, goes on here too."
             },
             {
               "name": "to_check_main",
@@ -14049,35 +13757,7 @@
             "route": [
               [
                 "H1",
-                "A place to set straight the plan queued, or one back with the owner's answer"
-              ],
-              [
-                "H2",
-                "An engineer's question, or one back with the owner's answer to what was asked of its crux"
-              ],
-              [
-                "H3",
-                "An engineer's question back with the owner's answer to what was asked while weighing the ways, or with what the second eye found in the changes it handed in"
-              ],
-              [
-                "H4",
-                "A report, what to do next after a report, an engineer's answer or a fault of wf-agents, or one back with the owner's answer"
-              ],
-              [
-                "H11",
-                "Slots free with nothing of the project to start"
-              ],
-              [
-                "H7",
-                "A failure to have fixed, or one back with the owner's answer or what the second eye found"
-              ],
-              [
-                "H8",
-                "The owner's words, or a matter of them back with the owner's reply or what the second eye found; or a matter back with the owner's reply whose asking cell the flow no longer has"
-              ],
-              [
-                "H9",
-                "Another project's architect's message, or one back with the owner's answer or what the second eye found"
+                "A matter for the architect to handle: a place to set straight, an engineer's question, a report, a failure, the owner's words, another architect's message or slots free, new or back with the owner's answer or what the second eye found"
               ],
               [
                 "L1",
@@ -14464,237 +14144,8 @@
         {
           "id": "H1",
           "kind": "agent",
-          "title": "Set it straight",
+          "title": "Handle the matter",
           "effort": "high",
-          "line": "matter",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "What came since the base",
-              "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
-              "from": [
-                {
-                  "engine": "appended"
-                }
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Place to set straight",
-              "what": "The place to set straight, as your queue holds it: the fix or the thing missing the plan of what to do next gave (where, what kind, what is wrong and on what grounds, the steps it meant to take there) with its verdict on the whole; or a look you set before the flow changed, a new policy taking effect, an item that depended on one cancelled, or a work that used up its time budget for a stretch",
-              "from": [
-                {
-                  "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "What the second eye found",
-              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it has not sent them back",
-              "from": [
-                [
-                  "G2",
-                  "check[problems].problems"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Levels",
-              "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
-              "from": [
-                {
-                  "engine": "levels"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round carries out what the plan gave for this place: the plan judged it, and you do not judge it again. Take every step in this round's effects, in order, a change naming an item an earlier change of this round makes by its key: change the items (the order, a split, dependencies, a text, a level, a hold, a cancellation), pause or resume a work, interject what an engineer must know, record or fold in observations. Where a step can no longer be taken because a fact it rests on changed, as what came since shows (a dependency already moved, an item already merged), leave it out and say so in your progress. For a look you set before, or a work that used up its time budget, find first where it is stuck and the root cause, from its item, its rounds and its pull request, and say them in your progress.",
-            "An inference that decides the direction is checked first by an item that checks it; the structure is not changed on it."
-          ],
-          "out": [
-            {
-              "$ref": "arch_effects"
-            },
-            {
-              "$ref": "notebook"
-            }
-          ],
-          "cases": [
-            {
-              "name": "done",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "G1",
-              "main": true
-            }
-          ],
-          "always": [
-            {
-              "at": "effects",
-              "do": "apply_effects"
-            },
-            {
-              "at": "progress",
-              "do": "log_matter"
-            },
-            {
-              "at": "notebook",
-              "do": "add_lines"
-            }
-          ],
-          "checks": [
-            {
-              "at": "effects",
-              "check": "effects_valid"
-            }
-          ],
-          "shown": null,
-          "rules": [
-            "policy_scope"
-          ]
-        },
-        {
-          "id": "H2",
-          "kind": "agent",
-          "title": "Crux",
-          "effort": "xhigh",
-          "line": "matter",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "What came since the base",
-              "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
-              "from": [
-                {
-                  "engine": "appended"
-                }
-              ],
-              "maybe": true
-            },
-            {
-              "name": "The question",
-              "what": "The question: the ask the engineer handed in, and its work: the problem, why, the plan, the acceptance, a summary of what it did, its decision cards; when a reply of yours to it was not sent, since an item it named was not made, that reply, the items it named that were made, by their numbers, and why each other one was not: answer it again knowing it",
-              "from": [
-                {
-                  "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "Recent log on this item",
-              "what": "Your recent log entries on this item: what you judged of it before, with the reasons",
-              "from": [
-                {
-                  "engine": "item_log"
-                }
-              ]
-            },
-            {
-              "name": "Similar items and works",
-              "what": "What the engine looked up: the items whose title or problem is close to this matter's, and the works under way whose branches changed the same paths",
-              "from": [
-                {
-                  "engine": "similar_items"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round answers one thing only: what the crux of this question is. Do not think about what to do yet: what is the question that really has to be answered? What the engineer asks, and what shows on the surface, is often not the crux. Then think whether it is one corner of a deeper problem: whether the same kind of thing happened elsewhere, whether its root lies in another item or project, or where the constitution does not reach. If it is a corner, say what the deeper problem is, and whether to handle it now with this one or as one of its own."
-          ],
-          "out": [
-            {
-              "name": "crux",
-              "title": "The crux",
-              "type": "union",
-              "by": "root",
-              "desc": "The crux",
-              "branches": [
-                {
-                  "value": "itself",
-                  "desc": "It is no corner of a deeper problem",
-                  "fields": []
-                },
-                {
-                  "value": "deeper",
-                  "desc": "Its root lies deeper",
-                  "fields": [
-                    {
-                      "name": "deeper",
-                      "title": "Deeper problem",
-                      "type": "text",
-                      "desc": "What the deeper problem is, and where"
-                    },
-                    {
-                      "name": "handle",
-                      "title": "How to handle it",
-                      "type": "enum",
-                      "desc": "What to do",
-                      "values": [
-                        [
-                          "together",
-                          "Handle the deeper one now, with this"
-                        ],
-                        [
-                          "separately",
-                          "Handle only this now; the deeper one becomes an item of its own"
-                        ]
-                      ]
-                    }
-                  ]
-                }
-              ],
-              "common": [
-                {
-                  "name": "question",
-                  "title": "What it must answer",
-                  "type": "text",
-                  "desc": "What this question really has to answer"
-                }
-              ]
-            }
-          ],
-          "cases": [
-            {
-              "name": "found",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "H3",
-              "main": true,
-              "note": "The ways are weighed next, in the same session."
-            }
-          ],
-          "without": [
-            "ask"
-          ],
-          "shown": [
-            "crux"
-          ],
-          "rules": [
-            "policy_scope"
-          ],
-          "always": null,
-          "checks": null
-        },
-        {
-          "id": "H3",
-          "kind": "agent",
-          "title": "Ways",
-          "effort": "xhigh",
           "line": "matter",
           "tools": [
             "gh",
@@ -14703,16 +14154,6 @@
           ],
           "inputs": [
             {
-              "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
-              "from": [
-                {
-                  "engine": "decisions"
-                }
-              ],
-              "maybe": true
-            },
-            {
               "name": "What came since the base",
               "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
               "from": [
@@ -14723,8 +14164,8 @@
               "maybe": true
             },
             {
-              "name": "The question",
-              "what": "The question: the ask the engineer handed in, and its work: the problem, why, the plan, the acceptance, a summary of what it did, its decision cards; when a reply of yours to it was not sent, since an item it named was not made, that reply, the items it named that were made, by their numbers, and why each other one was not: answer it again knowing it",
+              "name": "The matter",
+              "what": "The matter in hand, with its material by its kind: a place to set straight with its steps; an engineer's question with the ask and its work's problem, plan, acceptance and what it did, and when a reply of yours was not sent, that reply and why, to answer it again; a report; a failure with the error and what was tried; the owner's words; another architect's message; the slots free and which items are ready. Back with the owner's answer when you asked",
               "from": [
                 {
                   "engine": "matter"
@@ -14743,33 +14184,23 @@
               "maybe": true
             },
             {
-              "name": "Recent log on this item",
-              "what": "Your recent log entries on this item: what you judged of it before, with the reasons",
-              "from": [
-                {
-                  "engine": "item_log"
-                }
-              ]
-            },
-            {
               "name": "Similar items and works",
               "what": "What the engine looked up: the items whose title or problem is close to this matter's, and the works under way whose branches changed the same paths",
               "from": [
                 {
                   "engine": "similar_items"
                 }
-              ]
-            },
-            {
-              "name": "The crux",
-              "what": "What you found of the question's crux in this session, as you handed it in; none when the matter came back to you without it, which this session holds",
-              "from": [
-                [
-                  "H2",
-                  "crux"
-                ]
               ],
               "maybe": true
+            },
+            {
+              "name": "Observation tags",
+              "what": "The project's tags for observations, each with what it covers: only these may be used",
+              "from": [
+                {
+                  "engine": "observation_tags"
+                }
+              ]
             },
             {
               "name": "Levels",
@@ -14782,18 +14213,19 @@
             }
           ],
           "prompt": [
-            "This round weighs the ways for this question. The crux is answered: think by it, and do not go back to the question on the surface. See which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item or project), and who waits. Think of the ways there really are, with what follows from each, choose one, and say why it and why not the others; when the matter is back with the owner's answer, the owner chose: write only the way that follows from it. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked is checked first by an item, and the structure is not changed on it.",
-            "What the question needs, judge from what it says. A defect or a root outside the work is fixed where it lies, by an item, made when there is none, or by a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings on its decision cards go to the item kept by an interjection. A capability gap, the system lacking what the work needs (a tool, an input, a permission, a rule that says enough, data it cannot reach), is a defect of the system and not of the agent: unblock the work first, by the first way that works, a way around within the rules said in the reply, what only the owner can give (a credential, a configuration in the data directory) by pausing the work until the owner has given it, else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name; then take the gap in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already. A flow anomaly the engine reports, the way the engineer chose not fitting, is such a gap of the flow: the reply says which way fits. A question that need not touch other items or the structure changes nothing: the reply says whom to ask.",
-            "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this round creates by its key: the engine puts its number there as it makes it. The reply goes once this round ends, or, when its changes need a second eye, once that finds them sound; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
-            "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
-            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put to the owner as an open question of its design, and go on with the option it recommends: the merge waits for the answer. An engineer that asked waits for your reply, so you never ask the owner about its question and wait; an open question of an engineer's design waits for nothing, and is yours to answer by the plan, the policy and the owner's earlier decisions. When one is left to the owner (a rule of the project that leaves it to the owner, a safety guarantee, the work's direction), do not answer it and do not reply that you will not: any reply is kept as the answer. Ask the owner instead: the question written as its field says, with a markdown link to the design it is about, since the owner reads it away from the design. The matter then waits for the owner out of your queue and comes back here with the owner's reply; reply to the engineer by it, writing the decision down so that the work can go on, and saying plainly where it goes against the design. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found. An open question that says a design departs from a decision of its item is ruled on only by whoever made the decision: one of your own you may answer; any other, pin for the owner with an ask, quoting the line of the decision and the design's reason, and reply once the owner has answered. Your reply to such a question says the ruling in departure: stands when the design may go its own way there, turned_down when it must follow the decision."
+            "This round handles one matter: find out what it really is, do what follows from it in effects, and, when someone waits, say it in reply. Which kind it is says what to do, in your rules. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction is checked first by an item that checks it, and the structure is not changed on it. Change nothing to look busy: an item is worth an engineer, a branch and a merge. Close the outdated observations you meet on the way, saying why."
           ],
           "out": [
             {
-              "$ref": "arch_judgment"
+              "$ref": "architect_reply",
+              "optional": true
             },
             {
-              "$ref": "architect_reply"
+              "name": "policy_check_why",
+              "title": "Why to check the policy",
+              "type": "text",
+              "optional": true,
+              "desc": "Only when the owner's words touch the direction itself: what the owner asks of it, and what for; whether the policy still holds is then checked. Leave it out otherwise"
             },
             {
               "$ref": "arch_effects"
@@ -14811,8 +14243,15 @@
                 ]
               ],
               "to": "G1",
-              "main": true
+              "main": true,
+              "note": "Whether a second eye looks at what it handed in comes next."
             }
+          ],
+          "shown": [
+            "reply"
+          ],
+          "rules": [
+            "policy_scope"
           ],
           "always": [
             {
@@ -14820,12 +14259,16 @@
               "do": "apply_effects"
             },
             {
-              "at": "reply",
-              "do": "reply_to_engineer"
+              "at": "progress",
+              "do": "deliver_reply"
             },
             {
-              "at": "effects",
+              "at": "progress",
               "do": "answer_reporter"
+            },
+            {
+              "at": "policy_check_why",
+              "do": "queue_check_policy"
             },
             {
               "at": "progress",
@@ -14853,731 +14296,6 @@
               "at": "reply",
               "check": "departure_ruled_by_owner"
             }
-          ],
-          "shown": [
-            "judgment",
-            "reply"
-          ],
-          "rules": [
-            "policy_scope"
-          ]
-        },
-        {
-          "id": "H4",
-          "kind": "agent",
-          "title": "Take it in",
-          "effort": "medium",
-          "line": "matter",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "What came since the base",
-              "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
-              "from": [
-                {
-                  "engine": "appended"
-                }
-              ],
-              "maybe": true
-            },
-            {
-              "name": "The report",
-              "what": "The report and where it came from: its text as written, the work, the item, and the line and cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for a check after a change took effect, the merge commit, the pull request and each condition's result with its run; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled; when you picked others with it, `with` holds each of them, its matter number and its material as the report is given",
-              "from": [
-                {
-                  "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "What the second eye found",
-              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it has not sent them back",
-              "from": [
-                [
-                  "G2",
-                  "check[problems].problems"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Observation tags",
-              "what": "The project's tags for observations, each with what it covers: only these may be used",
-              "from": [
-                {
-                  "engine": "observation_tags"
-                }
-              ]
-            },
-            {
-              "name": "Levels",
-              "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
-              "from": [
-                {
-                  "engine": "levels"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round takes the report in. First what it really is, on what grounds, and how sure you are: read the code, or have it reproduced with tools, when the report alone does not settle it.",
-            "Then take it in, in this order. Can an existing item take it, because it covers it or needs it: fold it in, widening the item's scope or adding to its acceptance; if it is urgent and that item will not come soon enough, move the item up, or split the urgent part out. If no item takes it and it is urgent (it blocks a running work, harms main, touches security or data), make a new item now; so too when the plan reaches it soon. Otherwise it is an observation, looked at again in a planning: search for the same one first and merge into it, as reported once more; if some need that will certainly come will hit it anyway, record nothing and name that need; else record a new one with tags from the set.",
-            "Close the outdated observations you meet on the way, saying why. Do it all in effects."
-          ],
-          "out": [
-            {
-              "name": "finding",
-              "title": "What the report is",
-              "type": "obj",
-              "desc": "What the report is",
-              "fields": [
-                {
-                  "name": "what",
-                  "title": "What it really is",
-                  "type": "text",
-                  "desc": "What it really is"
-                },
-                {
-                  "name": "grounds",
-                  "title": "Grounds",
-                  "type": "text",
-                  "desc": "On what grounds: what you read or ran"
-                },
-                {
-                  "$ref": "finding_sure"
-                }
-              ]
-            },
-            {
-              "name": "take",
-              "title": "How it is taken in",
-              "type": "obj",
-              "desc": "How it is taken in",
-              "fields": [
-                {
-                  "$ref": "take_way"
-                },
-                {
-                  "name": "why",
-                  "title": "Why",
-                  "type": "text",
-                  "desc": "Why this way; for need_will_hit, which need"
-                }
-              ]
-            },
-            {
-              "$ref": "arch_effects"
-            },
-            {
-              "$ref": "notebook"
-            }
-          ],
-          "cases": [
-            {
-              "name": "done",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "G1",
-              "main": true
-            }
-          ],
-          "promptBy": {
-            "by": "report",
-            "cases": {
-              "side_report": [
-                "It is a report an agent of a work handed in beside it, which does not block that work: a duplicate, a defect out of its scope, a need it will have later, or something else. The agent is the work's engineer, or its review, adversarial tester or advisor, which tell the owner nothing themselves."
-              ],
-              "followup": [
-                "It is what to do next after a report: the work that delivered the report has ended, and its what to do next is in the input with the report's paths and the commit that merged it. Read the report itself, and take in a gap under test it names."
-              ],
-              "answer": [
-                "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
-              ],
-              "fault": [
-                "It is a fault of wf-agents itself, which the owner forwarded to you, by hand or by the setting that forwards each new one: the notice the owner was told, with the engine's evidence as it stands now (the rounds that missed their session's prompt cache, each with what differs in its command line or its environment from the session's round before and what it wrote again, or the ask a flow anomaly put, with the owner's answer once given). Find its cause in wf-agents' code or flow, reading the code and, where it matters, the records of the rounds named. Take it in as a report: an item that fixes its cause, an existing item that takes it, or an observation; a fault the evidence shows has stopped needs nothing more than saying so."
-              ],
-              "verification": [
-                "It is what became of a work's check once its change took effect: the work merged, waited, and a condition only a real run can show does not hold, could not be judged, or stands unverified because the change never took effect or the evidence never came within their limits. The work has ended. Each condition's result and run is in the input. Work out what it means: whether the change is wrong and needs an item, whether an item there is takes it in, whether something only the owner can do is missing, as a line of configuration, or whether the condition itself is what is wrong, and nothing is to be done."
-              ]
-            }
-          },
-          "inenums": {
-            "report": [
-              [
-                "side_report",
-                "A report an agent of a work handed in beside it"
-              ],
-              [
-                "followup",
-                "What to do next after a report, once its work ended"
-              ],
-              [
-                "answer",
-                "An engineer's answer to what the architect said to its work"
-              ],
-              [
-                "fault",
-                "A fault of wf-agents forwarded to the architect, by the owner or by the owner's setting"
-              ],
-              [
-                "verification",
-                "What became of a work's check of a condition after its change took effect"
-              ]
-            ]
-          },
-          "shown": [
-            "finding",
-            "take"
-          ],
-          "always": [
-            {
-              "at": "effects",
-              "do": "apply_effects"
-            },
-            {
-              "at": "take",
-              "do": "answer_reporter"
-            },
-            {
-              "at": "progress",
-              "do": "log_matter"
-            },
-            {
-              "at": "notebook",
-              "do": "add_lines"
-            }
-          ],
-          "checks": [
-            {
-              "at": "effects",
-              "check": "effects_valid"
-            }
-          ]
-        },
-        {
-          "id": "H11",
-          "kind": "agent",
-          "title": "Nothing to start",
-          "effort": "high",
-          "line": "matter",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "without": [
-            "ask"
-          ],
-          "inputs": [
-            {
-              "name": "What came since the base",
-              "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
-              "from": [
-                {
-                  "engine": "appended"
-                }
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Slots free",
-              "what": "The slots free with nothing of the project to start, as the engine found them: how many are free, and which items are ready",
-              "from": [
-                {
-                  "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "Slots",
-              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
-              "from": [
-                {
-                  "engine": "slots"
-                }
-              ]
-            },
-            {
-              "name": "Observations overview",
-              "what": "The project's observations: how many are open under each tag and how many times they were reported, those recorded or reported again lately, and those closed lately with why",
-              "from": [
-                {
-                  "engine": "observations_overview"
-                }
-              ]
-            },
-            {
-              "name": "Levels",
-              "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
-              "from": [
-                {
-                  "engine": "levels"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round answers one thing only: slots are free and no item of this project can start, so what should happen now. See why each queued item is not ready, and what the plan says comes next and which observations it would have done. Take what follows in effects: release or reorder what may start, or make the items the next steps of the plan need.",
-            "When under the policy nothing of this project should start now, say why in your progress. Change nothing to look busy: an item is worth an engineer, a branch and a merge."
-          ],
-          "out": [
-            {
-              "$ref": "arch_effects"
-            },
-            {
-              "$ref": "notebook"
-            }
-          ],
-          "cases": [
-            {
-              "name": "done",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "G1",
-              "main": true
-            }
-          ],
-          "checks": [
-            {
-              "at": "effects",
-              "check": "effects_valid"
-            }
-          ],
-          "always": [
-            {
-              "at": "effects",
-              "do": "apply_effects"
-            },
-            {
-              "at": "progress",
-              "do": "log_matter"
-            },
-            {
-              "at": "notebook",
-              "do": "add_lines"
-            }
-          ],
-          "rules": [
-            "policy_scope"
-          ]
-        },
-        {
-          "id": "H7",
-          "kind": "agent",
-          "title": "Have it fixed",
-          "effort": "medium",
-          "line": "matter",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "What came since the base",
-              "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
-              "from": [
-                {
-                  "engine": "appended"
-                }
-              ],
-              "maybe": true
-            },
-            {
-              "name": "The failure",
-              "what": "The failure: the tool, the error word for word, what was tried and how many retries; for main gone red after a merge, the red checks and the run on main's commit before it. The work that met it waits at its question; when a reply of yours to it was not sent, since an item it named was not made, that reply, the items it named that were made, by their numbers, and why each other one was not: answer it again knowing it",
-              "from": [
-                {
-                  "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "What the second eye found",
-              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it has not sent them back",
-              "from": [
-                [
-                  "G2",
-                  "check[problems].problems"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Known red checks",
-              "what": "The project's checks known to fail for a reason outside any one work, each with the item that fixes it",
-              "from": [
-                {
-                  "db": "known_red_checks",
-                  "by": "project"
-                }
-              ]
-            },
-            {
-              "name": "Levels",
-              "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
-              "from": [
-                {
-                  "engine": "levels"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round answers one thing only: how this failure gets fixed. You do not fix it yourself: what needs the project's code changed or an engineer's time becomes an item; a check main fails for a reason outside the work is added to the known red checks, with the item that fixes it; what only the owner can do (the configuration, credentials, a permission, another machine) you have the owner do by pausing the work in effects, saying what the owner must do and where, and replying that it goes on once the owner has done it and started it; you never ask and wait. One that passed and will not come back needs nothing: say why you judge so.",
-            "Reply to the work that waits: what was done, and whether it goes on now (the engine runs the failed step again) or waits for an item, which you list in the reply's waits."
-          ],
-          "out": [
-            {
-              "$ref": "architect_reply"
-            },
-            {
-              "$ref": "arch_effects"
-            },
-            {
-              "$ref": "notebook"
-            }
-          ],
-          "cases": [
-            {
-              "name": "done",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "G1",
-              "main": true
-            }
-          ],
-          "without": [
-            "ask"
-          ],
-          "always": [
-            {
-              "at": "effects",
-              "do": "apply_effects"
-            },
-            {
-              "at": "reply",
-              "do": "reply_to_engineer"
-            },
-            {
-              "at": "progress",
-              "do": "log_matter"
-            },
-            {
-              "at": "notebook",
-              "do": "add_lines"
-            }
-          ],
-          "checks": [
-            {
-              "at": "effects",
-              "check": "effects_valid"
-            },
-            {
-              "at": "reply",
-              "check": "reply_fits_changes"
-            }
-          ],
-          "shown": [
-            "reply"
-          ]
-        },
-        {
-          "id": "H8",
-          "kind": "agent",
-          "title": "What you ask",
-          "effort": "high",
-          "line": "matter",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "What came since the base",
-              "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
-              "from": [
-                {
-                  "engine": "appended"
-                }
-              ],
-              "maybe": true
-            },
-            {
-              "name": "The owner's words",
-              "what": "The owner's words you answer, with where they were said: in your one-to-one with the owner, or in the group of a work, which your reply goes to; when they ask about a decision card of the work, the card, the design it stands in and the change to the records on the branch",
-              "from": [
-                {
-                  "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "What the second eye found",
-              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it has not sent them back",
-              "from": [
-                [
-                  "G2",
-                  "check[problems].problems"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Levels",
-              "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
-              "from": [
-                {
-                  "engine": "levels"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round answers the owner's words, in one round: find out what the owner asks and what for; when the owner wants one thing done, ask yourself what it is for, and say what you see that the owner may not. Hand in your reply to the owner and one way on: done, when it is done now in effects; or new_policy, when it touches the direction itself, and whether the policy still holds is checked. Words that change what comes first, or how you work, change the plan: add the line to your notebook's plan, in fitting words with why. You do not change the constitution or the policy yourself.",
-            "Your reply goes where the owner said the words: in a work's group, there; else in your one-to-one. When the words leave open what the owner wants, ask the owner, and the reply comes back here. When the words are clearly meant as the answer to one of the questions pending, say in your reply that the owner ticks that question and replies there; never take them as its answer yourself. When the words ask about a decision card, answer the question; the card stays the owner's to rule. When your answer finds the card wrong, have its engineer change it, by an interjection in effects: a new version comes to the owner."
-          ],
-          "out": [
-            {
-              "name": "answer",
-              "title": "Your answer",
-              "type": "union",
-              "by": "way",
-              "desc": "Your reply to the owner's words, and the way on",
-              "common": [
-                {
-                  "name": "reply",
-                  "title": "Reply",
-                  "type": "text",
-                  "desc": "Your reply to the owner's words, in the owner's language (the setting `owner.language`)"
-                }
-              ],
-              "branches": [
-                {
-                  "value": "done",
-                  "desc": "Done now in effects",
-                  "fields": []
-                },
-                {
-                  "value": "new_policy",
-                  "desc": "Whether the policy still holds is checked, as a matter taken with what the plan queued",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why to check the policy",
-                      "type": "text",
-                      "desc": "What the owner asks of the direction, and what for"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "$ref": "arch_effects"
-            },
-            {
-              "$ref": "notebook"
-            }
-          ],
-          "cases": [
-            {
-              "name": "done",
-              "if": [
-                [
-                  "is",
-                  "answer.way",
-                  [
-                    "done"
-                  ]
-                ]
-              ],
-              "to": "G1",
-              "main": true
-            },
-            {
-              "name": "new_policy",
-              "if": [
-                [
-                  "is",
-                  "answer.way",
-                  [
-                    "new_policy"
-                  ]
-                ]
-              ],
-              "to": "G1",
-              "note": "Whether the policy still holds is checked, as a matter taken with what the plan queued, why being what the owner asks of the direction."
-            }
-          ],
-          "always": [
-            {
-              "at": "effects",
-              "do": "apply_effects"
-            },
-            {
-              "at": "answer.reply",
-              "do": "reply_to_owner"
-            },
-            {
-              "at": "answer[new_policy].why",
-              "do": "queue_check_policy"
-            },
-            {
-              "at": "progress",
-              "do": "log_matter"
-            },
-            {
-              "at": "notebook",
-              "do": "add_lines"
-            }
-          ],
-          "checks": [
-            {
-              "at": "effects",
-              "check": "effects_valid"
-            }
-          ],
-          "shown": [
-            "answer"
-          ],
-          "rules": [
-            "policy_scope"
-          ]
-        },
-        {
-          "id": "H9",
-          "kind": "agent",
-          "title": "Answer",
-          "effort": "medium",
-          "line": "matter",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "What came since the base",
-              "what": "What came since your base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and you said to each other, whole; and what merged or was cancelled. What the base read is how things stood then: check it against this before you act on it. None when nothing came",
-              "from": [
-                {
-                  "engine": "appended"
-                }
-              ],
-              "maybe": true
-            },
-            {
-              "name": "The message",
-              "what": "The message: the project whose architect sent it and its words; for a reply, the message it answers",
-              "from": [
-                {
-                  "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "What the second eye found",
-              "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it has not sent them back",
-              "from": [
-                [
-                  "G2",
-                  "check[problems].problems"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Cross-project dependencies",
-              "what": "The dependencies between this project's items and other projects' items, each blocking or parallel",
-              "from": [
-                {
-                  "engine": "cross_project"
-                }
-              ]
-            },
-            {
-              "name": "Levels",
-              "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
-              "from": [
-                {
-                  "engine": "levels"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round answers another project's architect. It judges its project and you judge yours: what it asks of your items is yours to decide by your constitution and your policy. Do what is yours in effects, and reply when it needs to know what you did or decided: the reply goes to its queue."
-          ],
-          "out": [
-            {
-              "name": "answer",
-              "title": "Answer",
-              "type": "obj",
-              "desc": "Your answer",
-              "fields": [
-                {
-                  "name": "reply",
-                  "title": "Message back",
-                  "type": "text",
-                  "desc": "Your message back to it, in English; leave it out when it needs none",
-                  "optional": true
-                }
-              ]
-            },
-            {
-              "$ref": "arch_effects"
-            },
-            {
-              "$ref": "notebook"
-            }
-          ],
-          "cases": [
-            {
-              "name": "done",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "G1",
-              "main": true
-            }
-          ],
-          "always": [
-            {
-              "at": "effects",
-              "do": "apply_effects"
-            },
-            {
-              "at": "answer.reply",
-              "do": "answer_architect"
-            },
-            {
-              "at": "progress",
-              "do": "log_matter"
-            },
-            {
-              "at": "notebook",
-              "do": "add_lines"
-            }
-          ],
-          "checks": [
-            {
-              "at": "effects",
-              "check": "effects_valid"
-            }
-          ],
-          "shown": [
-            "answer"
           ]
         },
         {
@@ -16418,7 +15136,7 @@
             },
             {
               "name": "What the session handed in",
-              "what": "The rest of what the matter's session handed in with the changes: its reply, its judgment and what it found",
+              "what": "The rest of what the matter's session handed in with the changes: its reply",
               "from": [
                 {
                   "engine": "handed_in"

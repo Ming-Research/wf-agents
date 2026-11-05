@@ -11,7 +11,7 @@ use super::*;
 fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_found() {
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return (Vec::new(), Vec::new());
@@ -53,7 +53,7 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["Q0", "Q2", "H8", "G1", "G2", "Q2", "H8", "G1", "G2", "Q0", "E2"],
+        ["Q0", "Q2", "H1", "G1", "G2", "Q2", "H1", "G1", "G2", "Q0", "E2"],
         "{log}"
     );
     assert_eq!(rows_at(&e, second, "G2"), ["problems", "sound"], "{log}");
@@ -71,7 +71,7 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
     };
     assert_eq!(states, ["revised", "made"], "{log}");
     // The session that handed the cancel in is told what the second eye found, and revises it in that session.
-    let again = message_at(&e, second, "H8", true);
+    let again = message_at(&e, second, "H1", true);
     assert!(again.contains("Its acceptance has no other home."), "{again}");
     let base = base_session(&e, first);
     assert_eq!(
@@ -125,7 +125,7 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
             "UPDATE works SET paused = 'later', paused_by = 'owner' WHERE id = ?1",
             [arch],
         )?;
-        record_round(tx, arch, 1, "H8", &json!({}), "done")?;
+        record_round(tx, arch, 1, "H1", &json!({}), "done")?;
         let m = a_matter(tx, "Order the items.", None, json!({}))?;
         let change = json!({ "kind": "add_dependency", "item": item.to_string(), "on": "99", "dependency": "blocking",
                              "reason": "r" });
@@ -347,7 +347,7 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
         { "kind": "move", "item": "spend", "to": { "place": "before", "item": "1" }, "reason": "r" },
     ]);
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -393,7 +393,7 @@ fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
     let path = config::database(&s.data);
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, n: usize| {
             if n > 2 {
                 return (Vec::new(), Vec::new());
@@ -438,7 +438,7 @@ fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let rejected = why_sent_back(&e, arch, "H8");
+    let rejected = why_sent_back(&e, arch, "H1");
     assert_eq!(rejected.len(), 1, "{rejected:?}");
     assert!(
         rejected[0].contains("item change 1 (create_item): the title is 26 wide and a title is 24 wide at most")
@@ -492,7 +492,7 @@ fn a_batch_removes_a_dependency_and_the_review_makes_it() {
         { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "It does not, on a second look." },
     ]);
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -544,7 +544,7 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
     // The items are numbered 1 to 5 in order: the parser, the lexer, the tokens, one to do later and one of project q.
     // The parser depends on the lexer and the tokens, and the item of q on the lexer.
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -596,7 +596,7 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    let rejected = why_sent_back(&e, arch, "H8");
+    let rejected = why_sent_back(&e, arch, "H1");
     assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
     for reason in [
         "item change 2 (remove_dependency): item 1 does not depend on item 2",
@@ -730,7 +730,7 @@ fn an_answer_that_cancels_an_item_it_creates_is_sent_back_and_never_makes_it() {
         { "kind": "cancel", "item": "spend", "goes": "Not needed: the owner measures it by hand.", "reason": "r" },
     ]);
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -752,7 +752,7 @@ fn an_answer_that_cancels_an_item_it_creates_is_sent_back_and_never_makes_it() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    let back = why_sent_back(&e, arch, "H8");
+    let back = why_sent_back(&e, arch, "H1");
     assert_eq!(back.len(), 1, "{log}");
     assert!(back[0].contains("cancels spend, which this answer creates"), "{back:?}");
     assert!(!path_of(&e, arch).contains(&"G2".to_string()), "{log}");

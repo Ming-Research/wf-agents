@@ -10,7 +10,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let s = setup("architect-stop");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let pause = json!({ "kind": "pause_work", "item": 1, "reason": "It waits for the parser." });
@@ -73,7 +73,7 @@ fn the_architect_starts_a_work_over() {
     let s = setup("architect-start-over");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             let item = if n == 1 { 2 } else { 1 };
             let over = json!({ "kind": "start_work_over", "item": item, "reason": "Its design went the wrong way." });
@@ -118,7 +118,7 @@ fn the_architect_starts_a_work_over() {
     let sent_back: String =
         e.db.conn()
             .query_row(
-                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL",
+                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H1' AND rejected IS NOT NULL",
                 [arch],
                 |r| r.get(0),
             )
@@ -419,14 +419,14 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
     let s = setup("architect-and-owner-hold");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
             let release = json!({ "kind": "release_starts", "reason": "The plan is right again." });
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("I hold, then let go.")),
+                    ("outcome.reply", json!({ "text": "I hold, then let go." })),
                     ("outcome.effects", json!({ "actions": [hold, release] })),
                 ],
             )
@@ -593,7 +593,7 @@ fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_wo
     let path = config::database(&s.data);
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             // The owner releases their hold while the architect is answering.
             let mut db = db::Db::open(&path).unwrap();
@@ -604,9 +604,9 @@ fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_wo
             let release = json!({ "kind": "release_starts", "reason": "Nothing to hold any more." });
             let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("Let go, then hold.")),
+                    ("outcome.reply", json!({ "text": "Let go, then hold." })),
                     ("outcome.effects", json!({ "actions": [release, hold] })),
                 ],
             )

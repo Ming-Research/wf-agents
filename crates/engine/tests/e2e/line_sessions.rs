@@ -713,15 +713,15 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     let sent: Sent = Arc::default();
     let seen = sent.clone();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |r: &Request, n: usize| {
             keep_sent(&seen, r);
             if n == 1 {
                 return asks_the_owner("Which of the two do you mean?");
             }
             (
-                vec![("outcome.answer", "done")],
-                vec![("outcome.answer.reply", json!("The left one, then."))],
+                Vec::new(),
+                vec![("outcome.reply", json!({ "text": "The left one, then." }))],
             )
         }),
     );
@@ -799,7 +799,7 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
         [words[0].as_str(), words[1].as_str(), answered[0].as_str()],
         "{prompt}"
     );
-    let input = input_at(&e, again, "H8", false);
+    let input = input_at(&e, again, "H1", false);
     assert_eq!(given_ending(&input, "·engine·matter"), Some(true), "{input}");
     assert_eq!(given(&input, &answered[0]), Some(true), "{input}");
     let _ = std::fs::remove_dir_all(&s.root);

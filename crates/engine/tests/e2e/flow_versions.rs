@@ -478,12 +478,12 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
         let mut agents = scripts();
         let change = json!({ "kind": "cancel", "item": "1", "goes": "Not needed.", "reason": "Done elsewhere." });
         agents.insert(
-            "H8",
+            "H1",
             Box::new(move |_: &Request, _: usize| {
                 (
-                    vec![("outcome.answer", "done")],
+                    Vec::new(),
                     vec![
-                        ("outcome.answer.reply", json!("I cancel it.")),
+                        ("outcome.reply", json!({ "text": "I cancel it." })),
                         (
                             "outcome.effects",
                             json!({ "item_changes": [change.clone()], "observation_changes": null }),
@@ -773,12 +773,12 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
     let mut agents = scripts();
     let change = json!({ "kind": "cancel", "item": "1", "goes": "Not needed.", "reason": "Done elsewhere." });
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("I cancel it.")),
+                    ("outcome.reply", json!({ "text": "I cancel it." })),
                     (
                         "outcome.effects",
                         json!({ "item_changes": [change.clone()], "observation_changes": null }),
@@ -965,7 +965,7 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
     let (matter, replied): (i64, i64) =
         e.db.conn()
             .query_row(
-                "SELECT m.id, (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = 'H8')
+                "SELECT m.id, (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = 'H1')
                  FROM architect_matters m WHERE m.kind = 'owner_words' AND m.handled_round IS NULL",
                 [arch],
                 |r| Ok((r.get(0)?, r.get(1)?)),
@@ -987,7 +987,7 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
     let why = engine::stopped_why(
         e.flow_now,
         &format!(
-            "cell Z1 is gone; going back to cell H8 would do round {} again, which ",
+            "cell Z1 is gone; going back to cell H1 would do round {} again, which ",
             engine::RoundId::new(arch, replied)
         ),
     );
@@ -1009,7 +1009,7 @@ fn an_architect_work_that_ends_closes_the_matter_whose_reply_went_out() {
     assert_eq!(handled, (Some(arch), Some(replied)), "{log}");
     let replies: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM rounds WHERE cell = 'H8'", [], |r| r.get(0))
+            .query_row("SELECT count(*) FROM rounds WHERE cell = 'H1'", [], |r| r.get(0))
             .unwrap();
     assert_eq!(replies, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);

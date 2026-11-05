@@ -1216,8 +1216,8 @@ fn the_architect_handles_a_check_s_report_given_what_it_rests_on() {
     e.pass(&Go::default()).unwrap();
     let arch = *architect_works(&e).first().expect("a work of the architect");
     assert!(steps_until(&mut e, 40, |e| architect_work_done(e, arch)));
-    assert!(path_of(&e, arch).contains(&"H4".to_string()));
-    let given = message_at(&e, arch, "H4", false);
+    assert!(path_of(&e, arch).contains(&"H1".to_string()));
+    let given = message_at(&e, arch, "H1", false);
     for part in ["It should give 8.", SEVEN, merge.as_str(), "A2"] {
         assert!(given.contains(part), "{part} not in {given}");
     }

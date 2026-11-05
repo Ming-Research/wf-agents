@@ -49,10 +49,8 @@ pub const INPUTS: &[&str] = &[
     "policy_signals",
     "slots",
     "matter",
-    "item_log",
     "similar_items",
     "owner_answer",
-    "cross_project",
     "owner_talk",
     "questions",
     "notebook_plan",
@@ -84,14 +82,14 @@ fn notebook_section(conn: &Connection, project: &str, section: &str) -> Result<O
 
 /// Each kind of matter with the first cell of its path.
 pub const KINDS: [(&str, &str); 10] = [
-    ("set_straight", "H1"),
-    ("engineer_question", "H2"),
-    (crate::open_questions::KIND, "H2"),
-    ("report", "H4"),
-    ("slots_free", "H11"),
-    ("failure", "H7"),
-    ("owner_words", "H8"),
-    ("other_architect", "H9"),
+    ("set_straight", HANDLE),
+    ("engineer_question", HANDLE),
+    (crate::open_questions::KIND, HANDLE),
+    ("report", HANDLE),
+    ("slots_free", HANDLE),
+    ("failure", HANDLE),
+    ("owner_words", HANDLE),
+    ("other_architect", HANDLE),
     (crate::main_watch::MAIN_RED, "L1"),
     (CHECK, "P1"),
 ];
@@ -100,7 +98,7 @@ pub const KINDS: [(&str, &str); 10] = [
 pub const VERIFICATION: &str = "verification";
 
 /// The cells of a matter's session that hand in what a second eye may check, and that the second eye sends it back to.
-const HANDING_IN: [&str; 10] = ["H1", "H3", "H4", "H11", "H7", "H8", "H9", "L2", "P1", "P2"];
+const HANDING_IN: [&str; 4] = [HANDLE, "L2", "P1", "P2"];
 
 /// The second eye's cell, whose problems send the matter back to the cell that handed its changes in.
 const SECOND_EYE: &str = "G2";
@@ -122,9 +120,9 @@ const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 /// batch, and the review of the batch.
 const LOOK: &str = "Q0";
 
-/// The cell of the owner's words, which a matter back with the owner's reply goes to when the flow no longer has the
-/// cell that asked.
-const TALK: &str = "H8";
+/// The cell that handles a matter, whatever its kind, and that a matter back with the owner's reply goes to when the flow
+/// no longer has the cell that asked.
+const HANDLE: &str = "H1";
 
 /// The value the rows of the cell a project's architect waits at to start (`S0`) switch on: whether a matter is due.
 const DUE: &str = "due";
@@ -598,7 +596,7 @@ fn route_of(conn: &Connection, work: i64, g: &CompiledGraph) -> Result<String, S
         if cell == SET_POLICY && approved && g.cell(TAKES_EFFECT).is_some() {
             return Ok(TAKES_EFFECT.into());
         }
-        return Ok(if g.cell(&cell).is_some() { cell } else { TALK.into() });
+        return Ok(if g.cell(&cell).is_some() { cell } else { HANDLE.into() });
     }
     if let Some(cell) = goes_on.filter(|c| g.cell(c).is_some()) {
         return Ok(cell);
@@ -698,14 +696,6 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
                 .any(|c| c.inenums.get("question").is_some_and(|vs| vs.iter().any(|v| v.0 == d)));
             if known { d } else { "other_question".into() }
         }
-        "report" => match picked_detail(conn, w.id)?.as_deref() {
-            Some("followup") => "followup",
-            Some("answer") => "answer",
-            Some(db::FAULT) => db::FAULT,
-            Some(VERIFICATION) => VERIFICATION,
-            _ => "side_report",
-        }
-        .into(),
         _ => return Ok(None),
     }))
 }
@@ -1104,10 +1094,7 @@ pub fn ask_architect(
         .as_array()
         .and_then(|ms| ms.last())
         .is_some_and(|m| m["from"]["holder"] == "owner");
-    let back = b.ask.filter(|_| decided).map(|a| {
-        let cell = if kind == "failure" { "H7" } else { "H3" };
-        (a, cell)
-    });
+    let back = b.ask.filter(|_| decided).map(|a| (a, HANDLE));
     let about = match (what_is_asked(&asked), &detail) {
         (a, Some(d)) if a.is_empty() => format!(" ({})", d.replace('_', " ")),
         (a, _) => a,
@@ -1434,6 +1421,7 @@ fn hold_for_second_eye(ctx: &Ctx, tx: &Transaction<'_>, matter: i64, effects: &V
         "cell": ctx.cell.id,
         "effects": effects,
         "outcome": ctx.unwrapped,
+        "progress": ctx.output["progress"],
     });
     tx.execute(
         "UPDATE architect_matters SET effects_held = ?2 WHERE id = ?1",
@@ -1602,14 +1590,7 @@ fn apply_checked(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     .map_err(sql)?;
     let outcome = &held["outcome"];
     let round = RoundId::parse(text(&held["round"])).unwrap_or(ctx.round);
-    match text(&held["cell"]) {
-        TALK => reply_to_owner_now(tx, round, w, &project, matter, text(&outcome["answer"]["reply"]))?,
-        "H9" => answer_architect_now(tx, w, &project, matter, text(&outcome["answer"]["reply"]))?,
-        _ => {}
-    }
-    if outcome["reply"].is_object() {
-        send_reply(tx, w, matter, &outcome["reply"])?;
-    }
+    deliver_reply(tx, round, w, &project, matter, outcome, &held["progress"])?;
     answer(tx, matter, outcome)
 }
 
@@ -1704,6 +1685,55 @@ fn send_reply(tx: &Transaction<'_>, work: i64, matter: i64, reply: &Value) -> Re
     }
     // The review of a design whose work went on goes to the owner now.
     crate::review::after_reply(tx, matter)
+}
+
+/// Whether a matter's kind has an engineer waiting at its question for the reply.
+fn engineer_waits(kind: &str) -> bool {
+    matches!(kind, "engineer_question" | "failure") || kind == crate::open_questions::KIND
+}
+
+/// The kind of a matter.
+fn kind_of(tx: &Transaction<'_>, matter: i64) -> Result<String, String> {
+    tx.query_row("SELECT kind FROM architect_matters WHERE id = ?1", [matter], |r| {
+        r.get(0)
+    })
+    .map_err(sql)
+}
+
+/// What an engineer waiting at its question is sent: the reply, or the round's progress when it wrote none, so that no
+/// engineer waits for a reply that will not come.
+fn reply_or_progress(reply: &Value, progress: &Value) -> Value {
+    if reply.is_object() {
+        reply.clone()
+    } else {
+        json!({ "text": text(progress) })
+    }
+}
+
+/// Gives a matter's reply to whoever it came from, by the matter's kind: the engineer waiting at its question, the
+/// owner, who is told the round's progress when it wrote no reply, or another project's architect; a kind nobody waits on
+/// has no one to give it to.
+fn deliver_reply(
+    tx: &Transaction<'_>,
+    round: RoundId,
+    work: i64,
+    project: &str,
+    matter: i64,
+    outcome: &Value,
+    progress: &Value,
+) -> Result<(), String> {
+    let kind = kind_of(tx, matter)?;
+    let reply = &outcome["reply"];
+    if engineer_waits(&kind) {
+        return send_reply(tx, work, matter, &reply_or_progress(reply, progress));
+    }
+    let said = text(&reply["text"]);
+    match kind.as_str() {
+        "owner_words" if said.trim().is_empty() => reply_to_owner_now(tx, round, work, project, matter, text(progress)),
+        "owner_words" => reply_to_owner_now(tx, round, work, project, matter, said),
+        "other_architect" if !said.trim().is_empty() => answer_architect_now(tx, work, project, matter, said),
+        _ => Ok(()),
+    }
 }
 
 /// Puts the reply to the owner's words, as the architect's message, in the conversation they were said in.
@@ -1970,32 +2000,13 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64
     Ok(parts)
 }
 
-/// Why nothing was recorded of a side report, as the round that took it in says: the way it took it in and why.
+/// Why nothing was recorded of a side report, as the round that took it in says in its reply.
 fn not_recorded(outcome: &Value) -> String {
-    let take = &outcome["take"];
-    let why = db::without_final_terminal(text(&take["why"]).trim());
-    let because = if why.is_empty() {
-        String::new()
+    let why = db::without_final_terminal(text(&outcome["reply"]["text"]).trim());
+    if why.is_empty() {
+        "nothing was recorded".to_string()
     } else {
-        format!(": {why}")
-    };
-    match text(&take["way"]) {
-        "forwarded" => {
-            let to: Vec<String> = items(outcome["effects"].get("messages"))
-                .iter()
-                .map(|m| text(&m["project"]).to_string())
-                .filter(|p| !p.is_empty())
-                .collect();
-            let to = if to.is_empty() {
-                "another project".to_string()
-            } else {
-                to.join(", ")
-            };
-            format!("forwarded to the architect of {to}{because}")
-        }
-        "need_will_hit" => format!("not recorded, as a need that will certainly come meets it anyway{because}"),
-        "nothing" => format!("nothing to take in{because}"),
-        _ => format!("nothing recorded{because}"),
+        format!("nothing was recorded: {why}")
     }
 }
 
@@ -2142,6 +2153,11 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
     Ok(())
 }
 
+/// Whether the round handed in one of the forms that come before the matter's answer: an ask of the owner or a pause.
+fn handed_no_answer(ctx: &Ctx) -> bool {
+    ctx.unwrapped.get("ask").is_some() || ctx.unwrapped.get("pause").is_some()
+}
+
 /// Carries out an action of the architect's graph; false for an action of another.
 pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> Result<bool, String> {
     let w = ctx.work.id;
@@ -2281,19 +2297,6 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 &format!("The architect of {project} asks you: {APPROVAL} (ask {ask})"),
             )?;
         }
-        "reply_to_owner" => {
-            // The reply to the owner's words is the architect's message in the conversation they were said in; once
-            // what the round handed in waits for the second eye, the reply goes with it.
-            let Some(said) = at.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
-                return Ok(true);
-            };
-            let m = matter_of(tx, w)?;
-            if held_for_check(tx, m)? {
-                return Ok(true);
-            }
-            let (_, project) = architect_work_of(ctx)?;
-            reply_to_owner_now(tx, ctx.round, w, &project, m, said)?;
-        }
         "close_matter" => {
             // The matter in hand is handled by this round, and its sessions end with it; a matter whose reply did not
             // go out, since an item it named was not made, goes back to the queue instead, to be answered again.
@@ -2353,44 +2356,42 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         }
         "apply_checked" => apply_checked(ctx, tx)?,
         "return_checked" => return_checked(ctx, tx)?,
-        "reply_to_engineer" => {
-            let Some(reply) = at.filter(|r| r.is_object()) else {
+        "deliver_reply" => {
+            // A round that asks or pauses has not answered yet.
+            if handed_no_answer(ctx) {
                 return Ok(true);
-            };
+            }
             let m = matter_of(tx, w)?;
             // A reply whose round's changes wait for the second eye goes once it finds them sound; it is said about
             // its question meanwhile.
             if held_for_check(tx, m)? {
-                tx.execute(
-                    "UPDATE architect_matters SET reply_held = ?2 WHERE id = ?1",
-                    params![m, reply.to_string()],
-                )
-                .map_err(sql)?;
-                if let Some(b) = crate::blockers::of_matter(tx, m)?
-                    && b.ended.is_none()
-                {
-                    crate::blockers::say(tx, b.id, "architect", "held_reply", reply)?;
+                if engineer_waits(&kind_of(tx, m)?) {
+                    let reply = reply_or_progress(&ctx.unwrapped["reply"], &ctx.output["progress"]);
+                    tx.execute(
+                        "UPDATE architect_matters SET reply_held = ?2 WHERE id = ?1",
+                        params![m, reply.to_string()],
+                    )
+                    .map_err(sql)?;
+                    if let Some(b) = crate::blockers::of_matter(tx, m)?
+                        && b.ended.is_none()
+                    {
+                        crate::blockers::say(tx, b.id, "architect", "held_reply", &reply)?;
+                    }
                 }
                 return Ok(true);
             }
-            send_reply(tx, w, m, reply)?;
+            let (_, project) = architect_work_of(ctx)?;
+            deliver_reply(tx, ctx.round, w, &project, m, &ctx.unwrapped, &ctx.output["progress"])?;
         }
         "answer_reporter" => {
             // The work that handed the matter in is told what became of it as the round ends, or, once what it handed
             // in waits for the second eye, when that finds it sound.
+            if handed_no_answer(ctx) {
+                return Ok(true);
+            }
             let m = matter_of(tx, w)?;
             if !held_for_check(tx, m)? {
                 answer(tx, m, &ctx.unwrapped)?;
-            }
-        }
-        "answer_architect" => {
-            let Some(words) = at.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) else {
-                return Ok(true);
-            };
-            let (_, project) = architect_work_of(ctx)?;
-            let m = matter_of(tx, w)?;
-            if !held_for_check(tx, m)? {
-                answer_architect_now(tx, w, &project, m, words)?;
             }
         }
         "redo_matters" | "redo_batch" => {
@@ -2664,13 +2665,15 @@ pub fn took_hold(g: &CompiledGraph, r: &Round) -> Option<String> {
         "wrote to another project's architect"
     } else if output["tell_owner"].as_array().is_some_and(|a| a.iter().any(said)) {
         "told the owner"
+    } else if does("deliver_reply") && (said(&outcome["reply"]["text"]) || said(&output["progress"])) {
+        "replied to whoever the matter came from"
     } else if does("reply_to_owner") && said(&outcome["answer"]["reply"]) {
         "replied to the owner"
     } else if does("answer_architect") && said(&outcome["answer"]["reply"]) {
         "answered another project's architect"
     } else if does("reply_to_engineer") && outcome["reply"].is_object() {
         "replied to the engineer"
-    } else if does("answer_reporter") {
+    } else if does("answer_reporter") && !does("deliver_reply") {
         "told the work that reported what became of it"
     } else {
         return None;
@@ -3278,14 +3281,14 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), P
                 "SELECT count(*) FROM architect_matters m
                  WHERE m.id = ?1 AND (EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
                    OR EXISTS (SELECT 1 FROM json_each(m.body, '$.asked_by') b
-                              WHERE json_extract(b.value, '$.cell') = ?2))",
-                &[&m, &TALK],
+                              WHERE json_extract(b.value, '$.cell') IN (?2, 'H8')))",
+                &[&m, &HANDLE],
             )? > 0;
             if !yes {
                 return Err(
                     "the owner has not said yes to a new policy: ask the owner first whether to research one, saying \
                      why you doubt the policy in force, and hand in write_policy once the owner replied; only a check \
-                     the owner's own words asked for (queued by the answer to them, H8, as why it is checked says) \
+                     the owner's own words asked for (queued by the answer to them, as why it is checked says) \
                      goes on to write a new policy without asking"
                         .into(),
                 );
@@ -3332,6 +3335,9 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), P
             // An engineer waiting for the reply cannot be left waiting for the owner: its question is answered, and
             // what only the owner can decide goes back as an open question of the engineer's design, which waits for
             // nothing.
+            if !engineer_waits(text(&row["kind"])) {
+                return Ok(());
+            }
             if row["kind"] != crate::open_questions::KIND {
                 return checks::fail(format!(
                     "matter {m} is {}: its engineer waits for your reply, so it cannot be parked for the owner. Reply \
@@ -3518,10 +3524,25 @@ pub fn input(
         "policy_signals" => policy_signals(e, w, project),
         "slots" => slots(e).map(Some),
         "matter" => matter(e, w),
-        "item_log" => item_log(e, w),
-        "similar_items" => similar_items(e, w).map(Some),
+        // Only an engineer's question weighs what other works change.
+        "similar_items" => {
+            let question = picked(e.db.conn(), w.id)?
+                .map(|m| {
+                    e.db.conn()
+                        .query_row("SELECT kind FROM architect_matters WHERE id = ?1", [m], |r| {
+                            r.get::<_, String>(0)
+                        })
+                        .map_err(sql)
+                })
+                .transpose()?
+                .is_some_and(|k| engineer_waits(&k));
+            if question {
+                similar_items(e, w).map(Some)
+            } else {
+                Ok(None)
+            }
+        }
         "owner_answer" => owner_answer(e, w),
-        "cross_project" => cross_project(e, project).map(Some),
         "owner_talk" => owner_talk(e, project),
         "notebook_plan" => Ok(notebook_section(e.db.conn(), project, "plan")?.map(Value::String)),
         "questions" => questions(e, project),
@@ -3783,30 +3804,6 @@ fn work_waits(e: &Engine, g: Option<&CompiledGraph>, work: i64, at: &str) -> Res
         return Ok(Some("the architect's reply to its question".into()));
     }
     Ok(None)
-}
-
-/// The dependencies between a project's items and other projects' items, each with its kind: what its items wait for
-/// there, and what waits there for its items.
-fn cross_project(e: &Engine, project: &str) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let waits_for = query_json(
-        conn,
-        "SELECT l.item, l.depends_on AS on_item, l.kind, d.project, d.title, l.needs,
-                (SELECT w.at FROM works w WHERE w.item = d.id ORDER BY w.id DESC LIMIT 1) AS at, d.cancelled
-         FROM item_links l JOIN items i ON i.id = l.item JOIN items d ON d.id = l.depends_on
-         WHERE i.project = ?1 AND d.project <> ?1 ORDER BY l.item, l.depends_on",
-        &[&project],
-        ROWS,
-    )?;
-    let waited_by = query_json(
-        conn,
-        "SELECT l.depends_on AS item, l.item AS by_item, l.kind, i.project, i.title, l.needs
-         FROM item_links l JOIN items i ON i.id = l.item JOIN items d ON d.id = l.depends_on
-         WHERE d.project = ?1 AND i.project <> ?1 ORDER BY l.depends_on, l.item",
-        &[&project],
-        ROWS,
-    )?;
-    Ok(json!({ "waits_for": waits_for, "waited_by": waited_by }))
 }
 
 /// When a work started: its first round's start; now, before it has one.
@@ -4462,28 +4459,6 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         out["state"][0]["resuming"] = json!(db::resume_asked(conn).map_err(sql)?.contains(&work));
     }
     Ok(Some(out))
-}
-
-/// The architect's recent log entries on the item the matter picked concerns: each matter about it handled, with what
-/// the round that handled it said.
-fn item_log(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let Some(m) = picked(conn, w.id)? else {
-        return Ok(None);
-    };
-    let item: Option<i64> = conn
-        .query_row("SELECT item FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
-        .map_err(sql)?;
-    let Some(item) = item else { return Ok(None) };
-    let rows = query_json(
-        conn,
-        "SELECT h.matter, h.kind, h.what, 'R' || h.work || '-' || h.round AS round, h.cell, h.said
-         FROM work_handled h JOIN architect_matters m ON m.id = h.matter
-         WHERE m.item = ?1 ORDER BY h.work DESC, h.round DESC LIMIT 12",
-        &[&item],
-        12,
-    )?;
-    Ok((!rows.is_empty()).then_some(Value::Array(rows)))
 }
 
 /// The works under way whose branches changed the same paths as the work the matter came from.

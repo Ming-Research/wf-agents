@@ -206,13 +206,13 @@ fn a_check_the_owner_s_words_asked_for_writes_a_new_policy_without_asking() {
     let s = setup("policy-asked-by-words");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             (
-                vec![("outcome.answer", "new_policy")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("I will write a new policy.")),
-                    ("outcome.answer.why", json!("The owner wants the parser first.")),
+                    ("outcome.reply", json!({ "text": "I will write a new policy." })),
+                    ("outcome.policy_check_why", json!("The owner wants the parser first.")),
                 ],
             )
         }),

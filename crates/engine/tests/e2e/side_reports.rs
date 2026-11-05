@@ -21,7 +21,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
         }),
     );
     agents.insert(
-        "H4",
+        "H1",
         Box::new(|_: &Request, _: usize| {
             let new = json!({ "kind": "new", "title": "No jq on the machine", "what": "The machine has no jq.",
                               "tags": [], "source": "A side report.", "refs": [], "reason": "Worth keeping." });
@@ -143,7 +143,7 @@ fn side_reports_come_to_the_architect_as_reports() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    assert!(path_of(&e, arch).contains(&"H4".to_string()), "{log}");
+    assert!(path_of(&e, arch).contains(&"H1".to_string()), "{log}");
     assert_eq!(matters(&e), [("report".to_string(), false, true)], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -243,7 +243,7 @@ fn the_side_reports_handed_in_before_are_given_once_by_work_and_cell() {
     quiet(&mut e);
     let item = an_item(&mut e);
     let v = e.flow_now;
-    let arch = architect_work_at(&mut e, "H4");
+    let arch = architect_work_at(&mut e, "H1");
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'I1', 'stopped: by hand')",

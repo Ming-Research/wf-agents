@@ -531,7 +531,7 @@ fn failures_with_a_return_between_are_not_in_a_row() {
     // Eight failures, as many as the flow runs again, and a return of an agent after them.
     let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
     let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..8).map(|_| ("U1", None, transient.clone())).collect();
-    past.push(("H9", Some("done"), None));
+    past.push(("H1", Some("done"), None));
     past_rounds(&mut e, arch, &past);
     // The next failure is the first in its row: it is run again, not paused (it would be past the bound if the eight
     // before the return were counted).
@@ -616,7 +616,7 @@ fn step_failures_before_a_return_of_an_agent_are_not_in_a_row_with_those_after_i
     let s = setup("step-reset");
     let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
     let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..5).map(|_| ("U1", None, step_failed())).collect();
-    past.push(("H9", Some("done"), None));
+    past.push(("H1", Some("done"), None));
     past_rounds(&mut e, arch, &past);
     advance_to_pause(&mut e, arch, 12);
     let log = said.lock().unwrap().join("\n");

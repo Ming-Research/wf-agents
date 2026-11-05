@@ -2022,7 +2022,7 @@ fn lines_told(e: &Engine, work: i64) -> Vec<String> {
 }
 
 /// The engine of a test whose item's work asks the architect about a capability gap at its first round, with the
-/// architect's ways (`H3`) and any other cell scripted as given, run until the work of the architect it started ended
+/// architect's ways (`H1`) and any other cell scripted as given, run until the work of the architect it started ended
 /// and the work's question took its row: the engine, what it said, the item, its work and the architect's work.
 fn a_gap_asked(
     s: &Setup,

@@ -2020,24 +2020,23 @@ mod tests {
     fn a_field_written_inside_a_form_it_does_not_belong_to_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let schema = g.cell("H4").unwrap().schema.clone().unwrap();
+        let schema = g.cell("H1").unwrap().schema.clone().unwrap();
         let s = envelope(g, Some("matter"));
-        let finding = json!({ "what": "A slow parser.", "grounds": "Ran it.", "sure": "checked" });
-        let take = json!({ "way": "nothing", "why": "Nothing in it to take in" });
-        let mut inside = take.clone();
+        let reply = json!({ "text": "Nothing in it to take in" });
+        let mut inside = reply.clone();
         inside["effects"] = json!({});
         let mut ret = json!({
             "tell_owner": [],
             "progress": "Taking in an observation",
             "flow_feedback": "",
-            "outcome": { "finding": finding, "take": inside },
+            "outcome": { "reply": inside },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome/take: must NOT have additional properties ('effects' is not allowed)")
+            Some("/outcome/reply: must NOT have additional properties ('effects' is not allowed)")
         );
-        ret["outcome"] = json!({ "finding": finding, "take": take, "effects": {} });
+        ret["outcome"] = json!({ "reply": reply, "effects": {} });
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
     }
@@ -2054,13 +2053,12 @@ mod tests {
         let f = compiled();
         let g = f.graph("architect").unwrap();
         let s = envelope(g, Some("matter"));
-        let schema = g.cell("H4").unwrap().schema.clone().unwrap();
+        let schema = g.cell("H1").unwrap().schema.clone().unwrap();
         let mut ret = json!({
             "tell_owner": [],
             "flow_feedback": "none",
             "outcome": {
-                "finding": { "what": "A slow parser.", "grounds": "Ran it.", "sure": "checked" },
-                "take": { "way": "nothing", "why": "Nothing to take in." }
+                "reply": { "text": "Nothing to take in." }
             },
         });
         assert_eq!(
@@ -2507,14 +2505,8 @@ mod tests {
             }
         }
         assert!(taken > 20 && refused_with > 5, "{taken} {refused_with}");
-        // The one union whose branches are not told apart on its line: `answer` of the architect's `H8`, a union by
-        // `way` there and a plain object in another cell of the line, so that the merge keeps no branches (it must take
-        // what either cell does). A union that stops being told apart anywhere else, or this one that starts to be,
-        // changes the list and fails here.
-        assert_eq!(
-            skipped.into_iter().collect::<Vec<_>>(),
-            ["graph architect, cell H8, at [Some(\"outcome\"), Some(\"answer\")] by way"]
-        );
+        // Every union is told apart on its line; one that stops being told apart fails here.
+        assert_eq!(skipped.into_iter().collect::<Vec<_>>(), Vec::<String>::new());
     }
 
     // A line's schema is the same each time it is made, and from the flow as the engine reads it back from what it

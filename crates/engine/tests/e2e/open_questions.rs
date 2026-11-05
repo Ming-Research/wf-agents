@@ -18,9 +18,9 @@ fn an_engineer_s_question_cannot_be_pinned_for_the_owner() {
         (Vec::new(), vec![("outcome.reply", reply)])
     });
     let ask = asks_about_a_gap("The change makes parsing 3% slower, measured over 30 pairs.");
-    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H1", ways)]);
     let log = said.lock().unwrap().join("\n");
-    let sent_back = why_sent_back(&e, arch, "H3");
+    let sent_back = why_sent_back(&e, arch, "H1");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
     assert!(sent_back[0].contains("cannot be parked for the owner"), "{sent_back:?}");
     let asks: i64 =

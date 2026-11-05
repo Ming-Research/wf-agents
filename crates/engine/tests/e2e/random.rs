@@ -107,6 +107,25 @@ fn random_events(seed: u64, events: usize) {
             }),
         );
     }
+    // Each work changes a file of its own as well, so that a work merged first leaves the other's branch with a change.
+    // A head that main merged into after its CI goes through the CI again.
+    let usual = agents.remove("I1").unwrap();
+    let pushed = Mutex::new(BTreeMap::<i64, String>::new());
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            write(&r.worktree, &format!("src/own-{}.txt", r.work), "own\n");
+            let answer = usual(r, n);
+            let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+            let mut heads = pushed.lock().unwrap();
+            if heads.get(&r.work) == Some(&head) {
+                return answer;
+            }
+            heads.insert(r.work, head.clone());
+            let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"], "pr": { "title": "Add the feature", "body": "It adds the feature." } }]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
     // The advisor answers, or hands the question to the architect.
     let d = dice.clone();
     agents.insert(
@@ -121,7 +140,7 @@ fn random_events(seed: u64, events: usize) {
     // of either project; or hands the question to the owner, or to the other project's architect.
     let (d, p) = (dice.clone(), path.clone());
     agents.insert(
-        "H3",
+        "H1",
         Box::new(move |r: &Request, _: usize| {
             let c = db::open_read(&p).unwrap();
             let project = project_of(r);

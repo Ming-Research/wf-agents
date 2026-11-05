@@ -9,7 +9,7 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     let s = setup("close-folded");
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -42,7 +42,7 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     );
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
-        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL",
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H1' AND rejected IS NOT NULL",
         &[&arch],
         10,
     )
@@ -79,7 +79,7 @@ fn an_observation_with_no_tag_or_a_wide_title_is_sent_back() {
     git(&s.data, &["commit", "-q", "-am", "observation tags"]);
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n > 2 {
                 return (Vec::new(), Vec::new());
@@ -109,7 +109,7 @@ fn an_observation_with_no_tag_or_a_wide_title_is_sent_back() {
     );
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
-        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL",
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H1' AND rejected IS NOT NULL",
         &[&arch],
         10,
     )
