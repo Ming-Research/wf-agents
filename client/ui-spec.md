@@ -1811,6 +1811,11 @@ the matter, what matters most in the bubble, too faint to find; what the owner s
 said on the message in `--fgColor-danger` or `--fgColor-attention` small text; an ask is the asking agent's message,
 answered in it where it was asked, the bar of what waits pinning it while it waits (below).
 
+Everything a line says in a conversation is a bubble, an ask above all, whichever line said it, with what answers it inside
+it, and every ask or review that waits for the owner is pinned on the bar over the stream, which leads to that bubble:
+the owner decided this, reads conversations as a chat, and cannot go looking in other places for what waits. A line the
+flow gains changes nothing of it.
+
 In wf-agents' own conversation, the engine's notices are the page's own voice, a condensed `Timeline` between the
 messages: a card's badge its state's Octicon and state colour, its first line its name in semibold, its state as a
 `Label`, its facts in small `--fgColor-muted` and its links, what it holds folded under it, and a notice one small

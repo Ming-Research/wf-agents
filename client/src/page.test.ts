@@ -2735,7 +2735,7 @@ describe("the owner's conversations", () => {
       'system',
       'none',
       'owner',
-      'system',
+      'agent',
       'agent',
       'owner',
       'agent',

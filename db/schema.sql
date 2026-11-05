@@ -1798,8 +1798,8 @@ CREATE VIEW conversation_entries AS
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
   -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. design_card: the decision
   -- card the entry is, or is a ruling on, or the owner's question asks about, or an answer answers about. waiting: it waits for the
-  -- owner (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter still
-  -- open, neither handled nor withdrawn, not answered; a design card not ruled while its work goes on; a fault not
+  -- owner (an ask that stands for an open blocker the owner holds, an architect's ask that holds a matter still
+  -- open, neither handled nor withdrawn, or an ask the work goes on without while it runs, not answered; a design card not ruled while its work goes on; a fault not
   -- read). pending: the owner's words not taken
   -- up yet. undelivered: the owner's words to an agent that its work ended without taking in. answerable: an
   -- engineer's question the architect holds now, which the owner may answer in the group instead.
@@ -1853,7 +1853,8 @@ CREATE VIEW conversation_entries AS
     a.answer IS NULL AND (
       (w.graph = 'architect' AND EXISTS (
         SELECT 1 FROM architect_matters m WHERE m.asked = a.id AND m.handled_round IS NULL AND m.withdrawn IS NULL))
-      OR EXISTS (SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')), 0, 0, 0, NULL
+      OR EXISTS (SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')
+      OR (w.ended IS NULL AND json_extract(a.body, '$.kind') IN ('design_review', 'points', 'change'))), 0, 0, 0, NULL
   FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
   LEFT JOIN items i ON i.id = w.item
   UNION ALL

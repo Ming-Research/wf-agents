@@ -53,7 +53,12 @@ pub fn lifted(g: &CompiledGraph, cell: &CompiledCell, mut out: Value) -> Value {
 fn empty_lists(cell: &CompiledCell, out: &mut Value) {
     let Some(schema) = cell.schema.as_ref() else { return };
     let Some(o) = out.as_object_mut() else { return };
-    for name in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+    for name in schema["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
         if schema["properties"][name]["type"] == "array" && !o.contains_key(name) {
             o.insert(name.to_string(), json!([]));
         }

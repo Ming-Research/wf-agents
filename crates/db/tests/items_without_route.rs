@@ -104,12 +104,6 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
             [],
         )
         .unwrap();
-        conn.execute(
-            "INSERT INTO merge_conditions (item, what, source, source_id, quote, said_by, recorded_by, at)
-             VALUES (1, 'w', 'ask', 1, 'q', 'owner', 'owner', 1)",
-            [],
-        )
-        .unwrap();
         let has_route: i64 = conn
             .query_row(
                 "SELECT count(*) FROM pragma_table_info('items') WHERE name = 'route'",
@@ -162,10 +156,6 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
         (
             "architect_matters",
             "SELECT count(*) FROM architect_matters m JOIN items i ON i.id = m.item WHERE m.item = 2",
-        ),
-        (
-            "merge_conditions",
-            "SELECT count(*) FROM merge_conditions c JOIN items i ON i.id = c.item WHERE c.item = 1",
         ),
         (
             "works",

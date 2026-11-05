@@ -111,8 +111,6 @@ export function conversationTitle(
 /// which the owner marks read; or nothing, for a decision card, which the bubble of the stage that handed it in holds.
 export type Voice = 'owner' | 'agent' | 'live' | 'system' | 'fault' | 'none';
 
-/// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
-const MEMBERS = ['engineer', 'architect'];
 
 /// The member a line speaks as: the architect for the line a flow version before set the architect's policy on, since
 /// to the owner the architect is one; any other line as itself.
@@ -131,9 +129,13 @@ export function voiceOf(e: ConversationEntry): Voice {
       return 'none';
     case 'between':
       return 'agent';
+    // An ask is answered in its bubble, and what any line says is a bubble: as a row the bar's pin led nowhere, and a line
+    // the flow gained, as the designer's and the reviews' were, would fall out of the conversation's voice.
+    case 'ask':
+      return 'agent';
     default:
       if (e.sender === 'owner') return 'owner';
-      return MEMBERS.includes(member(e.sender)) ? 'agent' : 'system';
+      return e.sender === 'engine' || e.sender === 'wf-agents' ? 'system' : 'agent';
   }
 }
 

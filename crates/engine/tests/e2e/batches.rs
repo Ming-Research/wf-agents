@@ -295,7 +295,10 @@ fn a_place_the_queue_holds_is_not_queued_again_and_sends_nothing_back() {
             named["queued"] = json!(99_999);
             (
                 vec![("outcome.fit", "some_to_change")],
-                vec![("outcome.fit.fixes", json!([fix("The second stage"), fix("The second stage"), named]))],
+                vec![(
+                    "outcome.fit.fixes",
+                    json!([fix("The second stage"), fix("The second stage"), named]),
+                )],
             )
         }),
     );

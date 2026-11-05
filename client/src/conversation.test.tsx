@@ -250,6 +250,17 @@ describe('an ask in its conversation', () => {
     expect(pinned).not.toContain('<textarea');
   });
 
+  // The reviews, the points and the changes a work goes on without are put by the line that ran last or by an engine's
+  // step. As a system line their pin led nowhere and nothing answered them.
+  it('draws an ask of any line as a bubble the bar leads to, with what answers it', () => {
+    const a = ask(4, { to: 'owner', kind: 'change' });
+    for (const sender of ['designer', 'review', 'adversarial', 'librarian', 'engine']) {
+      const d = detail([asked(a, { sender })]);
+      expect(pinsOf(d).map((p) => p.id)).toEqual([4]);
+      expect(drawn(d)).toContain('data-ask="4"');
+    }
+  });
+
   it('is answered where it was asked: its options picked on their boxes, none at first, then a small box and Answer', () => {
     const { inside, after } = bubble(row(drawn(detail([asked(ask(4, choice))])), 'data-ask="4"'));
     // Nothing after the bubble in its row but the ends of the row and of the stream.
