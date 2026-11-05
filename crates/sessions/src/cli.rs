@@ -3060,7 +3060,8 @@ mod tests {
                 && want("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0")
                 && want("MAX_STRUCTURED_OUTPUT_RETRIES", "3")
                 && want("RUSTUP_AUTO_INSTALL", "0")
-                && env.len() == 4,
+                && want("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1")
+                && env.len() == 5,
             "{env:?}"
         );
         // A bare call, as a repair, is offered no tools and given no structured output.
