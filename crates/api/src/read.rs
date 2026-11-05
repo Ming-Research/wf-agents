@@ -4787,6 +4787,33 @@ mod tests {
         assert!(r.limits.is_empty());
     }
 
+    // A work that reached the end of its graph is ended as done, and reads as done with no reason it ended, as it did
+    // while the end was not written; one stopped before its end reads as ended, with the reason.
+    #[test]
+    fn a_work_ended_as_done_reads_as_done_and_one_stopped_reads_as_ended() {
+        let mut s = architect_setup("ended-done");
+        let read = |s: &Setup| {
+            let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()]).unwrap();
+            let last = a.works.iter().find(|w| w.work.id == 2).unwrap().work.clone();
+            (last.state, last.ended)
+        };
+        assert_eq!(read(&s), (WorkState::Done, None));
+        for (ended, expected) in [
+            ("done", (WorkState::Done, None)),
+            (
+                "stopped: for a test",
+                (WorkState::Ended, Some("stopped: for a test".to_string())),
+            ),
+        ] {
+            s.db.write(Actor::Engine, |tx| {
+                tx.execute("UPDATE works SET ended = ?1 WHERE id = 2", [ended])?;
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(read(&s), expected);
+        }
+    }
+
     // A project's tab: its works newest first, with what each handled; its queue, then what an ask holds; its holds; its
     // asks; its log newest first; the item changes made; the policy being set; where things stand. Another project's are
     // not in it.
