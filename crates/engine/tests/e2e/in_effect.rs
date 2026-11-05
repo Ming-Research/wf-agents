@@ -220,6 +220,8 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     assert_eq!(transitions(&e, item, "V1"), ["not_carried"]);
     let w = e.work(work).unwrap();
     assert!(e.waiting(&w).unwrap());
+    // A merged work that waits for its change to take effect has not ended.
+    assert_eq!(ended_of(&e, work), None);
     let rounds = rounds_of(&e, work);
     e.step(None).unwrap();
     assert_eq!(rounds_of(&e, work), rounds);
@@ -249,6 +251,12 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     assert_eq!(looks(&e, item).last().unwrap(), "verified");
     assert_eq!(looks_counted(&e, work), 1);
     assert!(report_of(&e, item).is_none());
+    // It ends, as done, only when its round at the end is complete.
+    let w = e.work(work).unwrap();
+    assert!(!e.done(&w).unwrap() && ended_of(&e, work).is_none());
+    step_until(&mut e, item, &said, "the end", |e| ended_done(e, work));
+    let w = e.work(work).unwrap();
+    assert!(e.done(&w).unwrap());
     let seen = verifications(&e, item);
     assert_eq!(seen.len(), 2, "{seen:?}");
     assert_eq!((seen[0].0.as_str(), seen[0].1.as_str()), ("A2", "not_yet"));
@@ -739,12 +747,17 @@ fn a_return_that_changes_the_acceptance_answers_for_the_list_it_hands_in() {
         }),
     );
     let (mut e, _, item) = start(&s, agents);
-    step_to(&mut e, item, "V1");
-    let (work, _, _) = state(&e, item).unwrap();
+    // The return sent back queues a report for the project's architect, whose work would run beside this one and take
+    // the passes that carry it past a cell; so the work is stepped alone, as the tests of returns sent back do.
+    let work = e.step(None).unwrap().work.unwrap();
+    let at = |e: &Engine| state(e, item).unwrap().1;
+    advance_until(&mut e, work, |e| at(e) == "V1");
+    assert_eq!(at(&e), "V1");
     let sent_back = why_sent_back(&e, work, "I1");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}");
     assert!(sent_back[0].contains("A2"), "{sent_back:?}");
-    step_to(&mut e, item, "E1");
+    advance_until(&mut e, work, |e| at(e) == "E1");
+    assert_eq!(at(&e), "E1");
     assert_eq!(looks(&e, item), ["verified"]);
     let _ = std::fs::remove_dir_all(&s.root);
 }

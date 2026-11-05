@@ -355,8 +355,10 @@ CREATE TABLE works (
   -- Why the work is paused: the engine's reason, when a step could not be taken or returns were sent back too often,
   -- or the owner's words; NULL while it goes on. Read by: the engine; the slots view.
   paused TEXT,
-  -- Why the work was stopped before its end cell, for example because its item was cancelled; NULL otherwise.
-  -- Read by: the engine; the status view.
+  -- How the work ended: `done` when it reached the end of its graph, written in the write that completes the round at
+  -- its end cell; otherwise why it was stopped before its end, for example because its item was cancelled. NULL while
+  -- it goes on, a work waiting for a change to take effect included. Read by: the engine, which takes no step of a work
+  -- that ended and does not load it; the status view.
   ended TEXT,
   -- Who paused the work, the owner or the engine; NULL while it goes on. The owner's Start all lets go on only the
   -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
@@ -1271,6 +1273,30 @@ CREATE INDEX notebook_edits_by_section ON notebook_edits (project, section);
 CREATE UNIQUE INDEX attachments_of_interjection ON attachments (interjection, position) WHERE interjection IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_matter ON attachments (matter, position) WHERE matter IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask IS NOT NULL;
+-- The largest transaction number in the change log: `Db::write` reads it on every write, under the write lock.
+CREATE INDEX changes_by_tx ON changes (tx);
+-- The sessions a CLI session's id names: the rows its rounds are read through.
+CREATE INDEX sessions_by_cli_session ON sessions (cli_session);
+-- The rounds a CLI session ran, found through the session's row.
+CREATE INDEX rounds_by_session ON rounds (session);
+-- The rounds of a cell in any work: an architect's rounds at the cell of a matter.
+CREATE INDEX rounds_by_cell ON rounds (cell);
+-- The interjections a matter holds the owner's words of, said in a work's group.
+CREATE INDEX interjections_by_matter ON interjections (matter);
+-- The interjections of a work delivered after a round: the words given since a merge.
+CREATE INDEX interjections_by_work_delivered ON interjections (work, delivered_round);
+-- The matters of a work of a kind: the questions an engineer asked the architect, the reports of its line.
+CREATE INDEX architect_matters_by_work ON architect_matters (work, kind);
+-- The matter an owner's ask put to the architect.
+CREATE INDEX architect_matters_by_asked ON architect_matters (asked);
+-- The notices about an owner's ask.
+CREATE INDEX engine_notices_by_ask ON engine_notices (ask);
+-- The blockers an owner's ask holds.
+CREATE INDEX blockers_by_ask ON blockers (ask);
+-- The blocker a matter of the architect's queue stands for.
+CREATE INDEX blockers_by_matter ON blockers (matter);
+-- The works on each flow version.
+CREATE INDEX works_by_flow_version ON works (flow_version);
 
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
 -- work or project at hand has a column of that name; the engine filters on it.
@@ -1293,7 +1319,8 @@ CREATE VIEW ready_items AS
   -- depends on by a blocking dependency unmerged (item_blocked_by), and, unless the owner queued it, is not done. An
   -- item leaves the owner's queue when a work starts on it, and may be queued again once its works ended. A work runs
   -- until it ends or its last round, at the cell it is at, completed without taking a row, which only the end of its
-  -- graph does; it is done at the end of the engineer's graph. While dispatch_holds has a row, the engine starts none.
+  -- graph does; it is done at the end of the engineer's graph, ended as `done` or, while its round there is not
+  -- completed, not ended. While dispatch_holds has a row, the engine starts none.
   -- Read by: cell `S0`; the architect, through what runs and starts next.
   WITH
   running(item) AS (
@@ -1304,7 +1331,8 @@ CREATE VIEW ready_items AS
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
     SELECT w.item FROM works w
-    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
   FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
   WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
@@ -1328,7 +1356,8 @@ CREATE VIEW open_items AS
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
     SELECT w.item FROM works w
-    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title,
     CASE
       WHEN EXISTS (
@@ -1474,9 +1503,10 @@ CREATE VIEW sent_back_problems AS
   -- kept has no row. `field` is the check's `at` in the flow (`columns[pass].evidence`) for a check and the path in the
   -- schema with each list index written `[]` (`columns[].evidence`) for `format`, so group by `check_name` and
   -- `field` together. One return may hold several problems of one check and field: count returns with
-  -- `count(DISTINCT work || '-' || round)` and problems with the rows. Read by: today only people and agents who query
-  -- it, to count the returns sent back by check and by field. The architect's items on returns sent back (#198) and the
-  -- merging of like ones (#257) will read it; no code reads it yet.
+  -- `count(DISTINCT work || '-' || round)` and problems with the rows. Read by: people and agents who query it, to
+  -- count the returns sent back by check and by field. The matter the engine queues for the architect at each return
+  -- sent back (kind `report`, detail `sent_back`) holds the same problems in its body, as `problems`, and the
+  -- merging of like ones (#257) will read either.
   SELECT r.work, r.n AS round, r.cell, p.key AS position,
     json_extract(p.value, '$.check') AS check_name,
     json_extract(p.value, '$.field') AS field,
@@ -1576,8 +1606,9 @@ CREATE VIEW work_owner_words AS
   WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
   UNION ALL
   SELECT j.work, 'interjection', j.id, j.declared, j.text,
-    coalesce((SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0), j.relayed
+    coalesce((SELECT max(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
+                AND c.old_row IS NULL), 0), j.relayed
   FROM interjections j
   WHERE j.speaker = 'owner' AND j.matter IS NULL AND j.cancelled_item IS NULL
   UNION ALL
@@ -1712,10 +1743,12 @@ CREATE VIEW known_red_counts AS
 
 CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
-  -- each with who waits for it (an agent: an engineer stopped at the architect's cell on this very matter; the owner,
-  -- for the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
-  -- answer and to which cell, the second cell a flow version before had a matter of two cells go on at, and whether
-  -- its reporter marked it as harming now (urgent).
+  -- each with who waits for it (an agent: an engineer stopped at the architect's cell on this very matter, or, for the
+  -- matter of a return sent back (kind `report`, detail `sent_back`), an engineer's work the engine paused for
+  -- returns sent back in a row, whose reason starts as `SENT_BACK_FOR_ARCHITECT` in crates/db/src/lib.rs does, until
+  -- it goes on; the owner, for the owner's words; or no one), when it came and how long it has waited, whether it comes
+  -- back with the owner's answer and to which cell, the second cell a flow version before had a matter of two cells go
+  -- on at, and whether its reporter marked it as harming now (urgent).
   -- Read by: cells `S0` and `N0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
   -- work, and takes the next matter by it in its fixed order; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
@@ -1724,6 +1757,11 @@ CREATE VIEW architect_queue AS
         SELECT 1 FROM works w JOIN blockers b ON b.work = w.id
         WHERE w.id = m.work AND w.graph = 'engineer' AND w.at IN ('A2', '15', 'to_architect', 'ask.architect')
           AND w.ended IS NULL AND b.matter = m.id AND b.ended IS NULL)
+        THEN 'agent'
+      WHEN m.kind = 'report' AND m.detail = 'sent_back' AND EXISTS (
+        SELECT 1 FROM works w
+        WHERE w.id = json_extract(m.body, '$.work') AND w.ended IS NULL
+          AND w.paused_by = 'engine' AND w.paused LIKE 'returns were sent back%')
         THEN 'agent'
       WHEN m.kind = 'owner_words' THEN 'owner'
       ELSE 'none' END AS waits,
@@ -1933,8 +1971,9 @@ CREATE VIEW conversation_entries AS
     coalesce(w.project, i.project), 'interjection', j.id, j.speaker,
     CASE WHEN j.matter IS NULL THEN j.line WHEN j.informs = 1 THEN 'architect' ELSE 'both' END,
     coalesce((SELECT json_extract(x.body, '$.text') FROM architect_matters x WHERE x.id = j.matter), j.text),
-    coalesce((SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),
+    coalesce((SELECT max(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
+                AND c.old_row IS NULL),
              (SELECT min(x.started_at) FROM rounds x WHERE x.work = j.work), 0),
     j.work, j.delivered_round, NULL, j.design_card, j.matter, NULL, 0,
     j.speaker = 'owner' AND ((j.informs = 0 AND j.delivered_round IS NULL AND w.ended IS NULL

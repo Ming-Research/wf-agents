@@ -2645,6 +2645,7 @@ describe("the owner's conversations", () => {
     stage: null,
     matter_card: null,
     words_state: null,
+    retract: 'no',
     policy: null,
     plan: null,
     images: [],

@@ -18,7 +18,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -1260,9 +1259,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
 
 /// What git writes to its standard output, as bytes; on failure, its command and what it says.
 fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
+    let out = shared_git::command(dir)
         .args(args)
         .output()
         .map_err(|e| format!("git: {e}"))?;
@@ -1996,6 +1993,12 @@ pub fn database(dir: &Path) -> PathBuf {
     dir.join("db").join("wf-agents.sqlite")
 }
 
+/// The file whose operating-system lock keeps a second engine off a data directory: beside the database, in the `db/`
+/// directory the data directory's git leaves out.
+pub fn engine_lock(dir: &Path) -> PathBuf {
+    dir.join("db").join("engine.lock")
+}
+
 /// The directory each work's worktree is made in: `worktrees/` in the data directory, which the data directory's git
 /// leaves out.
 pub fn worktrees(dir: &Path) -> PathBuf {
@@ -2338,9 +2341,7 @@ fn blob_texts(repo: &Path, objects: &[&str]) -> Result<Vec<String>, String> {
     if objects.is_empty() {
         return Ok(Vec::new());
     }
-    let mut child = Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    let mut child = shared_git::command(repo)
         .args(["cat-file", "--batch"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

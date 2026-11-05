@@ -1260,7 +1260,7 @@ fn act_now(ctx: &Ctx, tx: &Transaction<'_>, project: &str, a: &Value) -> Result<
                 return Ok(());
             };
             // The loop lifts it, once the work's machine has a slot free: this transaction cannot know the slots.
-            if db::stopped_by_architect(Some(p.as_str()), by.as_deref()) {
+            if db::architect_may_resume(Some(p.as_str()), by.as_deref()) {
                 db::ask_resume(tx, work, db::Actor::Architect).map_err(sql)?;
             }
             Ok(())
@@ -2868,9 +2868,9 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
                 item.unwrap_or_default()
             )),
             ("resume_work", Some((_, p, by))) => {
-                if !db::stopped_by_architect(p.as_deref(), by.as_deref()) {
+                if !db::architect_may_resume(p.as_deref(), by.as_deref()) {
                     problems.push(format!(
-                        "action {n}: the work on item {} is not paused by you",
+                        "action {n}: the work on item {} is not paused by you, nor for a return sent back",
                         item.unwrap_or_default()
                     ));
                 }
@@ -4288,9 +4288,9 @@ fn side_reports_once(e: &Engine, reports: &[Value]) -> Result<Value, String> {
         g["work_now"] = json!(match row {
             None => "no such work".to_string(),
             Some((_, _, Some(_), _)) => "its item was cancelled".to_string(),
-            Some((_, Some(why), None, _)) => format!("it ended: {why}"),
-            Some((_, None, None, true)) => "it merged".to_string(),
-            Some((at, None, None, false)) if at == end => "it is done".to_string(),
+            Some((_, Some(why), None, _)) if why != db::ENDED_DONE => format!("it ended: {why}"),
+            Some((_, _, None, true)) => "it merged".to_string(),
+            Some((at, _, None, false)) if at == end => "it is done".to_string(),
             Some(_) => "it goes on".to_string(),
         });
     }

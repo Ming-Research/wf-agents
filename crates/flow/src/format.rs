@@ -422,6 +422,14 @@ pub struct SentBack {
     /// The counter that counts each return sent back, one of the flow's counters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counts: Option<String>,
+    /// Whether each return sent back is the project's architect's to look at: in the write that ends the round the
+    /// engine queues a report for it, listing each problem the return was sent back with, so that the
+    /// cause is found and recorded, and the work goes on without waiting for it. The pause after `pauseAfter` in a row
+    /// is then one the architect may let go on itself, as the owner may. Without it the pause is the owner's alone.
+    /// Only a graph whose tasks an architect holds a blocker of (`blockers`) may say it; a work on no item queues
+    /// nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub look: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

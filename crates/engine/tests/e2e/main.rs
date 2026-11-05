@@ -30,6 +30,7 @@ mod declared_checks;
 mod deep_research;
 mod dependency_sources;
 mod dependency_sources_left_behind;
+mod ended;
 mod engine_faults;
 mod engine_runs;
 mod failures;
@@ -56,10 +57,14 @@ mod retries;
 mod returns;
 mod review;
 mod routes;
+mod sent_back_checks;
+mod sent_back_corners;
+mod sent_back_looks;
 mod side_reports;
 mod slots;
 mod stale_before;
 mod stale_before_corners;
+mod take_back;
 mod takeovers;
 mod talk;
 mod tests_changed;
@@ -1276,8 +1281,34 @@ fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Arc<Mu
     engine_with(s, scripts, Hooks::default())
 }
 
+/// An engine made only to read over a setup, which takes no lock and so runs beside an engine that holds it: it reads
+/// the database as an engine started afresh finds it.
+fn reading_engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> Engine {
+    let (agents, hub) = fakes(s, scripts);
+    let committed = config::committed(&s.data).unwrap();
+    Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap()
+}
+
 /// The engine over a setup as it starts, telling `hooks` what runs, with what it says kept.
 fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks) -> (Engine, Arc<Mutex<Vec<String>>>) {
+    let (agents, hub) = fakes(s, scripts);
+    let committed = config::committed(&s.data).unwrap();
+    let said = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = said.clone();
+    let hooks = Hooks {
+        say: Arc::new(move |x: &str| log.lock().unwrap().push(x.to_string())),
+        ..hooks
+    };
+    // The lock of the data directory, as the command takes it: a test that starts a second engine on the same data
+    // drops the first first.
+    let lock = engine::Lock::acquire(&s.data).unwrap();
+    let mut e = Engine::new(lock, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
+    e.retry_wait = std::time::Duration::ZERO;
+    (e, said)
+}
+
+/// The scripted agents and the fake GitHub over a setup.
+fn fakes(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Scripted, FakeHub) {
     let agents = Scripted {
         scripts,
         rounds: Mutex::new(BTreeMap::new()),
@@ -1292,16 +1323,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         by_hand: s.by_hand.clone(),
         watch_main: s.watch_main.clone(),
     };
-    let committed = config::committed(&s.data).unwrap();
-    let said = Arc::new(Mutex::new(Vec::<String>::new()));
-    let log = said.clone();
-    let hooks = Hooks {
-        say: Arc::new(move |x: &str| log.lock().unwrap().push(x.to_string())),
-        ..hooks
-    };
-    let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
-    e.retry_wait = std::time::Duration::ZERO;
-    (e, said)
+    (agents, hub)
 }
 
 fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {
@@ -2595,8 +2617,19 @@ fn cancelled_why(e: &Engine, item: i64) -> Option<String> {
         .unwrap()
 }
 
-/// Why a work ended; none while it goes on.
+/// Why a work was stopped before its end; none while it goes on, and none for a work that reached the end of its
+/// graph, which ends as `done` ([`ended_done`]).
 fn ended_why(e: &Engine, work: i64) -> Option<String> {
+    ended_of(e, work).filter(|why| why != "done")
+}
+
+/// Whether a work reached the end of its graph and ended as `done`.
+fn ended_done(e: &Engine, work: i64) -> bool {
+    ended_of(e, work).as_deref() == Some("done")
+}
+
+/// What the work's column `ended` holds.
+fn ended_of(e: &Engine, work: i64) -> Option<String> {
     e.db.conn()
         .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
         .unwrap()
