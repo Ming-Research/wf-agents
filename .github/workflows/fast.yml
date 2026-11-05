@@ -181,7 +181,8 @@ jobs:
           if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
             :
           elif [ -f "$kept/index.html" ]; then
-            rm -rf dist && cp -a "$kept" dist
+            # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
+            rm -rf dist && cp -R "$kept" dist
           else
             npm run build
             mkdir -p "$HOME/page-builds"
