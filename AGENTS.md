@@ -14,11 +14,13 @@ What an agent needs to know for this repository, beyond the rules every agent is
   them. Use `rustfmt` itself, since `cargo fmt` is refused on the engineer's command line. `rustfmt` reads
   `rustfmt.toml`, and rustup runs the toolchain that `rust-toolchain.toml` pins, so the `rustfmt` it provides formats
   as CI does. Do not pass a glob such as `crates/**/*.rs`, so that no file is left out.
+- Builds and test suites run through the `ci` tool, not on the machine the agents run on: it makes no difference to the
+  work, and locally it only fights the owner for the processor.
 - A new crate goes under `crates/` and takes its version, edition and lints from the workspace.
-- `db/schema.sql` is the only definition of the database: change the database by changing it, with the migration in
-  the same pull request, a file of `db/migrations/` named by the minute it was written and what it does.
-- A change to the owner's page follows its UI spec, [client/ui-spec.md](client/ui-spec.md), and passes its check,
-  `npm run check:ui` in `client/`.
+- A change to the database changes `db/schema.sql` and adds the migration in the same pull request, a file of
+  `db/migrations/` named by the minute it was written and what it does.
+- A change to the owner's page passes its check, `npm run check:ui` in `client/`. [client/ui-spec.md](client/ui-spec.md)
+  holds the page's details; where it differs from the design tree, the tree holds.
 - The page's tests are three Vitest projects (`client/vite.config.ts`): `unit` (Node, or happy-dom for a file that says
   so), `ui` and `browser`. What depends on a real browser's layout, pointer, focus or keys (the graph's viewer in
   `client/src/graph/` above all) is tested in a file named `*.browser.test.tsx`, which draws the page in Chromium;
@@ -34,9 +36,11 @@ What an agent needs to know for this repository, beyond the rules every agent is
   early cell's output sends each work that went past it back to do the cell again.
 - A change to a cell's inputs or outputs, in the flow or in the code that fills them, waits for the owner's approval; the
   proposal gives each one's change in characters and why it is needed.
-- Every cell of a session line carries the line's whole schema in every round. A cell may have an ability of its own,
-  but never a second tool, form or output for what another cell has: lookups in the database go through the one tool
-  `query`, and outputs are reused.
+- Before changing a cell's prompt or the flow, replay that cell on a few different past cases and read what it returns;
+  judge a written standard the same way. This finds the problem before the flow changes, and whoever writes a standard
+  saying what they would do shows nothing of what the cell will do.
+- Debugging the engine or trying a changed flow goes one round at a time: run a round, read its input and output, then
+  the next. A hundred and one rounds in a row once missed a problem that was there in the first.
 - A test holds no total of a whole graph of the flow (its cells, rows, states, places or samples): every work that
   changes the flow would rewrite it, and works that do so side by side cannot be merged, in git or in meaning. What
   the flow must keep is held by the flow's own source (`each_graph_compiles_to_the_cells_of_its_nodes`) or by a named
@@ -45,17 +49,21 @@ What an agent needs to know for this repository, beyond the rules every agent is
   (`crates/flow/tests/moves/`), never a line of one file: git's merge takes changes to neighbouring lines for a conflict.
 - Two works that add at one place conflict at the merge: add a test to the module of what it tests or a new one (as in
   `crates/engine/tests/e2e/`), never at the end of a file or a list that every work appends to.
-- A work that changes one of the engine's checks of returns (`engine.checks` in the flow) is judged until it is
-  installed by the check as it was, and would be sent back by the fault it mends: it names each check it changes in
-  its implementation's return (`checks_changed`), or a fix's when the fix changes one more. What only those checks
-  find in its returns is then set aside, not sent back ([`crates/engine/src/set_aside.rs`](crates/engine/src/set_aside.rs)),
-  and the review checks the declaration against the diff and judges each finding set aside.
-- An acceptance condition that only shows in real runs once the change is in effect, which no test, check of the CI or
-  measurement on the branch can show, is written `in_effect`: with what carries the change (`when`), the `tool`, the
-  `command`, what result `holds` and what evidence is `enough`. The work checks it after its merge
-  ([decisions/verify-after-taking-effect.md](decisions/verify-after-taking-effect.md)); no other condition is written so.
-- A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
-  a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
-  returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a
-  list the engine gave go through `id_misses`. The one exception is `cards_match_records` with `cards::check`: no
-  cell of the flow calls it, so it sends nothing back, and it is removed with `cards.rs` in #203.
+
+## The design tree
+
+`design/` holds wf-agents' design decisions by category: `x.md` holds x's decisions, `x/` its sub-decisions, level by
+level. Before changing something, walk down to it from `design/wf-agents.md`, reading each file on the way.
+
+The tree goes ahead of the code: where they differ, the code is behind. Fix it if it is at hand, or tell the architect;
+neither holds up the work in hand, and a review holds no merge for an old gap. Code that looks deliberate goes to the
+architect unchanged.
+
+Only the assistant writes the tree, each entry confirmed by the owner in their chat; what needs recording elsewhere
+comes back to that chat. It records only what is implemented or going to be. For what is going to be, it first walks the
+tree for contradictions; if that is too much work, it opens a deep research and writes nothing yet. Changing means
+rewriting and not wanting means deleting, the commit saying why; the past is in git.
+
+A decision is a short paragraph: what, then why, failed paths included. "The owner said" is no reason; with no reason it
+does not enter, and none is invented. No code names, cell ids, progress, or words bound to when it was written. Longer
+background stays in the item.

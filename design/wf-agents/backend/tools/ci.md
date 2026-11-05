@@ -1,0 +1,6 @@
+- Where a round runs both CI and the comparison on the code before the change, they run together. The comparison needs
+  CI only to have pushed, not its result, which saves about three minutes a round, as measured.
+
+- Where a project's CI takes no test name, the comparison still waits for the whole fast CI rather than refusing.
+  Otherwise such a project's adversarial tests have no evidence of red before and green after, and the system must not
+  serve wf-agents alone.
