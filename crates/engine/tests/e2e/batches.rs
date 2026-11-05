@@ -225,33 +225,56 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// `N1` hands in one row for each place to set straight, with every step it means to take there, and the
-// engine queues the row as one matter, which says its steps.
+// `N1` hands in its steps, most first, and the engine queues each as one matter, in that order, ahead of a report; they
+// take the place of the steps of the plan before no session took, while a measure the policy needs stays.
 #[test]
-fn a_place_to_set_straight_is_one_matter_with_its_steps() {
-    let s = setup("straight");
+fn the_plan_s_steps_are_queued_in_its_order_and_replace_those_of_the_plan_before() {
+    let s = setup("steps");
     let mut agents = scripts();
     agents.insert(
         "N1",
         Box::new(|_: &Request, _: usize| {
-            let fixes = json!([{ "where": "The policy's second stage", "items": [], "works": [], "kind": "missing",
-                                 "wrong": "No item does it.",
-                                 "steps": ["Make the items lex and parse", "Rank them before #5",
-                                           "Have #5 wait for parse"] }]);
-            (
-                vec![("outcome.fit", "some_to_change")],
-                vec![("outcome.fit.fixes", fixes)],
-            )
+            let steps = json!([
+                { "what": "Make the item lex", "why": "The direction needs it." },
+                { "what": "Have #5 wait for lex", "why": "It builds on it." }
+            ]);
+            (Vec::new(), vec![("outcome.steps", steps)])
         }),
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    // A new session understands the project from its first question on.
     let arch = architect_work_at(&mut e, "U1");
-    let straight = |e: &Engine| -> Vec<String> {
+    e.db.write(Actor::Engine, |tx| {
+        for (what, body) in [
+            (
+                "An old step",
+                json!({ "fix": { "where": "An old step", "steps": ["An old step"] } }),
+            ),
+            (
+                "A measure",
+                json!({ "fix": { "where": "A measure" }, "measure": { "measure": "m" } }),
+            ),
+        ] {
+            db::queue_matter(
+                tx,
+                &db::Matter {
+                    project: "p".into(),
+                    kind: "set_straight".into(),
+                    detail: None,
+                    what: what.into(),
+                    body,
+                    item: None,
+                    raised: None,
+                },
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let open = |e: &Engine| -> Vec<String> {
         engine::query_json(
             e.db.conn(),
-            "SELECT what FROM architect_matters WHERE kind = 'set_straight'",
+            "SELECT what FROM architect_matters WHERE kind = 'set_straight' AND withdrawn IS NULL ORDER BY id",
             &[],
             10,
         )
@@ -261,74 +284,14 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
         .collect()
     };
     for _ in 0..12 {
-        if !straight(&e).is_empty() {
+        if open(&e).len() > 2 {
             break;
         }
         e.step_work(arch).unwrap();
     }
     assert_eq!(
-        straight(&e),
-        [
-            "To set straight, The policy's second stage: Make the items lex and parse; Rank them before #5; Have #5 wait \
-          for parse"
-        ],
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A place handed in twice is queued once, and one that names as queued a matter the queue does not hold is queued all the
-// same: neither sends the plan back, as they did seven times since W300 for what the engine can settle itself.
-#[test]
-fn a_place_the_queue_holds_is_not_queued_again_and_sends_nothing_back() {
-    let s = setup("straight_twice");
-    let mut agents = scripts();
-    agents.insert(
-        "N1",
-        Box::new(|_: &Request, _: usize| {
-            let fix = |place: &str| {
-                json!({ "where": place, "items": [], "works": [], "kind": "missing", "wrong": "No item does it.",
-                        "steps": ["Make the item"] })
-            };
-            let mut named = fix("The third stage");
-            named["queued"] = json!(99_999);
-            (
-                vec![("outcome.fit", "some_to_change")],
-                vec![(
-                    "outcome.fit.fixes",
-                    json!([fix("The second stage"), fix("The second stage"), named]),
-                )],
-            )
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
-    let straight = |e: &Engine| -> Vec<String> {
-        engine::query_json(
-            e.db.conn(),
-            "SELECT what FROM architect_matters WHERE kind = 'set_straight' ORDER BY id",
-            &[],
-            10,
-        )
-        .unwrap()
-        .iter()
-        .filter_map(|r| r["what"].as_str().map(str::to_string))
-        .collect()
-    };
-    for _ in 0..12 {
-        if !straight(&e).is_empty() {
-            break;
-        }
-        e.step_work(arch).unwrap();
-    }
-    assert_eq!(
-        straight(&e),
-        [
-            "To set straight, The second stage: Make the item",
-            "To set straight, The third stage: Make the item"
-        ],
+        open(&e),
+        ["A measure", "Make the item lex", "Have #5 wait for lex"],
         "{}",
         said.lock().unwrap().join("\n")
     );

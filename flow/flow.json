@@ -2772,116 +2772,6 @@
       ],
       "optional": true
     },
-    "straight_fix": {
-      "type": "obj",
-      "desc": "One place to set straight, with every step you take there",
-      "fields": [
-        {
-          "name": "item",
-          "title": "Item",
-          "type": "int",
-          "desc": "The item it is about, whose running work a pause stops: its number; leave it out for a place in the order or something missing",
-          "optional": true
-        },
-        {
-          "name": "items",
-          "title": "Items concerned",
-          "type": "list",
-          "desc": "Every item it concerns, by number, its item among them: the path that sets it straight is given each in full; an empty list for something missing that no item holds yet",
-          "item": {
-            "type": "int",
-            "desc": "An item's number"
-          }
-        },
-        {
-          "name": "works",
-          "title": "Works concerned",
-          "type": "list",
-          "desc": "Every running work it concerns, by number, whose items the path is given in full too; an empty list for none",
-          "item": {
-            "type": "int",
-            "desc": "A work's number"
-          }
-        },
-        {
-          "name": "where",
-          "title": "Where",
-          "type": "text",
-          "desc": "Which item or work, or where in the order"
-        },
-        {
-          "name": "kind",
-          "title": "Kind of place",
-          "type": "enum",
-          "desc": "What kind of place it is",
-          "values": [
-            [
-              "off_policy",
-              "It does not serve the policy's direction"
-            ],
-            [
-              "drifted",
-              "Its direction drifted"
-            ],
-            [
-              "split",
-              "It should be split"
-            ],
-            [
-              "dependencies",
-              "Its dependencies are wrong"
-            ],
-            [
-              "duplicate",
-              "It duplicates another"
-            ],
-            [
-              "order",
-              "It is in the wrong place in the order"
-            ],
-            [
-              "missing",
-              "Something the policy's direction needs has no item or observation"
-            ],
-            [
-              "mismatch",
-              "An earlier decision no longer holds with today's facts"
-            ]
-          ]
-        },
-        {
-          "name": "wrong",
-          "title": "What is wrong",
-          "type": "text",
-          "desc": "What is wrong, and on what grounds: the facts seen; an inference said to be one"
-        },
-        {
-          "name": "steps",
-          "title": "Steps",
-          "type": "list",
-          "min": 1,
-          "desc": "Every step you mean to take there, in order, one per row",
-          "item": {
-            "type": "text",
-            "desc": "One step: a change to the items, a pause, an interjection, a note; one that needs an item an earlier step makes says which"
-          }
-        },
-        {
-          "name": "pause_now",
-          "title": "Pause it now",
-          "type": "bool",
-          "optional": true,
-          "desc": "True only for a running work going the wrong way, whose every round is wasted: the engine pauses it at once, as your pause, with what is wrong as why"
-        },
-        {
-          "name": "queued",
-          "title": "In the queue as",
-          "type": "int",
-          "optional": true,
-          "desc": "When your queue holds this place already, as a matter of yours not handled yet: that matter's number; what you hand in takes the place of what it held"
-        }
-      ]
-    },
     "question_form": {
       "name": "ask",
       "title": "Question for the owner",
@@ -4370,10 +4260,8 @@
       "end_sessions": "Ends the work's sessions.",
       "hand_over": "Hands the task's blocker on to the holder of the cell the row passes the work on to, recording the move with why and what the holder that hands it on found: to a related project's architect, whose queue gets a matter saying which project and work it is for; the holder handing it on holds nothing then.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work, as the architect's latest reply names them. The work does not merge; it waits for its sub-items.",
-      "hold_to_set_straight": "Starts no new work of the project while its architect sets it straight; the works running go on.",
       "lock_new_acceptance": "Writes the advisor's new acceptance conditions onto the item.",
       "open_session": "The line of the cell the row goes to starts a new session there, at the cell's first round in the work: the session manager ends the one the line had going on.",
-      "queue_fixes": "Queues each place to set straight, or each thing missing, that the plan found as a matter of the kind set_straight, taken after the planning, each in a session forked from the base; a running work to pause now is paused at once, as the architect's pause; one that names a matter the queue holds, or is the same place, takes the place of what that matter held.",
       "queue_followup": "For a report: queues the latest what to do next the work handed in as a matter for the architect, with the report's paths under research/ and the commit the work merged.",
       "queue_for_architect": "Queues each side report for the architect once; one that causes harm now (`harm_now`) is due at once, which starts a work of the architect when none runs, and when it comes while a work of the architect runs it is also given to that work at the top of its next round.",
       "queue_slots_free": "When slots are free and fewer of a project's items are ready to start than slots are free, queues a matter of the kind slots_free for its architect, with how many slots are free and which items are ready, unless one waits already, new starts of the project are held (by the owner, by the architect, or to set the project straight), the owner has paused every work (none is queued then for any project, whether the owner started its architect or steps it, since no new work can start), the last was handled within the wait the configuration sets (`agents.slots_free_wait`), or the free slots and the items ready are those the last handled held.",
@@ -4416,7 +4304,8 @@
       "write_understanding": "Keeps the understanding the round handed in as the notebook's new understanding; the versions before stay, for the owner to look at.",
       "write_plan": "Keeps the plan the round handed in as the notebook's new plan; the versions before stay, for the owner to look at.",
       "add_lines": "Keeps the lines the round adds to the plan or the understanding with the matter's record: the latest hand-in of the matter stands.",
-      "deliver_reply": "Gives the reply to whoever the matter came from, by its kind: to the engineer waiting at its question, with the numbers of the items the round made in place of their keys, and with what the round's progress says when it wrote no reply, so that no engineer is left waiting; a reply that names an item no change made does not go out, and its matter goes back to the queue, not handled, with that reply and why, to be answered again. To the owner, as the architect's message in the conversation the words were said in, the group of the work they were said in, else the owner's one-to-one, and notifies the owner. To another project's architect, as a message in its queue. As the round ends, or, when its changes wait for a second eye, once that finds them sound."
+      "deliver_reply": "Gives the reply to whoever the matter came from, by its kind: to the engineer waiting at its question, with the numbers of the items the round made in place of their keys, and with what the round's progress says when it wrote no reply, so that no engineer is left waiting; a reply that names an item no change made does not go out, and its matter goes back to the queue, not handled, with that reply and why, to be answered again. To the owner, as the architect's message in the conversation the words were said in, the group of the work they were said in, else the owner's one-to-one, and notifies the owner. To another project's architect, as a message in its queue. As the round ends, or, when its changes wait for a second eye, once that finds them sound.",
+      "queue_steps": "Withdraws the steps of the plan before not yet taken, and queues each step of this plan as a matter of the kind set_straight, taken in the plan's order, after what something waits on and before the rest of the queue, each in a session forked from this one."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -4463,7 +4352,6 @@
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
-      "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
       "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
@@ -4489,8 +4377,7 @@
       "changes_to_check": "The item changes of the matter in hand that wait for the second eye, numbered, each whole with its reason, and each item it touches in full, with the work running on it; at a look after a revision, which are new or changed since the second eye's last look.",
       "handed_in": "What the round that handed the changes in handed in besides them: its reply.",
       "appended": "What came since the project's base was built, oldest first: each matter handled, with its record and any line it added to the plan or the understanding; what the owner and the architect said to each other, whole; and what merged or was cancelled.",
-      "since_plan": "What came since the plan before was written, as `appended` is worked out, for the round that writes the next plan: the base before is still the project's latest until that round ends.",
-      "queued": "The matters waiting in the project's queue that nothing stopped waits on, oldest first, each by its number with its kind, item, since when, what it is and an excerpt of its text."
+      "since_plan": "What came since the plan before was written, as `appended` is worked out, for the round that writes the next plan: the base before is still the project's latest until that round ends."
     },
     "values": {
       "brought_up": "Whether the work brought to the new flow version has a cell there to go back to.",
@@ -4553,7 +4440,6 @@
           "matter",
           "appended",
           "since_plan",
-          "queued",
           "base_due"
         ],
         "owner": "says something to the architect, or starts a work the architect paused"
@@ -4567,9 +4453,7 @@
           "observations_open",
           "observations_all"
         ],
-        "inputs": [
-          "observations_overview"
-        ],
+        "inputs": [],
         "owner": "closes one, saying why"
       },
       "holds": {
@@ -4883,9 +4767,6 @@
       "hand_over_to_sub_items": [
         "branch"
       ],
-      "hold_to_set_straight": [
-        "holds"
-      ],
       "lock_new_acceptance": [
         "acceptance"
       ],
@@ -4894,9 +4775,6 @@
       ],
       "open_session": [
         "sessions"
-      ],
-      "queue_fixes": [
-        "architect_queue"
       ],
       "queue_followup": [
         "architect_queue"
@@ -5065,6 +4943,9 @@
       "deliver_reply": [
         "architect_queue",
         "owner_messages"
+      ],
+      "queue_steps": [
+        "architect_queue"
       ]
     },
     "reads": {
@@ -13934,16 +13815,6 @@
               ]
             },
             {
-              "name": "Your queue",
-              "what": "The matters waiting in your queue, oldest first, each by its number with its kind, the item it concerns, since when, what it is in a sentence and an excerpt of its text (at most its first 400 characters, cut at a word). Each is taken after this round, in a session forked from this one; none when none waits",
-              "from": [
-                {
-                  "engine": "queued"
-                }
-              ],
-              "maybe": true
-            },
-            {
               "name": "Questions pending",
               "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked; none when none waits",
               "from": [
@@ -13952,173 +13823,60 @@
                 }
               ],
               "maybe": true
-            },
-            {
-              "name": "Observations overview",
-              "what": "The project's observations: how many are open under each tag and how many times they were reported, those recorded or reported again lately, and those closed lately with why",
-              "from": [
-                {
-                  "engine": "observations_overview"
-                }
-              ]
             }
           ],
           "prompt": [
-            "This round writes the plan: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet; what matters most now, and why; and where what runs or waits does not fit. This thinking is yours: it never goes into the policy, which holds only the direction and its principles.",
-            "Hand in the whole plan as it stands now, always: what to do next, most first, each with why by the policy's principles; the ranking of the items follows it. Start from the plan before and take in what came since: a line a matter added stands unless you say why it no longer does; what the owner wants done is part of the plan, in fitting words with why, and leaves it only once it is done or the owner withdrew it. Plan with your queue in view: each matter in it is taken after this round, from the base this session becomes, and none of them is taken in here.",
-            "Hand in what is missing, one per row, of the kind missing, with the steps that make it an item when the plan reaches it soon, or that record it as an observation, to be looked at in a later planning, when it does not. When slots are free and fewer of this project's items are ready to start than slots are free, see why each queued item is not ready, and which observations the policy would have done: release or reorder what may start, or say in the plan why nothing of this project should start now.",
-            "Then whether what runs and what waits fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, an order that is wrong, and an earlier decision of yours, priority included, that no longer holds with today's facts: one stands only if, with all of today's facts, it is still fully reasonable, and that it was made is no reason. An owner's ruling stands until the owner changes it: where today's facts speak against one, a fix's step asks the owner. Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Hand in one fix per place to set straight: where, what kind, what is wrong and on what grounds, and every step you mean to take there, in order; steps that depend on each other, such as making items, ranking them and having others wait for them, are one fix. The step is what will be carried out, not judged again, so write it as you mean it.",
-            "The engine queues each thing missing and each fix as a matter of yours, taken after this planning, each in a session forked from this one; for a place your queue holds already, name that matter in queued, and what you hand in takes the place of what it held. With set_straight no new work of this project starts until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted.",
-            "The owner's start queue is the owner's own order and starts ahead of the ranks: where your plan's order differs from it, a fix's step asks the owner whether to change it; never change it yourself."
+            "This round writes the plan: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet, what matters most now and why, and where what runs or waits does not fit. An earlier decision of yours stands only if it is still reasonable with today's facts; an owner's ruling stands until the owner changes it. This thinking is yours: it never goes into the policy.",
+            "Start from the plan before and take in what came since: a line a matter added stands unless you say why it no longer does; what the owner wants done stays until it is done or the owner withdrew it.",
+            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, each in a session forked from this one, and they replace the steps of the plan before not yet done. What waits for someone, and what for, goes in notes, not in a step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
           ],
           "out": [
             {
-              "name": "missing",
-              "title": "What is missing",
+              "name": "steps",
+              "title": "The steps",
               "type": "list",
-              "desc": "What the policy's direction needs that no item or observation holds, one per row, each of the kind missing with the steps that make it an item or record it as an observation; an empty list if nothing",
+              "desc": "What to do next, most first, in the owner's language (the setting `owner.language`) with technical terms in their English original; an empty list if nothing",
               "item": {
-                "$ref": "straight_fix"
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "what",
+                    "title": "What to do",
+                    "type": "text",
+                    "desc": "One thing to do now, as it will be carried out"
+                  },
+                  {
+                    "name": "why",
+                    "title": "Why",
+                    "type": "text",
+                    "desc": "Why, by the policy's principles"
+                  }
+                ]
               }
             },
             {
-              "name": "fit",
-              "title": "Whether it fits",
-              "type": "union",
-              "by": "verdict",
-              "desc": "Whether what runs and what is queued fit",
-              "branches": [
-                {
-                  "value": "fits",
-                  "desc": "All fit",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Why: where the slots go, and why those"
-                    }
-                  ]
-                },
-                {
-                  "value": "some_to_change",
-                  "desc": "A few places are wrong; the rest run as usual, and new works start as usual",
-                  "fields": [
-                    {
-                      "name": "fixes",
-                      "title": "Places to set straight",
-                      "type": "list",
-                      "desc": "One per place to set straight",
-                      "item": {
-                        "$ref": "straight_fix"
-                      },
-                      "min": 1
-                    }
-                  ]
-                },
-                {
-                  "value": "set_straight",
-                  "desc": "The structure is wrong as a whole: no new work starts until it is set straight",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "What is wrong in the structure",
-                      "type": "text",
-                      "desc": "Why it is the whole: what in the structure is wrong"
-                    },
-                    {
-                      "name": "fixes",
-                      "title": "Places to set straight",
-                      "type": "list",
-                      "desc": "One per place to set straight",
-                      "item": {
-                        "$ref": "straight_fix"
-                      },
-                      "min": 1
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "name": "plan",
-              "title": "The plan",
+              "name": "notes",
+              "title": "What stands besides",
               "type": "text",
-              "desc": "The whole plan as it stands now, in the owner's language (the setting `owner.language`) with technical terms in their English original"
+              "optional": true,
+              "desc": "What stands besides the steps, in the owner's language: what waits for someone and for what, what the owner's instructions still in force are"
             }
           ],
           "cases": [
             {
-              "name": "fits",
+              "name": "planned",
               "if": [
                 [
-                  "is",
-                  "fit.verdict",
-                  [
-                    "fits"
-                  ]
+                  "own"
                 ]
               ],
               "to": "Q0",
               "main": true,
               "do": [
-                {
-                  "at": "missing",
-                  "do": "queue_fixes"
-                },
+                "queue_steps",
                 "release_straight_hold"
               ],
-              "note": "This session is the base from now on: the matters are taken, each in a session forked from it.",
-              "counts": "plans"
-            },
-            {
-              "name": "some_to_change",
-              "if": [
-                [
-                  "is",
-                  "fit.verdict",
-                  [
-                    "some_to_change"
-                  ]
-                ]
-              ],
-              "to": "Q0",
-              "do": [
-                {
-                  "at": "missing",
-                  "do": "queue_fixes"
-                },
-                {
-                  "at": "fit[some_to_change].fixes",
-                  "do": "queue_fixes"
-                },
-                "release_straight_hold"
-              ],
-              "counts": "plans"
-            },
-            {
-              "name": "set_straight",
-              "if": [
-                [
-                  "is",
-                  "fit.verdict",
-                  [
-                    "set_straight"
-                  ]
-                ]
-              ],
-              "to": "Q0",
-              "do": [
-                "hold_to_set_straight",
-                {
-                  "at": "missing",
-                  "do": "queue_fixes"
-                },
-                {
-                  "at": "fit[set_straight].fixes",
-                  "do": "queue_fixes"
-                }
-              ],
+              "note": "This session is the base from now on: the steps and the other matters are taken, each in a session forked from it.",
               "counts": "plans"
             }
           ],
@@ -14126,9 +13884,8 @@
             "ask"
           ],
           "shown": [
-            "plan",
-            "missing",
-            "fit"
+            "steps",
+            "notes"
           ],
           "rules": [
             "policy_scope"
@@ -14136,7 +13893,7 @@
           "checks": null,
           "always": [
             {
-              "at": "plan",
+              "at": "steps",
               "do": "write_plan"
             }
           ]

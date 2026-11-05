@@ -368,7 +368,7 @@ impl Agents for Scripted {
                     .or_insert(json!(format!("The understanding at round {n}.")));
             }
             "N1" => {
-                set.entry("outcome.plan".into())
+                set.entry("outcome.notes".into())
                     .or_insert(json!(format!("The plan at round {n}.")));
             }
             _ => {}

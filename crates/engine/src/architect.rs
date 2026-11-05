@@ -42,7 +42,6 @@ pub const INPUTS: &[&str] = &[
     "decisions",
     "guide",
     "numbers",
-    "observations_overview",
     "observation_tags",
     "levels",
     "policy",
@@ -57,7 +56,6 @@ pub const INPUTS: &[&str] = &[
     "base_due",
     "appended",
     "since_plan",
-    "queued",
     "changes_to_check",
     "handed_in",
 ];
@@ -119,6 +117,9 @@ const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 /// The cells the engine knows by their names: the look at the queue, the pick, the understanding, the rethink after a
 /// batch, and the review of the batch.
 const LOOK: &str = "Q0";
+
+/// The most characters of a matter's record that what came since the base carries.
+const RECORD_MOST: usize = 300;
 
 /// The cell that handles a matter, whatever its kind, and that a matter back with the owner's reply goes to when the flow
 /// no longer has the cell that asked.
@@ -2153,6 +2154,24 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
     Ok(())
 }
 
+/// The plan as the notebook keeps it: a plan's steps, numbered, each with why, then what stands besides them; a plan of a
+/// flow version before was one text.
+fn plan_text(outcome: &Value) -> String {
+    if let Some(plan) = outcome["plan"].as_str() {
+        return plan.to_string();
+    }
+    let mut lines: Vec<String> = items(outcome.get("steps"))
+        .iter()
+        .enumerate()
+        .map(|(i, s)| format!("{}. {} ({})", i + 1, text(&s["what"]), text(&s["why"])))
+        .collect();
+    let notes = text(&outcome["notes"]).trim();
+    if !notes.is_empty() {
+        lines.push(notes.to_string());
+    }
+    lines.join("\n")
+}
+
 /// Whether the round handed in one of the forms that come before the matter's answer: an ask of the owner or a pause.
 fn handed_no_answer(ctx: &Ctx) -> bool {
     ctx.unwrapped.get("ask").is_some() || ctx.unwrapped.get("pause").is_some()
@@ -2165,63 +2184,40 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "write_understanding" | "write_plan" => {
             // The part the round handed in is the notebook's latest version of it; the versions before stay.
             let (_, project) = architect_work_of(ctx)?;
-            let section = if name == "write_plan" { "plan" } else { "project_now" };
+            let (section, written) = if name == "write_plan" {
+                ("plan", plan_text(&ctx.unwrapped))
+            } else {
+                ("project_now", at.map_or("", text).to_string())
+            };
             tx.execute(
                 "INSERT INTO notebook_edits (project, section, text, work, round) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![project, section, at.map_or("", text), ctx.round.work, ctx.round.n],
+                params![project, section, written, ctx.round.work, ctx.round.n],
             )
             .map_err(sql)?;
         }
-        "queue_fixes" => {
+        "queue_steps" => {
             let (_, project) = architect_work_of(ctx)?;
-            let fit = &ctx.unwrapped["fit"];
-            // One matter for each place, with every step the plan meant to take there; a place the queue holds
-            // already, by the matter the fix names or as the same place, takes what is handed in now.
-            let mut open = query_json(
-                tx,
-                "SELECT id, json_extract(body, '$.fix') AS fix FROM architect_matters
-                 WHERE project = ?1 AND handled_round IS NULL AND withdrawn IS NULL
-                 ORDER BY id",
-                &[&project],
-                ROWS,
-            )?;
-            for fix in items(at) {
-                let named = fix["queued"].as_i64();
-                let what = format!(
-                    "To set straight, {}: {}",
-                    db::one_sentence(text(&fix["where"])),
-                    db::one_sentence(&texts(&fix["steps"]).join("; "))
-                );
-                let body = json!({ "fix": fix, "verdict": fit["verdict"], "why": fit["why"] });
-                if let Some(held) = open
-                    .iter()
-                    .find(|o| named.is_some_and(|m| o["id"].as_i64() == Some(m)) || same_place(&o["fix"], &fix))
-                {
-                    if let Some(id) = held["id"].as_i64() {
-                        tx.execute(
-                            "UPDATE architect_matters SET what = ?2, body = ?3 WHERE id = ?1 AND kind = 'set_straight'",
-                            params![id, what, body.to_string()],
-                        )
-                        .map_err(sql)?;
-                    }
-                    continue;
-                }
-                open.push(json!({ "fix": fix }));
+            // What the plan before queued and no session took is taken by this plan, which started from it.
+            tx.execute(
+                "UPDATE architect_matters SET withdrawn = ?2
+                 WHERE project = ?1 AND kind = 'set_straight' AND handled_round IS NULL AND withdrawn IS NULL
+                   AND asked IS NULL AND json_extract(body, '$.measure') IS NULL",
+                params![project, format!("the plan of {} replaces it", ctx.round)],
+            )
+            .map_err(sql)?;
+            for step in items(ctx.unwrapped.get("steps")) {
+                let what = text(&step["what"]);
+                let fix = json!({ "where": what, "wrong": step["why"], "steps": [what] });
                 let m = Matter {
                     project: project.clone(),
                     kind: "set_straight".into(),
-                    detail: fix["kind"].as_str().map(str::to_string),
-                    what,
-                    body,
-                    item: fix["item"].as_i64(),
+                    detail: None,
+                    what: db::one_sentence(what),
+                    body: json!({ "fix": fix }),
+                    item: None,
                     raised: Some((ctx.round.work, ctx.round.n)),
                 };
                 queue_matter(tx, &m).map_err(sql)?;
-                if fix["pause_now"] == true
-                    && let Some(item) = fix["item"].as_i64()
-                {
-                    pause_item(tx, item, text(&fix["wrong"]))?;
-                }
             }
         }
         "queue_measures" => {
@@ -2265,7 +2261,6 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 queue_matter(tx, &m).map_err(sql)?;
             }
         }
-        "hold_to_set_straight" => hold(tx, &architect_work_of(ctx)?.1, HoldReason::SetStraight, None)?,
         "release_straight_hold" => release(tx, &architect_work_of(ctx)?.1, HoldReason::SetStraight)?,
         "queue_check_policy" => queue_head(ctx, tx, CHECK, at)?,
         "ask_approval" => {
@@ -2325,6 +2320,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let Some(record) = at.and_then(Value::as_str) else {
                 return Ok(true);
             };
+            let record = flow::cut(record, RECORD_MOST);
             let m = matter_of(tx, w)?;
             let logged = json!({ "record": record, "round": ctx.round.to_string(), "cell": ctx.cell.id });
             tx.execute(
@@ -3136,20 +3132,6 @@ fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -
     Ok(problems)
 }
 
-/// Whether two places to set straight are the same place: of one kind, and at the same place in words, or about the
-/// same items.
-fn same_place(a: &Value, b: &Value) -> bool {
-    let place = |x: &Value| {
-        text(&x["where"])
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase()
-    };
-    let ids = |x: &Value| -> BTreeSet<i64> { items(x.get("items")).iter().filter_map(Value::as_i64).collect() };
-    a["kind"] == b["kind"] && (place(a) == place(b) || (!ids(a).is_empty() && ids(a) == ids(b)))
-}
-
 /// The keys the create_item changes of a round's effects give.
 fn created_keys(effects: &Value) -> BTreeSet<String> {
     items(effects.get("item_changes"))
@@ -3517,7 +3499,6 @@ pub fn input(
         "decisions" => decisions(e, project, main),
         "guide" => guide(e, project, main).map(Some),
         "numbers" => numbers(e, w, project).map(Some),
-        "observations_overview" => observations_overview(e, project).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
         "levels" => Ok(Some(levels(e))),
         "policy" => policy(e, project),
@@ -3549,7 +3530,6 @@ pub fn input(
         "base_due" => crate::base::base_due(e, project).map(Some),
         "appended" => crate::base::appended_input(e, project),
         "since_plan" => crate::base::since_plan(e, project),
-        "queued" => crate::base::queued(e, project),
         "changes_to_check" => changes_to_check(e, w),
         "handed_in" => handed_in(e, w),
         other => Err(format!("no such engine input: {other}")),
@@ -3910,60 +3890,6 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     }))
 }
 
-/// A project's observations: how many are open under each tag and how many times they were reported; the ten
-/// recorded or reported again last; the ten closed last, with why.
-fn observations_overview(e: &Engine, project: &str) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let open = query_json(
-        conn,
-        "SELECT id, tags, times_reported FROM observations_open WHERE project = ?1",
-        &[&project],
-        100_000,
-    )?;
-    let mut per_tag: BTreeMap<String, (i64, i64)> = BTreeMap::new();
-    for o in &open {
-        let mut tags = texts(&o["tags"]);
-        if tags.is_empty() {
-            tags.push("(no tag)".into());
-        }
-        for t in tags {
-            let x = per_tag.entry(t).or_default();
-            x.0 += 1;
-            x.1 += o["times_reported"].as_i64().unwrap_or(1);
-        }
-    }
-    let per_tag: Map<String, Value> = per_tag
-        .into_iter()
-        .map(|(t, (n, times))| (t, json!({ "open": n, "times_reported": times })))
-        .collect();
-    let recent = query_json(
-        conn,
-        "SELECT id, substr(what, 1, 200) AS what, tags, times_reported FROM observations_all
-         WHERE project = ?1 AND closed IS NULL ORDER BY updated DESC LIMIT 10",
-        &[&project],
-        10,
-    )?;
-    let closed = query_json(
-        conn,
-        "SELECT id, substr(what, 1, 200) AS what, closed, closed_why FROM observations_all
-         WHERE project = ?1 AND closed IS NOT NULL ORDER BY coalesce(merged, updated) DESC LIMIT 10",
-        &[&project],
-        10,
-    )?;
-    let keyed = |rows: Vec<Value>| -> Value {
-        Value::Object(
-            rows.into_iter()
-                .map(|mut r| {
-                    let id = r["id"].as_i64().unwrap_or_default();
-                    r.as_object_mut().map(|o| o.remove("id"));
-                    (format!("O{id}"), r)
-                })
-                .collect(),
-        )
-    };
-    Ok(json!({ "open": open.len(), "per_tag": per_tag, "recent": keyed(recent), "closed_lately": keyed(closed) }))
-}
-
 /// A project's tags for observations, each with what it covers; none when it has none.
 fn observation_tags(e: &Engine, project: &str) -> Option<Value> {
     let p = e.config.config.projects.get(project)?;
@@ -4263,19 +4189,6 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
                 )?;
                 if let Some(d) = design.first().map(|r| r["design"].clone()).filter(|d| !d.is_null()) {
                     material.insert("design".into(), d);
-                }
-            }
-        }
-        "set_straight" => {
-            if let Some(round) = matter["round"].as_i64() {
-                let fit = query_json(
-                    conn,
-                    "SELECT json_extract(output, '$.outcome.fit') AS fit FROM rounds WHERE work = ?1 AND n = ?2",
-                    &[&matter["work"].as_i64().unwrap_or_default(), &round],
-                    1,
-                )?;
-                if let Some(f) = fit.first().map(|r| r["fit"].clone()).filter(|f| !f.is_null()) {
-                    material.insert("understanding_verdict".into(), f);
                 }
             }
         }
@@ -4671,31 +4584,6 @@ mod tests {
             ]
         );
         assert!(sentences(" \n ").is_empty());
-    }
-
-    // A place to set straight the queue holds already is the same place of the same kind, at the same place in words
-    // however spaced and cased, or about the same items; another kind or other items is another place.
-    #[test]
-    fn a_place_to_set_straight_is_the_same_by_its_place_or_its_items() {
-        let queued = json!({ "kind": "order", "where": "The parser  before the lexer", "items": [4, 5] });
-        let again = json!({ "kind": "order", "where": "the parser before the lexer", "items": [] });
-        assert!(same_place(&queued, &again));
-        assert!(same_place(
-            &queued,
-            &json!({ "kind": "order", "where": "Elsewhere", "items": [5, 4] })
-        ));
-        assert!(!same_place(
-            &queued,
-            &json!({ "kind": "split", "where": "The parser before the lexer" })
-        ));
-        assert!(!same_place(
-            &queued,
-            &json!({ "kind": "order", "where": "Elsewhere", "items": [4] })
-        ));
-        assert!(!same_place(
-            &json!({ "kind": "missing", "where": "a", "items": [] }),
-            &json!({ "kind": "missing", "where": "b", "items": [] })
-        ));
     }
 
     #[test]

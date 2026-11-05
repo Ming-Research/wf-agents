@@ -12,8 +12,11 @@ use serde_json::{Map, Value, json};
 use crate::work::{RoundId, Work, query_json};
 use crate::{ARCHITECT, Engine};
 
-/// The most characters of a text an input of the base gives, cut at a word.
-const EXCERPT: usize = 400;
+/// The most characters of what the architect said that what came since the base carries, cut at a word.
+const SAID_MOST: usize = 1_000;
+
+/// What joins a question of the architect's to the owner's answer in what came since.
+const OWNER_ANSWERED: &str = "\nThe owner answered: ";
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -21,11 +24,6 @@ fn sql(e: impl std::fmt::Display) -> String {
 
 fn text(v: &Value) -> &str {
     v.as_str().unwrap_or_default()
-}
-
-/// A text cut to at most [`EXCERPT`] characters at a word, its spaces collapsed.
-pub fn excerpt(s: &str) -> String {
-    flow::cut(&s.split_whitespace().collect::<Vec<_>>().join(" "), EXCERPT)
 }
 
 /// A project's base as it stands: the session of the round that built it (its row and the CLI's id for it), that round,
@@ -113,8 +111,10 @@ pub enum Class {
     MainRed,
     /// A work stopped at its question waits, or a report says it causes loss now.
     Waiting,
-    /// Nothing stopped waits on it: what the plan queued, a report, slots free with nothing to start, a check of the
-    /// policy, another architect's message.
+    /// A step of the plan, taken in the plan's order.
+    Planned,
+    /// Nothing stopped waits on it: a report, slots free with nothing to start, a check of the policy, another
+    /// architect's message.
     Queued,
 }
 
@@ -125,7 +125,7 @@ impl Class {
             Class::Owner => "owner",
             Class::MainRed => "main_red",
             Class::Waiting => "waiting",
-            Class::Queued => "queued",
+            Class::Planned | Class::Queued => "queued",
         }
     }
 }
@@ -142,6 +142,7 @@ pub fn class(row: &Value, body: &Value) -> Class {
         ("report", Some(db::FAULT)) if body["by"] == "owner" => Class::Owner,
         ("main_red", _) => Class::MainRed,
         _ if row["waits"] == "agent" || flag("urgent") => Class::Waiting,
+        ("set_straight", _) if body["measure"].is_null() => Class::Planned,
         ("slots_free" | "set_straight" | "check_policy" | "report" | "other_architect", _) => Class::Queued,
         // A work's question, an open question of a design whose merge waits for the answer, a failure, and any kind
         // the flow added since: something waits on it.
@@ -183,7 +184,13 @@ pub fn next(e: &Engine, project: &str) -> Result<Value, String> {
         return Ok(json!({ "next": { "verdict": "plan", "why": why } }));
     }
     let q = queue(conn, project)?;
-    for c in [Class::Owner, Class::MainRed, Class::Waiting, Class::Queued] {
+    for c in [
+        Class::Owner,
+        Class::MainRed,
+        Class::Waiting,
+        Class::Planned,
+        Class::Queued,
+    ] {
         if let Some((r, _)) = q.iter().find(|(_, k)| *k == c) {
             return Ok(json!({ "next": { "verdict": c.verdict(), "matter": r["matter"] } }));
         }
@@ -258,7 +265,13 @@ fn appended(conn: &Connection, project: &str, since: i64) -> Result<Option<Strin
     let lines: Vec<String> = entries
         .iter()
         .map(|x| {
-            let mut l = format!("{} {}: {}", crate::utc(x.at), x.who, x.text);
+            // What the owner said stays whole; what the architect said is on the owner's page and in `owner_messages`.
+            let said = match x.text.split_once(OWNER_ANSWERED) {
+                _ if x.who.starts_with("owner") => x.text.clone(),
+                Some((asked, answer)) => format!("{}{OWNER_ANSWERED}{answer}", flow::cut(asked, SAID_MOST)),
+                None => flow::cut(&x.text, SAID_MOST),
+            };
+            let mut l = format!("{} {}: {}", crate::utc(x.at), x.who, said);
             if let Some(p) = &x.plan {
                 l.push_str(&format!("\nIt adds to the plan: {p}"));
             }
@@ -288,49 +301,6 @@ pub fn since_plan(e: &Engine, project: &str) -> Result<Option<Value>, String> {
         return Ok(None);
     };
     Ok(appended(conn, project, at)?.map(Value::String))
-}
-
-/// The matters waiting in the queue that nothing stopped waits on, oldest first, each by its number with its kind, item,
-/// since when, what it is and an excerpt of its text; none when none waits.
-pub fn queued(e: &Engine, project: &str) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let rows: Vec<Value> = queue(conn, project)?
-        .into_iter()
-        .filter(|(_, c)| *c == Class::Queued)
-        .map(|(r, _)| r)
-        .collect();
-    if rows.is_empty() {
-        return Ok(None);
-    }
-    let mut out = Map::new();
-    for r in rows.iter().take(200) {
-        let m = r["matter"].as_i64().unwrap_or_default();
-        let body: Value = conn
-            .query_row("SELECT body FROM architect_matters WHERE id = ?1", [m], |x| {
-                x.get::<_, String>(0)
-            })
-            .map(|b| serde_json::from_str(&b).unwrap_or(Value::Null))
-            .map_err(sql)?;
-        let said = body["report"]["what"]
-            .as_str()
-            .or_else(|| body["text"].as_str())
-            .or_else(|| body["followup"].as_str())
-            .unwrap_or_default();
-        let mut x = json!({
-            "kind": r["kind"],
-            "item": r["item"],
-            "since": r["at"].as_i64().map(crate::utc),
-            "what": r["what"],
-        });
-        if let Some(d) = r["detail"].as_str() {
-            x["detail"] = json!(d);
-        }
-        if !said.trim().is_empty() {
-            x["excerpt"] = json!(excerpt(said));
-        }
-        out.insert(format!("#{m}"), x);
-    }
-    Ok(Some(Value::Object(out)))
 }
 
 // The second eye.
@@ -395,7 +365,6 @@ mod tests {
         );
         for (kind, detail) in [
             ("slots_free", None),
-            ("set_straight", Some("order")),
             ("check_policy", None),
             ("report", Some("defect")),
             ("report", Some("answer")),
@@ -403,6 +372,9 @@ mod tests {
         ] {
             assert_eq!(class(&row(kind, detail, "none"), &none), Class::Queued, "{kind}");
         }
+        assert_eq!(class(&row("set_straight", None, "none"), &none), Class::Planned);
+        let measure = json!({ "measure": { "measure": "m" } });
+        assert_eq!(class(&row("set_straight", None, "none"), &measure), Class::Queued);
         let mut harms = row("report", Some("defect"), "none");
         harms["urgent"] = json!(1);
         assert_eq!(class(&harms, &none), Class::Waiting);

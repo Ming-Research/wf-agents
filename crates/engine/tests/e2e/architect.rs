@@ -60,7 +60,7 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
         [
             Some("plan"),
             Some("done"),
-            Some("fits"),
+            Some("planned"),
             Some("owner"),
             Some("to_handle"),
             Some("done"),

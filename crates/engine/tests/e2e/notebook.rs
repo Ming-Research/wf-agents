@@ -48,7 +48,7 @@ fn a_round_of_the_plan_that_asks_for_tools_changes_nothing_in_the_notebook() {
         said.lock().unwrap().join("\n")
     );
     assert!(
-        steps_until(&mut e, 10, took("fits")),
+        steps_until(&mut e, 10, took("planned")),
         "{}",
         said.lock().unwrap().join("\n")
     );

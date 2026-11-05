@@ -359,7 +359,7 @@ fn the_base_writes_the_notebook_and_a_matter_adds_to_it() {
             .any(|a| a.at == at && a.action.as_deref() == Some(action))
     };
     assert!(does("U1", "understanding", "write_understanding"));
-    assert!(does("N1", "plan", "write_plan"));
+    assert!(does("N1", "steps", "write_plan"));
     for id in ["H1", "L2", "P1", "P2"] {
         assert!(does(id, "progress", "log_matter"), "{id}");
         assert!(does(id, "notebook", "add_lines"), "{id}");
@@ -480,9 +480,7 @@ fn what_comes_next_is_taken_in_a_fixed_order_and_the_base_is_read_anew() {
         "outcome": { "understanding": "t" }, "progress": "p", "tell_owner": [], "flow_feedback": "none",
     });
     assert_eq!(g.take("U1", &understood, &Map::new()).unwrap().to, "N1");
-    for name in ["fits", "some_to_change", "set_straight"] {
-        assert_eq!(row("N1", name).to, "Q0", "{name}");
-    }
+    assert_eq!(row("N1", "planned").to, "Q0");
     // The policy is a matter too, in a fork of the base: its check closes through the second eye's look at what it
     // handed in, writes a new policy in the same session, and the draft parks the matter for the owner's approval.
     let route = |v: &str| Map::from_iter([("route".to_string(), Value::String(v.into()))]);
