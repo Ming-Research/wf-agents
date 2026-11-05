@@ -4805,8 +4805,11 @@ fn policy(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 
 /// The signals of the policy in force for a project that the engine measures, each with its numbers: a signal whose
 /// words name a measure of the numbers by its name (`merged`, `items made` for `items_made`, or `ci wait` for the
-/// health number `ci.wait`), with that measure week by week, the latest first; or now, a week ago and a month ago. None
-/// when the engine measures none of them, or before the first policy takes effect.
+/// health number `ci.wait`), with that measure week by week, the latest first; or now, a week ago and a month ago. A
+/// health number comes as the numbers give it, with what it is, its unit and why a week has no value, and with why it or
+/// a part of it is not measured (`not_measured`, by the names the numbers list it under): whoever reads only the signals
+/// can tell a number nothing records from a week with nothing to count. None when the engine measures none of them, or
+/// before the first policy takes effect.
 fn policy_signals(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
     let Some(policy) = policy(e, project)? else {
         return Ok(None);
@@ -4821,8 +4824,19 @@ fn policy_signals(e: &Engine, project: &str, main: Option<&str>) -> Result<Optio
         }
     }
     if let Some(measured) = numbers["measures"].as_object() {
+        let unmeasured = numbers["not_measured"].as_object();
         for (k, m) in measured {
-            measures.push((k.clone(), json!({ "by_week": m["by_week"] })));
+            let mut given = m.clone();
+            let why: Map<String, Value> = unmeasured
+                .into_iter()
+                .flatten()
+                .filter(|(name, _)| *name == k || name.starts_with(&format!("{k} for ")))
+                .map(|(name, why)| (name.clone(), why.clone()))
+                .collect();
+            if !why.is_empty() {
+                given["not_measured"] = Value::Object(why);
+            }
+            measures.push((k.clone(), given));
         }
     }
     let size = &numbers["size_on_main"];

@@ -412,9 +412,13 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
         "{numbers}"
     );
     assert_eq!(measures["merge.defects"].get("no_value"), None, "{numbers}");
-    // A signal of the policy that names the measure is given its four weeks.
+    // A signal of the policy that names a measure is given it as the numbers give it: its four weeks, what it is, its
+    // unit, and why a week has no value; a measure nothing records, or that has a part nothing records, says why, since
+    // whoever reads only the signals is given neither `measures` nor `not_measured`.
     let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }],
-                         "signals": [{ "what": "CI takes longer", "how": "ci wait grows week by week" }] });
+                         "signals": [{ "what": "CI takes longer", "how": "ci wait grows week by week" },
+                                     { "what": "Errors found late", "how": "merge defects go up" },
+                                     { "what": "Works wait", "how": "work stops go up" }] });
     let written =
         json!({ "outcome": { "policy": policy, "new_measures": [] }, "progress": "Written.", "tell_owner": [] });
     let v = e.flow_now;
@@ -435,6 +439,24 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
     assert_eq!(
         signals["1"]["numbers"]["ci.wait"]["by_week"],
         json!([1500, 0, null, null]),
+        "{signals}"
+    );
+    let wait = &signals["1"]["numbers"]["ci.wait"];
+    assert_eq!(wait["no_value"], "no item merged", "{signals}");
+    assert_eq!(wait["unit"], "ms", "{signals}");
+    assert_eq!(wait["what"], measures["ci.wait"]["what"], "{signals}");
+    assert_eq!(wait.get("not_measured"), None, "{signals}");
+    let defects = &signals["2"]["numbers"]["merge.defects"];
+    assert_eq!(defects["by_week"], json!([null, null, null, null]), "{signals}");
+    assert_eq!(
+        defects["not_measured"]["merge.defects"], listed["merge.defects"],
+        "{signals}"
+    );
+    let stops = &signals["3"]["numbers"]["work.stops"];
+    assert_eq!(stops["by_reason"]["question"], json!([1, 0, 0, 0]), "{signals}");
+    assert_eq!(
+        stops["not_measured"],
+        json!({ "work.stops for reason slot": listed["work.stops for reason slot"] }),
         "{signals}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
