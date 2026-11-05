@@ -67,9 +67,7 @@ fn the_migration_marks_the_merge_tool_s_old_waits_for_the_full_ci() {
         .unwrap();
     type Row = (String, Option<String>, String, i64, Option<String>);
     let got: Vec<Row> = st
-        .query_map([], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-        })
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();

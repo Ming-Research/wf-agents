@@ -327,7 +327,14 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
         assert!(m["unit"].as_str().is_some_and(|t| !t.is_empty()), "{name}: {m}");
         assert_eq!(m["by_week"].as_array().map(Vec::len), Some(4), "{name}: {m}");
     }
-    for name in ["ci.wait", "work.to_merge", "owner.reply", "work.stopped", "queue.oldest", "page.read_ms"] {
+    for name in [
+        "ci.wait",
+        "work.to_merge",
+        "owner.reply",
+        "work.stopped",
+        "queue.oldest",
+        "page.read_ms",
+    ] {
         assert_eq!(measures[name]["unit"], "ms", "{name}: {numbers}");
     }
     // The wait for CI: the latest week's merge, then the merge of the week before with no CI, then no merge.
@@ -337,18 +344,35 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
     // Nothing in a week of a count of the records is a zero, with no reason to give.
     assert_eq!(measures["merge.broken"]["by_week"], json!([0, 0, 0, 0]), "{numbers}");
     assert_eq!(measures["merge.broken"].get("no_value"), None, "{numbers}");
-    assert_eq!(measures["engine.cpu"]["by_week"], json!([null, null, null, null]), "{numbers}");
+    assert_eq!(
+        measures["engine.cpu"]["by_week"],
+        json!([null, null, null, null]),
+        "{numbers}"
+    );
     assert!(
-        measures["engine.cpu"]["no_value"].as_str().is_some_and(|t| !t.is_empty()),
+        measures["engine.cpu"]["no_value"]
+            .as_str()
+            .is_some_and(|t| !t.is_empty()),
         "{numbers}"
     );
     // The five cells with the largest context in the latest week, and two more.
     let context = &measures["round.context"];
     assert_eq!(context["by_week"], json!([4000, null, null, null]), "{numbers}");
-    let cells: Vec<&str> = context["by_cell"].as_object().unwrap().keys().map(String::as_str).collect();
+    let cells: Vec<&str> = context["by_cell"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert_eq!(
         cells,
-        ["engineer/T1", "engineer/T6", "engineer/T4", "engineer/T3", "engineer/I1"],
+        [
+            "engineer/T1",
+            "engineer/T6",
+            "engineer/T4",
+            "engineer/T3",
+            "engineer/I1"
+        ],
         "{numbers}"
     );
     assert_eq!(
@@ -382,12 +406,17 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
         listed.values().all(|why| why.as_str().is_some_and(|t| !t.is_empty())),
         "{numbers}"
     );
-    assert_eq!(measures["merge.defects"]["by_week"], json!([null, null, null, null]), "{numbers}");
+    assert_eq!(
+        measures["merge.defects"]["by_week"],
+        json!([null, null, null, null]),
+        "{numbers}"
+    );
     assert_eq!(measures["merge.defects"].get("no_value"), None, "{numbers}");
     // A signal of the policy that names the measure is given its four weeks.
     let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }],
                          "signals": [{ "what": "CI takes longer", "how": "ci wait grows week by week" }] });
-    let written = json!({ "outcome": { "policy": policy, "new_measures": [] }, "progress": "Written.", "tell_owner": [] });
+    let written =
+        json!({ "outcome": { "policy": policy, "new_measures": [] }, "progress": "Written.", "tell_owner": [] });
     let v = e.flow_now;
     e.db.write(Actor::Engine, |tx| {
         tx.execute(

@@ -596,9 +596,30 @@ fn the_wait_for_ci_is_the_time_the_runs_of_an_item_cover_before_its_merge() {
     let checks = json!([{ "name": "check", "result": "green" }]);
     let run = (w, r);
     s.tool_run(run, "merge", &waited, Some(&failed), T0 + M, Some(T0 + M + 5_000));
-    s.tool_run(run, "merge", &waited, Some(&checks), T0 + 2 * M, Some(T0 + 2 * M + 80_000));
-    s.tool_run(run, "merge", &called, Some(&failed), T0 + 4 * M, Some(T0 + 4 * M + 7_000));
-    s.tool_run(run, "merge", &called, Some(&json!("abc")), T0 + 8 * M, Some(T0 + 8 * M + 9_000));
+    s.tool_run(
+        run,
+        "merge",
+        &waited,
+        Some(&checks),
+        T0 + 2 * M,
+        Some(T0 + 2 * M + 80_000),
+    );
+    s.tool_run(
+        run,
+        "merge",
+        &called,
+        Some(&failed),
+        T0 + 4 * M,
+        Some(T0 + 4 * M + 7_000),
+    );
+    s.tool_run(
+        run,
+        "merge",
+        &called,
+        Some(&json!("abc")),
+        T0 + 8 * M,
+        Some(T0 + 8 * M + 9_000),
+    );
     s.tool(w, r, "gh", T0, Some(T0 + 100_000));
     s.tool(w, r, "ci", T0 + 6 * M, None);
     s.tool(w, r, "ci", T0 + 9 * M - 500, Some(T0 + 9 * M + 5_000));
@@ -836,13 +857,19 @@ fn commits_come_onto_main_by_the_flow_by_hand_or_by_the_engine_s_revert() {
         ten(&[(2, 1.0), (3, 1.0), (4, 1.0)], Some(0.0))
     );
     // The commit brought that was made earlier falls in the period before; the first commit, an hour before, in neither.
-    assert_eq!(s.values("main.outside_flow", read, T0 - 10 * M, T0, 10 * M), [Some(1.0)]);
+    assert_eq!(
+        s.values("main.outside_flow", read, T0 - 10 * M, T0, 10 * M),
+        [Some(1.0)]
+    );
     assert_eq!(
         s.values("main.outside_flow", read, T0 - 10 * M, T0 + 10 * M, 20 * M),
         [Some(4.0)]
     );
     assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(4, 1.0)], Some(0.0)));
-    assert_eq!(s.values("merge.not_on_main", read, T0, T0 + 10 * M, 10 * M), [Some(1.0)]);
+    assert_eq!(
+        s.values("merge.not_on_main", read, T0, T0 + 10 * M, 10 * M),
+        [Some(1.0)]
+    );
     assert_eq!(s.minutes("merge.reverted", p()), ten(&[(5, 1.0)], Some(0.0)));
     for name in ["main.outside_flow", "merge.not_on_main"] {
         let unread = series(s.conn(), measure(name).unwrap(), &p(), T0, T0 + 10 * M, M).unwrap();

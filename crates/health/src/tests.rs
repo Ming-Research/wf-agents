@@ -189,7 +189,10 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
     for (name, sql, args) in &ran {
         for step in plan(conn, sql, args) {
             assert!(!scans_large(&step), "{name} reads a large table whole: {step}\n{sql}");
-            assert!(!from_the_start(&step), "{name} reads from the start of the history: {step}\n{sql}");
+            assert!(
+                !from_the_start(&step),
+                "{name} reads from the start of the history: {step}\n{sql}"
+            );
         }
     }
 }

@@ -124,9 +124,8 @@ pub(crate) fn sampled(
     from: i64,
     to: i64,
 ) -> Result<Vec<Fact>, String> {
-    let read = |row: &db::rusqlite::Row<'_>| -> db::rusqlite::Result<Fact> {
-        Ok(Fact::event(row.get(0)?, "", row.get(1)?))
-    };
+    let read =
+        |row: &db::rusqlite::Row<'_>| -> db::rusqlite::Result<Fact> { Ok(Fact::event(row.get(0)?, "", row.get(1)?)) };
     let (m, from, to) = (Sql::Text(measure.to_string()), Sql::Integer(from), Sql::Integer(to));
     match project {
         Some(p) => r.rows(
@@ -168,6 +167,9 @@ mod tests {
         let passed = start.elapsed().as_secs_f64() * 1000.0;
         assert!(used >= 100.0, "{used} ms of processor time in {passed} ms");
         // getrusage counts to the microsecond, but a system may add it up by its clock's tick: one each way.
-        assert!(used <= passed * processors + 20.0, "{used} ms of processor time in {passed} ms");
+        assert!(
+            used <= passed * processors + 20.0,
+            "{used} ms of processor time in {passed} ms"
+        );
     }
 }
