@@ -231,7 +231,7 @@ pub fn line_parts(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, named: &st
                 .iter()
                 .any(|x| x.from.iter().any(|s| matches!(s, Src::Config(m) if m == n)))
         });
-        if let Some(v) = project.and_then(|p| p.setting(n)).filter(|v| everywhere) {
+        if let Some(v) = project.and_then(|p| p.setting(n)).filter(|_| everywhere) {
             add(format!("config:{n}"), v);
         }
     }
