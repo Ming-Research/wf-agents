@@ -23,7 +23,9 @@ const ENGINE_NOTE: &str = r#"{"by":"engine","at":1,"text":"No answer is needed: 
 // the view keeps which. An answer judges only the condition its ask is of.
 #[test]
 fn a_condition_stands_as_an_option_of_the_owner_or_a_delegate_says_and_no_other_answer_moves_it() {
-    let cases: [(&[Option<&str>], &str, Option<&str>); 12] = [
+    // The answers of a condition's asks, where it stands by them, and who judged it.
+    type Case<'a> = (&'a [Option<&'a str>], &'a str, Option<&'a str>);
+    let cases: [Case<'_>; 12] = [
         (&[], "open", None),
         (&[None], "open", None),
         (&[Some(OWNER_WORDS)], "open", None),
