@@ -294,7 +294,12 @@ pub fn due(e: &Engine, project: &str) -> Result<Due, String> {
     if let Some(w) = planning.first() {
         d.plan.push(w.clone());
     }
-    let gathered = q.iter().filter(|(_, c)| *c == Class::Gathered).count();
+    // Only what came since the base was built: what came before it the planning has read, and is taken after it (`next`),
+    // so that counted it never fell, and the architect planned again and again and took nothing else.
+    let gathered = q
+        .iter()
+        .filter(|(r, c)| *c == Class::Gathered && r["at"].as_i64().unwrap_or(0) >= base.at)
+        .count();
     let most = e.config.config.install.architect.gathered_most;
     d.facts.insert(
         "waiting_for_planning".into(),

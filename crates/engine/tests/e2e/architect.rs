@@ -980,3 +980,48 @@ fn main_red_is_checked_by_the_engine_and_then_judged_by_the_architect() {
     assert_eq!(queued, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// What waits for the planning and the planning has read is taken after it. Counted again, it called for another planning
+// each time: W320 planned nine times in an afternoon, and took nothing the plan queued, nor anything else that waited.
+#[test]
+fn what_a_planning_has_read_does_not_call_for_another() {
+    let s = setup("plan-once");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    for i in 0..12 {
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "other_architect".into(),
+            detail: Some("message".into()),
+            what: format!("The architect of q says: {i}"),
+            body: json!({ "text": format!("{i}") }),
+            ..db::Matter::default()
+        };
+        e.db.write(Actor::Engine, |tx| db::queue_matter(tx, &m)).unwrap();
+    }
+    let arch = e.step(None).unwrap().work.unwrap();
+    let handled = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'other_architect' AND handled_round IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert!(
+        steps_until(&mut e, 200, |e| handled(e) > 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let plans: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'Q0' AND transition = 'plan'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(plans, 1, "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
