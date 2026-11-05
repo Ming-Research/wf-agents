@@ -2914,6 +2914,31 @@ mod tests {
     }
 
     #[test]
+    fn a_work_s_time_is_the_same_size_however_many_rounds_it_has() {
+        let s = setup("size");
+        let g = s.compiled.graph("engineer");
+        // A work of 20,000 rounds, a model's and the tools' in turn, each 4 s in 5 s: the list carries every work's time,
+        // and what it adds to a work's row must not grow with the rounds.
+        let rounds: Vec<Light> = (0..20_000_i64)
+            .map(|i| Light {
+                n: i + 1,
+                work: 1,
+                cell: Some(String::from(if i % 2 == 0 { "R1" } else { "X1" })),
+                transition: None,
+                rejected: None,
+                started_at: i * 5_000,
+                ended_at: Some(i * 5_000 + 4_000),
+                cost: None,
+            })
+            .collect();
+        let t = work_time(&rounds, g, 0);
+        assert_eq!(t.bar.chars().count(), 96);
+        assert_eq!(t.model_ms + t.tool_ms, 20_000 * 4_000);
+        assert_eq!((t.model_ms, t.engine_ms), (10_000 * 4_000, 0));
+        assert!(serde_json::to_string(&t).unwrap().len() < 300);
+    }
+
+    #[test]
     fn a_round_s_first_call_is_the_context_it_opened_with() {
         let usage = json!({
             "first_call": { "input_tokens": 3, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 20 },
