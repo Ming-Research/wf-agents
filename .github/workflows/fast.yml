@@ -129,6 +129,11 @@ jobs:
               mapfile -t -O "${#files[@]}" files < <(sed 's|^client/||' <<< "$found")
             done
           done
+          # A check of the whole repository that takes under a second, which would otherwise be found only at the merge,
+          # at the price of a full CI and a fix: every run on a work's branch holds it, whatever is named.
+          if [[ $GITHUB_REF_NAME != wf-agents-before/* ]]; then
+            rust+=("test(/(^|::)every_tracked_file_is_in_english\$/)")
+          fi
           rust_selected=false page_selected=false
           if [ ${#rust[@]} -gt 0 ]; then
             mapfile -t rust < <(printf '%s\n' "${rust[@]}" | sort -u)
