@@ -296,6 +296,36 @@ whole environment, and reads a worktree an agent wrote. What such a command can 
 settled: #284. Until its report, wf-agents' own file lists no lock file for this tool
 (`decisions/lock-updates-wait-for-the-report.md`).
 
+## How the engine runs git
+
+Every git command the engine runs in a project's checkout, a work's worktree or the data directory is built by
+`config::shared_git::command`. All worktrees of a checkout share one git configuration, which an agent's `git config` can
+write, and git runs the programs that configuration names, as the engine's user with the engine's credentials. So the
+engine's git ignores the configuration for everything that names a program, and does not read what an agent can write
+in the machine's global or system files either. A project that wants the engine to push or fetch has to fit these:
+
+- **Remotes.** The engine reaches `origin` over ssh with the `ssh` on its `PATH` and the keys that user's ssh finds (a
+  running ssh agent, `~/.ssh/config`), over a path on the machine, or without authentication. `core.sshCommand` is
+  ignored, and no credential helper, `core.askPass` or terminal prompt is used (`GIT_TERMINAL_PROMPT=0`): an `https`
+  origin that needs a password cannot be reached by the engine's git, and the command fails. Remote helpers of the form
+  `ext::<command>` and `remote.<name>.uploadpack` or `receivepack` are ignored too.
+- **Attributes.** The engine's git reads no gitattributes: not the project's `.gitattributes`, nor the global or the
+  system file. A filter, merge driver or textconv program is run only where an attribute names it, and the names are
+  any word, so they cannot be listed and shut one by one. What the engine checks out and merges has no end-of-line
+  conversion, no `merge=union`, no large-file filter (git-lfs) of the project's. An agent's own git is not affected.
+- **Hooks, signing, file-system monitor.** None is run: not the project's hooks, not `fsmonitor`, and the engine's
+  commits, merges and pushes are not signed, nor are signatures checked.
+- **Repositories.** The engine names the empty tree of a SHA-1 repository for "no attributes"; in a SHA-256 repository
+  the commands that read attributes fail with git's message, they do not run a program.
+
+Not covered: `$GIT_DIR/info/attributes`, which git reads whatever the attribute source, `ssh`'s own configuration
+files, and `uploadpack.packObjectsHook` in git's global or system file (it runs when the engine fetches from a remote that
+is a path on the machine, and a `-c` of the engine's does not reach it; stopping it would mean the engine's git reads
+neither file, which also drops what the owner keeps there, such as `url.*` and `http.proxy`); a write to any of them is a
+write outside the agent's worktree. Where each setting is pinned and why, and the tests that
+show a program named by each does not run, are in `crates/config/src/shared_git.rs` and
+`crates/engine/tests/git_programs.rs`.
+
 ## The agents' own configuration
 
 The engine runs every agent's command line with a configuration directory of its own (`CLAUDE_CONFIG_DIR` for

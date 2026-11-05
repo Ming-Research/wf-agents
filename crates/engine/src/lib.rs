@@ -53,6 +53,7 @@ mod results;
 mod review;
 mod runs;
 pub mod schedule;
+mod sent_back;
 mod set_aside;
 mod steps;
 mod test_name;
@@ -849,7 +850,7 @@ impl Engine {
         let architect = by == db::Actor::Architect.name();
         let gone = w.ended.is_some()
             || w.paused.is_none()
-            || (architect && !db::stopped_by_architect(w.paused.as_deref(), w.paused_by.as_deref()));
+            || (architect && !db::architect_may_resume(w.paused.as_deref(), w.paused_by.as_deref()));
         if gone {
             return Ok(actions::Carried::Done);
         }

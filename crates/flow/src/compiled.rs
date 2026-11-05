@@ -1322,7 +1322,21 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         write: f.agent_common.returns.write.clone(),
         once: f.agent_common.returns.once.clone(),
         rounds: match &f.rounds {
-            Some(r) => Some(rounds(r, &f.limits.counters, &cells)?),
+            Some(r) => {
+                // A return sent back that the architect looks at needs a task an architect can hold a blocker of; a
+                // graph without one has no architect above it, and what the engine queues for each return sent back
+                // would be queued for no one.
+                let asks_architect = f
+                    .blockers
+                    .as_ref()
+                    .is_some_and(|b| b.cells.iter().any(|c| c.holders.iter().any(|h| h == "architect")));
+                ensure!(
+                    !r.sent_back.look || asks_architect,
+                    "rounds.sentBack.look is set in graph {}, whose tasks no architect holds a blocker of",
+                    f.name
+                );
+                Some(rounds(r, &f.limits.counters, &cells)?)
+            }
             None => None,
         },
         blockers: f.blockers.clone(),
