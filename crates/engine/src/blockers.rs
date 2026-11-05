@@ -95,15 +95,16 @@ pub fn by_id(conn: &Connection, id: i64) -> Result<Blocker, String> {
         .map_err(|e| format!("blocker {id}: {e}"))
 }
 
+/// The statement `of_matter` runs: the blocker that names a matter, the newest first.
+pub(crate) fn of_matter_sql() -> String {
+    format!("SELECT {COLUMNS} FROM blockers WHERE matter = ?1 ORDER BY id DESC LIMIT 1")
+}
+
 /// The blocker a matter of the architect's queue stands for: the one that names it.
 pub fn of_matter(conn: &Connection, matter: i64) -> Result<Option<Blocker>, String> {
-    conn.query_row(
-        &format!("SELECT {COLUMNS} FROM blockers WHERE matter = ?1 ORDER BY id DESC LIMIT 1"),
-        [matter],
-        blocker,
-    )
-    .optional()
-    .map_err(sql)
+    conn.query_row(&of_matter_sql(), [matter], blocker)
+        .optional()
+        .map_err(sql)
 }
 
 /// Who holds a blocker: the holder, with the project of an architect and the items that hold it.

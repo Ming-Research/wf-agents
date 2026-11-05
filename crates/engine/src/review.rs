@@ -53,16 +53,17 @@ fn design_round(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
     .map_err(sql)
 }
 
+/// The statement `asked` runs: the engineer's questions of a work that the architect holds, newest first.
+pub(crate) const ASKED_SQL: &str = "SELECT id, reply, withdrawn IS NOT NULL FROM architect_matters
+     WHERE work = ?1 AND kind = 'engineer_question' AND detail = ?2 AND round > ?3
+     ORDER BY id DESC LIMIT 1";
+
 /// The latest matter that asked the architect to review the design the work handed in at round `since` or after.
 fn asked(conn: &Connection, work: i64, since: i64) -> Result<Option<Asked>, String> {
     let row: Option<(i64, Option<String>, bool)> = conn
-        .query_row(
-            "SELECT id, reply, withdrawn IS NOT NULL FROM architect_matters
-             WHERE work = ?1 AND kind = 'engineer_question' AND detail = ?2 AND round > ?3
-             ORDER BY id DESC LIMIT 1",
-            params![work, KIND, since],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
+        .query_row(ASKED_SQL, params![work, KIND, since], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
         .optional()
         .map_err(sql)?;
     Ok(row.map(|(id, reply, withdrawn)| Asked {

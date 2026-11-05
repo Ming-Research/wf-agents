@@ -68,6 +68,21 @@ pub const MIGRATIONS: &[Migration] = include!(concat!(env!("OUT_DIR"), "/migrati
 /// database newer than it.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
+/// The statement that gives the next transaction number, one more than the largest in the change log. `Db::write` runs
+/// it under the write lock on every write, so the largest must be found through an index on `tx`, not by a scan.
+pub const NEXT_TX: &str = "SELECT coalesce(max(tx), 0) + 1 FROM changes";
+
+/// The steps SQLite plans for `sql`, one per line, as `EXPLAIN QUERY PLAN` gives them: each names the table a step reads
+/// and the index it reads it by, when it has one. Parameters are bound to zero, since the plan does not depend on them.
+pub fn query_plan(conn: &Connection, sql: &str) -> rusqlite::Result<String> {
+    let mut st = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+    let zeros = vec![0_i64; st.parameter_count()];
+    let steps = st
+        .query_map(rusqlite::params_from_iter(zeros), |r| r.get::<_, String>(3))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(steps.join("\n"))
+}
+
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
 const UNTRACKED: [&str; 14] = [
     "migrations",
@@ -501,7 +516,7 @@ impl Db {
     /// succeeds.
     pub fn write<T>(&mut self, actor: Actor, f: impl FnOnce(&Transaction<'_>) -> Result<T>) -> Result<T> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let id: i64 = tx.query_row("SELECT coalesce(max(tx), 0) + 1 FROM changes", [], |r| r.get(0))?;
+        let id: i64 = tx.query_row(NEXT_TX, [], |r| r.get(0))?;
         set(
             &self.writer,
             Some(Writer {

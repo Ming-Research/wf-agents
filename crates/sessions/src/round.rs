@@ -107,14 +107,17 @@ pub fn of_cli_session(conn: &Connection, cli_session: &str) -> Result<Vec<Round>
     Ok(out)
 }
 
+/// The statement `own_rounds` runs: the rounds run in a CLI session, found through the session's row.
+pub fn own_rounds_sql() -> String {
+    format!(
+        "SELECT {COLUMNS} FROM rounds r JOIN sessions s ON s.id = r.session
+         WHERE s.cli_session = ?1 ORDER BY r.work, r.n"
+    )
+}
+
 /// The rounds run in a CLI session itself, oldest first.
 fn own_rounds(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String> {
-    let mut st = conn
-        .prepare(&format!(
-            "SELECT {COLUMNS} FROM rounds r JOIN sessions s ON s.id = r.session
-             WHERE s.cli_session = ?1 ORDER BY r.work, r.n"
-        ))
-        .map_err(|e| e.to_string())?;
+    let mut st = conn.prepare(&own_rounds_sql()).map_err(|e| e.to_string())?;
     st.query_map([cli_session], read)
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<_>>()

@@ -561,20 +561,21 @@ pub fn basis_problems(verdicts: &[Value], conditions: &[Value], at: i64, runs: &
     problems
 }
 
+/// The statement `words_given` runs: the interjections of the work delivered after its last merge.
+pub(crate) fn words_given_sql() -> String {
+    format!(
+        "SELECT count(*) FROM interjections
+         WHERE work = ?1 AND delivered_round > coalesce(
+           (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
+        db::cells_sql(ENGINEER, &[MERGE])
+    )
+}
+
 /// Whether words were said to the work since its merge, given to this look or to one before it: they hold for each look
 /// after, though each look is a session of its own.
 pub fn words_given(conn: &Connection, work: i64) -> Result<bool, String> {
     let n: i64 = conn
-        .query_row(
-            &format!(
-                "SELECT count(*) FROM interjections
-                 WHERE work = ?1 AND delivered_round > coalesce(
-                   (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
-                db::cells_sql(ENGINEER, &[MERGE])
-            ),
-            params![work],
-            |r| r.get(0),
-        )
+        .query_row(&words_given_sql(), params![work], |r| r.get(0))
         .map_err(sql)?;
     Ok(n > 0)
 }
