@@ -154,6 +154,9 @@ pub const KINDS: [(&str, &str); 9] = [
     (CHECK, "P1"),
 ];
 
+/// The detail of a report that says what became of a work's check after its change took effect.
+pub const VERIFICATION: &str = "verification";
+
 /// The cells of a matter's session that hand in what a second eye may check, and that the second eye sends it back to.
 const HANDING_IN: [&str; 9] = ["H1", "H3", "H5", "H7", "H8", "H9", "L2", "P1", "P2"];
 
@@ -767,6 +770,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
             Some("followup") => "followup",
             Some("answer") => "answer",
             Some(db::FAULT) => db::FAULT,
+            Some(VERIFICATION) => VERIFICATION,
             _ => "side_report",
         }
         .into(),
@@ -1928,9 +1932,9 @@ struct Reporter {
 }
 
 /// The work a matter came from that is told what became of it: for a side report, and for an engineer's question; none
-/// for any other matter (what to do next after a report, an answer, flow feedback, a fault, the side reports a
-/// migration put in one matter), nor when the work no longer runs, since nothing can be said to a work that ended or is
-/// at its end.
+/// for any other matter (what to do next after a report, an answer, flow feedback, a fault, a check after a change took
+/// effect, the side reports a migration put in one matter), nor when the work no longer runs, since nothing can be said
+/// to a work that ended or is at its end.
 fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, String> {
     let (kind, detail, work, body): (String, Option<String>, Option<i64>, String) = tx
         .query_row(
@@ -1942,7 +1946,7 @@ fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, Strin
     let Some(work) = work else { return Ok(None) };
     let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     let (called, cell, said) = match (kind.as_str(), detail.as_deref()) {
-        ("report", Some("followup" | "answer" | "flow_feedback" | db::FAULT)) => return Ok(None),
+        ("report", Some("followup" | "answer" | "flow_feedback" | db::FAULT | VERIFICATION)) => return Ok(None),
         ("report", _) if body["report"].is_object() => (
             "side report",
             text(&body["cell"]).to_string(),
@@ -2549,7 +2553,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
 /// `redo_matters`: what an architect's work did from its round `n` on that has not taken effect is undone, as the work
 /// goes back to do those rounds again: what waits for the second eye is dropped, its changes marked revised, to be
 /// handed in again, and the matters they closed whose reply has not gone out go back to the queue, a reply held
-/// dropped, to be written again. What took effect stays; the work never goes back past it ([`in_effect`]).
+/// dropped, to be written again. What took effect stays; the work never goes back past it ([`took_hold`]).
 pub fn redo(tx: &Transaction<'_>, work: i64, n: i64) -> Result<(), String> {
     tx.execute(
         "UPDATE architect_item_changes SET state = 'revised' WHERE work = ?1 AND round >= ?2 AND state = 'collected'",
@@ -2589,7 +2593,7 @@ pub fn stopped_why(now: i64, why: &str) -> String {
 /// work ends, saying why ([`crate::ending::end`]), so that the next look starts a new work of the project's architect
 /// when a matter is due. Why is what that cell's latest round recorded: the version the work cannot go on in, and why.
 /// The matter in hand is closed instead when a round of its path that hands in took effect since it was taken, as the
-/// graph of the version those rounds ran on has it ([`in_effect`]): handling it again would repeat what went out.
+/// graph of the version those rounds ran on has it ([`took_hold`]): handling it again would repeat what went out.
 pub fn stop_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     let version = g
         .version
@@ -2628,7 +2632,7 @@ pub fn stop_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCel
     let closed_by = match in_hand {
         Some(_) => work::rounds(conn, w.id)?
             .iter()
-            .filter(|r| r.id.n > taken && hands_in(r) && in_effect(&old, r).is_some())
+            .filter(|r| r.id.n > taken && hands_in(r) && took_hold(&old, r).is_some())
             .map(|r| r.id.n)
             .max(),
         None => None,
@@ -2758,7 +2762,7 @@ pub fn return_matters(
 /// out to an engineer, to the work that reported or to another architect, new starts held or let go, or what the second
 /// eye found sound made. None when doing it again undoes or repeats nothing that went out, as for what waits for the
 /// second eye, a matter closed and the notebook.
-pub fn in_effect(g: &CompiledGraph, r: &Round) -> Option<String> {
+pub fn took_hold(g: &CompiledGraph, r: &Round) -> Option<String> {
     let cell = g.cell(r.cell.as_deref()?)?;
     let took = r.transition.as_deref()?;
     let output = r.output.as_ref()?;
