@@ -398,3 +398,36 @@ fn words_said_to_several_architects_at_once_are_not_taken_back() {
     assert!(take(&mut db, "words", 30).is_err());
     assert_eq!(count(db.conn(), "SELECT count(*) FROM architect_matters"), 2);
 }
+
+// Words that are not what the owner typed are not the owner's to take back, whatever the page shows of them: a question
+// about a decision card is asked in the card's own box, and the copy that tells the engineer what the architect was told
+// has no words of its own without the matter it copies.
+#[test]
+fn words_about_a_decision_card_and_a_copy_without_its_matter_are_not_taken_back() {
+    let mut db = world();
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'card-1', '[]', 'open')",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO interjections (id, work, line, speaker, text, design_card)
+             VALUES (20, 1, 'engineer', 'owner', 'About the card.', 1)",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO interjections (id, work, line, speaker, text, informs)
+             VALUES (21, 1, 'engineer', 'owner', 'Said to the architect, for you to know: nothing.', 1)",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    for id in [20, 21] {
+        assert!(take(&mut db, "interjection", id).is_err(), "interjection {id}");
+    }
+    assert_eq!(
+        count(db.conn(), "SELECT count(*) FROM interjections WHERE id IN (20, 21)"),
+        2
+    );
+}
