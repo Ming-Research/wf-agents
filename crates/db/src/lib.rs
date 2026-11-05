@@ -1464,6 +1464,57 @@ mod tests {
         );
     }
 
+    // What is on hand, each item with its state: a work on it gives its number and cell, what is ready here is what
+    // ready_items starts, and an item done or cancelled is not there. A work paused or an item held that a work is on
+    // is at that work; nothing but the items' own order sorts them.
+    #[test]
+    fn open_items_gives_each_item_not_done_or_cancelled_with_its_state() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let [running, paused, held, blocked, ready, done, cancelled] =
+                ["running", "paused", "held", "blocked", "ready", "done", "cancelled"].map(|t| item(tx, t).unwrap());
+            add_dependency(tx, blocked, ready, "its part", "blocking")?;
+            tx.execute("UPDATE items SET held = 'later' WHERE id = ?1", [held])?;
+            tx.execute("UPDATE items SET cancelled = 'no' WHERE id = ?1", [cancelled])?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at) VALUES (1, ?1, 1, 'engineer', 'R1')",
+                [running],
+            )?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at, paused, paused_by)
+                 VALUES (2, ?1, 1, 'engineer', 'D1', 'to look', 'owner')",
+                [paused],
+            )?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at) VALUES (3, ?1, 1, 'engineer', 'E1')",
+                [done],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, config_commit, started_at, ended_at)
+                 VALUES (3, 1, 'E1', '{}', '{}', 'c', 1, 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let rows = |sql: &str| names(db.conn(), sql).unwrap();
+        assert_eq!(
+            rows("SELECT title || ' ' || state || ' ' || coalesce(work || ' ' || at, '-') FROM open_items"),
+            [
+                "running running 1 R1",
+                "paused paused 2 D1",
+                "held held -",
+                "blocked blocked -",
+                "ready ready -",
+            ]
+        );
+        assert_eq!(
+            rows("SELECT title FROM open_items WHERE state = 'ready'"),
+            rows("SELECT title FROM ready_items")
+        );
+    }
+
     /// Three works of project `p`, each of an item of its own, in the order of their numbers, all at `T6`; the
     /// database they are in has the one flow version they run on.
     fn three_works() -> (Db, [i64; 3]) {

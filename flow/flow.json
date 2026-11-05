@@ -4474,8 +4474,8 @@
     },
     {
       "name": "query",
-      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden",
-      "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long is saved locally and its path given. The description of the tables given to agents is generated from the database's own definition. A query that names a column or a table there is not is told, after the error, the columns of each table and view it names, and for a table there is not, every table's and view's name",
+      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden. Rows too long to give here come as the first of them, how many there are and the file that holds them: narrow the query, or read the file",
+      "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long gives its first rows and is saved locally, its path given; a result past the row limit is counted. The description of the tables given to agents is generated from the database's own definition. A query that names a column or a table there is not is told, after the error, the columns of each table and view it names, and for a table there is not, every table's and view's name",
       "tables": "The tables and views it reads, with their columns and the start of what each holds; for one in full, each column explained, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
         {
@@ -4501,7 +4501,7 @@
                   "name": "rows",
                   "title": "Rows",
                   "type": "list",
-                  "desc": "The rows found, one object per row with a field for each column; an empty list when they were too long to give here and were saved",
+                  "desc": "The rows found, one object per row with a field for each column; only the first of them when they were too long to give here and were saved",
                   "item": {
                     "type": "obj",
                     "desc": "One row: each column by its name"
@@ -4512,13 +4512,20 @@
                   "title": "Where the rows were saved",
                   "type": "text",
                   "optional": true,
-                  "desc": "Only when the rows were too long to give here: the local path they were saved to, one JSON object per line"
+                  "desc": "Only when the rows were too long to give here: the local path they were saved to, as far as the row limit, one JSON object per line"
                 },
                 {
                   "name": "cut",
                   "title": "Cut off",
                   "type": "bool",
                   "desc": "True when the rows exceeded the limit and the rest were not given"
+                },
+                {
+                  "name": "total",
+                  "title": "How many rows",
+                  "type": "int",
+                  "optional": true,
+                  "desc": "How many rows the query finds, past the row limit too; missing when counting them took too long"
                 }
               ]
             },

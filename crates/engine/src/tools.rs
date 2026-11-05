@@ -131,15 +131,30 @@ pub(crate) fn saved_to(text: &str) -> Option<&str> {
 }
 
 /// The rows a query found as the flow's query tool gives them: the rows themselves, each an object, when they are short
-/// enough to give here; otherwise none, and what `save` gives for them written one JSON object per line, which says
-/// where they were saved.
+/// enough to give here; otherwise as many of the first as are, and what `save` gives for all of them written one JSON
+/// object per line, which says where they were saved.
 fn rows_given(rows: Vec<Value>, save: impl FnOnce(String) -> String) -> (Vec<Value>, Option<String>) {
     let text = rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
     if text.len() <= LONG {
-        (rows, None)
-    } else {
-        (Vec::new(), Some(save(text)))
+        return (rows, None);
     }
+    let mut room = LONG;
+    let first = rows
+        .into_iter()
+        .take_while(|r| {
+            let size = r.to_string().len() + 1;
+            let fits = size <= room;
+            room = room.saturating_sub(size);
+            fits
+        })
+        .collect();
+    (first, Some(save(text)))
+}
+
+/// How many rows a query finds, past the row limit too; none when counting them fails, as when the time runs out.
+fn rows_found(conn: &db::rusqlite::Connection, sql: &str) -> Option<i64> {
+    let count = format!("SELECT count(*) FROM (\n{}\n)", sql.trim().trim_end_matches(';'));
+    conn.query_row(&count, [], |r| r.get(0)).ok()
 }
 
 /// The flags that make a gh `api` request write or take its request from elsewhere; the tool refuses a request that has
@@ -1480,18 +1495,26 @@ fn query(e: &mut Engine, round: RoundId, n: usize, req: &Value) -> Result<Value,
     let limits = e.config.config.install.query.clone();
     let path = config::database(&e.data);
     attempts(e, round, "query", req, |e| {
-        let run = || -> Result<(Vec<Value>, bool), String> {
+        let run = || -> Result<(Vec<Value>, bool, Option<i64>), String> {
             let conn = db::open_for_agents(&path, Duration::from_millis(limits.timeout_ms)).map_err(sql)?;
             let max = limits.max_rows as usize;
             let mut rows = work::query_json(&conn, &text, &[], max + 1)?;
             let cut = rows.len() > max;
             rows.truncate(max);
-            Ok((rows, cut))
+            let total = if cut {
+                rows_found(&conn, &text)
+            } else {
+                i64::try_from(rows.len()).ok()
+            };
+            Ok((rows, cut, total))
         };
         Ok(match run() {
-            Ok((rows, cut)) => {
+            Ok((rows, cut, total)) => {
                 let (rows, saved) = rows_given(rows, |text| inline_or_saved(e, round, n, text));
                 let mut ran = json!({ "verdict": "ran", "rows": rows, "cut": cut });
+                if let Some(t) = total {
+                    ran["total"] = json!(t);
+                }
                 if let Some(s) = saved {
                     ran["saved"] = Value::String(s);
                 }
@@ -1781,7 +1804,7 @@ mod tests {
     }
 
     #[test]
-    fn a_query_gives_its_rows_as_objects_and_saves_them_one_per_line_when_too_long() {
+    fn a_query_gives_its_rows_as_objects_and_when_too_long_the_first_and_saves_them_all_one_per_line() {
         let rows = vec![
             json!({ "id": 206, "title": "Say \"done\"" }),
             json!({ "id": 207, "title": null }),
@@ -1794,11 +1817,25 @@ mod tests {
             *kept.borrow_mut() = text;
             "saved to f".to_string()
         });
-        assert!(given.is_empty());
+        assert!(!given.is_empty() && given.len() < 2000);
+        assert_eq!(given[0]["id"], 0);
+        let size: usize = given.iter().map(|r| r.to_string().len() + 1).sum();
+        assert!(size <= LONG, "{size}");
         assert_eq!(saved.as_deref(), Some("saved to f"));
         let kept = kept.into_inner();
         assert_eq!(kept.lines().count(), 2000);
         assert_eq!(kept.lines().next(), Some(r#"{"id":0,"text":"xxxxxxxxxxxxxxxxxxxx"}"#));
+    }
+
+    #[test]
+    fn a_query_past_its_row_limit_is_counted_however_it_ends_and_a_count_that_fails_gives_none() {
+        let conn = db::rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t (n INTEGER); INSERT INTO t VALUES (1), (2), (3);")
+            .unwrap();
+        assert_eq!(rows_found(&conn, "SELECT n FROM t ORDER BY n"), Some(3));
+        assert_eq!(rows_found(&conn, " SELECT n FROM t WHERE n > 1;\n"), Some(2));
+        assert_eq!(rows_found(&conn, "SELECT n FROM t -- all of them"), Some(3));
+        assert_eq!(rows_found(&conn, "SELECT nothing FROM t"), None);
     }
 
     #[test]
