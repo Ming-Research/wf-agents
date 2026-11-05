@@ -567,6 +567,48 @@ fn named_tests(req: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The tests a request of ci names, and, when it names any, each test the work's returns named before: its test changes,
+/// adversarial testing's tables and the tests of its conditions. A return is checked against the runs on the head it
+/// pushes, so a head pushed with only the test in hand sent the return back to name the others (eight times since W300):
+/// a run on a head reports them all, for a few seconds more.
+fn with_tests_named_before(e: &Engine, w: &Work, tests: Vec<String>) -> Result<Vec<String>, (Failure, String)> {
+    if tests.is_empty() {
+        return Ok(tests);
+    }
+    let failed = |x: db::rusqlite::Error| (Failure::other(sql(x)), String::new());
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT output FROM rounds WHERE work = ?1 AND cell IN ('I1', 'T1', 'T6') AND transition IS NOT NULL
+             ORDER BY n",
+            )
+            .map_err(failed)?;
+    let returns: Vec<String> = st
+        .query_map([w.id], |r| r.get(0))
+        .map_err(failed)?
+        .collect::<Result<_, _>>()
+        .map_err(failed)?;
+    let mut out = tests;
+    let mut add = |name: &str| {
+        if !name.trim().is_empty() && !out.iter().any(|t| t == name) {
+            out.push(name.to_string());
+        }
+    };
+    for ret in returns.iter().filter_map(|o| serde_json::from_str::<Value>(o).ok()) {
+        let answer = &ret["outcome"];
+        let tables = crate::test_tables::of_return(answer);
+        for r in tables.new.iter().chain(&tables.guard) {
+            add(r["name"].as_str().unwrap_or_default());
+        }
+        for c in answer["conditions"].as_array().into_iter().flatten() {
+            for t in c["tests"].as_array().into_iter().flatten() {
+                add(t.as_str().unwrap_or_default());
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The checks a request of ci names to run beside the tests, each trimmed and once, in the order named, a blank one
 /// left out.
 fn named_checks(req: &Value) -> Vec<String> {
@@ -869,6 +911,7 @@ fn ci(
         );
     }
     let sha = git::resolve(&wt, head).unwrap_or_default();
+    let tests = with_tests_named_before(e, w, tests)?;
     let fallback = pr_fallback(item);
     let title_body = req.get("pr").map(|p| {
         (
@@ -3602,6 +3645,44 @@ timeout_ms = 1000
         assert!(r.runs.dispatched().is_empty());
     }
 
+    // A run on a head reports what the work named before as well as what the request names, so that no return is sent back
+    // to name them again.
+    fn a_run_of_ci_names_the_tests_the_work_named_before(r: &mut Rig) {
+        let work = r.work;
+        r.e.db
+            .write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (?1, 2, 'I1', '{}', ?2, 'done', 'c', 2, 3)",
+                    params![
+                        work,
+                        json!({ "outcome": {
+                            "conditions": [{ "id": "A1", "how": "tested", "tests": ["of_a_condition", "asked"] }],
+                            "test_changes": [{ "change": "added", "test": "written_once", "kind": "new_behaviour" }],
+                        } })
+                        .to_string()
+                    ],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        r.runs.clear();
+        let v = r.ci(&["asked"]);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        let [(_, _, inputs)] = &r.runs.dispatched()[..] else {
+            panic!("one run by hand: {:?}", r.runs.dispatched());
+        };
+        let tests = inputs
+            .iter()
+            .find(|(k, _)| k == "tests")
+            .map(|(_, t)| t.clone())
+            .unwrap();
+        assert_eq!(
+            tests.lines().collect::<Vec<_>>(),
+            ["asked", "written_once", "of_a_condition"]
+        );
+    }
+
     // A red full run the last try read, the engineer having changed nothing, runs its red checks again rather than be
     // read again; a first red is not run again, and goes to the work.
     fn the_red_run_the_last_try_read_runs_again(r: &mut Rig) {
@@ -3694,6 +3775,7 @@ timeout_ms = 1000
         a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
         a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
         the_red_run_the_last_try_read_runs_again(&mut r);
+        a_run_of_ci_names_the_tests_the_work_named_before(&mut r);
         a_request_github_refuses_is_asked_once_and_told(&mut r);
     }
 }
