@@ -3794,160 +3794,6 @@
       ]
     },
     {
-      "name": "decision_history",
-      "desc": "The history of one of the project's decisions on its main: each version its file had, newest first, with the commit that made it, its date and whole message, what it did to the file and the file's text as it left it; for a merge, also the commits it brought that changed the file, whose messages say why. Ask for it before you propose to change or withdraw a decision, to see what it said before, why each change was made and which challenges it already turned down; a withdrawn decision has one too, by the path it had",
-      "runs": "The engine reads it with git in the project's checkout, on main as last fetched (`origin/<main>`): the commits of main's first-parent line that changed the file, followed through its renames (`git log --first-parent --follow`), the text of each version read at its commit, and for a merge among them the commits of the branch it merged that changed the file. It reads only a file under the project's directory of decisions, `project.decisions`, and changes nothing",
-      "in": [
-        {
-          "name": "path",
-          "title": "Decision's file",
-          "type": "text",
-          "desc": "The decision's file, by its path in the repository as the project's decisions are given, such as decisions/one-flow.md, or by its path in the directory of decisions; for a withdrawn decision, the path it had"
-        }
-      ],
-      "out": [
-        {
-          "name": "history",
-          "title": "History",
-          "type": "union",
-          "desc": "Whether main ever had the file",
-          "by": "verdict",
-          "branches": [
-            {
-              "value": "found",
-              "desc": "Main had the file: its versions",
-              "fields": [
-                {
-                  "name": "versions",
-                  "title": "Versions",
-                  "type": "list",
-                  "desc": "Each version main had, newest first; an empty list when they were too long to give here and were saved",
-                  "item": {
-                    "type": "obj",
-                    "desc": "One version, as the commit of main that made it left the file",
-                    "fields": [
-                      {
-                        "name": "commit",
-                        "title": "Commit",
-                        "type": "text",
-                        "desc": "The commit of main's first-parent line that made it"
-                      },
-                      {
-                        "name": "date",
-                        "title": "Date",
-                        "type": "text",
-                        "desc": "When that commit was committed, in ISO 8601"
-                      },
-                      {
-                        "name": "message",
-                        "title": "Message",
-                        "type": "text",
-                        "desc": "The commit's message, whole"
-                      },
-                      {
-                        "name": "change",
-                        "title": "Change",
-                        "type": "enum",
-                        "desc": "What the commit did to the file",
-                        "values": [
-                          [
-                            "added",
-                            "Made it, new or as a copy of the file in from"
-                          ],
-                          [
-                            "changed",
-                            "Rewrote it where it was"
-                          ],
-                          [
-                            "renamed",
-                            "Moved it from the path in from, its text changed or not"
-                          ],
-                          [
-                            "deleted",
-                            "Deleted it: the decision was withdrawn"
-                          ]
-                        ]
-                      },
-                      {
-                        "name": "path",
-                        "title": "Path",
-                        "type": "text",
-                        "desc": "The file's path in this version; for a deletion, the path it had"
-                      },
-                      {
-                        "name": "from",
-                        "title": "Earlier path",
-                        "type": "text",
-                        "desc": "For a rename or a copy, the path the file came from",
-                        "optional": true
-                      },
-                      {
-                        "name": "text",
-                        "title": "Text",
-                        "type": "text",
-                        "desc": "The file's text in this version; none for a deletion",
-                        "optional": true
-                      },
-                      {
-                        "name": "brought",
-                        "title": "Commits merged",
-                        "type": "list",
-                        "desc": "For a merge, the commits of the branch it merged that changed the file, newest first",
-                        "optional": true,
-                        "item": {
-                          "type": "obj",
-                          "desc": "One commit of the merged branch",
-                          "fields": [
-                            {
-                              "name": "commit",
-                              "title": "Commit",
-                              "type": "text",
-                              "desc": "The commit"
-                            },
-                            {
-                              "name": "date",
-                              "title": "Date",
-                              "type": "text",
-                              "desc": "When it was committed, in ISO 8601"
-                            },
-                            {
-                              "name": "message",
-                              "title": "Message",
-                              "type": "text",
-                              "desc": "Its message, whole"
-                            }
-                          ]
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  "name": "saved",
-                  "title": "Where the versions were saved",
-                  "type": "text",
-                  "optional": true,
-                  "desc": "Only when the versions were too long to give here: the local path they were saved to, one JSON object per line"
-                }
-              ]
-            },
-            {
-              "value": "none",
-              "desc": "No history was read",
-              "fields": [
-                {
-                  "name": "why",
-                  "title": "Why none",
-                  "type": "text",
-                  "desc": "Why: no commit of main ever had a file at that path, or the path names no decision's file, being outside the repository, outside the directory of decisions or its README.md"
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
       "name": "dependency_sources",
       "desc": "Puts the source of the dependencies one of the project's lock files locks, each package at the locked version as it was published (its types included), in a directory of your worktree for you to read. Nothing is compiled and no code of a package runs. Only the lock files the project lists run; where it lists none, the tool refuses. Ask again when the lock file changed. Git ignores the directory, so a search that follows .gitignore, as ripgrep does, skips it when it searches the whole worktree: name the directory to search it",
       "runs": "The engine finds the lock file among those the project's configuration lists (`dependency_sources`) and checks with git that the directory the configuration names for it is ignored, taking the path with a trailing slash, as git reads a rule for a directory. It then runs the command the configuration gives for the lock file in the root of the work's worktree, without a shell, in a process group of its own, with the engine's environment, and reads its output as it runs. The lock file is read as the worktree has it, uncommitted changes included. A command that runs past its time limit (`timeout`, 600 seconds unless the configuration sets it) is stopped with everything it started, and one that ends leaves nothing it started running: what is left in its process group is stopped when it ends. A command that fails while the network is down makes the cell wait for the network, as every tool does. The engine commits and changes nothing else, and records the attempt",
@@ -4367,7 +4213,6 @@
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "owner_talk": "What was said in the project's one-to-one between the owner and its architect since the first round of the architect's previous session (the session of the project's latest understanding that was answered, across the works it ran in): each entry as the owner's page shows it, whole and oldest first, with when, who said it to whom and the words, an ask of the architect's with the owner's answer (counted as made when it was answered, if that was after the session began), and only how many images came with an entry. Before the project's first session there is no lower bound. Over 60,000 characters, the latest whole entries, then one line saying how many earlier ones there are; none when nothing was said since.",
-      "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked.",
       "notebook_plan": "The project's architect's plan as the latest round that planned wrote it, without what was added since; none before any did.",
       "fix_table": "The table the work's latest fix answered, as the fix was given it: each row with its number and what it held, a red check with its run and the end of its log.",
       "set_aside": "The findings set aside in this work that no review has judged yet: what the engine's checks found in a return of this work that only checks the work said it changes (`checks_changed`) found, recorded on the round instead of sending the return back. Each with its number in the work (S1, S2, ...), the check, the field it is about, its text, the round and that round's cell. A finding is judged once a round of the details review or of the re-check that came after it handed in its answer, which a finding in that round's own return is not; at the re-check, those that are rows of the table the fix answered are answered there and are not here. None when there are none.",
@@ -4636,8 +4481,7 @@
           "item_asks"
         ],
         "inputs": [
-          "owner_answer",
-          "questions"
+          "owner_answer"
         ],
         "owner": "answers"
       },
@@ -6310,7 +6154,6 @@
             "ci",
             "ci_before",
             "measure",
-            "decision_history",
             "dependency_sources",
             "gh",
             "query"
@@ -6352,7 +6195,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -6720,7 +6563,6 @@
           "line": "designer",
           "tools": [
             "measure",
-            "decision_history",
             "dependency_sources",
             "gh",
             "query"
@@ -6782,7 +6624,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -6922,7 +6764,6 @@
           "line": "designer",
           "tools": [
             "measure",
-            "decision_history",
             "dependency_sources",
             "gh",
             "query"
@@ -6930,7 +6771,7 @@
           "inputs": [
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -6951,7 +6792,7 @@
             }
           ],
           "prompt": [
-            "List everything this design takes for granted: earlier decisions (the owner's, the architect's), the architecture and interfaces as they are, how the item puts it, the initial research's conclusion, and what you take for facts. Pick the two or three that bind this design most: those without which the design would change the most. For each, suppose it broken: what does the design become? Follow it on: what else must change with it, and at what cost, until it either works or does not; where it does not, write at which step it dies. Where breaking one is plainly better and worth its cost, write it as a proposal: which, why, and what must change with it; before proposing to break a decision in force, read its history with decision_history. Never break one quietly: whoever made it decides, at the review. Where none is better, write that the design stands, with the ones you examined and why each is not broken.",
+            "List everything this design takes for granted: earlier decisions (the owner's, the architect's), the architecture and interfaces as they are, how the item puts it, the initial research's conclusion, and what you take for facts. Pick the two or three that bind this design most: those without which the design would change the most. For each, suppose it broken: what does the design become? Follow it on: what else must change with it, and at what cost, until it either works or does not; where it does not, write at which step it dies. Where breaking one is plainly better and worth its cost, write it as a proposal: which, why, and what must change with it; before proposing to break a decision in force, read its history with `git log --follow` on its file. Never break one quietly: whoever made it decides, at the review. Where none is better, write that the design stands, with the ones you examined and why each is not broken.",
             "Hand in the design again whole, with only what this examination changed changed, and say what changed. Change no file outside `research/`."
           ],
           "out": [
@@ -7484,7 +7325,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -7826,7 +7667,6 @@
           "line": "review",
           "tools": [
             "ci",
-            "decision_history",
             "dependency_sources",
             "gh",
             "query"
@@ -7896,7 +7736,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -8016,7 +7856,6 @@
           "line": "review",
           "tools": [
             "ci",
-            "decision_history",
             "dependency_sources",
             "gh",
             "query"
@@ -8086,7 +7925,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -9243,7 +9082,6 @@
           "line": "review",
           "tools": [
             "ci",
-            "decision_history",
             "dependency_sources",
             "gh",
             "query"
@@ -13706,7 +13544,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -13786,8 +13624,7 @@
           "line": "architect",
           "tools": [
             "gh",
-            "query",
-            "decision_history"
+            "query"
           ],
           "inputs": [
             {
@@ -13827,23 +13664,13 @@
                   "engine": "numbers"
                 }
               ]
-            },
-            {
-              "name": "Questions pending",
-              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked; none when none waits",
-              "from": [
-                {
-                  "engine": "questions"
-                }
-              ],
-              "maybe": true
             }
           ],
           "prompt": [
             "This round writes the plan: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet, what matters most now and why, and where what runs or waits does not fit. An earlier decision of yours stands only if it is still reasonable with today's facts; an owner's ruling stands until the owner changes it. This thinking is yours: it never goes into the policy.",
             "Start from the plan before and take in what came since: a line a matter added stands unless you say why it no longer does; what the owner wants done stays until it is done or the owner withdrew it.",
             "Then go through the items not done and why each held one is held, and the open observations. Merge what is one thing, not to save work; release or cancel what is held for a reason that no longer holds, where the hold is yours; a hold the owner asked for stays, and a step asks the owner when its reason no longer holds. An observation the policy would have done now becomes an item; one no longer so is closed, saying why. Where your order differs from the items' ranks, a step moves them. Each of these is a step.",
-            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, in a session forked from this one, and they replace the steps of the plan before not yet done. So write each whole, with what it needs from those it replaces, and check the facts it rests on: its session has nothing else to go by. A step is what effects or a look-up can do. What waits for someone, and what for, goes in notes, not in a step. What the direction needs but the plan does not reach soon is recorded as an observation by a step, to be looked at in a later planning. When slots are free and fewer items are ready than slots, see why each is not ready: release or reorder what may start, or say in notes why nothing should start now. A running work going the wrong way, every round of it wasted, is paused by the first step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
+            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, in a session forked from this one, and they replace the steps of the plan before not yet done. So write each whole, with what it needs from those it replaces, and check the facts it rests on: its session has nothing else to go by. A step is what effects or a look-up can do. What waits for someone, and what for, goes in notes, not in a step. The questions waiting for the owner are the rows of `owner_asks` with no answer: look them up. What the direction needs but the plan does not reach soon is recorded as an observation by a step, to be looked at in a later planning. When slots are free and fewer items are ready than slots, see why each is not ready: release or reorder what may start, or say in notes why nothing should start now. A running work going the wrong way, every round of it wasted, is paused by the first step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
           ],
           "out": [
             {
@@ -13902,9 +13729,6 @@
             "steps",
             "notes"
           ],
-          "rules": [
-            "policy_scope"
-          ],
           "checks": null,
           "always": [
             {
@@ -13921,8 +13745,7 @@
           "line": "matter",
           "tools": [
             "gh",
-            "query",
-            "decision_history"
+            "query"
           ],
           "inputs": [
             {
@@ -14021,9 +13844,6 @@
           ],
           "shown": [
             "reply"
-          ],
-          "rules": [
-            "policy_scope"
           ],
           "always": [
             {
@@ -14337,10 +14157,7 @@
               "check": "effects_valid"
             }
           ],
-          "shown": null,
-          "rules": [
-            "policy_scope"
-          ]
+          "shown": null
         },
         {
           "id": "P1",
@@ -14350,8 +14167,7 @@
           "line": "matter",
           "tools": [
             "gh",
-            "query",
-            "decision_history"
+            "query"
           ],
           "inputs": [
             {
@@ -14366,7 +14182,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -14559,8 +14375,7 @@
           "line": "matter",
           "tools": [
             "gh",
-            "query",
-            "decision_history"
+            "query"
           ],
           "inputs": [
             {
@@ -14585,7 +14400,7 @@
             },
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"
@@ -14864,13 +14679,12 @@
           "line": "second_eye",
           "tools": [
             "gh",
-            "query",
-            "decision_history"
+            "query"
           ],
           "inputs": [
             {
               "name": "Decisions in force",
-              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with decision_history. None when the project has none",
+              "what": "The project's decisions in force, which the owner chose: each file by its path, saying what is done now, why, the options not chosen and why not, and the challenges turned down. Keep to each; to depart from one, propose changing it in the design, which the owner reviews, after reading its history with `git log --follow` on its file. None when the project has none",
               "from": [
                 {
                   "engine": "decisions"

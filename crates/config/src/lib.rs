@@ -770,8 +770,8 @@ pub struct Project {
     /// Where the project keeps its decisions in force: a directory of its repository, `decisions` unless set, spelled
     /// as the project's main has it, holding one file for each decision. Agents are given every file in it as main has
     /// them, but its `README.md`, which says what the directory is ([`decisions::in_force`]); none when it is not there
-    /// or holds nothing else. A decision replaced lives on only in the repository's history, which the tool
-    /// `decision_history` gives ([`decisions::history`]), and one withdrawn is deleted.
+    /// or holds nothing else. A decision replaced lives on only in the repository's history, and one withdrawn is
+    /// deleted.
     #[serde(default = "default_decisions")]
     pub decisions: PathBuf,
     /// The tags the project's observations may carry, each with what it covers: the architect tags an observation with

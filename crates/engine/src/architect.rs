@@ -51,7 +51,6 @@ pub const INPUTS: &[&str] = &[
     "similar_items",
     "owner_answer",
     "owner_talk",
-    "questions",
     "notebook_plan",
     "base_due",
     "appended",
@@ -505,25 +504,6 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
         "SELECT count(*) FROM dispatch_holds WHERE project = ?1 AND reason = 'set_straight'",
         &[&project],
     )? > 0)
-}
-
-/// The questions a project's architect put to the owner that wait for the owner's reply, newest first, as the owner's
-/// interface reads them too ([`db::QUESTIONS_PENDING`]): with the question, the cell that asked, when it was put and the
-/// matter it parked.
-pub fn questions_pending(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
-    query_json(conn, db::QUESTIONS_PENDING, &[&project], ROWS)
-}
-
-/// The questions pending, as the cells that may ask are given them; none when none waits.
-fn questions(e: &Engine, project: &str) -> Result<Option<Value>, String> {
-    let rows: Vec<Value> = questions_pending(e.db.conn(), project)?
-        .into_iter()
-        .map(|mut q| {
-            q["at"] = json!(q["at"].as_i64().map(utc_minute));
-            q
-        })
-        .collect();
-    Ok((!rows.is_empty()).then_some(Value::Array(rows)))
 }
 
 /// Cell `N0`: what comes next for the project's architect, in the engine's fixed order ([`crate::base::next`]), with
@@ -3533,7 +3513,6 @@ pub fn input(
         "owner_answer" => owner_answer(e, w),
         "owner_talk" => owner_talk(e, project),
         "notebook_plan" => Ok(notebook_section(e.db.conn(), project, "plan")?.map(Value::String)),
-        "questions" => questions(e, project),
         "base_due" => crate::base::base_due(e, project).map(Some),
         "appended" => crate::base::appended_input(e, project),
         "since_plan" => crate::base::since_plan(e, project),

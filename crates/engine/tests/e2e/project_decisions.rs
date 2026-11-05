@@ -23,8 +23,7 @@ fn decided(s: &Setup) {
 }
 
 /// The flow as `flow/flow.json` has it, with the cells named (each by its graph and its id) given the project's
-/// decisions, and those of them that may ask for tools the tool decision_history, where the flow does not give them
-/// already: compiled and stored as a version of the flow, which the engine then runs.
+/// decisions, where the flow does not give them already: compiled and stored as a version of the flow, which the engine then runs.
 fn with_decisions(e: &mut Engine, cells: &[(&str, &str)]) -> i64 {
     let mut f: Value = serde_json::from_str(flow::FLOW).unwrap();
     if f["engine"]["inputs"].get("decisions").is_none() {
@@ -52,11 +51,6 @@ fn with_decisions(e: &mut Engine, cells: &[(&str, &str)]) -> i64 {
                 "maybe": true
             }));
         }
-        if let Some(tools) = cell["tools"].as_array_mut()
-            && !tools.contains(&json!("decision_history"))
-        {
-            tools.push(json!("decision_history"));
-        }
     }
     let cx = flow::Context {
         relations: db::relations(db::SCHEMA).unwrap(),
@@ -78,42 +72,27 @@ fn with_decisions(e: &mut Engine, cells: &[(&str, &str)]) -> i64 {
 }
 
 // A cell of an engineer's work given the decisions is given none while main's directory holds only its README, and
-// then each file of the directory as main has it when the round starts, by its path, the README left out; asking for
-// one's history, it is given each version main had, newest first, with its commit's message and its text, in a return
-// of the tool cell that fits the flow.
+// then each file of the directory as main has it when the round starts, by its path, the README left out.
 #[test]
-fn an_engineer_s_cell_is_given_the_decisions_main_has_and_on_asking_one_s_history() {
+fn an_engineer_s_cell_is_given_the_decisions_main_has() {
     let s = setup("decisions-engineer");
     main_moves_on(&s.root, &[("decisions/README.md", README)], "Say what decisions are");
-    let mut agents = scripts();
-    let implement = agents.remove("I1").unwrap();
-    agents.insert(
-        "I1",
-        Box::new(move |r: &Request, n: usize| {
-            if n == 1 {
-                let tools = json!([{ "tool": "decision_history", "path": "decisions/one-flow.md" }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
-            }
-            implement(r, n - 1)
-        }),
-    );
-    let (mut e, said, item) = start(&s, agents);
+    let (mut e, said, item) = start(&s, scripts());
     with_decisions(&mut e, &[("engineer", "R1"), ("engineer", "I1")]);
     // Main takes the decisions once research is done, before implementing: the round's fetch brings them.
     step_to(&mut e, item, "I1");
     decided(&s);
-    let ran = |e: &Engine| -> Option<String> {
+    let at_i1 = |e: &Engine| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT r.output FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND r.cell = 'X1' AND r.transition IS NOT NULL ORDER BY r.work, r.n LIMIT 1",
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.item = ?1 AND r.cell = 'I1'",
                 [item],
                 |r| r.get(0),
             )
-            .ok()
+            .unwrap()
     };
     for _ in 0..60 {
-        if ran(&e).is_some() || state(&e, item).is_some_and(|(_, _, paused)| paused.is_some()) {
+        if at_i1(&e) > 0 || state(&e, item).is_some_and(|(_, _, paused)| paused.is_some()) {
             break;
         }
         e.step(None).unwrap();
@@ -129,44 +108,6 @@ fn an_engineer_s_cell_is_given_the_decisions_main_has_and_on_asking_one_s_histor
         Some(json!({ "decisions/one-flow.md": NOW })),
         "{message}"
     );
-    // The history: the rewrite, then the first version, each with its commit on main.
-    let output: Value = serde_json::from_str(&ran(&e).expect(&log)).unwrap();
-    let result = &output["results"][0];
-    assert_eq!(result["tool"], "decision_history", "{output}");
-    let history = &result["history"];
-    assert_eq!(history["verdict"], "found", "{output}");
-    let versions = history["versions"].as_array().unwrap();
-    let main = |at: &str| git(&s.origin, &["rev-parse", at]);
-    let seen: Vec<(&str, &str, &str, &str)> = versions
-        .iter()
-        .map(|v| {
-            (
-                v["commit"].as_str().unwrap(),
-                v["change"].as_str().unwrap(),
-                v["message"].as_str().unwrap(),
-                v["text"].as_str().unwrap(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        seen,
-        [
-            (
-                main("main").as_str(),
-                "changed",
-                "Keep one flow for every project\n\nThe owner chose it for all of them.",
-                NOW
-            ),
-            (main("main~1").as_str(), "added", "Decide on one flow", FIRST),
-        ],
-        "{output}"
-    );
-    let w = e.work(work).unwrap();
-    let g = e.graph_of(&w).unwrap();
-    let schema = g.cell("X1").and_then(|c| c.schema.clone()).unwrap();
-    assert!(flow::valid(&schema, &output), "{output}");
-    // The attempt is recorded as every tool's is.
-    assert_eq!(tool_runs(&e, item, "decision_history").len(), 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

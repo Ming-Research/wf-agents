@@ -217,9 +217,7 @@ A project keeps the decisions in force for its design in its own repository, one
 file names as `decisions` (`decisions` unless it names another). The engine's input `decisions` gives a cell every file
 of that directory but a README.md, each by its path with its text, as the project's main has them at the commit the
 round is pinned to, as it gives the constitution; none when the directory is not there or holds nothing else. The
-engine's tool `decision_history` gives the history of one on main: each version its file had, newest first, with the
-commit that made it, its date and message and its text, a withdrawn decision's included, and for a merge the commits it
-brought. wf-agents' own are in `decisions/`, whose README.md says how one is written.
+history of one is its file's in git, a withdrawn decision's included. wf-agents' own are in `decisions/`, whose README.md says how one is written.
 
 ## A project's dependency sources
 
