@@ -111,10 +111,9 @@ pub enum Class {
     MainRed,
     /// A work stopped at its question waits, or a report says it causes loss now.
     Waiting,
-    /// A step of the plan, taken in the plan's order.
+    /// A step of the plan, taken in the plan's order, and a check of the policy, which the steps may rest on.
     Planned,
-    /// Nothing stopped waits on it: a report, slots free with nothing to start, a check of the policy, another
-    /// architect's message.
+    /// Nothing stopped waits on it: a report, slots free with nothing to start, another architect's message.
     Queued,
 }
 
@@ -143,7 +142,8 @@ pub fn class(row: &Value, body: &Value) -> Class {
         ("main_red", _) => Class::MainRed,
         _ if row["waits"] == "agent" || flag("urgent") => Class::Waiting,
         ("set_straight", _) if body["measure"].is_null() => Class::Planned,
-        ("slots_free" | "set_straight" | "check_policy" | "report" | "other_architect", _) => Class::Queued,
+        ("check_policy", _) => Class::Planned,
+        ("slots_free" | "set_straight" | "report" | "other_architect", _) => Class::Queued,
         // A work's question, an open question of a design whose merge waits for the answer, a failure, and any kind
         // the flow added since: something waits on it.
         _ => Class::Waiting,
@@ -365,7 +365,6 @@ mod tests {
         );
         for (kind, detail) in [
             ("slots_free", None),
-            ("check_policy", None),
             ("report", Some("defect")),
             ("report", Some("answer")),
             ("other_architect", Some("message")),
@@ -373,6 +372,7 @@ mod tests {
             assert_eq!(class(&row(kind, detail, "none"), &none), Class::Queued, "{kind}");
         }
         assert_eq!(class(&row("set_straight", None, "none"), &none), Class::Planned);
+        assert_eq!(class(&row("check_policy", None, "none"), &none), Class::Planned);
         let measure = json!({ "measure": { "measure": "m" } });
         assert_eq!(class(&row("set_straight", None, "none"), &measure), Class::Queued);
         let mut harms = row("report", Some("defect"), "none");

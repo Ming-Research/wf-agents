@@ -2273,7 +2273,7 @@
         },
         {
           "value": "hold",
-          "desc": "No work starts on it for now",
+          "desc": "No work starts on it for now; on an item already held, the reason of this change takes the place of the one it had",
           "fields": [
             {
               "name": "item",
@@ -2560,6 +2560,13 @@
                 "type": "text",
                 "desc": "One reference"
               }
+            },
+            {
+              "name": "not_reported_again",
+              "title": "Not reported again",
+              "type": "bool",
+              "optional": true,
+              "desc": "True when this only adds to the observation and no one reported it again, so that it is not counted"
             }
           ]
         },
@@ -13725,7 +13732,7 @@
             }
           ],
           "prompt": [
-            "You are this project's architect, taking it over. Everything you do after this goes on from what you read and work out here. Go through every part of the code until you know how it really works and why it is so: what each part does, where the parts meet, and how one piece of work runs through them all. Do not write that out; it stays with you. Only when you know it, answer each in a sentence, without sources:",
+            "You are this project's architect, taking it over. Everything you do after this goes on from what you read and work out here. Go through every part of the code until you know how it really works and why it is so: what each part does, where the parts meet, and how one piece of work runs through them all. This round is the exception to reading only what a question needs. It is about the code and the design, not what is on hand: the items, the queue and what things cost are looked up when planning. Do not write that out; it stays with you. Only when you know it, answer each in a sentence, without sources:",
             "1. Where is it most likely to go wrong, and why?",
             "2. Which article of the constitution does it keep worst?",
             "3. Where does it differ from what its documents and decisions say?",
@@ -13756,6 +13763,7 @@
           ],
           "without": [
             "ask",
+            "tools",
             "pause"
           ],
           "always": [
@@ -13765,11 +13773,7 @@
             }
           ],
           "checks": null,
-          "noInputList": true,
-          "tools": [
-            "gh",
-            "query"
-          ]
+          "noInputList": true
         },
         {
           "id": "B2",
@@ -13835,7 +13839,7 @@
           "prompt": [
             "This round writes the plan: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet, what matters most now and why, and where what runs or waits does not fit. An earlier decision of yours stands only if it is still reasonable with today's facts; an owner's ruling stands until the owner changes it. This thinking is yours: it never goes into the policy.",
             "Start from the plan before and take in what came since: a line a matter added stands unless you say why it no longer does; what the owner wants done stays until it is done or the owner withdrew it.",
-            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, each in a session forked from this one, and they replace the steps of the plan before not yet done. What waits for someone, and what for, goes in notes, not in a step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
+            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, each in a session forked from this one, and they replace the steps of the plan before not yet done. So write each whole, with what it needs from those it replaces, and check the facts it rests on: its session has nothing else to go by. A step is what effects or a look-up can do. What waits for someone, and what for, goes in notes, not in a step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
           ],
           "out": [
             {

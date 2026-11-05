@@ -269,6 +269,20 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell]) -> String {
         .chain(std::iter::once(format!("\"{}\": {{…}}", g.within)))
         .collect();
     let every_names: Vec<String> = every.keys().cloned().collect();
+    // A field of a return that a cell sharing this format does not hold: the cell's schema refuses it, so the text says so.
+    let lacking: Vec<String> = cells
+        .iter()
+        .filter(|c| c.kind == "agent")
+        .filter_map(|c| {
+            let props = c.schema.as_ref()?["properties"].as_object()?;
+            let lacks: Vec<String> = every_names
+                .iter()
+                .filter(|k| !props.contains_key(*k))
+                .cloned()
+                .collect();
+            (!lacks.is_empty()).then(|| format!("a return of cell {} leaves out {}", c.id, quoted(&lacks)))
+        })
+        .collect();
     let mut schema = Map::new();
     schema.extend(every);
     schema.insert(
@@ -280,6 +294,7 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell]) -> String {
         .iter()
         .filter(|(_, xs)| !xs.is_empty())
         .map(|(f, xs)| format!("a return of the form `{f}` leaves out {}", quoted(xs)))
+        .chain(lacking)
         .collect();
     let leaves = if leaves.is_empty() {
         String::new()

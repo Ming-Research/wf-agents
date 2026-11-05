@@ -1344,13 +1344,15 @@ pub(crate) fn observe(tx: &Transaction<'_>, project: &str, from: &str, o: &Value
                 .map_err(|x| format!("observation {id}: {x}"))?;
             let mut refs: Vec<Value> = serde_json::from_str(&old).unwrap_or_default();
             refs.extend(texts(&o["refs"]).into_iter().map(Value::String));
+            let again = o["not_reported_again"] != true;
             let seen = text(&o["seen"]).trim();
             if !seen.is_empty() {
-                refs.push(json!(format!("Reported again ({from}): {seen}")));
+                let said = if again { "Reported again" } else { "Added" };
+                refs.push(json!(format!("{said} ({from}): {seen}")));
             }
             tx.execute(
-                "UPDATE observations SET times_reported = times_reported + 1, refs = ?2 WHERE id = ?1",
-                params![id, Value::Array(refs).to_string()],
+                "UPDATE observations SET times_reported = times_reported + ?3, refs = ?2 WHERE id = ?1",
+                params![id, Value::Array(refs).to_string(), i64::from(again)],
             )
             .map_err(sql)?;
         }
