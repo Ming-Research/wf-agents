@@ -2615,12 +2615,12 @@ fn cancelled_why(e: &Engine, item: i64) -> Option<String> {
 /// Why a work was stopped before its end; none while it goes on, and none for a work that reached the end of its
 /// graph, which ends as `done` ([`ended_done`]).
 fn ended_why(e: &Engine, work: i64) -> Option<String> {
-    ended_of(e, work).filter(|why| why != db::ENDED_DONE)
+    ended_of(e, work).filter(|why| why != "done")
 }
 
 /// Whether a work reached the end of its graph and ended as `done`.
 fn ended_done(e: &Engine, work: i64) -> bool {
-    ended_of(e, work).as_deref() == Some(db::ENDED_DONE)
+    ended_of(e, work).as_deref() == Some("done")
 }
 
 /// What the work's column `ended` holds.
