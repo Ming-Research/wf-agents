@@ -88,7 +88,11 @@ fn a_lock_held_by_a_process_that_has_recorded_nothing_names_no_one() {
                 assert_eq!(holder, &None::<Holder>, "{name}");
                 let said = refused.to_string();
                 assert!(said.contains("has not recorded who it is"), "{name}: {said}");
-                assert!(!said.contains("process "), "{name}: {said}");
+                // It names no process number and no time, though "42" stands in the file of one case.
+                assert!(
+                    !said.contains("process 42") && !said.contains("taken"),
+                    "{name}: {said}"
+                );
             }
             other => panic!("{name}: {other:?}"),
         }

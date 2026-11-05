@@ -36,13 +36,19 @@ fn start_holder(dir: &Path) -> (Child, u32) {
         .spawn()
         .unwrap();
     let out = BufReader::new(holder.stdout.take().unwrap());
-    for line in out.lines() {
-        // The test harness prints the test's name before what the test prints, on the same line.
-        if let Some((_, pid)) = line.unwrap().split_once("ready ") {
-            return (holder, pid.trim().parse().unwrap());
+    // The test harness prints the test's name before what the test prints, on the same line.
+    let ready = out.lines().map(Result::unwrap).find_map(|line| {
+        line.split_once("ready ")
+            .map(|(_, pid)| pid.trim().parse::<u32>().unwrap())
+    });
+    match ready {
+        Some(child) => (holder, child),
+        None => {
+            let _ = holder.kill();
+            holder.wait().unwrap();
+            panic!("the holder ended without holding the lock");
         }
     }
-    panic!("the holder ended without holding the lock");
 }
 
 /// Whether the process is still there, by the shell's own `kill -0`, which sends no signal.
