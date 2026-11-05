@@ -9106,7 +9106,7 @@
             },
             {
               "name": "Test paths",
-              "what": "The paths that hold tests, as the project's configuration writes them: ci_before takes only the files under them, and you may change only those. A directory is written with its trailing slash, and a `*` stands for one segment of a path",
+              "what": "The paths that hold tests, as the project's configuration writes them: ci_before takes only the files under them, and you may change only those. A path written with a trailing slash is a directory and holds what is below it; one written without it is that path and what is below it; in a segment `*` matches any run of characters, so `*.test.ts` is a name that ends so, and a segment `**` matches any number of segments, none included. An empty list means no path holds tests",
               "from": [
                 {
                   "config": "test_paths"

@@ -1518,6 +1518,15 @@ mod tests {
         // A pattern in the test paths picks the files it matches.
         let by_pattern = tests_changed_json(&dir, "main", &["*/odd:name.rs".to_string()], &returns).unwrap();
         assert_eq!(by_pattern["test_files"], json!(["tests/odd:name.rs"]), "{by_pattern}");
+        // A segment `**` matches any number of segments, none included: at the start of a pattern, and at its end.
+        let by_double = tests_changed_json(&dir, "main", &["**/odd:name.rs".to_string()], &returns).unwrap();
+        assert_eq!(by_double["test_files"], json!(["tests/odd:name.rs"]), "{by_double}");
+        let below = tests_changed_json(&dir, "main", &["tests/**".to_string()], &returns).unwrap();
+        assert_eq!(
+            below["test_files"],
+            json!(["tests/a.rs", "tests/odd:name.rs"]),
+            "{below}"
+        );
         // A file of the source is a test file when the paths name it.
         let source = tests_changed_json(&dir, "main", &["src/".to_string()], &[]).unwrap();
         assert_eq!(source["test_files"], json!(["src/lib.rs"]), "{source}");
