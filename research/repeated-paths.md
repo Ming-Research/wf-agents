@@ -71,8 +71,13 @@ those, not tried.
   in one statement only, `engine.round.opens`, whose separator is now an ASCII slash instead of a middle dot so that the
   file is ASCII, which changes no number). The ratio of a path is the ratio of its medians
   at two scales in the same process; the table gives its 95% interval over the nine (Student's t, on the logarithms). The
-  noise is the twin's time over the base's at scale 1 in each pair, its interval over the three pairs; where that
-  interval is wide (for example `engine.turn.ready_items`, 0.91 to 1.09 here but 0.30 to 2.17 in the first full run) the ratio of that path is not read finely.
+  noise is the twin's time over the base's at scale 1 in each pair, its interval over the three pairs. For three paths
+  the interval lies wholly below 1 (`api.architect.matters` 0.953 to 0.979, `api.items_extra` 0.927 to 0.969,
+  `view.architect_queue` 0.874 to 0.953): their scale-1 time differs by up to 13% between processes of the same commit,
+  so it is not read finer than that; their growth at ten times (5.5 to 5.7, 13.3 to 13.8 and 28 to 31 times) is far above
+  it, and the class stands. Every other path's interval contains 1, or has no spread (1.000 to 1.000); the widest are
+  paths under 0.1 ms (`engine.round.item_merged` 0.68 to 1.74, `engine.step.take_if_past` 0.70 to 1.29), where the
+  clock is the limit (checked by a search of the results file for intervals wholly on one side of 1).
   Page cache: the machine had the files in memory after the build; the engine's connections use SQLite's default 2 MiB
   cache, as the program does, so a table over 2 MiB is read through the operating system on every pass at scale 10. That
   is why some small views grow more than ten times (`view.item_acceptance` 59 to 68 times): it is a real effect of the
