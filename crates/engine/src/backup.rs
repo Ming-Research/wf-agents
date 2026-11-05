@@ -14,9 +14,7 @@ pub const RELEASE: &str = "database-backups";
 /// The data directory's repository on GitHub, as owner/name, from its git remote `origin`; none when it has none
 /// there, as a data directory cloned from a folder.
 pub fn repository(data: &Path) -> Option<String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(data)
+    let out = config::shared_git::command(data)
         .args(["remote", "get-url", "origin"])
         .output()
         .ok()?;

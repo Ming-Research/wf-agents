@@ -5,7 +5,7 @@
 //! Every request, refused or not, is a row of tool_runs, which is how a failure to fetch is summed up.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -122,9 +122,7 @@ pub(crate) fn run(
 fn ignored(wt: &Path, dir: &Path) -> Result<bool, String> {
     let mut at = dir.as_os_str().to_os_string();
     at.push("/");
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(wt)
+    let out = config::shared_git::command(wt)
         .args(["check-ignore", "-q", "--"])
         .arg(&at)
         .stdin(Stdio::null())
@@ -143,6 +141,8 @@ fn ignored(wt: &Path, dir: &Path) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+
     use super::*;
 
     /// A fresh directory for a test, named by it, under the system's temporary directory.
