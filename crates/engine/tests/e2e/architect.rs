@@ -614,7 +614,10 @@ fn two_projects_architects_send_each_other_messages() {
     let projects = |e: &Engine| -> Vec<(i64, String)> {
         let mut st =
             e.db.conn()
-                .prepare("SELECT id, project FROM works WHERE graph = 'architect' AND ended IS NULL ORDER BY id")
+                .prepare(
+                    "SELECT id, project FROM works WHERE graph = 'architect' AND (ended IS NULL OR ended = 'done')
+                     ORDER BY id",
+                )
                 .unwrap();
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
@@ -643,6 +646,8 @@ fn two_projects_architects_send_each_other_messages() {
     let ws = projects(&e);
     let names: Vec<&str> = ws.iter().map(|w| w.1.as_str()).collect();
     assert_eq!(names, ["p", "q", "p"], "{log}");
+    // Each work of an architect that reached its end is ended as done.
+    assert!(ws.iter().all(|(w, _)| ended_done(&e, *w)), "{log}");
     assert!(path_of(&e, ws[1].0).contains(&"H1".to_string()), "{log}");
     let messages: Vec<(String, String, String)> = {
         let mut st =

@@ -355,8 +355,10 @@ CREATE TABLE works (
   -- Why the work is paused: the engine's reason, when a step could not be taken or returns were sent back too often,
   -- or the owner's words; NULL while it goes on. Read by: the engine; the slots view.
   paused TEXT,
-  -- Why the work was stopped before its end cell, for example because its item was cancelled; NULL otherwise.
-  -- Read by: the engine; the status view.
+  -- How the work ended: `done` when it reached the end of its graph, written in the write that completes the round at
+  -- its end cell; otherwise why it was stopped before its end, for example because its item was cancelled. NULL while
+  -- it goes on, a work waiting for a change to take effect included. Read by: the engine, which takes no step of a work
+  -- that ended and does not load it; the status view.
   ended TEXT,
   -- Who paused the work, the owner or the engine; NULL while it goes on. The owner's Start all lets go on only the
   -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
@@ -1271,6 +1273,30 @@ CREATE INDEX notebook_edits_by_section ON notebook_edits (project, section);
 CREATE UNIQUE INDEX attachments_of_interjection ON attachments (interjection, position) WHERE interjection IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_matter ON attachments (matter, position) WHERE matter IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask IS NOT NULL;
+-- The largest transaction number in the change log: `Db::write` reads it on every write, under the write lock.
+CREATE INDEX changes_by_tx ON changes (tx);
+-- The sessions a CLI session's id names: the rows its rounds are read through.
+CREATE INDEX sessions_by_cli_session ON sessions (cli_session);
+-- The rounds a CLI session ran, found through the session's row.
+CREATE INDEX rounds_by_session ON rounds (session);
+-- The rounds of a cell in any work: an architect's rounds at the cell of a matter.
+CREATE INDEX rounds_by_cell ON rounds (cell);
+-- The interjections a matter holds the owner's words of, said in a work's group.
+CREATE INDEX interjections_by_matter ON interjections (matter);
+-- The interjections of a work delivered after a round: the words given since a merge.
+CREATE INDEX interjections_by_work_delivered ON interjections (work, delivered_round);
+-- The matters of a work of a kind: the questions an engineer asked the architect, the reports of its line.
+CREATE INDEX architect_matters_by_work ON architect_matters (work, kind);
+-- The matter an owner's ask put to the architect.
+CREATE INDEX architect_matters_by_asked ON architect_matters (asked);
+-- The notices about an owner's ask.
+CREATE INDEX engine_notices_by_ask ON engine_notices (ask);
+-- The blockers an owner's ask holds.
+CREATE INDEX blockers_by_ask ON blockers (ask);
+-- The blocker a matter of the architect's queue stands for.
+CREATE INDEX blockers_by_matter ON blockers (matter);
+-- The works on each flow version.
+CREATE INDEX works_by_flow_version ON works (flow_version);
 
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
 -- work or project at hand has a column of that name; the engine filters on it.
@@ -1293,7 +1319,8 @@ CREATE VIEW ready_items AS
   -- depends on by a blocking dependency unmerged (item_blocked_by), and, unless the owner queued it, is not done. An
   -- item leaves the owner's queue when a work starts on it, and may be queued again once its works ended. A work runs
   -- until it ends or its last round, at the cell it is at, completed without taking a row, which only the end of its
-  -- graph does; it is done at the end of the engineer's graph. While dispatch_holds has a row, the engine starts none.
+  -- graph does; it is done at the end of the engineer's graph, ended as `done` or, while its round there is not
+  -- completed, not ended. While dispatch_holds has a row, the engine starts none.
   -- Read by: cell `S0`; the architect, through what runs and starts next.
   WITH
   running(item) AS (
@@ -1304,7 +1331,8 @@ CREATE VIEW ready_items AS
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
     SELECT w.item FROM works w
-    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
   FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
   WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
@@ -1328,7 +1356,8 @@ CREATE VIEW open_items AS
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
     SELECT w.item FROM works w
-    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title,
     CASE
       WHEN EXISTS (

@@ -255,9 +255,17 @@ fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkR
         .collect())
 }
 
+impl WorkRow {
+    /// Why the work was stopped before its end; none for a work that is going on or reached the end of its graph
+    /// (`works.ended` holds `done` for it).
+    fn stopped(&self) -> Option<&str> {
+        self.ended.as_deref().filter(|why| *why != db::ENDED_DONE)
+    }
+}
+
 /// Where a work stands, as the engine sees it.
 fn state(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> WorkState {
-    if w.ended.is_some() {
+    if w.stopped().is_some() {
         return WorkState::Ended;
     }
     if let Some(g) = g
@@ -336,7 +344,7 @@ fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&
 /// waiting for one, else the row. A cell whose last round failed in a way the flow runs again waits to run again
 /// (`Waits::Retry`). A paused work is said to wait too, so that the owner sees both.
 fn waits(conn: &Connection, w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> Result<Option<Waits>> {
-    if w.ended.is_some() {
+    if w.stopped().is_some() {
         return Ok(None);
     }
     if let Some(held) = held_by(conn, w.id)? {
@@ -597,7 +605,7 @@ fn summary(
         },
         paused,
         paused_by,
-        ended: w.ended.clone(),
+        ended: w.stopped().map(str::to_string),
         waits,
         branch: w.branch.clone(),
         pr: w.pr,
@@ -1542,12 +1550,13 @@ fn acceptance_before(conn: &Connection, work: i64, n: i64) -> Result<Option<Valu
     Ok(before.flatten().and_then(|t| serde_json::from_str(&t).ok()))
 }
 
+/// The statement `flows` runs: each flow version with the number of works on it, newest first.
+pub(crate) const FLOWS_SQL: &str = "SELECT v.id, v.digest, (SELECT count(*) FROM works w WHERE w.flow_version = v.id) \
+     FROM flow_versions v ORDER BY v.id DESC";
+
 /// Every stored flow version, newest first.
 pub fn flows(conn: &Connection) -> Result<Vec<FlowVersion>> {
-    let mut st = conn.prepare(
-        "SELECT v.id, v.digest, (SELECT count(*) FROM works w WHERE w.flow_version = v.id) FROM flow_versions v
-         ORDER BY v.id DESC",
-    )?;
+    let mut st = conn.prepare(FLOWS_SQL)?;
     let rows = st.query_map([], |r| {
         Ok(FlowVersion {
             id: r.get(0)?,
@@ -2724,6 +2733,16 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn flows_count_works_by_works_by_flow_version() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), FLOWS_SQL).unwrap();
+        assert!(
+            steps.contains("works_by_flow_version"),
+            "the plan does not read by works_by_flow_version:\n{steps}"
+        );
+    }
 
     struct Setup {
         db: Db,
@@ -4960,6 +4979,33 @@ mod tests {
         assert_eq!((d.work.item, d.rounds.len(), d.asks.len()), (None, 2, 1));
         let r = round(s.db.conn(), &cache, &s.data, 3, 1).unwrap();
         assert!(r.limits.is_empty());
+    }
+
+    // A work that reached the end of its graph is ended as done, and reads as done with no reason it ended, as it did
+    // while the end was not written; one stopped before its end reads as ended, with the reason.
+    #[test]
+    fn a_work_ended_as_done_reads_as_done_and_one_stopped_reads_as_ended() {
+        let mut s = architect_setup("ended-done");
+        let read = |s: &Setup| {
+            let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()]).unwrap();
+            let last = a.works.iter().find(|w| w.work.id == 2).unwrap().work.clone();
+            (last.state, last.ended)
+        };
+        assert_eq!(read(&s), (WorkState::Done, None));
+        for (ended, expected) in [
+            ("done", (WorkState::Done, None)),
+            (
+                "stopped: for a test",
+                (WorkState::Ended, Some("stopped: for a test".to_string())),
+            ),
+        ] {
+            s.db.write(Actor::Engine, |tx| {
+                tx.execute("UPDATE works SET ended = ?1 WHERE id = 2", [ended])?;
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(read(&s), expected);
+        }
     }
 
     // A project's tab: its works newest first, with what each handled; its queue, then what an ask holds; its holds; its
