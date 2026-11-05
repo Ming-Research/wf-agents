@@ -118,3 +118,99 @@ fn a_work_of_another_graph_has_no_way() {
         .unwrap();
     assert_eq!(found, 0);
 }
+
+// The edges of the reading, by the acceptance condition's order: a round counting `shallow_research` makes a work
+// turned, else a round at the design makes it designed, else the research's latest answer among `start` and
+// `cannot_start` being `start` makes it direct, else none. A counter of another name does not turn a work; the counter
+// turns it whatever cell took the row; the design reached names the work designed even after a research row of the
+// older flow version; the latest answer of the research is the one read, and a research round that has taken no row
+// yet does not hide the answer before it.
+#[test]
+fn the_ways_of_the_edges_of_the_rows() {
+    let mut db = database();
+    // Started, then cannot start, and the design has not run yet: the latest answer is `cannot_start`, so none.
+    let withdrawn = work(
+        &mut db,
+        &[("R1", Some("start"), None), ("R1", Some("cannot_start"), None)],
+    );
+    // Started, then a second research round that has taken no row yet: the answer before it stands.
+    let under_way = work(&mut db, &[("R1", Some("start"), None), ("R1", None, None)]);
+    // A counter of another name than `shallow_research` turns nothing.
+    let other_counter = work(
+        &mut db,
+        &[("R1", Some("start"), None), ("I1", Some("asks_row"), Some("asks"))],
+    );
+    // The counter taken at a cell other than the implementation's still turns the work.
+    let counted_elsewhere = work(
+        &mut db,
+        &[
+            ("R1", Some("start"), None),
+            ("T3", Some("shallow_research"), Some("shallow_research")),
+        ],
+    );
+    // The research started it and the design ran without the counter: designed, not direct.
+    let started_then_designed = work(&mut db, &[("R1", Some("start"), None), ("D1", Some("chosen"), None)]);
+    // A research row of the older flow version, then the design: the design was reached, so designed.
+    let older_then_designed = work(
+        &mut db,
+        &[("R1", Some("to_normal"), None), ("D1", Some("chosen"), None)],
+    );
+    // The research took a row of the older flow version and nothing came after: no way.
+    let older_done = work(&mut db, &[("R1", Some("done"), None)]);
+    // The counter turns the work whatever the research answered before it.
+    let turned_after_cannot = work(
+        &mut db,
+        &[
+            ("R1", Some("cannot_start"), None),
+            ("R1", Some("start"), None),
+            ("I1", Some("shallow_research"), Some("shallow_research")),
+        ],
+    );
+    // A work with no rounds at all: none.
+    let nothing = work(&mut db, &[]);
+    assert_eq!(way(&db, withdrawn), None);
+    assert_eq!(way(&db, under_way).as_deref(), Some("direct"));
+    assert_eq!(way(&db, other_counter).as_deref(), Some("direct"));
+    assert_eq!(way(&db, counted_elsewhere).as_deref(), Some("turned"));
+    assert_eq!(way(&db, started_then_designed).as_deref(), Some("designed"));
+    assert_eq!(way(&db, older_then_designed).as_deref(), Some("designed"));
+    assert_eq!(way(&db, older_done), None);
+    assert_eq!(way(&db, turned_after_cannot).as_deref(), Some("turned"));
+    assert_eq!(way(&db, nothing), None);
+}
+
+// Two works on one item are each read by their own rows: the item has no way of its own, and a later work's rounds do
+// not change an earlier work's way.
+#[test]
+fn two_works_of_one_item_each_went_by_their_own_rows() {
+    let mut db = database();
+    let first = work(&mut db, &[("R1", Some("start"), None)]);
+    let item: i64 = db
+        .conn()
+        .query_row("SELECT item FROM works WHERE id = ?1", [first], |r| r.get(0))
+        .unwrap();
+    let second = db
+        .write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'D1')",
+                [item],
+            )?;
+            let work = tx.last_insert_rowid();
+            for (n, cell, row) in [(1, "R1", "cannot_start"), (2, "D1", "chosen")] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, transition)
+                     VALUES (?1, ?2, ?3, '{}', 'c', ?2, ?4)",
+                    params![work, n, cell, row],
+                )?;
+            }
+            Ok(work)
+        })
+        .unwrap();
+    assert_eq!(way(&db, first).as_deref(), Some("direct"));
+    assert_eq!(way(&db, second).as_deref(), Some("designed"));
+    let both: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM work_routes WHERE item = ?1", [item], |r| r.get(0))
+        .unwrap();
+    assert_eq!(both, 2);
+}
