@@ -126,11 +126,13 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
         0
     );
     assert_eq!(count("SELECT count(*) FROM pragma_foreign_key_check"), 0);
-    let mut st = db
-        .conn()
-        .prepare(&format!("SELECT json_array({KEPT}) FROM items ORDER BY id"))
-        .unwrap();
-    let items: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+    let items: Vec<String> = {
+        let mut st = db
+            .conn()
+            .prepare(&format!("SELECT json_array({KEPT}) FROM items ORDER BY id"))
+            .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
     assert_eq!(
         items,
         [
