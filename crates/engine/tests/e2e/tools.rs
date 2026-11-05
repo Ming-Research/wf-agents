@@ -58,7 +58,10 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     assert!(!first.is_empty() && first[0]["i"] == 1, "{output}");
     assert_eq!(long["cut"], true, "{output}");
     assert_eq!(long["total"], 500, "{output}");
-    assert!(long["saved"].as_str().is_some_and(|s| s.contains("saved to")), "{output}");
+    assert!(
+        long["saved"].as_str().is_some_and(|s| s.contains("saved to")),
+        "{output}"
+    );
     let w = e.work(work).unwrap();
     let g = e.graph_of(&w).unwrap();
     let schema = g.cell("X1").and_then(|c| c.schema.clone()).unwrap();
