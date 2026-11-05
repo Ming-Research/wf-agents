@@ -1746,26 +1746,10 @@ mod tests {
         assert!(old.conn().prepare("SELECT route FROM items").is_err());
         let mut st = old
             .conn()
-            .prepare("SELECT id, title, deliver, rank, held FROM items ORDER BY id")
+            .prepare("SELECT json_array(id, title, deliver, rank, held) FROM items ORDER BY id")
             .unwrap();
-        let items: Vec<(i64, String, String, Option<i64>, Option<String>)> = st
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
-            .unwrap()
-            .map(|x| x.unwrap())
-            .collect();
-        assert_eq!(
-            items,
-            [
-                (
-                    1,
-                    "a".to_string(),
-                    "change".to_string(),
-                    Some(3),
-                    Some("held".to_string())
-                ),
-                (2, "b".to_string(), "report".to_string(), None, None)
-            ]
-        );
+        let items: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        assert_eq!(items, [r#"[1,"a","change",3,"held"]"#, r#"[2,"b","report",null,null]"#]);
         let (links, works): (i64, i64) = old
             .conn()
             .query_row(
