@@ -6807,7 +6807,7 @@
           "id": "R1",
           "kind": "agent",
           "title": "Initial research",
-          "effort": "xhigh",
+          "effort": "high",
           "line": "engineer",
           "tools": [
             "ci",
@@ -8411,7 +8411,7 @@
           "id": "T2",
           "kind": "agent",
           "title": "Review: the upper level",
-          "effort": "xhigh",
+          "effort": "high",
           "line": "review",
           "tools": [
             "ci",
@@ -8601,7 +8601,7 @@
           "id": "T3",
           "kind": "agent",
           "title": "Review: the details",
-          "effort": "xhigh",
+          "effort": "high",
           "line": "review",
           "tools": [
             "ci",
