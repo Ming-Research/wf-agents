@@ -1,6 +1,8 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 
 mod owner;
+#[cfg(test)]
+mod tests;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
