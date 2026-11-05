@@ -104,12 +104,10 @@ describe('Space on the flow page, after what the owner does first', () => {
     document.documentElement.addEventListener('pointerleave', () => left.push('pointerleave'), { once: true });
     // Out of the window, as the browser's own input moves it.
     await cdp().send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: -20, y: -20, button: 'none' });
+    // The page's root did get the pointer leaving: without it this case would only be Space after a hover.
+    await expect.poll(() => left, { timeout: 2000 }).toEqual(['pointerleave']);
     await userEvent.hover(find('.viewer'), { position: emptySpot() });
-    try {
-      await spaceShowsWhole('after the pointer left the window and came back');
-    } catch (e) {
-      throw new Error(`${(e as Error).message} (the page saw ${left.length} pointerleave on its root)`, { cause: e });
-    }
+    await spaceShowsWhole('after the pointer left the window and came back');
   });
 
   it('works after the legend was opened and closed', async () => {
