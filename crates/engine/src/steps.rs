@@ -482,7 +482,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // The owner may take back words not taken up yet, and has had the time since the message was built to: the words the
     // message gave are checked in the write that records the round. One taken back since means the round does not start;
     // the work waits, and the next pass builds the message again without it.
-    let started =
+    let recorded =
         e.db.write(Actor::Engine, |tx| {
             if !interjections_there(tx, &ids)? {
                 return Ok(None);
@@ -493,7 +493,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 .map_err(db::Error::Abort)
         })
         .map_err(sql)?;
-    let Some(round) = started else {
+    let Some(round) = recorded else {
         let _ = std::fs::remove_file(&given_again);
         return Ok(Advance::Waits(format!(
             "the owner took back words the message of {number} gave"

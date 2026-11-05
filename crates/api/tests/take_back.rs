@@ -314,7 +314,10 @@ fn words_in_the_architect_s_queue_come_back_until_it_picks_them() {
             "INSERT INTO owner_asks (id, work, round, body) VALUES (1, 2, 1, '{}')",
             [],
         )?;
-        tx.execute("UPDATE architect_matters SET asked = 1 WHERE id = 23", [])?;
+        tx.execute(
+            "UPDATE architect_matters SET asked = 1, resume_cell = 'H8' WHERE id = 23",
+            [],
+        )?;
         Ok(())
     })
     .unwrap();

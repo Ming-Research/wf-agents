@@ -6,7 +6,8 @@ use super::*;
 const WORDS: &str = "Make it blue instead.";
 
 /// A trigger standing for the owner's taking the words back at the one moment between the engine building a round's
-/// message and recording the round: the engine opens the engineer line's session in between, in a write of its own.
+/// message and recording the round: when the engineer line has no session going on, the engine opens one in a write of
+/// its own in between.
 const TAKES_BACK: &str = "CREATE TRIGGER the_owner_takes_back AFTER INSERT ON sessions WHEN NEW.line = 'engineer'
     BEGIN DELETE FROM interjections WHERE work = NEW.work AND text = 'Make it blue instead.'; END;";
 
@@ -22,31 +23,31 @@ fn rounds_of(e: &Engine, work: i64) -> i64 {
 fn words_taken_back_after_the_message_was_built_do_not_start_the_round() {
     let s = setup("take-back-gap");
     let (mut e, said, item) = start(&s, scripts());
-    step_until(&mut e, item, &said, "the work starts", |e| state(e, item).is_some());
+    // The work is due at its first round of the engineer line, with words said to the engineer and no session going on
+    // for the line, so that the engine opens one after it built the message.
+    step_to(&mut e, item, "R1");
     let (work, _, _) = state(&e, item).unwrap();
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
             "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
             params![work, WORDS],
         )?;
+        tx.execute(
+            "UPDATE sessions SET ended = 1 WHERE work = ?1 AND line = 'engineer' AND ended IS NULL",
+            [work],
+        )?;
         Ok(())
     })
     .unwrap();
     e.db.conn().execute_batch(TAKES_BACK).unwrap();
+    let before = (rounds_of(&e, work), state(&e, item));
 
     // The pass whose step built the message with the words, and found them gone when it came to record the round.
-    let mut gap = None;
-    for _ in 0..30 {
-        let before = (rounds_of(&e, work), state(&e, item));
-        e.step(None).unwrap();
-        let left: i64 = number(&e, "SELECT count(*) FROM interjections");
-        if left == 0 {
-            gap = Some(before);
-            break;
-        }
-    }
+    e.step(None).unwrap();
+
     let log = said.lock().unwrap().join("\n");
-    let before = gap.unwrap_or_else(|| panic!("no round was given the words:\n{log}"));
+    let left: i64 = number(&e, "SELECT count(*) FROM interjections");
+    assert_eq!(left, 0, "the words were not taken back in the gap:\n{log}");
     assert_eq!((rounds_of(&e, work), state(&e, item)), before, "{log}");
 
     // The next passes run the round, and it was given nothing of the words.
