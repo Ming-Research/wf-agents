@@ -2276,7 +2276,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What to do, as an action, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in"
+              "desc": "What to do, as an action, in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in; write what it needs: the limit is not a length to reach, so neither squeeze it short nor stretch it"
             },
             {
               "name": "under",
@@ -2819,7 +2819,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What is wrong, as a short phrase, not an action (\"Stale slot count\", not \"Fix the slot count\"), in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in, with no internal name the reader does not know"
+              "desc": "What is wrong, as a short phrase, not an action (\"Stale slot count\", not \"Fix the slot count\"), in the owner's language (the setting `owner.language`), at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in, with no internal name the reader does not know; write what it needs: the limit is not a length to reach, so neither squeeze it short nor stretch it"
             },
             {
               "name": "what",
