@@ -116,6 +116,7 @@ const entry = (source: string, extra: Partial<ConversationEntry> = {}): Conversa
   stage: null,
   matter_card: null,
   words_state: null,
+  retract: 'no',
   policy: null,
   plan: null,
   forwards: [],

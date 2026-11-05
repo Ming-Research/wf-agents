@@ -690,6 +690,10 @@ matter_card: MatterProgress | null,
  */
 words_state: WordsState | null,
 /**
+ * For the owner's words not taken up yet: whether they can be taken back into the box now.
+ */
+retract: Retract,
+/**
  * For the policy taking effect: the policy in force.
  */
 policy: PolicyInForce | null,
@@ -866,6 +870,14 @@ state: string,
  * and the cell it is at, where its chart shows them handled.
  */
 project: string, architect_work: number | null, round: number | null, cell: string | null, };
+
+/**
+ * Whether the owner's words, which the page shows as not taken up yet, can be taken back into the box: `yes` while no
+ * agent has them; `given` once an agent has them without having recorded them as taken up, so that they cannot be taken
+ * back and the page says so; `no` for words that are not taken back at all (said to several architects at once, asking
+ * about a decision card, the relay of an answer) and for words taken up already.
+ */
+export type Retract = "yes" | "given" | "no";
 
 /**
  * A conversation in full: its entries in time order; what waits for the owner in it, which the bar under its head
@@ -1115,6 +1127,18 @@ export type Done = { done: string, };
  * How many messages a mark made read.
  */
 export type Marked = { marked: number, };
+
+/**
+ * What the owner sends to take back words not taken up yet: the entry they are, by its source and its number in the
+ * conversation (`interjection` or `words`).
+ */
+export type TakeBack = { source: string, id: number, };
+
+/**
+ * The words taken back, to be put in the box of the conversation: the text, the images as they were sent, and whom the
+ * words were for, as the box names them (`engineer`, `architect`).
+ */
+export type TakenBack = { text: string, images: Array<ImageSent>, to: Array<string>, };
 
 /**
  * What the owner or the architect said to a work.

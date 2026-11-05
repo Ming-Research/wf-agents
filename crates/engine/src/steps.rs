@@ -18,6 +18,24 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// Whether every interjection a round's message gave (`given`, as the view `waiting_interjections` gave them) is still
+/// in the database as it was given: the owner takes back the words that no agent has taken up yet (`api::take_back`),
+/// which deletes them, and words said after may take the number the deleted ones had, so that the number alone does
+/// not tell; the words do.
+fn interjections_there(conn: &db::rusqlite::Connection, given: &[Value]) -> db::rusqlite::Result<bool> {
+    let listed: Vec<Value> = given
+        .iter()
+        .map(|i| json!({ "id": i["interjection"], "text": i["text"] }))
+        .collect();
+    let there: i64 = conn.query_row(
+        "SELECT count(*) FROM interjections j, json_each(?1) g
+         WHERE j.id = json_extract(g.value, '$.id') AND j.text = json_extract(g.value, '$.text')",
+        [Value::Array(listed).to_string()],
+        |r| r.get(0),
+    )?;
+    Ok(there == given.len() as i64)
+}
+
 /// A round the engine stopped in the middle of is closed as not done; its cell runs again.
 fn close_interrupted(e: &mut Engine, w: &Work) -> Result<Option<Round>, String> {
     let Some(r) = work::open_round(e.db.conn(), w.id)? else {
@@ -384,9 +402,17 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // The images the message gives, after its text, each after its address.
     let mut images = Vec::new();
     for i in msg.images.iter().filter(|i| i.given) {
-        let (media_type, bytes) = db::attachments::bytes(e.db.conn(), i.attachment)
-            .map_err(sql)?
-            .ok_or_else(|| format!("{number}: image {} is not kept", i.attachment))?;
+        let Some((media_type, bytes)) = db::attachments::bytes(e.db.conn(), i.attachment).map_err(sql)? else {
+            // The image goes with the words it came with when the owner takes them back: that is no fault, the round
+            // does not start and the next pass builds the message without them.
+            if !interjections_there(e.db.conn(), &interjections).map_err(sql)? {
+                let _ = std::fs::remove_file(&given_again);
+                return Ok(Advance::Waits(format!(
+                    "the owner took back words the message of {number} gave"
+                )));
+            }
+            return Err(format!("{number}: image {} is not kept", i.attachment));
+        };
         images.push(agent::Image {
             address: db::attachments::address(i.attachment),
             media_type,
@@ -467,13 +493,26 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         let runs = e.runs_on(&level);
         crate::warm::before_fork(e, w, &req, &input["call"], &cli_version, &runs)?;
     }
-    let round =
+    // The owner may take back words not taken up yet, and has had the time since the message was built to: the words the
+    // message gave are checked in the write that records the round. One taken back since means the round does not start;
+    // the work waits, and the next pass builds the message again without it.
+    let recorded =
         e.db.write(Actor::Engine, |tx| {
+            if !interjections_there(tx, &interjections)? {
+                return Ok(None);
+            }
             db::keep(tx, &kept)?;
             work::start_numbered(tx, number, &cell.id, Some(sid), &input, &commit, Some(&level.model))
+                .map(Some)
                 .map_err(db::Error::Abort)
         })
         .map_err(sql)?;
+    let Some(round) = recorded else {
+        let _ = std::fs::remove_file(&given_again);
+        return Ok(Advance::Waits(format!(
+            "the owner took back words the message of {number} gave"
+        )));
+    };
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
     let watching = watch::Watch::begin(e, round, started);
     let reply = e.sessions().run(&req, &|seen| watching.see(seen));

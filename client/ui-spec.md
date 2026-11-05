@@ -2248,6 +2248,23 @@ words that wait, as any matter.
 Instead of a matter card for the owner's words, kind "Your words" and "The owner says: ...", under their bubble, because
 that card repeated the bubble over it and the owner asked what the box was.
 
+### Taking words back
+
+While no agent has taken the owner's words up, the head of their bubble says "not taken up yet" and, after it, has a small
+invisible `Button` with an `UndoIcon`, "Take back". It puts the words back in the box of the conversation, after what the
+box holds already, with their images and whom they were for, and the bubble leaves the stream: the words are deleted from
+the database, which keeps the old rows in `changes`, so that the agent they were for does not read them. They can be taken
+back until an agent has them, and an agent has them once the message of a round that has not ended gave them (the head
+then says "taken up already: cannot be taken back", in the same small attention-coloured text, with no button, though the
+page does not yet count them taken up), once a hook handed them in, or, for the architect, once a round of its work picked
+the matter that holds them, handled it or held it by a question to the owner. "Taken up" means what the page always meant by
+it: the architect may have read words nobody picked in its account of the one-to-one, which does not make them taken up. A
+word to the architect and the engineer is taken back only while neither has it. Not taken back, and unchanged on the page:
+words said to several architects at once, words that ask about a decision card, a word that needs no answer, the relay of an
+answer to an ask (the ask records it) and everything an agent said. While the architect is choosing what it takes next, the
+button is shown and, pressed, answers that it is to be tried again in a moment, in small `--fgColor-danger` text beside the
+button; a refusal of any kind is said there too.
+
 ### The panel beside the one-to-one
 
 The one-to-one with a project's architect has a panel on its right, split from it by a divider that drags its width,
