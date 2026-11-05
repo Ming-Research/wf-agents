@@ -236,11 +236,15 @@ impl<'a> Giver<'a> {
         Some(key)
     }
 
-    /// The address of a round's value: of the rounds that produced the same content in the work, wherever it was
-    /// copied to, the earliest.
+    /// The address of a round's value: the one the session got the same content under, whoever gave it, as a round's
+    /// return that copies what the engine gave; otherwise, of the rounds that produced the same content in the work,
+    /// wherever it was copied to, the earliest.
     pub fn earliest(&self, address: String, content: &Value) -> String {
         if !copied(content) {
             return address;
+        }
+        if let Some((_, at)) = self.held.got.get(&hash(content)) {
+            return at.clone();
         }
         let known = self.registry.get(&hash(content)).into_iter().flatten();
         let first = known
