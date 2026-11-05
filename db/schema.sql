@@ -1149,7 +1149,7 @@ CREATE TABLE engine_runs (
   -- it dispatched nothing more and waited for the jobs in flight to end. `error: ` and the text: the loop ended on an
   -- error it could not deal with. `lost`: the row was found never completed, as above.
   stop_reason TEXT,
-  CHECK ((stop_reason IS NULL) = (stopped_at IS NULL) OR stop_reason = 'lost')
+  CHECK ((stop_reason IS NULL) = (stopped_at IS NULL) OR stop_reason IS 'lost')
 ) STRICT;
 
 CREATE TABLE notebook_edits (
