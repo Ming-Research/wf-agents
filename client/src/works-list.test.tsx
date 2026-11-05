@@ -6,7 +6,7 @@ import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ArchitectStanding, Compiled, RoundSummary, Status, WorkSummary } from './api';
+import type { ArchitectStanding, Compiled, RoundSummary, Status, Waits, WorkSummary } from './api';
 import { barSpans, blockSpans } from './charts';
 import { stagesOf } from './graph/flowModel';
 import { Row, timeWords, Works } from './pages/Works';
@@ -197,11 +197,12 @@ describe('the bar of how far a work has come', () => {
   });
 
   it('shows the colour of waiting on the stage a work waits at, whether for an answer, the architect or items', () => {
-    for (const waits of [
+    const kinds: Waits[] = [
       { kind: 'answer', ask: 3 },
       { kind: 'architect', matter: 4 },
       { kind: 'items', items: [7] },
-    ] as const) {
+    ];
+    for (const waits of kinds) {
       read.works = [work(6, { stage: 'research', state: 'waiting', waits })];
       const cells = cellsOf(rowOf(view(), 6));
       expect(cells.map((c) => c.look), waits.kind).toEqual(['done', 'wait', 'ahead', 'ahead', 'ahead', 'ahead', 'ahead']);
