@@ -1,8 +1,10 @@
 # What an agent can reach through the commands the engine runs for it
 
-Item #284. This report holds what the owner needs to decide whether commands the engine runs for an agent get enabled,
-and how a boundary around them is held. It changes no engine, CI or flow file. It and `reproduce.sh` are deleted once
-the item that puts a boundary around these commands has replaced their conclusions.
+Items #284 and #304. This report holds what the owner needs to decide whether commands the engine runs for an agent get
+enabled, and how a boundary around them is held. #304 added to the matrix of section 3.3 the cell for `rustfmt --check`
+and the cargo commands in the form the README writes them, and added section 3.5 (the results by how the program is
+found) and section 8.3 (the relation to #296). It changes no engine, CI or flow file. It and `reproduce.sh` are deleted
+once the item that puts a boundary around these commands has replaced their conclusions.
 
 Taken on 2026-11-04 and 2026-11-05 UTC. Each conclusion says how it is known:
 
@@ -25,14 +27,16 @@ agent's own shell cannot; and which limits rest only on Claude Code's rules.
 ## 1. The conclusions
 
 1. **A file in the worktree can make these commands execute a program the configuration does not name.** On a GitHub
-   runner, 6 of the 8 cells did (run, section 3.3). Three files do it: `rust-toolchain.toml`, `.cargo/config.toml` and
-   `client/.npmrc`. `--ignore-scripts` stopped the `scripts` of `client/package.json` and did not stop npm's `git`
-   setting (run). On the engine's machine this is inferred, with one check left for the owner (section 3.4).
+   runner, 11 of the 14 cells did (run, section 3.3). Three files do it: `rust-toolchain.toml`, `.cargo/config.toml` and
+   `client/.npmrc`. The `env RUSTUP_AUTO_INSTALL=0` prefix the README puts before the cargo commands changed no result
+   (run). `--ignore-scripts` stopped the `scripts` of `client/package.json` and did not stop npm's `git` setting (run).
+   On the engine's machine this is inferred, with one check left for the owner (section 3.4). Section 3.5 gives the
+   same results by how the program is found.
 2. **Keeping the engine's tools off does not close this.** `dependency_sources` and `lock_update` run no command on this
-   project today, but the agent's own shell may run `cargo update` and `npm install --package-lock-only --ignore-scripts`
-   by a prefix rule (read), and those two commands were redirected on the runner (run). The same holds for `rustfmt`
-   (read that it is allowed; inferred that it is redirected; not run). Not run in an agent's shell, since that would use
-   an allowed command to run a program the rules do not allow.
+   project today, but the agent's own shell may run `cargo update`, `npm install --package-lock-only --ignore-scripts`
+   and `rustfmt` by a prefix rule (read), and all three were redirected on the runner (run: `rustfmt --check` by
+   `rust-toolchain.toml`). Not run in an agent's shell, since that would use an allowed command to run a program the
+   rules do not allow. `rustfmt` is the command AGENTS.md tells every engineer to run (section 8.3).
 3. **The engine's own `git push` runs a program named in the repository's git configuration.** On the runner a hook
    named by `core.hooksPath` ran on `git push` (run). The engine runs git with no setting that stops this, and the
    agents' rules let them write that setting (read, section 4.3). This needs no tool to be enabled. The setting is unset
@@ -103,36 +107,54 @@ Both tools run their command in `crates/engine/src/command.rs`, `run_command`, c
 
 ### 3.3 What the commands do with the files (run, on a GitHub runner only)
 
-[The run](https://github.com/Ming-Research/wf-agents/actions/runs/41939701531), through the `measure` tool, on
-`ubuntu24` image 20261026.354.1: rustup 1.29.2, cargo and rustc 1.99.1, npm 10.9.9, node 22.23.4, git 2.56.0.
-`RUSTUP_TOOLCHAIN` was not set, and `cargo` resolves to rustup ([an earlier probe of this
-work](https://github.com/Ming-Research/wf-agents/actions/runs/41930847827)). The workflow ran the matrix three times, and
-the three passes gave the same results in every row.
+[The run](https://github.com/Ming-Research/wf-agents/actions/runs/41951158892), through the `measure` tool, on
+`ubuntu24` image 20261026.354.1: rustup 1.29.2, cargo and rustc 1.99.1, rustfmt 1.10.0, npm 10.9.9, node 22.23.4,
+git 2.56.0. `RUSTUP_TOOLCHAIN` was not set, and `cargo`, `rustc` and `rustfmt` sit in `~/.cargo/bin` beside `rustup`
+(run: `command -v`); `rustup which <name>` outside any checkout names the program in the default toolchain's `bin`
+directory, and the toolchain file redirected all three, so they are rustup proxies (run). The workflow ran the matrix three times, and the three passes gave the same marker and exit code in every
+row (33 rows in each pass, 99 in all; checked by counting each marker and exit code over the log: each count is three
+times its count in one pass).
 
 Each cell is built in a temporary directory, with a harmless stand-in that only writes a marker named after itself and
-exits 0.
+exits 0. The fixture crate's `src/lib.rs` is one formatted line, because `rustfmt --check` exits 1 on an empty file and a
+baseline must exit 0.
+
+The cargo commands run in two forms: bare, which is also what the agent's own shell runs (the command line puts
+`RUSTUP_AUTO_INSTALL=0` in its environment: read, `ENVIRONMENT`), and behind `env RUSTUP_AUTO_INSTALL=0`, as the README
+writes the project's commands for the engine (`README.md`, the tables of `[[dependency_sources]]` and `[[lock_updates]]`).
+`rustfmt --check src/lib.rs` is the form AGENTS.md has an engineer run, and the agent's shell lets `Bash(rustfmt *)`
+through (read).
 
 | Command | File in the worktree | Marker | Exit | Result |
 |---|---|---|---|---|
-| `cargo vendor --locked --versioned-dirs target/dependency-sources` | `rust-toolchain.toml`, `path` | `cargo` | 0 | Redirected |
+| `env RUSTUP_AUTO_INSTALL=0 cargo vendor --locked --versioned-dirs target/dependency-sources` | `rust-toolchain.toml`, `path` | `cargo` | 0 | Redirected |
 | same | `.cargo/config.toml`, `rustc` and `rustc-wrapper` | `rustc-wrapper` | 101 | Redirected |
-| `cargo update --workspace` | `rust-toolchain.toml`, `path` | `cargo` | 0 | Redirected |
+| `env RUSTUP_AUTO_INSTALL=0 cargo update --workspace` | `rust-toolchain.toml`, `path` | `cargo` | 0 | Redirected |
 | same | `.cargo/config.toml`, `rustc` and `rustc-wrapper` | `rustc-wrapper` | 101 | Redirected |
+| `cargo vendor --locked --versioned-dirs target/dependency-sources` (bare) | `rust-toolchain.toml`, `path` | `cargo` | 0 | Redirected |
+| same | `.cargo/config.toml`, `rustc` and `rustc-wrapper` | `rustc-wrapper` | 101 | Redirected |
+| `cargo update --workspace` (bare) | `rust-toolchain.toml`, `path` | `cargo` | 0 | Redirected |
+| same | `.cargo/config.toml`, `rustc` and `rustc-wrapper` | `rustc-wrapper` | 101 | Redirected |
+| `rustfmt --check src/lib.rs` | `rust-toolchain.toml`, `path` | `rustfmt` | 0 | Redirected |
+| same | `.cargo/config.toml`, `rustc` and `rustc-wrapper` | none | 0 | Not redirected |
 | `npm ci --ignore-scripts --no-audit --no-fund --prefix client` | `client/.npmrc`, `git` and `script-shell` | `git` | 254 | Redirected |
 | same | `client/package.json`, `scripts` | none | 0 | Not redirected |
 | `npm install --package-lock-only --ignore-scripts`, in `client/` | `client/.npmrc`, `git` and `script-shell` | `git` | 254 | Redirected |
 | same | `client/package.json`, `scripts` | none | 0 | Not redirected |
 
-The baselines have none of these files. Each of the four commands exited 0 and left no marker.
+The baselines have none of these files. Each of the seven commands (the four cargo forms, `rustfmt --check` and the
+two npm commands) exited 0 and left no marker.
 
-The two cargo commands ran without the `env RUSTUP_AUTO_INSTALL=0` the README now puts before them. A `path` needs no
-download, and cargo reads `.cargo/config.toml` by itself, so that prefix should not change these rows (inferred; not run).
+The `env` prefix changed no result: each prefixed cargo row has the marker and exit code of its bare row. The
+`.cargo/config.toml` row of `rustfmt` is "not redirected" for a reason the control shows: `rustfmt` is not cargo and
+does not read that file, and the file takes effect for cargo in the same run.
 
 The controls show that each file takes effect, which is what lets "not redirected" count:
 
 | File | Control | Result |
 |---|---|---|
 | `rust-toolchain.toml` | `rustup show active-toolchain` | Names the stand-in's directory, "overridden by" the file |
+| `rust-toolchain.toml` | `rustup which rustfmt` | Names `toolchain/bin/rustfmt` of the stand-in's directory |
 | `.cargo/config.toml` | `cargo check` | Marker `rustc-wrapper`, exit 101 |
 | `client/.npmrc` | `npm config get git`, in `client/` and with `--prefix client`; `npm config get script-shell` | Each gives the stand-in |
 | `client/package.json`, `scripts` | The two npm commands without `--ignore-scripts` | Markers `preinstall` and `prepare`, exit 0 |
@@ -150,7 +172,11 @@ What the rows mean:
   them. A program that passes the call on to the real tool would exit 0 (inferred; not run).
 - **An exit of 0 reads as success.** On exit 0, `crates/engine/src/dependency_sources.rs`, `run`, gives `fetched` and
   `crates/engine/src/lock_update.rs`, `run`, gives `updated` (read), so a redirected `cargo vendor` or `cargo update` would
-  be reported so (inferred; not run through the engine).
+  be reported so (inferred; not run through the engine). The redirected `rustfmt --check` exited 0 as well, which is what
+  a clean check gives, so an engineer would read it as "the format is right" (run for the exit code; the reading is
+  inferred).
+- **The prefix is not a limit on this.** `env RUSTUP_AUTO_INSTALL=0` stops rustup from installing a toolchain; a `path`
+  toolchain needs no installation and rustup runs it (run).
 
 **Not run**, so nothing is claimed either way:
 
@@ -162,7 +188,7 @@ What the rows mean:
 - A relative `path`, and a `channel` in `rust-toolchain.toml`. With the README's `env RUSTUP_AUTO_INSTALL=0`, a `channel`
   the machine lacks should fail, not download. A project's command that leaves it out has no such limit, since the engine
   sets none (read for the setting; inferred for the effect).
-- The cargo commands with the `env` prefix, as above.
+- Keys of `rustfmt.toml`, and `rustfmt` run without `--check`; a `rustfmt` that is a program other than the rustup proxy.
 - npm above 10.9.9. npm added `allow-git` in 11.9.0, and its default becomes `none` in npm 12 (docs), so the `git` rows
   do not carry over to npm 12.
 - The real `run_command`: the first layer in the table below is read, not run.
@@ -199,14 +225,14 @@ ps -wwE -o command= -p <pid> | grep -oE ' (PATH|RUSTUP_TOOLCHAIN|RUSTUP_HOME|CAR
 # not printed stays removed by -u. One that was: drop its -u and add NAME='<value>' beside PATH.
 # Where the programs resolve: cargo can be a proxy only if it sits beside rustup.
 env -u RUSTUP_TOOLCHAIN -u RUSTUP_HOME PATH='<that value>' \
-  sh -c 'command -v cargo rustup npm; rustup which cargo; cargo --version; npm --version'
+  sh -c 'command -v cargo rustfmt rustup npm; rustup which cargo; rustup which rustfmt; cargo --version; npm --version'
 ```
 
 How to read what it prints (all inferred, from sections 3.2 and 3.3):
 
 - **`rust-toolchain.toml`.** If `RUSTUP_TOOLCHAIN` is set, it comes before the toolchain file (docs), and the file may not
-  redirect. If it is not set and `cargo` resolves to rustup's proxy as on the runner, these rows carry over by the same
-  mechanism.
+  redirect. If it is not set and `cargo` and `rustfmt` resolve to rustup's proxy as on the runner, these rows carry over
+  by the same mechanism.
 - **`.cargo/config.toml`.** cargo reads the file itself, proxy or not. So look at the version: the same cargo as on the
   runner carries these rows over by the same mechanism, and another version stays open.
 - **`client/.npmrc`.** Look at `npm --version`. From npm 12 `allow-git` defaults to `none` (docs), so the `git` rows may not
@@ -220,6 +246,41 @@ env -u RUSTUP_TOOLCHAIN -u RUSTUP_HOME PATH='<that value>' bash research/agent-r
 
 It writes only in a temporary directory, since it points `CARGO_HOME` and npm's cache there. It reads no credential, and
 points npm at a closed port. It has not been run on macOS.
+
+### 3.5 The same results by how the program is found
+
+Section 3.3 lists the cells by command. A boundary has to act on how a program gets found, and the cells fall into four
+ways. The results are those of section 3.3 and the git case of section 4.3; "docs" and "not run" mean what they mean at
+the top of this report. The last column names the route that runs the command: an engine tool (both are off today,
+section 3.1), the agent's own shell by its prefix rules (read) or the engine's own git (read, section 4.3).
+
+| How the program is found | What in the worktree steers it | Cells and results | Route |
+|---|---|---|---|
+| **1. By its name on `PATH`**: no file steers it | Nothing: the engine's `PATH` decides (read, section 3.2) | The seven baselines: no marker, exit 0 (run) | All |
+| **2. By its name, in a directory a worktree file chooses** | `rust-toolchain.toml` `path`: rustup's proxy runs `<path>/bin/<name>` | `cargo vendor` and `cargo update`, bare and behind `env`: redirected (run). `rustfmt --check`: redirected (run). When `RUSTUP_TOOLCHAIN` is set it comes first (docs; not run) | `cargo vendor`: engine tool. `cargo update`: engine tool and agent shell. `rustfmt`: agent shell only |
+| | `core.hooksPath` in the git configuration: git runs `<dir>/pre-push` | `git push` as the engine runs it: redirected, marker `pre-push`, exit 0 (run). Other hooks: not run | The engine's git |
+| **3. By a path a worktree file writes into a setting of the tool** | `.cargo/config.toml` `rustc`, `rustc-wrapper` | The four cargo cells: redirected, exit 101 (run). `rustfmt --check`: not redirected, since it does not read the file (run, with the control). `[target.*]`, `[source]`, `[net]`, `[registry]`: not run | `cargo vendor`: engine tool. `cargo update`: engine tool and agent shell |
+| | `client/.npmrc` `git` | `npm ci` and `npm install --package-lock-only`, both with `--ignore-scripts`: redirected, exit 254 (run, npm 10.9.9) | `npm ci`: engine tool. `npm install`: engine tool and agent shell |
+| | `client/.npmrc` `script-shell` | The control shows npm reads it; no marker, since no script ran (run) | Same |
+| | `core.sshCommand`, `core.fsmonitor` in the git configuration | Not run (docs) | The engine's git |
+| **4. By a command line a worktree file holds, run by a shell or by the build** | `client/package.json` `scripts` | Ran without `--ignore-scripts` (controls, markers `preinstall` and `prepare`); did not run with it (the two cells) (run, npm 10.9.9) | The npm commands above |
+| | A git alias starting with `!` | Not run (docs) | Agent shell |
+| | `build.rs`, tests and `npm run build` on the 14900K | Run by design (read, section 5) | `ci`, `ci_before`, the merge's full CI |
+
+What the grouping shows:
+
+- **Ways 2 and 3 are lists of settings, one per tool.** The matrix ran only these settings that name a program:
+  `rust-toolchain.toml` `path`, `.cargo/config.toml` `rustc` and `rustc-wrapper`, `.npmrc` `git` and `script-shell`, and
+  `core.hooksPath`; the others are docs or not run. A boundary that lists settings (Option 2 in section 7) has an entry
+  to add for each, and an unlisted one passes silently.
+- **A command-line flag did not close way 3.** `--ignore-scripts` was on both npm command lines (and
+  `--package-lock-only` on one), and the `git` setting of `.npmrc` still ran a program (run). For way 2 the documents
+  give `RUSTUP_TOOLCHAIN` as the setting that comes before `rust-toolchain.toml` (docs; not run).
+- **Way 1 is the only one no file reaches**, and it rests on the engine's `PATH`, which section 3.4 leaves to the owner to
+  read.
+- **The same mechanism reaches the commands of every route.** `rustfmt` is no tool of the engine, and a file in the
+  worktree redirects it as it redirects `cargo vendor`, because the redirecting is rustup's and git's and npm's, not the
+  engine's. So a boundary on the engine's tools alone leaves ways 2 to 4 open for the agent's shell.
 
 ## 4. Question 2: what these commands can do that the agent's own shell cannot
 
@@ -397,7 +458,8 @@ rule does not match the same program by path or inside `sh -c`, and that such a 
 allowed command that reads the worktree can run what the rules refuse:
 
 - `cargo update` and `npm install --package-lock-only --ignore-scripts` by the files of section 3.3 (run, on the runner).
-- `rustfmt` by `rust-toolchain.toml`, since it comes from the same proxy directory (inferred; not run).
+- `rustfmt --check` by `rust-toolchain.toml`: the proxy ran the program of the directory the file named, and it exited 0
+  as a clean check does (run, on the runner).
 - `git` by a hook named in its configuration (run, on the runner), or by an alias starting with `!`, which git's manual
   says runs a shell command (docs; not run).
 
@@ -498,7 +560,7 @@ What the decision left to this report to settle by running it:
 
 | What the decision inferred | What this report found |
 |---|---|
-| `path` in `rust-toolchain.toml` can make the configured `cargo` the program in that directory | Yes, for `cargo vendor` and `cargo update`, without the `env` prefix (run, on the runner) |
+| `path` in `rust-toolchain.toml` can make the configured `cargo` the program in that directory | Yes, for `cargo vendor` and `cargo update`, bare and behind the README's `env RUSTUP_AUTO_INSTALL=0`, and for `rustfmt --check` (run, on the runner) |
 | `.cargo/config.toml` can change the registry | Still inferred: `[registry]` and `[source]` were not run. The same file did run a program through `rustc-wrapper` (run), which goes further |
 | npm's command-line options outrank `.npmrc`, so `--ignore-scripts` and `--package-lock-only` cannot be overridden there | Not tested as such: the fixture's `.npmrc` sets neither (not run). The comfort it gives does not hold: with both flags on the command line, the `git` setting of `.npmrc` ran a program (run). `--ignore-scripts` did stop the `scripts` of `package.json` (run) |
 | Whether a command the engine runs can use the engine's credentials has not been tried | Still not tried: the stand-ins read none. The command runs as the same user with the whole environment (read), so a redirected program can (inferred; not run) |
@@ -516,14 +578,34 @@ reach (read, run on the runner; inferred). This report changes neither decision 
   is how much the shared worktree costs on the engine's machine, which no run here tried. Option 1 is the alternative if a
   second OS user is not wanted.
 - **#280 (lock commands as an engine tool).** It has merged, and its code adds no guard (read:
-  `crates/engine/src/lock_update.rs`). Its two commands are redirected by the same files (run, on the runner, without the
-  `env` prefix), so its tables need the same boundary.
-- **#283 (remove the lock commands' rules).** It closes two of the routes in section 6.2. The ones through `rustfmt` and `git`,
-  and `git -C . push`, stay (read, docs; inferred).
+  `crates/engine/src/lock_update.rs`). Its two commands are redirected by the same files (run, on the runner, in the
+  README's form behind `env RUSTUP_AUTO_INSTALL=0` and bare), so its tables need the same boundary.
+- **#283 (remove the lock commands' rules).** It closes two of the routes in section 6.2. The ones through `rustfmt` (run,
+  on the runner) and `git` (run for the hook; docs for the rest), and `git -C . push` (docs), stay.
 - **`git` in the agent's shell.** Removing or narrowing `Bash(git *)` would close more than #283 does, and is the agent's
   ordinary way of working. No option in section 7 replaces it unless it wraps the agent's whole command line (inferred).
 - **The 14900K** is a decision of its own: none of the three options reaches it from the engine, and the owner's check in
   section 5 comes first (read; inferred).
+
+### 8.3 The relation to #296
+
+#296 (run the quick checks before a push) planned for the engine to run, before `ci` pushes, commands the project's
+configuration writes (`rustfmt --check`, an English check, `tsc --noEmit`), through the same code that runs the
+commands of `dependency_sources` and `lock_update`, so with the environment and reach this report finds for them (read:
+the item's approach). It was cancelled: after the fast CI moved to the 14900K it saves at most about 45 seconds per work, which
+is not worth it (ask 75, answered by the assistant for the owner, who can change it; PR 71 and
+`research/format-before-ci.md` stay). This report does not reopen it. What follows from the cancellation:
+
+- **The `rustfmt` cell is about the agent's own shell, not an engine tool.** Nothing in the engine runs `rustfmt`; AGENTS.md
+  (#286, commit dd160bbf) has each engineer run it on the files it changed before a `ci` call, and the shell lets
+  `Bash(rustfmt *)` through (read). So its result belongs with the routes of section 6.2: an allowed command that a file
+  in the worktree redirects (run, on the runner; not run in an agent's shell).
+- **If #296 is taken up again**, the commands it would run come under the same results as the engine's other commands:
+  `rustfmt --check` is redirected by `rust-toolchain.toml` (run, on the runner), and `tsc --noEmit` is in no cell
+  (not run). Running them through `run_command` would add a route with no permission layer and the engine's whole
+  environment (read), so the boundary of section 7 would have to come before it, as before the tables of #280.
+- **Cancelling it leaves the existing route as it is.** An engineer who runs `rustfmt` in its shell before `ci` uses the
+  route this report found, and no change of the engine, flow or AGENTS.md follows from the report alone.
 
 ## 9. Reproducing it, and the sources
 
@@ -539,12 +621,15 @@ Three ways of getting the evidence were compared. The owner chose the first:
 - **The documents alone.** The item asks for real runs, and a decision that may not be undoable should not rest on deduction.
 
 The run: `measure` with `command=bash research/agent-reachable-commands/reproduce.sh`, `base` the same commit as the head,
-`pairs=1`. A pass took 4.55 s, 2.49 s and 2.49 s on that runner (run). A pass counts only if it ends in
-`REPRODUCE_COMPLETE`, and all three did.
+`pairs=1`. The three timings of the workflow, each of one pass of the script, were 5.17 s, 4.32 s and 4.34 s on that
+runner (run; [the run](https://github.com/Ming-Research/wf-agents/actions/runs/41951158892)). A pass counts only if it
+ends in `REPRODUCE_COMPLETE`, and all three did.
 
 A cell's verdict was fixed before the run. A marker means redirected. No marker means not redirected only if the
 command's baseline and the file's control both passed; otherwise the cell has no usable result. Every cell had a usable
-result.
+result. An earlier run of the same script on a fixture whose `src/lib.rs` was empty gave `rustfmt --check` a baseline
+that exited 1, so its `rustfmt` cells had no usable result and were not used; the fixture was fixed and the run above
+is the one the tables hold.
 
 The script's environment differs from the engine's on purpose, in settings the matrix does not test: `CARGO_HOME`,
 `CARGO_NET_OFFLINE` and npm's `cache`, `registry`, `fetch-retries`, `audit` and `update-notifier`. They keep what it writes in
