@@ -292,7 +292,8 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     assert_eq!(
         given_text(b, "rule:ground").unwrap().trim_end(),
         format!(
-            "What changed since rule:ground, given in {}, as a unified diff of its lines:\n@@ -1,1 +1,1 @@\n\
+            "What changed since rule:ground, given in {}, as a unified diff of its lines, a long line cut before each \
+             `,\"`:\n@@ -1,1 +1,1 @@\n\
              -Facts first.\n+Facts first, then the rest.",
             rounds[0].0
         )

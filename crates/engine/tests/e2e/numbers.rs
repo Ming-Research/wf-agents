@@ -5,6 +5,39 @@ use super::*;
 
 const HOUR: i64 = 3_600_000;
 
+/// The flow as `flow/flow.json` has it, with the plan given the numbers, which the cell that drafts a policy is given in
+/// the flow, so that these tests can step to them: compiled and stored as a version of the flow, which the engine runs.
+fn the_plan_given_numbers(e: &mut Engine) {
+    let mut f: Value = serde_json::from_str(flow::FLOW).unwrap();
+    let plan = f["flows"]
+        .as_array_mut()
+        .and_then(|gs| gs.iter_mut().find(|g| g["name"] == "architect"))
+        .and_then(|g| g["nodes"].as_array_mut())
+        .and_then(|ns| ns.iter_mut().find(|n| n["id"] == "B2"))
+        .unwrap();
+    plan["inputs"].as_array_mut().unwrap().push(json!({
+        "name": "Numbers",
+        "what": "The numbers the engine measures",
+        "from": [{ "engine": "numbers" }]
+    }));
+    let cx = flow::Context {
+        relations: db::relations(db::SCHEMA).unwrap(),
+        tables: db::index_of(db::SCHEMA).unwrap(),
+    };
+    let text = flow::compile(&f.to_string(), &cx)
+        .unwrap_or_else(|x| panic!("{x}"))
+        .json();
+    e.flow_now =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (digest, compiled) VALUES ('the plan given numbers', ?1)",
+                [&text],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+}
+
 /// The whole of an engine's input of the standard context that a work's round at a cell was given (the first round or
 /// the last), by the end of its address: the version `contents` keeps of it, whether the round was given it whole, only
 /// what changed in it, or referred to it.
@@ -45,6 +78,7 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
+    the_plan_given_numbers(&mut e);
     let item = an_item(&mut e);
     let v = e.flow_now;
     let ago = db::now() - HOUR;
@@ -172,6 +206,7 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
     let s = setup("made");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
+    the_plan_given_numbers(&mut e);
     let ago = db::now() - HOUR;
     let imported =
         e.db.write(Actor::Owner, |tx| {
@@ -313,6 +348,7 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
     let s = setup("weeks");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
+    the_plan_given_numbers(&mut e);
     let (item, other) = (an_item(&mut e), an_item_more(&mut e));
     seed_a_week_of_numbers(&mut e, item, other);
     let arch = architect_work_at(&mut e, "B2");
