@@ -105,6 +105,16 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
             s(crate::approval::gate(e.db.conn(), &e.project_of(w)?, w)?)
         }
+        // Where a work with a condition only a real run can show stands, after its merge ([`crate::verification`]).
+        "verifies" => s(if crate::verification::conditions(e.db.conn(), item.id)?.is_empty() {
+            "none"
+        } else {
+            "some"
+        }),
+        "in_effect" => s(crate::verification::carriers_hold(e, w, item)?),
+        "install_wait" => s(crate::verification::install_wait(e, w, db::now())?),
+        "look_due" => s(crate::verification::look_due(e, w, g, db::now())?),
+        "looks" => s(crate::verification::looks(e, w)?),
         "held" => crate::blockers::held(e, w, g),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
