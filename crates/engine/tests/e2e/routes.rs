@@ -103,6 +103,12 @@ fn an_item_goes_from_the_queue_to_main() {
             })
             .unwrap();
     assert_eq!(rejected, 0, "{log}");
+    // The research started the work directly, which the view of the ways works went reads from the rows it took.
+    let way: Option<String> =
+        e.db.conn()
+            .query_row("SELECT route FROM work_routes WHERE item = ?1", [item], |r| r.get(0))
+            .unwrap();
+    assert_eq!(way.as_deref(), Some("direct"), "{log}");
     // The review is given what it reviews by commits the worktree has: main as fetched, the commit the branch was cut
     // from, the head under review and the command that reads the change between them; it only reads the worktree.
     let input: String =

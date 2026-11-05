@@ -607,32 +607,23 @@ function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks:
   );
 }
 
-/// The route the item's work goes, as a fact of its head, when it is not the normal route: the light route, or a turn
-/// from it to the normal route, named by what the item was marked (a bug fix or a feature), what the route leaves out
-/// or why the work went on as it did said on hovering. Before a work starts, the route its mark gives the work.
-export function routeFact(i: Pick<ItemSummary, 'route' | 'route_taken'>): ReactNode {
-  const taken = i.route_taken ?? (i.route === 'normal' ? 'normal' : 'light');
-  if (taken === 'light') {
-    const key =
-      i.route === 'bugfix' ? 'item_route_bugfix' : i.route === 'feature' ? 'item_route_feature' : 'item_route_light';
-    return <span title={t('item_route_hint')}>{t(key)}</span>;
+/// The way the item's latest work went, as a fact of its head, when it is not the way most go (through the design): on
+/// the research's plan straight away, or begun so and then sent to the design, what each leaves out or adds said on
+/// hovering. Nothing before the research answers, and nothing for a work that went through the design.
+export function routeFact(i: Pick<ItemSummary, 'route_taken'>): ReactNode {
+  if (i.route_taken === 'direct') {
+    return <span title={t('item_route_direct_hint')}>{t('item_route_direct')}</span>;
   }
-  if (taken === 'turned') {
-    const key =
-      i.route === 'bugfix'
-        ? 'item_route_turned_bugfix'
-        : i.route === 'feature'
-          ? 'item_route_turned_feature'
-          : 'item_route_turned';
-    return <span title={t('item_route_turned_hint')}>{t(key)}</span>;
+  if (i.route_taken === 'turned') {
+    return <span title={t('item_route_turned_hint')}>{t('item_route_turned')}</span>;
   }
   return null;
 }
 
 /// The item's head: its number and title, and its facts in two lines, each kind in its one look, the facts muted words,
 /// the links in the accent, joined by a bar. On the title's line after a bar, smaller, wrapping under it where the line
-/// is short: its project, its tier (how it changed said on hovering), the route its work goes when that is not the
-/// normal route (`routeFact`), its state as its chip with the items it waits for after it, and its pull request. Under it, while a work goes on on it: that work, once, by its number with its
+/// is short: its project, its tier (how it changed said on hovering), the way its work went when that is not through
+/// the design (`routeFact`), its state as its chip with the items it waits for after it, and its pull request. Under it, while a work goes on on it: that work, once, by its number with its
 /// state's chip, its stage, its cell, what it waits for, and its group, where the owner speaks to it and its tier is
 /// set.
 function Head({ d }: { d: ItemDetail }) {
