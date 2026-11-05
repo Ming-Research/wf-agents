@@ -1,5 +1,5 @@
-// Text the agents and the owner write, as it reads: the markdown they write in it (paragraphs, lists, headings, fenced
-// code, inline code, bold and links) drawn as such, a paragraph that is plainly code, such as a command to run, kept as
+// Text the agents and the owner write, as it reads: the markdown they write in it (paragraphs, lists, headings, quoted
+// lines, fenced code, inline code, bold and links) drawn as such, a paragraph that is plainly code, such as a command to run, kept as
 // code, a fence of a diagram's kind drawn as that diagram (diagram.tsx), and an item named by its number, `#12`, a link
 // to its page. A small parser of its own, since the page needs only these, and what is written must never become
 // markup the page did not mean: nothing in the text is taken as HTML, and a diagram is drawn by its library and
@@ -24,11 +24,14 @@ export type Block =
   | { kind: 'code'; text: string }
   | { kind: 'diagram'; diagram: DiagramKind; text: string }
   | { kind: 'heading'; level: number; text: string }
-  | { kind: 'list'; ordered: boolean; start: number; items: Block[][] };
+  | { kind: 'list'; ordered: boolean; start: number; items: Block[][] }
+  | { kind: 'quote'; blocks: Block[] };
 
 const FENCE = /^ {0,3}(```|~~~)[ \t]*([^\s`]*)/;
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)[ \t#]*$/;
 const ITEM = /^( *)([-*+]|\d{1,9}[.)])(?:[ \t]+(.*))?$/;
+/// A quoted line: `>`, then one space if there is one, which is not part of what is quoted.
+const QUOTE = /^ {0,3}> ?/;
 
 const blank = (l: string) => l.trim() === '';
 const indentOf = (l: string) => l.length - l.trimStart().length;
@@ -70,12 +73,29 @@ function blocksOf(lines: string[]): Block[] {
       i += 1;
       continue;
     }
+    if (QUOTE.test(line)) {
+      // The lines that start with `>` are one quote, whose own blocks are what is under the marks.
+      const quoted: string[] = [];
+      while (i < lines.length && QUOTE.test(lines[i])) {
+        quoted.push(lines[i].replace(QUOTE, ''));
+        i += 1;
+      }
+      out.push({ kind: 'quote', blocks: blocksOf(quoted) });
+      continue;
+    }
     if (ITEM.test(line)) {
       i = list(lines, i, out);
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && !blank(lines[i]) && !FENCE.test(lines[i]) && !HEADING.test(lines[i]) && !ITEM.test(lines[i])) {
+    while (
+      i < lines.length &&
+      !blank(lines[i]) &&
+      !FENCE.test(lines[i]) &&
+      !HEADING.test(lines[i]) &&
+      !QUOTE.test(lines[i]) &&
+      !ITEM.test(lines[i])
+    ) {
       para.push(lines[i]);
       i += 1;
     }
@@ -123,7 +143,7 @@ function list(lines: string[], start: number, out: Block[]): number {
       continue;
     }
     // A line that only goes on with the item's text, not indented.
-    if (!afterBlank && m === null && !FENCE.test(line) && !HEADING.test(line)) {
+    if (!afterBlank && m === null && !FENCE.test(line) && !HEADING.test(line) && !QUOTE.test(line)) {
       item.push(line.trimStart());
       i += 1;
       continue;
@@ -304,6 +324,12 @@ function Blocks({ blocks }: { blocks: Block[] }) {
             <Inlines parts={inline(b.text)} />
           </p>
         );
+      case 'quote':
+        return (
+          <blockquote key={i} className="md-quote">
+            <Blocks blocks={b.blocks} />
+          </blockquote>
+        );
       case 'list': {
         const items = b.items.map((blocks, j) => (
           <li key={j}>
@@ -353,11 +379,12 @@ export function MarkdownInline({ text }: { text: string }) {
   return <Markdown text={text} />;
 }
 
-/// The words a block starts with: a paragraph's or a heading's, whole on one line; a list's first item's; a code
-/// block's first line.
+/// The words a block starts with: a paragraph's or a heading's, whole on one line; a list's first item's; a quote's
+/// first block's; a code block's first line.
 function lead(b: Block | undefined): string {
   if (b === undefined) return '';
   if (b.kind === 'list') return lead(b.items[0]?.[0]);
+  if (b.kind === 'quote') return lead(b.blocks[0]);
   if (b.kind === 'para' || b.kind === 'heading') return b.text.replace(/\s*\n\s*/g, ' ');
   return b.text.split('\n')[0];
 }

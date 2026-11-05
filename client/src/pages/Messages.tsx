@@ -24,13 +24,16 @@
 // holds has the small box in its bubble too. The one box at the bottom says something, in a work's group to the
 // engineer, the architect or both, and in the one-to-one to the architect, whose words it takes first and answers in
 // one round, or, a strip over it saying so, replies to the question the architect waits on or the one the owner chose
-// to reply to. Opening a conversation reads it up to its latest entry.
+// to reply to. A message's head has a button that quotes it into that box, the words selected in it or all of them, as
+// words in the box's draft that the box sends with what the owner writes. Opening a conversation reads it up to its
+// latest entry.
 
 import {
   ArrowDownIcon,
   CpuIcon,
   ListUnorderedIcon,
   PinIcon,
+  QuoteIcon,
   ReplyIcon,
   StackIcon,
   XIcon,
@@ -103,6 +106,7 @@ import {
   askInWords,
   architectAsk,
   asksApproval,
+  boxDraftKey,
   cardTalk,
   closedWhy,
   CONVERSATION_WINDOW,
@@ -124,6 +128,9 @@ import {
   pendingWords,
   pinnedQuestions,
   pinsOf,
+  quotable,
+  quoted,
+  quotedBy,
   replyingTo,
   rowsShown,
   sayTo,
@@ -135,7 +142,7 @@ import {
   wordsStateText,
 } from '../conversation';
 import { useActions } from '../course';
-import { type Draft, useDraft } from '../drafts';
+import { type Draft, putDraft, useDraft } from '../drafts';
 import { cost, time } from '../format';
 import { postJson, SPEAKER } from '../http';
 import { imagesSent, saysSomething } from '../images';
@@ -493,12 +500,14 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// box at the bottom replies to it, then the owner's reply; a question the architect holds, the box that answers it,
 /// then the owner's answer (`reply`). The question whether the draft of a new policy is approved leads to the draft, in
 /// the panel beside the one-to-one (`draft`). The owner's question about a decision card, and its answer, have the
-/// strip naming the card over their words.
-function Message({ e, to, reply, draft = null, onReply = null, approve = null }: {
+/// strip naming the card over their words. Where the box at the bottom can take words, the head ends with the button
+/// that quotes the bubble into it (`onQuote`, given what the owner selected in the bubble, if anything).
+function Message({ e, to, reply, draft = null, onQuote = null, onReply = null, approve = null }: {
   e: ConversationEntry;
   to: string | null;
   reply: ConversationEntry | null;
   draft?: string | null;
+  onQuote?: ((selected: string | null) => void) | null;
   /// For an architect's question that waits for the owner's reply: what sets the box to reply to it.
   onReply?: (() => void) | null;
   /// For the question whether the draft of a new policy is approved, while it waits: the project it is of.
@@ -533,6 +542,18 @@ function Message({ e, to, reply, draft = null, onReply = null, approve = null }:
             {draft !== null ? <Link to={draft}>{t('conv_draft')}</Link> : null}
             {e.pending && own ? <span className="talk-state">{t('conv_pending')}</span> : null}
             {e.undelivered ? <span className="talk-state talk-state-bad">{t('conv_undelivered')}</span> : null}
+            {onQuote !== null ? (
+              <IconButton
+                size="small"
+                variant="invisible"
+                icon={QuoteIcon}
+                className="talk-quote"
+                aria-label={t('conv_quote')}
+                // The mouse going down on the button would end the selection it quotes.
+                onMouseDown={(ev) => ev.preventDefault()}
+                onClick={(ev) => onQuote(selectedIn(ev.currentTarget.closest('.talk-bubble')))}
+              />
+            ) : null}
           </BubbleHead>
         }
         after={
@@ -723,13 +744,16 @@ type EntryProps = {
   waits: boolean;
   /// What sets the box to reply to a question of the architect's; one function for the whole stream.
   replyTo: ((question: number) => void) | null;
+  /// What quotes a bubble into the box, given the entry and the words selected in its bubble; one function for the whole
+  /// stream, none where the box takes no words.
+  quote: ((e: ConversationEntry, selected: string | null) => void) | null;
 };
 
 /// One entry of the stream, in its voice; a question with the owner's answer to it (`reply`); the question whether the
 /// draft of a new policy that waits is approved (`approval`) leading to the draft, and while it waits approved by one
 /// button; an architect's question that waits for the owner's reply (`waits`) with the button that sets the box to
-/// reply to it (`replyTo`); the bubble of the matter the architect has in hand with how its work goes on
-/// (`matterWork`).
+/// reply to it (`replyTo`); the bubble of a message with the button that quotes it into the box (`quote`); the bubble of
+/// the matter the architect has in hand with how its work goes on (`matterWork`).
 const Entry = memo(function Entry({
   e,
   kind,
@@ -741,6 +765,7 @@ const Entry = memo(function Entry({
   reply,
   waits,
   replyTo,
+  quote,
 }: EntryProps) {
   const voice = voiceOf(e);
   if (voice === 'live') {
@@ -759,6 +784,7 @@ const Entry = memo(function Entry({
       to={mentions(e, kind) ? mention(e, kind) : null}
       reply={reply}
       draft={project !== null && approval ? sideHref(project, 'policy') : null}
+      onQuote={quote !== null && quotable(e) ? (selected) => quote(e, selected) : null}
       onReply={waits && replyTo !== null ? () => replyTo(e.id) : null}
       approve={waits && project !== null && approval ? project : null}
     />
@@ -790,6 +816,16 @@ export type PinShown = {
   go: (() => void) | null;
   action: ReactNode;
 };
+
+/// The words the owner selected in a bubble, as the browser has them, or none when nothing is selected or the selection
+/// reaches outside the bubble.
+function selectedIn(bubble: Element | null): string | null {
+  const s = window.getSelection();
+  if (bubble === null || s === null || s.isCollapsed || s.rangeCount === 0) return null;
+  if (!bubble.contains(s.getRangeAt(0).commonAncestorContainer)) return null;
+  const text = s.toString().trim();
+  return text === '' ? null : text;
+}
 
 /// Brings a bubble of the stream into view, its head at the top of the stream, the card it is opened if folded, and
 /// lights it for a moment, as a chat app does when it goes to a pinned message; a card's head takes the focus, so that
@@ -1009,7 +1045,7 @@ export function Composer({ c, w, reply = null, onSent }: {
   const choices = sayTo(c);
   // The words, the images and whom they are for are the draft of this conversation's box, kept when another page or
   // conversation is shown and the box comes back.
-  const draft = useDraft(`conv:${c.key}`);
+  const draft = useDraft(boxDraftKey(c));
   const { text, images } = draft;
   const ticked = draft.to !== null ? draft.to.filter((x) => choices.includes(x)) : choices.slice(0, 1);
   const sendTo = sayToTicked(c, ticked);
@@ -1097,21 +1133,23 @@ export function Composer({ c, w, reply = null, onSent }: {
 /// The stream of a conversation, oldest first, scrolled to its newest: the bubbles of who said what, the members'
 /// messages and the live bubbles of what a work's stages and an architect's matters came to; in a conversation that is
 /// no work's group or one-to-one, the engine's lines in the page's own voice; an ask and an architect's question where
-/// they were asked, answered there or, a question, by the box set to reply to it (`replyTo`); under it, while the
-/// owner's words added to the queue wait to be taken up in the one-to-one, that they do. In the one-to-one with an
+/// they were asked, answered there or, a question, by the box set to reply to it (`replyTo`); each message with the
+/// button that quotes it into the box (`quote`, none where the box takes no words); under it, while the owner's words
+/// added to the queue wait to be taken up in the one-to-one, that they do. In the one-to-one with an
 /// architect (`architect`), the question whether its draft of a new policy that waits (`draft`) is approved leads to
 /// the draft, and the bubble of the matter it has in hand says what holds it. In a work's group, the owner's question
 /// about a decision card and its answer each name the card over their words, and the card links to them (`CardTalk`).
 /// Scrolled up away from the newest, a round button at its bottom right goes back to it, as a chat app's does. The
 /// interface gives the latest entries and those something waits on (`ConversationDetail.gaps` says where it left the
 /// others out): a line where it did says how many, with the button (`more`) that asks for the ones before.
-export function Stream({ d, c, w, draft = null, architect = null, replyTo = null, more = null }: {
+export function Stream({ d, c, w, draft = null, architect = null, replyTo = null, quote = null, more = null }: {
   d: ConversationDetail;
   c: Conversation;
   w: WorkSummary | null;
   draft?: PolicyDraft | null;
   architect?: Architect | null;
   replyTo?: ((question: number) => void) | null;
+  quote?: ((e: ConversationEntry, selected: string | null) => void) | null;
   more?: (() => void) | null;
 }) {
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
@@ -1178,6 +1216,7 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
                 reply={e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null}
                 waits={e.source === 'ask' && questions.has(e.id)}
                 replyTo={replyTo}
+                quote={quote}
               />
             ));
             return (
@@ -1255,6 +1294,17 @@ export function Open({ c, works, side }:{ c: Conversation; works: WorkSummary[] 
     setChosen(question);
     document.querySelector<HTMLTextAreaElement>('.talk-say textarea')?.focus();
   }, []);
+  // Quotes a bubble into the box's draft, after the words already there, where the box takes words (a work at its end,
+  // and a conversation with no box, take none). Also one function for as long as the conversation is open.
+  const boxKey = boxDraftKey(c);
+  const quoteIn = useCallback(
+    (e: ConversationEntry, selected: string | null) => {
+      putDraft(boxKey, { text: quoted(quotedBy(e), e.text, selected) }, 'append');
+      document.querySelector<HTMLTextAreaElement>('.talk-say textarea')?.focus();
+    },
+    [boxKey],
+  );
+  const boxTakesWords = sayTo(c).length > 0 && closedWhy(c, w) === null;
   const latest = d !== null ? latestAt(d) : null;
   const readTo = d?.read_to ?? null;
   useEffect(() => {
@@ -1299,6 +1349,7 @@ export function Open({ c, works, side }:{ c: Conversation; works: WorkSummary[] 
               draft={a?.draft ?? null}
               architect={a}
               replyTo={c.kind === 'architect' ? replyTo : null}
+              quote={boxTakesWords ? quoteIn : null}
               more={more}
             />
           </>

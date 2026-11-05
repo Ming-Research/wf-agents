@@ -419,6 +419,26 @@ button.talk-pinbar-line:hover .talk-pinbar-words {
   color: var(--fgColor-danger);
 }
 
+/* The button at the end of a message's head that quotes it into the box at the bottom: out of sight until the pointer
+   is on the bubble or the keyboard on the button, and always there where there is no pointer; its height takes none
+   from the head's line. */
+.talk-quote {
+  margin-left: auto;
+  margin-block: calc(-1 * var(--base-size-4));
+  opacity: 0;
+}
+
+.talk-bubble:hover .talk-quote,
+.talk-bubble:focus-within .talk-quote {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .talk-quote {
+    opacity: 1;
+  }
+}
+
 .talk-bubble-body {
   margin-top: var(--base-size-4);
   overflow-wrap: anywhere;

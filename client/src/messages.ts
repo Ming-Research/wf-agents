@@ -284,6 +284,7 @@ const messages = {
   conv_about_card: 'About decision card {id}: {question}',
   conv_reply: 'Reply',
   conv_reply_hint: 'The box at the bottom replies to this question',
+  conv_quote: 'Quote in the box at the bottom',
   conv_reply_off: 'Do not reply to it: say something to the architect instead',
   conv_draft: 'The draft',
   conv_send: 'Send',

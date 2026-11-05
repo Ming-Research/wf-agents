@@ -453,6 +453,16 @@
   margin-top: var(--base-size-4);
 }
 
+/* Quoted lines, as the strip over the box that replies quotes a question: muted words under an edge at the left. */
+.md-quote {
+  display: grid;
+  gap: var(--base-size-8);
+  margin: 0;
+  padding-left: var(--base-size-8);
+  border-left: var(--borderWidth-thick) solid var(--borderColor-accent-emphasis);
+  color: var(--fgColor-muted);
+}
+
 .md-h {
   margin: var(--base-size-4) 0 0;
   font-weight: var(--base-text-weight-semibold);
