@@ -1445,7 +1445,24 @@ pub fn engine(
             crate::reasoning::check(e, &project, wt, &fork)?
         }
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
-        Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
+        Some("end_architect_work") => {
+            // The run is over: the session its matters shared ends with it, and the next run forks anew.
+            let lines: Vec<&str> = g
+                .cells
+                .iter()
+                .filter(|c| c.whole_run)
+                .filter_map(|c| c.line.as_deref())
+                .collect();
+            e.db.write(Actor::Engine, |tx| {
+                for line in &lines {
+                    sessions::choose::end_line(tx, w.id, line).map_err(db::Error::Abort)?;
+                }
+                Ok(())
+            })
+            .map_err(sql)?;
+            json!({})
+        }
+        Some("end_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some("check_main") => crate::main_watch::check(e, w, round)?,
         Some(other) => return Err(format!("no such engine step: {other}")),

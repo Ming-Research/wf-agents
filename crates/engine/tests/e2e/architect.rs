@@ -126,7 +126,13 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
         sessions,
         [
             ("architect".to_string(), "line".to_string(), None, false, false),
-            ("matter".to_string(), "fork".to_string(), Some(base.clone()), false, true),
+            (
+                "matter".to_string(),
+                "fork".to_string(),
+                Some(base.clone()),
+                false,
+                true
+            ),
         ],
         "{log}"
     );
@@ -312,7 +318,13 @@ fn a_run_handles_its_matters_in_one_fork_and_the_next_run_forks_anew() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    let fork = ("matter".to_string(), "fork".to_string(), Some(base.clone()), false, true);
+    let fork = (
+        "matter".to_string(),
+        "fork".to_string(),
+        Some(base.clone()),
+        false,
+        true,
+    );
     assert_eq!(
         sessions_of(&e, first),
         [
@@ -325,7 +337,10 @@ fn a_run_handles_its_matters_in_one_fork_and_the_next_run_forks_anew() {
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 3, "{log}");
     assert_eq!((seen[0].fork, seen[0].resume.as_deref()), (true, Some(base.as_str())));
-    assert!(!seen[1].fork && seen[1].resume.as_deref() == Some(seen[0].new_session.as_str()), "{log}");
+    assert!(
+        !seen[1].fork && seen[1].resume.as_deref() == Some(seen[0].new_session.as_str()),
+        "{log}"
+    );
     assert_eq!((seen[2].fork, seen[2].resume.as_deref()), (true, Some(base.as_str())));
     let later = message_at(&e, first, "H1", true);
     assert!(later.contains("SECONDWORDS"), "{later}");
@@ -360,7 +375,13 @@ fn the_next_work_forks_its_matter_from_the_base_however_long_after() {
     let base = base_session(&e, first);
     assert_eq!(
         sessions_of(&e, second),
-        [("matter".to_string(), "fork".to_string(), Some(base.clone()), false, true)],
+        [(
+            "matter".to_string(),
+            "fork".to_string(),
+            Some(base.clone()),
+            false,
+            true
+        )],
         "{log}"
     );
     let seen = seen.lock().unwrap();
