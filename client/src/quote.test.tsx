@@ -37,6 +37,7 @@ const entry = (extra: Partial<ConversationEntry> = {}): ConversationEntry => ({
   plan: null,
   forwards: [],
   images: [],
+  retract: 'no',
   ...extra,
 });
 

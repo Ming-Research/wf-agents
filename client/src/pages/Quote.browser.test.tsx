@@ -46,6 +46,7 @@ const entry = (id: number, text: string): ConversationEntry => ({
   plan: null,
   forwards: [],
   images: [],
+  retract: 'no',
 });
 
 const conversation: Conversation = {

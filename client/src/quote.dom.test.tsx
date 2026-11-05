@@ -121,6 +121,7 @@ const entry = (id: number, extra: Partial<ConversationEntry> = {}): Conversation
   plan: null,
   forwards: [],
   images: [],
+  retract: 'no',
   ...extra,
 });
 
