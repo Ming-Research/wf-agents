@@ -49,11 +49,14 @@ const DATA_DIRECTORY: [&str; 12] = [
     "stop",
 ];
 
-/// Where a piece of the README stands: in code, where a command may be written, or in text.
+/// Where a piece of the README stands: in code, where a command may be written, in text, or in a code span that runs
+/// over more than one line, which is no place for a command: its first part, and the parts that go on after it.
 #[derive(Clone, Copy, PartialEq)]
 enum Place {
     Code,
     Text,
+    SpanStart,
+    SpanRest,
 }
 
 /// The command tree as clap builds it to parse: with its own `--help` and `help`, and with the global `--data`
@@ -88,11 +91,14 @@ fn subcommand_names(cmd: &Command, out: &mut BTreeSet<String>) {
     }
 }
 
-/// The README as pieces: the code spans that stay on one line, the lines of fenced blocks, and what lies between
-/// the spans of each line. A backtick with no partner on its line opens no span, so what follows it is text.
+/// The README as pieces: the code spans that stay on one line, the lines of fenced blocks, what lies between the
+/// spans of each line, and the parts of a code span that runs over more than one line: a backtick with no partner on
+/// its line opens a span that the next backtick, on this line or a later one, closes.
 fn pieces(text: &str) -> Vec<(Place, &str)> {
     let mut out = Vec::new();
     let mut fence: Option<(char, usize)> = None;
+    // Whether a code span opened on an earlier line is not closed yet.
+    let mut open = false;
     for line in text.lines() {
         let trimmed = line.trim();
         let first_char = trimmed.chars().next();
@@ -101,14 +107,26 @@ fn pieces(text: &str) -> Vec<(Place, &str)> {
         // The info string of a block fenced with backticks has no backtick in it: ```code``` is a code span.
         let opens = run >= 3 && (marker == Some('~') || !trimmed[run..].contains('`'));
         match fence {
-            None if opens => fence = marker.map(|m| (m, run)),
+            None if opens && !open => fence = marker.map(|m| (m, run)),
             None => {
                 let parts: Vec<&str> = line.split('`').collect();
+                let last = parts.len() - 1;
                 for (i, part) in parts.iter().enumerate() {
-                    let inside = i % 2 == 1 && i + 1 < parts.len();
-                    let place = if inside { Place::Code } else { Place::Text };
+                    // A part is outside a span when an even number of backticks lies before it, counting the one that
+                    // closes a span carried over from an earlier line; it is inside when paired, and the tail after
+                    // a backtick with no partner is the start of a span that goes on in the next line.
+                    let carried = open && i == 0;
+                    let inside = (i + usize::from(open)) % 2 == 1;
+                    let place = match (carried, inside, i == last) {
+                        (true, _, _) => Place::SpanRest,
+                        (false, true, true) => Place::SpanStart,
+                        (false, true, false) => Place::Code,
+                        (false, false, _) => Place::Text,
+                    };
                     out.push((place, *part));
                 }
+                // The spans of the line pair up its backticks, a carried one first: an odd count left over opens one.
+                open = (parts.len() - 1 + usize::from(open)) % 2 == 1;
             }
             Some((m, ticks)) if marker == Some(m) && run >= ticks && trimmed.len() == run => fence = None,
             Some(_) => out.push((Place::Code, trimmed)),
@@ -230,8 +248,11 @@ fn problems(text: &str, root: &Command) -> Vec<String> {
         for at in occurrences(piece).into_iter().filter(|at| Some(*at) != first) {
             let next = piece[at + NAME.len()..].split_whitespace().next();
             let reported = match (place, next) {
+                // A span that begins with the program's name and goes on in the next line is a command over more than
+                // one line, whatever follows the name in this one.
+                (Place::SpanStart, _) => true,
                 (_, None) => false,
-                (Place::Code, Some(_)) => true,
+                (Place::Code | Place::SpanRest, Some(_)) => true,
                 (Place::Text, Some(word)) => {
                     word.starts_with('-') || names.contains(word.trim_end_matches(|c: char| !c.is_alphanumeric()))
                 }
@@ -361,6 +382,10 @@ fn a_command_outside_the_convention_is_reported() {
         "> wf-agents queue add",
         "<code>wf-agents queue add</code>",
         "see `wf-agents queue\nadd` now",
+        // The line breaks right after the program's name, where the first line has nothing after it.
+        "see `wf-agents\nqueue put` now",
+        "see `wf-agents\nqueu put` now",
+        "see `wf-agents run\n--once` now",
     ];
     for extra in reported {
         let got = problems(&format!("{base}\n{extra}"), &root);
@@ -375,6 +400,9 @@ fn a_command_outside_the_convention_is_reported() {
         "`crates/wf-agents`",
         "`wf-agents.sqlite`",
         "wf-agents runs coding agents",
+        // A span over two lines that ends with the program's name as a package, and spans after one that is closed.
+        "see `cargo build\n-p wf-agents` now",
+        "a `cargo\nbuild` then `wf-agents status` works",
     ];
     for extra in quiet {
         let got = problems(&format!("{base}\n{extra}"), &root);

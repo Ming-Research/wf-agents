@@ -88,11 +88,8 @@ architects' worktrees under `worktrees/`, which its git leaves out. Once the con
 `wf-agents init` makes the database; it is the only command that does, and every command that works on the database,
 the engine included, fails when there is none, so a wrong `--data` is an error and not an empty view.
 
-To replace the installed program while an engine runs, create the file `stop` in the data directory (`touch DIR/stop`).
-The engine dispatches nothing more, waits for the rounds under way, says it stopped, removes the file and exits, and the
-lock it held goes with the process. Then copy the new program over the old one and start it with `wf-agents run`. A new
-`wf-agents run` started while the old process still holds the lock fails at once, naming that process; start it again
-once the old one has exited.
+To replace the installed program while an engine runs, stop the engine first, as Running below says, then copy the new
+program over the old one and start it with `wf-agents run`.
 
 ## Running
 
@@ -104,9 +101,9 @@ wf-agents run --data DIR
 
 `--data DIR` can be left out when `WF_AGENTS_DATA` names the directory. The engine serves the page at
 `http://127.0.0.1:7480/`, on the loopback address only; `wf-agents run --port PORT` takes another port. It starts with
-every work paused: nothing runs until the owner presses Start all in the page's bar, or starts one work. Everything the
-owner does is done on the page: answering the asks, ruling on the decision cards, pausing, starting and stepping works,
-saying something in a work's group, holding a project's new starts. [The owner's page](#the-owners-page) below says
+every work paused: nothing runs until the owner presses Start all in the page's bar, or starts one work. The owner
+works on the page: answering the asks, ruling on the decision cards, pausing, starting and stepping works, starting a
+work over, saying something in a work's group, holding a project's new starts. [The owner's page](#the-owners-page) below says
 what each view holds. `wf-agents run --once` takes one pass without the page, which is how a script or a test steps the
 engine.
 
@@ -117,13 +114,16 @@ engines never take the same work, which would run its round twice, two agents in
 goes with the process however it ends, a crash or a kill included, and a program the engine started does not keep it, so
 there is nothing to clear by hand. The text in the file only says who holds the lock; deleting the file frees nothing.
 
-To stop the engine, create the file `stop` in the data directory: it dispatches nothing more, waits for the rounds under
-way and exits.
+To stop the engine, for instance before installing a new program, create the file `stop` in the data directory, as `touch DIR/stop` does.
+The engine dispatches nothing more, waits for the rounds under way, says it stopped, removes the file and
+exits, and the lock goes with the process. A new `wf-agents run` started while the old process still holds the lock
+fails at once, naming that process; start it again once the old one has exited.
 
 ## On the command line
 
-Whatever the owner does on the page can also be done on the command line, which is for a session that works beside the
-owner and for scripts. Each command works on the data directory (`--data DIR`, or `WF_AGENTS_DATA`) and prints what it
+Much of what the owner does on the page can also be done on the command line, which is for a session that works beside
+the owner and for scripts, and the commands below are the ones for the owner. Starting, stepping and starting a work over, and the
+page's Start all and Pause all, are on the page only. Each command works on the data directory (`--data DIR`, or `WF_AGENTS_DATA`) and prints what it
 finds; `--help` of each tells what its arguments mean, and a command line given none of the commands fails with the
 usage and their names. The engine itself and the checks of a change come first:
 
