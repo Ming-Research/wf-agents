@@ -7,15 +7,16 @@ goes when `research/` is next cleaned of finished measurements; it states no req
 
 Item #240 puts a bar of where a work's time went in every row of the page's list of works. The list is read by
 `api::works`, which loads every round of every work (`Light` rows) and sums them in memory. This change adds
-`work_time` to that sum: for each round, the kind of its cell and the equal cells of the bar it touches. The work's run
-time, which the list already summed with a lookup of each round's cell of its own, now comes from the same sum, so that
-each round's cell is looked up once, as before. Does the read
-of the list (`GET /api/v1/works`) get slower, and by how much does its answer grow?
+`work_time` to that sum: for each round, whether an agent ran it in a session (a column of the same query), else the
+kind of its cell, and the equal cells of the bar it touches. The work's run time, which the list already summed with a
+lookup of each round's cell of its own, now comes from the same sum. Does the read of the list (`GET /api/v1/works`)
+get slower, and by how much does its answer grow?
 
 ## The comparison
 
 - Workload: `works_read.rs`, one test that builds an in-memory database of 300 works with 150 rounds each (45,000
-  rounds; five cells in turn: two tools', two models' and the engine's; one round in ten sent back), reads the list once
+  rounds; five cells in turn: two tools', two models' (in the work's session) and the engine's; one round in ten sent
+  back), reads the list once
   untimed, then 30 times timed, and times the answer's JSON written by `serde_json`. It prints the minimum, median and
   maximum of the reads, the median of the writes and the size of the answer.
 - Sides: the base (main at the commit before this work, 92ee6625), its twin (the same commit, the control) and the

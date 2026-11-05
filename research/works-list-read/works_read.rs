@@ -34,7 +34,7 @@ fn time_the_list_of_works() {
             "INSERT INTO flow_versions (digest, compiled) VALUES ('d', ?1)",
             db::rusqlite::params![json],
         )?;
-        // One item and one work for each; every fifth work is done, the others are mid-way through the graph.
+        // One item and one work for each, all mid-way through the graph.
         tx.execute(
             "WITH RECURSIVE seq(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM seq WHERE i < ?1)
              INSERT INTO items (project, title, problem, why, deliver, level)
@@ -46,21 +46,27 @@ fn time_the_list_of_works() {
              INSERT INTO works (item, flow_version, graph, at) SELECT i, 1, 'engineer', 'I1' FROM seq",
             [WORKS],
         )?;
-        // The rounds of each work, one after another at 4 s in 5 s: a model's cell, a tool's, a model's, a tool's and the
-        // engine's own, in turn; one in ten was sent back. The input and output are the size a real round's are not, so
-        // that what is measured is what the list reads of them.
+        // A session for each work, which its agents' rounds run in.
+        tx.execute(
+            "INSERT INTO sessions (work, line, cli, cli_session) SELECT id, 'engineer', 'claude', 's' || id FROM works",
+            [],
+        )?;
+        // The rounds of each work, one after another at 4 s in 5 s: a model's cell (in the work's session), a tool's, a
+        // model's, a tool's and the engine's own, in turn; one in ten was sent back. The input and output are the size a
+        // real round's are not, so that what is measured is what the list reads of them.
         tx.execute(
             "WITH RECURSIVE w(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM w WHERE id < ?1),
                   n(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM n WHERE n < ?2)
-             INSERT INTO rounds (work, n, cell, input, output, transition, rejected, config_commit, usage, started_at, ended_at)
+             INSERT INTO rounds (work, n, cell, session, input, output, transition, rejected, config_commit, usage, started_at, ended_at)
              SELECT w.id, n.n,
                     CASE n.n % 5 WHEN 0 THEN 'R1' WHEN 1 THEN 'X1' WHEN 2 THEN 'I1' WHEN 3 THEN 'X1' ELSE 'S0' END,
+                    CASE WHEN n.n % 5 IN (0, 2) THEN s.id END,
                     '{}', '{}',
                     CASE WHEN n.n % 10 = 7 THEN NULL ELSE 'took' END,
                     CASE WHEN n.n % 10 = 7 THEN '{\"format\":\"no outcome\"}' END,
                     'c', '{\"cost_usd\":0.5}',
                     w.id * 1000000 + n.n * 5000, w.id * 1000000 + n.n * 5000 + 4000
-             FROM w, n",
+             FROM w JOIN sessions s ON s.work = w.id, n",
             [WORKS, ROUNDS],
         )?;
         Ok(())
