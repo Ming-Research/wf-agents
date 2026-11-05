@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use config::words;
 use db::Actor;
-use db::rusqlite::params;
+use db::rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
 use crate::hub::{self, CheckRun, Failure};
@@ -1552,6 +1552,31 @@ fn named_columns(sql: &str, error: &str) -> Option<String> {
 
 // Cell `M2`.
 
+/// Whether a red check of `checks` is one the work's last try at the merge read as it is, the same job of the same run.
+fn read_red_before(e: &Engine, work: i64, checks: &[CheckRun]) -> Result<bool, String> {
+    let last: Option<String> = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT output FROM rounds WHERE work = ?1 AND cell = 'M2' AND output IS NOT NULL ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some(last) = last.and_then(|o| serde_json::from_str::<Value>(&o).ok()) else {
+        return Ok(false);
+    };
+    let read = |c: &&CheckRun| {
+        c.result == "red"
+            && last["result"]["kind"] == "red"
+            && last["result"]["checks"]
+                .as_array()
+                .is_some_and(|xs| xs.iter().any(|x| x["run"] == c.run.as_str() && x["result"] == "red"))
+    };
+    Ok(checks.iter().any(|c| read(&c)))
+}
+
 /// Catches the PR up with main, runs the full CI on the head, the one run of it a head has, and merges it when the run
 /// is green. A red run is not run again: what is red goes back to the work, which fixes it with the fast CI, and the
 /// head it hands in next is run in full once more; a head that has a run already, as one this merge made before it was
@@ -1589,11 +1614,21 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
         Ok(checks_json(&work_full_checks(e, &project, &branch, &head)?))
     });
     record_push(e, w, Some(&head), None)?;
-    let checks: Vec<CheckRun> = match checked {
+    let mut checks: Vec<CheckRun> = match checked {
         Ok(v) => serde_json::from_value(v).unwrap_or_default(),
         Err(x) => return Ok(not_run("result", x)),
     };
     let known = known_red(e, &item.project)?;
+    // The very run the last try read red, its engineer having changed nothing: reading it again says nothing new, and
+    // only sends the work round to the architect, as a flaky test did to W330. Its red checks run again.
+    if !reds(&counted(&checks, &project, &known)).is_empty() && read_red_before(e, w.id, &checks)? {
+        checks = match attempts(e, round, "merge", &args, |e| {
+            Ok(checks_json(&rerun_full(e, &project, &head, &checks)?))
+        }) {
+            Ok(v) => serde_json::from_value(v).unwrap_or_default(),
+            Err(x) => return Ok(not_run("result", x)),
+        };
+    }
     // Red, or without a check a merge needs: not merged.
     let lacking = missing_checks(&checks, &project, &known);
     if !reds(&counted(&checks, &project, &known)).is_empty() || !lacking.is_empty() {
@@ -3567,6 +3602,30 @@ timeout_ms = 1000
         assert!(r.runs.dispatched().is_empty());
     }
 
+    // A red full run the last try read, the engineer having changed nothing, runs its red checks again rather than be
+    // read again; a first red is not run again, and goes to the work.
+    fn the_red_run_the_last_try_read_runs_again(r: &mut Rig) {
+        r.runs.clear();
+        r.runs.has_run(&r.head, "ci", &[("check", "red")]);
+        let first = r.run(merge);
+        assert_eq!(first["result"]["kind"], "red", "{first}");
+        assert_eq!(r.runs.state().reruns, 0);
+        let (work, output) = (r.work, first.to_string());
+        r.e.db
+            .write(db::Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE rounds SET cell = 'M2', output = ?2, transition = 'for_engineer', ended_at = 1
+                     WHERE work = ?1 AND n = 1",
+                    db::rusqlite::params![work, output],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let again = r.run(merge);
+        assert_eq!(again["result"]["kind"], "red", "{again}");
+        assert_eq!(r.runs.state().reruns, 1);
+    }
+
     // The head that caught up with main is a new commit: the full run of the head before it says nothing of it, and one
     // is made for it.
     #[test]
@@ -3634,6 +3693,7 @@ timeout_ms = 1000
         the_tool_ci_gives_the_fast_run_it_made_and_what_it_ran(&mut r);
         a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
         a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
+        the_red_run_the_last_try_read_runs_again(&mut r);
         a_request_github_refuses_is_asked_once_and_told(&mut r);
     }
 }
