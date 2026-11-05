@@ -1,6 +1,7 @@
-/* The works: one table over the window's width, a group of rows for each project; and a work picked from it, in the
-   table's place: its line over its chart, and its panel on top of the window floating over the chart's right side, its
-   tabs an UnderlineNav over how it goes on and its rounds, its decision cards, its conversation and its usage. */
+/* The works: a group for each project, one under another, the project's head outside its table and the table over the
+   window's width; and a work picked from it, in the groups' place: its line over its chart, and its panel on top of the
+   window floating over the chart's right side, its tabs an UnderlineNav over how it goes on and its rounds, its
+   decision cards, its conversation and its usage. */
 
 .works-screen {
   flex: 1;
@@ -16,19 +17,31 @@
   overflow: auto;
 }
 
-/* The table's box is its scroll container's, which clips it to the rounded corners and scrolls it sideways in a narrow
-   window; the table inside has none of its own, so that a project's head, which sticks to the left of what scrolls, has
-   this one to stick in. The container measures its own width in container query units (cqw), which the head is as wide
-   as. */
-.works-wide {
+/* The groups one under another, --base-size-16 apart; a project's head is outside its table, in the window's flow, so
+   that its buttons stay in sight when a narrow window scrolls the table sideways. */
+.works-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
   margin-top: var(--base-size-16);
+}
+
+.works-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+/* A table's box is its scroll container's, which clips it to the rounded corners and scrolls it sideways in a narrow
+   window; the table inside has none of its own. */
+.works-wide {
   overflow-x: auto;
-  container-type: inline-size;
   border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
 }
 
-/* Every project's group has the same columns at the same widths, which the owner drags at the right edge of each
+/* Every project's table has the same columns at the same widths, which the owner drags at the right edge of each
    header and the page keeps; the item takes what the others leave, at least 240px, and a narrower window scrolls the
    table sideways. Every cell stays on one line, cut where its column ends and whole on hovering. */
 .works-table {
@@ -39,30 +52,6 @@ table.list.works-table {
   border: 0;
   border-radius: 0;
   overflow: visible;
-}
-
-/* A project's head row: its cell has no padding of its own and holds a block on a muted ground, with room above it
-   that parts it from the group before (none above the first, under the header), as wide as the container's visible
-   part and stuck to its left edge, so that the buttons at the head's right end stay in sight when the table scrolls
-   sideways. The cell lets the block stick: a cell that clips would be what it sticks in. */
-.works-table td.works-project-cell {
-  padding: 0;
-  overflow: visible;
-  background: var(--bgColor-default);
-}
-
-.works-project-head {
-  position: sticky;
-  left: 0;
-  box-sizing: border-box;
-  width: 100cqw;
-  margin-top: var(--base-size-16);
-  padding: var(--base-size-8) var(--base-size-12);
-  background: var(--bgColor-muted);
-}
-
-.works-table tbody:first-of-type .works-project-head {
-  margin-top: 0;
 }
 
 .works-table th,
@@ -82,6 +71,60 @@ table.list.works-table td {
 
 .works-table td.control-cell {
   cursor: default;
+}
+
+/* A work's number, a link to its conversation, with the mark of a conversation beside it. */
+.work-talk {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+/* How far a work has come: one narrow cell for each stage, as wide as the one letter in it, side by side with
+   --base-size-2 between. Gone through is the colour of success, where the work is stands out in the accent and, while it
+   waits, in the colour of waiting; the stages ahead are plain. */
+.stage-bar {
+  display: inline-flex;
+  gap: var(--base-size-2);
+  vertical-align: middle;
+}
+
+.stage-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--base-size-16);
+  height: var(--base-size-16);
+  border-radius: var(--borderRadius-small);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-semibold);
+  line-height: 1;
+}
+
+.stage-done {
+  background: var(--bgColor-success-muted);
+  color: var(--fgColor-success);
+}
+
+.stage-now {
+  background: var(--bgColor-accent-emphasis);
+  color: var(--fgColor-onEmphasis);
+}
+
+.stage-wait {
+  background: var(--bgColor-attention-emphasis);
+  color: var(--fgColor-onEmphasis);
+}
+
+.stage-ahead {
+  background: var(--bgColor-neutral-muted);
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+
+/* Where a work's time went: the usage tab's track, drawn at the height of a row. */
+.works-time .us-track {
+  height: var(--base-size-12);
 }
 
 /* The right edge of a column's header, which drags the column's width: a line in the accent under the pointer, as a

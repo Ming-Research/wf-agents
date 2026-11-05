@@ -1,22 +1,25 @@
-// Every work, or the one open. The list is one table over the window's width, a group of rows for each project: the
-// project's head (its name and, at the right end of the same row, the buttons that show or hide its works by state, the
-// very buttons of the list of conversations and the owner's one choice for both, done and ended works hidden at first),
-// then its architect, which opens the architect's page, then its works, newest first. The groups share the columns and
-// their widths, which the owner drags, and every cell stays on one line. A row says how its work goes on (a round
-// running, what holds it back, what it waits for), its state as it is in effect and why, and leads to its group in the
-// messages view, the one place the owner acts on it. A work opened from it takes the whole window under the bar, its
-// chart under a line that says which work it is, how it goes on and where, leads to its group, and to the other works
-// running or waiting with what each needs of the owner. The marks of rounds that went wrong open the work with only
-// those rounds.
+// Every work, or the one open. The list is a group for each project, one under another: the project's head outside the
+// table (its name, which folds and unfolds the group, and, at the right end of the same row, the buttons that show or
+// hide its works by state, the very buttons of the list of conversations and the owner's one choice for both, done and
+// ended works hidden at first), then its table: its architect, which opens the architect's page, then its works, newest
+// first. The groups' tables share the columns and their widths, which the owner drags, and every cell stays on one line.
+// A row says which work it is, its number leading to its group in the messages view, the one place the owner acts on it;
+// its item; how it goes on (a round running, what holds it back, what it waits for), its state as it is in effect and
+// why; how far it has come, one cell for each stage of its flow; the version of the flow it runs on; and where its time
+// went, a bar beside its cost. A work opened from it takes the whole window under the bar, its chart under a line that
+// says which work it is, how it goes on and where, leads to its group, and to the other works running or waiting with
+// what each needs of the owner. The marks of rounds that went wrong open the work with only those rounds.
 
+import { CommentDiscussionIcon } from '@primer/octicons-react';
 import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
-import type { ArchitectStanding, Status, WorkState, WorkSummary } from '../api';
+import type { ArchitectStanding, Status, WorkState, WorkSummary, WorkTime } from '../api';
 import { architectMark, architectTotals } from '../architect';
+import { barSpans, TimeTrack } from '../charts';
 import { course, liveState, Loaded, StateChip, WORK_TONE, WorkStateFilter } from '../components';
 import { sortedProjects } from '../conversation';
 import { bringUpWords, held } from '../course';
-import { cost, duration, time } from '../format';
+import { cost, duration } from '../format';
 import { useResource, useShared, useStatus } from '../live';
 import { ItemRef, PrLink, ProjectHead } from '../parts';
 import { architectHref, href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
@@ -24,6 +27,7 @@ import { t, tn } from '../text';
 import { joinedWords, SEP } from '../voices';
 import { HeadLine, State, Where, WorksBack } from './HeadLine';
 import { useTalkStates } from './Messages';
+import { StageBar } from './StageBar';
 import { Work } from './Work';
 import { RoundsMarks } from './WorkChart';
 
@@ -45,30 +49,43 @@ function ProjectAfter({ project }: { project: string | null }) {
   );
 }
 
-/// A work's row, every cell on one line, cut where its column ends and whole on hovering; its item opens from it, and
-/// its group in the messages view, where the owner acts on it, from its link.
-function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
+/// Where a work's time went in words, as the usage tab's bar says it on hovering: how long models, tools and the
+/// engine's steps worked and how long no round ran, from the first round to the last.
+export function timeWords(time: WorkTime): string {
+  const idle = Math.max(0, time.until - time.from - time.model_ms - time.tool_ms - time.engine_ms);
+  return joinedWords([
+    joinedWords([t('us_models'), duration(time.model_ms)]),
+    joinedWords([t('us_tools'), duration(time.tool_ms)]),
+    time.engine_ms >= 1000 ? joinedWords([t('us_engine'), duration(time.engine_ms)]) : null,
+    t('us_not_running_tip', { time: duration(idle) }),
+  ]);
+}
+
+/// A work's row, every cell on one line, cut where its column ends and whole on hovering. Its number leads to its group
+/// in the messages view, where the owner acts on it, with the mark of a conversation beside it; its item opens from its
+/// title, and the work from the rest of the row.
+export function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
   const status = useStatus();
-  const a = { c: course(w, status) };
+  const c = course(w, status);
   const item = w.item !== null ? `#${w.item} ${w.title ?? ''}` : w.graph;
-  const at = `${w.at} ${w.at_title ?? ''}`;
-  const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   return (
     <tr className="clickable" onClick={() => navigate(workHref(w.id, { tab }))}>
-      <td>{t('work_name', { id: w.id })}</td>
+      <td className="control-cell" onClick={(e) => e.stopPropagation()}>
+        <Link to={href({ page: 'messages', open: `work:${w.id}` })} className="work-talk" title={t('go_to_conversation_hint')}>
+          {t('work_name', { id: w.id })}
+          <CommentDiscussionIcon size={14} />
+        </Link>
+      </td>
       <td title={item}>
         {w.item !== null ? <ItemRef id={w.item} title={w.title} hint={`${item}\n${t('open_item')}`} /> : w.graph}
       </td>
-      <td className="state-cell" title={held(a.c, w) ?? w.ended ?? undefined}>
-        <State w={w} c={a.c} />
+      <td className="state-cell" title={held(c, w) ?? w.ended ?? undefined}>
+        <State w={w} c={c} />
       </td>
-      <td className="control-cell" onClick={(e) => e.stopPropagation()}>
-        <ConversationLink w={w} />
+      <td>
+        <StageBar w={w} c={c} />
       </td>
-      <td title={a.c.outdated ? `${at}\n${bringUpWords(w, status)}` : at}>
-        <Where w={w} c={a.c} />
-      </td>
-      <td title={stage}>{stage}</td>
+      <td className="num">{w.flow_version}</td>
       <td className="num" title={String(w.rounds)}>
         {w.rounds}
         <RoundsMarks w={w} to={(only) => workHref(w.id, { only })} />
@@ -76,11 +93,12 @@ function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
       <td className="num" title={duration(w.ran_ms)}>
         {duration(w.ran_ms)}
       </td>
-      <td title={time(w.last_at)}>{time(w.last_at)}</td>
+      <td className="works-time" title={timeWords(w.time)}>
+        <TimeTrack spans={barSpans(w.time.bar)} />
+      </td>
       <td className="num" title={cost(w.cost_usd)}>
         {cost(w.cost_usd)}
       </td>
-      <td title={w.pr !== null ? `#${w.pr}` : undefined}>{w.pr !== null ? `#${w.pr}` : ''}</td>
     </tr>
   );
 }
@@ -88,10 +106,10 @@ function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
 /// A project's architect's row, the first of its group: the columns of a work's row, read over all the architect's works.
 /// Its work is "Architect", its item the architect of the project, leading to its page, which the row opens too; its
 /// state is how the architect stands, as its mark in the list of conversations says it; it is at the cell of the work
-/// that goes on, or else the newest; its rounds, run time and cost are the sums over its works and its last activity
-/// the latest of theirs; it has no stage and no pull request. Its group in the messages view, where the owner speaks to
-/// it, is its link. The buttons that show or hide works by state leave it alone, as they leave the architect's row in
-/// the list of conversations.
+/// that goes on, or else the newest, said as the cell and its title in the progress column, where a work has its bar;
+/// its rounds, run time and cost are the sums over its works; it has no flow version, time bar or pull request. Its
+/// group in the messages view, where the owner speaks to it, is its number's link. The buttons that show or hide works
+/// by state leave it alone, as they leave the architect's row in the list of conversations.
 export function ArchitectRow({ a }: { a: ArchitectStanding }) {
   const status = useStatus();
   const mark = architectMark(a, status);
@@ -102,7 +120,16 @@ export function ArchitectRow({ a }: { a: ArchitectStanding }) {
   const at = w !== null ? `${w.at} ${w.at_title ?? ''}` : '';
   return (
     <tr className="clickable works-architect" onClick={() => navigate(page)}>
-      <td>{t('works_architect')}</td>
+      <td className="control-cell" onClick={(e) => e.stopPropagation()}>
+        <Link
+          to={href({ page: 'messages', open: `architect:${a.project}` })}
+          className="work-talk"
+          title={t('go_to_conversation_hint')}
+        >
+          {t('works_architect')}
+          <CommentDiscussionIcon size={14} />
+        </Link>
+      </td>
       <td title={name}>
         <Link to={page} title={t('talk_architect_page')}>
           {name}
@@ -113,12 +140,13 @@ export function ArchitectRow({ a }: { a: ArchitectStanding }) {
           <StateChip tone={WORK_TONE[mark.state]}>{mark.words}</StateChip>
         </span>
       </td>
-      <td className="control-cell" onClick={(e) => e.stopPropagation()}>
-        <Link to={href({ page: 'messages', open: `architect:${a.project}` })} title={t('go_to_conversation_hint')}>
-          {t('go_to_conversation')}
-        </Link>
+      <td title={at}>
+        {w !== null ? (
+          <>
+            <span className="cell-id">{w.at}</span> {w.at_title}
+          </>
+        ) : null}
       </td>
-      <td title={at}>{w !== null ? <Where w={w} c={course(w, status)} /> : null}</td>
       <td />
       <td className="num" title={String(total.rounds)}>
         {total.rounds}
@@ -126,28 +154,27 @@ export function ArchitectRow({ a }: { a: ArchitectStanding }) {
       <td className="num" title={duration(total.ran_ms)}>
         {duration(total.ran_ms)}
       </td>
-      <td title={time(total.last_at)}>{time(total.last_at)}</td>
+      <td />
       <td className="num" title={cost(total.cost_usd)}>
         {cost(total.cost_usd)}
       </td>
-      <td />
     </tr>
   );
 }
 
 /// The columns of the table, in order, with their headers and their own widths; the item takes what the others leave.
+/// The work's number leads to its conversation; its progress is the bar of its stages; the flow column holds a version's
+/// number alone; the time column is the bar of where its time went.
 const COLUMNS = [
-  { key: 'id', head: 'col_work', width: 96, num: false },
-  { key: 'item', head: 'col_item', width: null, num: false },
-  { key: 'state', head: 'col_state', width: 360, num: false },
-  { key: 'control', head: null, width: 110, num: false },
-  { key: 'at', head: 'col_at', width: 190, num: false },
-  { key: 'stage', head: 'col_stage', width: 120, num: false },
-  { key: 'rounds', head: 'col_rounds', width: 90, num: true },
-  { key: 'ran', head: 'col_ran', width: 90, num: true },
-  { key: 'last', head: 'col_last', width: 130, num: false },
-  { key: 'cost', head: 'col_cost', width: 80, num: true },
-  { key: 'pr', head: 'col_pr', width: 50, num: false },
+  { key: 'id', head: 'col_work', hint: null, width: 120, num: false },
+  { key: 'item', head: 'col_item', hint: null, width: null, num: false },
+  { key: 'state', head: 'col_state', hint: null, width: 320, num: false },
+  { key: 'progress', head: 'col_progress', hint: null, width: 180, num: false },
+  { key: 'flow', head: 'col_flow', hint: 'col_flow_hint', width: 64, num: true },
+  { key: 'rounds', head: 'col_rounds', hint: null, width: 90, num: true },
+  { key: 'ran', head: 'col_ran', hint: null, width: 90, num: true },
+  { key: 'time', head: 'col_time', hint: 'col_time_hint', width: 220, num: false },
+  { key: 'cost', head: 'col_cost', hint: null, width: 80, num: true },
 ] as const;
 
 type Column = (typeof COLUMNS)[number]['key'];
@@ -259,47 +286,41 @@ export const projectStates = (works: readonly WorkSummary[], status: Status | nu
 /// The id of the heading of a project's group, which the group is labelled by.
 const projectHeading = (project: string) => `works-project-${project}`;
 
-/// A project's head row, the first of its group: its name and, at the right end of the same row, the buttons that show
-/// or hide its works by state; none for a project with no work. Its cell spans the table and holds the head in a block
-/// as wide as the window's visible part, which stays at the left while the table scrolls sideways, so that the buttons
-/// are never scrolled out of sight.
-function ProjectRow({ project, states, shown, onShown }: {
-  project: string;
-  states: readonly WorkState[];
-  shown: readonly WorkState[];
-  onShown: (s: WorkState) => void;
-}) {
-  return (
-    <tr className="works-project">
-      <td colSpan={COLUMNS.length} className="works-project-cell">
-        <div className="works-project-head">
-          <ProjectHead id={projectHeading(project)} name={project}>
-            {states.length > 0 ? <WorkStateFilter states={states} shown={shown} onShown={onShown} /> : null}
-          </ProjectHead>
-        </div>
-      </td>
-    </tr>
-  );
+/// The id of the table a project's name folds.
+const projectBody = (project: string) => `works-body-${project}`;
+
+const FOLDED_KEY = 'wf-agents.works-folded';
+
+/// The projects whose group the owner folded, kept in this browser, where it lets the page keep them.
+function savedFolded(): string[] {
+  try {
+    const kept: unknown = JSON.parse(window.localStorage.getItem(FOLDED_KEY) ?? '[]');
+    return Array.isArray(kept) ? kept.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
-/// The works as one table: its header, then a group of rows for each project, by name as the list of conversations
-/// orders its projects (`sortedProjects`): the project's head, its architect, once read, and the works its buttons
-/// show. A row opens its work; what waits for the owner and the rounds that went wrong open that tab, or only those
-/// rounds.
-function Table({ works, architects, tab, widths, onWidths }: {
+function keepFolded(folded: string[]) {
+  try {
+    window.localStorage.setItem(FOLDED_KEY, JSON.stringify(folded));
+  } catch {
+    // The groups folded are kept only where the browser lets them be.
+  }
+}
+
+/// A project's table: the header of the columns, its architect, once read, and the works its buttons show.
+function GroupTable({ id, works, architect, tab, widths, onWidths }: {
+  id: string;
   works: WorkSummary[];
-  architects: ArchitectStanding[] | undefined;
+  architect: ArchitectStanding | undefined;
   tab: WorkTab;
   widths: Widths;
   onWidths: (w: Widths) => void;
 }) {
-  const status = useStatus();
-  const [shown, toggle] = useTalkStates();
   const fixed = COLUMNS.filter((c) => c.width !== null).reduce((sum, c) => sum + widthOf(widths, c.key), 0);
-  const projects = sortedProjects([...(architects ?? []).map((a) => a.project), ...works.map((w) => w.project ?? '')]);
-  if (projects.length === 0) return <p className="muted">{t('none')}</p>;
   return (
-    <div className="works-wide">
+    <div className="works-wide" id={id}>
       <table className="list works-table" style={{ minWidth: fixed + ITEM_MIN }}>
         <colgroup>
           {COLUMNS.map((c) => (
@@ -309,42 +330,74 @@ function Table({ works, architects, tab, widths, onWidths }: {
         <thead>
           <tr>
             {COLUMNS.map((c) => (
-              <th
-                key={c.key}
-                className={c.num ? 'num' : undefined}
-                aria-label={c.head === null ? t('col_control') : undefined}
-                title={c.head !== null ? t(c.head) : undefined}
-              >
-                {c.head !== null ? t(c.head) : null}
+              <th key={c.key} className={c.num ? 'num' : undefined} title={t(c.hint ?? c.head)}>
+                {t(c.head)}
                 <ColumnGrip column={c.key} widths={widths} onWidths={onWidths} />
               </th>
             ))}
           </tr>
         </thead>
-        {projects.map((p) => {
-          const mine = works.filter((w) => (w.project ?? '') === p);
-          const architect = architects?.find((a) => a.project === p);
-          return (
-            <tbody key={p} aria-labelledby={projectHeading(p)}>
-              <ProjectRow project={p} states={projectStates(mine, status)} shown={shown} onShown={toggle} />
-              {architect !== undefined ? <ArchitectRow a={architect} /> : null}
-              {shownWorks(mine, status, shown).map((w) => (
-                <Row key={w.id} w={w} tab={tab} />
-              ))}
-            </tbody>
-          );
-        })}
+        <tbody>
+          {architect !== undefined ? <ArchitectRow a={architect} /> : null}
+          {works.map((w) => (
+            <Row key={w.id} w={w} tab={tab} />
+          ))}
+        </tbody>
       </table>
     </div>
   );
 }
 
-/// A work's conversation in the messages view, where the owner acts on it.
-function ConversationLink({ w }: { w: WorkSummary }) {
+/// The works as a group for each project, by name as the list of conversations orders its projects (`sortedProjects`):
+/// the project's head outside its table, whose name folds the group and whose buttons show or hide its works by state,
+/// then its table. A row opens its work; what waits for the owner and the rounds that went wrong open that tab, or only
+/// those rounds.
+function Groups({ works, architects, tab, widths, onWidths }: {
+  works: WorkSummary[];
+  architects: ArchitectStanding[] | undefined;
+  tab: WorkTab;
+  widths: Widths;
+  onWidths: (w: Widths) => void;
+}) {
+  const status = useStatus();
+  const [shown, toggle] = useTalkStates();
+  const [folded, setFolded] = useState<string[]>(savedFolded);
+  const projects = sortedProjects([...(architects ?? []).map((a) => a.project), ...works.map((w) => w.project ?? '')]);
+  if (projects.length === 0) return <p className="muted">{t('none')}</p>;
+  const fold = (p: string) => {
+    const next = folded.includes(p) ? folded.filter((x) => x !== p) : [...folded, p];
+    setFolded(next);
+    keepFolded(next);
+  };
   return (
-    <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
-      {t('go_to_conversation')}
-    </Link>
+    <div className="works-groups">
+      {projects.map((p) => {
+        const mine = works.filter((w) => (w.project ?? '') === p);
+        const states = projectStates(mine, status);
+        const open = !folded.includes(p);
+        return (
+          <section key={p} className="works-group" aria-labelledby={projectHeading(p)}>
+            <ProjectHead
+              id={projectHeading(p)}
+              name={p}
+              fold={{ open, onToggle: () => fold(p), controls: projectBody(p), hint: t('works_fold_hint') }}
+            >
+              {states.length > 0 ? <WorkStateFilter states={states} shown={shown} onShown={toggle} /> : null}
+            </ProjectHead>
+            {open ? (
+              <GroupTable
+                id={projectBody(p)}
+                works={shownWorks(mine, status, shown)}
+                architect={architects?.find((a) => a.project === p)}
+                tab={tab}
+                widths={widths}
+                onWidths={onWidths}
+              />
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
   );
 }
 
@@ -402,7 +455,7 @@ export function Works({ work }: { work: WorkRoute | null }) {
       {/* The table stays as it was, its buttons as they were set, while a work is open in its place. */}
       <div className="works-lists" style={work !== null ? { display: 'none' } : undefined}>
         <Loaded r={works}>
-          {(list) => <Table works={list} architects={architects} tab={tab} widths={widths} onWidths={setWidths} />}
+          {(list) => <Groups works={list} architects={architects} tab={tab} widths={widths} onWidths={setWidths} />}
         </Loaded>
       </div>
       {work !== null ? (

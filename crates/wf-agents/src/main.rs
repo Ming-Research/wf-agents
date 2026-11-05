@@ -833,6 +833,7 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         releasing: Vec::new(),
         waiting_for_slot: e.waiting_for_slot()?,
         stopping: db::stopping(e.db.conn()).map_err(|x| x.to_string())?,
+        engine_stopping: false,
         architects_started: Vec::new(),
         running: Vec::new(),
         stepping: Vec::new(),
@@ -1113,6 +1114,15 @@ fn serve(
         }
     }
     e.say("stopping: no more is dispatched, and the jobs in flight are waited for");
+    // The page is told before the wait: works that go on by themselves are not running while the engine only waits for
+    // the steps in flight, and the page shows them so.
+    control.set_engine_stopping();
+    let standing = status(e, last.as_ref(), started_at);
+    if let Some(now) = e.faulted("reading how the engine stands", standing) {
+        bus.publish(api::Event::Status {
+            status: Box::new(control.status(now)),
+        });
+    }
     for s in e.drain()? {
         took(e, &control, &mut last, &s);
     }

@@ -159,10 +159,13 @@ export function course(w: WorkSummary, status: Status | null): Course {
   // out of reach: the page cannot tell what it does. A work that goes on, nothing holding it back or making it wait, works
   // between two steps of the engine: its next step is due (`ready`), or the works as read still show the round its last
   // step ended (`running`, as the works are read at most once in a while and the status is live) and the next step takes
-  // it. Both would otherwise make the stage's mark go out and come back at each step.
+  // it. Both would otherwise make the stage's mark go out and come back at each step. While the engine stops it takes no
+  // next step: only the steps in flight (`running`) and the tools under way work, and a work that was to go on waits for
+  // the engine to start again.
   const tool = status !== null && w.running?.tool === true;
   const goesOn =
     status !== null &&
+    !status.engine_stopping &&
     status.halt === null &&
     held === null &&
     !slot &&

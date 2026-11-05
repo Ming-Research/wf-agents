@@ -25,6 +25,7 @@ const engine = vi.hoisted(() => ({
     stopping: [],
     stepping: [],
     architects_started: [],
+    engine_stopping: false,
     flow_version: 2,
     halt: null,
   } as unknown as Status,

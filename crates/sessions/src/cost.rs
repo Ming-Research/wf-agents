@@ -158,6 +158,12 @@ pub fn context_end(usage: &Value) -> Option<i64> {
     usage.get("usage")?.get("iterations")?.as_array()?.last().map(prompt)
 }
 
+/// The context a round's first call was sent with, from its usage record: the prompt of that call, which the record
+/// keeps apart from the last ([`FIRST_CALL`]). None for a record that does not keep it.
+pub fn context_first(usage: &Value) -> Option<i64> {
+    usage.get(FIRST_CALL).map(prompt)
+}
+
 /// What each kind of a round's own tokens cost, from its usage record: the totals of the calls the round made on its
 /// model, at the model's prices for its last call's prompt, since the record sums the calls and keeps only the last.
 /// They add up to the round's cost when those calls are all it cost; what a compaction or a subagent spent is in its
