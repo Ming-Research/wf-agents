@@ -437,6 +437,8 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
         json!([1500, 0, null, null]),
         "{signals}"
     );
+    let text = numbers.to_string();
+    assert_eq!(text.len(), 0, "{text}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
