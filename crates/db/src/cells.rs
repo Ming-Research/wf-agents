@@ -21,7 +21,7 @@
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
-const BEFORE: [(&str, &str, &[&str]); 84] = [
+const BEFORE: [(&str, &str, &[&str]); 86] = [
     ("engineer", "S0", &["U0"]),
     ("engineer", "S1", &["0", "start", "S0"]),
     ("engineer", "G1", &[]),
@@ -60,6 +60,8 @@ const BEFORE: [(&str, &str, &[&str]); 84] = [
     ("engineer", "M2", &["9", "merge_queue", "merge.queue"]),
     ("engineer", "L1", &["10", "watch_main"]),
     ("engineer", "L2", &[]),
+    ("engineer", "W1", &[]),
+    ("engineer", "W2", &[]),
     ("engineer", "A4", &["11", "way_on", "ask.way_on"]),
     ("engineer", "A5", &["11a", "back", "ask.back"]),
     ("engineer", "A6", &["11b", "wait_items", "ask.wait_items"]),

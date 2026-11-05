@@ -179,6 +179,15 @@ fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     );
 }
 
+// The name of a project's main branch is that project's setting (`main`), so the flow writes it `origin/<main>`: a command
+// the flow gives with `origin/main` written out names no ref in a project whose main branch has another name.
+#[test]
+fn the_flow_writes_a_projects_main_branch_by_no_name_of_its_own() {
+    assert!(FLOW.contains("origin/<main>"));
+    let written: Vec<&str> = FLOW.lines().filter(|l| l.contains("origin/main")).collect();
+    assert!(written.is_empty(), "{written:?}");
+}
+
 // The cells that read the histories and the observations judge what matters in a great many records, so they think:
 // the librarian's two cells and the architect's look-up at high effort, the search of observations at medium, and no
 // cell of any graph at low, which does not think. A line cannot hold low cells beside others.
@@ -1671,16 +1680,17 @@ fn a_null_in_a_field_of_another_form_is_left_out_and_told() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let given: Map<String, Value> = samples["L2"][0]["given"].as_object().cloned().unwrap();
     let mut learned = samples["L2"][0]["json"].clone();
     learned["outcome"]["ask"] = Value::Null;
-    assert!(g.take("L2", &learned, &Map::new()).is_err());
+    assert!(g.take("L2", &learned, &given).is_err());
     let schema = g.cell("L2").unwrap().schema.clone().unwrap();
     assert_eq!(flow::without_null_options(&schema, &mut learned), ["outcome.ask"]);
-    assert_eq!(g.take("L2", &learned, &Map::new()).unwrap().name, "done");
+    assert_eq!(g.take("L2", &learned, &given).unwrap().name, "done");
     let mut only = samples["L2"][0]["json"].clone();
     only["outcome"] = serde_json::json!({ "ask": null });
     assert_eq!(flow::without_null_options(&schema, &mut only), Vec::<String>::new());
-    assert!(g.take("L2", &only, &Map::new()).is_err());
+    assert!(g.take("L2", &only, &given).is_err());
 }
 
 // The fix has an answer for a row it fixed in no commit, which gives where the fix is and no commit; the ci tool takes a
@@ -1907,6 +1917,86 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(merged.to, "L2");
     let l2 = g.cell("L2").unwrap();
     assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
+    assert_eq!(l2.rows.iter().find(|r| r.name == "verify").unwrap().to, "W1");
+}
+
+// A work whose acceptance holds a condition written in_effect goes on after what it learned: it waits, holding no slot
+// and counting nothing, until its change took effect, and each row that lets it on starts a new session of the engineer's
+// line, so that no session is kept warm through the wait. Its looks that find the evidence not there yet are counted,
+// and past the limit, or for what does not hold, it reports and ends. The acceptance and the conditions take the kind,
+// and a condition with no command to run fits no schema.
+#[test]
+fn a_work_with_a_condition_in_effect_waits_for_its_change_and_checks_it_with_a_real_run() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let wait = g.cell("W1").unwrap();
+    assert_eq!(wait.kind, "engine");
+    let row = |cell: &str, name: &str| {
+        g.cell(cell)
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("{cell} has no row {name}"))
+            .clone()
+    };
+    for name in ["not_carried", "cannot_tell", "not_due"] {
+        let waits = row("W1", name);
+        assert!(waits.waits && waits.to == "W1" && waits.counts.is_none(), "{name}");
+    }
+    let does = |r: &flow::CompiledRow, what: &str| r.actions.iter().any(|d| d.name() == what);
+    assert!(does(&row("W1", "cannot_tell"), "tell_wait"));
+    assert!(does(&row("W1", "never_in_effect"), "report_verification"));
+    assert_eq!(row("W1", "never_in_effect").to, "E1");
+    assert_eq!(
+        g.cell("W2").unwrap().fresh_session,
+        ["W1·words".to_string(), "W1·look".to_string()]
+    );
+    assert_eq!(row("W2", "again").to, "W1");
+    assert_eq!(row("W2", "again").counts.as_deref(), Some("verification_looks"));
+    for name in ["past_looks", "failed", "unjudged"] {
+        assert!(does(&row("W2", name), "report_verification"), "{name}");
+        assert_eq!(row("W2", name).to, "E1");
+    }
+    assert!(!does(&row("W2", "verified"), "report_verification"));
+    // Waiting, each way on, then a look that sends it back, and a look that ends it.
+    let waiting = sampled("L2", "verify", &[]);
+    let look = engine_step(&[("interjection", "no"), ("in_effect", "yes"), ("look_due", "yes")]);
+    let steps = [
+        sampled("S1", "started", &[]),
+        sampled("R0", "done", &[]),
+        sampled("R1", "start", &[]),
+        sampled("I1", "done", &[]),
+        sampled("T2", "done", &[]),
+        sampled("T3", "clear", &[]),
+        engine_step(&[("gates", "clear"), ("interjection", "no"), ("cancelled", "no")]),
+        sampled("M2", "merged", &[]),
+        waiting,
+        look.clone(),
+        sampled("W2", "again", &[]),
+        look,
+        sampled("W2", "verified", &[]),
+    ];
+    assert_eq!(
+        walked(g, &steps),
+        [
+            "S1", "R0", "R1", "I1", "T2", "T3", "M1", "M2", "L2", "W1", "W2", "W1", "W2", "E1"
+        ]
+    );
+    // The kind as a return writes it: every field is asked for.
+    let schema = g.cell("D2").unwrap().schema.clone().unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut design = samples["D2"][0]["json"].clone();
+    let whole = serde_json::json!({
+        "by": "in_effect", "id": "A2", "condition": "The median holds.", "when": "merged", "tool": "query",
+        "command": "SELECT 1", "holds": "It is 1.", "enough": "none",
+    });
+    design["outcome"]["design"]["acceptance"] = serde_json::json!([whole.clone()]);
+    assert!(flow::valid(&schema, &design));
+    let mut no_command = whole;
+    no_command.as_object_mut().unwrap().remove("command");
+    design["outcome"]["design"]["acceptance"] = serde_json::json!([no_command]);
+    assert!(!flow::valid(&schema, &design));
 }
 
 /// A cell's return that takes the row `row`, from the samples, given the values of its sample and those of `more`.

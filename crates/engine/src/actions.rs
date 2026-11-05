@@ -710,6 +710,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             );
             notify(tx, Some(w), &text)?;
         }
+        "tell_wait" => crate::verification::tell_wait(ctx, tx)?,
+        "report_verification" => crate::verification::report(ctx, tx)?,
         "report_stuck" => {
             let now = ctx.output["to"].as_i64().unwrap_or_default();
             report_stuck(tx, w, now, ctx.output["why"].as_str().unwrap_or_default())?;

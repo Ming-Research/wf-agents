@@ -808,6 +808,14 @@ pub struct Project {
     /// [`RESEARCH_ROUNDS`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub research_rounds: Option<u64>,
+    /// How many hours a merged work whose acceptance holds a condition written in_effect waits for its change to take
+    /// effect before it reports the condition unverified and ends; none, and [`INSTALL_WAIT_HOURS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_wait_hours: Option<u64>,
+    /// How many times the check of such a condition may find its evidence not there yet and send the work back to wait,
+    /// before it reports the condition unverified and ends; none, and [`VERIFICATION_LOOKS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_looks: Option<u64>,
     /// The lock files whose dependencies' source an agent may have put in its worktree to read, each with the command
     /// that does it ([`DependencySources`]); none, and the tool `dependency_sources` refuses and says so. Left out of
     /// the settings an agent is shown when empty, which they read as `none`. An engine that does not include the tool
@@ -815,6 +823,13 @@ pub struct Project {
     /// an engine that includes the tool is installed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependency_sources: Vec<DependencySources>,
+    /// The lock files an agent may have brought in line with their manifests, each with the command that does it
+    /// ([`LockUpdate`]); none, and the tool `lock_update` refuses and says so. Left out of the settings an agent is shown
+    /// when empty, which they read as `none`. An engine that does not include the tool refuses a project's file that has
+    /// the field, since a field the types do not know is an error: add it only once an engine that includes the tool is
+    /// installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lock_updates: Vec<LockUpdate>,
 }
 
 /// One lock file of a project, with the command the engine's tool `dependency_sources` runs to put the source of what
@@ -839,8 +854,9 @@ pub struct Project {
 /// # The directory the command fills, by its path in the repository; git must ignore it.
 /// into = "target/dependency-sources"
 /// # Run in the worktree's root, split into words as a shell would, never through one; --locked keeps cargo from
-/// # changing the lock file.
-/// command = "cargo vendor --locked --versioned-dirs target/dependency-sources"
+/// # changing the lock file, and RUSTUP_AUTO_INSTALL=0 makes a machine that lacks the toolchain rust-toolchain.toml names
+/// # fail, not download it.
+/// command = "env RUSTUP_AUTO_INSTALL=0 cargo vendor --locked --versioned-dirs target/dependency-sources"
 ///
 /// [[dependency_sources]]
 /// lock = "client/package-lock.json"
@@ -863,14 +879,57 @@ pub struct DependencySources {
     /// run without a shell in the root of the work's worktree.
     pub command: String,
     /// How many seconds the command may run before the engine stops it, and everything it started; none, and
-    /// [`DEPENDENCY_SOURCES_TIMEOUT`].
+    /// [`COMMAND_TIMEOUT`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
 }
 
-/// How many seconds a dependency sources command may run where the project sets no other limit: a hung command is
-/// stopped, and the limit is far above what a fetch of one project's packages takes.
-pub const DEPENDENCY_SOURCES_TIMEOUT: u64 = 600;
+/// One lock file of a project, with the command the engine's tool `lock_update` runs to bring it in line with its
+/// manifest, after an agent changed the manifest as it changes code. The agent gives the tool nothing but the lock file.
+/// The tool knows no language and no lock file format: it runs the words of `command` in the directory that holds the
+/// lock file in the work's worktree, so the command need not know the project's layout, and what they do with the lock
+/// file is theirs. So a project of any language writes the command of its own, one that needs a shell writes
+/// `sh -c '...'` itself, and one that needs an environment variable writes `env NAME=value ...`: the engine sets none.
+///
+/// The command must write only the lock file, and must compile nothing and run no code of a package. It must also move
+/// nothing the manifest does not ask to move: a bare `cargo update` upgrades every dependency, which `--workspace` does
+/// not.
+///
+/// Written as `[[lock_updates]]` tables in the project's file, one for each lock file:
+///
+/// ```toml
+/// [[lock_updates]]
+/// # The lock file, by its path in the repository; the command runs in the directory that holds it.
+/// lock = "Cargo.lock"
+/// # Split into words as a shell would, never run through one. --workspace locks only what the manifests newly ask for;
+/// # RUSTUP_AUTO_INSTALL=0 makes a machine that lacks the toolchain rust-toolchain.toml names fail, not download it.
+/// command = "env RUSTUP_AUTO_INSTALL=0 cargo update --workspace"
+///
+/// [[lock_updates]]
+/// lock = "client/package-lock.json"
+/// # Run in client/; --package-lock-only writes only the lock file, and --ignore-scripts runs no script of a package.
+/// command = "npm install --package-lock-only --ignore-scripts"
+/// # Optional: how many seconds the command may run before the engine stops it and what it started; 600 unless set.
+/// timeout = 600
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LockUpdate {
+    /// The lock file, by its path in the repository; what an agent names to ask for it to be brought in line.
+    pub lock: String,
+    /// The command, as one line: split into words as a shell splits a line (quotes group, a backslash escapes), and
+    /// run without a shell in the directory that holds the lock file.
+    pub command: String,
+    /// How many seconds the command may run before the engine stops it, and everything it started; none, and
+    /// [`COMMAND_TIMEOUT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+}
+
+/// How many seconds a command an engine tool takes from the project's configuration may run where the project sets no
+/// other limit: a hung command is stopped, and the limit is far above what a fetch or an update of one project's packages
+/// takes.
+pub const COMMAND_TIMEOUT: u64 = 600;
 
 /// A path in a repository as the parts it names, so that `a/b`, `a/b/` and `./a/b` are one.
 fn parts(path: &str) -> Vec<std::path::Component<'_>> {
@@ -893,13 +952,43 @@ impl DependencySources {
 
     /// How many seconds the command may run.
     pub fn timeout_secs(&self) -> u64 {
-        self.timeout.unwrap_or(DEPENDENCY_SOURCES_TIMEOUT)
+        self.timeout.unwrap_or(COMMAND_TIMEOUT)
+    }
+}
+
+impl LockUpdate {
+    /// Whether `lock` names this entry's lock file, as `Cargo.lock` and `./Cargo.lock` both do.
+    pub fn locks(&self, lock: &str) -> bool {
+        parts(&self.lock) == parts(lock)
+    }
+
+    /// The lock file, as a path from the repository's root.
+    pub fn file(&self) -> PathBuf {
+        parts(&self.lock).into_iter().collect()
+    }
+
+    /// How many seconds the command may run.
+    pub fn timeout_secs(&self) -> u64 {
+        self.timeout.unwrap_or(COMMAND_TIMEOUT)
     }
 }
 
 /// How many rounds the initial research runs before it is asked whether the work can be started directly, where the
 /// project sets no other bound: on the trial board the research took 3 rounds at the median, 5 at p90 and 8 at most.
 pub const RESEARCH_ROUNDS: u64 = 6;
+
+/// How many hours a merged work waits for its change to take effect, where the project sets no other limit. Measured on
+/// 2026-11-04 over the 39 merges of this flow on main that an installed build has taken in, each from its merge to the
+/// first round of a build holding it: 17 minutes at least, 2.0 hours at the median, 23.4 hours at p90 and 26.2 hours at
+/// most; the longest two installed builds were ever apart is 62 hours. Installing is done by hand, so the limit stays
+/// above the longest of these.
+pub const INSTALL_WAIT_HOURS: u64 = 72;
+
+/// How many times the check of a condition written in_effect may send the work back to wait, where the project sets no
+/// other limit. Taken with its wait of two days at most, the work ends within 16 days of the change taking effect, and
+/// within 19 of its merge with the limit of the wait above: the longest a work ran on the trial board, as far as the
+/// evidence "a work that ran after the change" could need, was 6.2 days (measured on 2026-11-04).
+pub const VERIFICATION_LOOKS: u64 = 8;
 
 /// Where a project keeps its records, and how they are checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1633,15 +1722,7 @@ impl Config {
                         d.into
                     ));
                 }
-                // The command is run as its words, never through a shell: it must have some, and a quote must close.
-                match words(&d.command) {
-                    Err(why) => problems.push(format!("{at}: command cannot be split into words: {why}")),
-                    Ok(w) if w.is_empty() => problems.push(format!("{at}: command holds no word")),
-                    Ok(_) => {}
-                }
-                if d.timeout == Some(0) {
-                    problems.push(format!("{at}: timeout is 0; it is the seconds the command may run"));
-                }
+                command_problems(&at, &d.command, d.timeout, &mut problems);
                 // An agent names an entry by its lock file, and a directory is filled by one command only.
                 for other in &p.dependency_sources[..i] {
                     if other.locks(&d.lock) {
@@ -1653,6 +1734,18 @@ impl Config {
                             other.lock, d.into
                         ));
                     }
+                }
+            }
+            for (i, u) in p.lock_updates.iter().enumerate() {
+                let at = format!("projects/{name}.toml: lock_updates of {:?}", u.lock);
+                // The lock file is a path of the project's repository, and the command runs in its directory there.
+                if !in_repository(Path::new(&u.lock)) {
+                    problems.push(format!("{at}: lock is not a path in the project's repository"));
+                }
+                command_problems(&at, &u.command, u.timeout, &mut problems);
+                // An agent names an entry by its lock file.
+                if p.lock_updates[..i].iter().any(|other| other.locks(&u.lock)) {
+                    problems.push(format!("{at}: lock is listed twice"));
                 }
             }
             let mut tags = BTreeSet::new();
@@ -1899,6 +1992,19 @@ pub fn words(line: &str) -> Result<Vec<String>, String> {
         out.push(cur);
     }
     Ok(out)
+}
+
+/// What is wrong with a command an engine tool takes from a project's file and the seconds it may run. The command is
+/// run as its words, never through a shell: it must have some, and a quote must close.
+fn command_problems(at: &str, command: &str, timeout: Option<u64>, problems: &mut Vec<String>) {
+    match words(command) {
+        Err(why) => problems.push(format!("{at}: command cannot be split into words: {why}")),
+        Ok(w) if w.is_empty() => problems.push(format!("{at}: command holds no word")),
+        Ok(_) => {}
+    }
+    if timeout == Some(0) {
+        problems.push(format!("{at}: timeout is 0; it is the seconds the command may run"));
+    }
 }
 
 /// Whether a path names something inside a repository from its root: relative, never going up (`..`), and naming more
@@ -3180,6 +3286,25 @@ asks = 9
         // Nothing else is said: the faults are those and no others.
         let ours = e.problems.iter().filter(|p| p.contains("dependency_sources")).count();
         assert_eq!(ours, 7, "{e}");
+    }
+
+    // A lock update names its lock file as `./Cargo.lock` as well as `Cargo.lock`, gives the path the tool works from, and
+    // may run for 600 seconds unless it says otherwise.
+    #[test]
+    fn a_lock_update_names_its_lock_file_however_it_is_spelled_and_has_a_time_limit_unless_set() {
+        let of = |lock: &str, timeout| LockUpdate {
+            lock: lock.to_string(),
+            command: "true".to_string(),
+            timeout,
+        };
+        let root = of("./Cargo.lock", None);
+        assert!(root.locks("Cargo.lock") && root.locks("./Cargo.lock"));
+        assert!(!root.locks("client/Cargo.lock"));
+        assert_eq!(root.file(), PathBuf::from("Cargo.lock"));
+        assert_eq!(root.timeout_secs(), 600);
+        let below = of("client/package-lock.json", Some(90));
+        assert_eq!(below.file(), PathBuf::from("client/package-lock.json"));
+        assert_eq!(below.timeout_secs(), 90);
     }
 
     // The engine reads the last commit; the working tree's changes count only once committed.

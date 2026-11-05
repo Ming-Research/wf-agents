@@ -1,5 +1,6 @@
 //! The tool cells: the tools agents ask for (cell `X1`, in each graph; `dependency_sources` is in
-//! [`crate::dependency_sources`]), the full CI on the draft (`T2`), the merge queue (`M2`) and watching main (`L1`).
+//! [`crate::dependency_sources`], `lock_update` in [`crate::lock_update`]), the full CI on the draft (`T2`), the merge
+//! queue (`M2`) and watching main (`L1`).
 //! Each attempt of a tool is a row of tool_runs under the cell's round. A tool that fails is tried twice more; a
 //! refusal is a result, not a failure, and is not tried again.
 
@@ -120,6 +121,13 @@ pub(crate) fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String
             format!("{}\n[cut at {end} bytes; saving the rest failed: {x}]", &text[..end])
         }
     }
+}
+
+/// The file a text [`inline_or_saved`] gave says the whole of it was saved to; none for a text given here.
+pub(crate) fn saved_to(text: &str) -> Option<&str> {
+    text.strip_prefix("Too long to give here (")?
+        .split_once("; saved to ")
+        .map(|(_, path)| path)
 }
 
 /// The rows a query found as the flow's query tool gives them: the rows themselves, each an object, when they are short
@@ -748,6 +756,7 @@ pub fn run_tools(
             ("query", _) => query(e, round, n, req),
             ("decision_history", _) => decision_history(e, w, project.as_ref(), round, n, req),
             ("dependency_sources", _) => crate::dependency_sources::run(e, w, project.as_ref(), round, n, req),
+            ("lock_update", _) => crate::lock_update::run(e, w, project.as_ref(), round, n, req),
             (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
         };
         got.push((n, tool.clone(), ran));

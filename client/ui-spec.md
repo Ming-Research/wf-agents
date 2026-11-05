@@ -1118,7 +1118,8 @@ that asked; each line opens to its progress notes.
 The problem is the engineer's understanding once research has run, the item as written folded under it; the design is
 the approach chosen as its heading, the design itself and the measure, with where it changes, what it leaves out, its
 pitfalls, why and the approaches compared folded; the acceptance is shown once, the locked one with the round that
-locked it, each condition with how the work said it was met.
+locked it, each condition with how the work said it was met. A condition checked after the merge says so in a sentence, in
+place of how it was met, with what result means it holds; what its checks came to is not shown yet.
 
 Under the acceptance, only on an item that has any, the merge conditions, what the owner set to be done before its work
 merges: a list of the document's shape (`DocList`), each with its sentence as its lead, where it stands as a `Label` beside

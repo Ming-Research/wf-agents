@@ -119,7 +119,9 @@ What stands behind the larger segments:
 - **The engine's own 27 s** (12.4% of `ci`, 16.8% of `ci_before`). The engine looks at a running workflow every 20 s
   (read: `poll` in `Gh::new`, `crates/engine/src/hub.rs`). The time after the run ended ranges from 8 s to 53 s with
   median 18 s: a floor of about 8 s for reading the jobs and the results, and, if the run ends at a random moment in a
-  20 s wait, 10 s more on the mean (inferred from the shape: the floor and the mean match; not isolated).
+  20 s wait, 10 s more on the mean (inferred from the shape: the floor and the mean match; not isolated). Item #289
+  changed the look to every 5 s, each look a conditional request that costs nothing against GitHub's rate limit when
+  nothing changed; what it costs is measured in `ci-poll-cost.md`, and these 27 s are those before it.
 
 | Job (log) | Day, UTC | Restored build state | `npm ci` | vite | Compile (`Finished`) | Tests run (nextest) |
 |---|---|---|---|---|---|---|

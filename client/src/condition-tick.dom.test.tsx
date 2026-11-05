@@ -206,7 +206,7 @@ describe('the tick of a merge condition', () => {
     let h = await show(<Composer c={work} w={at('M2')} />);
     expect(tick(h)).not.toBeNull();
     await leave();
-    for (const cell of ['L2', 'L1']) {
+    for (const cell of ['L2', 'W1', 'W2', 'L1']) {
       h = await show(<Composer c={work} w={at(cell)} />);
       expect(tick(h)).toBeNull();
       await leave();
