@@ -1,6 +1,6 @@
 // The page's own stylesheets, in the order the cascade needs, after Primer's tokens and themes. The page's entry
-// (main.tsx) and the browser test of the flow page (graph/Viewer.browser.test.tsx) import this one list, so that a
-// stylesheet added here is in the page and in what the test draws.
+// (main.tsx) and the browser tests (graph/Viewer.browser.test.tsx, pages/Quote.browser.test.tsx) import this one list,
+// so that a stylesheet added here is in the page and in what a test draws.
 
 import './styles/theme.css';
 import './styles/tokens.css';
