@@ -14,7 +14,8 @@ of a design, take a delegate's answer too.
 
 ## Why
 
-The owner's own answer at the work's group, on the design of item #261, in translation from the interjection to round R309-58:
+The owner's answer on the design of item #261, relayed in the work's group by the delegate, who declared it the owner's and
+whose words the engine did not check; in translation from the interjection given to round R309-58:
 "You are the assistant: what is marked as relayed by the assistant counts. It does not need me myself." The owner is often away,
 and a work with a condition would otherwise stand at the gate until the owner came back. The mark keeps what a wrong merge
 needs to be traced: who judged it, and on which ask.
@@ -24,7 +25,7 @@ needs to be traced: who judged it, and on which ask.
 - Only the owner's own answer judges; a delegate's goes to the engineer as words and the condition stays open. A wrong judgment
   is hardest this way, and it was the recommendation at the review. But every work with a condition waits for the owner while the
   owner is away, each answer of the delegate's costs a round of the choice of the way, and the same gate would hold two rules on
-  whose answer counts. The implementation first went this way, by the recommendation, until the owner chose.
+  whose answer counts. The implementation first went this way, by the recommendation, until the owner's answer above came.
 
 ## Challenges considered and turned down
 
