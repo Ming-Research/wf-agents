@@ -95,7 +95,7 @@ const served = new Map<string, unknown>([
   ['/api/v1/flows/lines', []],
 ]);
 
-const ROUTE: Route = { page: 'flow', version: null, graph: null, cell: null, project: null, ref: null, snapshot: null, from: null };
+const ROUTE: Extract<Route, { page: 'flow' }> = { page: 'flow', version: null, graph: null, cell: null, project: null, ref: null, snapshot: null, from: null };
 
 /// Every key the page saw, as it ended up once the whole page had handled it, and where the pointer last moved.
 const keys: Array<{ code: string; prevented: boolean }> = [];
@@ -134,12 +134,12 @@ function find<T extends HTMLElement>(selector: string): T {
 }
 
 /// The page's flow screen, as the page draws it under its bar, with the page's styles and Primer's theme.
-async function openFlowPage(): Promise<void> {
+async function openFlowPage() {
   const root = document.documentElement;
   root.setAttribute('data-color-mode', 'auto');
   root.setAttribute('data-light-theme', 'light');
   root.setAttribute('data-dark-theme', 'dark');
-  await render(
+  const screen = await render(
     <ThemeProvider colorMode="auto">
       <BaseStyles>
         <div className="app app-screen">
@@ -157,7 +157,8 @@ async function openFlowPage(): Promise<void> {
     .poll(
       () => {
         const stage = document.querySelector<HTMLElement>('.viewer-stage');
-        const now = stage === null || stage.style.transform === '' ? '' : JSON.stringify(seen().d);
+        const s = stage === null || stage.style.transform === '' ? null : seen();
+        const now = s === null ? '' : JSON.stringify([s.zoom, s.left, s.top]);
         const still = now !== '' && now === last;
         last = now;
         return still;
@@ -165,6 +166,7 @@ async function openFlowPage(): Promise<void> {
       { timeout: 15_000, interval: 100 },
     )
     .toBe(true);
+  return screen;
 }
 
 /// Where the drawing is on the screen: its zoom (its width on the screen over its width in the layout), and how far
@@ -191,13 +193,13 @@ function whole(): boolean {
   return Math.min(s.left, s.top, s.right, s.bottom) >= -0.5 && Math.abs(Math.min(s.left, s.top) - 16) <= 1.5;
 }
 
-/// Whether the drawing is where it was (`before`, from `seen`), to within a fraction of a pixel.
+/// Whether the drawing is where it was in the viewer (`before`, from `seen`), to within a fraction of a pixel.
 function unmoved(before: ReturnType<typeof seen>): boolean {
   const now = seen();
   return (
     Math.abs(now.zoom - before.zoom) < 0.001 &&
-    Math.abs(now.d.left - before.d.left) < 0.5 &&
-    Math.abs(now.d.top - before.d.top) < 0.5
+    Math.abs(now.left - before.left) < 0.5 &&
+    Math.abs(now.top - before.top) < 0.5
   );
 }
 
@@ -228,10 +230,30 @@ describe('Space on the flow page, in a real browser', () => {
 
     await userEvent.keyboard(' ');
     expect(keys[1]).toEqual({ code: 'Space', prevented: true });
-    // Back at the zoom it left, with that point in the middle of the viewer's height.
-    await expect.poll(() => Math.abs(seen().zoom - opened.zoom) < 0.01, { timeout: 3000 }).toBe(true);
-    const back = seen();
-    expect(Math.abs(back.d.top + under.y * back.zoom - (back.v.top + back.v.height / 2))).toBeLessThan(2);
+    // Back at the zoom it left, with that point in the middle of the viewer's height; the move is under way until both
+    // hold.
+    await expect
+      .poll(
+        () => {
+          const back = seen();
+          const middle = back.d.top + under.y * back.zoom - (back.v.top + back.v.height / 2);
+          return Math.abs(back.zoom - opened.zoom) < 0.001 && Math.abs(middle) < 1.5;
+        },
+        { timeout: 3000 },
+      )
+      .toBe(true);
+  });
+
+  it('works on a chart drawn again under a pointer that does not move', async () => {
+    const page = await openFlowPage();
+    await userEvent.hover(find('.viewer'));
+    // The chart is drawn anew, as when it is laid out again: its viewer is new, and the pointer sends it no event.
+    await page.unmount();
+    await openFlowPage();
+    expect(whole()).toBe(false);
+    await userEvent.keyboard(' ');
+    expect(keys[0]).toEqual({ code: 'Space', prevented: true });
+    await expect.poll(whole, { timeout: 3000 }).toBe(true);
   });
 
   it('does nothing while the pointer is on what floats over the chart', async () => {
@@ -250,6 +272,9 @@ describe('Space on the flow page, in a real browser', () => {
     const opened = seen();
     await userEvent.hover(find('.viewer'));
     const box = document.createElement('input');
+    // Where it takes no room and focusing it scrolls nothing.
+    box.style.position = 'fixed';
+    box.style.bottom = '0';
     document.body.append(box);
     try {
       box.focus();

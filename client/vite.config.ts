@@ -51,6 +51,8 @@ export default defineConfig({
             provider: playwright(),
             // The window of a desktop; the page lays out for one.
             viewport: { width: 1280, height: 800 },
+            // A failure is told in the test's log; the screenshot would be a file in the repository's tree.
+            screenshotFailures: false,
             instances: [{ browser: 'chromium' }],
           },
         },
