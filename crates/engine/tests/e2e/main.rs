@@ -31,6 +31,7 @@ mod deep_research;
 mod dependency_sources;
 mod dependency_sources_left_behind;
 mod engine_faults;
+mod engine_runs;
 mod failures;
 mod flow_versions;
 mod guard;

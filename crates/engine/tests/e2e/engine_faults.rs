@@ -128,3 +128,78 @@ fn a_work_whose_graph_cannot_be_found_is_paused_with_its_open_round_closed() {
     assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// Pauses a work as the owner does, with `why`.
+fn paused_by_the_owner(e: &mut Engine, work: i64, why: &str) {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE works SET paused = ?2, paused_by = 'owner' WHERE id = ?1",
+            params![work, why],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+// A work the owner paused, which the loop then cannot read, is left as the owner paused it: the engine's reason does
+// not replace the owner's, the owner is told nothing more, and the owner's Step of it is given back at every turn.
+#[test]
+fn a_work_the_owner_paused_keeps_its_pause_when_the_loop_cannot_read_it() {
+    let (s, mut e, said, first, second) = two_works_with("unreadable-owner-pause", scripts(), Hooks::default());
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    paused_by_the_owner(&mut e, a, "held for the night");
+    on_an_unreadable_flow_version(&mut e, a);
+    let go = Go {
+        pause: held_but(&[], &[]),
+        steps: vec![a],
+        architects: Vec::new(),
+    };
+    for _ in 0..2 {
+        let passed = e.pass(&go).unwrap();
+        let stepped = asked_in(&passed, &Ask::Work(a));
+        assert_eq!(stepped.work, Some(a));
+        assert!(stepped.rounds.is_empty());
+    }
+    let log = said.lock().unwrap().join("\n");
+    let paused: Option<String> =
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [a], |r| r.get(0))
+            .unwrap();
+    assert_eq!(paused.as_deref(), Some("held for the night"), "{log}");
+    assert_eq!(paused_by(&e, a).as_deref(), Some("owner"), "{log}");
+    assert_eq!(paused_by(&e, b), None, "{log}");
+    let told: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM engine_notices WHERE text LIKE '%the engine''s loop failed%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(told, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Steps of two works, the first of which the loop cannot read: the first is given back and paused, and
+// the second is taken as asked, in the same turn, since a fault of one work ends nothing for the others.
+#[test]
+fn the_owner_s_step_of_a_work_after_one_the_loop_cannot_read_is_taken() {
+    let (s, mut e, said, first, second) = two_works_with("unreadable-then-step", scripts(), Hooks::default());
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    assert!(a < b);
+    let before = rounds_after(&e, b, 0).0;
+    on_an_unreadable_flow_version(&mut e, a);
+    let go = Go {
+        pause: held_but(&[], &[]),
+        steps: vec![a, b],
+        architects: Vec::new(),
+    };
+    let passed = e.pass(&go).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(asked_in(&passed, &Ask::Work(a)).rounds.is_empty(), "{log}");
+    assert_eq!(paused_by(&e, a).as_deref(), Some("engine"), "{log}");
+    assert!(rounds_after(&e, b, 0).0 > before, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
