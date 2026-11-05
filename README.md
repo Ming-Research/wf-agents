@@ -119,7 +119,7 @@ knows no language and no lock file format, so a project of any language lists a 
 [[dependency_sources]]
 lock = "Cargo.lock"
 into = "target/dependency-sources"
-command = "cargo vendor --locked --versioned-dirs target/dependency-sources"
+command = "env RUSTUP_AUTO_INSTALL=0 cargo vendor --locked --versioned-dirs target/dependency-sources"
 
 [[dependency_sources]]
 lock = "client/package-lock.json"
@@ -129,7 +129,9 @@ command = "npm ci --ignore-scripts --no-audit --no-fund --prefix client"
 
 What a command must do: fetch each package at the version the lock file locks, as it was published, with its types;
 compile nothing and run no code of a package (`--locked` keeps cargo from changing the lock file, `--ignore-scripts`
-runs no script of a package); and write only into its `into`, a directory of its own that it may empty first. `into`
+runs no script of a package); and write only into its `into`, a directory of its own that it may empty first.
+`RUSTUP_AUTO_INSTALL=0` makes a machine that lacks the toolchain `rust-toolchain.toml` names fail rather than download it,
+and the engine sets no environment of its own for a command. `into`
 must be ignored by the project's git: the tool checks that before it runs anything, taking the path as a directory, and
 refuses when it is not, so that what a command writes never shows as a change of the work. The command is split into
 words as a shell splits a line and run without a shell, in the worktree's root; a command that needs a shell is written
@@ -140,6 +142,44 @@ tells every fault of the tables at once.
 A project's file that has these tables is refused by an engine that does not include the tool (a field it does not know
 is an error): install the engine that includes it first, then add the tables. The tables are the owner's, in the data
 directory; the decision behind the tool is `decisions/engine-runs-outside-commands.md`.
+
+## Updating a project's lock files
+
+An agent that implements or fixes a change changes a manifest as it changes code, and has the engine's tool
+`lock_update` bring the lock file in line with it: the agent names the lock file and nothing else, and the engine runs the
+command the project's file gives for that lock file, in the directory that holds it in the work's worktree, so the command
+need not know the project's layout. The engine knows no language and no lock file format, so a project of any language
+lists a command of its own, one `[[lock_updates]]` table for each lock file (`lock`, the `command`, and `timeout` in
+seconds, 600 unless set). For wf-agents itself:
+
+```toml
+[[lock_updates]]
+lock = "Cargo.lock"
+command = "env RUSTUP_AUTO_INSTALL=0 cargo update --workspace"
+
+[[lock_updates]]
+lock = "client/package-lock.json"
+command = "npm install --package-lock-only --ignore-scripts"
+```
+
+What a command must do: write only the lock file, compile nothing and run no code of a package, and move nothing the
+manifest does not ask to move. `--workspace` locks only what the manifests newly ask for, where a bare `cargo update`
+upgrades every dependency; `RUSTUP_AUTO_INSTALL=0` makes a machine that lacks the toolchain `rust-toolchain.toml` names
+fail rather than download it; `--package-lock-only` writes only the lock file and `--ignore-scripts` runs no script of a
+package, and `--prefix` is not needed in `client/`. The command is split into words as a shell splits a line and run
+without a shell; a command that needs a shell is written `sh -c '...'`, and one that needs an environment variable
+`env NAME=value ...`, since the engine sets none for a command. A command that runs past its time limit is stopped with
+everything it started, and one that ends leaves nothing it started running. The tool says whether the command changed the
+lock file's content and gives all the command wrote. `wf-agents config check` tells every fault of the tables at once.
+
+A project that lists no lock file runs no command: the tool refuses and says what to do instead. A project's file that has
+these tables is refused by an engine that does not include the tool (a field it does not know is an error): install the
+engine that includes it first, then add the tables. The tables are the owner's, in the data directory.
+
+A command the engine runs does not go through the agent's permission check, runs on the owner's machine with the engine's
+whole environment, and reads a worktree an agent wrote. What such a command can take from the files an agent writes is not
+settled: #284. Until its report, wf-agents' own file lists no lock file for this tool
+(`decisions/lock-updates-wait-for-the-report.md`).
 
 ## The agents' own configuration
 

@@ -4525,6 +4525,91 @@
       ]
     },
     {
+      "name": "lock_update",
+      "desc": "Brings one of the project's lock files in line with its manifest. Change the manifest first, as you change code, committed or not; then ask for this tool, which runs the project's command for that lock file in the directory that holds it in your worktree. You give the tool nothing but the lock file. Where you do not know the version to ask for, write `*` in the manifest, read the version the lock file then locks, write it in the manifest and ask again. For a merge conflict in a lock file, take main's (`git checkout origin/<main> -- <the lock file>`) and ask again, which locks what your manifest newly asks for. Commit the lock file with its manifest; `git status` shows what changed. Only the lock files the project lists run; where it lists none, the tool refuses and says what to do instead",
+      "runs": "The engine finds the lock file among those the project's configuration lists (`lock_updates`) and reads it as the worktree has it, uncommitted changes included. It then runs the command the configuration gives for the lock file in the directory that holds it in the work's worktree, without a shell, in a process group of its own, with the engine's environment, and reads its output as it runs; the agent chooses nothing of the command. A command that runs past its time limit (`timeout`, 600 seconds unless the configuration sets it) is stopped with everything it started, and one that ends leaves nothing it started running: what is left in its process group is stopped when it ends. The engine then reads the lock file again and compares its content with what it was. A command that fails while the network is down makes the cell wait for the network, as every tool does. The engine commits nothing and changes nothing else, and records the attempt",
+      "in": [
+        {
+          "name": "lock",
+          "title": "Lock file",
+          "type": "text",
+          "desc": "The lock file, by its path in the repository: one of those the project lists, `project.lock_updates`, each with its command"
+        }
+      ],
+      "out": [
+        {
+          "name": "lock_update",
+          "title": "Lock update result",
+          "type": "union",
+          "desc": "Whether the command ran to its end, and whether it changed the lock file",
+          "by": "verdict",
+          "branches": [
+            {
+              "value": "updated",
+              "desc": "The command ran to its end and exited with 0",
+              "fields": [
+                {
+                  "name": "lock_changed",
+                  "title": "Lock file changed",
+                  "type": "bool",
+                  "desc": "True when the lock file's content differs from what it was before the command, a lock file the command wrote for the first time included; false when the command left it as it was"
+                },
+                {
+                  "name": "output",
+                  "title": "Output",
+                  "type": "text",
+                  "desc": "What the command wrote to its standard output and error, as it wrote it; if it is too long, it is saved locally and this gives the path"
+                }
+              ]
+            },
+            {
+              "value": "failed",
+              "desc": "The command ran and did not exit with 0, or was stopped, so the lock file is not to be relied on",
+              "fields": [
+                {
+                  "name": "exit",
+                  "title": "Exit code",
+                  "type": "int",
+                  "desc": "The command's exit code; left out when it was stopped, by the engine or by a signal, and has none",
+                  "optional": true
+                },
+                {
+                  "name": "timed_out",
+                  "title": "Stopped for time",
+                  "type": "bool",
+                  "desc": "True when the engine stopped the command, and everything it started, for running past its time limit"
+                },
+                {
+                  "name": "lock_changed",
+                  "title": "Lock file changed",
+                  "type": "bool",
+                  "desc": "True when the command changed the lock file's content before it failed"
+                },
+                {
+                  "name": "output",
+                  "title": "Output",
+                  "type": "text",
+                  "desc": "What the command wrote to its standard output and error, as it wrote it; if it is too long, it is saved locally and this gives the path"
+                }
+              ]
+            },
+            {
+              "value": "refused",
+              "desc": "The request did not pass the engine's checks, so no command ran",
+              "fields": [
+                {
+                  "name": "why",
+                  "title": "Why refused",
+                  "type": "text",
+                  "desc": "Which check failed: the work has no worktree, the project lists no lock file or not this one, or the worktree has no directory to hold it; and what to do instead where the project lists none"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "gh",
       "desc": "One read-only gh command (your machine has no GitHub credentials). Only a command that starts with an entry of the allow list `gh.allow` runs: an entry that ends in / allows any argument under it, any other entry that command with any arguments after it. A request of api only reads: one with any of `-X`, `--method`, `-f`, `-F`, `--field`, `--raw-field` or `--input` is refused. To push or run CI, use ci or measure; for anything else on GitHub, ask the owner, kind permission",
       "runs": "The engine runs it with its own credentials, in the work's worktree. It lets through only commands on the allow list in the engine's configuration and an api request that only reads, runs nothing else, and records the attempt of each command it runs; only the owner changes the allow list",
@@ -5850,6 +5935,7 @@
             "Design judgment: work a design needs only because of a poor abstraction is a flaw of that design.",
             "Design judgment: how often a form appears in a project's own tests and programs is no evidence of how much real programs need it.",
             "The repository: put new material in the directory that owns its kind; when none fits, ask the advisor.",
+            "The repository: a lock file is never written by hand. Where the project lists it for the tool `lock_update`, change its manifest and have the tool bring the lock file in line with it; where it does not, use the lock commands the work's message names, and ask the architect when it names none.",
             "The repository: keep no TODO file. Open work is an item, which code and documents cite by its number, and a public repository by its number alone.",
             "The repository: create a file, directory, script or document only when you can say whom it serves, where it lives and when it will be removed. A script is wired to a caller or deleted after its one use; a document is kept current or deleted. Prefer native tooling; a new script says why the native path cannot do the job.",
             "The repository: when new material replaces old, update, merge or delete the old in the same change: search for the old wording, numbers and names in comments, READMEs, documents, `research/`, design nodes and the PR description, and correct each statement the change made false. Do not move paths that specifications, tests, scripts and gates pin.",
@@ -7994,6 +8080,7 @@
             "ci_before",
             "measure",
             "dependency_sources",
+            "lock_update",
             "gh",
             "query"
           ],
@@ -9345,6 +9432,7 @@
             "ci_before",
             "measure",
             "dependency_sources",
+            "lock_update",
             "gh",
             "query"
           ],
