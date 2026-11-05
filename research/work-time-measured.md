@@ -26,7 +26,7 @@ Each claim says how it is known: (measured) on the data of the dates above, (rea
 | What the time is made of, after | **Small fixes (5 works, 160.6 min):** agent rounds 51.8%, rounds that ran `ci` or `ci_before` 29.4% (19.2% the rounds' own time, 10.2% waiting for a runner), the merge round 8.2% (6.9% and 1.3%), waiting for an answer from the architect 7.7% (one work, 12.4 min), gaps between rounds 2.8%, the engine's own steps 0.1%. **All 6 works (413.9 min):** agent rounds 44.6%, gaps 35.7% (all in work 317, which waited for the owner's review of its design and at the merge gate, and for a free slot), `ci` rounds 12.8%, merge round 3.7%, answers 3.0%. Runner wait is 11.5% of the small fixes' time (18.4 of 160.6 min) and 5.1% of all six (21.0 of 413.9 min). Section 3 has each class in median, sum and share. |
 | The cells that took most time | In the six works: `I1` Implement 59.0 min in 33 rounds (608 model calls), `X1` Run tools 53.3 min in 65 rounds (CI), `D1` Deep research 33.7 min in 5 rounds, `R1` Initial research 24.5 min in 16 rounds (191 calls), `D2` 22.5 min in 3 rounds, `M2` the merge 15.3 min in 10 rounds. Section 6. |
 | Model time | **Not recorded**, so not measured: a round's record holds the CLI's total time (which is the round's time and includes the commands it ran), the number of model calls and the tokens, not the time spent on the model. A fit of time from calls and tokens was tried by a rule written before it was looked at and **failed it** (section 6): the report gives each cell's round time, which is the most the model took, and its model calls. |
-| Small fixes against works 302 and 316 | Works 302 (41.8 min) and 316 (24.4 min) are in the group "before", with 4 other small fixes: median 51.3 min (24.3 to 102.5 min). After: median 26.2 min (11.5 to 55.4 min). 23 of the 30 pairs (an after against a before work) are shorter after. **Not decided** with 5 against 6 works: the ranges overlap and the works were different tasks. What moved is measured per work in the rounds: the median `ci` rounds went from 12.1 to 3.4 min, the merge round from 5.4 to 2.5 min; the median agent rounds went from 22.8 to 18.9 min. Section 7. |
+| Small fixes against works 302 and 316 | Works 302 (41.8 min) and 316 (24.4 min) are in the group "before", with 4 other small fixes. By the item's way (first round to last round): before median 51.8 min (24.4 to 102.8), after 53.0 min (11.7 to 701.4; work 334's last round began 11.5 hours after its merge). To the merge: before 51.3 min (24.3 to 102.5), after 26.2 min (11.5 to 55.4). 23 of the 30 pairs (an after against a before work) are shorter after to the merge, 17 to the last round. **Not decided** with 5 against 6 works: the ranges overlap and the works were different tasks. What moved is measured per work in the rounds: the median `ci` rounds went from 12.1 to 3.4 min, the merge round from 5.4 to 2.5 min; the median agent rounds went from 22.8 to 18.9 min. Section 7. |
 | Runner wait | After the move, a `ci` or `ci_before` call that was the longest of its round waited 37.4% of its time for a runner (1132 of 3025 s in 30 calls, the longest 195 s); a merge's full CI waited 14.9% (128 of 859 s in 7 calls). Rounds that asked for `ci` and `ci_before` together waited 53.8 s on average and ran 122 s; those that asked for one waited 25.5 s and ran 85 s. In 11 of 51 runs the run's last job, which does 3 to 5 s of work, waited 60 to 111 s for a runner. Section 5. |
 
 ## 2. How the numbers were taken
@@ -46,7 +46,9 @@ Each claim says how it is known: (measured) on the data of the dates above, (rea
 - **A work's span** is the start of its first round to the end of the round that merged (the round of its `merge` call
   whose result is a commit id), as the engine records them. The item's figures for works 302 and 316 (41.8 and 24.4 min)
   run to the start of the work's last round (`E1`, after the merge); to the merge they are 41.6 and 24.3 min (Q1).
-  Both are given in Q1; the report uses the span to the merge.
+  Both are given in Q1 (`to_merge_min`, `to_last_min`), and section 7 gives both for every small fix; the rest of the
+  report uses the span to the merge, since what follows the merge is not the work's time (work 334's last round began 11.5
+  hours after its merge).
 - **Classes of a span** (Q2; they do not overlap, and a check of each work's span less the sum of its classes is 0 s,
   with no rounds overlapping, measured): `agent` rounds (a round that ran a model); `ci` rounds (cell `X1` and others
   whose tool calls are `ci`, `ci_before`, `full_ci`, `measure` or `watch_main`); the `merge` round (`M2`); waiting for
@@ -212,13 +214,23 @@ Recording the API time per round would give it directly (observation 277).
 
 Q1 and Q3 (measured). Small fixes: works without a `D1` round.
 
-| | Works | Span to the merge, each | Median |
-|---|---|---|---|
-| Before (hosted runners) | 6: 287, 302, 312, 315, 316, 319 | 35.2, 41.6, 102.5, 67.0, 24.3, 61.0 min | 51.3 min |
-| After (14900k runners) | 5: 328, 330, 331, 332, 334 | 52.6, 55.4, 26.2, 11.5, 14.9 min | 26.2 min |
+The item's figures for works 302 (41.8 min) and 316 (24.4 min) run from the first round to the start of the work's last
+round (`E1`), so the table gives that first, in the same way for every work, and then the span to the merge that the rest of
+the report uses (both from Q1, in minutes):
 
-Work 302 took 41.8 min to its last round (41.6 to the merge), work 316 24.4 min (24.3). Work 330's 55.4 min include 12.4
-min that it waited for the architect's answer (cell `A2`); without it the median of the five is 26.2 min as well.
+| | Works | To the last round, each | Median | To the merge, each | Median |
+|---|---|---|---|---|---|
+| Before (hosted runners) | 6: 287, 302, 312, 315, 316, 319 | 42.4, 41.8, 102.8, 67.2, 24.4, 61.2 | 51.8 | 35.2, 41.6, 102.5, 67.0, 24.3, 61.0 | 51.3 |
+| After (14900k runners) | 5: 328, 330, 331, 332, 334 | 53.0, 55.5, 26.3, 11.7, 701.4 | 53.0 | 52.6, 55.4, 26.2, 11.5, 14.9 | 26.2 |
+
+**By the item's way (first round to last round) the median after is 53.0 min against 51.8 min before: no shorter.** The
+whole difference between the two ways is work 334: its last round (`L2`) began 11.5 hours after its merge, a wait the
+engine's records do not explain, and 701.4 min is that wait, not work. The other four are 0.1 to 0.4 min longer to the last
+round than to the merge, as before. The report goes by the span to the merge because what follows the merge is not the
+work's time; by the item's way the comparison with 302 and 316 says nothing, with one work in five carrying an 11.5-hour
+wait that no work before had (the six before have 0.1 to 0.3 min between merge and last round, but work 287, 7.2 min). Work 330's 55.4 min include 12.4
+min that it waited for the architect's answer (cell `A2`); without it the median of the five to the merge is 26.2 min as
+well.
 
 | Median of the small fixes, minutes | Before (6 works) | After (5 works) |
 |---|---|---|
@@ -228,7 +240,8 @@ min that it waited for the architect's answer (cell `A2`); without it the median
 | Merge round (with the runner wait) | 5.38 | 2.49 |
 | Gap: other | 5.75 | 0.52 |
 
-Of the 30 pairs of an after work against a before work, 23 are shorter after (measured). With 5 and 6 works that is
+Of the 30 pairs of an after work against a before work, 23 are shorter after to the merge and 17 to the last round
+(measured). With 5 and 6 works that is
 **not enough to say the median moved**: the ranges overlap (24.3 to 102.5 against 11.5 to 55.4 min), the tasks differ, and
 other things changed in the same hours: research and review ran at effort high from 2026-11-05 00:02 UTC (commit f86ef835),
 which could lengthen agent rounds, and four engine stops (24.5 min) fell in the before group. What is measured is that the
@@ -272,4 +285,4 @@ after) and the gaps between rounds, while the agent rounds, the largest class, d
    when the engine runs. The engine stops (about 25 minutes in four of six small fixes before) are a matter of how a new
    build is installed; the owner's waits at `D3` and `M1` and the wait for a slot are for works that have a design.
 4. **Re-measure** with the same queries when 10 or more small fixes have merged on the 14900k runners. The owner's target for
-   a small fix is still open: this report gives a median of 26.2 min over 5 works, with 18.9 of them in agent rounds.
+   a small fix is still open: this report gives a median of 26.2 min to the merge over 5 works (53.0 min by the item's way, first round to last round, because of work 334's 11.5-hour wait after its merge), with 18.9 of them in agent rounds.
