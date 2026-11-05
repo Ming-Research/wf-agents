@@ -19,7 +19,6 @@ function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummar
     title: `item ${id}`,
     deliver: 'change',
     level: '1',
-    route: 'normal',
     route_taken: null,
     cancelled: null,
     state,
@@ -437,26 +436,22 @@ describe('the acceptance of an item', () => {
   });
 });
 
-// An item's head names the route its work goes, not only how its creator marked it: a work keeps the route its
-// research took, and one that turned to the normal route says so.
-describe("the route on an item's head", () => {
-  const said = (route: string, route_taken: string | null) => {
-    const fact = routeFact({ route, route_taken });
+// An item's head names the way its latest work went, from the rows the work took: a work implemented straight from its
+// research says so, and one sent to the design after it began says so; one that went through the design, and an item no
+// work has researched yet, say nothing.
+describe("the way a work went on an item's head", () => {
+  const said = (route_taken: string | null) => {
+    const fact = routeFact({ route_taken });
     return fact === null ? null : renderToStaticMarkup(createElement('div', null, fact));
   };
 
-  it('gives the route the mark gives a work before one starts, and the route its work goes after', () => {
-    expect(said('bugfix', null)).toContain('Bug fix, light route');
-    expect(said('normal', null)).toBeNull();
-    expect(said('feature', 'light')).toContain('Feature, light route');
-    // Marked normal again after its research took the light route: the work goes light all the same.
-    expect(said('normal', 'light')).toContain('>Light route<');
+  it('says a work implemented straight from its research, and one sent to the design after it began', () => {
+    expect(said('direct')).toContain('>Implemented straight from the research<');
+    expect(said('turned')).toContain('>Sent to the design after it began<');
   });
 
-  it('says a work turned to the normal route, and nothing for a work that went it from its research', () => {
-    expect(said('bugfix', 'turned')).toContain('Bug fix, turned to the normal route');
-    expect(said('normal', 'turned')).toContain('>Turned to the normal route<');
-    // Marked a bug fix after its research took the normal route: the work goes on that way.
-    expect(said('bugfix', 'normal')).toBeNull();
+  it('says nothing for a work that went through the design, or before the research answers', () => {
+    expect(said('designed')).toBeNull();
+    expect(said(null)).toBeNull();
   });
 });

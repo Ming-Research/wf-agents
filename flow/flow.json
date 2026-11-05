@@ -795,7 +795,7 @@
     "done_conditions": {
       "$ref": "conditions",
       "optional": true,
-      "desc": "Only when the design chose no dedicated adversarial testing, or on the light route, which has none; not when the design chose some. When the implementation is done, one row per acceptance condition, naming the test, measurement, CI job or reading of the diff that meets it, none left out; after a fix, only the rows that changed: the engine merges them into the previous ones"
+      "desc": "Only when the design chose no dedicated adversarial testing; not when the design chose some. When the implementation is done, one row per acceptance condition, naming the test, measurement, CI job or reading of the diff that meets it, none left out; after a fix, only the rows that changed: the engine merges them into the previous ones"
     },
     "deviations": {
       "name": "deviations",
@@ -1616,49 +1616,6 @@
       },
       "min": 1
     },
-    "review_round": {
-      "type": "enum",
-      "values": [
-        [
-          "blind",
-          "The first review: it starts with a blind review"
-        ],
-        [
-          "table",
-          "Reviewed before, or the work goes the light route, which has no blind review: the review goes straight to the table"
-        ]
-      ]
-    },
-    "route_taken": {
-      "type": "enum",
-      "values": [
-        [
-          "light",
-          "The work goes the light route: its item was marked a bug fix or a feature when the work first researched it, and the work has not turned to the normal route"
-        ],
-        [
-          "normal",
-          "The work goes the normal route: its item was marked neither when the work first researched it, or the work turned to the normal route"
-        ]
-      ]
-    },
-    "route_kind": {
-      "type": "enum",
-      "values": [
-        [
-          "normal",
-          "The normal route: research, whether it stands, the design and its checks, the blind and the table review"
-        ],
-        [
-          "bugfix",
-          "A bug fix whose root can be found and fixed inside the code it touches: the light route, with a regression test red before the fix and green after"
-        ],
-        [
-          "feature",
-          "A small feature whose behaviour is settled: the light route, with a test for each acceptance condition"
-        ]
-      ]
-    },
     "guard_tests": {
       "name": "guard_tests",
       "title": "Old-behaviour tests",
@@ -2293,13 +2250,6 @@
               "desc": "What it delivers"
             },
             {
-              "$ref": "route_kind",
-              "name": "route",
-              "title": "Route",
-              "desc": "The route its work goes, by the rule of item writing; leave it out for the normal route, and always for a report",
-              "optional": true
-            },
-            {
               "name": "takes",
               "title": "Conditions it takes over",
               "type": "list",
@@ -2506,7 +2456,7 @@
         },
         {
           "value": "edit_item",
-          "desc": "Change a part of an item's text, or the route its work goes",
+          "desc": "Change a part of an item's text",
           "fields": [
             {
               "name": "item",
@@ -2541,10 +2491,6 @@
                 [
                   "approach",
                   "How to do it"
-                ],
-                [
-                  "route",
-                  "The route its work goes: normal, bugfix or feature; a work past its research keeps the route it took"
                 ]
               ]
             },
@@ -4823,8 +4769,8 @@
       "verdicts_cover_in_effect": "Each acceptance condition written in_effect has one verdict, and no other condition has one; `skipped` only once words were said to the work since its merge. How long to wait is there exactly when the look waits, a condition being not_yet and none failing, between one minute and two days.",
       "verdict_basis_ran": "A verdict of holds or fails names the condition's own command, with the time the change took effect put in, as a run the engine recorded for this work since then, which ran and exited well; and what it says it saw is, letter for letter, a value of that run's rows, or part of a row holding one, or in a gh command's output, read from the file where a long result was saved.",
       "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition), and a row of in_effect exactly for each condition written in_effect; each test named was reported by a run of ci on the pushed head, a name naming a test as the ci tool's tests say, and the tests none reported are named in the next ci, with the tests of the test table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; the report sections named are in the report.",
-      "new_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each new-behaviour test this round's test changes add or extend (kind new_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red after the change or green before it is fixed in this round.",
-      "guard_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each old-behaviour test this round's test changes add or extend (kind old_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red in either run is fixed in this round; one that cannot be built before the change (cannot_run) says why in `not_before`, and the details review judges it (the re-check, for one the fix added); one not run before the change is the details review's to judge.",
+      "new_test_results": "When the design chose no adversarial testing: each new-behaviour test this round's test changes add or extend (kind new_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red after the change or green before it is fixed in this round.",
+      "guard_test_results": "When the design chose no adversarial testing: each old-behaviour test this round's test changes add or extend (kind old_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red in either run is fixed in this round; one that cannot be built before the change (cannot_run) says why in `not_before`, and the details review judges it (the re-check, for one the fix added); one not run before the change is the details review's to judge.",
       "adversarial_test_results": "Each row's two results match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; at a re-check, those red or disputed last time were run again; when tests were written, the head was pushed with ci.",
       "test_kinds_match": "Tests the engineer added or extended, which adversarial testing lists as the engineer's, are in the table of the kind the engineer gave in the test changes. A test the adversarial tester wrote whose result before the change does not fit its kind is fixed in this round and run again; one not run before the change is the details review's to judge.",
       "tests_only": "The commits from the head the engineer handed over to this head touch only the test paths the project's configuration names.",
@@ -4864,7 +4810,7 @@
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
       "cited_nodes": "The files of the records the matter at hand names, in full, as the project's main has them.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items; and, when there are any, the holds on the project's new starts (`starts_held`), each with its reason (owner, architect or set_straight), since when and why, so that the architect sees the owner's hold and does not plan as if new works could start.",
+      "board": "The project's items running and queued, each with its rank, cell, stage, the way its latest work went (direct, on the research's plan; designed; or turned, a work that began on the research's plan and then went to the design), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items; and, when there are any, the holds on the project's new starts (`starts_held`), each with its reason (owner, architect or set_straight), since when and why, so that the architect sees the owner's hold and does not plan as if new works could start.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
@@ -5068,7 +5014,7 @@
       "place": {
         "title": "The work's place",
         "layer": "work",
-        "desc": "The cell the work is at, where it stopped, the cells waiting for an answer, the route it goes, and the project's merge queue",
+        "desc": "The cell the work is at, where it stopped, the cells waiting for an answer, the way it went, and the project's merge queue",
         "relations": [
           "merge_queue",
           "work_history",
@@ -13630,8 +13576,8 @@
             "The owner reads an item, its title first: write its title, problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, at most `items.title_max` wide, spaces not counted and a character of East Asian wide or full width counting 2, so that a title all in Chinese holds half as many characters; count them before handing it in: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font. Work for another project names the capability handed over, not the requester's wish.",
             "The problem says what cannot be done or is wrong in one sentence, then one smallest example, only one: the code you want to write and where it goes wrong now, or a command and its wrong output; for a risk never seen to fail, the condition under which it fails, with the smallest triggering example marked inferred and not run, or in words if none can be built. A cause inferred is marked as inferred. If it cannot be written clearly, find out more first. Why says only why the work is worth doing, in one or two sentences written as a conclusion: the cost of not doing it, which goal, who waits; only numbers that carry the conclusion, and no account of how things stand now. The approach is written only when one or two sentences can say how; otherwise the work's design finds it.",
             "The acceptance is checkable results, such as which test passes or which number is reached, usually one row: no method, no test plan, nothing CI checks anyway. A number in it was measured, or set by a study, a ruling on a decision card or the owner's words; otherwise the work's design sets it.",
-            "An item is worth an engineer, a branch, the flow's design and reviews, a CI run and a merge, and does one thing. An item others wait on takes only what they need: a follow-up they do not need is an item or an observation of its own. Its level is the lowest whose description fits the work: new decisions go to the design's decision points and unsure facts to the research, so neither raises it, nor does rework from a change of direction; only the same work coming back again for errors of reasoning does. Its route is bugfix for a bug whose root can be found and fixed inside the code it touches, feature for a small feature whose behaviour is settled, and normal otherwise, always for a report and for any change to an interface, the architecture or a decision of the owner's: a bug fix or a feature goes the light route, a plan reviewed before it is implemented in place of the judgment whether it stands, the design and its checks, with no blind review and no adversarial testing, and its engineer turns it to the normal route when it needs more.",
-            "Items merge, an observation folded into an item included, only when they belong together: much the same thing, two steps done one after the other, or a change to the same place; and only items whose work has not started: what follows on from an item being worked on is a new item that depends on it. Keep the one furthest along or most waited for, or make a new one when none fits, at the highest of their levels. An item that takes in more, by a merge or by observations folded in, has a title naming their common area, a problem giving each part one sentence and one example, and each part's acceptance; folding in an observation says which parts of it the item takes, and what it does not take stays an observation. If no title within `items.title_max` fits, they are two items.",
+            "An item is worth an engineer, a branch, the flow's design and reviews, a CI run and a merge, and does one thing. An item others wait on takes only what they need: a follow-up they do not need is an item or an observation of its own. Its level is the lowest whose description fits the work: new decisions go to the design's decision points and unsure facts to the research, so neither raises it, nor does rework from a change of direction; only the same work coming back again for errors of reasoning does.",
+            "Items merge, an observation folded into an item included, only when they belong together: much the same thing, two steps done one after the other, or a change to the same place; and only items whose work has not started: what follows on from an item being worked on is a new item that depends on it. Keep the one furthest along or most waited for, or make a new one when none fits, at the highest of their levels. An item that takes in more, by a merge or by observations folded in, has a title naming their common area, a problem giving each part one sentence and one example, and each part's acceptance; folding in an observation says which parts of it the item takes, and what it does not take stays an observation. If no title within `items.title_max` fits, they are two items. Several small things are not merged into one big thing that must go the whole flow; a small thing merged into something big that has to go the whole flow anyway is fine, and so are several small things that are still small together. A thing is small when its research can reproduce it, its root lies in the code it touches and its approach is settled, so that the research judges it can be started directly.",
             "A split is made when the item is made: parts that can each be finished and merged alone, and each worth a work, are items of their own. A split makes new items and has the item depend on them; each acceptance condition of the item goes to one new item at most, and those that go to none stay with it. One found while the item is worked on is the work's to raise: its research asks you as a question of the project, and at the end of its deep research you split it by the design's parts; an item being worked on is never split from outside. An item others are under is itself a deliverable, and they are its parts: never group by topic, nor by who asks, one item per capability with each asker's case a condition of its acceptance. A dependency says what the item needs the other to deliver, and its kind: blocking when the item cannot start before the other is merged, as when it needs a module or a library the other makes; parallel when it can start and wait where it needs the other. If the item could finish with no rework were the other never done, it is no dependency. A blocking dependency added later does not stop a work already running.",
             "One decision per change, its reason saying what it is for and what follows if it is not made; where a change cannot stand without another, such as one that refers to an item these changes create, its reason says which. An item is cancelled only when its work is not to be done, saying where its work went.",
             "No decision line is written in an item: a design decision is made in a work's deep research, chosen by the owner, and kept in the project's `decisions/`. What a talk with the owner settled for `decisions/` goes into the item's decision points (`decision_points` of the change that creates it): the question, readable by one who has not seen the work; at least two reasonable options, each with what it does, its gain and its cost; and the option the owner chose, with the owner's reason. An item with a decision point goes to deep research. The owner's answer in a work to a question that concerns only its item goes into the item's requirements, naming the question it answers. The lines of decisions an item already has stand letter for letter as its history, in their order, under their head: a change neither writes one nor removes one. The rest of `approach` stands under `Approach:`, and what works learned under `Learned:`, as `Fact (YYYY-MM-DD): <fact> (<source>)` and `Dropped (YYYY-MM-DD): <approach>. Why: <why> (<source>)`, with `Commits: <hashes>`.",

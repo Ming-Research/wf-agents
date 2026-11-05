@@ -1318,12 +1318,8 @@ export type ItemSummary = { id: number, project: string, title: string,
  */
 deliver: string, level: string,
 /**
- * The route its works go, as its creator marked it: normal, or bugfix or feature, which go the light route.
- */
-route: string,
-/**
- * The route its latest work goes (light, normal, or turned: went light, then turned to the normal route); none
- * before a work starts. A work keeps the route its research took, whatever the item's mark became since.
+ * The way its latest work went, from the rows it took (`work_routes`): direct, on the research's plan; designed;
+ * or turned, begun on the research's plan and then sent to the design; none before the research answers.
  */
 route_taken: string | null, cancelled: string | null, state: ItemState,
 /**

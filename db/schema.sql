@@ -96,11 +96,6 @@ CREATE TABLE items (
   -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
   -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
   rank INTEGER,
-  -- The mark of a bug fix or a feature, which a flow version before took for the light route its works went; normal
-  -- otherwise. Only an item that delivers a change carries a mark. The architect sets it when it creates or edits the
-  -- item. The flow no longer reads it: every work's research judges whether it can be started directly. Read by: the
-  -- views of the routes works of a flow version before went (work_routes); the owner's interface.
-  route TEXT NOT NULL DEFAULT 'normal' CHECK (route IN ('normal', 'bugfix', 'feature')),
   -- The decision points the item carries, JSON list in the flow's decision point shape, each with the option the owner
   -- chose and why: what a discussion settled that goes into the project's decisions/ once deep research confirms it.
   -- NULL when it carries none. An item that carries one goes to deep research, whatever its research finds. The
@@ -109,7 +104,6 @@ CREATE TABLE items (
   decision_points TEXT CHECK (decision_points IS NULL OR json_valid(decision_points)),
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
   CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
-  CHECK (route = 'normal' OR deliver = 'change'),
   FOREIGN KEY (acceptance_work, acceptance_round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -1450,22 +1444,22 @@ CREATE VIEW work_counters AS
   GROUP BY r.work;
 
 CREATE VIEW work_routes AS
-  -- The route each work of the engineer goes: light; normal; or turned, a work on the light route that took a row
-  -- counting `route_to_normal`, which goes the normal route for good. Before its research (cell `R1`) answers, a work
-  -- goes as its item is marked, the light route for a bug fix or a feature; after, as the research's latest answer took
-  -- its row (`light`, or `done` or `to_normal`), so that a change of the item's mark does not turn a work under way.
-  -- Read by: the engine's value `route_taken`; the owner's interface and the architect's board, beside the item's mark.
+  -- The way each work of the engineer went, from the rows it took: `turned`, a work that started to implement on the
+  -- research's plan and then took the row counting `shallow_research`, which sent it to the design; `designed`, one
+  -- that went to the design (cell `D1`), whether its research sent it there or not; `direct`, one whose research
+  -- (cell `R1`) answered with its row `start`, so that it implements on the research's plan and has had no design; none
+  -- before the research answers, and for a work of a flow version whose research took other rows. Nothing marks the
+  -- item for a way: the research judges it. Read by: the owner's interface, beside the item's head; the architect,
+  -- through its board.
   SELECT w.id AS work, w.item,
     CASE
-      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.counts = 'route_to_normal') THEN 'turned'
-      WHEN coalesce(
-        (SELECT r.transition FROM rounds r
-         WHERE r.work = w.id AND r.cell = 'R1' AND r.transition IN ('done', 'light', 'to_normal')
-         ORDER BY r.n DESC LIMIT 1),
-        CASE WHEN i.route = 'normal' THEN 'done' ELSE 'light' END) = 'light' THEN 'light'
-      ELSE 'normal'
+      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.counts = 'shallow_research') THEN 'turned'
+      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell = 'D1') THEN 'designed'
+      WHEN (SELECT r.transition FROM rounds r
+            WHERE r.work = w.id AND r.cell = 'R1' AND r.transition IN ('start', 'cannot_start')
+            ORDER BY r.n DESC LIMIT 1) = 'start' THEN 'direct'
     END AS route
-  FROM works w JOIN items i ON i.id = w.item
+  FROM works w
   WHERE w.graph = 'engineer';
 
 CREATE VIEW work_asking AS

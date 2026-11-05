@@ -1698,6 +1698,89 @@ mod tests {
         old
     }
 
+    // The migration that drops the mark of a bug fix or a feature from the items makes their table afresh: a database
+    // from just before it, with items of both marks, a link between them and a work whose research took `start`, comes
+    // out with every item as it was but for the mark, the link and the work still pointing at them, no column `route`,
+    // and the view of the ways works went reading the work's rows. The migrations of the whole come out as
+    // `db/schema.sql` has them, which `migrate` checks. Before the migration the column is there and the view gave the
+    // item's mark.
+    #[test]
+    fn items_lose_their_route_mark_and_keep_everything_else() {
+        let at = MIGRATIONS
+            .iter()
+            .position(|m| m.name == "202611042230-drop-the-route-mark-of-items")
+            .unwrap();
+        let mut old = at_version(at as i64 + 1);
+        old.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level, route, rank, held)
+                 VALUES ('p', 'a', 'x', 'y', 'change', 'l', 'bugfix', 3, 'held'),
+                        ('p', 'b', 'x', 'y', 'report', 'l', 'normal', NULL, NULL)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (2, 1, 'n', 'blocking')",
+                [],
+            )?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, transition)
+                 VALUES (1, 1, 'R1', '{}', 'c', 1, 'start')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let before: String = old
+            .conn()
+            .query_row("SELECT route FROM work_routes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(before, "light");
+        old.migrate(MIGRATIONS).unwrap();
+        assert!(old.conn().prepare("SELECT route FROM items").is_err());
+        let mut st = old
+            .conn()
+            .prepare("SELECT id, title, deliver, rank, held FROM items ORDER BY id")
+            .unwrap();
+        let items: Vec<(i64, String, String, Option<i64>, Option<String>)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        assert_eq!(
+            items,
+            [
+                (
+                    1,
+                    "a".to_string(),
+                    "change".to_string(),
+                    Some(3),
+                    Some("held".to_string())
+                ),
+                (2, "b".to_string(), "report".to_string(), None, None)
+            ]
+        );
+        let (links, works): (i64, i64) = old
+            .conn()
+            .query_row(
+                "SELECT (SELECT count(*) FROM item_links WHERE item = 2 AND depends_on = 1),
+                        (SELECT count(*) FROM works WHERE item = 1)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((links, works), (1, 1));
+        let after: String = old
+            .conn()
+            .query_row("SELECT route FROM work_routes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(after, "direct");
+    }
+
     // Item #217: the comment of an observation's title is part of the table's text, which an agent reads with
     // `SELECT sql FROM sqlite_master`, and the shape comparison of a migrated and a new database does not look at it:
     // a database from version 73 comes out with the comment of the new schema and its rows, and the index.

@@ -1190,10 +1190,9 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
         let acceptance = item.acceptance.clone().unwrap_or(Value::Null);
         cols.extend(acceptance_columns(&acceptance, item.deliver == "report"));
         if item.deliver != "report" {
-            // The columns of what ran: the judgment that the work stands when it was judged (cell `R2`), and on the
-            // light route a plan its review found sound (cell `F2`), with the plan's tests in place of adversarial
-            // testing. A work redesigned from the light route has the plan and no judgment; one turned before its plan
-            // was found sound has the judgment and no plan.
+            // The columns of what ran, for a work of a flow version that had these cells: the judgment that the work
+            // stands when it was judged (cell `R2`), and a plan its review found sound (cell `F2`), with the plan's
+            // tests in place of adversarial testing. The flow now has neither cell, so a work of today adds none.
             let ran = |c: &str| crate::inputs::answered(e, w, g, c).unwrap_or_default();
             if !ran("R2").is_empty() {
                 cols.push("The research's judgment that the work stands: does its reason hold?".into());

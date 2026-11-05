@@ -1652,7 +1652,6 @@ mod tests {
             imported_from: None,
             imported_branch: None,
             imported_pr: None,
-            route: "normal".into(),
         };
         let (title, body) = pr_fallback(&item);
         assert_eq!(title, "Item 12");
