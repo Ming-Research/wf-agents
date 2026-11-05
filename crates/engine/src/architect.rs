@@ -49,7 +49,6 @@ pub const INPUTS: &[&str] = &[
     "policy_signals",
     "slots",
     "matter",
-    "matter_items",
     "item_log",
     "similar_items",
     "owner_answer",
@@ -3539,7 +3538,6 @@ pub fn input(
         "policy_signals" => policy_signals(e, w, project),
         "slots" => slots(e).map(Some),
         "matter" => matter(e, w),
-        "matter_items" => matter_items(e, w),
         "item_log" => item_log(e, w),
         "similar_items" => similar_items(e, w).map(Some),
         "owner_answer" => owner_answer(e, w),
@@ -4484,68 +4482,6 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         out["state"][0]["resuming"] = json!(db::resume_asked(conn).map_err(sql)?.contains(&work));
     }
     Ok(Some(out))
-}
-
-/// The items and works the matter in hand concerns, each in full, as the fields of the matter and of its material name
-/// them: the item it concerns; in its material, and in the place to set straight or the cancelled item it holds, an
-/// item, items, and the item of a work or of works; up to twelve. A number in a text, its words' or a step's, names no
-/// item: by "matter #2" or "item 1 to 5" there, it concerns none. The observations the place to set straight names
-/// follow, whole.
-fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let Some(m) = picked(conn, w.id)? else {
-        return Ok(None);
-    };
-    let mut ids = BTreeSet::new();
-    let mut observations = BTreeSet::new();
-    let row = query_json(conn, "SELECT item, body FROM architect_matters WHERE id = ?1", &[&m], 1)?;
-    if let Some(r) = row.first() {
-        ids_of(&r["item"], &mut ids);
-        let body = &r["body"];
-        for part in [body, &body["fix"], &body["cancelled"]] {
-            ids_of(&part["item"], &mut ids);
-            for i in items(part.get("items")) {
-                ids_of(&i, &mut ids);
-            }
-            for o in items(part.get("observations")) {
-                ids_of(&o, &mut observations);
-            }
-            let mut works = BTreeSet::new();
-            ids_of(&part["work"], &mut works);
-            for x in items(part.get("works")) {
-                ids_of(&x, &mut works);
-            }
-            for work in works {
-                let item: Option<i64> = conn
-                    .query_row("SELECT item FROM works WHERE id = ?1", [work], |r| {
-                        r.get::<_, Option<i64>>(0)
-                    })
-                    .optional()
-                    .map_err(sql)?
-                    .flatten();
-                ids.extend(item);
-            }
-        }
-    }
-    let mut out = Map::new();
-    for id in ids.into_iter().take(12) {
-        if let Some(x) = item_in_full(e, id)? {
-            out.insert(format!("#{id}"), x);
-        }
-    }
-    for id in observations.into_iter().take(12) {
-        let rows = query_json(
-            conn,
-            "SELECT id, title, what, tags, source, refs, times_reported, folded_into, closed FROM observations
-             WHERE id = ?1",
-            &[&id],
-            1,
-        )?;
-        if let Some(o) = rows.into_iter().next() {
-            out.insert(format!("O{id}"), o);
-        }
-    }
-    Ok((!out.is_empty()).then_some(Value::Object(out)))
 }
 
 /// The architect's recent log entries on the item the matter picked concerns: each matter about it handled, with what

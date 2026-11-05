@@ -793,63 +793,16 @@ fn the_slots_say_whether_works_run() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The items a matter concerns are read from its fields only: the item it concerns, and in its fix the item, the items
-// and the item of each work it names. A number in a text, its words', a step's or a pull request's, brings in no item.
+// `open_items` says a paused work asked to go on waits to resume, and a work asked to start over is stopping, so that a
+// cell reading it does not ask for either again.
 #[test]
-fn a_matter_s_items_are_read_from_its_fields_never_its_text() {
-    let s = setup("matter-items");
-    let (mut e, _) = engine(&s, scripts());
-    quiet(&mut e);
-    let concerned = a_ready_item(&mut e, "Lex it");
-    let fixed = a_ready_item(&mut e, "Parse it");
-    let listed = a_ready_item(&mut e, "Check it");
-    let worked = a_ready_item(&mut e, "Run it");
-    let only_said = a_ready_item(&mut e, "Print it");
-    let arch = architect_work_at(&mut e, "H8");
-    let v = e.flow_now;
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'R1')",
-            params![worked, v],
-        )?;
-        let work = tx.last_insert_rowid();
-        let fix = json!({ "item": fixed, "items": [listed], "works": [work],
-                          "steps": [format!("Move item {only_said} first, as matter #{only_said} said.")] });
-        let body = json!({ "fix": fix, "said": format!("See PR #{only_said} for the parser.") });
-        let m = a_matter(tx, &format!("Look at item {only_said}."), Some(concerned), body)?;
-        record_round(
-            tx,
-            arch,
-            1,
-            "Q0",
-            &json!({ "queue": { "verdict": "one", "matter": m } }),
-            "one",
-        )
-    })
-    .unwrap();
-    let m = engine::next_message(&mut e, arch).unwrap().text;
-    let items = given_value(&m, "·engine·matter_items").expect(&m);
-    let keys: Vec<&String> = items.as_object().unwrap().keys().collect();
-    let want: Vec<String> = [concerned, fixed, listed, worked]
-        .iter()
-        .map(|i| format!("#{i}"))
-        .collect();
-    assert_eq!(keys, want.iter().collect::<Vec<_>>(), "{items}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// An item's material says what its state does not: a resume that waits for a free slot, on a work that still reads as
-// paused, and a stop asked of a work that still reads as going on. Without it the architect cannot tell the first from
-// a work no one resumed, and asks again or tells the owner the wrong thing.
-#[test]
-fn an_item_s_material_says_a_resume_waits_and_a_work_is_stopping() {
+fn open_items_says_a_resume_waits_and_a_work_is_stopping() {
     let s = setup("material-requests");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let resuming = a_ready_item(&mut e, "Lex it");
     let stopped = a_ready_item(&mut e, "Parse it");
     let left = a_ready_item(&mut e, "Check it");
-    let arch = architect_work_at(&mut e, "H8");
     let v = e.flow_now;
     let works: Vec<i64> =
         e.db.write(Actor::Engine, |tx| {
@@ -870,26 +823,13 @@ fn an_item_s_material_says_a_resume_waits_and_a_work_is_stopping() {
         .unwrap();
     api::resume(&mut e.db, works[0]).unwrap();
     api::start_over(&mut e.db, works[1]).unwrap();
-    e.db.write(Actor::Engine, |tx| {
-        let fix = json!({ "items": [resuming, stopped, left] });
-        let m = a_matter(tx, "Look at the three.", None, json!({ "fix": fix }))?;
-        record_round(
-            tx,
-            arch,
-            1,
-            "Q0",
-            &json!({ "queue": { "verdict": "one", "matter": m } }),
-            "one",
-        )
-    })
-    .unwrap();
-    let m = engine::next_message(&mut e, arch).unwrap().text;
-    let items = given_value(&m, "·engine·matter_items").expect(&m);
-    let said = |item: i64, field: &str| items[format!("#{item}")]["state"][0][field].as_bool();
-    assert_eq!(said(resuming, "resuming"), Some(true), "{items}");
-    assert_eq!(said(stopped, "stopping"), Some(true), "{items}");
-    assert_eq!(said(stopped, "resuming"), Some(false), "{items}");
-    assert_eq!(said(left, "resuming"), Some(false), "{items}");
-    assert_eq!(said(left, "stopping"), Some(false), "{items}");
+    let state = |item: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT state FROM open_items WHERE item = ?1", [item], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(state(resuming), "resuming");
+    assert_eq!(state(stopped), "stopping");
+    assert_eq!(state(left), "paused");
     let _ = std::fs::remove_dir_all(&s.root);
 }

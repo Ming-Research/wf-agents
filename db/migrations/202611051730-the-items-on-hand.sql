@@ -4,10 +4,11 @@
 
 CREATE VIEW open_items AS
   -- The items not done or cancelled, a short row each, in the order they start. An item's state: `running`, a work is
-  -- on it, whose number and cell are in work and at; `paused`, that work is paused; `held`, the architect holds it
-  -- (items.held says why); `blocked`, an item it waits for is not merged (item_blocked_by); `ready`, it starts when a
-  -- slot is free (ready_items). version is what a change to the item is written on. Read by: the agents, to see what
-  -- is on hand.
+  -- on it, whose number and cell are in work and at; `paused`, that work is paused; `resuming`, it is paused and asked
+  -- to go on, which waits for a free slot; `stopping`, a cancel or a start over was asked, and it reads as it stands
+  -- until the work's step has ended; `held`, the architect holds it (items.held says why); `blocked`, an item it waits
+  -- for is not merged (item_blocked_by); `ready`, it starts when a slot is free (ready_items). version is what a change
+  -- to the item is written on. Read by: the agents, to see what is on hand.
   WITH
   running(item, work, at, paused) AS (
     SELECT w.item, w.id, w.at, w.paused FROM works w
@@ -20,6 +21,12 @@ CREATE VIEW open_items AS
     WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title,
     CASE
+      WHEN EXISTS (
+        SELECT 1 FROM outbox o
+        WHERE (o.kind = 'start_over' AND o.work = r.work)
+          OR (o.kind = 'cancel_item' AND json_extract(o.args, '$.item') = i.id)) THEN 'stopping'
+      WHEN r.paused IS NOT NULL AND EXISTS (
+        SELECT 1 FROM outbox o WHERE o.kind = 'resume_work' AND o.work = r.work) THEN 'resuming'
       WHEN r.paused IS NOT NULL THEN 'paused'
       WHEN r.item IS NOT NULL THEN 'running'
       WHEN i.held IS NOT NULL THEN 'held'

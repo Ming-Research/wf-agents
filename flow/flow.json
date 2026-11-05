@@ -4474,7 +4474,7 @@
     },
     {
       "name": "query",
-      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden. Rows too long to give here come as the first of them, how many there are and the file that holds them: narrow the query, or read the file. What is on hand is in `open_items`: count it by state before you read it all",
+      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden. Rows too long to give here come as the first of them, how many there are and the file that holds them: narrow the query, or read the file. What is on hand is in `open_items`: count it by state before you read it all; an item in full is in `item_body`, `item_acceptance`, `item_dependencies` and `item_design_cards`",
       "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long gives its first rows and is saved locally, its path given; a result past the row limit is counted. The description of the tables given to agents is generated from the database's own definition. A query that names a column or a table there is not is told, after the error, the columns of each table and view it names, and for a table there is not, every table's and view's name",
       "tables": "The tables and views it reads, with their columns and the start of what each holds; for one in full, each column explained, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
@@ -4682,7 +4682,6 @@
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
       "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work.",
       "matter": "The matter in hand, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not.",
-      "matter_items": "The items and works the matter in hand concerns, in full: each item as it stands with its version, its acceptance, its dependencies, the decisions it holds and the other items that depend on it, its work's cell and state; and the observations the matter names, whole.",
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
@@ -4769,7 +4768,6 @@
         ],
         "inputs": [
           "matter",
-          "matter_items",
           "cross_project",
           "appended",
           "since_plan",
@@ -14781,15 +14779,6 @@
               "maybe": true
             },
             {
-              "name": "Items and works concerned",
-              "what": "The items and works it concerns, in full: each item's problem, why, acceptance, dependencies and decision cards, and its work's cell, state and what it waits for",
-              "from": [
-                {
-                  "engine": "matter_items"
-                }
-              ]
-            },
-            {
               "name": "Levels",
               "what": "The levels an item may be at, lowest first, each with the model its agents run on and the work it is for",
               "from": [
@@ -14875,15 +14864,6 @@
               "from": [
                 {
                   "engine": "matter"
-                }
-              ]
-            },
-            {
-              "name": "The item and those around it",
-              "what": "The item and the items around it, in full: above it, beside it, below it, who waits for it",
-              "from": [
-                {
-                  "engine": "matter_items"
                 }
               ]
             },
@@ -15038,15 +15018,6 @@
                 ]
               ],
               "maybe": true
-            },
-            {
-              "name": "The item and those around it",
-              "what": "The item and the items around it, in full: above it, beside it, below it, who waits for it",
-              "from": [
-                {
-                  "engine": "matter_items"
-                }
-              ]
             },
             {
               "name": "Recent log on this item",
@@ -15208,15 +15179,6 @@
                 ]
               ],
               "maybe": true
-            },
-            {
-              "name": "Items concerned",
-              "what": "The item it came from and the items it names, in full",
-              "from": [
-                {
-                  "engine": "matter_items"
-                }
-              ]
             },
             {
               "name": "Observation tags",
@@ -15526,15 +15488,6 @@
               "maybe": true
             },
             {
-              "name": "The work and its item",
-              "what": "The work and its item, in full",
-              "from": [
-                {
-                  "engine": "matter_items"
-                }
-              ]
-            },
-            {
               "name": "Known red checks",
               "what": "The project's checks known to fail for a reason outside any one work, each with the item that fixes it",
               "from": [
@@ -15656,15 +15609,6 @@
                 ]
               ],
               "maybe": true
-            },
-            {
-              "name": "Items concerned",
-              "what": "The items the owner's words concern, in full",
-              "from": [
-                {
-                  "engine": "matter_items"
-                }
-              ]
             },
             {
               "name": "Levels",
@@ -15827,15 +15771,6 @@
                 ]
               ],
               "maybe": true
-            },
-            {
-              "name": "Items named",
-              "what": "The items it names, of both projects, in full",
-              "from": [
-                {
-                  "engine": "matter_items"
-                }
-              ]
             },
             {
               "name": "Cross-project dependencies",
