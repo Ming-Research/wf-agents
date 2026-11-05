@@ -983,7 +983,7 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
             (None, None)
         } else if let Some(s) = sent_by {
             (Some("sent_back".to_string()), row_why(s))
-        } else if place + 1 == kept.len() && ended.is_some() {
+        } else if place + 1 == kept.len() && ended.as_deref().is_some_and(|e| e != db::ENDED_DONE) {
             let why = ended
                 .as_deref()
                 .map(|e| e.strip_prefix("stopped: ").unwrap_or(e).to_string());

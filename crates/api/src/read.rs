@@ -252,9 +252,17 @@ fn work_rows(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<(WorkR
         .collect())
 }
 
+impl WorkRow {
+    /// Why the work was stopped before its end; none for a work that is going on or reached the end of its graph
+    /// (`works.ended` holds `done` for it).
+    fn stopped(&self) -> Option<&str> {
+        self.ended.as_deref().filter(|why| *why != db::ENDED_DONE)
+    }
+}
+
 /// Where a work stands, as the engine sees it.
 fn state(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> WorkState {
-    if w.ended.is_some() {
+    if w.stopped().is_some() {
         return WorkState::Ended;
     }
     if let Some(g) = g
@@ -333,7 +341,7 @@ fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&
 /// waiting for one, else the row. A cell whose last round failed in a way the flow runs again waits to run again
 /// (`Waits::Retry`). A paused work is said to wait too, so that the owner sees both.
 fn waits(conn: &Connection, w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> Result<Option<Waits>> {
-    if w.ended.is_some() {
+    if w.stopped().is_some() {
         return Ok(None);
     }
     if let Some(held) = held_by(conn, w.id)? {
@@ -516,7 +524,7 @@ fn summary(
         },
         paused,
         paused_by,
-        ended: w.ended.clone(),
+        ended: w.stopped().map(str::to_string),
         waits,
         branch: w.branch.clone(),
         pr: w.pr,
@@ -4777,6 +4785,33 @@ mod tests {
         assert_eq!((d.work.item, d.rounds.len(), d.asks.len()), (None, 2, 1));
         let r = round(s.db.conn(), &cache, &s.data, 3, 1).unwrap();
         assert!(r.limits.is_empty());
+    }
+
+    // A work that reached the end of its graph is ended as done, and reads as done with no reason it ended, as it did
+    // while the end was not written; one stopped before its end reads as ended, with the reason.
+    #[test]
+    fn a_work_ended_as_done_reads_as_done_and_one_stopped_reads_as_ended() {
+        let mut s = architect_setup("ended-done");
+        let read = |s: &Setup| {
+            let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()]).unwrap();
+            let last = a.works.iter().find(|w| w.work.id == 2).unwrap().work.clone();
+            (last.state, last.ended)
+        };
+        assert_eq!(read(&s), (WorkState::Done, None));
+        for (ended, expected) in [
+            ("done", (WorkState::Done, None)),
+            (
+                "stopped: for a test",
+                (WorkState::Ended, Some("stopped: for a test".to_string())),
+            ),
+        ] {
+            s.db.write(Actor::Engine, |tx| {
+                tx.execute("UPDATE works SET ended = ?1 WHERE id = 2", [ended])?;
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(read(&s), expected);
+        }
     }
 
     // A project's tab: its works newest first, with what each handled; its queue, then what an ask holds; its holds; its

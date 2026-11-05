@@ -19,7 +19,8 @@ fn sql(e: impl std::fmt::Display) -> String {
 /// How a work ends.
 #[derive(Debug, Clone, Copy)]
 pub enum End<'a> {
-    /// At its graph's end: its pull request merged, or the sub-items that took its work over closed it.
+    /// At its graph's end, which it ends as [`db::ENDED_DONE`]: its pull request merged, or the sub-items that took its
+    /// work over closed it.
     Done,
     /// Before its end, saying why, such as its item cancelled.
     Stopped(&'a str),
@@ -46,9 +47,9 @@ const WAITING_ON_IT: &str = "('engineer_question', 'open_question', 'failure', '
 /// end; unless a new work takes them over, its worktree is removed and, when it has a pull request that did not merge,
 /// the pull request is closed with a comment that its work ended without merging, while a work done at its end had its
 /// pull request merged, or closed by the sub-items that took it over. Its branch stays. A work of the architect holds
-/// no worktree or pull request, and its line's session goes on in the architect's next work. A work done at its end
-/// that stops later, as when its item is cancelled, let go of what it held at its end, and a work already ended is left
-/// as it is. `projects` are the configuration's, which say where each project's checkout and repository are.
+/// no worktree or pull request, and its line's session goes on in the architect's next work. A work that reached its
+/// end is ended as `done` ([`db::ENDED_DONE`]) by the write that completes its round there, so that the engine's loop
+/// no longer loads it; like any work already ended, it is left as it is when its item is cancelled later. `projects` are the configuration's, which say where each project's checkout and repository are.
 pub fn end(
     tx: &Transaction<'_>,
     work: i64,
@@ -57,29 +58,18 @@ pub fn end(
 ) -> Result<(), String> {
     type Row = (
         String,
-        String,
         Option<String>,
         Option<i64>,
         Option<String>,
         Option<i64>,
         Option<String>,
     );
-    let (graph, at, worktree, pr, ended, item, project): Row = tx
+    let (graph, worktree, pr, ended, item, project): Row = tx
         .query_row(
-            "SELECT w.graph, w.at, w.worktree, w.pr, w.ended, w.item, i.project
+            "SELECT w.graph, w.worktree, w.pr, w.ended, w.item, i.project
              FROM works w LEFT JOIN items i ON i.id = w.item WHERE w.id = ?1",
             [work],
-            |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                    r.get(6)?,
-                ))
-            },
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
         .map_err(|e| format!("work {work}: {e}"))?;
     if ended.is_some() {
@@ -94,13 +84,12 @@ pub fn end(
     if engineer {
         withdraw_matters(tx, work, why)?;
     }
-    // A work of the engineer's graph at its end let go of what it held there.
-    let done_before = engineer && db::is_cell(crate::ENGINEER, DONE_AT, &at) && why.is_some();
+    tx.execute(
+        "UPDATE works SET ended = ?2 WHERE id = ?1",
+        params![work, why.unwrap_or(db::ENDED_DONE)],
+    )
+    .map_err(sql)?;
     if let Some(why) = why {
-        tx.execute("UPDATE works SET ended = ?2 WHERE id = ?1", params![work, why])
-            .map_err(sql)?;
-    }
-    if let Some(why) = why.filter(|_| !done_before) {
         if let Some(r) = work::open_round(tx, work)? {
             let cut = work::Ended {
                 rejected: Some(json!({ "interrupted": why })),
@@ -118,7 +107,7 @@ pub fn end(
     if graph == crate::POLICY {
         end_sessions(tx, work)?;
     }
-    if !engineer || done_before {
+    if !engineer {
         return Ok(());
     }
     end_sessions(tx, work)?;
@@ -139,7 +128,8 @@ pub fn end(
 /// took it up: the new work has not been set up (cell `S1`), or its item still waits for a free slot, so no work that
 /// ends now holds the worktree or the pull request, and they would stay with no one to remove or close them. What a new
 /// work takes up is the item's latest work with a branch's ([`sessions::worktree::set_up`]), and on an item not
-/// cancelled yet a work with a branch has ended only by being taken over. To be called before the item is marked.
+/// cancelled yet a work with a branch has ended only by being taken over, or done, which let go of what it held already.
+/// To be called before the item is marked.
 fn let_go_of_what_no_one_took_up(
     tx: &Transaction<'_>,
     item: i64,
@@ -155,7 +145,7 @@ fn let_go_of_what_no_one_took_up(
     )?;
     let Some(left) = left
         .first()
-        .filter(|w| w["ended"].is_string() && w["cancelled"].is_null())
+        .filter(|w| w["ended"].as_str().is_some_and(|e| e != db::ENDED_DONE) && w["cancelled"].is_null())
     else {
         return Ok(());
     };
@@ -619,10 +609,10 @@ mod tests {
         assert_eq!(outbox(&db).len(), 2);
     }
 
-    // A work done at its end lets go of its sessions and its worktree there, and leaves the round of its end open for
-    // the end to close; its pull request merged. One taken over by a new work only ends its sessions, the new work
-    // taking its worktree and pull request. A pull request that merged is not closed, and a work done at its end that
-    // stops later only records why.
+    // A work done at its end is ended as `done`, lets go of its sessions and its worktree there, and leaves the round of
+    // its end open for the end to close; its pull request merged. One taken over by a new work only ends its sessions,
+    // the new work taking its worktree and pull request. A pull request that merged is not closed, and a work done at
+    // its end that is stopped later is left as it is.
     #[test]
     fn each_way_of_ending_lets_go_of_what_is_its_own_to_let_go() {
         let mut db = Db::in_memory().unwrap();
@@ -651,7 +641,7 @@ mod tests {
         let open: i64 = one(&db, "SELECT count(*) FROM sessions WHERE ended IS NULL");
         assert_eq!(open, 0);
         let ended: Option<String> = one(&db, &format!("SELECT ended FROM works WHERE id = {done}"));
-        assert_eq!(ended, None);
+        assert_eq!(ended.as_deref(), Some(db::ENDED_DONE));
         let still: i64 = one(
             &db,
             &format!("SELECT count(*) FROM rounds WHERE work = {done} AND ended_at IS NULL"),
@@ -664,6 +654,46 @@ mod tests {
         let card: String = one(&db, &format!("SELECT status FROM design_cards WHERE work = {done}"));
         assert_eq!(card, "open");
         assert_eq!(outbox(&db).len(), 2);
+        let ended: String = one(&db, &format!("SELECT ended FROM works WHERE id = {done}"));
+        assert_eq!(ended, db::ENDED_DONE);
+    }
+
+    // Cancelling an item whose latest work is done, its pull request closed by the sub-items that took its work over
+    // and not merged, lets go of nothing again: the worktree is removed and the pull request closed once, when the
+    // work ends, and the work stays ended as done. A work at its end whose round there is not closed is not done, and
+    // is let go of in full when its item is cancelled.
+    #[test]
+    fn cancelling_an_item_leaves_a_done_work_as_it_is() {
+        let mut db = Db::in_memory().unwrap();
+        let (item, done) = db.write(Actor::Engine, |tx| a_work(tx, "Done", "E1", 5)).unwrap();
+        db.write(Actor::Engine, |tx| {
+            end(tx, done, End::Done, &projects()).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("DELETE FROM outbox", [])?;
+            Ok(())
+        })
+        .unwrap();
+        db.write(Actor::Owner, |tx| {
+            cancel_now(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        assert!(outbox(&db).is_empty());
+        let ended: String = one(&db, &format!("SELECT ended FROM works WHERE id = {done}"));
+        assert_eq!(ended, db::ENDED_DONE);
+        let (item, open) = db.write(Actor::Engine, |tx| a_work(tx, "Open end", "E1", 6)).unwrap();
+        db.write(Actor::Owner, |tx| {
+            cancel_now(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+        })
+        .unwrap();
+        let ended: String = one(&db, &format!("SELECT ended FROM works WHERE id = {open}"));
+        assert_eq!(ended, "item cancelled: a duplicate");
+        let kinds: Vec<(i64, String)> = outbox(&db).into_iter().map(|x| (x.0, x.1)).collect();
+        assert_eq!(
+            kinds,
+            [(open, "remove_worktree".to_string()), (open, "close_pr".to_string())]
+        );
     }
 
     // Cancelling an item with a work going on only asks, once however often it is asked, keeping the first asker's words

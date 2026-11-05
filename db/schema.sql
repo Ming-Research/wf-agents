@@ -355,8 +355,10 @@ CREATE TABLE works (
   -- Why the work is paused: the engine's reason, when a step could not be taken or returns were sent back too often,
   -- or the owner's words; NULL while it goes on. Read by: the engine; the slots view.
   paused TEXT,
-  -- Why the work was stopped before its end cell, for example because its item was cancelled; NULL otherwise.
-  -- Read by: the engine; the status view.
+  -- How the work ended: `done` when it reached the end of its graph, written in the write that completes the round at
+  -- its end cell; otherwise why it was stopped before its end, for example because its item was cancelled. NULL while
+  -- it goes on, a work waiting for a change to take effect included. Read by: the engine, which takes no step of a work
+  -- that ended and does not load it; the status view.
   ended TEXT,
   -- Who paused the work, the owner or the engine; NULL while it goes on. The owner's Start all lets go on only the
   -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
@@ -1293,7 +1295,8 @@ CREATE VIEW ready_items AS
   -- depends on by a blocking dependency unmerged (item_blocked_by), and, unless the owner queued it, is not done. An
   -- item leaves the owner's queue when a work starts on it, and may be queued again once its works ended. A work runs
   -- until it ends or its last round, at the cell it is at, completed without taking a row, which only the end of its
-  -- graph does; it is done at the end of the engineer's graph. While dispatch_holds has a row, the engine starts none.
+  -- graph does; it is done at the end of the engineer's graph, ended as `done` or, while its round there is not
+  -- completed, not ended. While dispatch_holds has a row, the engine starts none.
   -- Read by: cell `S0`; the architect, through what runs and starts next.
   WITH
   running(item) AS (
@@ -1304,7 +1307,8 @@ CREATE VIEW ready_items AS
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
     SELECT w.item FROM works w
-    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
   FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
   WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
@@ -1328,7 +1332,8 @@ CREATE VIEW open_items AS
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
     SELECT w.item FROM works w
-    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title,
     CASE
       WHEN EXISTS (

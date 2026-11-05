@@ -45,7 +45,7 @@ pub fn cannot_start_over(conn: &Connection, work: i64) -> Result<Option<String>>
         Some(format!(
             "work {work} is the architect's: only a work on an item can be started over"
         ))
-    } else if ended.is_some() {
+    } else if ended.as_deref().is_some_and(|why| why != crate::ENDED_DONE) {
         Some(format!("work {work} has ended"))
     } else if done {
         Some(format!("work {work} is done"))
