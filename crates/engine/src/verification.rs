@@ -492,16 +492,15 @@ fn in_row(row: &Value, seen: &str) -> bool {
 }
 
 /// Whether a run that ran well showed `seen`: in a gh command's output, or among a query's rows, or in the file where those
-/// were saved. What the tool itself says of the run, its fields' names and the path of that file, shows nothing.
+/// were saved, or as the result prints with a whole row in it. What the tool itself says of the run alone, its fields'
+/// names and the path of that file, shows nothing.
 fn shown_in(run: &Run, seen: &str) -> bool {
     if run.tool == "gh" {
         return run.result[1].as_str().is_some_and(|text| whole_in(text, seen));
     }
-    let given = run.result["ran"]["rows"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|row| in_row(row, seen));
+    let rows = || run.result["ran"]["rows"].as_array().into_iter().flatten();
+    let given = rows().any(|row| in_row(row, seen))
+        || (whole_in(&run.result.to_string(), seen) && rows().any(|row| whole_in(seen, &row.to_string())));
     let saved = run
         .saved
         .iter()
@@ -553,8 +552,8 @@ pub fn basis_problems(verdicts: &[Value], conditions: &[Value], at: i64, runs: &
             ));
         } else if seen.is_empty() || !well.iter().any(|r| shown_in(r, seen)) {
             problems.push(format!(
-                "{id}: {seen:?} is not in the result of that run: say what it showed, copied letter for letter from \
-                 its result"
+                "{id}: {seen:?} is not in the result of that run: say what it showed, a value or a whole row copied \
+                 letter for letter from its result, not only the names of its fields"
             ));
         }
     }
@@ -947,6 +946,24 @@ mod tests {
         let not_holding = [run(refused)];
         assert_eq!(problems(&not_holding, "fetched").texts().len(), 1);
         assert!(problems(&not_holding, "refused").is_empty());
+    }
+
+    // A result copied as the tool prints it shows the row in it; the same words around no row show nothing.
+    #[test]
+    fn a_result_copied_with_its_row_in_it_is_shown() {
+        let conditions = [checked_by("A1", "query", "Q")];
+        let runs = [ran(
+            "query",
+            "Q",
+            json!({ "ran": { "verdict": "ran", "rows": [{ "n": 0 }], "cut": false } }),
+        )];
+        let problems = |seen: &str| basis_problems(&[holds("A1", "Q", seen)], &conditions, 0, &runs);
+        for good in [r#""rows":[{"n":0}]"#, r#"{"n":0}"#, "0"] {
+            assert!(problems(good).is_empty(), "{good}");
+        }
+        for bad in [r#""rows":[{"n":1}]"#, r#""rows":[]"#, r#""verdict":"ran""#, "rows"] {
+            assert_eq!(problems(bad).texts().len(), 1, "{bad}");
+        }
     }
 
     // A fetch for a build the checkout lacks is made at most once when it works, however many steps the wait takes, and
