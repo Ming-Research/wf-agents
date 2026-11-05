@@ -5078,11 +5078,24 @@ mod tests {
         let unclocked = |queue: Vec<Matter>| -> Vec<Matter> {
             queue.into_iter().map(|m| Matter { waited_ms: None, ..m }).collect()
         };
+        // The time of a work with a round running counts to the clock at each read, so the two reads differ by it too.
+        let unclocked_works = |works: Vec<ArchitectWork>| -> Vec<ArchitectWork> {
+            works
+                .into_iter()
+                .map(|mut w| {
+                    if w.work.running.is_some() {
+                        w.work.time.until = 0;
+                        w.work.time.engine_ms = 0;
+                    }
+                    w
+                })
+                .collect()
+        };
         let same = |s: &Setup, project: &str| -> bool {
             let page = architect(s.db.conn(), &cache, project, projects()).unwrap();
             let now = architect_standing(s.db.conn(), &cache, project).unwrap();
             assert_eq!(now.project, project);
-            assert_eq!(now.works, page.works, "{project}");
+            assert_eq!(unclocked_works(now.works), unclocked_works(page.works), "{project}");
             assert_eq!(unclocked(now.queue), unclocked(page.queue), "{project}");
             assert_eq!(now.asking, page.asks.iter().any(|a| a.answer.is_none()), "{project}");
             now.asking
