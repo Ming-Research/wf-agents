@@ -283,8 +283,8 @@ describe('the works list', () => {
 
 describe("a work's time bar", () => {
   // The rounds of the Rust test `a_work_s_time_splits_into_models_tools_and_the_engine_and_lays_out_as_a_bar`
-  // (crates/api/src/read.rs): a start step, a model, the tools, a stretch no round ran, a model; and the bar the engine
-  // lays them out in, which this test carries over as it is.
+  // (crates/api/src/read.rs): a start step and a round the engine answered itself, a model, the tools, a stretch no round
+  // ran, a model; and the bar the engine lays them out in, which this test carries over as it is.
   const BAR = `.${'m'.repeat(49)}${'t'.repeat(10)}${'.'.repeat(10)}${'m'.repeat(26)}`;
   const cells = new Map([
     ['S0', { kind: 'engine', title: 'Waits to start' }],
@@ -312,11 +312,14 @@ describe("a work's time bar", () => {
     session: null,
     new_session: null,
   });
+  // The round at an agent's cell that the engine answered without asking the agent (no session, so no line) is the
+  // engine's, as the Rust test has it.
   const rounds = [
-    round(1, 'S0', 0, 10_000, null),
-    round(2, 'R1', 10_000, 500_000, 'engineer'),
-    round(3, 'X1', 500_000, 600_000, null),
-    round(4, 'R1', 700_000, 960_000, 'engineer'),
+    round(1, 'S0', 0, 9_500, null),
+    round(2, 'R1', 9_500, 10_000, null),
+    round(3, 'R1', 10_000, 500_000, 'engineer'),
+    round(4, 'X1', 500_000, 600_000, null),
+    round(5, 'R1', 700_000, 960_000, 'engineer'),
   ];
 
   it('is drawn by the usage tab\'s track: the same blocks for the same rounds, to the width of a cell', () => {
