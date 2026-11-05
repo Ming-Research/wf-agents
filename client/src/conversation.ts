@@ -232,6 +232,11 @@ export function gapsInStream(
   return { before, end: carried };
 }
 
+/// Whether an ask's words say what it asks and its body is only what it rests on: a change to approve, or a design to
+/// review, whose body holds the whole design. Its bubble says the words, with the body folded under them, waiting or not.
+export const askInWords = (a: OwnerAsk): boolean =>
+  isObj(a.body) && (a.body.kind === 'change' || a.body.kind === 'design_review');
+
 /// Whether an ask is one an architect put to the owner: replied to by the owner's words to the architect, the box at the
 /// bottom set to reply to it, never in its bubble.
 export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.from === 'architect';

@@ -261,6 +261,18 @@ describe('an ask in its conversation', () => {
     }
   });
 
+  // A design's review holds the whole design in its body: drawn open, one bubble took 20516 pixels of the conversation.
+  it('says a change or a design review in its words, the body folded under them, with what answers it', () => {
+    for (const kind of ['change', 'design_review']) {
+      const a = ask(4, { to: 'owner', kind, asked: [{ what: 'The design', value: { design: 'Long text.' } }] });
+      const r = row(drawn(detail([asked(a, { text: 'Reply exactly approved to approve it.' })])), 'data-ask="4"');
+      const { inside } = bubble(r);
+      expect(inside).toContain('Reply exactly approved to approve it.');
+      expect(inside).toContain('talk-fold');
+      expect(r).toContain('textarea');
+    }
+  });
+
   it('is answered where it was asked: its options picked on their boxes, none at first, then a small box and Answer', () => {
     const { inside, after } = bubble(row(drawn(detail([asked(ask(4, choice))])), 'data-ask="4"'));
     // Nothing after the bubble in its row but the ends of the row and of the stream.

@@ -100,6 +100,7 @@ import {
 } from '../components';
 import {
   aboutCard,
+  askInWords,
   architectAsk,
   asksApproval,
   cardTalk,
@@ -297,10 +298,13 @@ function MissesLine({ m }: { m: Misses }) {
 
 /// What a message of the owner's or an agent's says: its words as written, in the page's markdown, and the images the
 /// owner sent with them as thumbnails under them; a ruling, which card; an ask, in full while it waits, so that it is
-/// read where it is answered, and once answered its words with the ask in full folded under them.
+/// read where it is answered, and once answered its words with the ask in full folded under them, as a change to approve
+/// or a design to review always is, whose body would fill the conversation.
 function Words({ e }: { e: ConversationEntry }) {
   if (e.source === 'ruling') return <p>{t('conv_ruling', { id: e.design_card ?? e.id })}</p>;
-  if (e.ask_detail !== null && e.ask_detail.answer === null) return <AskIn a={e.ask_detail} />;
+  if (e.ask_detail !== null && e.ask_detail.answer === null && !askInWords(e.ask_detail)) {
+    return <AskIn a={e.ask_detail} />;
+  }
   return (
     <>
       {e.text !== '' ? <Markdown text={e.text} /> : null}
