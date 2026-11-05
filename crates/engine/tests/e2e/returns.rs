@@ -352,6 +352,46 @@ fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again()
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A repair handed in again runs the command line twice, and the second run's reply replaces the first in the round's
+// record: the round's model time is both runs' together, so the first run's time is not lost.
+#[test]
+fn a_repair_handed_in_again_records_the_model_time_of_both_runs() {
+    let rewords: Script = Box::new(|r: &Request, _: usize| {
+        let text = r.prompt.split("The text:\n").nth(1).unwrap_or_default().trim();
+        (
+            Vec::new(),
+            vec![("@result", json!(text.replacen(" \"at\" ", " in ", 1)))],
+        )
+    });
+    let s = setup("unparsed-model-time");
+    let mut agents = scripts();
+    agents.insert(
+        "R0",
+        Box::new(|_: &Request, n: usize| match n {
+            1 => (
+                Vec::new(),
+                vec![
+                    ("@unparsed", json!("unescaped_quote")),
+                    ("@usage", json!({ "session_cost_usd": 0.01, "duration_api_ms": 41_000 })),
+                ],
+            ),
+            _ => (
+                Vec::new(),
+                vec![("@usage", json!({ "session_cost_usd": 0.02, "duration_api_ms": 9_000 }))],
+            ),
+        }),
+    );
+    agents.insert("@repair", rewords);
+    let (mut e, _said, item) = start(&s, agents);
+    past_r0(&mut e, item);
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "R1");
+    let (record, usage) = repair_record(&e, work);
+    assert_eq!(record["again"]["handed_in"], true, "{record}");
+    assert_eq!(usage["duration_api_ms"], 50_000, "{usage}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A return cut off is never repaired: the agent is asked to hand it in again, and when that cannot be parsed either,
 // the work pauses, the owner is told, and the round is closed as a failed run of its kind.
 #[test]
