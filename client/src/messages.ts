@@ -854,7 +854,7 @@ const messages = {
   us_of_window: 'of {n}',
   us_context_title: 'Context after each round',
   us_context_tip: 'context {n}',
-  us_context_rise_tip: 'context {from} at its first call, {n} at its end',
+  us_context_rise_tip: 'context {from} at its first call, ending at {n}',
   us_compacted: 'compacted',
   us_tools_title: 'Tools',
   us_tools_note: 'Time each tool cell ran, over all its runs.',

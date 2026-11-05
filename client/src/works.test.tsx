@@ -267,8 +267,10 @@ describe('the works table', () => {
     const q = groups(html)[1];
     // Its row says ready, not running, and its project's button counts it so.
     const row = q.split('<tr ').find((r) => r.includes('>W3<')) ?? '';
-    expect(row).toContain('ready');
-    expect(row).not.toContain('running');
+    // The state is the row's state cell: the time bar's words on hovering say "Not running" of the time nobody ran.
+    const state = /class="state-cell"[^>]*>([\s\S]*?)<\/td>/.exec(row)?.[1] ?? '';
+    expect(state).toContain('ready');
+    expect(state).not.toContain('running');
     expect(buttons(q).map((b) => b[0])).toContain('1 work is ready. Click to hide it.');
     expect(buttons(q).map((b) => b[0]).join()).not.toContain('running');
     // The list of conversations counts it the same.
