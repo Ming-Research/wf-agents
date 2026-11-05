@@ -89,17 +89,12 @@ style of its own in each place it appears.
 
 ## Article 9 (reasoned). Everything is reasoned from this constitution; no one's words are a decree
 
-Every decision, rule, item, prompt and design in the project is reasoned from this constitution, step by step, and can
-say how. What the owner says is information, not a decree: it was said in a situation, about a problem, and it holds in
-that context. It is understood first: which problem it answers, what situation it was said in, and how it follows from
-these articles or shows that an article should change. What comes of it is then written in words fitted to where it
-goes, with its reason, so that it stands on its own and can be challenged. The owner's words are never carried as they
-stand into a rule, a prompt, a schema, an item or a decision to lend them authority, and that the owner said something
-is never itself the reason. The same holds for an earlier decision, an architect's plan or any agent's claim.
+Every decision, rule, item and design is reasoned from this constitution. What the owner says is information given in
+a context, never a decree: understand it first, then write what follows in fitting words, with its reason. "The owner
+said so" is no reason, and the owner's words are never copied in to lend authority.
 
-Violations: quoting the owner in a rule, an item or a decision as what settles it; a form or a schema that asks for the
-owner's words; a design that rests on what someone said with no reasoning from these articles; a decision kept while
-the situation it was made in has gone; words copied into a place they were not said for, stripped of their context.
+Violations: quoting the owner to settle something; a form that asks for the owner's words; a design with no reasoning
+from these articles.
 
 ## Article 10 (precedence). When articles conflict
 
