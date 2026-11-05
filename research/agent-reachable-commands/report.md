@@ -28,21 +28,23 @@ agent's own shell cannot; and which limits rest only on Claude Code's rules.
    runner, 6 of the 8 cells did (run, section 3.3). Three files do it: `rust-toolchain.toml`, `.cargo/config.toml` and
    `client/.npmrc`. `--ignore-scripts` stopped the `scripts` of `client/package.json` and did not stop npm's `git`
    setting (run). On the engine's machine this is inferred, with one check left for the owner (section 3.4).
-2. **Keeping the engine's tools off does not close this.** `dependency_sources` is off, but the agent's own shell may run
-   `cargo update` and `npm install --package-lock-only --ignore-scripts` by a prefix rule (read), and those two commands
-   were redirected on the runner (run). The same holds for `rustfmt` (read that it is allowed; inferred that it is
-   redirected; not run). Not run in an agent's shell, since that would use an allowed command to run a program the
-   rules do not allow.
+2. **Keeping the engine's tools off does not close this.** `dependency_sources` and `lock_update` run no command on this
+   project today, but the agent's own shell may run `cargo update` and `npm install --package-lock-only --ignore-scripts`
+   by a prefix rule (read), and those two commands were redirected on the runner (run). The same holds for `rustfmt`
+   (read that it is allowed; inferred that it is redirected; not run). Not run in an agent's shell, since that would use
+   an allowed command to run a program the rules do not allow.
 3. **The engine's own `git push` runs a program named in the repository's git configuration.** On the runner a hook
    named by `core.hooksPath` ran on `git push` (run). The engine runs git with no setting that stops this, and the
-   agents' rules let them write that setting (read, section 4.3). This needs no tool to be enabled. Nobody has used it:
-   the setting is unset today (read).
+   agents' rules let them write that setting (read, section 4.3). This needs no tool to be enabled. The setting is unset
+   today (read, on 2026-11-05). Whether it was ever set and removed was not looked for.
 4. **On the 14900K a branch's code runs by design.** Its `build.rs` and tests run there, what they build stays across
    runs, and a branch can change the workflow it runs by (read, section 5). Redirecting by a file is not needed there,
    so the matrix does not answer for it.
 5. **The limits on the agent's shell exist only on Claude Code's command line** and match the text of a command, not what
-   it starts (read, docs, section 6). Another coding agent would not have them. What the engine holds itself stays, but
-   it bounds what an agent may ask for, not what a command does once it runs.
+   it starts (read, docs, section 6). Claude Code's docs say `Bash(git push *)` does not match `git -C . push`, and `git`
+   is allowed, so the refusal of `git push` may not hold even without any file (docs; not run, section 6.2). Another
+   coding agent would not have these limits. What the engine holds itself stays, but it bounds what an agent may ask for,
+   not what a command does once it runs.
 6. **Three boundaries the engine would hold are in section 7**, for the owner to choose. None of them covers the 14900K
    by itself.
 
@@ -52,7 +54,7 @@ agent's own shell cannot; and which limits rest only on Claude Code's rules.
 
 | Place | What runs there | What decides what runs |
 |---|---|---|
-| The engine's machine (`macbook`) | The agent's own shell; the engine's git; local `gh`; the `dependency_sources` archetype and #280's lock commands, if enabled | The configuration names a command; files in the worktree can change what it does (section 3) |
+| The engine's machine (`macbook`) | The agent's own shell; the engine's git; local `gh`; the `dependency_sources` archetype and the lock commands of `lock_update`, if their tables are added | The configuration names a command; files in the worktree can change what it does (section 3) |
 | The 14900K (`[self-hosted, 14900k]`) | `ci`, `ci_before`, and the full CI a work's merge waits for | The branch (section 5) |
 | GitHub runners (`ubuntu-24.04`) | `measure`, and the full CI on each push to main | The branch for `measure`; main for the push to main |
 
@@ -76,19 +78,25 @@ How each is known:
 
 `dependency_sources` is off. At about 21:30 UTC on 2026-11-04 the tool's description listed two commands; by 21:48 UTC it
 said `none`; `tool_runs` holds 0 runs of it (the times read by the architect from the engine's records; the count, and
-`none` in the tool's description, read again by this work). #280's `lock_update` has 0 runs too (read). So this report
-answers whether to enable them later, and how the boundary is held then.
+`none` in the tool's description, read again by this work). `lock_update`, the tool of #280 (lock commands as an engine
+tool), has merged to main (commit 33c8ffee), but wf-agents' own file lists no lock file for it, so it only refuses
+(`decisions/lock-updates-wait-for-the-report.md`). It has 0 runs too (read). So this report answers whether to enable
+them later, and how the boundary is held then.
 
 ### 3.2 From the engine to the command (read, not run)
 
-The commands of `dependency_sources` run in `crates/engine/src/dependency_sources.rs`, `run_command`, called by `run`. By
-its design #280's lock commands use the same code.
+Both tools run their command in `crates/engine/src/command.rs`, `run_command`, called by
+`crates/engine/src/dependency_sources.rs`, `run` and `crates/engine/src/lock_update.rs`, `run`.
 
-- The working directory is the worktree: `.current_dir(dir)`.
+- The working directory is in the worktree: its root for `dependency_sources`, and the directory that holds the lock file
+  for `lock_update`. Both are `.current_dir(dir)`.
 - There is no shell: `Command::new(program).args(args)`. The program is the first word of the configured command and is
   found on the engine's `PATH`.
-- The environment is the engine's, whole: no `env` or `env_clear` is called. `ENVIRONMENT`, which sets
-  `RUSTUP_AUTO_INSTALL=0`, is applied only to the agent's command line (`crates/sessions/src/cli.rs`, `Claude::command`).
+- The environment is the engine's, whole: the engine calls no `env` or `env_clear`, and sets nothing of its own for the
+  command. `ENVIRONMENT`, which sets `RUSTUP_AUTO_INSTALL=0`, is applied only to the agent's command line
+  (`crates/sessions/src/cli.rs`, `Claude::command`). For these tools, the README writes that limit into the project's
+  command: `env RUSTUP_AUTO_INSTALL=0 cargo ...`. So it holds where a project's file writes it, and the engine does not
+  hold it.
 - The agent's permission layer is not passed: `crates/engine/src/steps.rs` puts `Permissions::allowed` and
   `Permissions::refused` into the command line's request, and `crates/engine/src/tools.rs`, `run_tools`, reads neither.
 - Standard input is `/dev/null`. The command has its own process group and a time limit.
@@ -117,6 +125,9 @@ exits 0.
 
 The baselines have none of these files. Each of the four commands exited 0 and left no marker.
 
+The two cargo commands ran without the `env RUSTUP_AUTO_INSTALL=0` the README now puts before them. A `path` needs no
+download, and cargo reads `.cargo/config.toml` by itself, so that prefix should not change these rows (inferred; not run).
+
 The controls show that each file takes effect, which is what lets "not redirected" count:
 
 | File | Control | Result |
@@ -137,8 +148,9 @@ What the rows mean:
   it to start.
 - **A non-zero exit does not undo a redirect.** The stand-ins do nothing, so cargo and npm failed after they had run
   them. A program that passes the call on to the real tool would exit 0 (inferred; not run).
-- **An exit of 0 reads as success.** `crates/engine/src/dependency_sources.rs`, `run`, gives `fetched` on exit 0 (read),
-  so a redirected `cargo vendor` would be reported as fetched (inferred; not run through the engine).
+- **An exit of 0 reads as success.** On exit 0, `crates/engine/src/dependency_sources.rs`, `run`, gives `fetched` and
+  `crates/engine/src/lock_update.rs`, `run`, gives `updated` (read), so a redirected `cargo vendor` or `cargo update` would
+  be reported so (inferred; not run through the engine).
 
 **Not run**, so nothing is claimed either way:
 
@@ -147,8 +159,10 @@ What the rows mean:
 - A manifest that names `rust-version`, as this project's workspace does. The fixture names none. An agent can also edit
   the manifest.
 - `.npmrc` at the worktree's root, and a git dependency with a `prepare` script of its own.
-- A relative `path`, and a `channel` in `rust-toolchain.toml`. Since `run_command` does not set `RUSTUP_AUTO_INSTALL=0`, a
-  `channel` the machine lacks might download a toolchain (read for the setting; inferred for the effect).
+- A relative `path`, and a `channel` in `rust-toolchain.toml`. With the README's `env RUSTUP_AUTO_INSTALL=0`, a `channel`
+  the machine lacks should fail, not download. A project's command that leaves it out has no such limit, since the engine
+  sets none (read for the setting; inferred for the effect).
+- The cargo commands with the `env` prefix, as above.
 - npm above 10.9.9. npm added `allow-git` in 11.9.0, and its default becomes `none` in npm 12 (docs), so the `git` rows
   do not carry over to npm 12.
 - The real `run_command`: the first layer in the table below is read, not run.
@@ -181,16 +195,27 @@ ps -wwE -o command= -p <pid> | grep -oE ' (PATH|RUSTUP_TOOLCHAIN|RUSTUP_HOME|CAR
 ```
 
 ```sh
-# With the PATH from above: where the programs resolve. cargo can be a proxy only if it sits beside rustup.
-PATH='<that value>' sh -c 'command -v cargo rustup npm; rustup which cargo; npm --version'
+# With the values printed above, so that this is the engine's environment and not your shell's. A variable that was
+# not printed stays removed by -u. One that was: drop its -u and add NAME='<value>' beside PATH.
+# Where the programs resolve: cargo can be a proxy only if it sits beside rustup.
+env -u RUSTUP_TOOLCHAIN -u RUSTUP_HOME PATH='<that value>' \
+  sh -c 'command -v cargo rustup npm; rustup which cargo; cargo --version; npm --version'
 ```
 
-If `RUSTUP_TOOLCHAIN` is set, it comes before the toolchain file (docs), and `rust-toolchain.toml` may not redirect. If it
-is not set and the programs resolve as on the runner, the `rust-toolchain.toml` rows carry over by the same mechanism,
-and that is still inferred. For a run, the owner can use that `PATH` on the same script:
+How to read what it prints (all inferred, from sections 3.2 and 3.3):
+
+- **`rust-toolchain.toml`.** If `RUSTUP_TOOLCHAIN` is set, it comes before the toolchain file (docs), and the file may not
+  redirect. If it is not set and `cargo` resolves to rustup's proxy as on the runner, these rows carry over by the same
+  mechanism.
+- **`.cargo/config.toml`.** cargo reads the file itself, proxy or not. So look at the version: the same cargo as on the
+  runner carries these rows over by the same mechanism, and another version stays open.
+- **`client/.npmrc`.** Look at `npm --version`. From npm 12 `allow-git` defaults to `none` (docs), so the `git` rows may not
+  carry over. Below 12 and other than 10.9.9, they stay open. Either way the script's run decides.
+
+For a run, the owner can use the same values on the same script:
 
 ```sh
-PATH='<that value>' bash research/agent-reachable-commands/reproduce.sh
+env -u RUSTUP_TOOLCHAIN -u RUSTUP_HOME PATH='<that value>' bash research/agent-reachable-commands/reproduce.sh
 ```
 
 It writes only in a temporary directory, since it points `CARGO_HOME` and npm's cache there. It reads no credential, and
@@ -202,12 +227,12 @@ points npm at a closed port. It has not been run on macOS.
 
 | What | A command the engine runs | The agent's own shell, by its rules | Source and evidence |
 |---|---|---|---|
-| Heavy work | Runs it, such as `cargo vendor` or `npm ci` | Refused | `crates/engine/src/dependency_sources.rs`, `run_command`; `crates/config/src/lib.rs`, `Permissions::refused` (read) |
+| Heavy work | Runs it, such as `cargo vendor` or `npm ci` | Refused | `crates/engine/src/command.rs`, `run_command`; `crates/config/src/lib.rs`, `Permissions::refused` (read) |
 | The agent's permission layer | Never passes it | Every command passes it | `crates/engine/src/tools.rs`, `run_tools`; `crates/engine/src/steps.rs` (read) |
 | The engine's whole environment and credentials | Has them: nothing is removed, and `gh` uses the engine's stored login | The command line inherits the same variables, as nothing clears them. What it passes on to its shell was not read, since `env` is refused. The shell may not run `gh` | `run_command`; `crates/engine/src/hub.rs`, `gh`; `crates/sessions/src/cli.rs`, `Claude::command` (read); `env` refused (run) |
 | Files outside the worktree | No limit: a redirected program runs as the engine's OS user | Needs approval, so it is refused, as `ls` of the data directory was | `run_command` (read); the refusal (run, in this work's round) |
 | Network | Whatever the program does | Only what an allowed tool or command reaches: `WebSearch`, `WebFetch`, `git` and the lock commands | `crates/sessions/src/cli.rs`, `command_line`; the recorded command line (read) |
-| Installing a toolchain | Not stopped: no `RUSTUP_AUTO_INSTALL=0` | Set to 0 | `crates/sessions/src/cli.rs`, `ENVIRONMENT` (read) |
+| Installing a toolchain | The engine does not stop it: `RUSTUP_AUTO_INSTALL=0` holds only where the project's command writes it, as the README's cargo commands do | The engine sets it to 0 | `crates/sessions/src/cli.rs`, `ENVIRONMENT`; `README.md` (read) |
 | Carrying a variable to the network without running a foreign program | A project `.npmrc` expands `${VARIABLE_NAME}` and can set `_authToken` for a registry it names, so npm may send a variable of the engine's environment there. So "not redirected" does not mean safe | The same under the prefix rule for `npm install`, except for what the command line leaves out of the shell's environment | [npm's documents](#9-reproducing-it-and-the-sources) (docs; **not run**) |
 
 The rows are what the rules say. Section 6.2 shows why they do not hold as a boundary even under Claude Code.
@@ -218,8 +243,8 @@ All read from the source named.
 
 | Place | Command | Source | Note |
 |---|---|---|---|
-| The engine's machine | `dependency_sources` archetype | `crates/engine/src/dependency_sources.rs`, `run` | Off |
-| The engine's machine | #280's lock commands | #280's design, on the same code | Not merged |
+| The engine's machine | `dependency_sources` archetype | `crates/engine/src/dependency_sources.rs`, `run`; `crates/engine/src/command.rs`, `run_command` | Off |
+| The engine's machine | The lock commands of #280's `lock_update` | `crates/engine/src/lock_update.rs`, `run`; `crates/engine/src/command.rs`, `run_command` | Merged; no lock file listed, so it only refuses |
 | The engine's machine | git | `crates/engine/src/hub.rs`, `push`; `crates/engine/src/git.rs`, `catch_up`; `crates/sessions/src/worktree.rs`, `is_clean`; `crates/config/src/shared_git.rs`, `run` | Live; section 4.3 |
 | The engine's machine | local `gh` | `crates/engine/src/hub.rs`, `gh`; `crates/engine/src/tools.rs`, `gh` | Live; held by `gh.allow` |
 | The 14900K | `ci`, `ci_before`, the merge's full CI | `crates/engine/src/tools.rs`, `ci`, `ci_before`, `fast_checks`, `full_checks_on` | Live; section 5 |
@@ -227,8 +252,8 @@ All read from the source named.
 
 **`gh` is the contrast.** It too runs with the engine's environment and credentials, but only what starts with an entry
 of `gh.allow` runs, and `api` only reads (`crates/engine/src/tools.rs`, `gh_refusal`, `api_write`; read). That boundary is
-the engine's own, and holds under any coding agent. Local git and the commands of `dependency_sources` have nothing like
-it for what the command does once it has started.
+the engine's own, and holds under any coding agent. Local git and the commands of `dependency_sources` and `lock_update`
+have nothing like it for what the command does once it has started.
 
 ### 4.3 The engine's git
 
@@ -279,9 +304,11 @@ This work ran no experiment on the 14900K.
   on a work that delivers a change (read: `crates/engine/src/checks.rs`).
 - Nothing reviews this before it runs: `ci` runs during the implementation, before any review (read, the flow's order).
 
-So an agent can choose the steps that run on the 14900K (inferred; not run). One thing could stop it on GitHub's side:
-adding or changing a workflow file needs a credential with the `workflow` scope (docs). Which scopes the engine's
-credential has only the owner can read.
+- GitHub's `workflow` scope does not stop it either. The engine pushes with `git push -q origin`
+  (`crates/engine/src/hub.rs`, `push`), and `origin` is an SSH address (read: `git remote -v`). That scope belongs to OAuth
+  and personal tokens, and an SSH key has no scopes (docs, inferred; not run).
+
+So an agent can choose the steps that run on the 14900K (inferred; not run).
 
 **What GitHub says** (read, through `gh api`, on 2026-11-05):
 
@@ -311,12 +338,17 @@ env | cut -d= -f1 | sort
 ip route 2>/dev/null || netstat -rn
 ```
 
-```sh
-# On the engine's machine: the scopes of the credential the engine pushes with. Look for `workflow`.
-gh auth status
-```
-
 The owner can also read the organization's runner settings on GitHub: which repositories the runner group admits.
+
+A second check, on the engine's machine, also **not run**: how its git reaches GitHub and with whose key. The repository
+has no deploy key (read, through `gh api`), so the key belongs to an account (inferred), and what it may write is what that
+account may write.
+
+```sh
+# In the project's checkout. The first names the address the engine pushes to; the second, whose key it is.
+git remote -v
+ssh -T git@github.com
+```
 
 ## 6. Question 3: which limits rest only on Claude Code's rules
 
@@ -348,27 +380,43 @@ sandbox. Nothing on the command line turns that on (read).
 | `gh` only from an allow list, `api` only reads | `crates/engine/src/tools.rs`, `gh_refusal`, `api_write` |
 | A push is the clean head, follows the last push, carries no other branch | `crates/engine/src/tools.rs`, `push_refusal`; `crates/sessions/src/worktree.rs`, `handed_in` |
 | `dependency_sources` runs only a listed command, into a directory git ignores | `crates/engine/src/dependency_sources.rs`, `run`, `ignored` |
-| A command's process group and time limit | `crates/engine/src/dependency_sources.rs`, `run_command`, `stop` |
+| `lock_update` runs only a listed command, in the directory that holds the lock file | `crates/engine/src/lock_update.rs`, `run` |
+| A command's process group and time limit | `crates/engine/src/command.rs`, `run_command`, `stop` |
 | `measure` runs only listed workflows and inputs | `crates/engine/src/tools.rs`, `measure_request` |
 | `ci` names only known checks | `crates/engine/src/tools.rs`, `checks_refusal`, `tests_refusal` |
 | `query` only reads, with hidden tables and limits | `crates/db/src/lib.rs`, `open_for_agents` |
 | A report changes nothing outside `research/` | `crates/engine/src/checks.rs`, `branch_changes_fit_work` |
 
 These hold what an agent may ask the engine for. Except for the time limit, none holds what a command does once it runs.
+`push_refusal` limits only the pushes the engine makes for an agent, not one from the agent's own shell (section 6.2).
 
 ### 6.2 Why the rules are no boundary even under Claude Code
 
 Claude Code's Bash rules match the text of the command (docs). They do not follow what it starts, and its docs say a deny
-rule does not match the same program by path or inside `sh -c`. So an allowed command that reads the worktree can run what
-the rules refuse:
+rule does not match the same program by path or inside `sh -c`, and that such a rule is no security boundary. So an
+allowed command that reads the worktree can run what the rules refuse:
 
 - `cargo update` and `npm install --package-lock-only --ignore-scripts` by the files of section 3.3 (run, on the runner).
 - `rustfmt` by `rust-toolchain.toml`, since it comes from the same proxy directory (inferred; not run).
 - `git` by a hook named in its configuration (run, on the runner), or by an alias starting with `!`, which git's manual
   says runs a shell command (docs; not run).
 
-None of this was run in an agent's shell. The rules, the runner's results and the manual are the evidence; that the
-same steps work in that shell is inferred.
+And a refused command may simply be written another way, with no file at all. The docs' own example is `git push`:
+`Bash(git push *)` does not match `git -C . push origin main` or `git 'push' origin main` (docs), while `Bash(git *)` is
+allowed (read). The refusal of `Bash(git commit *)` on lines that only read has the same gap (inferred; not run).
+
+Whether such a push would go through is the closest thing here to a step that cannot be undone, so this is what is known:
+
+- `git fetch` over the SSH `origin` works in an agent's shell (run, in this work's round). GitHub's SSH needs a key it knows
+  (docs), so that shell can use a key (inferred), and the engine pushes by the same `origin` (read).
+- The rules on main stop no fast-forward (read, section 5), and `push_refusal` is not on this path (read).
+- Whether that key can write is what the second check in section 5 tells.
+
+The push itself was not tried, and should not be tried from a work's shell: it would go around the shell's own refusal, and
+it could change main. Only the owner can authorize a trial, on a throwaway branch.
+
+None of the routes above was run in an agent's shell. The rules, the runner's results and the documents are the evidence;
+that the same steps work in that shell is inferred.
 
 This is the part of the constitution's Article 1 not yet done: "nothing rests on a feature of one agent's command line".
 
@@ -434,17 +482,46 @@ boundary is still needed there. And a branch can change the workflow it runs by 
 
 These are judgments. Each says the evidence it rests on.
 
-- **Whether to enable the tools later.** Decide the boundary first, then enable. Until then, enabling adds little reach an
-  agent's shell does not already have by the prefix rules, and adds the engine's environment without
-  `RUSTUP_AUTO_INSTALL=0`. Keeping them off is not a boundary (read, run on the runner; inferred).
+### 8.1 The decision that waits for this report
+
+`decisions/lock-updates-wait-for-the-report.md` leaves the owner two things to decide once this report is out, for
+`[[lock_updates]]` and `[[dependency_sources]]` together, since they share the code that runs a command:
+
+1. **Whether a boundary held by the engine must come first.** I recommend yes. A file in the worktree redirects these
+   commands (run, on the runner), and the program then has the engine's user and environment with no permission layer
+   (read).
+2. **Whether to add the tables.** I recommend not before the boundary. Enabling adds little reach an agent's shell does not
+   already have by the prefix rules, but the engine's run has no permission layer and the engine's whole environment.
+   Keeping them off is not a boundary either (read, run on the runner; inferred).
+
+What the decision left to this report to settle by running it:
+
+| What the decision inferred | What this report found |
+|---|---|
+| `path` in `rust-toolchain.toml` can make the configured `cargo` the program in that directory | Yes, for `cargo vendor` and `cargo update`, without the `env` prefix (run, on the runner) |
+| `.cargo/config.toml` can change the registry | Still inferred: `[registry]` and `[source]` were not run. The same file did run a program through `rustc-wrapper` (run), which goes further |
+| npm's command-line options outrank `.npmrc`, so `--ignore-scripts` and `--package-lock-only` cannot be overridden there | Not tested as such: the fixture's `.npmrc` sets neither (not run). The comfort it gives does not hold: with both flags on the command line, the `git` setting of `.npmrc` ran a program (run). `--ignore-scripts` did stop the `scripts` of `package.json` (run) |
+| Whether a command the engine runs can use the engine's credentials has not been tried | Still not tried: the stand-ins read none. The command runs as the same user with the whole environment (read), so a redirected program can (inferred; not run) |
+
+**The price of boundary first.** That decision holds #283 (remove the lock commands' rules) until the tool has had real
+runs. So with the boundary first, #283 waits for the boundary too, and the two prefix-rule routes of section 6.2 stay open
+for that time. Adding the tables first would release #283 sooner, but the same files would then redirect the same commands
+through the engine, and the routes through `rustfmt` and `git` stay in any case. So it does not shrink what an agent can
+reach (read, run on the runner; inferred). This report changes neither decision file.
+
+### 8.2 The others
+
 - **Which option.** I would take Option 3, for the whole agent command line and what the engine runs for it, since it is
   the only one that needs no list and takes the boundary off any agent's rules (read, docs; inferred). What I am unsure of
   is how much the shared worktree costs on the engine's machine, which no run here tried. Option 1 is the alternative if a
   second OS user is not wanted.
-- **#280 (lock commands as an engine tool).** Its two commands are redirected by the same files (run, on the runner), and
-  it adds no guard by its design (read), so it needs the same boundary.
-- **#283 (remove the lock commands' rules).** It closes two of the routes in section 6.2. The ones through `rustfmt` and `git`
-  stay (read; inferred).
+- **#280 (lock commands as an engine tool).** It has merged, and its code adds no guard (read:
+  `crates/engine/src/lock_update.rs`). Its two commands are redirected by the same files (run, on the runner, without the
+  `env` prefix), so its tables need the same boundary.
+- **#283 (remove the lock commands' rules).** It closes two of the routes in section 6.2. The ones through `rustfmt` and `git`,
+  and `git -C . push`, stay (read, docs; inferred).
+- **`git` in the agent's shell.** Removing or narrowing `Bash(git *)` would close more than #283 does, and is the agent's
+  ordinary way of working. No option in section 7 replaces it unless it wraps the agent's whole command line (inferred).
 - **The 14900K** is a decision of its own: none of the three options reaches it from the engine, and the owner's check in
   section 5 comes first (read; inferred).
 
@@ -488,7 +565,10 @@ Documents:
   [Secure use](https://docs.github.com/en/actions/reference/security/secure-use),
   [Self-hosted runners](https://docs.github.com/en/actions/reference/runners/self-hosted-runners),
   [GITHUB_TOKEN](https://docs.github.com/actions/reference/authentication-in-a-workflow),
-  [Scopes for OAuth apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).
+  [Scopes for OAuth apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps),
+  [Credential types](https://docs.github.com/en/organizations/managing-programmatic-access-to-your-organization/github-credential-types),
+  [Deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys),
+  [Remote repositories](https://docs.github.com/en/get-started/git-basics/about-remote-repositories).
 - Claude Code: [Permissions](https://code.claude.com/docs/en/permissions),
   [Permission modes](https://code.claude.com/docs/en/permission-modes),
   [Sandboxing](https://code.claude.com/docs/en/sandboxing).
