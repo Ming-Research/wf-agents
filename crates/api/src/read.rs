@@ -457,29 +457,15 @@ fn asked_architect(conn: &Connection, r: &Light) -> Result<Option<i64>> {
         .optional()?)
 }
 
-/// How long a work's agents and tools ran: its rounds at an agent's or a tool's cell, the one running counted to `now`;
-/// a round of an ask, or of the engine's, waits rather than runs.
-fn ran(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> i64 {
-    rounds
-        .iter()
-        .filter(|r| {
-            r.cell
-                .as_deref()
-                .and_then(|c| g?.cell(c))
-                .is_some_and(|c| c.kind == "agent" || c.kind == "tool")
-        })
-        .map(|r| r.ended_at.unwrap_or(now) - r.started_at)
-        .sum()
-}
-
 /// How many equal cells a work's bar is cut into.
 const BAR_CELLS: i64 = 96;
 
 /// Where a work's time went: how long models, tools and the engine's own steps ran, from its first round's start to
 /// its last round's end (the one running counted to `now`), and that span cut into [`BAR_CELLS`] equal cells, each as
 /// the character of what ran most of it. A round at an agent's cell is a model's, at a tool's cell a tool's, any other
-/// the engine's; the page's usage tab sorts a work's rounds the same way, by the line of a round's session. The bar
-/// leaves the engine's own rounds out, as the tab's timeline does.
+/// the engine's (a round of an ask, or of the engine's, waits rather than runs); the page's usage tab sorts a work's
+/// rounds the same way, by the line of a round's session. The bar leaves the engine's own rounds out, as the tab's
+/// timeline does. What the models and the tools ran is how long the work ran, as the list counts it.
 fn work_time(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> WorkTime {
     let end = |r: &Light| r.ended_at.unwrap_or(now);
     let (Some(from), Some(until)) = (rounds.iter().map(|r| r.started_at).min(), rounds.iter().map(end).max()) else {
@@ -584,7 +570,7 @@ fn summary(
         });
     let count = |want: &[RoundOutcome]| rounds.iter().filter(|r| want.contains(&r.outcome())).count() as i64;
     let (paused, paused_by) = paused(w);
-    let now = db::now();
+    let time = work_time(rounds, g, db::now());
     WorkSummary {
         id: w.id,
         item: w.item,
@@ -609,8 +595,8 @@ fn summary(
         pr: w.pr,
         started_at: rounds.first().map(|r| r.started_at),
         last_at: rounds.iter().map(|r| r.ended_at.unwrap_or(r.started_at)).max(),
-        ran_ms: ran(rounds, g, now),
-        time: work_time(rounds, g, now),
+        ran_ms: time.model_ms + time.tool_ms,
+        time,
         rounds: rounds.len() as i64,
         sent_back: count(&[RoundOutcome::SentBack]),
         failed: count(&[RoundOutcome::Failed, RoundOutcome::Interrupted]),
@@ -2860,7 +2846,8 @@ mod tests {
             light(4, "A2", 45, Some(48)),
             light(5, "R1", 50, None),
         ];
-        assert_eq!(ran(&rounds, g, 70), 10 + 5 + 20);
+        let t = work_time(&rounds, g, 70);
+        assert_eq!(t.model_ms + t.tool_ms, 10 + 5 + 20);
     }
 
     #[test]
@@ -2891,8 +2878,6 @@ mod tests {
             (t.model_ms, t.tool_ms, t.engine_ms),
             (490_000 + 260_000, 100_000, 10_000)
         );
-        // What the models and the tools ran is what the run time counts.
-        assert_eq!(t.model_ms + t.tool_ms, ran(&rounds, g, 960_000));
         // 96 cells of 10 s: the engine's first step is no one's, then 49 of the model, 10 of the tools, 10 of nothing.
         let expected = format!(
             "{}{}{}{}{}",
