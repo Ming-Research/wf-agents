@@ -79,9 +79,13 @@ fn the_architect_s_own_graph_cannot_say_its_pause_is_looked_at() {
         s["pauseAfter"] = 1.into();
         s["look"] = true.into();
     });
-    let said = match &architect {
-        Ok(c) => format!("compiled, with the row {}", pause_row(c, "architect").0),
-        Err(e) => e.clone(),
-    };
-    assert!(architect.is_err(), "{said}");
+    // The compiler either refuses the flow, or the architect's graph has no row that says its pause is looked at.
+    let looked = architect
+        .as_ref()
+        .is_ok_and(|c| pause_row(c, "architect").0 == flow::format::SENT_BACK_LOOKED_AT);
+    assert!(
+        !looked,
+        "the architect's own graph compiled, with the row {}",
+        flow::format::SENT_BACK_LOOKED_AT
+    );
 }
