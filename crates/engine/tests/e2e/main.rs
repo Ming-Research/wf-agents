@@ -966,7 +966,7 @@ impl GitHub for FakeHub {
     }
 }
 
-/// The regression test a bug fix of the light route adds, as a file in the test paths that names it.
+/// The regression test a bug fix adds, as a file in the test paths that names it.
 const REGRESSION: &str = "regression";
 
 /// The artifact every run of the fake GitHub's CI reports its tests' results in, as the project's configuration names it.

@@ -4228,8 +4228,8 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
         .map_err(sql)
 }
 
-/// A project's items running and queued, each by its number, with its rank, its level, what it delivers, the route it
-/// is marked for and the route its latest work goes (`work_routes`), its cell and stage, what it waits for and who
+/// A project's items running and queued, each by its number, with its rank, its level, what it delivers, the way its
+/// latest work went (`work_routes`), its cell and stage, what it waits for and who
 /// waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
 /// with who paused it (the owner, the engine or the architect) and why, or why its last work stopped, as one queued
 /// again, and for one with no work running, the items not merged yet that it waits for by
@@ -4245,7 +4245,7 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
     let end = g.map(|g| g.end.clone()).unwrap_or_default();
     let rows = query_json(
         e.db.conn(),
-        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, i.route,
+        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver,
                 (SELECT max(c.id) FROM changes c WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id))
                   AS version,
                 (SELECT t.route FROM work_routes t WHERE t.work = w.id) AS route_taken, w.id AS work, w.at,
