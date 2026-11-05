@@ -1146,9 +1146,10 @@ fn is_true(b: &bool) -> bool {
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
-pub const SETTINGS: [&str; 7] = [
+pub const SETTINGS: [&str; 8] = [
     "design_goal",
     "attack_points",
+    "test_paths",
     "full_ci",
     "deploy",
     "records",
@@ -1181,6 +1182,9 @@ impl Project {
         Some(match name {
             "design_goal" => Value::String(self.design_goal.clone()),
             "attack_points" => text(&self.attack_points),
+            // The list as the configuration writes it, patterns included, and given even when empty: an empty list
+            // says no file may be changed by adversarial testing, which is not the project saying nothing.
+            "test_paths" => json!(self.test_paths),
             "full_ci" => json!({"workflows": self.ci.full, "merge_checks": self.ci.merge_checks}),
             "deploy" => text(&self.deploy),
             "records" => self.records.as_ref().map_or(Value::Null, |r| json!(r)),
@@ -2516,6 +2520,9 @@ asks = 9
         assert_eq!(p.main, "main");
         assert_eq!(p.setting("full_ci").unwrap()["merge_checks"][1], "lint");
         assert_eq!(p.setting("deploy"), Some(serde_json::Value::Null));
+        // Item #292: the paths that hold tests are a setting the flow reads, as the configuration wrote the list.
+        assert_eq!(p.setting("test_paths"), Some(serde_json::json!(["tests/"])));
+        assert!(SETTINGS.contains(&"test_paths"));
         assert_eq!(p.has("under_test"), None);
         assert_eq!(p.has("flow_feedback"), Some(true));
         // What a project does not set reads as nothing: no records, nothing under test.
