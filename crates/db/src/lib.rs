@@ -156,6 +156,30 @@ pub fn problem_line(check: &str, field: Option<&str>, text: &str) -> String {
     format!("{check} ({}): {text}", field.unwrap_or("the return"))
 }
 
+/// The problems a return was sent back with, one line each as [`problem_line`] makes it, in the order found, from what
+/// `rounds.rejected` keeps under `problems`. A record from before the problems were kept has the text it was sent back
+/// with alone ([`sent_back_text`]), which is then the lines; one that has neither gives none.
+pub fn sent_back_lines(rejected: &Value) -> Vec<String> {
+    let kept = rejected.get("problems").and_then(Value::as_array);
+    let lines: Vec<String> = kept
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            Some(problem_line(
+                p.get("check")?.as_str()?,
+                p.get("field").and_then(Value::as_str),
+                p.get("text")?.as_str()?,
+            ))
+        })
+        .collect();
+    if !lines.is_empty() {
+        return lines;
+    }
+    sent_back_text(rejected)
+        .map(|t| t.lines().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
 /// `rounds.rejected` without `problems`, the same reason in the form for counting by check and by field. A text that
 /// quotes what a round was sent back with quotes this, so that it says the reason once.
 pub fn without_problems(rejected: &Value) -> Value {
@@ -216,6 +240,20 @@ pub const STOPPED_BY_ARCHITECT: &str = "stopped by the architect";
 /// Whether a work's pause, by why and who paused it as its row has them, is the architect's stop.
 pub fn stopped_by_architect(paused: Option<&str>, by: Option<&str>) -> bool {
     by == Some("engine") && paused.is_some_and(|p| p.starts_with(STOPPED_BY_ARCHITECT))
+}
+
+/// What the reason of a work the engine paused for returns sent back in a row starts with, when the work's project's
+/// architect has been asked to look at why (a report for each of the returns): the architect may let such a work go on,
+/// as it may one it stopped itself. The view `architect_queue` in `db/schema.sql` tells the reports of such a work from
+/// the others by the same start, written there apart: `crates/db/tests/sent_back_lines.rs` keeps the two the same.
+pub const SENT_BACK_FOR_ARCHITECT: &str = "returns were sent back";
+
+/// Whether the architect may let a work go on, by why it is paused and who paused it as its row has them: the work it
+/// stopped itself ([`stopped_by_architect`]), or the work the engine paused for returns sent back in a row that the
+/// architect has been asked to look at ([`SENT_BACK_FOR_ARCHITECT`]).
+pub fn architect_may_resume(paused: Option<&str>, by: Option<&str>) -> bool {
+    stopped_by_architect(paused, by)
+        || (by == Some("engine") && paused.is_some_and(|p| p.starts_with(SENT_BACK_FOR_ARCHITECT)))
 }
 
 #[derive(Debug)]
@@ -1154,6 +1192,47 @@ pub fn put_back(conn: &Connection, v: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A return sent back is said by its problems, one line each by check and field, as the column keeps them; a record
+    // from before the problems were kept is said by the text it was sent back with, and one with neither by nothing.
+    #[test]
+    fn the_lines_a_return_was_sent_back_with_are_its_problems_by_check_and_field() {
+        let kept = serde_json::json!({
+            "format": "the return does not fit the schema of R1 in 2 places:\nx\ny",
+            "problems": [
+                { "check": "format", "field": "outcome", "text": "outcome must be an object, and is a string" },
+                { "check": "evidence_holds", "field": null, "text": "no evidence" },
+            ],
+        });
+        assert_eq!(
+            sent_back_lines(&kept),
+            [
+                "format (outcome): outcome must be an object, and is a string",
+                "evidence_holds (the return): no evidence"
+            ]
+        );
+        let before = serde_json::json!({ "check": "first line\nsecond line" });
+        assert_eq!(sent_back_lines(&before), ["first line", "second line"]);
+        assert!(sent_back_lines(&serde_json::json!({ "interrupted": "x" })).is_empty());
+        assert!(sent_back_lines(&Value::Null).is_empty());
+    }
+
+    // The architect may let a work go on that it stopped itself, and one the engine paused for returns sent back in a
+    // row that the architect was asked to look at; nothing the owner paused, nor another pause of the engine's.
+    #[test]
+    fn the_architect_may_let_go_on_what_it_stopped_and_what_was_sent_back_for_it() {
+        let stopped = format!("{STOPPED_BY_ARCHITECT}: it waits for the parser");
+        let sent_back = format!("{SENT_BACK_FOR_ARCHITECT} 3 times in a row, the last at cell R1");
+        assert!(architect_may_resume(Some(&stopped), Some("engine")));
+        assert!(architect_may_resume(Some(&sent_back), Some("engine")));
+        assert!(!architect_may_resume(Some(&sent_back), Some("owner")));
+        assert!(!architect_may_resume(Some(PAUSED_BY_OWNER), Some("owner")));
+        assert!(!architect_may_resume(
+            Some("3 returns in a row were sent back"),
+            Some("engine")
+        ));
+        assert!(!architect_may_resume(None, None));
+    }
 
     #[test]
     fn next_transaction_number_reads_changes_by_changes_by_tx() {
