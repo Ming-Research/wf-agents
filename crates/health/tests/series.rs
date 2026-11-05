@@ -871,10 +871,17 @@ fn commits_come_onto_main_by_the_flow_by_hand_or_by_the_engine_s_revert() {
         [Some(1.0)]
     );
     assert_eq!(s.minutes("merge.reverted", p()), ten(&[(5, 1.0)], Some(0.0)));
+    // With no commits of main given, or with no project to judge by them.
+    let no_project = Scope {
+        main: Some(&main),
+        ..all()
+    };
     for name in ["main.outside_flow", "merge.not_on_main"] {
-        let unread = series(s.conn(), measure(name).unwrap(), &p(), T0, T0 + 10 * M, M).unwrap();
-        assert!(unread.not_measured.is_some(), "{name}: {unread:?}");
-        assert!(unread.points.iter().all(|x| x.value.is_none()), "{name}");
+        for scope in [p(), no_project] {
+            let unread = series(s.conn(), measure(name).unwrap(), &scope, T0, T0 + 10 * M, M).unwrap();
+            assert!(unread.not_measured.is_some(), "{name}: {unread:?}");
+            assert!(unread.points.iter().all(|x| x.value.is_none()), "{name}");
+        }
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

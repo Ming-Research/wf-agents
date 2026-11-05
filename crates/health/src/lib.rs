@@ -170,16 +170,18 @@ impl Measure {
 
     /// Why it has no values for the scope read, when nothing records them or what it needs was not given.
     fn unmeasured_in(&self, scope: &Scope<'_>) -> Option<&'static str> {
+        // One project's main says nothing of another's merges, so reading them for every project measures nothing.
+        let read = scope.project.is_some() && scope.main.is_some();
         self.not_measured(scope.subject)
-            .or_else(|| (matches!(self.source, Source::Main(_)) && scope.main.is_none()).then_some(MAIN_UNREAD))
+            .or_else(|| (matches!(self.source, Source::Main(_)) && !read).then_some(MAIN_UNREAD))
     }
 }
 
 /// Why waiting for a free slot is not among the stops yet.
 const SLOT_UNRECORDED: &str = "a wait for a free slot is recorded in slot_waits, but not counted among the stops yet";
 
-/// Why a measure of the commits on main has no values when the reader gave none.
-const MAIN_UNREAD: &str = "the commits on the project's main were not read";
+/// Why a measure of the commits on main has no values when the reader named no project or gave no commits.
+const MAIN_UNREAD: &str = "the commits on one project's main were not read";
 
 /// What the engine measures, each measure once.
 static MEASURES: [Measure; 24] = [
