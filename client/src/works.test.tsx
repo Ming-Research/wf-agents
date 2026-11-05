@@ -1,5 +1,5 @@
-// The works view: one table with a group of rows for each project, in the order the list of conversations has its
-// projects. A group is the project's head (its name and the buttons that show or hide its works by state), then its
+// The works view: a group for each project, in the order the list of conversations has its projects. A group is the
+// project's head outside its table (its name and the buttons that show or hide its works by state), then the table: its
 // architect, which opens the architect's page, then its works, newest first. The buttons are the list of conversations'
 // own, with its one choice (done and ended hidden at first), and count by the state a work is in effect in.
 
@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ArchitectStanding, ArchitectWork, Conversation, Matter, Status, WorkState, WorkSummary } from './api';
 import { WORK_STATES } from './components';
-import { cost, duration, time } from './format';
+import { cost, duration } from './format';
 import { List } from './pages/Messages';
 import { ArchitectRow, Works } from './pages/Works';
 
@@ -47,6 +47,7 @@ const status = (extra: Partial<Status> = {}): Status =>
     stopping: [],
     stepping: [],
     architects_started: [],
+    engine_stopping: false,
     flow_version: 2,
     halt: null,
     repos: { p: 'o/p', q: 'o/q' },
@@ -74,6 +75,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   started_at: id * 100,
   last_at: id * 100 + 50,
   ran_ms: 1000,
+  time: { from: 0, until: 0, model_ms: 0, tool_ms: 0, engine_ms: 0, bar: '' },
   rounds: 3,
   sent_back: 0,
   failed: 0,
@@ -138,18 +140,22 @@ afterEach(() => {
 
 const view = () => renderToStaticMarkup(<Works work={null} />);
 
-/// The groups of the table, one for each project: from its `tbody` to the next.
-const groups = (html: string) => html.split('<tbody').slice(1);
+/// The groups of the view, one for each project: from its `section` to the next.
+const groups = (html: string) => html.split('<section').slice(1);
 
-/// The first cell of each row of a group: empty for the project's head, "Architect" for its architect, "W9" for a work.
-const firsts = (group: string) => [...group.matchAll(/<tr[^>]*>(?:<td[^>]*>)([^<]*)/g)].map((m) => m[1]);
+/// The first cell of each row of a group's table, its markup taken out: "Architect" for its architect, "W9" for a work.
+const firsts = (group: string) =>
+  [...group.matchAll(/<tr[^>]*>\s*<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''));
+
+/// The headings of a group, their markup taken out: the project's name, which is a button in the heading.
+const headings = (group: string) => [...group.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''));
 
 /// The buttons of a group, each its name and whether it is pressed.
 const buttons = (group: string) =>
   [...group.matchAll(/<button[^>]*aria-pressed="(true|false)"[^>]*title="([^"]+)"/g)].map((m) => [m[2], m[1]]);
 
 /// The works a view lists, by number, in its order.
-const listed = (html: string) => [...html.matchAll(/<td>W(\d+)<\/td>/g)].map((m) => Number(m[1]));
+const listed = (html: string) => [...html.matchAll(/class="control-cell"><a[^>]*>W(\d+)/g)].map((m) => Number(m[1]));
 
 /// A group's architect row, and its cells with their markup taken out.
 function architectRow(group: string): { row: string; cells: string[] } {
@@ -158,33 +164,39 @@ function architectRow(group: string): { row: string; cells: string[] } {
 }
 
 describe('the works table', () => {
-  it('is one table with a group for each project, by name: its head, its architect, then its works, newest first', () => {
+  it('is a group for each project, by name: its head outside its table, its architect, then its works, newest first', () => {
     const html = view();
-    expect((html.match(/<table/g) ?? []).length).toBe(1);
+    // One table for each project, and the head before it, never inside it.
+    expect((html.match(/<table/g) ?? []).length).toBe(2);
     expect(html).not.toContain('Running and waiting');
     expect(html).not.toContain('<details');
     const [p, q] = groups(html);
     expect(groups(html)).toHaveLength(2);
-    expect([...p.matchAll(/<h2[^>]*>([^<]+)<\/h2>/g)].map((m) => m[1])).toEqual(['p']);
-    expect([...q.matchAll(/<h2[^>]*>([^<]+)<\/h2>/g)].map((m) => m[1])).toEqual(['q']);
+    for (const group of [p, q]) {
+      expect(group.indexOf('project-head')).toBeGreaterThan(-1);
+      expect(group.indexOf('project-head')).toBeLessThan(group.indexOf('<table'));
+      expect(group.slice(group.indexOf('<table'))).not.toContain('project-head');
+    }
+    expect(headings(p)).toEqual(['p']);
+    expect(headings(q)).toEqual(['q']);
     // Done 8 and ended 7 are hidden at first; the rest are in the order of their numbers, newest first.
-    expect(firsts(p)).toEqual(['', 'Architect', 'W9', 'W6']);
-    expect(firsts(q)).toEqual(['', 'Architect', 'W4', 'W3']);
+    expect(firsts(p)).toEqual(['Architect', 'W9', 'W6']);
+    expect(firsts(q)).toEqual(['Architect', 'W4', 'W3']);
   });
 
   it('orders the projects by name whatever order they are read in, and keeps a project whose architect is not read yet', () => {
     read.architects = [standing('q'), standing('p')];
-    expect(groups(view()).map((g) => /<h2[^>]*>([^<]+)<\/h2>/.exec(g)?.[1])).toEqual(['p', 'q']);
+    expect(groups(view()).map((g) => headings(g)[0])).toEqual(['p', 'q']);
     // Before the architects are read, the groups are the works' projects, with no architect row yet.
     read.architects = undefined;
     const [p, q] = groups(view());
-    expect(firsts(p)).toEqual(['', 'W9', 'W6']);
-    expect(firsts(q)).toEqual(['', 'W4', 'W3']);
+    expect(firsts(p)).toEqual(['W9', 'W6']);
+    expect(firsts(q)).toEqual(['W4', 'W3']);
     // A project with an architect and no work still has its group, with the architect alone and no button.
     read.works = [];
     read.architects = [standing('p')];
     const [only] = groups(view());
-    expect(firsts(only)).toEqual(['', 'Architect']);
+    expect(firsts(only)).toEqual(['Architect']);
     expect(buttons(only)).toEqual([]);
   });
 
@@ -254,7 +266,7 @@ describe('the works table', () => {
     const html = view();
     const q = groups(html)[1];
     // Its row says ready, not running, and its project's button counts it so.
-    const row = q.split('<tr ').find((r) => r.includes('<td>W3</td>')) ?? '';
+    const row = q.split('<tr ').find((r) => r.includes('>W3<')) ?? '';
     expect(row).toContain('ready');
     expect(row).not.toContain('running');
     expect(buttons(q).map((b) => b[0])).toContain('1 work is ready. Click to hide it.');
@@ -295,7 +307,7 @@ describe('the works table while every work is paused', () => {
       '1 work is ended. Click to show it.',
     ]);
     expect(buttons(q).map((b) => b[0])).toEqual(['2 works are paused. Click to hide them.']);
-    const row = p.split('<tr ').find((r) => r.includes('<td>W9</td>')) ?? '';
+    const row = p.split('<tr ').find((r) => r.includes('>W9<')) ?? '';
     expect(row).toContain('paused by Pause all');
   });
 });
@@ -304,16 +316,15 @@ describe("a project's architect in the works table", () => {
   it("is a row in the work's columns, summed over all its works, and not counted by the buttons", () => {
     const p = groups(view())[0];
     const { row, cells } = architectRow(p);
-    expect(cells).toHaveLength(11);
+    expect(cells).toHaveLength(9);
     expect(cells[0]).toBe('Architect');
     expect(cells[1]).toBe('Architect of p');
     expect(cells[2]).toBe('waiting for your next words');
-    expect(cells[3]).toBe('Conversation');
-    // At the cell of the work that goes on; no stage; the sums of its works' rounds, run time and cost, and the latest
-    // of their last activity; no pull request.
-    expect(cells[4]).toContain('N0');
-    expect(cells.slice(5)).toEqual(['', '10', duration(3000), time(2050), cost(1.75), '']);
-    // It leads to its page and to its one-to-one.
+    // At the cell of the work that goes on, in words; no flow version; the sums of its works' rounds, run time and
+    // cost; no time bar.
+    expect(cells[3]).toContain('N0');
+    expect(cells.slice(4)).toEqual(['', '10', duration(3000), '', cost(1.75)]);
+    // It leads to its page, and to its one-to-one from its number.
     expect(row).toContain('href="/works/architect?project=p"');
     expect(row).toContain('href="/messages?c=architect%3Ap"');
     // The buttons of the project count its works alone: none of its 2 architect works is among them.
@@ -338,10 +349,7 @@ describe("a project's architect in the works table", () => {
     kept(WORK_STATES);
     const html = view();
     expect(listed(html)).toEqual([]);
-    expect(groups(html).map(firsts)).toEqual([
-      ['', 'Architect'],
-      ['', 'Architect'],
-    ]);
+    expect(groups(html).map(firsts)).toEqual([['Architect'], ['Architect']]);
     expect(buttons(groups(html)[0]).every((b) => b[1] === 'false')).toBe(true);
   });
 

@@ -9,7 +9,7 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
 import type { WorkDetail } from '../api';
-import { Bars, pct, share, Stack, Tile, useTip } from '../charts';
+import { Bars, blockSpans, pct, share, Stack, Tile, TimeTrack, useTip } from '../charts';
 import { cost, duration, roundName } from '../format';
 import { roundAtText } from '../parts';
 import { tokenCount, tokens } from '../round';
@@ -19,6 +19,7 @@ import {
   axisTicks,
   type CellInfo,
   clockOf,
+  contextLine,
   type Gap,
   gapsOf,
   type RoundOf,
@@ -52,44 +53,30 @@ const nameOf = (r: RoundOf) => roundName(r.work, r.n);
 /// The wall time, from the first round's start to the last round's end, a block for each round of a model or of the
 /// tools over the time no round ran, with its times marked under it at a step its width has room for.
 function Timeline({ u, gaps }: { u: UsageData; gaps: Gap[] }) {
-  const x = (ms: number) => pct(ms - u.start, u.wall);
   const [axis, width] = useWidth<HTMLDivElement>();
   const ticks = axisTicks(u.start, u.end, width);
+  const spans = blockSpans(
+    u,
+    gaps.map((g) => ({
+      start: g.start,
+      end: g.end,
+      key: `gap-${nameOf(g.before)}-${nameOf(g.after)}`,
+      tip: joinedWords([
+        t('us_gap_tip', {
+          from: clock(g.start),
+          to: clock(g.end),
+          time: duration(g.end - g.start),
+          before: nameOf(g.before),
+          after: nameOf(g.after),
+        }),
+        ...g.waited,
+      ]),
+    })),
+    (b) => joinedWords([roundAtText(nameOf(b), b.cell, b.title), duration(b.end - b.start), b.cost !== null ? cost(b.cost) : null]),
+  );
   return (
     <div className="us-timeline">
-      <div className="us-track">
-        {gaps.map((g) => (
-          <span
-            key={`gap-${nameOf(g.before)}-${nameOf(g.after)}`}
-            className="us-block us-gap"
-            style={{ left: `${x(g.start)}%`, width: `max(${pct(g.end - g.start, u.wall)}%, 2px)` }}
-            data-tip={joinedWords([
-              t('us_gap_tip', {
-                from: clock(g.start),
-                to: clock(g.end),
-                time: duration(g.end - g.start),
-                before: nameOf(g.before),
-                after: nameOf(g.after),
-              }),
-              ...g.waited,
-            ])}
-          />
-        ))}
-        {u.blocks
-          .filter((b) => b.doer !== 'engine')
-          .map((b) => (
-            <span
-              key={nameOf(b)}
-              className={b.doer === 'model' ? 'us-block us-model' : 'us-block us-tool'}
-              style={{ left: `${x(b.start)}%`, width: `max(${pct(b.end - b.start, u.wall)}%, 2px)` }}
-              data-tip={joinedWords([
-                roundAtText(nameOf(b), b.cell, b.title),
-                duration(b.end - b.start),
-                b.cost !== null ? cost(b.cost) : null,
-              ])}
-            />
-          ))}
-      </div>
+      <TimeTrack spans={spans} />
       <div className="us-axis" ref={axis}>
         {ticks.map((k) => (
           <span
@@ -174,7 +161,7 @@ function ContextChart({ u, colour }: { u: UsageData; colour: (line: string) => s
   const last = u.blocks[u.blocks.length - 1];
   const nMin = 0;
   const nMax = u.blocks.length - 1;
-  const top = Math.max(...points.map((p) => p.context));
+  const top = Math.max(...points.flatMap((p) => [p.context, p.opening ?? 0]));
   const step = top > 400_000 ? 200_000 : top > 100_000 ? 100_000 : 25_000;
   const yMax = Math.ceil(top / step) * step;
   const left = 6;
@@ -191,12 +178,16 @@ function ContextChart({ u, colour }: { u: UsageData; colour: (line: string) => s
         ))}
         {u.sessions.map((s) => (
           <g key={s.id ?? s.line}>
-            {s.points.length > 1 ? (
+            {contextLine(s).length > 1 ? (
+              // One line for each session, from where its first round opened: a session that opened small does not
+              // continue the line of the one before it, and the rise within a round shows.
               <polyline
                 fill="none"
                 stroke={colour(s.line)}
                 strokeWidth={2}
-                points={s.points.map((p) => `${X(p.at)},${Y(p.context)}`).join(' ')}
+                points={contextLine(s)
+                  .map((v) => `${X(v.at)},${Y(v.context)}`)
+                  .join(' ')}
               />
             ) : null}
             {s.points.map((p) => (
@@ -210,7 +201,9 @@ function ContextChart({ u, colour }: { u: UsageData; colour: (line: string) => s
                 data-tip={joinedWords([
                   nameOf(p),
                   sessionName(u, s),
-                  t('us_context_tip', { n: tokens(p.context) }),
+                  p.opening !== null
+                    ? t('us_context_rise_tip', { from: tokens(p.opening), n: tokens(p.context) })
+                    : t('us_context_tip', { n: tokens(p.context) }),
                   p.compacted ? t('us_compacted') : null,
                 ])}
               />

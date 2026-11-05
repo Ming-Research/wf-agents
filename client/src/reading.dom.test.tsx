@@ -169,6 +169,7 @@ const architectWork = (ran_ms: number): WorkSummary => ({
   started_at: 100,
   last_at: 150,
   ran_ms,
+  time: { from: 0, until: 0, model_ms: 0, tool_ms: 0, engine_ms: 0, bar: '' },
   rounds: 10,
   sent_back: 0,
   failed: 0,

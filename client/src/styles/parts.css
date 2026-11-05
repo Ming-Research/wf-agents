@@ -646,6 +646,21 @@
   white-space: nowrap;
 }
 
+/* The name of a group that folds is the button that folds it: the chevron and the name on the heading's line, in the
+   heading's own type and colour, as plain as the name it holds. */
+.project-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
 .project-head-controls {
   flex: none;
   max-width: 100%;

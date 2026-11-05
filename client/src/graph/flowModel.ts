@@ -385,6 +385,18 @@ export function stageLetter(letters: string[]): string {
   return [...counts].find(([, n]) => n === most)?.[0] ?? '';
 }
 
+/// The stages of a graph in the order its cells first name them, each with its letter, as the chart's groups have them
+/// (`stageLetter` over the codes of the stage's cells): the stages a work goes through, for the bar that shows how far
+/// it has come. A cell at no stage names none.
+export function stagesOf(g: CompiledGraph): Array<{ stage: string; letter: string }> {
+  const letters = new Map<string, string[]>();
+  for (const c of g.cells) {
+    if (c.stage === null || c.stage === undefined) continue;
+    letters.set(c.stage, [...(letters.get(c.stage) ?? []), letterOf(c.id)]);
+  }
+  return [...letters].map(([stage, of]) => ({ stage, letter: stageLetter(of) }));
+}
+
 /// The chart of a graph; `engine`, the flow's engine part, says what the values a step decides by read.
 export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null = null): Chart {
   const ms = moves(g);

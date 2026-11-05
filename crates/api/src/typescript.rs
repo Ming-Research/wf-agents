@@ -33,6 +33,7 @@ pub fn typescript() -> String {
         decl::<PausedBy>(&cfg),
         decl::<Waits>(&cfg),
         decl::<WorkSummary>(&cfg),
+        decl::<WorkTime>(&cfg),
         decl::<RoundOutcome>(&cfg),
         decl::<RoundSummary>(&cfg),
         decl::<RoundTokens>(&cfg),

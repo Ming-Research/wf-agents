@@ -68,6 +68,12 @@ waiting_for_slot: Array<number>,
  */
 stopping: Array<number>,
 /**
+ * Whether the engine itself is stopping: it has seen its stop file, dispatches nothing more and waits for the
+ * steps in flight to end. A work that goes on by itself but has no step under way is then not running, whatever
+ * its row reads; it waits for the engine to start again.
+ */
+engine_stopping: boolean,
+/**
  * The projects whose architect the owner started since every work was last paused: its works go on whatever the
  * global state.
  */
@@ -213,7 +219,11 @@ started_at: number | null, last_at: number | null,
  * How long its agents' and its tools' rounds ran, the one running counted to now, in milliseconds: not the time
  * it waited on the owner, the architect or other items.
  */
-ran_ms: number, rounds: number,
+ran_ms: number,
+/**
+ * Where its time went, for the bar a list draws beside it.
+ */
+time: WorkTime, rounds: number,
 /**
  * Rounds whose return was sent back, and rounds whose run failed or was cut off.
  */
@@ -230,6 +240,28 @@ open_asks: number,
  * Its decision cards still waiting for a ruling.
  */
 open_design_cards: number, };
+
+/**
+ * Where a work's time went, from its first round's start to its last round's end, the one running counted to now: how
+ * long models, tools and the engine's own steps worked, and the span laid out on a fixed number of equal cells, so
+ * that a list can draw the bar of a work without every round of it.
+ */
+export type WorkTime = {
+/**
+ * The span: when its first round started and when its last round ended or, running, now; both 0 for a work with
+ * no round.
+ */
+from: number, until: number,
+/**
+ * How long the models', the tools' and the engine's rounds ran, in milliseconds: a round of an agent's cell is a
+ * model's, of a tool's cell a tool's, any other the engine's. Not what is left of the span, which nobody ran.
+ */
+model_ms: number, tool_ms: number, engine_ms: number,
+/**
+ * The span cut into equal cells, one character each in order: `m` where a model worked most of the cell, `t` where
+ * the tools did, `.` where less than half of it was run by either; empty for a span with no length.
+ */
+bar: string, };
 
 /**
  * How a round ended.
@@ -320,6 +352,11 @@ output: number, thinking: number,
  * The context at the round's end: its last call's prompt; none when the record does not give the last call.
  */
 context_end: number | null,
+/**
+ * The context at the round's first call: its prompt, which the usage record keeps apart from the last call's; none
+ * when the record does not give the first call.
+ */
+context_first: number | null,
 /**
  * The size of the context window, as the command line reported it for the models of the session.
  */

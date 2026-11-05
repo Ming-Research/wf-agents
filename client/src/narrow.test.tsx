@@ -30,6 +30,7 @@ const status = (extra: Partial<Status> = {}): Status => ({
   waiting_for_slot: [],
   stopping: [],
   architects_started: [],
+  engine_stopping: false,
   running: [],
   stepping: [],
   last_step: null,

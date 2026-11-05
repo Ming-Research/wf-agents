@@ -1,8 +1,9 @@
 /* The observations: each project's in the pane of the split of a list and what is open from it (parts.css), grouped as
    the list of conversations groups its rows: in the project's head (ProjectHead), after its name and at the right end
    of the same row, the buttons that pick them by tag and by state and the clear of every pick, then a row for each,
-   one block parted from the next by a line, the words it starts with on one line and its tags and facts on the line
-   under them, a row handled greyed in place; the one open beside them, a reading page as an item's. */
+   one block parted from the next by a line, its title on one line, its content cut to three lines under it, and its
+   tags and facts on the line under them, a row handled greyed in place; the one open beside them, a reading page as an
+   item's. */
 
 .obs-list {
   padding: var(--base-size-8) 0;
@@ -60,12 +61,31 @@ li.obs-none {
   font-weight: var(--base-text-weight-normal);
 }
 
+/* A row's content, under its title, cut to three lines with an ellipsis, whole on hovering; a row with no title leads
+   with its content, cut the same. Muted under a title, since the title is what the row is called. */
+.obs-content,
+.obs-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.obs-content {
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+
 .obs-facts-line [data-component='Label'] {
   margin-right: var(--base-size-4);
 }
 
 /* A row handled, taken in by an item or closed, greyed in place, as a work's conversation once the work is over. */
-.obs-handled .obs-what {
+.obs-handled .obs-what,
+.obs-handled .obs-content {
   color: var(--fgColor-muted);
 }
 

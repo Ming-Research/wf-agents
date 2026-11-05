@@ -21,7 +21,7 @@ use crate::{
     MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage,
     PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional,
     RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag,
-    TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary, WorkTime,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -472,6 +472,92 @@ fn ran(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> i64 {
         .sum()
 }
 
+/// How many equal cells a work's bar is cut into.
+const BAR_CELLS: i64 = 96;
+
+/// Where a work's time went: how long models, tools and the engine's own steps ran, from its first round's start to
+/// its last round's end (the one running counted to `now`), and that span cut into [`BAR_CELLS`] equal cells, each as
+/// the character of what ran most of it. A round at an agent's cell is a model's, at a tool's cell a tool's, any other
+/// the engine's; the page's usage tab sorts a work's rounds the same way, by the line of a round's session. The bar
+/// leaves the engine's own rounds out, as the tab's timeline does.
+fn work_time(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> WorkTime {
+    let end = |r: &Light| r.ended_at.unwrap_or(now);
+    let (Some(from), Some(until)) = (rounds.iter().map(|r| r.started_at).min(), rounds.iter().map(end).max()) else {
+        return WorkTime {
+            from: 0,
+            until: 0,
+            model_ms: 0,
+            tool_ms: 0,
+            engine_ms: 0,
+            bar: String::new(),
+        };
+    };
+    let span = (until - from).max(0);
+    let (mut model_ms, mut tool_ms, mut engine_ms) = (0, 0, 0);
+    // For each cell, how long a model and how long the tools ran in it.
+    let cells = BAR_CELLS as usize;
+    let mut in_cell = vec![(0_i64, 0_i64); cells];
+    for r in rounds {
+        let kind = r
+            .cell
+            .as_deref()
+            .and_then(|c| g?.cell(c))
+            .map_or("engine", |c| c.kind.as_str());
+        let (start, stop) = (r.started_at, end(r));
+        match kind {
+            "agent" => model_ms += stop - start,
+            "tool" => tool_ms += stop - start,
+            _ => {
+                engine_ms += stop - start;
+                continue;
+            }
+        }
+        if span == 0 || stop <= start {
+            continue;
+        }
+        // The cells the round touches: cell i holds from + span * i / BAR_CELLS up to the next.
+        let first = ((start - from) * BAR_CELLS / span).clamp(0, BAR_CELLS - 1);
+        let last = ((stop - from - 1) * BAR_CELLS / span).clamp(0, BAR_CELLS - 1);
+        for i in first..=last {
+            let (lo, hi) = (from + span * i / BAR_CELLS, from + span * (i + 1) / BAR_CELLS);
+            let overlap = (stop.min(hi) - start.max(lo)).max(0);
+            let cell = &mut in_cell[i as usize];
+            if kind == "agent" {
+                cell.0 += overlap;
+            } else {
+                cell.1 += overlap;
+            }
+        }
+    }
+    let bar = if span == 0 {
+        String::new()
+    } else {
+        in_cell
+            .iter()
+            .enumerate()
+            .map(|(i, (model, tool))| {
+                let i = i as i64;
+                let len = from + span * (i + 1) / BAR_CELLS - (from + span * i / BAR_CELLS);
+                if (model + tool) * 2 < len || model + tool == 0 {
+                    '.'
+                } else if model >= tool {
+                    'm'
+                } else {
+                    't'
+                }
+            })
+            .collect()
+    };
+    WorkTime {
+        from,
+        until,
+        model_ms,
+        tool_ms,
+        engine_ms,
+        bar,
+    }
+}
+
 fn summary(
     w: &WorkRow,
     rounds: &[Light],
@@ -498,6 +584,7 @@ fn summary(
         });
     let count = |want: &[RoundOutcome]| rounds.iter().filter(|r| want.contains(&r.outcome())).count() as i64;
     let (paused, paused_by) = paused(w);
+    let now = db::now();
     WorkSummary {
         id: w.id,
         item: w.item,
@@ -522,7 +609,8 @@ fn summary(
         pr: w.pr,
         started_at: rounds.first().map(|r| r.started_at),
         last_at: rounds.iter().map(|r| r.ended_at.unwrap_or(r.started_at)).max(),
-        ran_ms: ran(rounds, g, db::now()),
+        ran_ms: ran(rounds, g, now),
+        time: work_time(rounds, g, now),
         rounds: rounds.len() as i64,
         sent_back: count(&[RoundOutcome::SentBack]),
         failed: count(&[RoundOutcome::Failed, RoundOutcome::Interrupted]),
@@ -680,6 +768,10 @@ fn round_tokens(usage: Option<&Value>, model: Option<&str>) -> Option<RoundToken
         output: n(&u["output_tokens"]),
         thinking: n(&u["output_tokens_details"]["thinking_tokens"]),
         context_end: last
+            .map(|c| n(&c["input_tokens"]) + n(&c["cache_read_input_tokens"]) + n(&c["cache_creation_input_tokens"])),
+        // The usage record keeps the first call apart from the last (see `sessions::cli::FIRST_CALL`).
+        context_first: usage?
+            .get(sessions::cli::FIRST_CALL)
             .map(|c| n(&c["input_tokens"]) + n(&c["cache_read_input_tokens"]) + n(&c["cache_creation_input_tokens"])),
         window: usage?["models"]
             .as_object()
@@ -2769,6 +2861,69 @@ mod tests {
             light(5, "R1", 50, None),
         ];
         assert_eq!(ran(&rounds, g, 70), 10 + 5 + 20);
+    }
+
+    #[test]
+    fn a_work_s_time_splits_into_models_tools_and_the_engine_and_lays_out_as_a_bar() {
+        let s = setup("time");
+        let g = s.compiled.graph("engineer");
+        let light = |n: i64, cell: &str, started_at: i64, ended_at: Option<i64>| Light {
+            n,
+            work: 1,
+            cell: Some(cell.into()),
+            transition: None,
+            rejected: None,
+            started_at,
+            ended_at,
+            cost: None,
+        };
+        // Its start is the engine's; a model works, the tools run, nothing runs for a while, and a model works on to now.
+        // The page's test of the time bar (client/src/works-list.test.tsx) carries these rounds and this bar over.
+        let rounds = [
+            light(1, "S0", 0, Some(10_000)),
+            light(2, "R1", 10_000, Some(500_000)),
+            light(3, "X1", 500_000, Some(600_000)),
+            light(4, "R1", 700_000, None),
+        ];
+        let t = work_time(&rounds, g, 960_000);
+        assert_eq!((t.from, t.until), (0, 960_000));
+        assert_eq!(
+            (t.model_ms, t.tool_ms, t.engine_ms),
+            (490_000 + 260_000, 100_000, 10_000)
+        );
+        // What the models and the tools ran is what the run time counts.
+        assert_eq!(t.model_ms + t.tool_ms, ran(&rounds, g, 960_000));
+        // 96 cells of 10 s: the engine's first step is no one's, then 49 of the model, 10 of the tools, 10 of nothing.
+        let expected = format!(
+            "{}{}{}{}{}",
+            ".",
+            "m".repeat(49),
+            "t".repeat(10),
+            ".".repeat(10),
+            "m".repeat(26)
+        );
+        assert_eq!(t.bar, expected);
+        // A round shorter than half a cell leaves it empty; one longer than half fills it.
+        let short = [light(1, "R1", 0, Some(4_000)), light(2, "R1", 14_000, Some(960_000))];
+        let t = work_time(&short, g, 960_000);
+        assert_eq!(t.bar.chars().next(), Some('.'));
+        assert_eq!(t.bar.chars().nth(1), Some('m'));
+        // No round, no span.
+        let none = work_time(&[], g, 960_000);
+        assert_eq!((none.from, none.until, none.bar.as_str()), (0, 0, ""));
+    }
+
+    #[test]
+    fn a_round_s_first_call_is_the_context_it_opened_with() {
+        let usage = json!({
+            "first_call": { "input_tokens": 3, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 20 },
+            "usage": { "iterations": [{ "input_tokens": 1, "cache_read_input_tokens": 300000, "cache_creation_input_tokens": 400 }] },
+        });
+        let t = round_tokens(Some(&usage), None).unwrap();
+        assert_eq!((t.context_first, t.context_end), (Some(1023), Some(300401)));
+        // A record from before the first call was kept says no context at the start.
+        let old = json!({ "usage": { "iterations": [{ "input_tokens": 1 }] } });
+        assert_eq!(round_tokens(Some(&old), None).unwrap().context_first, None);
     }
 
     #[test]

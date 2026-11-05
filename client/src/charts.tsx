@@ -6,6 +6,7 @@
 import { type MouseEvent, useState } from 'react';
 
 import { Link } from './route';
+import type { Block, Gap, Usage } from './usage';
 
 /// `x` as a percentage of `total`; none of nothing.
 export const pct = (x: number, total: number) => (total > 0 ? (100 * x) / total : 0);
@@ -110,6 +111,76 @@ export function Stack({ parts }: { parts: Part[] }) {
       <Legend parts={parts} />
     </>
   );
+}
+
+/// What a stretch of a work's time was: a model at work, the tools running, or no round running.
+export type TrackKind = 'model' | 'tool' | 'gap';
+
+/// One stretch of a track, from `left` for `width`, both in percent of the track.
+export type TrackSpan = { key: string; kind: TrackKind; left: number; width: number; tip?: string };
+
+/// A work's time laid out from its first round's start to its last round's end, one block for each stretch of a model
+/// or of the tools and one for each stretch no round ran, each at least two pixels wide, on a muted ground: the part
+/// the usage tab's timeline and a row of the list of works both draw it with. The view that holds it shows each block's
+/// `tip`, if any, through its tip.
+export function TimeTrack({ spans }: { spans: TrackSpan[] }) {
+  return (
+    <div className="us-track">
+      {spans.map((s) => (
+        <span
+          key={s.key}
+          className={`us-block us-${s.kind}`}
+          style={{ left: `${s.left}%`, width: `max(${s.width}%, 2px)` }}
+          data-tip={s.tip}
+        />
+      ))}
+    </div>
+  );
+}
+
+/// The stretches of a track from a work's rounds as the usage tab has them: a block for each round of a model or of
+/// the tools (the engine's steps are too short to draw), a block for each stretch no round ran.
+export function blockSpans(
+  u: Pick<Usage, 'start' | 'wall' | 'blocks'>,
+  gaps: Array<Pick<Gap, 'start' | 'end'> & { tip?: string; key: string }>,
+  tipOf: (b: Block) => string | undefined = () => undefined,
+): TrackSpan[] {
+  const x = (ms: number) => pct(ms - u.start, u.wall);
+  return [
+    ...gaps.map((g): TrackSpan => ({ key: g.key, kind: 'gap', left: x(g.start), width: pct(g.end - g.start, u.wall), tip: g.tip })),
+    ...u.blocks
+      .filter((b) => b.doer !== 'engine')
+      .map(
+        (b): TrackSpan => ({
+          key: `${b.work}-${b.n}`,
+          kind: b.doer === 'model' ? 'model' : 'tool',
+          left: x(b.start),
+          width: pct(b.end - b.start, u.wall),
+          tip: tipOf(b),
+        }),
+      ),
+  ];
+}
+
+/// The stretches of a track from the bar the engine lays a work's time out in (`WorkTime.bar`): one character for each
+/// cell of equal width, `m` where a model worked, `t` where the tools did, `.` where no one did. A run of the same
+/// kind is one block; the stretches between the first block and the last where no one worked are blocks of no round, as
+/// in the timeline, and the ends before and after are left bare.
+export function barSpans(bar: string): TrackSpan[] {
+  const cells = [...bar];
+  const first = cells.findIndex((c) => c !== '.');
+  if (first < 0) return [];
+  const last = cells.length - 1 - [...cells].reverse().findIndex((c) => c !== '.');
+  const kindOf = (c: string): TrackKind | null => (c === 'm' ? 'model' : c === 't' ? 'tool' : c === '.' ? 'gap' : null);
+  const spans: TrackSpan[] = [];
+  for (let i = first; i <= last; ) {
+    let j = i;
+    while (j < last && cells[j + 1] === cells[i]) j++;
+    const kind = kindOf(cells[i]);
+    if (kind !== null) spans.push({ key: String(i), kind, left: pct(i, cells.length), width: pct(j - i + 1, cells.length) });
+    i = j + 1;
+  }
+  return spans;
 }
 
 /// Bars one under another, each its label, its bar and its value, the longest the full width.
