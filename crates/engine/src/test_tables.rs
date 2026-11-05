@@ -9,6 +9,8 @@
 
 use serde_json::{Map, Value, json};
 
+use crate::work::RoundId;
+
 /// The cells of the engineer whose test changes make up the tables, in the order of the work.
 pub const CELLS: [&str; 2] = ["I1", "T6"];
 
@@ -107,6 +109,56 @@ pub fn accumulated<'a>(returns: impl IntoIterator<Item = &'a Value>) -> Tables {
     all
 }
 
+/// What the engineer's test changes say of each test over all their rounds: the tests added or extended that no later
+/// row took away, and the rows that took a test away or weakened it. Each row is as the engineer wrote it, with the
+/// round of its return as `round`.
+#[derive(Debug, Default, PartialEq)]
+pub struct Changed {
+    /// The latest `added` or `extended` row of each test that no later `removed` row followed.
+    pub tests: Vec<Value>,
+    /// The latest `removed`, `skipped` and `relaxed` row of each test, each kind kept apart: a `removed` row is dropped
+    /// when the test is added or extended after it, and a test removed after it was added is no longer in `tests`.
+    pub weakened: Vec<Value>,
+}
+
+/// The test changes of the returns, each given with the round of its return, in the order of the work whichever order
+/// they are handed in: for each test, its latest row of each kind, with the rows that a later row undoes dropped (see
+/// [`Changed`]). Rows that name no test, and returns of a flow version with tables of their own and no test changes,
+/// give none.
+pub fn changed<'a>(returns: impl IntoIterator<Item = (RoundId, &'a Value)>) -> Changed {
+    let mut returns: Vec<(RoundId, &Value)> = returns.into_iter().collect();
+    returns.sort_by_key(|(round, _)| *round);
+    let (mut tests, mut weakened): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
+    for (round, ret) in returns {
+        for change in field(ret, "test_changes").into_iter().flatten() {
+            let (Some(kind), Some(test)) = (change["change"].as_str(), change["test"].as_str()) else {
+                continue;
+            };
+            let mut row = change.clone();
+            row["round"] = json!(round.to_string());
+            let same = |r: &Value, change: &str| r["test"] == test && r["change"] == change;
+            match kind {
+                "added" | "extended" => {
+                    tests.retain(|r| r["test"] != test);
+                    weakened.retain(|r| !same(r, "removed"));
+                    tests.push(row);
+                }
+                "removed" => {
+                    tests.retain(|r| r["test"] != test);
+                    weakened.retain(|r| !same(r, "removed"));
+                    weakened.push(row);
+                }
+                "skipped" | "relaxed" => {
+                    weakened.retain(|r| !same(r, kind));
+                    weakened.push(row);
+                }
+                _ => {}
+            }
+        }
+    }
+    Changed { tests, weakened }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +244,91 @@ mod tests {
         let t = accumulated([&fix, &first]);
         assert_eq!(names(&t.new), ["a", "b"]);
         assert!(t.guard.is_empty());
+    }
+
+    fn change(change: &str, test: &str) -> Value {
+        json!({ "change": change, "test": test, "reason": "r" })
+    }
+
+    fn tests_of(c: &Changed) -> Vec<(&str, &str)> {
+        let rows = c.tests.iter();
+        rows.map(|r| (r["test"].as_str().unwrap(), r["round"].as_str().unwrap()))
+            .collect()
+    }
+
+    fn weakened_of(c: &Changed) -> Vec<(&str, &str)> {
+        let rows = c.weakened.iter();
+        rows.map(|r| (r["change"].as_str().unwrap(), r["test"].as_str().unwrap()))
+            .collect()
+    }
+
+    // Item #292: a row of an earlier return stays when a later return has none for the test, and the rows go by the
+    // round of their return, whichever order the returns are handed in.
+    #[test]
+    fn a_row_of_an_earlier_return_stays_when_a_later_return_has_none() {
+        let first = json!({ "test_changes": [
+            added("a", "new_behaviour", "green", "red"),
+            added("b", "old_behaviour", "green", "green"),
+        ] });
+        let later = json!({ "test_changes": [] });
+        let last = json!({ "end": { "test_changes": [added("c", "new_behaviour", "green", "red")] } });
+        let r = |n| RoundId::new(7, n);
+        let c = changed([(r(3), &last), (r(1), &first), (r(2), &later)]);
+        // Each row says the round it came from; the old form of a return, with its fields under `end`, is read too.
+        assert_eq!(tests_of(&c), [("a", "R7-1"), ("b", "R7-1"), ("c", "R7-3")]);
+        assert_eq!(c.tests[0]["kind"], "new_behaviour");
+        assert!(c.weakened.is_empty());
+        // A test written again has its latest row only, in the place of the latest.
+        let again = json!({ "test_changes": [{ "change": "extended", "test": "a", "catches": "more",
+                                               "kind": "new_behaviour", "time": "1s", "worth": "w" }] });
+        let c = changed([(r(1), &first), (r(4), &again)]);
+        assert_eq!(tests_of(&c), [("b", "R7-1"), ("a", "R7-4")]);
+        assert_eq!(c.tests[1]["change"], "extended");
+        // No return, and returns with no row, give nothing.
+        assert_eq!(changed([]), Changed::default());
+        assert_eq!(changed([(r(1), &later)]), Changed::default());
+    }
+
+    // Item #292: a test removed after it was added is no longer one the engineer added; one added again after it was
+    // removed is, and its `removed` row goes; `skipped` and `relaxed` weaken a test and take nothing away.
+    #[test]
+    fn removing_takes_a_test_away_until_it_is_added_again_and_weakening_takes_none() {
+        let r = |n| RoundId::new(7, n);
+        let add = |test: &str| json!({ "test_changes": [added(test, "new_behaviour", "green", "red")] });
+        let one = |c: &str, test: &str| json!({ "test_changes": [change(c, test)] });
+        let (added_a, removed_a) = (add("a"), one("removed", "a"));
+        // Added, then removed: not in the tests, and the removal is said.
+        let c = changed([(r(1), &added_a), (r(2), &removed_a)]);
+        assert!(c.tests.is_empty(), "{c:?}");
+        assert_eq!(weakened_of(&c), [("removed", "a")]);
+        assert_eq!(c.weakened[0]["reason"], "r");
+        assert_eq!(c.weakened[0]["round"], "R7-2");
+        // Removed, then added: in the tests, and no removal left.
+        let c = changed([(r(1), &removed_a), (r(2), &added_a)]);
+        assert_eq!(tests_of(&c), [("a", "R7-2")]);
+        assert!(c.weakened.is_empty(), "{c:?}");
+        // Added, removed, added again, removed again: removed, by the latest row.
+        let c = changed([
+            (r(1), &added_a),
+            (r(2), &removed_a),
+            (r(3), &added_a),
+            (r(4), &removed_a),
+        ]);
+        assert!(c.tests.is_empty(), "{c:?}");
+        assert_eq!(weakened_of(&c), [("removed", "a")]);
+        assert_eq!(c.weakened[0]["round"], "R7-4");
+        // Skipped and relaxed keep the test among those added, each kept once with its latest row, and are said.
+        let (skipped, relaxed) = (one("skipped", "a"), one("relaxed", "a"));
+        let c = changed([(r(1), &added_a), (r(2), &skipped), (r(3), &relaxed), (r(4), &relaxed)]);
+        assert_eq!(tests_of(&c), [("a", "R7-1")]);
+        assert_eq!(weakened_of(&c), [("skipped", "a"), ("relaxed", "a")]);
+        assert_eq!(c.weakened[1]["round"], "R7-4");
+        // A test the engineer never added is only said: a removal of an old test, and a row that names no test.
+        let old = one("removed", "old");
+        let nameless = json!({ "test_changes": [{ "change": "removed", "reason": "r" }] });
+        let c = changed([(r(1), &old), (r(2), &nameless)]);
+        assert!(c.tests.is_empty());
+        assert_eq!(weakened_of(&c), [("removed", "old")]);
     }
 
     // R267-85: the kind the table review holds a test to is the kind of its latest row in any round, as the tables
