@@ -47,8 +47,6 @@ pub struct Item {
     pub imported_from: Option<String>,
     pub imported_branch: Option<String>,
     pub imported_pr: Option<i64>,
-    /// The route its works go: normal, or bugfix or feature, which go the light route.
-    pub route: String,
 }
 
 pub use sessions::round::json_col;
@@ -155,7 +153,7 @@ impl Item {
     pub fn load(conn: &Connection, id: i64) -> Result<Item, String> {
         conn.query_row(
             "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work,
-                    acceptance_round, cancelled, imported_from, imported_branch, imported_pr, route
+                    acceptance_round, cancelled, imported_from, imported_branch, imported_pr
              FROM items WHERE id = ?1",
             [id],
             |r| {
@@ -178,7 +176,6 @@ impl Item {
                     imported_from: r.get(12)?,
                     imported_branch: r.get(13)?,
                     imported_pr: r.get(14)?,
-                    route: r.get(15)?,
                 })
             },
         )
@@ -205,6 +202,29 @@ pub fn rounds_at(conn: &Connection, work: i64, cell: &str) -> Result<Vec<Round>,
         ))
         .map_err(sql)?;
     st.query_map(params![work, cell], round)
+        .map_err(sql)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(sql)
+}
+
+/// The statement `rounds_of_matter` runs: the rounds of a cell that are in a session of the matter's own, or in a work
+/// whose latest look at the queue before them took the matter.
+pub(crate) fn rounds_of_matter_sql() -> String {
+    format!(
+        "{} WHERE r.cell = ?2 AND (r.session IN (SELECT id FROM sessions WHERE matter = ?1)
+             OR ?1 = (SELECT json_extract(l.output, '$.next.matter') FROM rounds l
+                      WHERE l.work = r.work AND l.cell = 'N0' AND l.n < r.n AND l.transition IS NOT NULL
+                      ORDER BY l.n DESC LIMIT 1))
+         ORDER BY r.ended_at DESC, r.n DESC",
+        rounds_query()
+    )
+}
+
+/// The rounds of a cell an architect's matter had, newest first, in whichever works they ran: those in a session of the
+/// matter's own, and those whose work's latest look at the queue before them took the matter.
+pub fn rounds_of_matter(conn: &Connection, matter: i64, cell: &str) -> Result<Vec<Round>, String> {
+    let mut st = conn.prepare(&rounds_of_matter_sql()).map_err(sql)?;
+    st.query_map(params![matter, cell], round)
         .map_err(sql)?
         .collect::<rusqlite::Result<_>>()
         .map_err(sql)
@@ -494,6 +514,16 @@ pub fn cell_json(v: rusqlite::types::ValueRef<'_>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rounds_of_matter_reads_rounds_by_cell() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &rounds_of_matter_sql()).unwrap();
+        assert!(
+            steps.contains("rounds_by_cell"),
+            "the plan does not read by rounds_by_cell:\n{steps}"
+        );
+    }
 
     // A query with more rows than the limit gives the first rows and the exact number of the rest, at the limit and
     // one past it too; with no more it leaves none out; and `query_json` gives the same rows as before.

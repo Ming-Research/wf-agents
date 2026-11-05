@@ -111,8 +111,6 @@ export function conversationTitle(
 /// which the owner marks read; or nothing, for a decision card, which the bubble of the stage that handed it in holds.
 export type Voice = 'owner' | 'agent' | 'live' | 'system' | 'fault' | 'none';
 
-/// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
-const MEMBERS = ['engineer', 'architect'];
 
 /// The member a line speaks as: the architect for the line a flow version before set the architect's policy on, since
 /// to the owner the architect is one; any other line as itself.
@@ -131,9 +129,13 @@ export function voiceOf(e: ConversationEntry): Voice {
       return 'none';
     case 'between':
       return 'agent';
+    // An ask is answered in its bubble, and what any line says is a bubble: as a row the bar's pin led nowhere, and a line
+    // the flow gained, as the designer's and the reviews' were, would fall out of the conversation's voice.
+    case 'ask':
+      return 'agent';
     default:
       if (e.sender === 'owner') return 'owner';
-      return MEMBERS.includes(member(e.sender)) ? 'agent' : 'system';
+      return e.sender === 'engine' || e.sender === 'wf-agents' ? 'system' : 'agent';
   }
 }
 
@@ -230,6 +232,11 @@ export function gapsInStream(
   return { before, end: carried };
 }
 
+/// Whether an ask's words say what it asks and its body is only what it rests on: a change to approve, or a design to
+/// review, whose body holds the whole design. Its bubble says the words, with the body folded under them, waiting or not.
+export const askInWords = (a: OwnerAsk): boolean =>
+  isObj(a.body) && (a.body.kind === 'change' || a.body.kind === 'design_review');
+
 /// Whether an ask is one an architect put to the owner: replied to by the owner's words to the architect, the box at the
 /// bottom set to reply to it, never in its bubble.
 export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.from === 'architect';
@@ -312,6 +319,32 @@ export function replyingTo(
   return pinned.find((e) => e.id === chosen) ?? pinned.find((e) => e.id === waitsOn) ?? null;
 }
 
+/// The key of the draft of a conversation's box at the bottom, which keeps its words, a quote put in from a bubble
+/// among them.
+export const boxDraftKey = (c: Conversation): string => `conv:${c.key}`;
+
+/// Whether the owner can quote a bubble into the box: it is a message of the owner's or of an agent's, with words in it
+/// (an engine's line, a fault, a bubble of what a work's stage or an architect's matter came to, and the words of a
+/// ruling, which the page says itself, have none to quote).
+export const quotable = (e: ConversationEntry): boolean =>
+  (voiceOf(e) === 'owner' || voiceOf(e) === 'agent') && e.source !== 'ruling' && e.text.trim() !== '';
+
+/// Who a quote names as having said the words: the owner, the line of an agent, or, in a group of projects, the
+/// architect of the project. In the words the receiving agent reads, so `owner`, never "you".
+export const quotedBy = (e: ConversationEntry): string =>
+  e.source === 'between' ? party(e, e.sender) : e.sender === 'owner' ? 'owner' : words(member(e.sender));
+
+/// The words of a bubble as the owner puts them into the box: who said them in bold on a line of their own, then the
+/// words, each line after a `> `, and a blank line, so that what the owner writes next is not part of the quote. The
+/// words are those the owner selected in the bubble (`selected`) when there are any, else all of what the bubble says
+/// (`text`). The agent that is told them reads the lines as they are, and the page draws them as a quote
+/// (`markdown.tsx`).
+export function quoted(who: string, text: string, selected: string | null): string {
+  const said = selected !== null && selected.trim() !== '' ? selected.trim() : text.trim();
+  const lines = [`**${who}**`, '', ...said.split(/\r\n?|\n/)];
+  return `${lines.map((l) => (l === '' ? '>' : `> ${l}`)).join('\n')}\n\n`;
+}
+
 /// What the box at the bottom of the one-to-one sends to the architect: the owner's words, and the question they reply
 /// to when it replies to one.
 export const toArchitect = (
@@ -368,12 +401,6 @@ export function closedWhy(c: Conversation, w: WorkSummary | null): string | null
   if (c.over || (w !== null && (w.state === 'done' || w.state === 'ended'))) return t('conv_closed_over');
   if (w !== null && w.at === 'E1') return t('conv_closed_end');
   return null;
-}
-
-/// Whether a work stands where its merge is done, writing what was learned, checking what only real runs can show or
-/// watching main, which take no merge condition any more; the engine refuses one then, whichever way it comes.
-export function pastTheMerge(w: WorkSummary | null): boolean {
-  return w !== null && ['L2', 'W1', 'W2', 'L1'].includes(w.at);
 }
 
 /// The name of each stage the engineer's graph has, as the owner reads it.

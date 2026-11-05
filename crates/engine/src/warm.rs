@@ -313,85 +313,92 @@ pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<
         if e.has_job(id) {
             continue;
         }
-        let w = e.work(id)?;
-        // A work on an older flow version goes on in its sessions where it stands only when it moves to the version the
-        // engine runs.
-        if e.done(&w)? || (w.flow_version != e.flow_now && e.plan(&w)? != crate::versions::Plan::Move) {
-            continue;
-        }
-        // A merged work waiting for its change to take effect may wait for days, and looks in a new session each time.
-        if crate::verification::waits_for_effect(&w) {
-            continue;
-        }
-        let architect = w.project.as_deref().filter(|_| w.graph == ARCHITECT);
-        if e.sessions().asked_new(w.id, architect) {
-            continue;
-        }
-        let g = e.graph_of(&w)?;
-        let waited = match waited_on(e, &w, &g)? {
-            Some(x) => x,
-            None if pause
-                .is_some_and(|p| !p.runs.contains(&id) && !architect.is_some_and(|x| p.architects.contains(x))) =>
-            {
-                Waited {
-                    cell: w.pos.at.clone(),
-                    on: "pause".to_string(),
-                    what: "the owner paused every work".to_string(),
-                }
-            }
-            // A work that goes on, at another line's round, a tool's or the engine's, keeps the lines it will come
-            // back to warm.
-            None => Waited {
-                cell: w.pos.at.clone(),
-                on: "work".to_string(),
-                what: "the work goes on".to_string(),
-            },
-        };
-        // The lines the work can come back to, each in the session it has going on: not past a cell where the flow
-        // opens the line a new one.
-        let lines = {
-            let conn = e.db.conn();
-            let opens = |c: &CompiledCell| sessions::choose::opens(conn, w.id, c).unwrap_or(true);
-            coming_back(&g, &w.pos, &opens)
-        };
-        let item = e.subject(&w)?;
-        let limit = e.config.config.install.agents.context_limit;
-        let mut pings = Vec::new();
-        for (line, next) in lines {
-            let cells: Vec<&CompiledCell> = next.iter().filter_map(|c| g.cell(c)).collect();
-            // The model and the login account the line's next round runs on: a session on another one starts anew,
-            // and is not kept warm.
-            let Some(level) = cells
-                .first()
-                .and_then(|c| crate::steps::level_of(e, &g, c, item.as_ref()).ok())
-                .map(|(_, l, _)| l)
-            else {
-                continue;
-            };
-            let runs = e.runs_on(&level);
-            let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, runs.on(), now)? else {
-                continue;
-            };
-            pings.push(Ping {
-                due,
-                waited: waited.clone(),
-                line,
-                base: None,
-            });
-        }
-        // The project's base, which the architect's next matters fork, unless a line of the work keeps its session warm
-        // already.
-        if let Some(project) = architect
-            && let Some(p) = base_due(e, &w, &g, project, &waited, now)?
-            && !pings.iter().any(|x| x.due.cli_session == p.due.cli_session)
-        {
-            pings.push(p);
-        }
-        if !pings.is_empty() {
+        // A work the loop fails on is paused with why, if it is not, and the pings of the others are still found.
+        let one = due_of(e, id, now, pause);
+        if let Some(Some(pings)) = e.or_fault(id, one) {
             out.push((id, pings));
         }
     }
     Ok(out)
+}
+
+/// The pings due at `now` to one work's sessions, as [`due`] finds them; none when the work is due none.
+fn due_of(e: &mut Engine, id: i64, now: i64, pause: Option<&GlobalPause>) -> Result<Option<Vec<Ping>>, String> {
+    let w = e.work(id)?;
+    // A work on an older flow version goes on in its sessions where it stands only when it moves to the version the
+    // engine runs.
+    if e.done(&w)? || (w.flow_version != e.flow_now && e.plan(&w)? != crate::versions::Plan::Move) {
+        return Ok(None);
+    }
+    // A merged work waiting for its change to take effect may wait for days, and looks in a new session each time.
+    if crate::verification::waits_for_effect(&w) {
+        return Ok(None);
+    }
+    let architect = w.project.as_deref().filter(|_| w.graph == ARCHITECT);
+    if e.sessions().asked_new(w.id, architect) {
+        return Ok(None);
+    }
+    let g = e.graph_of(&w)?;
+    let waited = match waited_on(e, &w, &g)? {
+        Some(x) => x,
+        None if pause
+            .is_some_and(|p| !p.runs.contains(&id) && !architect.is_some_and(|x| p.architects.contains(x))) =>
+        {
+            Waited {
+                cell: w.pos.at.clone(),
+                on: "pause".to_string(),
+                what: "the owner paused every work".to_string(),
+            }
+        }
+        // A work that goes on, at another line's round, a tool's or the engine's, keeps the lines it will come
+        // back to warm.
+        None => Waited {
+            cell: w.pos.at.clone(),
+            on: "work".to_string(),
+            what: "the work goes on".to_string(),
+        },
+    };
+    // The lines the work can come back to, each in the session it has going on: not past a cell where the flow
+    // opens the line a new one.
+    let lines = {
+        let conn = e.db.conn();
+        let opens = |c: &CompiledCell| sessions::choose::opens(conn, w.id, c).unwrap_or(true);
+        coming_back(&g, &w.pos, &opens)
+    };
+    let item = e.subject(&w)?;
+    let limit = e.config.config.install.agents.context_limit;
+    let mut pings = Vec::new();
+    for (line, next) in lines {
+        let cells: Vec<&CompiledCell> = next.iter().filter_map(|c| g.cell(c)).collect();
+        // The model and the login account the line's next round runs on: a session on another one starts anew,
+        // and is not kept warm.
+        let Some(level) = cells
+            .first()
+            .and_then(|c| crate::steps::level_of(e, &g, c, item.as_ref()).ok())
+            .map(|(_, l, _)| l)
+        else {
+            continue;
+        };
+        let runs = e.runs_on(&level);
+        let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, runs.on(), now)? else {
+            continue;
+        };
+        pings.push(Ping {
+            due,
+            waited: waited.clone(),
+            line,
+            base: None,
+        });
+    }
+    // The project's base, which the architect's next matters fork, unless a line of the work keeps its session warm
+    // already.
+    if let Some(project) = architect
+        && let Some(p) = base_due(e, &w, &g, project, &waited, now)?
+        && !pings.iter().any(|x| x.due.cli_session == p.due.cli_session)
+    {
+        pings.push(p);
+    }
+    Ok((!pings.is_empty()).then_some(pings))
 }
 
 /// Sends a work's keep-warm pings found due at `now`, as the job the loop dispatched for them, and records each.

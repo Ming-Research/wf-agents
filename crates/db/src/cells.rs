@@ -17,7 +17,12 @@
 //! forked from it for each matter, its start's understanding (S1), its pick (Q1), its batch (B1 to B5), the plan after a
 //! batch (H10) and the talk of the groups (H12) left the flow; they keep their rows, H12 one of its own now, so that a
 //! round there still reads as itself, and the cells of main's red CI (L1, L2) and of the second eye (G1, G2) took codes
-//! no version gave another cell.
+//! no version gave another cell. When a report came to be taken in one round, its second cell (H5) left the flow; it
+//! keeps its row. Slots free with nothing to start took H11, a code no version gave another cell.
+//! When the codes came to follow the names of their stages, the architect's next took N0 and N2, its base B1 and B2, its
+//! main M1 and M2, its check C1 and C2, its record R1, its ended E1, its policy's last cell P3, the engineer's verify V1
+//! and V2, and the cell that brings a work to a new version Y1; a round of a version before at B1, B2, M1, C1 or C2 of the
+//! batch or of the answers reads as the cell with that code now.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
@@ -60,8 +65,10 @@ const BEFORE: [(&str, &str, &[&str]); 86] = [
     ("engineer", "M2", &["9", "merge_queue", "merge.queue"]),
     ("engineer", "L1", &["10", "watch_main"]),
     ("engineer", "L2", &[]),
-    ("engineer", "W1", &[]),
-    ("engineer", "W2", &[]),
+    ("engineer", "V1", &["W1"]),
+    ("engineer", "V2", &["W2"]),
+    ("engineer", "Y1", &["V1"]),
+    ("architect", "Y1", &["V1"]),
     ("engineer", "A4", &["11", "way_on", "ask.way_on"]),
     ("engineer", "A5", &["11a", "back", "ask.back"]),
     ("engineer", "A6", &["11b", "wait_items", "ask.wait_items"]),
@@ -73,35 +80,29 @@ const BEFORE: [(&str, &str, &[&str]); 86] = [
     ("engineer", "E1", &["20", "end"]),
     ("architect", "S0", &["W0", "wake", "wake.start"]),
     ("architect", "S1", &["W1", "understood", "wake.understood"]),
-    ("architect", "U1", &["state", "understand.state"]),
+    ("architect", "B1", &["U1", "state", "understand.state"]),
     ("architect", "P1", &["U2", "policy_right", "understand.policy"]),
-    ("architect", "N1", &["U3", "fit", "understand.fit"]),
-    ("architect", "Q0", &["D0", "anything", "pick.anything"]),
+    ("architect", "B2", &["N1", "U3", "fit", "understand.fit"]),
+    ("architect", "N0", &["Q0", "D0", "anything", "pick.anything"]),
     ("architect", "Q1", &["D1", "pick", "pick.choose"]),
-    ("architect", "Q2", &["RT", "route", "pick.route"]),
+    ("architect", "N2", &["Q2", "RT", "route", "pick.route"]),
     ("architect", "H1", &["T1", "set_straight", "handle.set_straight"]),
     ("architect", "H2", &["Q1", "crux", "handle.crux"]),
-    ("architect", "H3", &["Q2", "ways", "handle.ways"]),
+    ("architect", "H3", &["ways", "handle.ways"]),
     ("architect", "H4", &["I1", "what_is_it", "handle.what_is_it"]),
     ("architect", "H5", &["I2", "take_in", "handle.take_in"]),
     ("architect", "H6", &["K1", "card_sound", "handle.card_sound"]),
     ("architect", "H7", &["F1", "have_fixed", "handle.have_fixed"]),
     ("architect", "H8", &["O1", "owner_words", "handle.owner_words"]),
-    (
-        "architect",
-        "H9",
-        &["M1", "answer_architect", "handle.answer_architect"],
-    ),
-    ("architect", "H10", &["N1", "what_runs", "handle.what_runs"]),
-    ("architect", "B1", &["batch_done", "handle.batch_done"]),
-    ("architect", "B2", &["R1", "review", "batch.review"]),
+    ("architect", "H9", &["answer_architect", "handle.answer_architect"]),
+    ("architect", "H10", &["what_runs", "handle.what_runs"]),
+    ("architect", "H11", &[]),
     ("architect", "B3", &["X1", "revise", "batch.revise"]),
-    ("architect", "B4", &["C1", "rethink", "batch.rethink"]),
+    ("architect", "B4", &["rethink", "batch.rethink"]),
     ("architect", "B5", &[]),
-    ("architect", "E1", &["wrap_up"]),
-    ("architect", "E2", &["record"]),
+    ("architect", "E1", &["C2", "wrap_up"]),
+    ("architect", "R1", &["E2", "record"]),
     ("architect", "P2", &["P1", "study", "policy.study"]),
-    ("architect", "P3", &["P2", "owner_reads", "policy.owner_reads"]),
     ("architect", "P4", &["P3", "write", "policy.write"]),
     ("architect", "P5", &["P4", "assemble", "policy.assemble"]),
     ("architect", "P6", &["P5", "fresh_read", "policy.fresh_read"]),
@@ -110,15 +111,15 @@ const BEFORE: [(&str, &str, &[&str]); 86] = [
     ("architect", "P9", &["P8", "count", "policy.count"]),
     ("architect", "P10", &["P11", "holds_up", "policy.holds_up"]),
     ("architect", "P11", &["P9", "owner_approves", "policy.owner_approves"]),
-    ("architect", "P12", &["P10", "takes_effect", "policy.takes_effect"]),
+    ("architect", "P3", &["P12", "takes_effect", "policy.takes_effect"]),
     ("architect", "A3", &["ASK", "to_owner", "ask.owner"]),
     ("architect", "X1", &["TOOLS", "tools"]),
     ("architect", "X2", &["S1", "search"]),
     ("architect", "X5", &[]),
-    ("architect", "L1", &[]),
-    ("architect", "L2", &[]),
-    ("architect", "G1", &[]),
-    ("architect", "G2", &[]),
+    ("architect", "M1", &["L1"]),
+    ("architect", "M2", &["L2"]),
+    ("architect", "C1", &["G1"]),
+    ("architect", "C2", &["G2"]),
     ("architect", "H12", &[]),
 ];
 
@@ -193,9 +194,9 @@ mod tests {
         assert_eq!(code_of("architect", "P1"), Some("P1"));
         assert_eq!(code_of("engineer", "nowhere"), None);
         assert!(is_cell("architect", "A3", "ask.owner") && !is_cell("architect", "A3", "owner"));
-        assert!(is_cell("architect", "P12", "takes_effect") && !is_cell("architect", "P12", "P10"));
+        assert!(is_cell("architect", "P3", "takes_effect") && is_cell("architect", "P3", "P12"));
         assert!(is_cell("architect", "H2", "handle.crux") && !is_cell("architect", "H2", "Q1"));
-        assert!(is_cell("architect", "S0", "wake.start") && is_cell("architect", "B1", "handle.batch_done"));
+        assert!(is_cell("architect", "S0", "wake.start") && is_cell("architect", "B1", "understand.state"));
         // The architect's start was W0 and W1: a round there reads as S0 and S1 now, and one of an earlier version at
         // the search's first code, S1, as the cell coded S1 now.
         assert_eq!(code_of("architect", "W0"), Some("S0"));
@@ -232,7 +233,7 @@ mod tests {
         assert_eq!(code_of("engineer", "T5"), Some("T5"));
         assert_eq!(code_of("engineer", "G1"), Some("G1"));
         assert_eq!(code_of("architect", "X5"), Some("X5"));
-        assert_eq!(code_of("architect", "G2"), Some("G2"));
-        assert_eq!(cells_sql("architect", &["L1", "G1"]), "('L1', 'G1')");
+        assert_eq!(code_of("architect", "G2"), Some("C2"));
+        assert_eq!(cells_sql("architect", &["M1", "C1"]), "('M1', 'L1', 'C1', 'G1')");
     }
 }

@@ -1,5 +1,5 @@
 //! The questions each project's architect pinned for the owner's reply in their one-to-one: those that wait, and the
-//! one the architect waits on now. The engine reads them at the look at the queue (`Q0`), which waits for the reply to
+//! one the architect waits on now. The engine reads them at the look at the queue (`N0`), which waits for the reply to
 //! that one, and gives the cells that may ask those that wait; the owner's interface pins those that wait at the bottom
 //! of the one-to-one, the reply ticked to the one waited on. One reading for both, so that the page ticks the question
 //! the engine waits on.
@@ -21,7 +21,7 @@ pub const QUESTIONS_PENDING: &str = "SELECT a.id AS question, json_extract(a.bod
    AND m.handled_round IS NULL AND m.withdrawn IS NULL
  ORDER BY at DESC, a.id DESC";
 
-/// The question the architect of `project` waits for the owner's reply to at the look at the queue (`Q0`'s row
+/// The question the architect of `project` waits for the owner's reply to at the look at the queue (`N0`'s row
 /// `waits`): the newest question pending ([`QUESTIONS_PENDING`]) that parks a matter other than an open question, when
 /// it was put less than `wait_ms` (the installation's wait for the owner's reply) before `now` and the owner said
 /// nothing to the architect since in their one-to-one: no words, no entry of a talk, and no reply to another question.

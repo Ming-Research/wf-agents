@@ -216,7 +216,7 @@ impl Gh {
     pub fn new(logs: PathBuf) -> Gh {
         Gh {
             logs,
-            poll: Duration::from_secs(5),
+            poll: Duration::from_secs(2),
             start_timeout: Duration::from_secs(600),
             run_timeout: Duration::from_secs(3 * 3600),
             workflow_ids: Mutex::new(BTreeMap::new()),
@@ -1360,7 +1360,7 @@ mod tests {
     // that is not there nor a reason to stop. The wait ends with the look that shows the run finished.
     #[test]
     fn a_run_is_looked_at_every_five_seconds_with_the_tag_of_the_last_answer() {
-        assert_eq!(Gh::new(PathBuf::new()).poll, Duration::from_secs(5));
+        assert_eq!(Gh::new(PathBuf::new()).poll, Duration::from_secs(2));
         let wanted = Wanted {
             workflow: "fast",
             sha: "abc",

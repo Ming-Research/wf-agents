@@ -375,15 +375,14 @@ export function letterOf(id: string): string {
   return m ? m[1] : '';
 }
 
-/// A stage's letter: the one more of its cells' codes start with than any other, so that a cell of another line placed
-/// in it, as the librarian's G1 among the research cells, does not take the stage's letter away; none when no code is
-/// commonest, or none is a code.
+/// A stage's letter: the one more of its cells' codes start with than any other, so that a cell of another line in it,
+/// as the librarian's G1 among the research cells, does not take the stage's letter away; of a tie, the first cell's;
+/// none when none is a code.
 export function stageLetter(letters: string[]): string {
   const counts = new Map<string, number>();
   for (const l of letters) if (l !== '') counts.set(l, (counts.get(l) ?? 0) + 1);
   const most = Math.max(0, ...counts.values());
-  const commonest = [...counts].filter(([, n]) => n === most);
-  return commonest.length === 1 ? commonest[0][0] : '';
+  return [...counts].find(([, n]) => n === most)?.[0] ?? '';
 }
 
 /// The chart of a graph; `engine`, the flow's engine part, says what the values a step decides by read.

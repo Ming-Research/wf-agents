@@ -30,6 +30,9 @@ mod declared_checks;
 mod deep_research;
 mod dependency_sources;
 mod dependency_sources_left_behind;
+mod ended;
+mod engine_faults;
+mod engine_runs;
 mod failures;
 mod flow_versions;
 mod guard;
@@ -40,7 +43,6 @@ mod interjection_hook;
 mod line_sessions;
 mod lock_update;
 mod lock_update_corners;
-mod merge_conditions;
 mod messages;
 mod notebook;
 mod numbers;
@@ -60,6 +62,7 @@ mod routes;
 mod samples;
 mod side_reports;
 mod slots;
+mod take_back;
 mod takeovers;
 mod talk;
 mod tests_changed;
@@ -70,7 +73,7 @@ mod tools;
 /// owner lets go on, each step on a thread of its own, and waits for every job to end, as `wf-agents run --once` does.
 trait Passes {
     /// One pass while every work goes on: what its first step that moved came to. A work it leaves gathering the
-    /// history (`G1`, `G2`, `G3`) has that round taken too, in passes of their own: these tests are about the cells
+    /// history (`C1`, `C2`, `G3`) has that round taken too, in passes of their own: these tests are about the cells
     /// either side of it, and those about gathering look at its rounds.
     fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
     /// One pass while every work goes on, a gathering of the history taken with it as [`Passes::step`] takes it:
@@ -135,7 +138,7 @@ impl Passes for Engine {
                 .db
                 .conn()
                 .query_row(
-                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2', 'G3') AND ended IS NULL AND paused IS NULL",
+                    "SELECT count(*) FROM works WHERE at IN ('C1', 'C2', 'G3') AND ended IS NULL AND paused IS NULL",
                     [],
                     |r| r.get(0),
                 )
@@ -365,18 +368,17 @@ impl Agents for Scripted {
         };
         let pick: BTreeMap<String, String> = pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-        // The understanding and the plan rewrite their sections of the notebook, unless the script says otherwise.
-        let sections: &[&str] = match r.cell.as_str() {
-            "U1" => &["project_now", "unclear"],
-            "N1" => &["plan"],
-            _ => &[],
-        };
-        if !sections.is_empty() {
-            let edits: Vec<Value> = sections
-                .iter()
-                .map(|s| json!({ "section": s, "text": format!("The {s} at round {n}.") }))
-                .collect();
-            set.entry("outcome.notebook".into()).or_insert(json!(edits));
+        // The understanding and the plan are handed in by their round, unless the script says otherwise.
+        match r.cell.as_str() {
+            "B1" => {
+                set.entry("outcome.understanding".into())
+                    .or_insert(json!(format!("The understanding at round {n}.")));
+            }
+            "B2" => {
+                set.entry("outcome.notes".into())
+                    .or_insert(json!(format!("The plan at round {n}.")));
+            }
+            _ => {}
         }
         // A fork of a session goes on as the new session it was named, as the CLI's fork does.
         let session = match &r.resume {
@@ -967,7 +969,7 @@ impl GitHub for FakeHub {
     }
 }
 
-/// The regression test a bug fix of the light route adds, as a file in the test paths that names it.
+/// The regression test a bug fix adds, as a file in the test paths that names it.
 const REGRESSION: &str = "regression";
 
 /// The artifact every run of the fake GitHub's CI reports its tests' results in, as the project's configuration names it.
@@ -1225,7 +1227,7 @@ fn quiet(e: &mut Engine) {
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended, project)
-             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
+             VALUES (NULL, ?1, 'architect', 'R1', 'over before the test', 'p')",
             [v],
         )?;
         let arch = tx.last_insert_rowid();
@@ -1277,8 +1279,34 @@ fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Arc<Mu
     engine_with(s, scripts, Hooks::default())
 }
 
+/// An engine made only to read over a setup, which takes no lock and so runs beside an engine that holds it: it reads
+/// the database as an engine started afresh finds it.
+fn reading_engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> Engine {
+    let (agents, hub) = fakes(s, scripts);
+    let committed = config::committed(&s.data).unwrap();
+    Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap()
+}
+
 /// The engine over a setup as it starts, telling `hooks` what runs, with what it says kept.
 fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks) -> (Engine, Arc<Mutex<Vec<String>>>) {
+    let (agents, hub) = fakes(s, scripts);
+    let committed = config::committed(&s.data).unwrap();
+    let said = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = said.clone();
+    let hooks = Hooks {
+        say: Arc::new(move |x: &str| log.lock().unwrap().push(x.to_string())),
+        ..hooks
+    };
+    // The lock of the data directory, as the command takes it: a test that starts a second engine on the same data
+    // drops the first first.
+    let lock = engine::Lock::acquire(&s.data).unwrap();
+    let mut e = Engine::new(lock, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
+    e.retry_wait = std::time::Duration::ZERO;
+    (e, said)
+}
+
+/// The scripted agents and the fake GitHub over a setup.
+fn fakes(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Scripted, FakeHub) {
     let agents = Scripted {
         scripts,
         rounds: Mutex::new(BTreeMap::new()),
@@ -1293,16 +1321,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         by_hand: s.by_hand.clone(),
         watch_main: s.watch_main.clone(),
     };
-    let committed = config::committed(&s.data).unwrap();
-    let said = Arc::new(Mutex::new(Vec::<String>::new()));
-    let log = said.clone();
-    let hooks = Hooks {
-        say: Arc::new(move |x: &str| log.lock().unwrap().push(x.to_string())),
-        ..hooks
-    };
-    let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
-    e.retry_wait = std::time::Duration::ZERO;
-    (e, said)
+    (agents, hub)
 }
 
 fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {
@@ -1389,8 +1408,6 @@ fn owner_answers(e: &mut Engine, ask: i64, text: &str) {
         why: None,
         reply: None,
         to: None,
-        choice: None,
-        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, ask, &answer).unwrap();
@@ -1572,12 +1589,12 @@ fn session_of(e: &Engine, work: i64, cell: &str) -> i64 {
         .unwrap()
 }
 
-/// The rounds of a work at the cell that brings a work on an older flow version to the one the engine runs, `V1`, each
+/// The rounds of a work at the cell that brings a work on an older flow version to the one the engine runs, `Y1`, each
 /// with the row it took and its output.
 fn brought(e: &Engine, work: i64) -> Vec<(String, Value)> {
     let mut st =
         e.db.conn()
-            .prepare("SELECT transition, output FROM rounds WHERE work = ?1 AND cell = 'V1' ORDER BY n")
+            .prepare("SELECT transition, output FROM rounds WHERE work = ?1 AND cell = 'Y1' ORDER BY n")
             .unwrap();
     st.query_map([work], |r| {
         Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?))
@@ -1739,7 +1756,7 @@ fn sent_back(e: &Engine) -> i64 {
 fn rounds_count(e: &Engine) -> i64 {
     e.db.conn()
         .query_row(
-            "SELECT count(*) FROM rounds WHERE cell NOT IN ('G1', 'G2', 'G3')",
+            "SELECT count(*) FROM rounds WHERE cell NOT IN ('C1', 'C2', 'G3')",
             [],
             |r| r.get(0),
         )
@@ -1941,8 +1958,8 @@ fn architect_sessions(e: &Engine, first: i64, second: i64) -> Vec<(String, Strin
 /// Works of project p's architect run one after the other under `agents`: each of `talks` is the owner's words that
 /// start a work, said `age` milliseconds after the work before it ended (that work and what it was told made that much
 /// older; the first has none before it). The first words are said five seconds before the first work starts, so that
-/// no round of it begins in the millisecond they were said in. With `rebuild`, every work after the first reads the
-/// project anew once its matters are handled ([`base_wrong_later`]). Gives the works' ids, oldest first.
+/// no round of it begins in the millisecond they were said in. With `rebuild`, a policy takes effect before each work after
+/// the first, which reads the project anew. Gives the works' ids, oldest first.
 fn architect_works_in(
     name: &str,
     agents: BTreeMap<&'static str, Script>,
@@ -1950,7 +1967,6 @@ fn architect_works_in(
     rebuild: bool,
 ) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Vec<i64>) {
     let s = setup(name);
-    let agents = if rebuild { base_wrong_later(agents) } else { agents };
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -1958,6 +1974,9 @@ fn architect_works_in(
     for (i, (age, words)) in talks.iter().enumerate() {
         if i > 0 {
             age_architect(&mut e, *age);
+            if rebuild {
+                a_new_policy_takes_effect(&mut e);
+            }
         }
         say(&mut e, words);
         if i == 0 {
@@ -2027,7 +2046,7 @@ fn lines_told(e: &Engine, work: i64) -> Vec<String> {
 }
 
 /// The engine of a test whose item's work asks the architect about a capability gap at its first round, with the
-/// architect's ways (`H3`) and any other cell scripted as given, run until the work of the architect it started ended
+/// architect's ways (`H1`) and any other cell scripted as given, run until the work of the architect it started ended
 /// and the work's question took its row: the engine, what it said, the item, its work and the architect's work.
 fn a_gap_asked(
     s: &Setup,
@@ -2596,8 +2615,19 @@ fn cancelled_why(e: &Engine, item: i64) -> Option<String> {
         .unwrap()
 }
 
-/// Why a work ended; none while it goes on.
+/// Why a work was stopped before its end; none while it goes on, and none for a work that reached the end of its
+/// graph, which ends as `done` ([`ended_done`]).
 fn ended_why(e: &Engine, work: i64) -> Option<String> {
+    ended_of(e, work).filter(|why| why != "done")
+}
+
+/// Whether a work reached the end of its graph and ended as `done`.
+fn ended_done(e: &Engine, work: i64) -> bool {
+    ended_of(e, work).as_deref() == Some("done")
+}
+
+/// What the work's column `ended` holds.
+fn ended_of(e: &Engine, work: i64) -> Option<String> {
     e.db.conn()
         .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
         .unwrap()
@@ -2765,20 +2795,35 @@ fn versioned(path: &Path, mut changes: Value) -> Value {
     changes
 }
 
-/// Scripts whose answer to the owner's words says, from its second round on, that something that matters in the base no
-/// longer holds, so that a work of the architect after the first reads the project anew once that matter is handled.
-fn base_wrong_later(mut agents: BTreeMap<&'static str, Script>) -> BTreeMap<&'static str, Script> {
-    let then = agents.remove("H8");
-    agents.insert(
-        "H8",
-        Box::new(move |r: &Request, n: usize| {
-            let (mut pick, mut set) = then.as_ref().map(|f| f(r, n)).unwrap_or_default();
-            if n > 1 {
-                pick.push(("outcome.closing.base", "wrong"));
-                set.push(("outcome.closing.base_why", json!("What the project is now moved on.")));
-            }
-            (pick, set)
-        }),
-    );
-    agents
+/// A check of project p's policy waits in its queue, as an answer to the owner's words queues one.
+fn a_check_of_the_policy_is_queued(e: &mut Engine) {
+    e.db.write(Actor::Engine, |tx| {
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "check_policy".into(),
+            what: "Check whether the policy of p still holds: a test asks for it".into(),
+            body: json!({ "asked_by": [] }),
+            ..db::Matter::default()
+        };
+        db::queue_matter(tx, &m).map(|_| ())
+    })
+    .unwrap();
+}
+
+/// A policy takes effect in project p, as a work of its architect over before the test set it: a new base is due.
+fn a_new_policy_takes_effect(e: &mut Engine) {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended, project)
+             VALUES (NULL, ?1, 'architect', 'R1', 'over before the test', 'p')",
+            [v],
+        )?;
+        let arch = tx.last_insert_rowid();
+        let policy = json!({ "outcome": { "policy": { "direction": "Small steps first." } } });
+        record_round(tx, arch, 1, "P2", &policy, "written")?;
+        record_round(tx, arch, 2, "P3", &json!({}), "next")?;
+        Ok(())
+    })
+    .unwrap();
 }

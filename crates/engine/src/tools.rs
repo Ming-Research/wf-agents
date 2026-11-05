@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use config::words;
 use db::Actor;
-use db::rusqlite::params;
+use db::rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
 use crate::hub::{self, CheckRun, Failure};
@@ -131,15 +131,30 @@ pub(crate) fn saved_to(text: &str) -> Option<&str> {
 }
 
 /// The rows a query found as the flow's query tool gives them: the rows themselves, each an object, when they are short
-/// enough to give here; otherwise none, and what `save` gives for them written one JSON object per line, which says
-/// where they were saved.
+/// enough to give here; otherwise as many of the first as are, and what `save` gives for all of them written one JSON
+/// object per line, which says where they were saved.
 fn rows_given(rows: Vec<Value>, save: impl FnOnce(String) -> String) -> (Vec<Value>, Option<String>) {
     let text = rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
     if text.len() <= LONG {
-        (rows, None)
-    } else {
-        (Vec::new(), Some(save(text)))
+        return (rows, None);
     }
+    let mut room = LONG;
+    let first = rows
+        .into_iter()
+        .take_while(|r| {
+            let size = r.to_string().len() + 1;
+            let fits = size <= room;
+            room = room.saturating_sub(size);
+            fits
+        })
+        .collect();
+    (first, Some(save(text)))
+}
+
+/// How many rows a query finds, past the row limit too; none when counting them fails, as when the time runs out.
+fn rows_found(conn: &db::rusqlite::Connection, sql: &str) -> Option<i64> {
+    let count = format!("SELECT count(*) FROM (\n{}\n)", sql.trim().trim_end_matches(';'));
+    conn.query_row(&count, [], |r| r.get(0)).ok()
 }
 
 /// The flags that make a gh `api` request write or take its request from elsewhere; the tool refuses a request that has
@@ -567,6 +582,48 @@ fn named_tests(req: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The tests a request of ci names, and, when it names any, each test the work's returns named before: its test changes,
+/// adversarial testing's tables and the tests of its conditions. A return is checked against the runs on the head it
+/// pushes, so a head pushed with only the test in hand sent the return back to name the others (eight times since W300):
+/// a run on a head reports them all, for a few seconds more.
+fn with_tests_named_before(e: &Engine, w: &Work, tests: Vec<String>) -> Result<Vec<String>, (Failure, String)> {
+    if tests.is_empty() {
+        return Ok(tests);
+    }
+    let failed = |x: db::rusqlite::Error| (Failure::other(sql(x)), String::new());
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT output FROM rounds WHERE work = ?1 AND cell IN ('I1', 'T1', 'T6') AND transition IS NOT NULL
+             ORDER BY n",
+            )
+            .map_err(failed)?;
+    let returns: Vec<String> = st
+        .query_map([w.id], |r| r.get(0))
+        .map_err(failed)?
+        .collect::<Result<_, _>>()
+        .map_err(failed)?;
+    let mut out = tests;
+    let mut add = |name: &str| {
+        if !name.trim().is_empty() && !out.iter().any(|t| t == name) {
+            out.push(name.to_string());
+        }
+    };
+    for ret in returns.iter().filter_map(|o| serde_json::from_str::<Value>(o).ok()) {
+        let answer = &ret["outcome"];
+        let tables = crate::test_tables::of_return(answer);
+        for r in tables.new.iter().chain(&tables.guard) {
+            add(r["name"].as_str().unwrap_or_default());
+        }
+        for c in answer["conditions"].as_array().into_iter().flatten() {
+            for t in c["tests"].as_array().into_iter().flatten() {
+                add(t.as_str().unwrap_or_default());
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The checks a request of ci names to run beside the tests, each trimmed and once, in the order named, a blank one
 /// left out.
 fn named_checks(req: &Value) -> Vec<String> {
@@ -869,6 +926,7 @@ fn ci(
         );
     }
     let sha = git::resolve(&wt, head).unwrap_or_default();
+    let tests = with_tests_named_before(e, w, tests)?;
     let fallback = pr_fallback(item);
     let title_body = req.get("pr").map(|p| {
         (
@@ -1437,18 +1495,26 @@ fn query(e: &mut Engine, round: RoundId, n: usize, req: &Value) -> Result<Value,
     let limits = e.config.config.install.query.clone();
     let path = config::database(&e.data);
     attempts(e, round, "query", req, |e| {
-        let run = || -> Result<(Vec<Value>, bool), String> {
+        let run = || -> Result<(Vec<Value>, bool, Option<i64>), String> {
             let conn = db::open_for_agents(&path, Duration::from_millis(limits.timeout_ms)).map_err(sql)?;
             let max = limits.max_rows as usize;
             let mut rows = work::query_json(&conn, &text, &[], max + 1)?;
             let cut = rows.len() > max;
             rows.truncate(max);
-            Ok((rows, cut))
+            let total = if cut {
+                rows_found(&conn, &text)
+            } else {
+                i64::try_from(rows.len()).ok()
+            };
+            Ok((rows, cut, total))
         };
         Ok(match run() {
-            Ok((rows, cut)) => {
+            Ok((rows, cut, total)) => {
                 let (rows, saved) = rows_given(rows, |text| inline_or_saved(e, round, n, text));
                 let mut ran = json!({ "verdict": "ran", "rows": rows, "cut": cut });
+                if let Some(t) = total {
+                    ran["total"] = json!(t);
+                }
                 if let Some(s) = saved {
                     ran["saved"] = Value::String(s);
                 }
@@ -1552,6 +1618,31 @@ fn named_columns(sql: &str, error: &str) -> Option<String> {
 
 // Cell `M2`.
 
+/// Whether a red check of `checks` is one the work's last try at the merge read as it is, the same job of the same run.
+fn read_red_before(e: &Engine, work: i64, checks: &[CheckRun]) -> Result<bool, String> {
+    let last: Option<String> = e
+        .db
+        .conn()
+        .query_row(
+            "SELECT output FROM rounds WHERE work = ?1 AND cell = 'M2' AND output IS NOT NULL ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some(last) = last.and_then(|o| serde_json::from_str::<Value>(&o).ok()) else {
+        return Ok(false);
+    };
+    let read = |c: &&CheckRun| {
+        c.result == "red"
+            && last["result"]["kind"] == "red"
+            && last["result"]["checks"]
+                .as_array()
+                .is_some_and(|xs| xs.iter().any(|x| x["run"] == c.run.as_str() && x["result"] == "red"))
+    };
+    Ok(checks.iter().any(|c| read(&c)))
+}
+
 /// Catches the PR up with main, runs the full CI on the head, the one run of it a head has, and merges it when the run
 /// is green. A red run is not run again: what is red goes back to the work, which fixes it with the fast CI, and the
 /// head it hands in next is run in full once more; a head that has a run already, as one this merge made before it was
@@ -1590,11 +1681,21 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
         Ok(checks_json(&work_full_checks(e, &project, &branch, &head)?))
     });
     record_push(e, w, Some(&head), None)?;
-    let checks: Vec<CheckRun> = match checked {
+    let mut checks: Vec<CheckRun> = match checked {
         Ok(v) => serde_json::from_value(v).unwrap_or_default(),
         Err(x) => return Ok(not_run("result", x)),
     };
     let known = known_red(e, &item.project)?;
+    // The very run the last try read red, its engineer having changed nothing: reading it again says nothing new, and
+    // only sends the work round to the architect, as a flaky test did to W330. Its red checks run again.
+    if !reds(&counted(&checks, &project, &known)).is_empty() && read_red_before(e, w.id, &checks)? {
+        checks = match attempts(e, round, "merge", &args, |e| {
+            Ok(checks_json(&rerun_full(e, &project, &head, &checks)?))
+        }) {
+            Ok(v) => serde_json::from_value(v).unwrap_or_default(),
+            Err(x) => return Ok(not_run("result", x)),
+        };
+    }
     // Red, or without a check a merge needs: not merged.
     let lacking = missing_checks(&checks, &project, &known);
     if !reds(&counted(&checks, &project, &known)).is_empty() || !lacking.is_empty() {
@@ -1605,10 +1706,6 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     // line loses: the loop finds the merge when it comes to carry the stop out, and drops it.
     if db::stop_asked(e.db.conn(), w.id).map_err(sql)? {
         return Ok(json!({ "result": { "kind": "stopped" } }));
-    }
-    // A merge condition recorded while this step waited holds the merge as well, for the same reason; the gate asks of it.
-    if crate::conditions::any_open(e.db.conn(), item.id)? {
-        return Ok(json!({ "result": { "kind": "condition_set" } }));
     }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
     match attempts(e, round, "merge", &json!({ "head": head, "pr": pr }), |e| {
@@ -1657,7 +1754,6 @@ mod tests {
             imported_from: None,
             imported_branch: None,
             imported_pr: None,
-            route: "normal".into(),
         };
         let (title, body) = pr_fallback(&item);
         assert_eq!(title, "Item 12");
@@ -1709,7 +1805,7 @@ mod tests {
     }
 
     #[test]
-    fn a_query_gives_its_rows_as_objects_and_saves_them_one_per_line_when_too_long() {
+    fn a_query_gives_its_rows_as_objects_and_when_too_long_the_first_and_saves_them_all_one_per_line() {
         let rows = vec![
             json!({ "id": 206, "title": "Say \"done\"" }),
             json!({ "id": 207, "title": null }),
@@ -1722,11 +1818,25 @@ mod tests {
             *kept.borrow_mut() = text;
             "saved to f".to_string()
         });
-        assert!(given.is_empty());
+        assert!(!given.is_empty() && given.len() < 2000);
+        assert_eq!(given[0]["id"], 0);
+        let size: usize = given.iter().map(|r| r.to_string().len() + 1).sum();
+        assert!(size <= LONG, "{size}");
         assert_eq!(saved.as_deref(), Some("saved to f"));
         let kept = kept.into_inner();
         assert_eq!(kept.lines().count(), 2000);
         assert_eq!(kept.lines().next(), Some(r#"{"id":0,"text":"xxxxxxxxxxxxxxxxxxxx"}"#));
+    }
+
+    #[test]
+    fn a_query_past_its_row_limit_is_counted_however_it_ends_and_a_count_that_fails_gives_none() {
+        let conn = db::rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t (n INTEGER); INSERT INTO t VALUES (1), (2), (3);")
+            .unwrap();
+        assert_eq!(rows_found(&conn, "SELECT n FROM t ORDER BY n"), Some(3));
+        assert_eq!(rows_found(&conn, " SELECT n FROM t WHERE n > 1;\n"), Some(2));
+        assert_eq!(rows_found(&conn, "SELECT n FROM t -- all of them"), Some(3));
+        assert_eq!(rows_found(&conn, "SELECT nothing FROM t"), None);
     }
 
     #[test]
@@ -2873,7 +2983,8 @@ timeout_ms = 1000
         crate::database::create(&data).unwrap();
         let runs = Runs::new(Some(origin.clone()));
         let committed = config::committed(&data).unwrap();
-        let mut e = Engine::new(&data, committed, Box::new(NoAgents), Box::new(runs.clone()), hooks).unwrap();
+        let lock = crate::Lock::acquire(&data).unwrap();
+        let mut e = Engine::new(lock, committed, Box::new(NoAgents), Box::new(runs.clone()), hooks).unwrap();
         e.retry_wait = Duration::ZERO;
         let flow_now = e.flow_now;
         let worktree = path(&wt);
@@ -3573,6 +3684,68 @@ timeout_ms = 1000
         assert!(r.runs.dispatched().is_empty());
     }
 
+    // A run on a head reports what the work named before as well as what the request names, so that no return is sent back
+    // to name them again.
+    fn a_run_of_ci_names_the_tests_the_work_named_before(r: &mut Rig) {
+        let work = r.work;
+        r.e.db
+            .write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (?1, 2, 'I1', '{}', ?2, 'done', 'c', 2, 3)",
+                    params![
+                        work,
+                        json!({ "outcome": {
+                            "conditions": [{ "id": "A1", "how": "tested", "tests": ["of_a_condition", "asked"] }],
+                            "test_changes": [{ "change": "added", "test": "written_once", "kind": "new_behaviour" }],
+                        } })
+                        .to_string()
+                    ],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        r.runs.clear();
+        let v = r.ci(&["asked"]);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        let [(_, _, inputs)] = &r.runs.dispatched()[..] else {
+            panic!("one run by hand: {:?}", r.runs.dispatched());
+        };
+        let tests = inputs
+            .iter()
+            .find(|(k, _)| k == "tests")
+            .map(|(_, t)| t.clone())
+            .unwrap();
+        assert_eq!(
+            tests.lines().collect::<Vec<_>>(),
+            ["asked", "written_once", "of_a_condition"]
+        );
+    }
+
+    // A red full run the last try read, the engineer having changed nothing, runs its red checks again rather than be
+    // read again; a first red is not run again, and goes to the work.
+    fn the_red_run_the_last_try_read_runs_again(r: &mut Rig) {
+        r.runs.clear();
+        r.runs.has_run(&r.head, "ci", &[("check", "red")]);
+        let first = r.run(merge);
+        assert_eq!(first["result"]["kind"], "red", "{first}");
+        assert_eq!(r.runs.state().reruns, 0);
+        let (work, output) = (r.work, first.to_string());
+        r.e.db
+            .write(db::Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE rounds SET cell = 'M2', output = ?2, transition = 'for_engineer', ended_at = 1
+                     WHERE work = ?1 AND n = 1",
+                    db::rusqlite::params![work, output],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let again = r.run(merge);
+        assert_eq!(again["result"]["kind"], "red", "{again}");
+        assert_eq!(r.runs.state().reruns, 1);
+    }
+
     // The head that caught up with main is a new commit: the full run of the head before it says nothing of it, and one
     // is made for it.
     #[test]
@@ -3688,6 +3861,8 @@ timeout_ms = 1000
         the_tool_ci_gives_the_fast_run_it_made_and_what_it_ran(&mut r);
         a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
         a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
+        the_red_run_the_last_try_read_runs_again(&mut r);
+        a_run_of_ci_names_the_tests_the_work_named_before(&mut r);
         a_request_github_refuses_is_asked_once_and_told(&mut r);
         the_merge_tool_marks_its_waits_for_the_full_ci(&mut r);
     }

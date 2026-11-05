@@ -6,7 +6,7 @@ use db::MIGRATIONS;
 use db::rusqlite::{Connection, params};
 
 /// The migration these tests read, by its file's name.
-const NAME: &str = "202611050026-record-the-health-numbers";
+const NAME: &str = "202611060130-record-the-health-numbers";
 
 /// A database as it stood before that migration: made by the first version's schema and the migrations before it, with
 /// the foreign keys off as the migrations run, so that a run needs no round to seed it.

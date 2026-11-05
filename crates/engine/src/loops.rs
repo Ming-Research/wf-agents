@@ -206,7 +206,7 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'Q0', 'p')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'N0', 'p')",
                 [],
             )?;
             Ok(())
@@ -266,10 +266,10 @@ mod tests {
         let mut db = works();
         let mut at = 1;
         for _ in 0..5 {
-            for cell in ["Q0", "Q2", "P12", "B1"] {
+            for cell in ["N0", "N2", "P3", "B1"] {
                 let n = round(&mut db, 2, cell, at, false);
                 at += 1;
-                if cell == "P12" {
+                if cell == "P3" {
                     db.write(Actor::Engine, |tx| {
                         tx.execute(
                             "INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(steps_without_agent(db.conn(), 2, 1).unwrap(), named(&["B1"]));
         // The same turns handling no matter are a run without an agent.
         for _ in 0..5 {
-            for cell in ["Q0", "Q2", "P12", "B1"] {
+            for cell in ["N0", "N2", "P3", "B1"] {
                 round(&mut db, 2, cell, at, false);
                 at += 1;
             }

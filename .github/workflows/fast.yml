@@ -18,7 +18,8 @@ name: fast
 # with no testcase and an error, and the tests of the other units still run.
 #
 # It runs on the project's own machine, whose runners keep each what the last run built: the repository's checkout, the
-# compiled target and the page's dependencies stay between runs, and only what changed is built again. So a checkout
+# compiled target and the page's dependencies stay between runs, and only what changed is built again. Each step a run
+# need not take is left out because the agents wait for this workflow on every change; the engine reads each job. So a checkout
 # leaves those in place (`clean: false`), and the step after it clears the rest of what the last run left.
 #
 # GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one made before this file
@@ -134,7 +135,7 @@ jobs:
           if [[ $GITHUB_REF_NAME != wf-agents-before/* ]]; then
             rust+=("test(/(^|::)every_tracked_file_is_in_english\$/)")
           fi
-          rust_selected=false page_selected=false
+          rust_selected=false page_selected=false browser_selected=false
           if [ ${#rust[@]} -gt 0 ]; then
             mapfile -t rust < <(printf '%s\n' "${rust[@]}" | sort -u)
             filter=""
@@ -148,24 +149,24 @@ jobs:
             printf '%s\n' "${files[@]}" | sort -u > "$names/files"
             echo "Page tests in: $(paste -sd ' ' "$names/files")"
             page_selected=true
+            # The tests that run in a real browser are in the files named *.browser.test.tsx; only a run that selects
+            # one pays for installing and starting Chromium.
+            if grep -q '\.browser\.test\.' "$names/files"; then browser_selected=true; fi
           fi
           # A run that names no test it can run says so, and reports no test.
           if [ $rust_selected = false ] && [ $page_selected = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
           echo "rust=$rust_selected" >> "$GITHUB_OUTPUT"
           echo "page=$page_selected" >> "$GITHUB_OUTPUT"
-      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - run: rustup toolchain install
-      # The project's machine has it from an earlier run: its runners share a home, and installing at once they collide.
-      - id: nextest
-        run: if cargo nextest --version 2>/dev/null | grep -q '0.9.146'; then echo "have=true" >> "$GITHUB_OUTPUT"; fi
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
-        if: steps.nextest.outputs.have != 'true'
-        with:
-          tool: cargo-nextest@0.9.146
+          echo "browser=$browser_selected" >> "$GITHUB_OUTPUT"
+      # The project's machine has the tools: rustup installs the toolchain rust-toolchain.toml pins when it is missing,
+      # and whoever changes a version here installs it there first (its runners share a home, and installing at once
+      # they collide).
+      - run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - run: |
+          rustc --version
+          cargo nextest --version | grep -q '0.9.146'
+          [ "$(node --version)" = v24.21.0 ]
       - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.21.0
       # Before any cargo step that compiles the crate the page is built into; the build of the page's files as they are
       # is kept for every runner of the machine, and its dependencies are installed only when their lock changed.
       - name: Build the page
@@ -181,7 +182,8 @@ jobs:
           if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
             :
           elif [ -f "$kept/index.html" ]; then
-            rm -rf dist && cp -a "$kept" dist
+            # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
+            rm -rf dist && cp -R "$kept" dist
           else
             npm run build
             mkdir -p "$HOME/page-builds"
@@ -286,32 +288,28 @@ jobs:
       # also when the step before is red. They read the flow as the engine stores it, which the first command writes,
       # with the cargo profile and the workspace's features of the step before, so that it compiles nothing that step
       # compiled.
+      #
+      # The page's tests are Vitest projects (client/vite.config.ts): `unit` and `ui` always, and `browser`, which draws
+      # the page in a real Chromium, only when a file named is one of the browser tests, so that a run that names none
+      # neither installs Chromium nor starts it.
+      - name: Chromium for the page's browser tests
+        if: ${{ !cancelled() && steps.names.outputs.browser == 'true' }}
+        uses: ./.github/actions/browser
       - name: Test the page
         if: ${{ !cancelled() && steps.names.outputs.page == 'true' }}
+        env:
+          BROWSER: ${{ steps.names.outputs.browser }}
         run: |
           WF_AGENTS_GENERATE=1 cargo test --workspace --locked --profile ci --test typescript
           mapfile -t files < "$RUNNER_TEMP/names/files"
+          projects=(--project unit --project ui)
+          if [ "$BROWSER" = true ]; then projects+=(--project browser); fi
           cd client
-          npx vitest run "${files[@]}" --testNamePattern="$(cat "$RUNNER_TEMP/names/pattern")" --passWithNoTests \
-            --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/test-results/page.xml"
+          npx vitest run "${files[@]}" "${projects[@]}" --testNamePattern="$(cat "$RUNNER_TEMP/names/pattern")" \
+            --passWithNoTests --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/test-results/page.xml"
       # What became of the tests, for the engine to read, whatever became of the steps before.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: test-results
           path: ${{ runner.temp }}/test-results
-
-  # The one check the engine reads, red whenever a job that ran is. A job that did not run is skipped: the lint when it
-  # is not named, the tests when none are named.
-  fast:
-    needs: [lint, test]
-    if: always()
-    runs-on: [self-hosted, 14900k]
-    timeout-minutes: 5
-    steps:
-      - name: Every job that ran passed
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "lint and test: $RESULTS"
-          for r in $RESULTS; do [ "$r" = success ] || [ "$r" = skipped ] || exit 1; done

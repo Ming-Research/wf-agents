@@ -492,9 +492,6 @@ pub struct OwnerAsk {
     /// When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
     /// that put it.
     pub asked_at: i64,
-    /// The one item a merge condition ticked on its answer goes on: its work's, or for an ask of an architect the item
-    /// the matters it holds are about; none for an ask about no item or about several, which takes no tick.
-    pub condition_item: Option<i64>,
 }
 
 /// What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -619,16 +616,6 @@ pub struct Answer {
     #[serde(default)]
     #[ts(optional)]
     pub to: Option<String>,
-    /// The option chosen, for the merge gate's ask of a merge condition alone: `met` or `withdrawn`. The answer may then
-    /// have no words.
-    #[serde(default)]
-    #[ts(optional)]
-    pub choice: Option<String>,
-    /// The sentence of a merge condition the answer sets, when the owner ticked it: what must be done before the work
-    /// merges, reading alone.
-    #[serde(default)]
-    #[ts(optional)]
-    pub condition: Option<String>,
     /// The images sent with the answer, in the order the owner added them.
     #[serde(default)]
     pub images: Vec<ImageSent>,
@@ -636,7 +623,7 @@ pub struct Answer {
 
 /// An image the owner sends with words, as the page hands it in: a PNG, JPEG, GIF or WebP image of at most 5 MB, at
 /// most 10 to a message.
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct ImageSent {
     /// image/png, image/jpeg, image/gif or image/webp.
     pub media_type: String,
@@ -897,10 +884,8 @@ pub struct ItemSummary {
     /// change or report.
     pub deliver: String,
     pub level: String,
-    /// The route its works go, as its creator marked it: normal, or bugfix or feature, which go the light route.
-    pub route: String,
-    /// The route its latest work goes (light, normal, or turned: went light, then turned to the normal route); none
-    /// before a work starts. A work keeps the route its research took, whatever the item's mark became since.
+    /// The way its latest work went, from the rows it took (`work_routes`): direct, on the research's plan; designed;
+    /// or turned, begun on the research's plan and then sent to the design; none before the research answers.
     pub route_taken: Option<String>,
     pub cancelled: Option<String>,
     pub state: ItemState,
@@ -980,47 +965,6 @@ pub struct ItemDetail {
     pub shown: Vec<Shown>,
     /// Each time its tier changed after it was made, oldest first: when, by whom, from what to what.
     pub level_changes: Vec<LevelChange>,
-    /// What the owner set to be done before its work merges, oldest first.
-    pub merge_conditions: Vec<MergeCondition>,
-}
-
-/// Something the owner set to be done before an item's work merges, as the item's page shows it.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct MergeCondition {
-    pub id: i64,
-    /// The sentence that says it, reading alone.
-    pub what: String,
-    /// The record its words are in: ask, interjection or matter; and that record's number.
-    pub source: String,
-    pub source_id: i64,
-    /// The words as that record has them.
-    pub quote: String,
-    /// Who the record says said them: owner, relayed, delegate or unrecorded.
-    pub said_by: String,
-    /// Who recorded it: owner, delegate or architect; with the architect's round that did.
-    pub recorded_by: String,
-    pub recorded_work: Option<i64>,
-    pub recorded_round: Option<i64>,
-    pub at: i64,
-    /// Where it stands: open, met or withdrawn.
-    pub status: String,
-    /// The ask of the merge gate it was judged on, and who judged it, owner or delegate; none while it is open.
-    pub judged: Option<i64>,
-    pub judged_by: Option<String>,
-    /// The latest report of the engineer on it: done or not_done, in its words, and the round that handed it in; none
-    /// when it has not reported.
-    pub report: Option<MergeConditionReport>,
-}
-
-/// The engineer's report on a merge condition.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct MergeConditionReport {
-    /// done or not_done.
-    pub answer: String,
-    pub words: String,
-    /// The round that handed it in: its work and its number in the work.
-    pub work: i64,
-    pub round: i64,
 }
 
 /// A change of an item's tier, as its history keeps it.
@@ -1256,9 +1200,11 @@ pub struct ArchitectPanel {
     pub changes: Vec<ItemChange>,
     /// The policy in force for the project; none before the first takes effect.
     pub policy: Option<PolicyInForce>,
-    /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
-    /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
+    /// Its notebook, its two parts in their order (its understanding of the project, its plan), each as its latest
+    /// base wrote it, with the round and the cell that wrote it, and every version of it, newest first.
     pub notebook: Vec<NotebookSection>,
+    /// What came since that base, oldest first, but the words said: a new base clears it.
+    pub appended: Vec<Appended>,
     /// The project's constitution, which the architect judges by with the policy, as the project's main has it: its
     /// path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
     /// why it could not be read; none when the project names none.
@@ -1348,10 +1294,41 @@ pub struct ConversationEntry {
     /// For the owner's words the architect they were said to took up, which have no matter card: where they stand
     /// with it, shown under their bubble.
     pub words_state: Option<WordsState>,
+    /// For the owner's words not taken up yet: whether they can be taken back into the box now.
+    pub retract: Retract,
     /// For the policy taking effect: the policy in force.
     pub policy: Option<PolicyInForce>,
     /// For a version of the architect's plan: what changed and the plan whole.
     pub plan: Option<PlanChange>,
+}
+
+/// Whether the owner's words, which the page shows as not taken up yet, can be taken back into the box: `yes` while no
+/// agent has them; `given` once an agent has them without having recorded them as taken up, so that they cannot be taken
+/// back and the page says so; `no` for words that are not taken back at all (said to several architects at once, asking
+/// about a decision card, the relay of an answer) and for words taken up already.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Retract {
+    Yes,
+    Given,
+    No,
+}
+
+/// What the owner sends to take back words not taken up yet: the entry they are, by its source and its number in the
+/// conversation (`interjection` or `words`).
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct TakeBack {
+    pub source: String,
+    pub id: i64,
+}
+
+/// The words taken back, to be put in the box of the conversation: the text, the images as they were sent, and whom the
+/// words were for, as the box names them (`engineer`, `architect`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct TakenBack {
+    pub text: String,
+    pub images: Vec<ImageSent>,
+    pub to: Vec<String>,
 }
 
 /// A version of the plan in an architect's notebook, as its bubble in the one-to-one says it: what changed from the
@@ -1517,7 +1494,7 @@ pub struct ConversationDetail {
     /// conversation. Each is an entry too, where it was asked.
     pub questions: Vec<OwnerAsk>,
     /// In the one-to-one with an architect: the question it waits for the owner's reply to now at its look at the queue
-    /// (`Q0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
+    /// (`N0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
     /// the owner's reply ago, with nothing said by the owner since; none otherwise.
     pub waits_on: Option<i64>,
     /// The time of the latest entry the owner read; none before the first.
@@ -1568,11 +1545,6 @@ pub struct WorkSaid {
     #[serde(default)]
     #[ts(optional)]
     pub design_card: Option<i64>,
-    /// The sentence of a merge condition the words set, when the owner ticked it: what must be done before the work
-    /// merges, reading alone.
-    #[serde(default)]
-    #[ts(optional)]
-    pub condition: Option<String>,
     /// The images sent with the words, in the order the owner added them; words may be images alone.
     #[serde(default)]
     pub images: Vec<ImageSent>,
@@ -1621,11 +1593,6 @@ pub struct ArchitectSaid {
     #[serde(default)]
     #[ts(optional)]
     pub reply_to: Option<i64>,
-    /// The sentence of a merge condition the reply sets, when the owner ticked it, on a question about one item: what
-    /// must be done before the work merges, reading alone.
-    #[serde(default)]
-    #[ts(optional)]
-    pub condition: Option<String>,
     /// The images sent with the words, in the order the owner added them; words may be images alone.
     #[serde(default)]
     pub images: Vec<ImageSent>,
@@ -1646,7 +1613,7 @@ pub struct ArchitectWork {
     /// when it handles none, or is over.
     pub handling: Option<i64>,
     /// Whether it waits at its look at the queue for the owner's next words, having answered the owner's words with the
-    /// talk left open (`Q0`'s row `listens`): the owner's next words are taken at once.
+    /// talk left open (`N0`'s row `listens`): the owner's next words are taken at once.
     pub listens: bool,
 }
 
@@ -1867,7 +1834,18 @@ pub struct PolicyDraft {
     pub policy: Value,
 }
 
-/// A section of a project's architect's notebook: which (`project_now`, `plan`, `unclear` or `other`), what it says
+/// One thing that came after a project's architect's base: when, what it is (a matter handled, an item merged or
+/// cancelled), the matter's record or the item's title, and the lines a matter added to the plan or the understanding.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Appended {
+    pub at: i64,
+    pub who: String,
+    pub text: String,
+    pub plan: Option<String>,
+    pub understanding: Option<String>,
+}
+
+/// A part of a project's architect's notebook: which (`project_now`, its understanding, or `plan`), what it says
 /// now, none before a round wrote it, and every version of it, newest first.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct NotebookSection {

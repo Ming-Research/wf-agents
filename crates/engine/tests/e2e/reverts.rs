@@ -19,16 +19,10 @@ fn the_revert_the_architect_asks_for_is_recorded_and_counted() {
     let mut agents = scripts();
     let asked = broken.clone();
     agents.insert(
-        "L2",
+        "M2",
         Box::new(move |_: &Request, _: usize| {
             let action = json!({ "kind": "revert_merge", "merge_commit": asked, "reason": "It made main red." });
-            (
-                Vec::new(),
-                vec![
-                    ("outcome.red.way", json!("revert")),
-                    ("outcome.effects", json!({ "actions": [action] })),
-                ],
-            )
+            (Vec::new(), vec![("outcome.effects", json!({ "actions": [action] }))])
         }),
     );
     let (mut e, said) = engine(&s, agents);
@@ -46,7 +40,7 @@ fn the_revert_the_architect_asks_for_is_recorded_and_counted() {
     let checked: Value =
         e.db.conn()
             .query_row(
-                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'L1' AND transition IS NOT NULL",
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'M1' AND transition IS NOT NULL",
                 [arch],
                 |r| r.get::<_, String>(0),
             )

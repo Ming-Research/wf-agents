@@ -465,12 +465,7 @@ answer_images: Array<number>,
  * When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
  * that put it.
  */
-asked_at: number,
-/**
- * The one item a merge condition ticked on its answer goes on: its work's, or for an ask of an architect the item
- * the matters it holds are about; none for an ask about no item or about several, which takes no tick.
- */
-condition_item: number | null, };
+asked_at: number, };
 
 /**
  * What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -658,6 +653,10 @@ matter_card: MatterProgress | null,
  */
 words_state: WordsState | null,
 /**
+ * For the owner's words not taken up yet: whether they can be taken back into the box now.
+ */
+retract: Retract,
+/**
  * For the policy taking effect: the policy in force.
  */
 policy: PolicyInForce | null,
@@ -836,6 +835,14 @@ state: string,
 project: string, architect_work: number | null, round: number | null, cell: string | null, };
 
 /**
+ * Whether the owner's words, which the page shows as not taken up yet, can be taken back into the box: `yes` while no
+ * agent has them; `given` once an agent has them without having recorded them as taken up, so that they cannot be taken
+ * back and the page says so; `no` for words that are not taken back at all (said to several architects at once, asking
+ * about a decision card, the relay of an answer) and for words taken up already.
+ */
+export type Retract = "yes" | "given" | "no";
+
+/**
  * A conversation in full: its entries in time order; what waits for the owner in it, which the bar under its head
  * pins (the asks, which show where they were asked, and the decision cards that wait for the owner's ruling, in the
  * bubbles of their stages); in the one-to-one with an architect, the questions it put to the owner that wait for a
@@ -858,7 +865,7 @@ design_cards: Array<DesignCard>,
 questions: Array<OwnerAsk>,
 /**
  * In the one-to-one with an architect: the question it waits for the owner's reply to now at its look at the queue
- * (`Q0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
+ * (`N0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
  * the owner's reply ago, with nothing said by the owner since; none otherwise.
  */
 waits_on: number | null,
@@ -921,11 +928,6 @@ question?: number,
  */
 design_card?: number,
 /**
- * The sentence of a merge condition the words set, when the owner ticked it: what must be done before the work
- * merges, reading alone.
- */
-condition?: string,
-/**
  * The images sent with the words, in the order the owner added them; words may be images alone.
  */
 images: Array<ImageSent>, };
@@ -979,11 +981,6 @@ item?: number,
  * The question pinned in the one-to-one that the words reply to.
  */
 reply_to?: number,
-/**
- * The sentence of a merge condition the reply sets, when the owner ticked it, on a question about one item: what
- * must be done before the work merges, reading alone.
- */
-condition?: string,
 /**
  * The images sent with the words, in the order the owner added them; words may be images alone.
  */
@@ -1063,16 +1060,6 @@ reply?: JsonValue,
  */
 to?: string,
 /**
- * The option chosen, for the merge gate's ask of a merge condition alone: `met` or `withdrawn`. The answer may then
- * have no words.
- */
-choice?: string,
-/**
- * The sentence of a merge condition the answer sets, when the owner ticked it: what must be done before the work
- * merges, reading alone.
- */
-condition?: string,
-/**
  * The images sent with the answer, in the order the owner added them.
  */
 images: Array<ImageSent>, };
@@ -1103,6 +1090,18 @@ export type Done = { done: string, };
  * How many messages a mark made read.
  */
 export type Marked = { marked: number, };
+
+/**
+ * What the owner sends to take back words not taken up yet: the entry they are, by its source and its number in the
+ * conversation (`interjection` or `words`).
+ */
+export type TakeBack = { source: string, id: number, };
+
+/**
+ * The words taken back, to be put in the box of the conversation: the text, the images as they were sent, and whom the
+ * words were for, as the box names them (`engineer`, `architect`).
+ */
+export type TakenBack = { text: string, images: Array<ImageSent>, to: Array<string>, };
 
 /**
  * What the owner or the architect said to a work.
@@ -1343,12 +1342,8 @@ export type ItemSummary = { id: number, project: string, title: string,
  */
 deliver: string, level: string,
 /**
- * The route its works go, as its creator marked it: normal, or bugfix or feature, which go the light route.
- */
-route: string,
-/**
- * The route its latest work goes (light, normal, or turned: went light, then turned to the normal route); none
- * before a work starts. A work keeps the route its research took, whatever the item's mark became since.
+ * The way its latest work went, from the rows it took (`work_routes`): direct, on the research's plan; designed;
+ * or turned, begun on the research's plan and then sent to the design; none before the research answers.
  */
 route_taken: string | null, cancelled: string | null, state: ItemState,
 /**
@@ -1433,62 +1428,7 @@ shown: Array<Shown>,
 /**
  * Each time its tier changed after it was made, oldest first: when, by whom, from what to what.
  */
-level_changes: Array<LevelChange>,
-/**
- * What the owner set to be done before its work merges, oldest first.
- */
-merge_conditions: Array<MergeCondition>, };
-
-/**
- * Something the owner set to be done before an item's work merges, as the item's page shows it.
- */
-export type MergeCondition = { id: number,
-/**
- * The sentence that says it, reading alone.
- */
-what: string,
-/**
- * The record its words are in: ask, interjection or matter; and that record's number.
- */
-source: string, source_id: number,
-/**
- * The words as that record has them.
- */
-quote: string,
-/**
- * Who the record says said them: owner, relayed, delegate or unrecorded.
- */
-said_by: string,
-/**
- * Who recorded it: owner, delegate or architect; with the architect's round that did.
- */
-recorded_by: string, recorded_work: number | null, recorded_round: number | null, at: number,
-/**
- * Where it stands: open, met or withdrawn.
- */
-status: string,
-/**
- * The ask of the merge gate it was judged on, and who judged it, owner or delegate; none while it is open.
- */
-judged: number | null, judged_by: string | null,
-/**
- * The latest report of the engineer on it: done or not_done, in its words, and the round that handed it in; none
- * when it has not reported.
- */
-report: MergeConditionReport | null, };
-
-/**
- * The engineer's report on a merge condition.
- */
-export type MergeConditionReport = {
-/**
- * done or not_done.
- */
-answer: string, words: string,
-/**
- * The round that handed it in: its work and its number in the work.
- */
-work: number, round: number, };
+level_changes: Array<LevelChange>, };
 
 /**
  * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
@@ -1790,10 +1730,14 @@ changes: Array<ItemChange>,
  */
 policy: PolicyInForce | null,
 /**
- * Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
- * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
+ * Its notebook, its two parts in their order (its understanding of the project, its plan), each as its latest
+ * base wrote it, with the round and the cell that wrote it, and every version of it, newest first.
  */
 notebook: Array<NotebookSection>,
+/**
+ * What came since that base, oldest first, but the words said: a new base clears it.
+ */
+appended: Array<Appended>,
 /**
  * The project's constitution, which the architect judges by with the policy, as the project's main has it: its
  * path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
@@ -1812,7 +1756,7 @@ export type ArchitectWork = { work: WorkSummary,
 handling: number | null,
 /**
  * Whether it waits at its look at the queue for the owner's next words, having answered the owner's words with the
- * talk left open (`Q0`'s row `listens`): the owner's next words are taken at once.
+ * talk left open (`N0`'s row `listens`): the owner's next words are taken at once.
  */
 listens: boolean, };
 
@@ -2075,7 +2019,13 @@ cell: string, at: number | null, policy: JsonValue, };
 export type PolicyDraft = { work: number, round: number, at: number | null, policy: JsonValue, };
 
 /**
- * A section of a project's architect's notebook: which (`project_now`, `plan`, `unclear` or `other`), what it says
+ * One thing that came after a project's architect's base: when, what it is (a matter handled, an item merged or
+ * cancelled), the matter's record or the item's title, and the lines a matter added to the plan or the understanding.
+ */
+export type Appended = { at: number, who: string, text: string, plan: string | null, understanding: string | null, };
+
+/**
+ * A part of a project's architect's notebook: which (`project_now`, its understanding, or `plan`), what it says
  * now, none before a round wrote it, and every version of it, newest first.
  */
 export type NotebookSection = { section: string, now: NotebookVersion | null, versions: Array<NotebookVersion>, };
@@ -3079,6 +3029,11 @@ cache_expiry?: boolean,
  */
 fork_of?: string | null,
 /**
+ * All the matters a work takes share one session of the cell's line ([`crate::format`]'s `wholeRun`); false on any
+ * other line, and in a flow version stored before a line could.
+ */
+whole_run?: boolean,
+/**
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.
  */
@@ -3086,7 +3041,11 @@ effort?: string | null, stage?: string | null, tools?: Array<string>, inputs: Ar
 /**
  * The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
  */
-rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null, forms?: Array<Form>,
+rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null,
+/**
+ * The cell's message has no `inputs:<cell>`: what it is given says what it is.
+ */
+no_input_list?: boolean, forms?: Array<Form>,
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */

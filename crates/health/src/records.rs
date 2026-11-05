@@ -15,7 +15,7 @@ use crate::{FULL_CI_STEP, Fact, MainLog, Reader, args, project_arg};
 /// The graph works on items run.
 const ENGINEER: &str = "engineer";
 
-/// The graph a project's architect runs, which checks main's red CI (its cell `L1`): the cell of the same code on the
+/// The graph a project's architect runs, which checks main's red CI (its cell `M1`, `L1` before): the cell `L1` on the
 /// engineer's graph is a work's old watch of main, which no version of the flow runs now.
 const ARCHITECT: &str = "architect";
 
@@ -28,7 +28,7 @@ pub(crate) fn broken_merges(r: &Reader<'_>, project: Option<&str>, from: i64, to
         "SELECT r.ended_at FROM rounds r CROSS JOIN works w ON w.id = r.work
          WHERE r.ended_at >= ?2 AND r.ended_at < ?3 AND r.cell IN {} AND w.graph = '{ARCHITECT}'
            AND json_extract(r.output, '$.main.kind') = 'broken_by_merge' AND (?1 IS NULL OR w.project = ?1)",
-        db::cells_sql(ARCHITECT, &["L1"])
+        db::cells_sql(ARCHITECT, &["M1"])
     );
     r.rows(&sql, args(project, from, to), |row| {
         Ok(Fact::event(row.get(0)?, "", 1.0))

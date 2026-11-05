@@ -95,15 +95,16 @@ pub fn by_id(conn: &Connection, id: i64) -> Result<Blocker, String> {
         .map_err(|e| format!("blocker {id}: {e}"))
 }
 
+/// The statement `of_matter` runs: the blocker that names a matter, the newest first.
+pub(crate) fn of_matter_sql() -> String {
+    format!("SELECT {COLUMNS} FROM blockers WHERE matter = ?1 ORDER BY id DESC LIMIT 1")
+}
+
 /// The blocker a matter of the architect's queue stands for: the one that names it.
 pub fn of_matter(conn: &Connection, matter: i64) -> Result<Option<Blocker>, String> {
-    conn.query_row(
-        &format!("SELECT {COLUMNS} FROM blockers WHERE matter = ?1 ORDER BY id DESC LIMIT 1"),
-        [matter],
-        blocker,
-    )
-    .optional()
-    .map_err(sql)
+    conn.query_row(&of_matter_sql(), [matter], blocker)
+        .optional()
+        .map_err(sql)
 }
 
 /// Who holds a blocker: the holder, with the project of an architect and the items that hold it.
@@ -228,14 +229,6 @@ pub fn set_matter(tx: &Transaction<'_>, id: i64, matter: i64) -> Result<(), Stri
 /// The ask put before the owner that stands for the blocker now.
 pub fn set_ask(tx: &Transaction<'_>, id: i64, ask: i64) -> Result<(), String> {
     tx.execute("UPDATE blockers SET ask = ?2 WHERE id = ?1", params![id, ask])
-        .map_err(sql)?;
-    Ok(())
-}
-
-/// What the blocker says it waits on now, when the ask that stands for it changes while it stays open: from one of the
-/// merge gate's asks of the owner to another.
-pub fn set_what(tx: &Transaction<'_>, id: i64, what: &str) -> Result<(), String> {
-    tx.execute("UPDATE blockers SET what = ?2 WHERE id = ?1", params![id, what])
         .map_err(sql)?;
     Ok(())
 }
@@ -816,7 +809,7 @@ fn holder_now(
 }
 
 /// What a work is, for a blocker's sentence.
-pub(crate) fn about(ctx: &crate::actions::Ctx) -> String {
+fn about(ctx: &crate::actions::Ctx) -> String {
     match (&ctx.item, &ctx.work.project) {
         (Some(i), _) => format!("Work {} on item {} ({})", ctx.work.id, i.id, i.title),
         (None, Some(p)) => format!("The setting of the policy of {p} (work {})", ctx.work.id),
@@ -851,9 +844,6 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
                     "items" => "an item it depends on is not merged",
                     "owner" if review => "the architect reviewed its design, and the owner reviews it next",
                     "architect" if review => "its design was written again, and the architect reviews it first",
-                    "owner" if h.cell == crate::approval::GATE && ctx.row.name == crate::conditions::JUDGES => {
-                        "every item it depends on is merged, and a merge condition waits for the owner's judgment"
-                    }
                     "owner" if h.cell == crate::approval::GATE => {
                         "every item it depends on is merged, and it waits for the owner's answers before it merges"
                     }
@@ -904,9 +894,6 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
             "{about} waits, before it implements, for the ruling on where its design departs from decisions of its \
              item, by whoever made each"
         ),
-        "ruling" if h.cell == crate::approval::GATE && ctx.row.name == crate::conditions::JUDGES => {
-            format!("{about} waits for the owner to judge a merge condition before it merges")
-        }
         "ruling" if h.cell == crate::approval::GATE => {
             format!("{about} waits for the owner's answers it asked for before it merges")
         }
@@ -1033,6 +1020,16 @@ fn withdraw_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blockers_of_matter_reads_blockers_by_matter() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &of_matter_sql()).unwrap();
+        assert!(
+            steps.contains("blockers_by_matter"),
+            "the plan does not read by blockers_by_matter:\n{steps}"
+        );
+    }
 
     #[test]
     fn a_cycle_among_the_items_waited_for_is_found() {

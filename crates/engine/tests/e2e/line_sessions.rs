@@ -215,7 +215,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(warm_now(&mut e, now, None).unwrap(), 3, "{log}");
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 2, "{log}");
     let going_on = json!({ "cell": "T6", "on": "work", "what": "the work goes on" });
     let mut pings = pinged(&e);
     pings.sort_by(|a, b| a.0.cmp(&b.0));
@@ -223,7 +223,6 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
         pings,
         [
             ("engineer".to_string(), going_on.clone()),
-            ("librarian".to_string(), going_on.clone()),
             ("review".to_string(), going_on)
         ]
     );
@@ -620,7 +619,6 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
                 to: None,
                 question: None,
                 design_card: None,
-                condition: None,
                 images: two_images(),
             };
             api::say_to_work(&mut db, r.work, &said).unwrap();
@@ -715,15 +713,15 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     let sent: Sent = Arc::default();
     let seen = sent.clone();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |r: &Request, n: usize| {
             keep_sent(&seen, r);
             if n == 1 {
                 return asks_the_owner("Which of the two do you mean?");
             }
             (
-                vec![("outcome.answer", "done")],
-                vec![("outcome.answer.reply", json!("The left one, then."))],
+                Vec::new(),
+                vec![("outcome.reply", json!({ "text": "The left one, then." }))],
             )
         }),
     );
@@ -794,11 +792,15 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
         prompt.contains("The left one.") && prompt.contains(&answered[0]),
         "{prompt}"
     );
+    // A matter that asked the owner comes back in a new fork, which holds none of what the words before it sent.
     let blocks: Vec<&str> = images.iter().map(|i| i.0.as_str()).collect();
-    assert_eq!(blocks, [answered[0].as_str()], "{prompt}");
-    let input = input_at(&e, again, "H8", false);
-    assert_eq!(given_ending(&input, "·engine·matter"), Some(false), "{input}");
-    assert_eq!(given(&input, &words[0]), None, "{input}");
+    assert_eq!(
+        blocks,
+        [words[0].as_str(), words[1].as_str(), answered[0].as_str()],
+        "{prompt}"
+    );
+    let input = input_at(&e, again, "H1", false);
+    assert_eq!(given_ending(&input, "·engine·matter"), Some(true), "{input}");
     assert_eq!(given(&input, &answered[0]), Some(true), "{input}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

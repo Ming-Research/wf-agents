@@ -187,7 +187,7 @@ const MAIN_UNREAD: &str = "the commits on one project's main were not read";
 static MEASURES: [Measure; 24] = [
     Measure {
         name: "merge.broken",
-        what: "The checks of main's red CI (the architect's cell L1) that found a merge made main red; the merges among \
+        what: "The checks of main's red CI (the architect's cell M1) that found a merge made main red; the merges among \
                them not in merge.reverted are those the architect chose to fix forward",
         layer: Layer::System,
         unit: Unit::Count,

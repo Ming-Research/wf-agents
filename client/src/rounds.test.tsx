@@ -56,7 +56,7 @@ const cell = (id: string, kind: string, line: string | null) => ({
 const g: CompiledGraph = {
   name: 'architect',
   start: 'S1',
-  end: 'E2',
+  end: 'R1',
   within: 'outcome',
   asking: [],
   receive: null,
@@ -65,13 +65,13 @@ const g: CompiledGraph = {
   interject: null,
   cells: [
     cell('S1', 'engine', null),
-    cell('U1', 'agent', 'architect'),
+    cell('B1', 'agent', 'architect'),
     cell('H4', 'agent', 'architect'),
     cell('B2', 'agent', 'architect_review'),
     cell('X1', 'tool', null),
     cell('A3', 'owner', null),
     cell('R2', 'agent', null),
-    cell('E2', 'engine', null),
+    cell('R1', 'engine', null),
   ],
 };
 
@@ -124,10 +124,10 @@ describe("the architect's rounds, one list across its works", () => {
     expect(windowPath('p', { kind: 'older', before: { work: 31, n: 7 } })).toBe(
       '/api/v1/architect/rounds?project=p&before=R31-7&limit=100',
     );
-    const older = merged(w, { kind: 'older', before: { work: 31, n: 7 } }, got([round(31, 5, 'U1'), round(31, 6, 'H4')], false, true));
+    const older = merged(w, { kind: 'older', before: { work: 31, n: 7 } }, got([round(31, 5, 'B1'), round(31, 6, 'H4')], false, true));
     expect(keys(older)).toEqual(['R31-5', 'R31-6', 'R31-7', 'R32-1']);
     expect([older.older, older.newer]).toEqual([false, true]);
-    const newer = merged(older, { kind: 'newer', after: { work: 32, n: 1 } }, got([round(32, 2, 'U1')], true, false));
+    const newer = merged(older, { kind: 'newer', after: { work: 32, n: 1 } }, got([round(32, 2, 'B1')], true, false));
     expect(keys(newer)).toEqual(['R31-5', 'R31-6', 'R31-7', 'R32-1', 'R32-2']);
     expect([newer.older, newer.newer]).toEqual([false, false]);
     // The list asks for more at the end it is scrolled near, where more are left, and at neither while it is not drawn.
@@ -141,7 +141,7 @@ describe("the architect's rounds, one list across its works", () => {
 
   it("reads again, as the architect's rounds change, those from its newest work's open round on, while it shows the newest", () => {
     const running = round(33, 4, 'H4', { outcome: 'running', transition: null, ended_at: null });
-    const w: RoundsWindow = { rounds: [round(33, 2, 'U1'), round(33, 3, 'H4'), running], older: true, newer: false };
+    const w: RoundsWindow = { rounds: [round(33, 2, 'B1'), round(33, 3, 'H4'), running], older: true, newer: false };
     expect(refreshRead(w)).toEqual({ kind: 'newer', after: { work: 33, n: 3 } });
     const ended = merged(w, { kind: 'newer', after: { work: 33, n: 3 } }, got([{ ...running, outcome: 'took', transition: 'done' }, round(33, 5, 'B2')], true, false));
     expect(keys(ended)).toEqual(['R33-2', 'R33-3', 'R33-4', 'R33-5']);
@@ -176,7 +176,7 @@ describe('the list of rounds', () => {
   it('lists the newest first, draws the round that ended a work as plainly as the row any other took, and parts the works', () => {
     const rounds = [
       round(32, 1, 'S1', { transition: 'started' }),
-      round(32, 2, 'E2', { outcome: 'ended', transition: null }),
+      round(32, 2, 'R1', { outcome: 'ended', transition: null }),
       round(33, 1, 'S1', { transition: 'started' }),
       round(33, 2, 'H4', { line: 'architect', transition: 'done' }),
       round(33, 3, 'H4', { line: 'architect', outcome: 'sent_back', transition: null, why: 'no outcome' }),
@@ -187,7 +187,7 @@ describe('the list of rounds', () => {
       '* R33-2 H4 architect done 0s',
       'R33-1 S1 engine started 0s',
       `-- ${time(33 * 1000 + 1)}`,
-      'R32-2 E2 engine ended 0s',
+      'R32-2 R1 engine ended 0s',
       'R32-1 S1 engine started 0s',
       `-- ${time(32 * 1000 + 1)}`,
     ]);
@@ -218,10 +218,10 @@ describe('the list of rounds', () => {
   });
 
   it('marks the round that started a new session of its line, saying why, and no round of a cell on no line', () => {
-    const first = round(33, 2, 'U1', { line: 'architect', session: 4, new_session: 'line' });
-    const limit = round(33, 3, 'U1', { line: 'architect', session: 5, new_session: 'limit' });
+    const first = round(33, 2, 'B1', { line: 'architect', session: 4, new_session: 'line' });
+    const limit = round(33, 3, 'B1', { line: 'architect', session: 5, new_session: 'limit' });
     const owner = round(33, 4, 'H4', { line: 'architect', session: 6, new_session: 'owner' });
-    const cellOpens = round(33, 5, 'U1', { line: 'architect', session: 7, new_session: 'cell' });
+    const cellOpens = round(33, 5, 'B1', { line: 'architect', session: 7, new_session: 'cell' });
     const goesOn = round(33, 6, 'H4', { line: 'architect', session: 7, new_session: null });
     const gate = round(33, 7, 'R2', { line: 'R2', session: 8, new_session: 'line' });
     const unknown = round(33, 8, 'H4', { line: 'architect', session: 9, new_session: 'wake' });
@@ -229,7 +229,7 @@ describe('the list of rounds', () => {
     expect(sessionMarkWords(first)).toBe('A new session: its line had none going on');
     expect(sessionMarkWords(limit)).toBe("A new session: its line's session was past the context limit");
     expect(sessionMarkWords(owner)).toBe('A new session: you asked for one');
-    expect(sessionMarkWords(cellOpens)).toBe('A new session: cell U1 starts one');
+    expect(sessionMarkWords(cellOpens)).toBe('A new session: cell B1 starts one');
     expect(sessionMarkWords(round(1, 1, 'H4', { new_session: 'model' }))).toBe("A new session: its line's model changed");
     expect(sessionMarkWords(round(1, 1, 'H4', { new_session: 'account' }))).toBe("A new session: the agents' login account changed");
     expect(sessionMarkWords(round(1, 1, 'H4', { new_session: 'expired' }))).toBe("A new session: the session's prompt cache expired");

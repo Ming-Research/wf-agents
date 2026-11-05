@@ -258,10 +258,10 @@ fn a_flow_only_shown_with_a_colour_the_page_does_not_know() {
 #[test]
 fn a_flow_with_a_colour_the_page_no_longer_draws_is_only_shown() {
     // Both names go through one reading of a colour, so one flow holds them both: olive on the librarian line (the
-    // engineer's graph) and lime on the observer line (the architect's).
+    // engineer's graph) and lime on the second eye's line (the architect's).
     let edit = |v: &mut Value| {
         graph(v)["sessions"]["lines"][5]["colour"] = json!("olive");
-        v["flows"][1]["sessions"]["lines"][3]["colour"] = json!("lime");
+        v["flows"][1]["sessions"]["lines"][2]["colour"] = json!("lime");
     };
     refused_by(flow::compile, edit, "a line with no colour: librarian");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
@@ -569,11 +569,11 @@ case!(
     a_form_on_every_line_that_takes_an_interjection,
     "an agent off the line of the cell that receives",
     |v| {
-        obj(&mut graph(v)["agentCommon"]["returns"]["forms"][6]).remove("lines");
+        obj(&mut graph(v)["agentCommon"]["returns"]["forms"][5]).remove("lines");
     }
 );
 case!(a_form_for_no_such_line, "a form for no such line", |v| {
-    graph(v)["agentCommon"]["returns"]["forms"][6]["lines"] = json!(["test"]);
+    graph(v)["agentCommon"]["returns"]["forms"][5]["lines"] = json!(["test"]);
 });
 // Every agent's cell runs at an effort the command line names; a cell that is not an agent's runs at none.
 case!(
@@ -726,9 +726,9 @@ case!(
 );
 case!(
     a_row_from_the_cell_for_an_older_version_to_another_cell,
-    "keep it there or end it at the end for a work stopped before its end: V1",
+    "keep it there or end it at the end for a work stopped before its end: Y1",
     |v| {
-        row(v, "V1", "went_back")["to"] = json!("T1");
+        row(v, "Y1", "went_back")["to"] = json!("T1");
     }
 );
 case!(
@@ -742,7 +742,7 @@ case!(
     a_row_into_the_cell_for_an_older_version,
     "no row leads to the cell for a work on an older flow version",
     |v| {
-        row(v, "T6", "done")["to"] = json!("V1");
+        row(v, "T6", "done")["to"] = json!("Y1");
     }
 );
 case!(
@@ -903,19 +903,6 @@ case!(an_input_missing_behind_an_engine_step, "missing", |v| {
 
 // A rule given with an input goes with it: a cell given the policy, in force or being set, is given what a policy
 // governs, so that a new cell cannot miss it.
-case!(
-    a_cell_given_the_policy_without_what_a_policy_governs,
-    "cell `N1` is given policy without the rule policy_scope that goes with it",
-    |v| {
-        let next = v["flows"][1]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|n| n["id"] == "N1")
-            .unwrap();
-        obj(next).remove("rules");
-    }
-);
 case!(
     a_cell_given_the_draft_without_what_a_policy_governs,
     "cell `P2` is given policy_draft without the rule policy_scope that goes with it",

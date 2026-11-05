@@ -1,7 +1,7 @@
 //! Checking what only real runs can show, once a work's change took effect: an acceptance condition written `in_effect`
 //! says what carries the change (`when`), the tool that checks it, what to run, what result means it holds and what
 //! evidence it waits for. A merged work with such a condition does not end after what it learned: it waits, holding no
-//! slot (cell `W1`), until every carrier holds its merge commit, then a round in a new session (cell `W2`) runs each
+//! slot (cell `V1`), until every carrier holds its merge commit, then a round in a new session (cell `V2`) runs each
 //! condition's command. Where the evidence is not there yet the round says how long to wait and the work waits again,
 //! as many times as the project's limit; the wait for the change to take effect has a limit too. What does not hold,
 //! cannot be judged or stands unverified at a limit goes to the project's architect as a report.
@@ -36,8 +36,8 @@ const KIND: &str = "in_effect";
 const INSTALLED: &str = "installed";
 
 /// The cell that waits for the change to take effect, and the one that checks each condition with a real run.
-const WAIT: &str = "W1";
-const CHECK: &str = "W2";
+const WAIT: &str = "V1";
+const CHECK: &str = "V2";
 
 /// The row of the cell that checks by which the work goes back to wait, which the limit of looks counts.
 const AGAIN: &str = "again";
@@ -561,20 +561,21 @@ pub fn basis_problems(verdicts: &[Value], conditions: &[Value], at: i64, runs: &
     problems
 }
 
+/// The statement `words_given` runs: the interjections of the work delivered after its last merge.
+pub(crate) fn words_given_sql() -> String {
+    format!(
+        "SELECT count(*) FROM interjections
+         WHERE work = ?1 AND delivered_round > coalesce(
+           (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
+        db::cells_sql(ENGINEER, &[MERGE])
+    )
+}
+
 /// Whether words were said to the work since its merge, given to this look or to one before it: they hold for each look
 /// after, though each look is a session of its own.
 pub fn words_given(conn: &Connection, work: i64) -> Result<bool, String> {
     let n: i64 = conn
-        .query_row(
-            &format!(
-                "SELECT count(*) FROM interjections
-                 WHERE work = ?1 AND delivered_round > coalesce(
-                   (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
-                db::cells_sql(ENGINEER, &[MERGE])
-            ),
-            params![work],
-            |r| r.get(0),
-        )
+        .query_row(&words_given_sql(), params![work], |r| r.get(0))
         .map_err(sql)?;
     Ok(n > 0)
 }
@@ -691,6 +692,16 @@ mod tests {
     use std::process::Command;
 
     use super::*;
+
+    #[test]
+    fn words_given_reads_interjections_by_work_delivered() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &words_given_sql()).unwrap();
+        assert!(
+            steps.contains("interjections_by_work_delivered"),
+            "the plan does not read by interjections_by_work_delivered:\n{steps}"
+        );
+    }
 
     fn said(p: Problems) -> Vec<String> {
         p.texts().to_vec()

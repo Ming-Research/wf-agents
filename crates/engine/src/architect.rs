@@ -9,8 +9,8 @@
 //! sound. The base, the order the matters are taken in and the facts that call for a new base are in [`crate::base`].
 //!
 //! The engine knows a few cells of the architect's graph by their names, as the views over its rounds do: the look at
-//! the queue (`Q0`), which says the matter taken; the writing of a new policy (`P2`) and where it takes effect (`P12`),
-//! which the router tells apart by the owner's reply; the second eye (`G2`); and the first cell of each kind's path
+//! the queue (`N0`), which says the matter taken; the writing of a new policy (`P2`) and where it takes effect (`P3`),
+//! which the router tells apart by the owner's reply; the second eye (`C2`); and the first cell of each kind's path
 //! ([`KINDS`]).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,34 +41,21 @@ pub const INPUTS: &[&str] = &[
     "constitution",
     "decisions",
     "guide",
-    "cited_nodes",
-    "since_last_base",
-    "board",
     "numbers",
-    "observations_overview",
     "observation_tags",
     "levels",
     "policy",
     "policy_signals",
     "slots",
     "matter",
-    "matter_items",
-    "item_log",
     "similar_items",
     "owner_answer",
-    "cross_project",
-    "told_owner",
     "owner_talk",
     "questions",
-    "notebook_project_now",
     "notebook_plan",
-    "notebook_unclear",
-    "notebook_other",
-    "decision_log",
-    "since_base",
     "base_due",
-    "planning_why",
-    "gathered",
+    "appended",
+    "since_plan",
     "changes_to_check",
     "handed_in",
 ];
@@ -77,27 +64,7 @@ pub const INPUTS: &[&str] = &[
 /// commits. A round whose cell has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a
 /// project's architect's line, the commit its worktree is brought to), which every one of them is read at, after one
 /// fetch of main.
-pub const MAIN_INPUTS: &[&str] = &[
-    "constitution",
-    "decisions",
-    "guide",
-    "cited_nodes",
-    "numbers",
-    "policy_signals",
-];
-
-/// The sections of a project's architect's notebook, each with the engine's input that gives it: an input of its own
-/// for each, so that a session given a section is referred to it while it stays the same.
-pub const NOTEBOOK: [(&str, &str); 4] = [
-    ("project_now", "notebook_project_now"),
-    ("plan", "notebook_plan"),
-    ("unclear", "notebook_unclear"),
-    ("other", "notebook_other"),
-];
-
-/// The most characters a section of the notebook holds, and the four in all.
-const SECTION_MOST: usize = 4_000;
-const NOTEBOOK_MOST: usize = 12_000;
+pub const MAIN_INPUTS: &[&str] = &["constitution", "decisions", "guide", "numbers", "policy_signals"];
 
 /// A section of a project's architect's notebook as it stands: its latest version's text; none before any round wrote
 /// it, and none when it is empty.
@@ -112,53 +79,17 @@ fn notebook_section(conn: &Connection, project: &str, section: &str) -> Result<O
     .map_err(sql)
 }
 
-/// What is wrong with the sections of the notebook a round rewrote: a section named twice, one past its size, or the
-/// four past theirs in all, with the sections the round leaves as they are.
-fn notebook_problems(conn: &Connection, project: &str, edits: &[Value]) -> Result<Vec<String>, String> {
-    let mut problems = Vec::new();
-    let mut sizes: BTreeMap<String, usize> = BTreeMap::new();
-    for (section, _) in NOTEBOOK {
-        let now = notebook_section(conn, project, section)?;
-        sizes.insert(section.to_string(), now.map_or(0, |t| t.chars().count()));
-    }
-    let mut seen = BTreeSet::new();
-    for x in edits {
-        let section = text(&x["section"]).to_string();
-        if !seen.insert(section.clone()) {
-            problems.push(format!(
-                "the notebook's section {section} is rewritten twice: rewrite it once, whole"
-            ));
-            continue;
-        }
-        let n = text(&x["text"]).chars().count();
-        if n > SECTION_MOST {
-            problems.push(format!(
-                "the notebook's section {section} is {n} characters, and a section holds {SECTION_MOST} at most: \
-                 write what holds now, shorter"
-            ));
-        }
-        sizes.insert(section, n);
-    }
-    let all: usize = sizes.values().sum();
-    if all > NOTEBOOK_MOST {
-        problems.push(format!(
-            "the notebook would be {all} characters in all, and it holds {NOTEBOOK_MOST} at most: shorten the \
-             sections you rewrite, or rewrite another shorter"
-        ));
-    }
-    Ok(problems)
-}
-
 /// Each kind of matter with the first cell of its path.
-pub const KINDS: [(&str, &str); 9] = [
-    ("set_straight", "H1"),
-    ("engineer_question", "H2"),
-    (crate::open_questions::KIND, "H2"),
-    ("report", "H4"),
-    ("failure", "H7"),
-    ("owner_words", "H8"),
-    ("other_architect", "H9"),
-    (crate::main_watch::MAIN_RED, "L1"),
+pub const KINDS: [(&str, &str); 10] = [
+    ("set_straight", HANDLE),
+    ("engineer_question", HANDLE),
+    (crate::open_questions::KIND, HANDLE),
+    ("report", HANDLE),
+    ("slots_free", HANDLE),
+    ("failure", HANDLE),
+    ("owner_words", HANDLE),
+    ("other_architect", HANDLE),
+    (crate::main_watch::MAIN_RED, "M1"),
     (CHECK, "P1"),
 ];
 
@@ -166,36 +97,34 @@ pub const KINDS: [(&str, &str); 9] = [
 pub const VERIFICATION: &str = "verification";
 
 /// The cells of a matter's session that hand in what a second eye may check, and that the second eye sends it back to.
-const HANDING_IN: [&str; 9] = ["H1", "H3", "H5", "H7", "H8", "H9", "L2", "P1", "P2"];
+const HANDING_IN: [&str; 4] = [HANDLE, "M2", "P1", "P2"];
 
 /// The second eye's cell, whose problems send the matter back to the cell that handed its changes in.
-const SECOND_EYE: &str = "G2";
+const SECOND_EYE: &str = "C2";
 
 /// The check of whether the policy in force still holds, taken with what the plan queued. One is open at a time: one
 /// asked for again takes the newer asker's why.
 const CHECK: &str = "check_policy";
-const PLAN: &str = "make_plan";
 
 /// The cell that writes a new policy, whose draft waits for the owner's approval, and the cell where it takes effect once
 /// the owner replied to the question of its approval with exactly this word.
 const SET_POLICY: &str = "P2";
-const TAKES_EFFECT: &str = "P12";
+const TAKES_EFFECT: &str = "P3";
 const APPROVED: &str = "approved";
 
 /// The engine's short question to the owner whether the draft of a new policy is approved.
 const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 
-/// How many times an observation no item took in yet may be reported before it is work: a merge that makes it
-/// reported this many times or more folds it into an item of the batch, which a change of the batch moves ahead.
-const RECURS: i64 = 3;
-
 /// The cells the engine knows by their names: the look at the queue, the pick, the understanding, the rethink after a
 /// batch, and the review of the batch.
-const LOOK: &str = "Q0";
+const LOOK: &str = "N0";
 
-/// The cell of the owner's words, which a matter back with the owner's reply goes to when the flow no longer has the
-/// cell that asked.
-const TALK: &str = "H8";
+/// The most characters of a matter's record that what came since the base carries.
+const RECORD_MOST: usize = 300;
+
+/// The cell that handles a matter, whatever its kind, and that a matter back with the owner's reply goes to when the flow
+/// no longer has the cell that asked.
+const HANDLE: &str = "H1";
 
 /// The value the rows of the cell a project's architect waits at to start (`S0`) switch on: whether a matter is due.
 const DUE: &str = "due";
@@ -212,13 +141,6 @@ const DESIGN: &str = "D2";
 
 /// The most rows an input of the architect's gives of one list.
 const ROWS: usize = 200;
-
-/// The most entries [`since_last_work`] gives of each of its lists, the latest; how many earlier ones there are follows
-/// them.
-const LATEST: usize = 60;
-
-/// The most characters [`since_last_work`] gives a commit's message by: its first sentence, cut at a word.
-const COMMIT_MOST: usize = 120;
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -491,7 +413,7 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
 }
 
 /// The matter the latest look at the queue in a work of the architect took before round `before`, or before none (cell
-/// `Q0`, its `next.matter`); a pick of a flow version before (`Q1`, its `pick.matter`, or `Q0`'s `queue.matter`) is
+/// `N0`, its `next.matter`); a pick of a flow version before (`Q1`, its `pick.matter`, or `N0`'s `queue.matter`) is
 /// read as it was. None when the latest look took no matter: a planning, a rebuild of the base, or nothing.
 pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Result<Option<i64>, String> {
     let row: Option<(String, Option<String>)> = conn
@@ -585,27 +507,6 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
     )? > 0)
 }
 
-/// A project's holds on new starts as its board gives them, oldest first: each one's reason, since when and why as
-/// whoever held said it, or none when nothing holds the project's new starts.
-fn starts_held(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
-    let rows = query_json(
-        conn,
-        "SELECT reason, since, why FROM dispatch_holds WHERE project = ?1 ORDER BY since, reason",
-        &[&project],
-        ROWS,
-    )?;
-    Ok(rows
-        .into_iter()
-        .map(|r| {
-            let mut hold = json!({ "reason": r["reason"], "since": r["since"].as_i64().map(utc_minute) });
-            if let Some(why) = r["why"].as_str() {
-                hold["why"] = json!(why);
-            }
-            hold
-        })
-        .collect())
-}
-
 /// The questions a project's architect put to the owner that wait for the owner's reply, newest first, as the owner's
 /// interface reads them too ([`db::QUESTIONS_PENDING`]): with the question, the cell that asked, when it was put and the
 /// matter it parked.
@@ -625,7 +526,7 @@ fn questions(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     Ok((!rows.is_empty()).then_some(Value::Array(rows)))
 }
 
-/// Cell `Q0`: what comes next for the project's architect, in the engine's fixed order ([`crate::base::next`]), with
+/// Cell `N0`: what comes next for the project's architect, in the engine's fixed order ([`crate::base::next`]), with
 /// the facts that call for a new base as it found them.
 pub fn look_at_queue(e: &mut Engine, w: &Work, _cell: &CompiledCell) -> Result<Value, String> {
     crate::base::next(e, project_of(w)?)
@@ -643,6 +544,37 @@ fn answer_of(conn: &Connection, ask: i64) -> Result<Option<Value>, String> {
 /// Where the matter picked goes ([`route_of`]).
 fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     route_of(e.db.conn(), w.id, g)
+}
+
+/// The round of an architect's work of its latest look at the queue; 0 before the first.
+pub fn look_round(conn: &Connection, work: i64) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT coalesce(max(n), 0) FROM rounds WHERE work = ?1 AND cell = ?2 AND transition IS NOT NULL",
+        params![work, LOOK],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
+/// The rounds of a cell an input reads, newest first. An engineer's work reads all its own. An architect's reads only
+/// those of what it has in hand, never another matter's: for a cell on a line that forks the rounds the matter had
+/// there, in whichever work of the architect they ran, since a matter back with the owner's answer may be in another;
+/// for any other cell the rounds since the look at the queue that took it.
+pub fn rounds_for_input(conn: &Connection, w: &Work, cell: &CompiledCell) -> Result<Vec<Round>, String> {
+    if w.graph != ARCHITECT {
+        return work::rounds_at(conn, w.id, &cell.id);
+    }
+    if cell.fork_of.is_some() {
+        return match picked(conn, w.id)? {
+            Some(m) => work::rounds_of_matter(conn, m, &cell.id),
+            None => Ok(Vec::new()),
+        };
+    }
+    let from = look_round(conn, w.id)?;
+    Ok(work::rounds_at(conn, w.id, &cell.id)?
+        .into_iter()
+        .filter(|r| r.id.n > from)
+        .collect())
 }
 
 /// Where the matter the architect's work `work` took goes: back to the cell that handed its changes in, when the second
@@ -670,7 +602,7 @@ fn route_of(conn: &Connection, work: i64, g: &CompiledGraph) -> Result<String, S
         if cell == SET_POLICY && approved && g.cell(TAKES_EFFECT).is_some() {
             return Ok(TAKES_EFFECT.into());
         }
-        return Ok(if g.cell(&cell).is_some() { cell } else { TALK.into() });
+        return Ok(if g.cell(&cell).is_some() { cell } else { HANDLE.into() });
     }
     if let Some(cell) = goes_on.filter(|c| g.cell(c).is_some()) {
         return Ok(cell);
@@ -759,10 +691,6 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
             };
             if held { "needed" } else { "none" }.into()
         }
-        // What the base is read anew for, which the look at what comes next records as it sends the work there; a work
-        // that came to reading the project otherwise, as one brought to this flow version at the reading of a version
-        // before, reads it for a planning, which builds the base whatever the plan's verdict.
-        "rebuild_for" => "plan".into(),
         // A flow version from before asks lost their kinds weighed a question by its kind: the kind its matter was
         // queued with, when that version has a case of it, else another question. No question is queued with a kind
         // now.
@@ -774,45 +702,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
                 .any(|c| c.inenums.get("question").is_some_and(|vs| vs.iter().any(|v| v.0 == d)));
             if known { d } else { "other_question".into() }
         }
-        "report" => match picked_detail(conn, w.id)?.as_deref() {
-            Some("followup") => "followup",
-            Some("answer") => "answer",
-            Some(db::FAULT) => db::FAULT,
-            Some(VERIFICATION) => VERIFICATION,
-            _ => "side_report",
-        }
-        .into(),
         _ => return Ok(None),
     }))
-}
-
-// What the architect told the owner.
-
-/// What a project's architect told the owner lately: its latest messages to the owner, by their numbers, each with when
-/// and at which cell, oldest first, as an object by number, so that a session that holds them is given only those new
-/// to it; none before the first.
-fn told_owner(e: &Engine, project: &str) -> Result<Option<Value>, String> {
-    let rows = query_json(
-        e.db.conn(),
-        "SELECT m.id, m.text, r.cell, coalesce(r.ended_at, r.started_at) AS at FROM owner_messages m
-         JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
-         WHERE w.graph = 'architect' AND w.project = ?1
-         ORDER BY m.id DESC LIMIT 30",
-        &[&project],
-        30,
-    )?;
-    let told: Map<String, Value> = rows
-        .iter()
-        .rev()
-        .map(|r| {
-            let at = r["at"].as_i64().map(utc_minute);
-            (
-                format!("#{}", r["id"]),
-                json!({ "at": at, "cell": r["cell"], "text": r["text"] }),
-            )
-        })
-        .collect();
-    Ok((!told.is_empty()).then_some(Value::Object(told)))
 }
 
 /// The most characters [`owner_talk`] gives of the talk, the latest whole entries.
@@ -1028,6 +919,7 @@ pub fn ask_owner(
                     "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, goes_on_at = NULL WHERE id = ?1",
                     params![m, id, c],
                 )?;
+                sessions::choose::end_matter(tx, m).map_err(db::Error::Abort)?;
             }
             Ok((round, id))
         })
@@ -1208,10 +1100,7 @@ pub fn ask_architect(
         .as_array()
         .and_then(|ms| ms.last())
         .is_some_and(|m| m["from"]["holder"] == "owner");
-    let back = b.ask.filter(|_| decided).map(|a| {
-        let cell = if kind == "failure" { "H7" } else { "H3" };
-        (a, cell)
-    });
+    let back = b.ask.filter(|_| decided).map(|a| (a, HANDLE));
     let about = match (what_is_asked(&asked), &detail) {
         (a, Some(d)) if a.is_empty() => format!(" ({})", d.replace('_', " ")),
         (a, _) => a,
@@ -1460,13 +1349,15 @@ pub(crate) fn observe(tx: &Transaction<'_>, project: &str, from: &str, o: &Value
                 .map_err(|x| format!("observation {id}: {x}"))?;
             let mut refs: Vec<Value> = serde_json::from_str(&old).unwrap_or_default();
             refs.extend(texts(&o["refs"]).into_iter().map(Value::String));
+            let again = o["not_reported_again"] != true;
             let seen = text(&o["seen"]).trim();
             if !seen.is_empty() {
-                refs.push(json!(format!("Reported again ({from}): {seen}")));
+                let said = if again { "Reported again" } else { "Added" };
+                refs.push(json!(format!("{said} ({from}): {seen}")));
             }
             tx.execute(
-                "UPDATE observations SET times_reported = times_reported + 1, refs = ?2 WHERE id = ?1",
-                params![id, Value::Array(refs).to_string()],
+                "UPDATE observations SET times_reported = times_reported + ?3, refs = ?2 WHERE id = ?1",
+                params![id, Value::Array(refs).to_string(), i64::from(again)],
             )
             .map_err(sql)?;
         }
@@ -1538,6 +1429,7 @@ fn hold_for_second_eye(ctx: &Ctx, tx: &Transaction<'_>, matter: i64, effects: &V
         "cell": ctx.cell.id,
         "effects": effects,
         "outcome": ctx.unwrapped,
+        "progress": ctx.output["progress"],
     });
     tx.execute(
         "UPDATE architect_matters SET effects_held = ?2 WHERE id = ?1",
@@ -1580,7 +1472,7 @@ fn make_changes(ctx: &Ctx, tx: &Transaction<'_>, matter: i64, changes: &[Value])
     if changes.is_empty() {
         return Ok(());
     }
-    let written = crate::arch_changes::write_all(tx, changes, &ctx.projects, ctx.round)?;
+    let written = crate::arch_changes::write_all(tx, changes, &ctx.projects)?;
     let created: BTreeMap<String, i64> = written
         .created
         .iter()
@@ -1668,7 +1560,7 @@ fn apply_checked(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let rows = held_changes(tx, matter)?;
     let changes: Vec<Value> = rows.iter().map(|r| r.2.clone()).collect();
     if !changes.is_empty() {
-        let written = crate::arch_changes::write_all(tx, &changes, &ctx.projects, ctx.round)?;
+        let written = crate::arch_changes::write_all(tx, &changes, &ctx.projects)?;
         let created: BTreeMap<String, i64> = written
             .created
             .iter()
@@ -1706,14 +1598,7 @@ fn apply_checked(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     .map_err(sql)?;
     let outcome = &held["outcome"];
     let round = RoundId::parse(text(&held["round"])).unwrap_or(ctx.round);
-    match text(&held["cell"]) {
-        TALK => reply_to_owner_now(tx, round, w, &project, matter, text(&outcome["answer"]["reply"]))?,
-        "H9" => answer_architect_now(tx, w, &project, matter, text(&outcome["answer"]["reply"]))?,
-        _ => {}
-    }
-    if outcome["reply"].is_object() {
-        send_reply(tx, w, matter, &outcome["reply"])?;
-    }
+    deliver_reply(tx, round, w, &project, matter, outcome, &held["progress"])?;
     answer(tx, matter, outcome)
 }
 
@@ -1808,6 +1693,55 @@ fn send_reply(tx: &Transaction<'_>, work: i64, matter: i64, reply: &Value) -> Re
     }
     // The review of a design whose work went on goes to the owner now.
     crate::review::after_reply(tx, matter)
+}
+
+/// Whether a matter's kind has an engineer waiting at its question for the reply.
+fn engineer_waits(kind: &str) -> bool {
+    matches!(kind, "engineer_question" | "failure") || kind == crate::open_questions::KIND
+}
+
+/// The kind of a matter.
+fn kind_of(tx: &Transaction<'_>, matter: i64) -> Result<String, String> {
+    tx.query_row("SELECT kind FROM architect_matters WHERE id = ?1", [matter], |r| {
+        r.get(0)
+    })
+    .map_err(sql)
+}
+
+/// What an engineer waiting at its question is sent: the reply, or the round's progress when it wrote none, so that no
+/// engineer waits for a reply that will not come.
+fn reply_or_progress(reply: &Value, progress: &Value) -> Value {
+    if reply.is_object() {
+        reply.clone()
+    } else {
+        json!({ "text": text(progress) })
+    }
+}
+
+/// Gives a matter's reply to whoever it came from, by the matter's kind: the engineer waiting at its question, the
+/// owner, who is told the round's progress when it wrote no reply, or another project's architect; a kind nobody waits on
+/// has no one to give it to.
+fn deliver_reply(
+    tx: &Transaction<'_>,
+    round: RoundId,
+    work: i64,
+    project: &str,
+    matter: i64,
+    outcome: &Value,
+    progress: &Value,
+) -> Result<(), String> {
+    let kind = kind_of(tx, matter)?;
+    let reply = &outcome["reply"];
+    if engineer_waits(&kind) {
+        return send_reply(tx, work, matter, &reply_or_progress(reply, progress));
+    }
+    let said = text(&reply["text"]);
+    match kind.as_str() {
+        "owner_words" if said.trim().is_empty() => reply_to_owner_now(tx, round, work, project, matter, text(progress)),
+        "owner_words" => reply_to_owner_now(tx, round, work, project, matter, said),
+        "other_architect" if !said.trim().is_empty() => answer_architect_now(tx, work, project, matter, said),
+        _ => Ok(()),
+    }
 }
 
 /// Puts the reply to the owner's words, as the architect's message, in the conversation they were said in.
@@ -2056,7 +1990,7 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64
         let c = &r["change"];
         let (new, id) = match c["kind"].as_str() {
             Some("create_item") => (true, r["outcome"]["created"].as_i64()),
-            Some("fold_observations" | "edit_item" | "edit_acceptance" | "move" | "add_merge_condition") => (
+            Some("fold_observations" | "edit_item" | "edit_acceptance" | "move") => (
                 false,
                 item_number(&c["item"]).or_else(|| created.get(text(&c["item"]).trim()).copied()),
             ),
@@ -2074,32 +2008,13 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64
     Ok(parts)
 }
 
-/// Why nothing was recorded of a side report, as the round that took it in says: the way it took it in and why.
+/// Why nothing was recorded of a side report, as the round that took it in says in its reply.
 fn not_recorded(outcome: &Value) -> String {
-    let take = &outcome["take"];
-    let why = db::without_final_terminal(text(&take["why"]).trim());
-    let because = if why.is_empty() {
-        String::new()
+    let why = db::without_final_terminal(text(&outcome["reply"]["text"]).trim());
+    if why.is_empty() {
+        "nothing was recorded".to_string()
     } else {
-        format!(": {why}")
-    };
-    match text(&take["way"]) {
-        "forwarded" => {
-            let to: Vec<String> = items(outcome["effects"].get("messages"))
-                .iter()
-                .map(|m| text(&m["project"]).to_string())
-                .filter(|p| !p.is_empty())
-                .collect();
-            let to = if to.is_empty() {
-                "another project".to_string()
-            } else {
-                to.join(", ")
-            };
-            format!("forwarded to the architect of {to}{because}")
-        }
-        "need_will_hit" => format!("not recorded, as a need that will certainly come meets it anyway{because}"),
-        "nothing" => format!("nothing to take in{because}"),
-        _ => format!("nothing recorded{because}"),
+        format!("nothing was recorded: {why}")
     }
 }
 
@@ -2189,17 +2104,13 @@ fn queued_measures(tx: &Transaction<'_>, project: &str) -> Result<BTreeSet<Strin
 fn head_why(cell: &str) -> String {
     match cell {
         TAKES_EFFECT => "A new policy took effect".into(),
-        "U1" => "Reading the project anew asks for it".into(),
         other => format!("Cell {other} asked for it"),
     }
 }
 
-/// Queues a matter of the kind `kind`, the check of the policy (or, in a flow version before, the plan of what to do
-/// next), with why the round's cell asks for it: the text at `why`, or the cell's own reason. One of that kind
-/// open already, in the queue or parked for the owner's reply, stands instead, and the newer asker's why is added to
-/// it. A check keeps the hash of the constitution it was queued under ([`CONSTITUTION`]); one asked for with no why of
-/// its own, as a new session's understanding asks for it, is not queued while the policy in force and the constitution
-/// are those the last check handled had ([`same_as_last_check`]), since it would only come to the same end.
+/// Queues a matter of the kind `kind`, the check of the policy, with why the round's cell asks for it: the text at `why`,
+/// or the cell's own reason. One of that kind open already, in the queue or parked for the owner's reply, stands
+/// instead, and the newer asker's why is added to it.
 fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) -> Result<(), String> {
     let (_, project) = architect_work_of(ctx)?;
     let own = why.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
@@ -2232,32 +2143,11 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
         .map_err(sql)?;
         return Ok(());
     }
-    let mut body = json!({ "asked_by": [asker] });
-    let what = if kind == CHECK {
-        // The constitution as the commit of main the round was pinned to has it, the one its agent was given; a round
-        // pinned to none, as one the engine took itself with no agent, reads main as the checkout has it now.
-        let pinned: Option<String> = tx
-            .query_row(
-                "SELECT json_extract(input, '$.engine.main') FROM rounds WHERE work = ?1 AND n = ?2",
-                params![ctx.round.work, ctx.round.n],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(sql)?
-            .flatten();
-        let constitution =
-            constitution_of(&project, ctx.projects.get(&project), pinned.as_deref())?.map(|t| db::content_hash(&t));
-        if own.is_none() && same_as_last_check(tx, &project, constitution.as_deref())? {
-            return Ok(());
-        }
-        body[CONSTITUTION] = json!(constitution);
-        format!(
-            "Check whether the policy of {project} still holds: {}",
-            db::one_sentence(&why)
-        )
-    } else {
-        format!("Plan what to do next for {project}: {}", db::one_sentence(&why))
-    };
+    let body = json!({ "asked_by": [asker] });
+    let what = format!(
+        "Check whether the policy of {project} still holds: {}",
+        db::one_sentence(&why)
+    );
     let m = Matter {
         project,
         kind: kind.into(),
@@ -2271,101 +2161,70 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
     Ok(())
 }
 
-/// The field of the body of a check of the policy that keeps the hash of the project's constitution as the check was
-/// queued, null when the project has none, which a later check compares ([`same_as_last_check`]). The matter's
-/// material leaves it out: it tells the architect nothing.
-const CONSTITUTION: &str = "constitution";
-
-/// Whether the policy in force and the constitution are those the project's last check of the policy handled had: a
-/// policy is in force and none took effect after that check was handled (a check that set the policy in force was
-/// handled where it took effect), and the constitution's hash, `constitution`, is the one the check kept. False when
-/// no check was handled, or the last kept no hash, as one queued before checks kept it.
-fn same_as_last_check(tx: &Transaction<'_>, project: &str, constitution: Option<&str>) -> Result<bool, String> {
-    let last: Option<(i64, i64, String)> = tx
-        .query_row(
-            "SELECT handled_work, handled_round, body FROM architect_matters
-             WHERE project = ?1 AND kind = ?2 AND handled_round IS NOT NULL
-             ORDER BY handled_work DESC, handled_round DESC LIMIT 1",
-            params![project, CHECK],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .optional()
-        .map_err(sql)?;
-    let Some((work, round, body)) = last else {
-        return Ok(false);
-    };
-    let body: Value = serde_json::from_str(&body).unwrap_or_default();
-    let Some(kept) = body.get(CONSTITUTION) else {
-        return Ok(false);
-    };
-    if kept.as_str() != constitution {
-        return Ok(false);
+/// The plan as the notebook keeps it: a plan's steps, numbered, each with why, then what stands besides them; a plan of a
+/// flow version before was one text.
+fn plan_text(outcome: &Value) -> String {
+    if let Some(plan) = outcome["plan"].as_str() {
+        return plan.to_string();
     }
-    let in_force = count(
-        tx,
-        "SELECT count(*) FROM policy_current WHERE project = ?1",
-        &[&project],
-    )? > 0;
-    let since = count(
-        tx,
-        &format!(
-            "SELECT count(*) FROM rounds a JOIN works w ON w.id = a.work
-             WHERE w.graph = 'architect' AND w.project = ?1 AND a.cell IN {} AND a.transition IS NOT NULL
-               AND (a.work > ?2 OR (a.work = ?2 AND a.n > ?3))",
-            db::cells_sql(ARCHITECT, &[TAKES_EFFECT])
-        ),
-        &[&project, &work, &round],
-    )?;
-    Ok(in_force && since == 0)
+    let mut lines: Vec<String> = items(outcome.get("steps"))
+        .iter()
+        .enumerate()
+        .map(|(i, s)| format!("{}. {} ({})", i + 1, text(&s["what"]), text(&s["why"])))
+        .collect();
+    let notes = text(&outcome["notes"]).trim();
+    if !notes.is_empty() {
+        lines.push(notes.to_string());
+    }
+    lines.join("\n")
+}
+
+/// Whether the round handed in one of the forms that come before the matter's answer: an ask of the owner or a pause.
+fn handed_no_answer(ctx: &Ctx) -> bool {
+    ctx.unwrapped.get("ask").is_some() || ctx.unwrapped.get("pause").is_some()
 }
 
 /// Carries out an action of the architect's graph; false for an action of another.
 pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> Result<bool, String> {
     let w = ctx.work.id;
     match name {
-        "edit_notebook" => {
-            // Each section the round rewrote is the notebook's latest version of it; the versions before stay.
+        "write_understanding" | "write_plan" => {
+            // The part the round handed in is the notebook's latest version of it; the versions before stay.
             let (_, project) = architect_work_of(ctx)?;
-            for x in items(at) {
-                tx.execute(
-                    "INSERT INTO notebook_edits (project, section, text, work, round) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![
-                        project,
-                        text(&x["section"]),
-                        text(&x["text"]),
-                        ctx.round.work,
-                        ctx.round.n
-                    ],
-                )
-                .map_err(sql)?;
-            }
+            let (section, written) = if name == "write_plan" {
+                ("plan", plan_text(&ctx.unwrapped))
+            } else {
+                ("project_now", at.map_or("", text).to_string())
+            };
+            tx.execute(
+                "INSERT INTO notebook_edits (project, section, text, work, round) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![project, section, written, ctx.round.work, ctx.round.n],
+            )
+            .map_err(sql)?;
         }
-        "queue_fixes" => {
+        "queue_steps" => {
             let (_, project) = architect_work_of(ctx)?;
-            let fit = &ctx.unwrapped["fit"];
-            // One matter for each place, with every step the plan meant to take there; a place the queue holds
-            // already, which the fix names, is not queued again.
-            for fix in items(at).into_iter().filter(|x| x["queued"].as_i64().is_none()) {
-                let what = format!(
-                    "To set straight, {}: {}",
-                    db::one_sentence(text(&fix["where"])),
-                    db::one_sentence(&texts(&fix["steps"]).join("; "))
-                );
+            // What the plan before queued and no session took is taken by this plan, which started from it.
+            tx.execute(
+                "UPDATE architect_matters SET withdrawn = ?2
+                 WHERE project = ?1 AND kind = 'set_straight' AND handled_round IS NULL AND withdrawn IS NULL
+                   AND asked IS NULL AND json_extract(body, '$.measure') IS NULL",
+                params![project, format!("the plan of {} replaces it", ctx.round)],
+            )
+            .map_err(sql)?;
+            for step in items(ctx.unwrapped.get("steps")) {
+                let what = text(&step["what"]);
+                let fix = json!({ "where": what, "wrong": step["why"], "steps": [what] });
                 let m = Matter {
                     project: project.clone(),
                     kind: "set_straight".into(),
-                    detail: fix["kind"].as_str().map(str::to_string),
-                    what,
-                    body: json!({ "fix": fix, "verdict": fit["verdict"], "why": fit["why"] }),
-                    item: fix["item"].as_i64(),
+                    detail: None,
+                    what: db::one_sentence(what),
+                    body: json!({ "fix": fix }),
+                    item: None,
                     raised: Some((ctx.round.work, ctx.round.n)),
                 };
                 queue_matter(tx, &m).map_err(sql)?;
-                if fix["pause_now"] == true
-                    && let Some(item) = fix["item"].as_i64()
-                {
-                    pause_item(tx, item, text(&fix["wrong"]))?;
-                }
             }
         }
         "queue_measures" => {
@@ -2409,7 +2268,6 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 queue_matter(tx, &m).map_err(sql)?;
             }
         }
-        "hold_to_set_straight" => hold(tx, &architect_work_of(ctx)?.1, HoldReason::SetStraight, None)?,
         "release_straight_hold" => release(tx, &architect_work_of(ctx)?.1, HoldReason::SetStraight)?,
         "queue_check_policy" => queue_head(ctx, tx, CHECK, at)?,
         "ask_approval" => {
@@ -2433,25 +2291,13 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 params![m, ask, ctx.cell.id],
             )
             .map_err(sql)?;
+            sessions::choose::end_matter(tx, m)?;
             actions::notify_ask(
                 tx,
                 w,
                 ask,
                 &format!("The architect of {project} asks you: {APPROVAL} (ask {ask})"),
             )?;
-        }
-        "reply_to_owner" => {
-            // The reply to the owner's words is the architect's message in the conversation they were said in; once
-            // what the round handed in waits for the second eye, the reply goes with it.
-            let Some(said) = at.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
-                return Ok(true);
-            };
-            let m = matter_of(tx, w)?;
-            if held_for_check(tx, m)? {
-                return Ok(true);
-            }
-            let (_, project) = architect_work_of(ctx)?;
-            reply_to_owner_now(tx, ctx.round, w, &project, m, said)?;
         }
         "close_matter" => {
             // The matter in hand is handled by this round, and its sessions end with it; a matter whose reply did not
@@ -2475,31 +2321,36 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             sessions::choose::end_matter(tx, m)?;
             settle_hold(tx, &architect_work_of(ctx)?.1)?;
         }
-        "close_planning" => {
-            // What a planning answers: slots free with nothing of the project to start, and a plan a flow version
-            // before queued.
-            let (_, project) = architect_work_of(ctx)?;
-            tx.execute(
-                "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3
-                 WHERE project = ?1 AND kind IN ('slots_free', ?4) AND handled_round IS NULL AND withdrawn IS NULL",
-                params![project, ctx.round.work, ctx.round.n, PLAN],
-            )
-            .map_err(sql)?;
-        }
         "log_matter" => {
-            // The matter's line of the decision log and its two answers, as the latest hand-in left them.
-            let Some(c) = at.filter(|c| c.is_object()) else {
+            // The matter's record, as the latest hand-in left it: a revision writes it anew, and drops the lines of the
+            // hand-in before.
+            let Some(record) = at.and_then(Value::as_str) else {
                 return Ok(true);
             };
+            let record = flow::cut(record, RECORD_MOST);
             let m = matter_of(tx, w)?;
-            let mut logged = c.clone();
-            logged["round"] = json!(ctx.round.to_string());
-            logged["cell"] = json!(ctx.cell.id);
+            let logged = json!({ "record": record, "round": ctx.round.to_string(), "cell": ctx.cell.id });
             tx.execute(
                 "UPDATE architect_matters SET logged = ?2 WHERE id = ?1",
                 params![m, logged.to_string()],
             )
             .map_err(sql)?;
+        }
+        "add_lines" => {
+            // The lines the hand-in adds to the plan or the understanding, kept with its record.
+            let Some(lines) = at.filter(|c| c.is_object()) else {
+                return Ok(true);
+            };
+            let m = matter_of(tx, w)?;
+            for part in ["plan", "understanding"] {
+                if let Some(line) = lines[part].as_str().filter(|l| !l.trim().is_empty()) {
+                    tx.execute(
+                        "UPDATE architect_matters SET logged = json_set(logged, '$.' || ?2, ?3) WHERE id = ?1",
+                        params![m, part, line],
+                    )
+                    .map_err(sql)?;
+                }
+            }
         }
         "apply_effects" => {
             if let Some(effects) = at {
@@ -2508,44 +2359,42 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         }
         "apply_checked" => apply_checked(ctx, tx)?,
         "return_checked" => return_checked(ctx, tx)?,
-        "reply_to_engineer" => {
-            let Some(reply) = at.filter(|r| r.is_object()) else {
+        "deliver_reply" => {
+            // A round that asks or pauses has not answered yet.
+            if handed_no_answer(ctx) {
                 return Ok(true);
-            };
+            }
             let m = matter_of(tx, w)?;
             // A reply whose round's changes wait for the second eye goes once it finds them sound; it is said about
             // its question meanwhile.
             if held_for_check(tx, m)? {
-                tx.execute(
-                    "UPDATE architect_matters SET reply_held = ?2 WHERE id = ?1",
-                    params![m, reply.to_string()],
-                )
-                .map_err(sql)?;
-                if let Some(b) = crate::blockers::of_matter(tx, m)?
-                    && b.ended.is_none()
-                {
-                    crate::blockers::say(tx, b.id, "architect", "held_reply", reply)?;
+                if engineer_waits(&kind_of(tx, m)?) {
+                    let reply = reply_or_progress(&ctx.unwrapped["reply"], &ctx.output["progress"]);
+                    tx.execute(
+                        "UPDATE architect_matters SET reply_held = ?2 WHERE id = ?1",
+                        params![m, reply.to_string()],
+                    )
+                    .map_err(sql)?;
+                    if let Some(b) = crate::blockers::of_matter(tx, m)?
+                        && b.ended.is_none()
+                    {
+                        crate::blockers::say(tx, b.id, "architect", "held_reply", &reply)?;
+                    }
                 }
                 return Ok(true);
             }
-            send_reply(tx, w, m, reply)?;
+            let (_, project) = architect_work_of(ctx)?;
+            deliver_reply(tx, ctx.round, w, &project, m, &ctx.unwrapped, &ctx.output["progress"])?;
         }
         "answer_reporter" => {
             // The work that handed the matter in is told what became of it as the round ends, or, once what it handed
             // in waits for the second eye, when that finds it sound.
+            if handed_no_answer(ctx) {
+                return Ok(true);
+            }
             let m = matter_of(tx, w)?;
             if !held_for_check(tx, m)? {
                 answer(tx, m, &ctx.unwrapped)?;
-            }
-        }
-        "answer_architect" => {
-            let Some(words) = at.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) else {
-                return Ok(true);
-            };
-            let (_, project) = architect_work_of(ctx)?;
-            let m = matter_of(tx, w)?;
-            if !held_for_check(tx, m)? {
-                answer_architect_now(tx, w, &project, m, words)?;
             }
         }
         "redo_matters" | "redo_batch" => {
@@ -2801,7 +2650,7 @@ pub fn took_hold(g: &CompiledGraph, r: &Round) -> Option<String> {
     let does = |name: &str| cell.always.iter().any(|a| a.action.as_deref() == Some(name));
     let effects = &outcome["effects"];
     // What can lose something waited for the second eye, and took no effect as the round ended.
-    let checked = cell.rows.iter().any(|x| x.to == "G1");
+    let checked = cell.rows.iter().any(|x| x.to == "C1");
     let held = checked
         && items(effects.get("item_changes"))
             .iter()
@@ -2819,13 +2668,15 @@ pub fn took_hold(g: &CompiledGraph, r: &Round) -> Option<String> {
         "wrote to another project's architect"
     } else if output["tell_owner"].as_array().is_some_and(|a| a.iter().any(said)) {
         "told the owner"
+    } else if does("deliver_reply") && (said(&outcome["reply"]["text"]) || said(&output["progress"])) {
+        "replied to whoever the matter came from"
     } else if does("reply_to_owner") && said(&outcome["answer"]["reply"]) {
         "replied to the owner"
     } else if does("answer_architect") && said(&outcome["answer"]["reply"]) {
         "answered another project's architect"
     } else if does("reply_to_engineer") && outcome["reply"].is_object() {
         "replied to the engineer"
-    } else if does("answer_reporter") {
+    } else if does("answer_reporter") && !does("deliver_reply") {
         "told the work that reported what became of it"
     } else {
         return None;
@@ -2921,15 +2772,6 @@ fn names_cell(e: &Engine, text: &str) -> Option<String> {
     None
 }
 
-/// Whether a project's observation is open.
-fn open_observation(conn: &Connection, project: &str, id: i64) -> Result<bool, String> {
-    Ok(count(
-        conn,
-        "SELECT count(*) FROM observations_open WHERE project = ?1 AND id = ?2",
-        &[&project, &id],
-    )? > 0)
-}
-
 /// What is wrong with the effects of an answer, every reason at once: its item changes, as made in order; how the
 /// situation has changed under them since they were drafted; the owner's words they rest on; its changes to
 /// observations; its actions; its messages.
@@ -2967,10 +2809,7 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
     let matter = picked(conn, c.w.id)?;
     for (i, ch) in new.iter().enumerate() {
         let n = i + 1;
-        for p in changed_under(c, project, matter, ch)? {
-            problems.push(format!("item change {n} ({}): {p}", text(&ch["kind"])));
-        }
-        for p in words_problems(conn, project, ch)? {
+        for p in changed_under(c, matter, ch)? {
             problems.push(format!("item change {n} ({}): {p}", text(&ch["kind"])));
         }
     }
@@ -2978,7 +2817,6 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
         c,
         project,
         &items(effects.get("observation_changes")),
-        &new,
     )?);
     for (i, a) in items(effects.get("actions")).iter().enumerate() {
         let n = i + 1;
@@ -3064,6 +2902,15 @@ fn version_of(conn: &Connection, item: i64) -> Result<i64, String> {
     .map_err(sql)
 }
 
+/// Whether a project's observation is open.
+fn open_observation(conn: &Connection, project: &str, id: i64) -> Result<bool, String> {
+    Ok(count(
+        conn,
+        "SELECT count(*) FROM observations_open WHERE project = ?1 AND id = ?2",
+        &[&project, &id],
+    )? > 0)
+}
+
 /// Whether an item merged: a work on it took the merge queue's row of a merge.
 fn merged(conn: &Connection, item: i64) -> Result<bool, String> {
     Ok(count(
@@ -3084,9 +2931,9 @@ type ItemState = (String, Option<String>, Option<String>, Option<String>);
 /// merged or was cancelled; a text it changes is at another version than the one it was drafted on, the item as it is
 /// now said; an acceptance it changes is locked by a work's design; an item a work runs on is changed from outside that
 /// work's own question with no word of why the work must change, or merged into or folded into, which takes in work
-/// from outside; an observation it folds in was folded into another item; a dependency it makes is on an item merged,
+/// from outside; a dependency it makes is on an item merged,
 /// cancelled or held. `matter` is the matter in hand, whose work's own item it may change.
-fn changed_under(c: &checks::Ctx<'_>, project: &str, matter: Option<i64>, ch: &Value) -> Result<Vec<String>, String> {
+fn changed_under(c: &checks::Ctx<'_>, matter: Option<i64>, ch: &Value) -> Result<Vec<String>, String> {
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
     let kind = text(&ch["kind"]);
@@ -3156,24 +3003,6 @@ fn changed_under(c: &checks::Ctx<'_>, project: &str, matter: Option<i64>, ch: &V
             }
         }
     }
-    if kind == "fold_observations" {
-        for o in items(ch.get("observations")) {
-            let Some(id) = o.as_i64() else { continue };
-            let into: Option<Option<i64>> = conn
-                .query_row(
-                    "SELECT folded_into FROM observations WHERE id = ?1 AND project = ?2",
-                    params![id, project],
-                    |r| r.get(0),
-                )
-                .optional()
-                .map_err(sql)?;
-            if let Some(Some(other)) = into
-                && item_number(&ch["item"]) != Some(other)
-            {
-                problems.push(format!("observation {id} was folded into item {other} already"));
-            }
-        }
-    }
     if kind == "add_dependency"
         && let Some(on) = item_number(&ch["on"])
         && let Some((title, cancelled, held, _)) = state(on)?
@@ -3228,67 +3057,15 @@ fn title_language_problem(language: &str, title: &str) -> Option<String> {
     None
 }
 
-/// What is wrong with the owner's words an item change rests on (`owner_words`), every quotation at once: its record
-/// is not there or another project's; the quotation is not found letter for letter in it; a delegate's session said it,
-/// in no part it declared the owner's own; or the change says the owner accepted it and the record is no answer of the
-/// owner's.
-fn words_problems(conn: &Connection, project: &str, ch: &Value) -> Result<Vec<String>, String> {
-    let mut problems = Vec::new();
-    for (k, q) in items(ch.get("owner_words")).iter().enumerate() {
-        let n = k + 1;
-        let from = text(&q["from"]);
-        let id = q["id"].as_i64().unwrap_or_default();
-        let quote = text(&q["quote"]);
-        let record = match crate::decisions::record(conn, project, from, id) {
-            Ok(r) => r,
-            Err(why) => {
-                problems.push(format!("the owner's words {n}: {why}"));
-                continue;
-            }
-        };
-        if !record.texts.iter().any(|t| !quote.is_empty() && t.contains(quote)) {
-            problems.push(format!(
-                "the owner's words {n}: \"{quote}\" is not found as it is in {from} {id}: quote its words letter for \
-                 letter, or write nothing as the owner's"
-            ));
-            continue;
-        }
-        match record.source_of(quote) {
-            crate::decisions::Source::Delegate => problems.push(format!(
-                "the owner's words {n}: {from} {id} is said by the delegate's session, not the owner, and declares no \
-                 part of it the owner's own: write it as the delegate's, or not as the owner's meaning"
-            )),
-            crate::decisions::Source::Architect => problems.push(format!(
-                "the owner's words {n}: {from} {id} holds the architect's words, not the owner's"
-            )),
-            _ => {}
-        }
-        if q["accepted"] == true && from != "ask" && from != "matter" {
-            problems.push(format!(
-                "the owner's words {n}: it says the owner accepted, and {from} {id} is no answer of the owner's: cite \
-                 the owner's answer, or do not write it as accepted"
-            ));
-        }
-    }
-    Ok(problems)
-}
-
 /// What is wrong with changes to a project's observations, as an answer's effects or the revision of a batch hands them
 /// in: a new one that says nothing, has no title or one wider than an item's may be, or carries no tag of the
 /// project's, or one not of them; a merge or a close of an observation the project has no open one of; a merge that
 /// makes one no item took in yet reported [`RECURS`] times or more, which is work, when the batch's item changes
 /// (`batch`, as they would be with this round's) do not take it in ([`recurring_problem`]); a close of one an item takes
 /// in, which is folded into that item instead.
-fn observation_problems(
-    c: &checks::Ctx<'_>,
-    project: &str,
-    changes: &[Value],
-    batch: &[Value],
-) -> Result<Vec<String>, String> {
+fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -> Result<Vec<String>, String> {
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
-    // How many merges into each observation the changes so far make.
-    let mut merges: BTreeMap<i64, i64> = BTreeMap::new();
     let tags: BTreeSet<String> =
         c.e.config
             .config
@@ -3340,18 +3117,6 @@ fn observation_problems(
                     ));
                     continue;
                 }
-                let merged = merges.entry(id).or_default();
-                *merged += 1;
-                let (times, folded): (i64, Option<i64>) = conn
-                    .query_row(
-                        "SELECT times_reported, folded_into FROM observations WHERE id = ?1",
-                        [id],
-                        |r| Ok((r.get(0)?, r.get(1)?)),
-                    )
-                    .map_err(sql)?;
-                if folded.is_none() && times + *merged >= RECURS {
-                    problems.extend(recurring_problem(conn, n, id, times + *merged, batch)?);
-                }
             }
             "close" => {
                 let id = o["id"].as_i64().unwrap_or_default();
@@ -3372,62 +3137,6 @@ fn observation_problems(
         }
     }
     Ok(problems)
-}
-
-/// What is wrong with the merge of observation change `n`, which makes observation `id` reported `times` times, at
-/// least [`RECURS`], with no item having taken it in yet: a gap that recurs is work, so the batch's item changes fold it
-/// into an item, which one of them moves ahead (anywhere but last) unless a work runs on it already; none when they do.
-fn recurring_problem(
-    conn: &Connection,
-    n: usize,
-    id: i64,
-    times: i64,
-    batch: &[Value],
-) -> Result<Option<String>, String> {
-    let named = |v: &Value| -> String {
-        match v {
-            Value::String(s) => s.trim().trim_start_matches('#').to_string(),
-            other => other.to_string(),
-        }
-    };
-    let fold = batch.iter().find(|c| {
-        c["kind"] == "fold_observations" && items(c.get("observations")).iter().any(|o| item_number(o) == Some(id))
-    });
-    let Some(fold) = fold else {
-        return Ok(Some(format!(
-            "observation change {n}: it makes observation {id} reported {times} times, and an observation reported \
-             {RECURS} times is work: fold it into an item that covers it, or one this round creates, by the item \
-             change fold_observations, and move that item ahead"
-        )));
-    };
-    let item = named(&fold["item"]);
-    let moved = batch
-        .iter()
-        .any(|c| c["kind"] == "move" && named(&c["item"]) == item && c["to"]["place"] != "last");
-    let runs = match item.parse::<i64>() {
-        Ok(i) => running_work(conn, i)?.is_some(),
-        Err(_) => false,
-    };
-    Ok((!moved && !runs).then(|| {
-        format!(
-            "observation change {n}: it makes observation {id} reported {times} times, which is work, and item \
-             {item}, which takes it in, is not moved ahead: move it first, or before or after another item"
-        )
-    }))
-}
-
-/// Whether two places to set straight are the same place: of one kind, and at the same place in words, or about the
-/// same items.
-fn same_place(a: &Value, b: &Value) -> bool {
-    let place = |x: &Value| {
-        text(&x["where"])
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase()
-    };
-    let ids = |x: &Value| -> BTreeSet<i64> { items(x.get("items")).iter().filter_map(Value::as_i64).collect() };
-    a["kind"] == b["kind"] && (place(a) == place(b) || (!ids(a).is_empty() && ids(a) == ids(b)))
 }
 
 /// The keys the create_item changes of a round's effects give.
@@ -3472,44 +3181,9 @@ fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems
 }
 
 /// Runs a check of the architect's graph.
-pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
+pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), Problems> {
     let conn = c.e.db.conn();
     match name {
-        "fix_not_queued_again" => {
-            let fixes = match (at, v) {
-                (Some("fit"), Some(fit)) => items(fit.get("fixes")),
-                (_, v) => items(v),
-            };
-            let open = query_json(
-                conn,
-                "SELECT id, json_extract(body, '$.fix') AS fix FROM architect_matters
-                 WHERE project = ?1 AND kind = 'set_straight' AND handled_round IS NULL AND withdrawn IS NULL
-                 ORDER BY id",
-                &[&project_of(c.w)?],
-                ROWS,
-            )?;
-            let row = if at == Some("fit") { "fix" } else { "thing missing" };
-            let mut problems = Vec::new();
-            for (i, x) in fixes.iter().enumerate() {
-                let n = i + 1;
-                if let Some(m) = x["queued"].as_i64() {
-                    if !open.iter().any(|o| o["id"].as_i64() == Some(m)) {
-                        problems.push(format!(
-                            "{row} {n} names matter {m} as queued, which is no place to set straight your queue holds"
-                        ));
-                    }
-                    continue;
-                }
-                if let Some(o) = open.iter().find(|o| same_place(&o["fix"], x)) {
-                    problems.push(format!(
-                        "{row} {n} is matter {}, which your queue holds already: name it in queued, and it is not \
-                         queued again",
-                        o["id"]
-                    ));
-                }
-            }
-            Problems::from(problems).into_result()
-        }
         "effects_valid" => {
             let Some(effects) = v else { return Ok(()) };
             Problems::from(effects_problems(c, project_of(c.w)?, effects)?).into_result()
@@ -3550,40 +3224,6 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 lines.len(),
                 lines[0].trim()
             ))
-        }
-        "candidates_known" => {
-            let project = project_of(c.w)?;
-            candidates_problems(&items(v), |id| open_observation(conn, project, id))?.into_result()
-        }
-        "notebook_fits" => {
-            let Some(edits) = v else { return Ok(()) };
-            Problems::from(notebook_problems(conn, project_of(c.w)?, &items(Some(edits)))?).into_result()
-        }
-        "understanding_written" | "plan_written" => {
-            let wants: &[&str] = if name == "plan_written" {
-                &["plan"]
-            } else {
-                &["project_now", "unclear"]
-            };
-            let given = items(v);
-            let missing: Vec<&str> = wants
-                .iter()
-                .copied()
-                .filter(|w| !given.iter().any(|x| text(&x["section"]) == *w))
-                .collect();
-            if missing.is_empty() {
-                Ok(())
-            } else {
-                checks::fail(format!(
-                    "rewrite the notebook's section{} {} whole in notebook",
-                    if missing.len() > 1 { "s" } else { "" },
-                    missing.join(" and ")
-                ))
-            }
-        }
-        "closing_given" => {
-            let Some(closing) = v else { return Ok(()) };
-            closing_problems(closing).into_result()
         }
         "holds_needs_policy" => {
             if v.is_none_or(|x| x["verdict"] != "holds") {
@@ -3630,14 +3270,14 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 "SELECT count(*) FROM architect_matters m
                  WHERE m.id = ?1 AND (EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
                    OR EXISTS (SELECT 1 FROM json_each(m.body, '$.asked_by') b
-                              WHERE json_extract(b.value, '$.cell') = ?2))",
-                &[&m, &TALK],
+                              WHERE json_extract(b.value, '$.cell') IN (?2, 'H8')))",
+                &[&m, &HANDLE],
             )? > 0;
             if !yes {
                 return Err(
                     "the owner has not said yes to a new policy: ask the owner first whether to research one, saying \
                      why you doubt the policy in force, and hand in write_policy once the owner replied; only a check \
-                     the owner's own words asked for (queued by the answer to them, H8, as why it is checked says) \
+                     the owner's own words asked for (queued by the answer to them, as why it is checked says) \
                      goes on to write a new policy without asking"
                         .into(),
                 );
@@ -3684,6 +3324,9 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             // An engineer waiting for the reply cannot be left waiting for the owner: its question is answered, and
             // what only the owner can decide goes back as an open question of the engineer's design, which waits for
             // nothing.
+            if !engineer_waits(text(&row["kind"])) {
+                return Ok(());
+            }
             if row["kind"] != crate::open_questions::KIND {
                 return checks::fail(format!(
                     "matter {m} is {}: its engineer waits for your reply, so it cannot be parked for the owner. Reply \
@@ -3712,35 +3355,6 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         }
         other => checks::fail(format!("no such engine check: {other}")),
     }
-}
-
-/// The most characters a line of the decision log holds.
-const LOG_LINE_MOST: usize = 600;
-
-/// What is wrong with what a matter's session leaves as it ends, every problem at once: its line of the decision log is
-/// empty, more than one line, or longer than [`LOG_LINE_MOST`]; an answer of the two has no why.
-fn closing_problems(closing: &Value) -> Problems {
-    let mut problems = Problems::default();
-    let log = text(&closing["log"]).trim();
-    if log.is_empty() {
-        problems.push("the decision log line is empty: say what you did, why, and which items it concerns");
-    }
-    if log.contains('\n') {
-        problems.push("the decision log line is more than one line: write it as one");
-    }
-    let n = log.chars().count();
-    if n > LOG_LINE_MOST {
-        problems.push(format!(
-            "the decision log line is {n} characters, and one holds {LOG_LINE_MOST} at most: what a later matter needs, \
-             shorter"
-        ));
-    }
-    for (answer, why) in [("plan", "plan_why"), ("base", "base_why")] {
-        if text(&closing[why]).trim().is_empty() {
-            problems.push(format!("{answer} has no why: say it in {why}, in a sentence"));
-        }
-    }
-    problems
 }
 
 /// What is wrong with a reply to matter `m` (an open question when `open_question`, which says where a design departs
@@ -3851,22 +3465,6 @@ fn reply_problems(
     Ok(problems)
 }
 
-/// What is wrong with the candidates of a pick (`list`): more than ten, and every candidate that is no open observation
-/// of the project (`open` says for a number), each one; the two are independent.
-fn candidates_problems(list: &[Value], open: impl Fn(i64) -> Result<bool, String>) -> Result<Problems, String> {
-    let mut problems = Problems::default();
-    if list.len() > 10 {
-        problems.push(format!("at most ten candidates, and there are {}", list.len()));
-    }
-    for x in list {
-        let id = x["id"].as_i64().unwrap_or_default();
-        if !open(id)? {
-            problems.push(format!("{id} is no open observation of the project"));
-        }
-    }
-    Ok(problems)
-}
-
 /// What is wrong with the text of a policy (`policy`), each kind independent of the others: each sentence of at least
 /// 30 characters of the owner's words (`said`) that it quotes; a cell of the flow it names (`cell`, as found); a
 /// date; an item.
@@ -3886,7 +3484,7 @@ fn policy_text_problems(policy: &Value, said: &[String], cell: Option<String>) -
     }
     if let Some(item) = names_item(policy) {
         problems.push(format!(
-            "the policy names the item {item}: what to do next under it is thought out at cell N1, never written \
+            "the policy names the item {item}: what to do next under it is thought out at cell B2, never written \
              into it"
         ));
     }
@@ -3907,34 +3505,38 @@ pub fn input(
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
         "decisions" => decisions(e, project, main),
         "guide" => guide(e, project, main).map(Some),
-        "cited_nodes" => cited_nodes(e, w, project, main),
-        "since_last_base" => since_last_base(e, w, project).map(Some),
-        "board" => board(e, project).map(Some),
         "numbers" => numbers(e, project, main).map(Some),
-        "observations_overview" => observations_overview(e, project).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
         "levels" => Ok(Some(levels(e))),
         "policy" => policy(e, project),
         "policy_signals" => policy_signals(e, project, main),
         "slots" => slots(e).map(Some),
         "matter" => matter(e, w),
-        "matter_items" => matter_items(e, w),
-        "item_log" => item_log(e, w),
-        "similar_items" => similar_items(e, w).map(Some),
-        "owner_answer" => owner_answer(e, w),
-        "cross_project" => cross_project(e, project).map(Some),
-        "told_owner" => told_owner(e, project),
-        "owner_talk" => owner_talk(e, project),
-        "notebook_project_now" | "notebook_plan" | "notebook_unclear" | "notebook_other" => {
-            let section = NOTEBOOK.iter().find(|x| x.1 == name).map_or("", |x| x.0);
-            Ok(notebook_section(e.db.conn(), project, section)?.map(Value::String))
+        // Only an engineer's question weighs what other works change.
+        "similar_items" => {
+            let question = picked(e.db.conn(), w.id)?
+                .map(|m| {
+                    e.db.conn()
+                        .query_row("SELECT kind FROM architect_matters WHERE id = ?1", [m], |r| {
+                            r.get::<_, String>(0)
+                        })
+                        .map_err(sql)
+                })
+                .transpose()?
+                .is_some_and(|k| engineer_waits(&k));
+            if question {
+                similar_items(e, w).map(Some)
+            } else {
+                Ok(None)
+            }
         }
+        "owner_answer" => owner_answer(e, w),
+        "owner_talk" => owner_talk(e, project),
+        "notebook_plan" => Ok(notebook_section(e.db.conn(), project, "plan")?.map(Value::String)),
         "questions" => questions(e, project),
-        "decision_log" => crate::base::decision_log(e, project),
-        "since_base" => crate::base::since_base(e, project).map(Some),
         "base_due" => crate::base::base_due(e, project).map(Some),
-        "planning_why" => crate::base::planning_why(e, project).map(Some),
-        "gathered" => crate::base::gathered(e, project),
+        "appended" => crate::base::appended_input(e, project),
+        "since_plan" => crate::base::since_plan(e, project),
         "changes_to_check" => changes_to_check(e, w),
         "handed_in" => handed_in(e, w),
         other => Err(format!("no such engine input: {other}")),
@@ -3989,8 +3591,8 @@ fn changes_to_check(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     Ok(Some(json!({ "changes": changes, "items": items_touched })))
 }
 
-/// What the round that handed the matter's changes in handed in besides them: its reply, its judgment and what it
-/// found, as the matter keeps it while the changes wait for the second eye; none when nothing waits.
+/// What the round that handed the matter's changes in handed in besides them: its reply, its judgment, what it found and
+/// its other effects, as the matter keeps it while the changes wait for the second eye; none when nothing waits.
 fn handed_in(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let Some(m) = picked(conn, w.id)? else {
@@ -4006,9 +3608,11 @@ fn handed_in(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     };
     let mut outcome = held["outcome"].clone();
     if let Some(o) = outcome.as_object_mut() {
-        for k in ["effects", "notebook", "closing"] {
-            o.remove(k);
-        }
+        o.remove("notebook");
+    }
+    // The item changes are numbered in what it checks.
+    if let Some(effects) = outcome.get_mut("effects").and_then(Value::as_object_mut) {
+        effects.remove("item_changes");
     }
     Ok(Some(
         json!({ "cell": held["cell"], "round": held["round"], "answer": outcome }),
@@ -4016,18 +3620,10 @@ fn handed_in(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 }
 
 /// What the architect knows of its project that a cell of an engineer's work is given, as the architect has it: the
-/// constitution, which every agent's cell is given, the decisions in force, the board of the project's items, the
-/// decision cards of the others, the policy in force, and two sections of its notebook, the plan (with the owner's
-/// lasting instructions) and what the project is now.
-pub const KNOWLEDGE: &[&str] = &[
-    "constitution",
-    "decisions",
-    "board",
-    "items_decided",
-    "policy",
-    "notebook_project_now",
-    "notebook_plan",
-];
+/// constitution, which every agent's cell is given, the decisions in force, the decision cards of the others, the
+/// policy in force, and two sections of its notebook, the plan (with the owner's lasting instructions) and what the
+/// project is now.
+pub const KNOWLEDGE: &[&str] = &["constitution", "decisions", "items_decided", "policy", "notebook_plan"];
 
 /// What a cell of an engineer's work on an item (`item`) of a project is given of the architect's knowledge
 /// ([`KNOWLEDGE`]); none when there is nothing. `main` is the commit of the project's main the round is pinned to, for
@@ -4042,13 +3638,9 @@ pub fn knowledge(
     match name {
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
         "decisions" => decisions(e, project, main),
-        "board" => board(e, project).map(Some),
         "items_decided" => items_decided(e.db.conn(), project, item),
         "policy" => policy(e, project),
-        "notebook_project_now" | "notebook_plan" => {
-            let section = NOTEBOOK.iter().find(|x| x.1 == name).map_or("", |x| x.0);
-            Ok(notebook_section(e.db.conn(), project, section)?.map(Value::String))
-        }
+        "notebook_plan" => Ok(notebook_section(e.db.conn(), project, "plan")?.map(Value::String)),
         other => Err(format!("no such engine input: {other}")),
     }
 }
@@ -4178,30 +3770,6 @@ fn guide(e: &Engine, project: &str, main: Option<&str>) -> Result<Value, String>
     }))
 }
 
-/// The text of the matter picked, as nodes are cited by it and similar items looked up by.
-fn matter_text(e: &Engine, w: &Work) -> Result<String, String> {
-    let conn = e.db.conn();
-    let Some(m) = picked(conn, w.id)? else {
-        return Ok(String::new());
-    };
-    let row = query_json(conn, "SELECT what, body FROM architect_matters WHERE id = ?1", &[&m], 1)?;
-    Ok(row.first().map(Value::to_string).unwrap_or_default())
-}
-
-/// The records the matter picked names, in full, as the project's main has them at the commit `main` pins or else the
-/// commit `origin/<main>` is at now; none when it names none.
-fn cited_nodes(e: &Engine, w: &Work, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
-    let Some(p) = e.config.config.projects.get(project) else {
-        return Ok(None);
-    };
-    let cites = matter_text(e, w)?;
-    let commit = main_at(project, p, main)?;
-    let g = config::project_guide_at(&p.checkout, &commit, &p.design_paths(), &cites)
-        .map_err(|x| format!("project {project}: its records at {commit}: {x}"))?;
-    let nodes = g["cited"].clone();
-    Ok((!empty(&nodes)).then_some(nodes))
-}
-
 /// What an engineer's work waits for, in words, besides a pause, which its row says; none when it waits for nothing.
 /// `g` is the engineer's graph of the flow new works start on.
 fn work_waits(e: &Engine, g: Option<&CompiledGraph>, work: i64, at: &str) -> Result<Option<String>, String> {
@@ -4223,308 +3791,6 @@ fn work_waits(e: &Engine, g: Option<&CompiledGraph>, work: i64, at: &str) -> Res
         return Ok(Some("the architect's reply to its question".into()));
     }
     Ok(None)
-}
-
-/// What a project's works spent, in US dollars, by work, as their rounds recorded it.
-fn spent(e: &Engine, work: i64) -> Result<f64, String> {
-    e.db.conn()
-        .query_row(
-            "SELECT coalesce(sum(json_extract(usage, '$.cost_usd')), 0) FROM rounds WHERE work = ?1",
-            [work],
-            |r| r.get(0),
-        )
-        .map_err(sql)
-}
-
-/// A project's items running and queued, each by its number, with its rank, its level, what it delivers, the route it
-/// is marked for and the route its latest work goes (`work_routes`), its cell and stage, what it waits for and who
-/// waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
-/// with who paused it (the owner, the engine or the architect) and why, or why its last work stopped, as one queued
-/// again, and for one with no work running, the items not merged yet that it waits for by
-/// a blocking dependency before it starts, and its place in the owner's start queue; the owner's start queue, the
-/// project's items the owner put first to start, in the owner's order, which start ahead of the ranks (`dispatch_queue`);
-/// the release items, each an item nothing depends on with items under it, with the items under it; and the
-/// dependencies with other projects' items. A work at a cell of no stage, which asks or
-/// runs tools for another, is at the stage of the cell it stopped at, or else of the innermost cell that waits for it
-/// with one.
-fn board(e: &Engine, project: &str) -> Result<Value, String> {
-    let f = flow_now(e);
-    let g = engineer_graph(f.as_deref());
-    let end = g.map(|g| g.end.clone()).unwrap_or_default();
-    let rows = query_json(
-        e.db.conn(),
-        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, i.route,
-                (SELECT max(c.id) FROM changes c WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id))
-                  AS version,
-                (SELECT t.route FROM work_routes t WHERE t.work = w.id) AS route_taken, w.id AS work, w.at,
-                w.resume_at, w.waiting,
-                w.paused, w.paused_by, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
-                (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
-                  AS waits_for,
-                (SELECT json_group_object('#' || l.item, l.kind) FROM item_links l WHERE l.depends_on = i.id)
-                  AS waited_by,
-                EXISTS (SELECT 1 FROM ready_items r WHERE r.item = i.id) AS ready,
-                (SELECT json_group_array('#' || b.depends_on) FROM item_blocked_by b WHERE b.item = i.id)
-                  AS blocked_by,
-                CASE WHEN EXISTS (SELECT 1 FROM dispatch_queue p WHERE p.item = i.id) THEN
-                  (SELECT count(*) FROM dispatch_queue q JOIN items y ON y.id = q.item
-                   WHERE y.project = i.project
-                     AND q.position <= (SELECT p.position FROM dispatch_queue p WHERE p.item = i.id)) END
-                  AS in_owner_queue
-         FROM items i LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id)
-         WHERE i.project = ?1 AND i.cancelled IS NULL
-         ORDER BY i.rank NULLS LAST, i.id",
-        &[&project],
-        10_000,
-    )?;
-    let mut out = Map::new();
-    let mut open: BTreeSet<i64> = BTreeSet::new();
-    for mut r in rows {
-        let at = r["at"].as_str().unwrap_or_default().to_string();
-        if !at.is_empty() && at == end {
-            continue;
-        }
-        let id = r["item"].as_i64().unwrap_or_default();
-        open.insert(id);
-        let stopped = r["ended"].as_str().map(str::to_string);
-        if let (Some(work), None) = (r["work"].as_i64(), &stopped) {
-            let stage_of = |c: &str| g.and_then(|g| g.cell(c)).and_then(|c| c.stage.clone());
-            let callers = items(r.get("waiting"));
-            let stage = stage_of(&at)
-                .or_else(|| r["resume_at"].as_str().and_then(stage_of))
-                .or_else(|| callers.iter().rev().find_map(|c| c.as_str().and_then(stage_of)));
-            r["stage"] = json!(stage);
-            r["waits"] = json!(work_waits(e, g, work, &at)?);
-            r["since"] = json!(r["since"].as_i64().map(utc_minute));
-            r["spent_usd"] = json!((spent(e, work)? * 100.0).round() / 100.0);
-            if let Some(why) = r["paused"].as_str().map(str::to_string) {
-                let by = if why.starts_with(db::STOPPED_BY_ARCHITECT) {
-                    json!("architect")
-                } else {
-                    r["paused_by"].clone()
-                };
-                r["paused"] = json!({ "by": by, "why": why });
-            }
-            // A work that runs goes on whatever it depends on.
-            if let Some(o) = r.as_object_mut() {
-                o.remove("blocked_by");
-            }
-        } else if let Some(o) = r.as_object_mut() {
-            for k in ["work", "at", "paused", "since"] {
-                o.remove(k);
-            }
-        }
-        if let Some(o) = r.as_object_mut() {
-            for k in ["resume_at", "waiting", "ended", "paused_by"] {
-                o.remove(k);
-            }
-        }
-        if let Some(why) = stopped {
-            r["last_work_ended"] = json!(why);
-        }
-        r["ready"] = json!(r["ready"] == 1);
-        if let Some(o) = r.as_object_mut() {
-            o.remove("item");
-            o.retain(|_, v| !v.is_null() && *v != json!([]) && *v != json!({}));
-        }
-        out.insert(format!("#{id}"), r);
-        if out.len() >= ROWS {
-            break;
-        }
-    }
-    let releases = releases(e, project, &open)?;
-    let queue: Vec<String> = query_json(
-        e.db.conn(),
-        "SELECT q.item FROM dispatch_queue q JOIN items i ON i.id = q.item WHERE i.project = ?1 ORDER BY q.position",
-        &[&project],
-        ROWS,
-    )?
-    .iter()
-    .map(|r| format!("#{}", r["item"]))
-    .collect();
-    let mut board = json!({
-        "items": out,
-        "owner_start_queue": queue,
-        "releases": releases,
-        "other_projects": cross_project(e, project)?,
-    });
-    // Read from the table the engine reads to hold new starts, at the same moment, so that the architect sees what
-    // the engine acts on, the owner's hold included.
-    let held = starts_held(e.db.conn(), project)?;
-    if !held.is_empty() {
-        board["starts_held"] = json!(held);
-    }
-    Ok(board)
-}
-
-/// A project's release items: each item nothing depends on that items are under, with the items under it, how many of
-/// them are done, and which are open.
-fn releases(e: &Engine, project: &str, open: &BTreeSet<i64>) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let roots = query_json(
-        conn,
-        "SELECT i.id, i.title FROM items i WHERE i.project = ?1 AND i.cancelled IS NULL
-           AND NOT EXISTS (SELECT 1 FROM item_links l WHERE l.depends_on = i.id)
-           AND EXISTS (SELECT 1 FROM item_links l WHERE l.item = i.id)
-         ORDER BY i.rank NULLS LAST, i.id",
-        &[&project],
-        ROWS,
-    )?;
-    let mut out = Map::new();
-    for r in roots {
-        let id = r["id"].as_i64().unwrap_or_default();
-        let under = query_json(
-            conn,
-            "WITH RECURSIVE down(id) AS (SELECT depends_on FROM item_links WHERE item = ?1
-               UNION SELECT l.depends_on FROM item_links l JOIN down ON l.item = down.id)
-             SELECT id FROM down ORDER BY id",
-            &[&id],
-            10_000,
-        )?;
-        let ids: Vec<i64> = under.iter().filter_map(|x| x["id"].as_i64()).collect();
-        let open_under: Vec<i64> = ids.iter().copied().filter(|x| open.contains(x)).collect();
-        out.insert(
-            format!("#{id}"),
-            json!({ "title": r["title"], "under": ids.len(), "done": ids.len() - open_under.len(), "open": open_under }),
-        );
-    }
-    Ok(Value::Object(out))
-}
-
-/// The dependencies between a project's items and other projects' items, each with its kind: what its items wait for
-/// there, and what waits there for its items.
-fn cross_project(e: &Engine, project: &str) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let waits_for = query_json(
-        conn,
-        "SELECT l.item, l.depends_on AS on_item, l.kind, d.project, d.title, l.needs,
-                (SELECT w.at FROM works w WHERE w.item = d.id ORDER BY w.id DESC LIMIT 1) AS at, d.cancelled
-         FROM item_links l JOIN items i ON i.id = l.item JOIN items d ON d.id = l.depends_on
-         WHERE i.project = ?1 AND d.project <> ?1 ORDER BY l.item, l.depends_on",
-        &[&project],
-        ROWS,
-    )?;
-    let waited_by = query_json(
-        conn,
-        "SELECT l.depends_on AS item, l.item AS by_item, l.kind, i.project, i.title, l.needs
-         FROM item_links l JOIN items i ON i.id = l.item JOIN items d ON d.id = l.depends_on
-         WHERE d.project = ?1 AND i.project <> ?1 ORDER BY l.depends_on, l.item",
-        &[&project],
-        ROWS,
-    )?;
-    Ok(json!({ "waits_for": waits_for, "waited_by": waited_by }))
-}
-
-/// When a work started: its first round's start; now, before it has one.
-fn work_start(conn: &Connection, work: i64) -> Result<i64, String> {
-    let at: Option<i64> = conn
-        .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [work], |r| {
-            r.get(0)
-        })
-        .map_err(sql)?;
-    Ok(at.unwrap_or_else(db::now))
-}
-
-/// The latest [`LATEST`] of a list given latest first, and after them how many earlier ones there are since `since`,
-/// as `and 367 earlier commits since 2026-10-23 11:35 UTC`: what [`since_last_work`] gives of each of its lists. `what`
-/// names one of them and more.
-fn latest(mut rows: Vec<Value>, what: (&str, &str), since: &str) -> Value {
-    let earlier = rows.len().saturating_sub(LATEST);
-    rows.truncate(LATEST);
-    if earlier > 0 {
-        let what = if earlier == 1 { what.0 } else { what.1 };
-        rows.push(json!(format!("and {earlier} earlier {what} since {since}")));
-    }
-    Value::Array(rows)
-}
-
-/// The commits of a `git log --format='%h %cs %s'`, the latest first, as [`since_last_work`] gives them: each by its
-/// hash, its date and its message's first sentence, cut at a word to [`COMMIT_MOST`] characters; the latest
-/// [`LATEST`], then how many earlier ones there are since `since`.
-fn commits(log: &str, since: &str) -> Value {
-    let rows: Vec<Value> = log
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| {
-            let mut parts = l.splitn(3, ' ');
-            let (hash, date) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
-            let first = flow::cut(&db::one_sentence(parts.next().unwrap_or_default()), COMMIT_MOST);
-            json!(format!("{hash} {date} {first}"))
-        })
-        .collect();
-    latest(rows, ("commit", "commits"), since)
-}
-
-/// What happened in the project since its base before this one was built, for the session that builds the next: the
-/// first round of the latest base's session (with none, the week before the work started); commits merged on main,
-/// works ended or stopped, the CI on main, the owner's words, decision cards ruled and reports that came in, each list
-/// the latest first, at most [`LATEST`] of it, then how many earlier ones there are.
-fn since_last_base(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let last = crate::base::latest(conn, project)?.map(|b| b.at);
-    let first = last.is_none();
-    let since = match last {
-        Some(t) => t,
-        None => work_start(conn, w.id)? - 7 * 24 * HOUR,
-    };
-    let from = utc_minute(since);
-    let main = e.config.config.projects.get(project).map_or(Value::Null, |p| {
-        let after = format!("--since=@{}", since / 1000);
-        git::git(
-            &p.checkout,
-            &["log", "--format=%h %cs %s", after.as_str(), p.main_ref().as_str()],
-        )
-        .map_or(Value::Null, |log| commits(&log, &from))
-    });
-    // Each list whole, the latest first, of which `latest` keeps the latest.
-    let all = |q: &str| query_json(conn, q, &[&project, &since], usize::MAX);
-    let merged = all(&format!(
-        "SELECT w.item, i.title, w.pr, json_extract(r.output, '$.result.merge_commit') AS commit_merged
-         FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND r.cell IN {} AND r.transition = 'merged' AND r.ended_at > ?2
-         ORDER BY r.ended_at DESC",
-        db::cells_sql(ENGINEER, &["M2"])
-    ))?;
-    let works = all(&format!(
-        "SELECT w.id AS work, w.item, i.title, w.at, w.paused, w.ended FROM works w JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND w.graph = 'engineer'
-           AND EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.started_at > ?2)
-           AND (w.ended IS NOT NULL OR w.at IN {})
-         ORDER BY w.id DESC",
-        db::cells_sql(ENGINEER, &[ENGINEER_END])
-    ))?;
-    let main_ci = all(
-        "SELECT m.id AS matter, m.what, m.handled_round IS NOT NULL AS handled FROM architect_matters m
-         WHERE m.project = ?1 AND m.kind = 'main_red' AND m.at > ?2 ORDER BY m.id DESC",
-    )?;
-    let owner = all("SELECT m.id AS matter, m.what FROM architect_matters m
-         WHERE m.project = ?1 AND m.kind = 'owner_words' AND m.at > ?2 ORDER BY m.id DESC")?;
-    let cards = all(
-        "SELECT c.id AS design_card, w.item, c.status FROM design_cards c JOIN works w ON w.id = c.work
-         JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND c.status = 'ruled' AND EXISTS (
-           SELECT 1 FROM changes x WHERE x.table_name = 'design_cards' AND x.row_key = json_object('id', c.id)
-             AND x.at > ?2)
-         ORDER BY c.id DESC",
-    )?;
-    let reports = all(
-        "SELECT id AS matter, what FROM architect_matters WHERE project = ?1 AND kind = 'report' AND at > ?2
-         ORDER BY id DESC",
-    )?;
-    let mut out = json!({
-        "since": from,
-        "main": main,
-        "merged": latest(merged, ("merge", "merges"), &from),
-        "works_ended": latest(works, ("work", "works"), &from),
-        "main_red": latest(main_ci, ("time main was red", "times main was red"), &from),
-        "owner_said": latest(owner, ("thing the owner said", "things the owner said"), &from),
-        "decision_cards_ruled": latest(cards, ("decision card", "decision cards"), &from),
-        "reports": latest(reports, ("report", "reports"), &from),
-    });
-    if first {
-        out["first_base"] = json!(true);
-    }
-    Ok(out)
 }
 
 /// A health number as the architect is given it, in the unit of its measure: to the cent for money, to three places
@@ -4712,60 +3978,6 @@ fn numbers(e: &Engine, project: &str, main: Option<&str>) -> Result<Value, Strin
         "measures": measures,
         "not_measured": not_measured,
     }))
-}
-
-/// A project's observations: how many are open under each tag and how many times they were reported; the ten
-/// recorded or reported again last; the ten closed last, with why.
-fn observations_overview(e: &Engine, project: &str) -> Result<Value, String> {
-    let conn = e.db.conn();
-    let open = query_json(
-        conn,
-        "SELECT id, tags, times_reported FROM observations_open WHERE project = ?1",
-        &[&project],
-        100_000,
-    )?;
-    let mut per_tag: BTreeMap<String, (i64, i64)> = BTreeMap::new();
-    for o in &open {
-        let mut tags = texts(&o["tags"]);
-        if tags.is_empty() {
-            tags.push("(no tag)".into());
-        }
-        for t in tags {
-            let x = per_tag.entry(t).or_default();
-            x.0 += 1;
-            x.1 += o["times_reported"].as_i64().unwrap_or(1);
-        }
-    }
-    let per_tag: Map<String, Value> = per_tag
-        .into_iter()
-        .map(|(t, (n, times))| (t, json!({ "open": n, "times_reported": times })))
-        .collect();
-    let recent = query_json(
-        conn,
-        "SELECT id, substr(what, 1, 200) AS what, tags, times_reported FROM observations_all
-         WHERE project = ?1 AND closed IS NULL ORDER BY updated DESC LIMIT 10",
-        &[&project],
-        10,
-    )?;
-    let closed = query_json(
-        conn,
-        "SELECT id, substr(what, 1, 200) AS what, closed, closed_why FROM observations_all
-         WHERE project = ?1 AND closed IS NOT NULL ORDER BY coalesce(merged, updated) DESC LIMIT 10",
-        &[&project],
-        10,
-    )?;
-    let keyed = |rows: Vec<Value>| -> Value {
-        Value::Object(
-            rows.into_iter()
-                .map(|mut r| {
-                    let id = r["id"].as_i64().unwrap_or_default();
-                    r.as_object_mut().map(|o| o.remove("id"));
-                    (format!("O{id}"), r)
-                })
-                .collect(),
-        )
-    };
-    Ok(json!({ "open": open.len(), "per_tag": per_tag, "recent": keyed(recent), "closed_lately": keyed(closed) }))
 }
 
 /// A project's tags for observations, each with what it covers; none when it has none.
@@ -5089,19 +4301,6 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
                 }
             }
         }
-        "set_straight" => {
-            if let Some(round) = matter["round"].as_i64() {
-                let fit = query_json(
-                    conn,
-                    "SELECT json_extract(output, '$.outcome.fit') AS fit FROM rounds WHERE work = ?1 AND n = ?2",
-                    &[&matter["work"].as_i64().unwrap_or_default(), &round],
-                    1,
-                )?;
-                if let Some(f) = fit.first().map(|r| r["fit"].clone()).filter(|f| !f.is_null()) {
-                    material.insert("understanding_verdict".into(), f);
-                }
-            }
-        }
         "other_architect" => {
             if let Some(answers) = matter["body"]["answers"].as_i64() {
                 material.insert(
@@ -5113,12 +4312,6 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
                         1,
                     )?),
                 );
-            }
-        }
-        // The hash of the constitution a check keeps tells the architect nothing.
-        CHECK => {
-            if let Some(b) = matter["body"].as_object_mut() {
-                b.remove(CONSTITUTION);
             }
         }
         _ => {}
@@ -5198,9 +4391,9 @@ fn side_reports_once(e: &Engine, reports: &[Value]) -> Result<Value, String> {
         g["work_now"] = json!(match row {
             None => "no such work".to_string(),
             Some((_, _, Some(_), _)) => "its item was cancelled".to_string(),
-            Some((_, Some(why), None, _)) => format!("it ended: {why}"),
-            Some((_, None, None, true)) => "it merged".to_string(),
-            Some((at, None, None, false)) if at == end => "it is done".to_string(),
+            Some((_, Some(why), None, _)) if why != db::ENDED_DONE => format!("it ended: {why}"),
+            Some((_, _, None, true)) => "it merged".to_string(),
+            Some((at, _, None, false)) if at == end => "it is done".to_string(),
             Some(_) => "it goes on".to_string(),
         });
     }
@@ -5290,148 +4483,9 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
     Ok(Some(out))
 }
 
-/// The items and works the matter in hand concerns, each in full, as the fields of the matter and of its material name
-/// them: the item it concerns; in its material, and in the place to set straight or the cancelled item it holds, an
-/// item, items, and the item of a work or of works; up to twelve. A number in a text, its words' or a step's, names no
-/// item: by "matter #2" or "item 1 to 5" there, it concerns none. The observations the place to set straight names
-/// follow, whole.
-fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let Some(m) = picked(conn, w.id)? else {
-        return Ok(None);
-    };
-    let mut ids = BTreeSet::new();
-    let mut observations = BTreeSet::new();
-    let row = query_json(conn, "SELECT item, body FROM architect_matters WHERE id = ?1", &[&m], 1)?;
-    if let Some(r) = row.first() {
-        ids_of(&r["item"], &mut ids);
-        let body = &r["body"];
-        for part in [body, &body["fix"], &body["cancelled"]] {
-            ids_of(&part["item"], &mut ids);
-            for i in items(part.get("items")) {
-                ids_of(&i, &mut ids);
-            }
-            for o in items(part.get("observations")) {
-                ids_of(&o, &mut observations);
-            }
-            let mut works = BTreeSet::new();
-            ids_of(&part["work"], &mut works);
-            for x in items(part.get("works")) {
-                ids_of(&x, &mut works);
-            }
-            for work in works {
-                let item: Option<i64> = conn
-                    .query_row("SELECT item FROM works WHERE id = ?1", [work], |r| {
-                        r.get::<_, Option<i64>>(0)
-                    })
-                    .optional()
-                    .map_err(sql)?
-                    .flatten();
-                ids.extend(item);
-            }
-        }
-    }
-    let mut out = Map::new();
-    for id in ids.into_iter().take(12) {
-        if let Some(x) = item_in_full(e, id)? {
-            out.insert(format!("#{id}"), x);
-        }
-    }
-    for id in observations.into_iter().take(12) {
-        let rows = query_json(
-            conn,
-            "SELECT id, title, what, tags, source, refs, times_reported, folded_into, closed FROM observations
-             WHERE id = ?1",
-            &[&id],
-            1,
-        )?;
-        if let Some(o) = rows.into_iter().next() {
-            out.insert(format!("O{id}"), o);
-        }
-    }
-    Ok((!out.is_empty()).then_some(Value::Object(out)))
-}
-
-/// The architect's recent log entries on the item the matter picked concerns: each matter about it handled, with what
-/// the round that handled it said.
-fn item_log(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
-    let conn = e.db.conn();
-    let Some(m) = picked(conn, w.id)? else {
-        return Ok(None);
-    };
-    let item: Option<i64> = conn
-        .query_row("SELECT item FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
-        .map_err(sql)?;
-    let Some(item) = item else { return Ok(None) };
-    let rows = query_json(
-        conn,
-        "SELECT h.matter, h.kind, h.what, 'R' || h.work || '-' || h.round AS round, h.cell, h.said
-         FROM work_handled h JOIN architect_matters m ON m.id = h.matter
-         WHERE m.item = ?1 ORDER BY h.work DESC, h.round DESC LIMIT 12",
-        &[&item],
-        12,
-    )?;
-    Ok((!rows.is_empty()).then_some(Value::Array(rows)))
-}
-
-/// The significant words of a text: four letters or more, in lower case.
-fn words(text: &str) -> BTreeSet<String> {
-    text.split(|c: char| !c.is_alphanumeric())
-        .filter(|w| w.chars().count() >= 4)
-        .map(str::to_lowercase)
-        .collect()
-}
-
-/// The items whose title or problem is close to those at hand, and the works under way whose branches changed the
-/// same paths as the work the matter came from. At hand is the matter picked, and at the review the batch's changes.
-/// An item is close when it shares two words with them that most of its project's items do not have.
+/// The works under way whose branches changed the same paths as the work the matter came from.
 fn similar_items(e: &Engine, w: &Work) -> Result<Value, String> {
     let conn = e.db.conn();
-    let at_hand_text = matter_text(e, w)?;
-    let at_hand = words(&at_hand_text);
-    let rows: Vec<(Value, BTreeSet<String>)> = query_json(
-        conn,
-        "SELECT id AS item, project, title, problem FROM items WHERE cancelled IS NULL",
-        &[],
-        100_000,
-    )?
-    .into_iter()
-    .map(|r| {
-        let mine = words(&format!("{} {}", text(&r["title"]), text(&r["problem"])));
-        (r, mine)
-    })
-    .collect();
-    // How many of each project's items have each word, and how many items it has.
-    let mut df: BTreeMap<&str, (usize, BTreeMap<&str, usize>)> = BTreeMap::new();
-    for (r, mine) in &rows {
-        let p = df.entry(text(&r["project"])).or_default();
-        p.0 += 1;
-        for x in mine {
-            *p.1.entry(x.as_str()).or_default() += 1;
-        }
-    }
-    let common = |project: &str, word: &str| {
-        df.get(project)
-            .and_then(|(n, f)| f.get(word).map(|k| *k > 1 && k * 2 > *n))
-            .unwrap_or(false)
-    };
-    let mut close: Vec<(usize, Value)> = rows
-        .iter()
-        .filter_map(|(r, mine)| {
-            let shared: Vec<&String> = mine
-                .intersection(&at_hand)
-                .filter(|x| !common(text(&r["project"]), x))
-                .collect();
-            (shared.len() >= 2).then(|| {
-                (
-                    shared.len(),
-                    json!({ "item": r["item"], "project": r["project"], "title": r["title"], "shared_words": shared }),
-                )
-            })
-        })
-        .collect();
-    close.sort_by_key(|x| std::cmp::Reverse(x.0));
-    let close: Vec<Value> = close.into_iter().take(10).map(|x| x.1).collect();
     // The paths each work under way changed on its branch, against the work the matter came from.
     let mut same_paths = Vec::new();
     let from_work = picked(conn, w.id)?.and_then(|m| {
@@ -5472,7 +4526,7 @@ fn similar_items(e: &Engine, w: &Work) -> Result<Value, String> {
             }
         }
     }
-    Ok(json!({ "close_items": close, "same_paths": same_paths }))
+    Ok(json!({ "same_paths": same_paths }))
 }
 
 /// The owner's answer to the ask that held the matter picked, when it comes back with one.
@@ -5641,64 +4695,6 @@ mod tests {
         assert!(sentences(" \n ").is_empty());
     }
 
-    // A place to set straight the queue holds already is the same place of the same kind, at the same place in words
-    // however spaced and cased, or about the same items; another kind or other items is another place.
-    #[test]
-    fn a_place_to_set_straight_is_the_same_by_its_place_or_its_items() {
-        let queued = json!({ "kind": "order", "where": "The parser  before the lexer", "items": [4, 5] });
-        let again = json!({ "kind": "order", "where": "the parser before the lexer", "items": [] });
-        assert!(same_place(&queued, &again));
-        assert!(same_place(
-            &queued,
-            &json!({ "kind": "order", "where": "Elsewhere", "items": [5, 4] })
-        ));
-        assert!(!same_place(
-            &queued,
-            &json!({ "kind": "split", "where": "The parser before the lexer" })
-        ));
-        assert!(!same_place(
-            &queued,
-            &json!({ "kind": "order", "where": "Elsewhere", "items": [4] })
-        ));
-        assert!(!same_place(
-            &json!({ "kind": "missing", "where": "a", "items": [] }),
-            &json!({ "kind": "missing", "where": "b", "items": [] })
-        ));
-    }
-
-    // The commits since the architect's last work are the latest 60, each by its message's first sentence, a long one
-    // cut at a word to 120 characters, then how many earlier ones there are.
-    #[test]
-    fn the_commits_since_the_last_work_are_the_latest_sixty_by_their_first_sentence() {
-        let long = format!("Make the {}parser faster. Then measure it", "very ".repeat(40));
-        let log = |n: usize| -> String {
-            (0..n)
-                .map(|i| {
-                    let message = if i == 0 {
-                        long.as_str()
-                    } else {
-                        "Fix the lexer. It dropped a token"
-                    };
-                    format!("{i:07x} 2026-10-{:02} {message}\n", 29 - i / 10)
-                })
-                .collect()
-        };
-        let v = commits(&log(75), "2026-10-23 11:35 UTC");
-        let rows: Vec<&str> = v.as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
-        assert_eq!(rows.len(), 61, "{v}");
-        assert_eq!(
-            rows[0],
-            format!("0000000 2026-10-29 Make the {}very…", "very ".repeat(21))
-        );
-        assert!(rows[0].chars().count() - "0000000 2026-10-29 ".len() <= COMMIT_MOST);
-        assert_eq!(rows[1], "0000001 2026-10-29 Fix the lexer.");
-        assert_eq!(rows[59], "000003b 2026-10-24 Fix the lexer.");
-        assert_eq!(rows[60], "and 15 earlier commits since 2026-10-23 11:35 UTC");
-        let v = commits(&log(61), "2026-10-23 11:35 UTC");
-        assert_eq!(v[60], "and 1 earlier commit since 2026-10-23 11:35 UTC");
-        assert_eq!(commits(&log(60), "x").as_array().unwrap().len(), 60);
-    }
-
     #[test]
     fn a_row_names_an_article_by_its_number_or_its_title() {
         let a = "Article 1. Independent of any project; developed by itself";
@@ -5821,24 +4817,6 @@ mod tests {
     }
 
     #[test]
-    fn candidates_over_ten_and_closed_ones_are_all_told() {
-        let list: Vec<Value> = (1..=11).map(|id| json!({ "id": id })).collect();
-        let found = candidates_problems(&list, |id| Ok(id % 2 == 0)).unwrap();
-        assert_eq!(found.texts().len(), 7, "{found:?}");
-        assert_eq!(found.texts()[0], "at most ten candidates, and there are 11");
-        assert_eq!(found.texts()[1], "1 is no open observation of the project");
-        assert_eq!(found.texts()[6], "11 is no open observation of the project");
-        assert!(candidates_problems(&list[..10], |_| Ok(true)).unwrap().is_empty());
-        assert_eq!(
-            candidates_problems(&list[..10], |id| Ok(id != 3))
-                .unwrap()
-                .texts()
-                .len(),
-            1
-        );
-    }
-
-    #[test]
     fn a_policy_that_quotes_names_a_cell_a_date_and_an_item_is_told_all_four() {
         let said_by_owner = vec![
             "The owner wants the course kept steady for all the projects. Short one.".to_string(),
@@ -5854,7 +4832,7 @@ mod tests {
                 "the policy quotes the owner's words: \"The owner wants the course kept steady for all the projects\"",
                 "the policy names the cell Q1 of the flow",
                 "the policy names a date",
-                "the policy names the item #12: what to do next under it is thought out at cell N1, never written into it",
+                "the policy names the item #12: what to do next under it is thought out at cell B2, never written into it",
             ]
         );
         let clean = json!({ "text": "Keep the course steady." });
@@ -5874,63 +4852,5 @@ mod tests {
         assert!(title_language_problem("English", &format!("{wide} input")).is_some());
         assert!(title_language_problem("English", "Parse the input first").is_none());
         assert!(title_language_problem("French", "Analyser l'entree").is_none());
-    }
-
-    // Each cell whose closing is checked is told, in the formats it is given, the most characters the check lets its
-    // decision log line hold: a limit the agent learns only from a send-back costs a round each time.
-    #[test]
-    fn a_cell_that_closes_a_matter_is_told_the_most_its_log_line_holds() {
-        let f = flow::compile(
-            flow::FLOW,
-            &flow::Context {
-                relations: db::relations(db::SCHEMA).unwrap(),
-                tables: db::index_of(db::SCHEMA).unwrap(),
-            },
-        )
-        .unwrap();
-        let limit = format!("of at most {LOG_LINE_MOST} characters");
-        let mut told = 0;
-        for g in &f.graphs {
-            for c in &g.cells {
-                if !c.checks.iter().any(|x| x.check == "closing_given") {
-                    continue;
-                }
-                let given = format!(
-                    "{}\n{}",
-                    flow::formats::common_format_of(g, &sessions::format_cells(g, c)),
-                    flow::formats::cell_format(g, c)
-                );
-                let log = given
-                    .split("\"description\":\"")
-                    .find(|d| d.starts_with("One line, in English"))
-                    .unwrap_or_else(|| panic!("{} {} is not given the log line's description", g.name, c.id));
-                assert!(
-                    log.split('"').next().unwrap().contains(&limit),
-                    "{} {}: {log}",
-                    g.name,
-                    c.id
-                );
-                told += 1;
-            }
-        }
-        assert!(told > 0, "no cell checks a closing");
-    }
-
-    // What a matter's session leaves as it ends is told every problem at once: an empty or long log line, one of two
-    // lines, and an answer with no why.
-    #[test]
-    fn a_closing_with_several_things_wrong_is_told_all_of_them() {
-        let good = json!({ "log": "Made #3 to fix the parser, for #2.", "plan": "no", "plan_why": "Nothing moved.",
-                           "base": "holds", "base_why": "Nothing it read changed." });
-        assert!(closing_problems(&good).into_result().is_ok());
-        let bad = json!({ "log": format!("{}\nmore", "x".repeat(700)), "plan": "yes", "plan_why": "", "base": "holds",
-                          "base_why": " " });
-        let Err(p) = closing_problems(&bad).into_result() else {
-            panic!("a closing with problems passed");
-        };
-        let said = format!("{p:?}");
-        for part in ["more than one line", "characters", "plan has no why", "base has no why"] {
-            assert!(said.contains(part), "{part}: {said}");
-        }
     }
 }

@@ -47,6 +47,24 @@ pub fn lifted(g: &CompiledGraph, cell: &CompiledCell, mut out: Value) -> Value {
     out
 }
 
+/// Each list the cell's schema requires of the whole return that the return left out, as an empty list. The line's
+/// envelope, the same for every cell of the line, cannot require what only some cells do, so the command line lets such
+/// a return through; and a list left out says what an empty one says.
+fn empty_lists(cell: &CompiledCell, out: &mut Value) {
+    let Some(schema) = cell.schema.as_ref() else { return };
+    let Some(o) = out.as_object_mut() else { return };
+    for name in schema["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if schema["properties"][name]["type"] == "array" && !o.contains_key(name) {
+            o.insert(name.to_string(), json!([]));
+        }
+    }
+}
+
 /// A return as the engine takes it, and what was done to it that the round records.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Taken {
@@ -71,6 +89,7 @@ pub fn as_taken(g: &CompiledGraph, cell: &CompiledCell, out: Value) -> Taken {
         None => (out, false),
     };
     let mut out = lifted(g, cell, out);
+    empty_lists(cell, &mut out);
     let foreign_nulls = cell
         .schema
         .as_ref()
@@ -239,6 +258,8 @@ pub struct Recovery {
     pub record: Value,
     /// What the repair by the lowest level cost, in dollars.
     pub repair_cost: f64,
+    /// The model time of the repair's run, as its usage record keeps it; Null when no repair ran.
+    pub repair_api_ms: Value,
 }
 
 /// Repairs, within its round, a return the command line gave up on: takes the last attempt as it is when its text is
@@ -263,6 +284,7 @@ pub fn recover(
         .collect();
     let mut record = json!({ "attempts": attempts });
     let mut repair_cost = 0.0;
+    let mut repair_api_ms = Value::Null;
     let last = reply.refused.last();
     let whole = last.and_then(|u| serde_json::from_str::<Value>(&u.raw).ok().filter(Value::is_object));
     match last.filter(|u| !cut_off(&u.raw, u.length)) {
@@ -277,6 +299,7 @@ pub fn recover(
                 again: None,
                 record,
                 repair_cost,
+                repair_api_ms,
             };
         }
         Some(u) => {
@@ -289,17 +312,20 @@ pub fn recover(
                     again: None,
                     record,
                     repair_cost,
+                    repair_api_ms,
                 };
             }
-            let (repaired, cost, taken) = repair(e, req, round, u, cell, accepts);
+            let (repaired, cost, api_ms, taken) = repair(e, req, round, u, cell, accepts);
             record["repair"] = repaired;
             repair_cost = cost;
+            repair_api_ms = api_ms;
             if taken.is_some() {
                 return Recovery {
                     output: taken,
                     again: None,
                     record,
                     repair_cost,
+                    repair_api_ms,
                 };
             }
         }
@@ -340,6 +366,7 @@ pub fn recover(
         again: Some(again),
         record,
         repair_cost,
+        repair_api_ms,
     }
 }
 
@@ -352,11 +379,11 @@ fn repair(
     u: &Refused,
     cell: &CompiledCell,
     accepts: &dyn Fn(&Engine, &Value) -> Result<(), String>,
-) -> (Value, f64, Option<Value>) {
+) -> (Value, f64, Value, Option<Value>) {
     let name = e.config.config.lowest_level();
     let Some((level, cli)) = e.config.config.level(&name).map(|(l, c)| (l.clone(), c.clone())) else {
         let why = format!("no level of the configuration repairs it: {name}");
-        return (json!({ "refused": why }), 0.0, None);
+        return (json!({ "refused": why }), 0.0, Value::Null, None);
     };
     let schema = cell.schema.clone().unwrap_or(Value::Null);
     let prompt = format!(
@@ -394,15 +421,16 @@ fn repair(
     let tell = |what: &str| e.activity(round.work, round.n, what);
     let r = e.sessions().run(&ask, &agent::telling(&tell));
     let cost = r.usage["session_cost_usd"].as_f64().unwrap_or(0.0);
+    let api_ms = r.usage[sessions::cli::API_MS].clone();
     let mut record = json!({ "level": name, "model": level.model, "session": r.session, "cost_usd": cost });
     match repaired(e, &r, u, accepts) {
         Ok(v) => {
             record["taken"] = json!(true);
-            (record, cost, Some(v))
+            (record, cost, api_ms, Some(v))
         }
         Err(why) => {
             record["refused"] = json!(why);
-            (record, cost, None)
+            (record, cost, api_ms, None)
         }
     }
 }
@@ -525,6 +553,29 @@ mod tests {
         assert!(same_content("{\"a\": \"\u{1f600}\"}", r#"{"a": "\ud83d\ude00"}"#));
         // The repair's answer is read from a fenced block when it wrote one.
         assert_eq!(json_text("Here:\n```json\n{\"a\": 1}\n```"), "{\"a\": 1}");
+    }
+
+    // A return of the architect's B1 lacked `tell_owner` six times since W300, each a round sent back for nothing: a list
+    // left out is taken as empty. A text left out is not made up.
+    #[test]
+    fn a_list_the_schema_requires_left_out_is_taken_as_empty() {
+        let f = compiled();
+        let g = f.graph("engineer").unwrap();
+        let cell = g.cell("L2").unwrap();
+        let schema = cell.schema.clone().unwrap();
+        let answer = json!({ "learned": "Fact (2026-11-04): one read gives the rows and the total (R1-2)" });
+        let ret = json!({
+            "side_reports": [],
+            "flow_feedback": "none",
+            "progress": "Chose one statement",
+            "outcome": answer,
+        });
+        assert!(!flow::valid(&schema, &ret));
+        let taken = as_taken(g, cell, ret);
+        assert_eq!(taken.out["tell_owner"], json!([]));
+        assert!(flow::valid(&schema, &taken.out), "{}", taken.out);
+        let no_text = json!({ "tell_owner": [], "side_reports": [], "progress": "p", "outcome": answer });
+        assert!(as_taken(g, cell, no_text).out.get("flow_feedback").is_none());
     }
 
     // A text cut off is never repaired: shorter than the command line reported it, or not ending in a closing brace.

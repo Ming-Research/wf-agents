@@ -8,7 +8,7 @@ use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
 use crate::Engine;
-use crate::work::{RoundId, query_json};
+use crate::work::query_json;
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -141,29 +141,6 @@ fn hand_written(line: &str) -> String {
     )
 }
 
-/// The route a change that creates an item gives it: the normal route when it gives none.
-fn route_of(c: &Value) -> &str {
-    match text(c, "route").trim() {
-        "" => "normal",
-        r => r,
-    }
-}
-
-/// Why a route a change gives an item does not fit it: no route there is, or the light route of a bug fix or a feature
-/// for an item that delivers a report, which only a change goes; none when it fits.
-fn route_unfit(route: &str, deliver: &str) -> Option<String> {
-    match route {
-        "normal" => None,
-        "bugfix" | "feature" if deliver == "change" => None,
-        "bugfix" | "feature" => Some(format!(
-            "it gives the route {route} to an item that delivers a {deliver}: only a change goes the light route"
-        )),
-        other => Some(format!(
-            "there is no route \"{other}\": a route is normal, bugfix or feature"
-        )),
-    }
-}
-
 /// Whether a title a change gives, an item's or an observation's, is within `max`, the installation's `items.title_max`,
 /// as [`config::title_width`] counts it; otherwise says how wide it is.
 pub(crate) fn title_fits(title: &str, max: usize, bad: &mut dyn FnMut(String)) {
@@ -174,16 +151,14 @@ pub(crate) fn title_fits(title: &str, max: usize, bad: &mut dyn FnMut(String)) {
 
 /// Whether the changes a project's architect handed in are valid, in order: every change has its reason; an item
 /// created is of the project and has what it needs and a key no other change uses; a title an item is created or
-/// retitled with is within the installation's `items.title_max` ([`config::title_width`]); a route an item is created
-/// with or set to is one there is, the light route of a bug fix or a feature only for an item that delivers a change; a
+/// retitled with is within the installation's `items.title_max` ([`config::title_width`]); a
 /// split gives each acceptance condition of the item split to one new item at most, one of its locked conditions when
 /// its acceptance is locked; every item a change names is there, or made by an earlier change, and an item it changes
 /// is of the project (an item of the project may depend on another project's); every dependency a change makes has its
 /// kind; every dependency a change removes is one the items have then, stored or made by an earlier change and not
 /// removed or cancelled away since; an item is moved first, last, under another item, or next to another item of its
-/// own project; observations folded in are the project's and open; a merge condition has its sentence, and its quotation
-/// is found letter for letter in its record, which is not the architect's own words; and after them the items'
-/// dependencies close no cycle. Otherwise why not, every reason at once.
+/// own project; observations folded in are the project's and open; and after them the items' dependencies close no
+/// cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     validate_from(e, project, changes, 0)
 }
@@ -198,8 +173,6 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
     let mut next_new = -1;
     // The acceptance conditions each item split gives to its new items so far.
     let mut taken: BTreeMap<i64, BTreeSet<String>> = BTreeMap::new();
-    // What each item the changes create delivers, which the route a later change gives it must fit.
-    let mut delivers: BTreeMap<i64, String> = BTreeMap::new();
     // The `approach` of the items the changes make so far.
     let mut approaches = crate::decisions::Approaches::default();
     for (i, c) in changes.iter().enumerate() {
@@ -260,12 +233,8 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 if texts(c, "acceptance").iter().all(|a| a.trim().is_empty()) {
                     bad("it has no acceptance".into());
                 }
-                if let Some(why) = route_unfit(route_of(c), text(c, "deliver")) {
-                    bad(why);
-                }
                 let id = next_new;
                 next_new -= 1;
-                delivers.insert(id, text(c, "deliver").to_string());
                 let under = c.get("under").filter(|v| !v.is_null());
                 if let Some(u) = under {
                     dependency(&u["dependency"], &mut bad);
@@ -387,22 +356,6 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 if text(c, "part") == "title" {
                     title_fits(text(c, "text"), cfg.install.items.title_max as usize, &mut bad);
                 }
-                if text(c, "part") == "route"
-                    && let Some(id) = id
-                {
-                    // An item the batch creates delivers what its change says; any other, what it holds.
-                    let deliver = match delivers.get(&id) {
-                        Some(d) => d.clone(),
-                        None => {
-                            e.db.conn()
-                                .query_row("SELECT deliver FROM items WHERE id = ?1", [id], |r| r.get(0))
-                                .map_err(sql)?
-                        }
-                    };
-                    if let Some(why) = route_unfit(text(c, "text").trim(), &deliver) {
-                        bad(why);
-                    }
-                }
                 if text(c, "part") == "approach" {
                     // The lines of decisions the text had stand; a line it did not have is a decision written by hand.
                     // The text it has now is the one the batch has made of it: a merge of an earlier change carried the
@@ -451,15 +404,6 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 let k = (text(c, "project").to_string(), text(c, "check").to_string());
                 if !s.red.remove(&k) {
                     bad(format!("{} is no known red check of {}", k.1, k.0));
-                }
-            }
-            "add_merge_condition" => {
-                own(&c["item"], &s, &mut bad);
-                if text(c, "what").trim().is_empty() {
-                    bad("it has no sentence of what must be done before the merge".into());
-                }
-                if let Err(why) = crate::conditions::source_said_by(e.db.conn(), project, &c["source"]) {
-                    bad(why);
                 }
             }
             "fold_observations" => {
@@ -524,19 +468,17 @@ impl From<&str> for Fault {
 }
 
 /// Writes every change, in order, each so that a change refused leaves nothing of itself, and gives what was created and
-/// what was refused. `projects` are the configuration's, for the works a cancellation ends; `round` is the architect's
-/// round that makes them, which a merge condition records.
+/// what was refused. `projects` are the configuration's, for the works a cancellation ends.
 pub fn write_all(
     tx: &Transaction<'_>,
     changes: &[Value],
     projects: &BTreeMap<String, config::Project>,
-    round: RoundId,
 ) -> Result<Written, String> {
     let mut keys: BTreeMap<String, i64> = BTreeMap::new();
     let mut written = Written::default();
     for (i, c) in changes.iter().enumerate() {
         tx.execute_batch("SAVEPOINT change").map_err(sql)?;
-        match write_one(tx, c, &mut keys, &mut written.created, projects, round) {
+        match write_one(tx, c, &mut keys, &mut written.created, projects) {
             Ok(()) => tx.execute_batch("RELEASE change").map_err(sql)?,
             Err(Fault::Refused(why)) => {
                 tx.execute_batch("ROLLBACK TO change; RELEASE change").map_err(sql)?;
@@ -582,7 +524,6 @@ fn write_one(
     keys: &mut BTreeMap<String, i64>,
     created: &mut Vec<Value>,
     projects: &BTreeMap<String, config::Project>,
-    round: RoundId,
 ) -> Result<(), Fault> {
     // What came of it reaches the architect by itself: an item whose merge came first is not cancelled, and a report
     // says so; the rest of the batch stands either way, as its links moved before the cancel do.
@@ -599,8 +540,8 @@ fn write_one(
                 .filter(|p| !p.is_empty())
                 .map(|p| Value::Array(p.clone()).to_string());
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted, route, decision_points)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted, decision_points)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     text(c, "project"),
                     text(c, "title"),
@@ -610,7 +551,6 @@ fn write_one(
                     text(c, "deliver"),
                     text(c, "level"),
                     json_of("acceptance"),
-                    route_of(c),
                     points
                 ],
             )
@@ -713,12 +653,6 @@ fn write_one(
                     tx.execute("UPDATE items SET approach = ?2 WHERE id = ?1", params![keep, carried])
                         .map_err(sql)?;
                 }
-                // So do the owner's merge conditions on it, which only a judgment takes away.
-                tx.execute(
-                    "UPDATE merge_conditions SET item = ?1 WHERE item = ?2",
-                    params![keep, a],
-                )
-                .map_err(sql)?;
                 cancel(a, &format!("merged into item {keep}: {reason}"))?;
             }
         }
@@ -743,18 +677,11 @@ fn write_one(
                 "problem" => "problem",
                 "why" => "why",
                 "approach" => "approach",
-                "route" => "route",
                 other => return Err(format!("an item has no part {other}").into()),
-            };
-            // A route is a word, which the check found to be one there is.
-            let value = if column == "route" {
-                text(c, "text").trim()
-            } else {
-                text(c, "text")
             };
             tx.execute(
                 &format!("UPDATE items SET {column} = ?2 WHERE id = ?1"),
-                params![item_of(&c["item"], keys)?, value],
+                params![item_of(&c["item"], keys)?, text(c, "text")],
             )
             .map_err(sql)?;
         }
@@ -791,33 +718,12 @@ fn write_one(
             )
             .map_err(sql)?;
         }
-        "add_merge_condition" => {
-            let item = item_of(&c["item"], keys)?;
-            let project: String = tx
-                .query_row("SELECT project FROM items WHERE id = ?1", [item], |r| r.get(0))
-                .map_err(sql)?;
-            let source = &c["source"];
-            let said_by = crate::conditions::source_said_by(tx, &project, source).map_err(Fault::Refused)?;
-            db::record_merge_condition(
-                tx,
-                &db::MergeCondition {
-                    item,
-                    what: text(c, "what"),
-                    source: text(source, "from"),
-                    source_id: source["id"].as_i64().unwrap_or_default(),
-                    quote: text(source, "quote"),
-                    said_by,
-                    recorded_by: "architect",
-                    round: Some((round.work, round.n)),
-                },
-            )
-            .map_err(sql)?;
-        }
         "fold_observations" => {
             let item = item_of(&c["item"], keys)?;
             for o in items(c.get("observations")) {
+                // One folded already stays in the item that took it first.
                 tx.execute(
-                    "UPDATE observations SET folded_into = ?2 WHERE id = ?1",
+                    "UPDATE observations SET folded_into = ?2 WHERE id = ?1 AND folded_into IS NULL",
                     params![number(&o).unwrap_or_default(), item],
                 )
                 .map_err(sql)?;
@@ -877,136 +783,11 @@ mod tests {
 
     use super::*;
 
-    /// The architect's round that makes the changes of a test.
-    const ROUND: RoundId = RoundId { work: 1, n: 1 };
-
-    // A merge condition the architect records keeps the sentence it wrote and says who the record says said the words: the
-    // owner, a part a delegate declared the owner's own as relayed, or the delegate's own words as the delegate's. A
-    // quotation its record does not hold, and a record of the architect's own words, are refused and write nothing.
-    #[test]
-    fn a_merge_condition_is_recorded_saying_who_said_its_words_and_is_refused_when_its_record_does_not_hold_them() {
-        let mut db = Db::in_memory().unwrap();
-        let change = |from: &str, id: i64, quote: &str| {
-            json!({ "kind": "add_merge_condition", "item": 1, "what": "Run it twice before the merge.",
-                    "source": { "from": from, "id": id, "quote": quote }, "reason": "r" })
-        };
-        let written = db
-            .write(Actor::Architect, |tx| {
-                tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-                tx.execute(
-                    "INSERT INTO items (project, title, problem, why, deliver, level)
-                     VALUES ('p', 't', 'x', 'y', 'change', '1')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'M1')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
-                     VALUES (1, 1, 'I1', '{}', 'c', 1)",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}',
-                     '{\"by\":\"owner\",\"at\":1,\"text\":\"OK\",\"speaker\":\"owner\"}')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT INTO architect_matters (project, kind, detail, what, body, at)
-                     VALUES ('p', 'owner_words', 'said', 'w', ?1, 1)",
-                    [
-                        json!({ "text": "Run it twice first. Then ship.", "where": "page", "speaker": "delegate",
-                             "relayed": ["Run it twice first."] })
-                        .to_string(),
-                    ],
-                )?;
-                tx.execute(
-                    "INSERT INTO interjections (work, speaker, text) VALUES (1, 'architect', 'Run it once.')",
-                    [],
-                )?;
-                let changes = [
-                    change("ask", 1, "OK"),
-                    change("matter", 1, "Run it twice first."),
-                    change("matter", 1, "Then ship."),
-                    change("ask", 1, "Never said."),
-                    change("interjection", 1, "Run it once."),
-                ];
-                write_all(tx, &changes, &BTreeMap::new(), ROUND).map_err(db::Error::Abort)
-            })
-            .unwrap();
-        let refused: Vec<(usize, bool)> = written
-            .refused
-            .iter()
-            .map(|(i, why)| (*i, why.contains("not found") || why.contains("architect's own words")))
-            .collect();
-        assert_eq!(refused, [(3, true), (4, true)], "{:?}", written.refused);
-        let rows = query_json(
-            db.conn(),
-            "SELECT what, source, source_id, quote, said_by, recorded_by, recorded_work, recorded_round, status
-             FROM item_merge_conditions ORDER BY id",
-            &[],
-            10,
-        )
-        .unwrap();
-        let row = |source: &str, id: i64, quote: &str, said_by: &str| {
-            json!({ "what": "Run it twice before the merge.", "source": source, "source_id": id, "quote": quote,
-                    "said_by": said_by, "recorded_by": "architect", "recorded_work": 1, "recorded_round": 1,
-                    "status": "open" })
-        };
-        assert_eq!(
-            rows,
-            [
-                row("ask", 1, "OK", "owner"),
-                row("matter", 1, "Run it twice first.", "relayed"),
-                row("matter", 1, "Then ship.", "delegate"),
-            ]
-        );
-    }
-
     #[test]
     fn a_cycle_is_found_and_a_chain_is_not() {
         assert!(cycle(&[(1, 2), (2, 3), (3, 1)]));
         assert!(!cycle(&[(1, 2), (2, 3), (1, 3)]));
         assert!(!cycle(&[]));
-    }
-
-    // Only an item that delivers a change goes the light route of a bug fix or a feature; a report goes the normal
-    // route, and a route that is none of the three is refused saying which there are. An item made with no route goes
-    // the normal route, and the database refuses a report on the light route however it is written.
-    #[test]
-    fn only_a_change_goes_the_light_route() {
-        for route in ["normal", "bugfix", "feature"] {
-            assert_eq!(route_unfit(route, "change"), None, "{route}");
-        }
-        assert_eq!(route_unfit("normal", "report"), None);
-        assert_eq!(
-            route_unfit("bugfix", "report").as_deref(),
-            Some("it gives the route bugfix to an item that delivers a report: only a change goes the light route")
-        );
-        assert_eq!(
-            route_unfit("light", "change").as_deref(),
-            Some("there is no route \"light\": a route is normal, bugfix or feature")
-        );
-        assert_eq!(route_of(&json!({ "kind": "create_item" })), "normal");
-        assert_eq!(
-            route_of(&json!({ "kind": "create_item", "route": "feature" })),
-            "feature"
-        );
-        let mut db = Db::in_memory().unwrap();
-        let made = |db: &mut Db, deliver: &str, route: &str| {
-            db.write(Actor::Architect, |tx| {
-                tx.execute(
-                    "INSERT INTO items (project, title, problem, why, deliver, level, route)
-                     VALUES ('p', 't', 'x', 'y', ?1, 'l', ?2)",
-                    params![deliver, route],
-                )?;
-                Ok(())
-            })
-        };
-        assert!(made(&mut db, "change", "bugfix").is_ok());
-        assert!(made(&mut db, "report", "normal").is_ok());
-        assert!(made(&mut db, "report", "feature").is_err());
     }
 
     #[test]
@@ -1048,7 +829,7 @@ mod tests {
         let moved = |db: &mut Db, to: Value| {
             let change = json!({ "kind": "move", "item": 5, "to": to, "reason": "r" });
             db.write(Actor::Architect, |tx| {
-                write_all(tx, &[change], &BTreeMap::new(), ROUND).map_err(db::Error::Abort)
+                write_all(tx, &[change], &BTreeMap::new()).map_err(db::Error::Abort)
             })
             .unwrap();
         };
@@ -1099,7 +880,7 @@ mod tests {
         let removed = |db: &mut Db, item: &str, on: &str| {
             let change = json!({ "kind": "remove_dependency", "item": item, "on": on, "reason": "r" });
             db.write(Actor::Architect, |tx| {
-                write_all(tx, &[change], &BTreeMap::new(), ROUND).map_err(db::Error::Abort)
+                write_all(tx, &[change], &BTreeMap::new()).map_err(db::Error::Abort)
             })
             .unwrap();
         };
@@ -1150,7 +931,7 @@ mod tests {
         ];
         let written = db
             .write(Actor::Architect, |tx| {
-                write_all(tx, &changes, &BTreeMap::new(), ROUND).map_err(db::Error::Abort)
+                write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)
             })
             .unwrap();
         let refused: Vec<(usize, bool)> = written
@@ -1211,7 +992,7 @@ mod tests {
                 json!({ "kind": "cancel", "item": "2", "goes": "nowhere", "reason": "r" }),
                 json!({ "kind": "merge", "keep": "1", "absorbed": ["3"], "reason": "the same" }),
             ];
-            write_all(tx, &changes, &projects, ROUND).map_err(db::Error::Abort)?;
+            write_all(tx, &changes, &projects).map_err(db::Error::Abort)?;
             Ok(())
         })
         .unwrap();
@@ -1263,7 +1044,7 @@ mod tests {
             let merge = |keep: &str, gone: &str| {
                 json!({ "kind": "merge", "keep": keep, "absorbed": [gone], "reason": "the same" })
             };
-            write_all(tx, &[merge("1", "2"), merge("3", "4")], &BTreeMap::new(), ROUND).map_err(db::Error::Abort)?;
+            write_all(tx, &[merge("1", "2"), merge("3", "4")], &BTreeMap::new()).map_err(db::Error::Abort)?;
             Ok(())
         })
         .unwrap();
@@ -1300,7 +1081,7 @@ mod tests {
                         "deliver": "change", "reason": "r" }),
                 json!({ "kind": "fold_observations", "item": "faster", "observations": [1], "reason": "r" }),
             ];
-            write_all(tx, &changes, &BTreeMap::new(), ROUND).map_err(db::Error::Abort)?;
+            write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)?;
             Ok(())
         })
         .unwrap();
@@ -1326,7 +1107,7 @@ mod tests {
                         "deliver": "change", "reason": "r" })
             };
             let changes = [made("known", json!("Cache the parse.")), made("unknown", Value::Null)];
-            write_all(tx, &changes, &BTreeMap::new(), ROUND).map_err(db::Error::Abort)?;
+            write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)?;
             Ok(())
         })
         .unwrap();
@@ -1364,7 +1145,7 @@ mod tests {
                 [],
             )?;
             let edit = json!({ "kind": "edit_acceptance", "item": 1, "acceptance": ["New wording."], "reason": "r" });
-            write_all(tx, &[edit], &BTreeMap::new(), ROUND).map_err(db::Error::Abort)?;
+            write_all(tx, &[edit], &BTreeMap::new()).map_err(db::Error::Abort)?;
             Ok(())
         })
         .unwrap();

@@ -72,16 +72,14 @@ fn design_approved(conn: &Connection, work: i64) -> Result<bool, String> {
 /// answer went to the engineer as the owner's words when it came.
 type ChangeAsk = (i64, i64, Option<Value>, bool);
 
-/// The latest ask of the change, the gate's asks of merge conditions apart.
+/// The latest ask of the change.
 fn latest_ask(conn: &Connection, work: i64) -> Result<Option<ChangeAsk>, String> {
     let row: Option<(i64, i64, Option<String>, bool)> = conn
         .query_row(
             &format!(
                 "SELECT a.id, a.round, a.answer, json_extract(a.body, '$.relayed') IS NOT NULL FROM owner_asks a
                  JOIN rounds r ON r.work = a.work AND r.n = a.round
-                 WHERE a.work = ?1 AND json_extract(a.body, '$.condition') IS NULL
-                   AND (r.cell IN {} OR json_extract(a.body, '$.kind') = ?2)
-                 ORDER BY a.id DESC LIMIT 1",
+                 WHERE a.work = ?1 AND (r.cell IN {} OR json_extract(a.body, '$.kind') = ?2) ORDER BY a.id DESC LIMIT 1",
                 db::cells_sql(ENGINEER, &[GATE])
             ),
             params![work, CHANGE],
@@ -113,19 +111,15 @@ fn after(conn: &Connection, work: i64, cell: &str, n: i64, transition: Option<&s
         .any(|r| r.id.n > n && transition.is_none_or(|t| r.transition.as_deref() == Some(t))))
 }
 
-/// Whether the merge gate waits for the review of the work's design or an ask of the decision points the research left,
-/// which have no answer yet: the gate's level `approvals`, before the merge conditions, since what they say may change
-/// the work the owner would judge those on.
-pub fn awaited(conn: &Connection, work: i64) -> Result<bool, String> {
-    Ok(crate::review::waits(conn, work)?.is_some() || !unanswered_points(conn, work)?.is_empty())
-}
-
-/// Where the owner's approval of the change stands, for the merge gate's value `gates` once every level before it is
-/// clear: for a change that touches a path the owner approves, `clear` when the owner approved it, `answered` when the
-/// owner answered its ask otherwise than approved and the answer has not gone to the engineer yet, and `owner` when the
-/// owner is to be asked, or is asked and has not answered; `clear` otherwise. An ask the engine closed as the work
-/// stopped waiting has no answer of the owner's, and is put again.
+/// What the merge gate waits for of the owner once every item depended on is merged and every finding set aside is
+/// judged: `approvals` while the review of the work's design or an ask of the decision points the research left has no
+/// answer; then, for a change that touches a path the owner approves, `clear` when the owner approved it, `answered`
+/// when the owner answered its ask otherwise than approved and the answer has not gone to the engineer yet, and `owner`
+/// when the owner is to be asked, or is asked and has not answered; `clear` otherwise.
 pub fn gate(conn: &Connection, p: &config::Project, w: &Work) -> Result<&'static str, String> {
+    if crate::review::waits(conn, w.id)?.is_some() || !unanswered_points(conn, w.id)?.is_empty() {
+        return Ok("approvals");
+    }
     if touched(p, w)?.is_empty() || design_approved(conn, w.id)? {
         return Ok("clear");
     }
@@ -135,9 +129,6 @@ pub fn gate(conn: &Connection, p: &config::Project, w: &Work) -> Result<&'static
     let Some(answer) = answer else {
         return Ok("owner");
     };
-    if answer["by"] == "engine" {
-        return Ok("owner");
-    }
     if answer["text"].as_str().unwrap_or_default().trim() == APPROVED {
         return Ok("clear");
     }
@@ -160,9 +151,8 @@ fn change_to_ask(conn: &Connection, p: &config::Project, w: &Work) -> Result<boo
         None => true,
         Some((_, _, None, _)) => false,
         Some((_, n, Some(a), relayed)) => {
-            a["by"] == "engine"
-                || (a["text"].as_str().unwrap_or_default().trim() != APPROVED
-                    && (relayed || after(conn, w.id, GATE, n, Some(RELAYED))?))
+            a["text"].as_str().unwrap_or_default().trim() != APPROVED
+                && (relayed || after(conn, w.id, GATE, n, Some(RELAYED))?)
         }
     })
 }
@@ -192,12 +182,6 @@ pub fn ask(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     };
     if let Some(b) = crate::blockers::open(tx, w.id)? {
         crate::blockers::set_ask(tx, b.id, id)?;
-        // The blocker stays open from a merge condition's ask to this one, and says what it waits on now.
-        let what = format!(
-            "{} waits for the owner's approval of the change before it merges",
-            crate::blockers::about(ctx)
-        );
-        crate::blockers::set_what(tx, b.id, &what)?;
     }
     Ok(())
 }
@@ -331,21 +315,10 @@ pub fn hold(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     }
 }
 
-/// `relay_owner_answer`: gives the answer to the gate's ask the row is for, of the change or of a merge condition, to the
-/// engineer as the owner's words, saying what was asked and who answered, since a delegate may have.
+/// `relay_owner_answer`: gives the owner's answer to the gate's latest ask to the engineer, as the owner's words.
 pub fn relay(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let w = &ctx.work;
-    let asked = if ctx.row.name == crate::conditions::ANSWERED {
-        crate::conditions::answered(ctx, tx)?
-    } else {
-        match latest_ask(tx, w.id)? {
-            Some((id, _, Some(answer), _)) => {
-                Some((id, answer, "Asked to approve the change before it merges".to_string()))
-            }
-            _ => None,
-        }
-    };
-    let Some((id, answer, what)) = asked else {
+    let Some((id, _, Some(answer), _)) = latest_ask(tx, w.id)? else {
         return Ok(());
     };
     let images = db::attachments::of(tx, db::attachments::Words::Ask(id)).map_err(sql)?;
@@ -353,18 +326,9 @@ pub fn relay(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let declared = answer["speaker"]
         .as_str()
         .filter(|s| matches!(*s, "owner" | "delegate"));
-    let who = match declared {
-        Some("delegate") => "the delegate that speaks for the owner",
-        _ => "the owner",
-    };
-    let words = match answer["choice"].as_str() {
-        Some(choice) if text.trim().is_empty() => format!("chose {choice}"),
-        Some(choice) => format!("chose {choice}: {text}"),
-        None => text,
-    };
     tx.execute(
         "INSERT INTO interjections (work, line, speaker, declared, text) VALUES (?1, 'engineer', 'owner', ?2, ?3)",
-        params![w.id, declared, format!("{what}, {who} replied: {words}")],
+        params![w.id, declared, format!("{} {text}", db::RELAY_APPROVAL)],
     )
     .map_err(sql)?;
     Ok(())

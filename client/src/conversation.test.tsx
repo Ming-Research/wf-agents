@@ -91,7 +91,6 @@ const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): Owne
   answer,
   answer_images: [],
   asked_at: 0,
-  condition_item: null,
 });
 
 const entry = (source: string, extra: Partial<ConversationEntry> = {}): ConversationEntry => ({
@@ -117,6 +116,7 @@ const entry = (source: string, extra: Partial<ConversationEntry> = {}): Conversa
   stage: null,
   matter_card: null,
   words_state: null,
+  retract: 'no',
   policy: null,
   plan: null,
   forwards: [],
@@ -249,6 +249,29 @@ describe('an ask in its conversation', () => {
     expect(pinned).toContain('<span class="talk-pinbar-words">Which table?</span>');
     expect(pinned).not.toContain('talk-pinbar-count');
     expect(pinned).not.toContain('<textarea');
+  });
+
+  // The reviews, the points and the changes a work goes on without are put by the line that ran last or by an engine's
+  // step. As a system line their pin led nowhere and nothing answered them.
+  it('draws an ask of any line as a bubble the bar leads to, with what answers it', () => {
+    const a = ask(4, { to: 'owner', kind: 'change' });
+    for (const sender of ['designer', 'review', 'adversarial', 'librarian', 'engine']) {
+      const d = detail([asked(a, { sender })]);
+      expect(pinsOf(d).map((p) => p.id)).toEqual([4]);
+      expect(drawn(d)).toContain('data-ask="4"');
+    }
+  });
+
+  // A design's review holds the whole design in its body: drawn open, one bubble took 20516 pixels of the conversation.
+  it('says a change or a design review in its words, the body folded under them, with what answers it', () => {
+    for (const kind of ['change', 'design_review']) {
+      const a = ask(4, { to: 'owner', kind, asked: [{ what: 'The design', value: { design: 'Long text.' } }] });
+      const r = row(drawn(detail([asked(a, { text: 'Reply exactly approved to approve it.' })])), 'data-ask="4"');
+      const { inside } = bubble(r);
+      expect(inside).toContain('Reply exactly approved to approve it.');
+      expect(inside).toContain('talk-fold');
+      expect(r).toContain('textarea');
+    }
   });
 
   it('is answered where it was asked: its options picked on their boxes, none at first, then a small box and Answer', () => {
@@ -680,7 +703,7 @@ describe('the questions an architect put to the owner in its one-to-one', () => 
     expect(replyingTo(pinned, null, 6)).toBeNull();
     // One chosen that no longer waits: the one the architect waits on again.
     expect(replyingTo(pinned, 99, 6)?.id).toBe(6);
-    const reply: Reply = { question: 6, words: approve.text, clear: () => undefined, aboutOneItem: false };
+    const reply: Reply = { question: 6, words: approve.text, clear: () => undefined };
     const box = renderToStaticMarkup(<Composer c={one} w={null} reply={reply} />);
     const strip = box.slice(0, box.indexOf('<textarea'));
     expect(strip).toContain('<div class="talk-reply-strip">');
@@ -997,13 +1020,13 @@ describe('the marks of the list of conversations', () => {
     };
     // Never run, or idle at its start: ready, saying whether matters wait for it.
     expect(marked(architect([]), status())).toMatchObject({ state: 'ready', icon: 'circle', says: 'idle: nothing in its queue' });
-    const idle = architect([work(9, { state: 'done', at: 'E2' })], { queue: [matter(1)] });
+    const idle = architect([work(9, { state: 'done', at: 'R1' })], { queue: [matter(1)] });
     expect(architectMark(idle, status())).toEqual({ state: 'ready', words: 'takes up the matters waiting' });
     // Every work paused while matters wait for it, and the owner has not started it: paused; started, ready again.
     expect(marked(idle, status({ paused: true }))).toMatchObject({ state: 'paused', icon: 'pause', says: 'held back: every work is paused' });
     expect(architectMark(idle, status({ paused: true, architects_started: ['p'] })).state).toBe('ready');
     // A round of it running: the halo.
-    const going = architect([work(10, { state: 'running' }), work(9, { state: 'done', at: 'E2' })]);
+    const going = architect([work(10, { state: 'running' }), work(9, { state: 'done', at: 'R1' })]);
     expect(marked(going, status({ running: [10] }))).toMatchObject({ state: 'running', icon: 'halo', says: 'working' });
     // Held back while it works, by the owner's pause or every work paused: paused, as its head says why.
     const stopped = architect([work(10, { state: 'paused', paused: 'the owner paused it', paused_by: 'owner' })]);
@@ -1020,8 +1043,8 @@ describe('the marks of the list of conversations', () => {
     // Waiting for the owner's next words, its answer having left the talk open: waiting, whether the engine steps it
     // to look for the owner's words or not.
     const waiting = architect([
-      work(10, { state: 'waiting', at: 'Q0', waits: { kind: 'row', cell: 'Q0', row: 'listens' } }),
-      work(9, { state: 'done', at: 'E2' }),
+      work(10, { state: 'waiting', at: 'N0', waits: { kind: 'row', cell: 'N0', row: 'listens' } }),
+      work(9, { state: 'done', at: 'R1' }),
     ]);
     const listening = { ...waiting, works: waiting.works.map((w, i) => (i === 0 ? { ...w, listens: true } : w)) };
     for (const running of [[], [10], [3, 10], []]) {

@@ -2,63 +2,6 @@
 
 use super::*;
 
-/// The scripts of a test of the understanding's rounds: the project's first understanding answers at once; its second
-/// round of the understanding in the test, the first round of a later session's, asks for tools, and the round after
-/// it answers.
-fn understanding_asks_for_tools_once() -> BTreeMap<&'static str, Script> {
-    let mut agents = scripts();
-    agents.insert(
-        "U1",
-        Box::new(|_: &Request, n: usize| {
-            if n == 2 {
-                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    agents
-}
-
-/// The hash and whether it was given of the talk (`owner_talk`) a round's input records, if it records one.
-fn talk_recorded(input: &Value) -> Option<(String, bool)> {
-    input["conditional"]
-        .as_array()?
-        .iter()
-        .find(|m| m["address"].as_str().is_some_and(|a| a.ends_with("·engine·owner_talk")))
-        .map(|m| {
-            (
-                m["hash"].as_str().unwrap_or_default().to_string(),
-                m["given"].as_bool().unwrap_or(false),
-            )
-        })
-}
-
-/// The number of each round of a work at a cell, oldest first.
-fn rounds_numbered(e: &Engine, work: i64, cell: &str) -> Vec<i64> {
-    let mut st =
-        e.db.conn()
-            .prepare("SELECT n FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n")
-            .unwrap();
-    st.query_map(params![work, cell], |r| r.get(0))
-        .unwrap()
-        .map(|x| x.unwrap())
-        .collect()
-}
-
-/// The input a work's round of a given number was sent.
-fn input_numbered(e: &Engine, work: i64, n: i64) -> Value {
-    let input: String =
-        e.db.conn()
-            .query_row(
-                "SELECT input FROM rounds WHERE work = ?1 AND n = ?2",
-                params![work, n],
-                |r| r.get(0),
-            )
-            .unwrap();
-    db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
-}
-
 /// The message the first round of reading project p for its first base was sent, when the owner had said each of
 /// `texts` to it, oldest first, and the project's notebook holds nothing yet. The words are no matters any longer, so
 /// that no reply of the architect's comes into the talk before the reading: a planning for slots free starts the work.
@@ -90,11 +33,11 @@ fn first_understanding_after(name: &str, texts: &[String]) -> String {
     .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "B1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let u1 = input_at(&e, arch, "U1", false);
+    let u1 = input_at(&e, arch, "B1", false);
     assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
     let m = u1["message"].as_str().unwrap().to_string();
     let _ = std::fs::remove_dir_all(&s.root);
@@ -186,7 +129,7 @@ fn say_with_an_image(e: &mut Engine, text: &str) {
 #[test]
 fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_asks_and_images() {
     let s = setup("owner-talk-window");
-    let (mut e, said) = engine(&s, base_wrong_later(scripts()));
+    let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Alpha talk. ALPHAEND");
@@ -202,7 +145,7 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE rounds SET started_at = ?1 - 30000,
-                    ended_at = ?1 - CASE WHEN cell = 'U1' THEN 20000 ELSE 0 END WHERE work = ?2",
+                    ended_at = ?1 - CASE WHEN cell = 'B1' THEN 20000 ELSE 0 END WHERE work = ?2",
             params![t, one],
         )?;
         tx.execute("UPDATE architect_matters SET at = ?1 - 100000", [t])?;
@@ -246,18 +189,19 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
     ask(&mut e, "QSTRADDLE?", t - 35_000, Some(("ASTRADDLE", t + 3_000)), 0);
     ask(&mut e, "QOPEN?", t + 5_000, None, 0);
     ask(&mut e, "QNEW?", t + 4_000, Some(("ANEW", t + 6_000)), 2);
-    // The owner's words now, with one image.
+    // The owner's words now, with one image, and a new base due.
+    a_new_policy_takes_effect(&mut e);
     say_with_an_image(&mut e, "Beta talk. BETAEND");
     let two = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "B1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
     let sessions = architect_sessions(&e, one, two);
     assert_eq!(sessions.len(), 2, "{sessions:?}\n{log}");
-    let u1 = input_at(&e, two, "U1", false);
+    let u1 = input_at(&e, two, "B1", false);
     assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
     let m = u1["message"].as_str().unwrap();
     for gone in ["ALPHAEND", "QOLD", "AOLD"] {
@@ -292,75 +236,13 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Every round of a new session's understanding is told the same talk. The understanding that asks for tools first is
-// given its inputs again at its next round, after the first round has begun the session and its row exists: the cut
-// must not move to the session's own first round, which would leave that round with almost nothing and the talk it was
-// first given held in a session that no longer matches it. The reference is the talk of the first round: the second
-// round records the same content (the same hash) and refers to it, not gives it again, and the first is told the
-// second words, not the first.
+// With no previous session there is no lower bound: the project's first understanding is told the talk from before its
+// session began.
 #[test]
-fn the_rounds_of_a_new_sessions_understanding_are_all_told_the_same_talk() {
-    let (s, e, said, works) = architect_works_in(
-        "owner-talk-rounds",
-        understanding_asks_for_tools_once(),
-        &[(0, "Alpha talk. ALPHAEND"), (90 * 60_000, "Beta talk. BETAEND")],
-        true,
-    );
-    let log = said.lock().unwrap().join("\n");
-    let rounds = rounds_numbered(&e, works[1], "U1");
-    assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
-    let (first, second) = (
-        input_numbered(&e, works[1], rounds[0]),
-        input_numbered(&e, works[1], rounds[1]),
-    );
-    let m = first["message"].as_str().unwrap();
-    assert!(m.contains("BETAEND") && !m.contains("ALPHAEND"), "{m}");
-    let (before, after) = (talk_recorded(&first).expect(&log), talk_recorded(&second).expect(&log));
-    assert_eq!(
-        (before.1, after.1),
-        (true, false),
-        "given once, then referred to: {first}\n{second}"
-    );
-    assert_eq!(before.0, after.0, "the same talk at both rounds");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// With no previous session there is no lower bound, at any round of the project's first understanding: the round after
-// tools, which runs when the session's own row exists, is told the very talk the first round was, the owner's words
-// from before the session began included, and refers to it. The reference is the design: no answered understanding of
-// the project, no cut.
-#[test]
-fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bound() {
-    // The first round of the understanding, the project's first, asks for tools; the round after answers.
-    let mut agents = scripts();
-    agents.insert(
-        "U1",
-        Box::new(|_: &Request, n: usize| {
-            if n == 1 {
-                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    let (s, e, said, works) =
-        architect_works_in("owner-talk-first-rounds", agents, &[(0, "Alpha talk. ALPHAEND")], false);
-    let log = said.lock().unwrap().join("\n");
-    let rounds = rounds_numbered(&e, works[0], "U1");
-    assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
-    let (first, second) = (
-        input_numbered(&e, works[0], rounds[0]),
-        input_numbered(&e, works[0], rounds[1]),
-    );
-    let m = first["message"].as_str().unwrap();
+fn the_first_understanding_is_told_the_talk_with_no_lower_bound() {
+    let (s, e, _, works) = architect_works_in("owner-talk-first", scripts(), &[(0, "Alpha talk. ALPHAEND")], false);
+    let m = message_at(&e, works[0], "B1", false);
     assert!(m.contains("ALPHAEND"), "said before the session began, and told: {m}");
-    let (before, after) = (talk_recorded(&first).expect(&log), talk_recorded(&second).expect(&log));
-    assert_eq!(
-        (before.1, after.1),
-        (true, false),
-        "given once, then referred to: {first}\n{second}"
-    );
-    assert_eq!(before.0, after.0, "the same talk at both rounds");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -371,7 +253,7 @@ fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bo
 #[test]
 fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
     let s = setup("owner-talk-kinds");
-    let (mut e, said) = engine(&s, base_wrong_later(scripts()));
+    let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Alpha talk. ALPHAEND");
@@ -388,11 +270,11 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
         said.lock().unwrap().join("\n")
     );
     age_architect(&mut e, 90 * 60_000);
-    // The base began with its reading of the project, after the owner's words were answered.
+    // The base began with its reading of the project.
     let cut: i64 =
         e.db.conn()
             .query_row(
-                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'U1'",
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'B1'",
                 [one],
                 |r| r.get(0),
             )
@@ -421,14 +303,15 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
         Ok(())
     })
     .unwrap();
+    a_new_policy_takes_effect(&mut e);
     say(&mut e, "Beta talk. BETAEND");
     let two = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "B1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let u1 = input_at(&e, two, "U1", false);
+    let u1 = input_at(&e, two, "B1", false);
     assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
     let m = u1["message"].as_str().unwrap();
     assert!(!m.contains("TALKOLD"), "said before the session before began: {m}");

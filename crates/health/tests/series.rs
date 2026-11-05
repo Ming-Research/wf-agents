@@ -292,16 +292,17 @@ fn a_merge_that_broke_main_counts_where_its_check_ended() {
         output,
         ..R::default()
     };
-    s.round(check(w, "L1", T0 + 3 * M, broken()));
+    // The cell is `M1` now and was `L1` before: rounds of both count.
+    s.round(check(w, "M1", T0 + 3 * M, broken()));
     s.round(check(w, "L1", T0 + 3 * M - 1, broken()));
     s.round(check(
         w,
-        "L1",
+        "M1",
         T0 + 4 * M + 10,
         Some(json!({ "main": { "kind": "environment_changed" } })),
     ));
-    s.round(check(w, "L2", T0 + 6 * M, broken()));
-    s.round(check(v, "L1", T0 + 5 * M, broken()));
+    s.round(check(w, "M2", T0 + 6 * M, broken()));
+    s.round(check(v, "M1", T0 + 5 * M, broken()));
     s.round(check(old, "L1", T0 + 7 * M, broken()));
     assert_eq!(s.minutes("merge.broken", p()), ten(&[(2, 1.0), (3, 1.0)], Some(0.0)));
     assert_eq!(
@@ -380,7 +381,7 @@ fn the_context_is_the_median_and_the_largest_of_the_rounds_that_ended() {
         agent: false,
         ..agent(w, "I1", T0 + 5 * M + 1, usage(&[(0, 9000, 0)]))
     });
-    s.round(agent(a, "U1", T0 + 5 * M + 2, usage(&[(700, 0, 0)])));
+    s.round(agent(a, "B1", T0 + 5 * M + 2, usage(&[(700, 0, 0)])));
     assert_eq!(s.minutes("round.context", p()), ten(&[(1, 2500.0), (5, 700.0)], None));
     assert_eq!(
         s.minutes("round.context_max", p()),
@@ -392,7 +393,7 @@ fn the_context_is_the_median_and_the_largest_of_the_rounds_that_ended() {
         ten(&[(1, 4000.0)], None)
     );
     assert_eq!(s.minutes("round.context", of("engineer/T3")), ten(&[(1, 3000.0)], None));
-    assert_eq!(s.minutes("round.context", of("architect/U1")), ten(&[(5, 700.0)], None));
+    assert_eq!(s.minutes("round.context", of("architect/B1")), ten(&[(5, 700.0)], None));
     // From 90 s: 2000 (at 90 s itself), 3000, 4000 and 700.
     assert_eq!(s.whole("round.context", p()), Some(2500.0));
     assert_eq!(s.whole("round.context_max", p()), Some(4000.0));
@@ -406,7 +407,7 @@ fn the_context_is_the_median_and_the_largest_of_the_rounds_that_ended() {
     )
     .unwrap();
     let names: Vec<&str> = by.iter().map(|(x, _)| x.as_str()).collect();
-    assert_eq!(names, ["architect/U1", "engineer/I1", "engineer/T3"]);
+    assert_eq!(names, ["architect/B1", "engineer/I1", "engineer/T3"]);
     assert_eq!(by[1].1.points[0].value, Some(2000.0));
 }
 

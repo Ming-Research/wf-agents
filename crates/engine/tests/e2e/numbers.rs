@@ -25,8 +25,8 @@ fn given_whole(e: &Engine, work: i64, cell: &str, last: bool, end: &str) -> Opti
 
 // Item 231, A6: the numbers the architect is given count up to the moment they are given, not to the start of its work.
 // After a work of the architect has started and been given its numbers, the flow merges an item, an item is made and one
-// cancelled, and a round of the work itself spends: the numbers its next round at the understanding is given count all
-// of them in the latest week, say up to when they count (`up_to`, no earlier than those records and no later than the
+// cancelled, and a round of the work itself spends: the numbers its next round at the plan is given count all of them in
+// the latest week, say up to when they count (`up_to`, no earlier than those records and no later than the
 // round's start), and leave the week before as it was. What each week spent is split between the items' works and the
 // architect's, the work's own rounds until then among the architect's.
 #[test]
@@ -34,7 +34,7 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
     let s = setup("numbers");
     let mut agents = scripts();
     agents.insert(
-        "U1",
+        "B2",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
@@ -68,7 +68,7 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
         move |e: &mut Engine| {
             cells_of(e, arch)
                 .iter()
-                .any(|c| c.0 == "U1" && c.1.as_deref() == Some(row))
+                .any(|c| c.0 == "B2" && c.1.as_deref() == Some(row))
         }
     };
     assert!(
@@ -76,7 +76,7 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let first = given_whole(&e, arch, "U1", false, "·engine·numbers").expect("the first numbers");
+    let first = given_whole(&e, arch, "B2", false, "·engine·numbers").expect("the first numbers");
     // What happens after the work started and was given its numbers: a merge by the flow, an item made and one
     // cancelled, and the work's own round that asked for tools costing a dollar.
     let after = db::now();
@@ -92,7 +92,7 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
             params![tx.last_insert_rowid(), merged, after],
         )?;
         tx.execute(
-            "UPDATE rounds SET usage = '{\"cost_usd\":1.0}' WHERE work = ?1 AND cell = 'U1' AND transition = 'tools'",
+            "UPDATE rounds SET usage = '{\"cost_usd\":1.0}' WHERE work = ?1 AND cell = 'B2' AND transition = 'tools'",
             [arch],
         )?;
         Ok(())
@@ -110,15 +110,15 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
     .unwrap();
     let recorded = db::now();
     assert!(
-        steps_until(&mut e, 10, took("to_plan")),
+        steps_until(&mut e, 10, took("planned")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let second = given_whole(&e, arch, "U1", true, "·engine·numbers").expect("the second numbers");
+    let second = given_whole(&e, arch, "B2", true, "·engine·numbers").expect("the second numbers");
     let (n, started): (i64, i64) =
         e.db.conn()
             .query_row(
-                "SELECT n, started_at FROM rounds WHERE work = ?1 AND cell = 'U1' ORDER BY n DESC LIMIT 1",
+                "SELECT n, started_at FROM rounds WHERE work = ?1 AND cell = 'B2' ORDER BY n DESC LIMIT 1",
                 [arch],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -189,16 +189,16 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
     say(&mut e, "Look at the numbers.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "B2")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let numbers = given_value(&message_at(&e, arch, "U1", false), "·engine·numbers").unwrap();
+    let numbers = given_value(&message_at(&e, arch, "B2", false), "·engine·numbers").unwrap();
     assert_eq!(numbers["weeks"][0]["items_made"], 2, "{numbers}");
     let start: i64 =
         e.db.conn()
             .query_row(
-                "SELECT started_at FROM rounds WHERE work = ?1 AND cell = 'U1' ORDER BY n LIMIT 1",
+                "SELECT started_at FROM rounds WHERE work = ?1 AND cell = 'B2' ORDER BY n LIMIT 1",
                 [arch],
                 |r| r.get(0),
             )
@@ -315,7 +315,7 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
     quiet(&mut e);
     let (item, other) = (an_item(&mut e), an_item_more(&mut e));
     seed_a_week_of_numbers(&mut e, item, other);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B2");
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let numbers = given_value(&m, "·engine·numbers").expect(&m);
     let measures = numbers["measures"].as_object().unwrap();
@@ -425,12 +425,12 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended, project)
-             VALUES (NULL, ?1, 'architect', 'E2', 'over', 'p')",
+             VALUES (NULL, ?1, 'architect', 'R1', 'over', 'p')",
             [v],
         )?;
         let set = tx.last_insert_rowid();
         record_round(tx, set, 1, "P2", &written, "written")?;
-        record_round(tx, set, 2, "P12", &json!({}), "next")
+        record_round(tx, set, 2, "P3", &json!({}), "next")
     })
     .unwrap();
     let check = architect_work_at(&mut e, "P1");

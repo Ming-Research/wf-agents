@@ -11,7 +11,7 @@ use super::*;
 fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_found() {
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return (Vec::new(), Vec::new());
@@ -29,7 +29,7 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
         }),
     );
     agents.insert(
-        "G2",
+        "C2",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -42,7 +42,7 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
             )
         }),
     );
-    let seen = keep_requests(&mut agents, &["G2"]);
+    let seen = keep_requests(&mut agents, &["C2"]);
     let (s, e, said, works) = architect_works_in(
         "second-eye",
         agents,
@@ -53,10 +53,10 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["Q0", "Q2", "H8", "G1", "G2", "Q2", "H8", "G1", "G2", "Q0", "E2"],
+        ["N0", "N2", "H1", "C1", "C2", "N2", "H1", "C1", "C2", "N0", "R1"],
         "{log}"
     );
-    assert_eq!(rows_at(&e, second, "G2"), ["problems", "sound"], "{log}");
+    assert_eq!(rows_at(&e, second, "C2"), ["problems", "sound"], "{log}");
     let cancelled: Option<String> =
         e.db.conn()
             .query_row("SELECT cancelled FROM items WHERE id = 1", [], |r| r.get(0))
@@ -71,13 +71,19 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
     };
     assert_eq!(states, ["revised", "made"], "{log}");
     // The session that handed the cancel in is told what the second eye found, and revises it in that session.
-    let again = message_at(&e, second, "H8", true);
+    let again = message_at(&e, second, "H1", true);
     assert!(again.contains("Its acceptance has no other home."), "{again}");
     let base = base_session(&e, first);
     assert_eq!(
         sessions_of(&e, second),
         [
-            ("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true),
+            (
+                "matter".to_string(),
+                "fork".to_string(),
+                Some(base.clone()),
+                false,
+                true
+            ),
             (
                 "second_eye".to_string(),
                 "fork".to_string(),
@@ -119,13 +125,13 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let item = a_ready_item(&mut e, "Lex it");
-    let arch = architect_work_at(&mut e, "Q0");
+    let arch = architect_work_at(&mut e, "N0");
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET paused = 'later', paused_by = 'owner' WHERE id = ?1",
             [arch],
         )?;
-        record_round(tx, arch, 1, "H8", &json!({}), "done")?;
+        record_round(tx, arch, 1, "H1", &json!({}), "done")?;
         let m = a_matter(tx, "Order the items.", None, json!({}))?;
         let change = json!({ "kind": "add_dependency", "item": item.to_string(), "on": "99", "dependency": "blocking",
                              "reason": "r" });
@@ -225,33 +231,56 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// `N1` hands in one row for each place to set straight, with every step it means to take there, and the
-// engine queues the row as one matter, which says its steps.
+// `B2` hands in its steps, most first, and the engine queues each as one matter, in that order, ahead of a report; they
+// take the place of the steps of the plan before no session took, while a measure the policy needs stays.
 #[test]
-fn a_place_to_set_straight_is_one_matter_with_its_steps() {
-    let s = setup("straight");
+fn the_plan_s_steps_are_queued_in_its_order_and_replace_those_of_the_plan_before() {
+    let s = setup("steps");
     let mut agents = scripts();
     agents.insert(
-        "N1",
+        "B2",
         Box::new(|_: &Request, _: usize| {
-            let fixes = json!([{ "where": "The policy's second stage", "items": [], "works": [], "kind": "missing",
-                                 "wrong": "No item does it.",
-                                 "steps": ["Make the items lex and parse", "Rank them before #5",
-                                           "Have #5 wait for parse"] }]);
-            (
-                vec![("outcome.fit", "some_to_change")],
-                vec![("outcome.fit.fixes", fixes)],
-            )
+            let steps = json!([
+                { "what": "Make the item lex", "why": "The direction needs it." },
+                { "what": "Have #5 wait for lex", "why": "It builds on it." }
+            ]);
+            (Vec::new(), vec![("outcome.steps", steps)])
         }),
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    // A new session understands the project from its first question on.
-    let arch = architect_work_at(&mut e, "U1");
-    let straight = |e: &Engine| -> Vec<String> {
+    let arch = architect_work_at(&mut e, "B1");
+    e.db.write(Actor::Engine, |tx| {
+        for (what, body) in [
+            (
+                "An old step",
+                json!({ "fix": { "where": "An old step", "steps": ["An old step"] } }),
+            ),
+            (
+                "A measure",
+                json!({ "fix": { "where": "A measure" }, "measure": { "measure": "m" } }),
+            ),
+        ] {
+            db::queue_matter(
+                tx,
+                &db::Matter {
+                    project: "p".into(),
+                    kind: "set_straight".into(),
+                    detail: None,
+                    what: what.into(),
+                    body,
+                    item: None,
+                    raised: None,
+                },
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let open = |e: &Engine| -> Vec<String> {
         engine::query_json(
             e.db.conn(),
-            "SELECT what FROM architect_matters WHERE kind = 'set_straight'",
+            "SELECT what FROM architect_matters WHERE kind = 'set_straight' AND withdrawn IS NULL ORDER BY id",
             &[],
             10,
         )
@@ -261,17 +290,14 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
         .collect()
     };
     for _ in 0..12 {
-        if !straight(&e).is_empty() {
+        if open(&e).len() > 2 {
             break;
         }
         e.step_work(arch).unwrap();
     }
     assert_eq!(
-        straight(&e),
-        [
-            "To set straight, The policy's second stage: Make the items lex and parse; Rank them before #5; Have #5 wait \
-          for parse"
-        ],
+        open(&e),
+        ["A measure", "Make the item lex", "Have #5 wait for lex"],
         "{}",
         said.lock().unwrap().join("\n")
     );
@@ -290,7 +316,7 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
         { "kind": "move", "item": "spend", "to": { "place": "before", "item": "1" }, "reason": "r" },
     ]);
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -336,7 +362,7 @@ fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
     let path = config::database(&s.data);
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, n: usize| {
             if n > 2 {
                 return (Vec::new(), Vec::new());
@@ -381,7 +407,7 @@ fn an_item_title_wider_than_the_installations_limit_is_sent_back() {
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let rejected = why_sent_back(&e, arch, "H8");
+    let rejected = why_sent_back(&e, arch, "H1");
     assert_eq!(rejected.len(), 1, "{rejected:?}");
     assert!(
         rejected[0].contains("item change 1 (create_item): the title is 26 wide and a title is 24 wide at most")
@@ -435,7 +461,7 @@ fn a_batch_removes_a_dependency_and_the_review_makes_it() {
         { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "It does not, on a second look." },
     ]);
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, _: usize| {
             (
                 Vec::new(),
@@ -487,7 +513,7 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
     // The items are numbered 1 to 5 in order: the parser, the lexer, the tokens, one to do later and one of project q.
     // The parser depends on the lexer and the tokens, and the item of q on the lexer.
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -539,7 +565,7 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    let rejected = why_sent_back(&e, arch, "H8");
+    let rejected = why_sent_back(&e, arch, "H1");
     assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
     for reason in [
         "item change 2 (remove_dependency): item 1 does not depend on item 2",
@@ -659,80 +685,6 @@ fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Only an item that delivers a change goes the light route: an answer that creates a report marked a bug fix, and marks
-// that report a feature, is sent back saying so of each; handed in again with the report on the normal route and a
-// change marked a bug fix, its changes are made, each item with its route.
-#[test]
-fn a_report_marked_for_the_light_route_is_sent_back() {
-    let s = setup("route-of-a-report");
-    let path = config::database(&s.data);
-    let mut agents = scripts();
-    agents.insert(
-        "H8",
-        Box::new(move |_: &Request, n: usize| {
-            if n > 2 {
-                return (Vec::new(), Vec::new());
-            }
-            let (route, item, part) = if n == 1 {
-                ("bugfix", "measure", "feature")
-            } else {
-                ("normal", "1", "bugfix")
-            };
-            let changes = versioned(&path, json!([
-                { "kind": "create_item", "key": "measure", "project": "p", "title": "Measure the parse",
-                  "problem": "Its time is unknown.", "why": "Needed.", "acceptance": ["It is measured."], "level": "l",
-                  "deliver": "report", "route": route, "reason": "r" },
-                { "kind": "edit_item", "item": item, "part": "route", "text": part, "reason": "r" },
-            ]));
-            (
-                Vec::new(),
-                vec![("outcome.effects", json!({ "item_changes": changes }))],
-            )
-        }),
-    );
-    let (mut e, said) = engine(&s, agents);
-    quiet(&mut e);
-    an_item(&mut e);
-    say(&mut e, "Measure the parse.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let rejected = why_sent_back(&e, arch, "H8");
-    assert_eq!(rejected.len(), 1, "{rejected:?}");
-    assert!(
-        rejected[0].contains(
-            "item change 1 (create_item): it gives the route bugfix to an item that delivers a report: only a change \
-             goes the light route"
-        ) && rejected[0]
-            .contains("item change 2 (edit_item): it gives the route feature to an item that delivers a report"),
-        "{rejected:?}"
-    );
-    let routes: Vec<(String, String)> =
-        engine::query_json(e.db.conn(), "SELECT deliver, route FROM items ORDER BY id", &[], 10)
-            .unwrap()
-            .iter()
-            .map(|r| {
-                (
-                    r["deliver"].as_str().unwrap().to_string(),
-                    r["route"].as_str().unwrap().to_string(),
-                )
-            })
-            .collect();
-    let log = said.lock().unwrap().join("\n");
-    assert_eq!(
-        routes,
-        [
-            ("change".to_string(), "bugfix".to_string()),
-            ("report".to_string(), "normal".to_string())
-        ],
-        "{log}"
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // An answer that cancels an item it creates, named by its key, is sent back: an item is never made only to be
 // cancelled, and in the sixth trial a batch held a create, a move and a cancel of one item, which the review could only
 // say in words should go. Handed in again without them, nothing of them is made.
@@ -747,7 +699,7 @@ fn an_answer_that_cancels_an_item_it_creates_is_sent_back_and_never_makes_it() {
         { "kind": "cancel", "item": "spend", "goes": "Not needed: the owner measures it by hand.", "reason": "r" },
     ]);
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -769,10 +721,10 @@ fn an_answer_that_cancels_an_item_it_creates_is_sent_back_and_never_makes_it() {
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    let back = why_sent_back(&e, arch, "H8");
+    let back = why_sent_back(&e, arch, "H1");
     assert_eq!(back.len(), 1, "{log}");
     assert!(back[0].contains("cancels spend, which this answer creates"), "{back:?}");
-    assert!(!path_of(&e, arch).contains(&"G2".to_string()), "{log}");
+    assert!(!path_of(&e, arch).contains(&"C2".to_string()), "{log}");
     let made: i64 =
         e.db.conn()
             .query_row(
@@ -793,7 +745,7 @@ fn the_slots_say_whether_works_run() {
     let s = setup("engine-state");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "N1");
+    let arch = architect_work_at(&mut e, "B2");
     e.set_global_pause(Some(engine::GlobalPause {
         warm: true,
         runs: [7].into(),
@@ -810,63 +762,16 @@ fn the_slots_say_whether_works_run() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The items a matter concerns are read from its fields only: the item it concerns, and in its fix the item, the items
-// and the item of each work it names. A number in a text, its words', a step's or a pull request's, brings in no item.
+// `open_items` says a paused work asked to go on waits to resume, and a work asked to start over is stopping, so that a
+// cell reading it does not ask for either again.
 #[test]
-fn a_matter_s_items_are_read_from_its_fields_never_its_text() {
-    let s = setup("matter-items");
-    let (mut e, _) = engine(&s, scripts());
-    quiet(&mut e);
-    let concerned = a_ready_item(&mut e, "Lex it");
-    let fixed = a_ready_item(&mut e, "Parse it");
-    let listed = a_ready_item(&mut e, "Check it");
-    let worked = a_ready_item(&mut e, "Run it");
-    let only_said = a_ready_item(&mut e, "Print it");
-    let arch = architect_work_at(&mut e, "H8");
-    let v = e.flow_now;
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'R1')",
-            params![worked, v],
-        )?;
-        let work = tx.last_insert_rowid();
-        let fix = json!({ "item": fixed, "items": [listed], "works": [work],
-                          "steps": [format!("Move item {only_said} first, as matter #{only_said} said.")] });
-        let body = json!({ "fix": fix, "said": format!("See PR #{only_said} for the parser.") });
-        let m = a_matter(tx, &format!("Look at item {only_said}."), Some(concerned), body)?;
-        record_round(
-            tx,
-            arch,
-            1,
-            "Q0",
-            &json!({ "queue": { "verdict": "one", "matter": m } }),
-            "one",
-        )
-    })
-    .unwrap();
-    let m = engine::next_message(&mut e, arch).unwrap().text;
-    let items = given_value(&m, "·engine·matter_items").expect(&m);
-    let keys: Vec<&String> = items.as_object().unwrap().keys().collect();
-    let want: Vec<String> = [concerned, fixed, listed, worked]
-        .iter()
-        .map(|i| format!("#{i}"))
-        .collect();
-    assert_eq!(keys, want.iter().collect::<Vec<_>>(), "{items}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// An item's material says what its state does not: a resume that waits for a free slot, on a work that still reads as
-// paused, and a stop asked of a work that still reads as going on. Without it the architect cannot tell the first from
-// a work no one resumed, and asks again or tells the owner the wrong thing.
-#[test]
-fn an_item_s_material_says_a_resume_waits_and_a_work_is_stopping() {
+fn open_items_says_a_resume_waits_and_a_work_is_stopping() {
     let s = setup("material-requests");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
     let resuming = a_ready_item(&mut e, "Lex it");
     let stopped = a_ready_item(&mut e, "Parse it");
     let left = a_ready_item(&mut e, "Check it");
-    let arch = architect_work_at(&mut e, "H8");
     let v = e.flow_now;
     let works: Vec<i64> =
         e.db.write(Actor::Engine, |tx| {
@@ -887,26 +792,13 @@ fn an_item_s_material_says_a_resume_waits_and_a_work_is_stopping() {
         .unwrap();
     api::resume(&mut e.db, works[0]).unwrap();
     api::start_over(&mut e.db, works[1]).unwrap();
-    e.db.write(Actor::Engine, |tx| {
-        let fix = json!({ "items": [resuming, stopped, left] });
-        let m = a_matter(tx, "Look at the three.", None, json!({ "fix": fix }))?;
-        record_round(
-            tx,
-            arch,
-            1,
-            "Q0",
-            &json!({ "queue": { "verdict": "one", "matter": m } }),
-            "one",
-        )
-    })
-    .unwrap();
-    let m = engine::next_message(&mut e, arch).unwrap().text;
-    let items = given_value(&m, "·engine·matter_items").expect(&m);
-    let said = |item: i64, field: &str| items[format!("#{item}")]["state"][0][field].as_bool();
-    assert_eq!(said(resuming, "resuming"), Some(true), "{items}");
-    assert_eq!(said(stopped, "stopping"), Some(true), "{items}");
-    assert_eq!(said(stopped, "resuming"), Some(false), "{items}");
-    assert_eq!(said(left, "resuming"), Some(false), "{items}");
-    assert_eq!(said(left, "stopping"), Some(false), "{items}");
+    let state = |item: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT state FROM open_items WHERE item = ?1", [item], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(state(resuming), "resuming");
+    assert_eq!(state(stopped), "stopping");
+    assert_eq!(state(left), "paused");
     let _ = std::fs::remove_dir_all(&s.root);
 }

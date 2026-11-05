@@ -324,6 +324,7 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     assert_eq!(
         every,
         [
+            "appended",
             "asks",
             "changes",
             "constitution",

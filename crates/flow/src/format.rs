@@ -520,8 +520,12 @@ pub struct Line {
     pub anew: Option<Anew>,
     /// The line whose latest session a new session of this line forks from, so that it holds all that session held
     /// and is given only what it lacks: a matter's session forked from the architect's base. Each matter a work takes
-    /// has a session of its own on such a line. None for a line whose new sessions start empty.
+    /// has a session of its own on such a line, unless it is `whole_run`. None for a line whose new sessions start empty.
     pub forks: Option<String>,
+    /// On a line that forks: all the matters a work takes share one session, until the base changes or the session
+    /// passes the limit of a session's context, so that the next work's first matter forks anew.
+    #[serde(default, rename = "wholeRun")]
+    pub whole_run: bool,
 }
 
 /// A colour a line's role is drawn in on the owner's page (its cells on a chart, its avatar and its bubbles), by the
@@ -875,6 +879,9 @@ pub struct Node {
     /// Lines added to the prompt by a value the engine knows, one list per value.
     #[serde(rename = "promptBy")]
     pub prompt_by: Option<PromptBy>,
+    /// A cell whose message has no `inputs:<cell>`: what it is given says what it is.
+    #[serde(default, rename = "noInputList")]
+    pub no_input_list: bool,
     pub out: Option<Vec<RawField>>,
     pub cases: Option<Vec<RawRow>>,
     pub always: Option<Vec<Always>>,

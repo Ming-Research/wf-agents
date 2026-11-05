@@ -49,30 +49,19 @@ const GUIDE_ADDRESS: &str = "·engine·project_guide";
 const GUIDE_INPUT: &str = "engine·project_guide";
 
 /// What the engine computes that is standard context: large and much the same from round to round, so that a session
-/// is given it once and after that only what changed in it. For the architect's cells, what they read of the project;
-/// a talk with the owner grows by its entries, so that each turn of it is given only the owner's new words, and what
-/// the architect told the owner by its messages. For the reviews, the CI on the work, whose runs change one at a time
-/// (`work_ci`).
-const ENGINE_STANDARD: [&str; 13] = [
+/// is given it once and after that only what changed in it. For the architect's cells, what they read of the project,
+/// what came since the base, which grows by its entries. For the reviews, the CI on the work, whose runs
+/// change one at a time (`work_ci`).
+const ENGINE_STANDARD: [&str; 8] = [
     "constitution",
     "guide",
     "policy",
     "policy_signals",
-    "board",
     "numbers",
-    "observations_overview",
     "observation_tags",
-    "queue",
-    "batch",
-    "talk",
-    "told_owner",
+    "appended",
     "work_ci",
 ];
-
-/// The entries of an input of the standard context that every version of it given as what changed carries whole,
-/// changed or not: the numbers of the matters the architect's queue can be picked from and of those its batch handled,
-/// so that a session given only what changed, round after round, loses track of none.
-pub const INDEXES: [&str; 2] = ["pickable", "handled_matters"];
 
 /// Which input of the standard context an address is a version of: the project guide and what the engine computes as
 /// standard context, whose versions have addresses of their own, or a return format, a list of inputs, a rule, a
@@ -337,11 +326,10 @@ mod tests {
     // else the engine computes for a round is not standard context.
     #[test]
     fn the_architect_s_standard_context_is_known_by_its_input() {
-        assert_eq!(standard("R3-4·engine·board"), Some("engine·board"));
-        assert_eq!(standard("R3-9·engine·queue"), Some("engine·queue"));
-        assert_eq!(standard("R3-4·engine·batch"), Some("engine·batch"));
+        assert_eq!(standard("R3-4·engine·numbers"), Some("engine·numbers"));
+        assert_eq!(standard("R3-4·engine·appended"), Some("engine·appended"));
         assert_eq!(standard("R3-4·engine·matter"), None);
-        assert_eq!(standard("x·engine·board"), None);
+        assert_eq!(standard("x·engine·numbers"), None);
         assert_eq!(standard("R3-4·engine·project_guide"), Some("engine·project_guide"));
         assert_eq!(standard("rule:ground"), Some("rule:ground"));
     }

@@ -69,7 +69,7 @@ export function RoundLink({ work, round, onRound }: { work: number; round: numbe
 }
 
 /// The one way the page writes a round at a cell, wherever it names the two together: the round's name first, then the
-/// cell's code and title in parentheses, "R10-55 (Q0 What can be picked)"; the round alone where its cell is not known,
+/// cell's code and title in parentheses, "R10-55 (N0 What can be picked)"; the round alone where its cell is not known,
 /// and the cell alone where no round has run there yet. Its parts as given, so that a tip's text and the page's part
 /// ([`RoundAt`]) are written alike.
 function roundAt<T>(round: T | null, cell: T | null): (T | string)[] {
@@ -77,7 +77,7 @@ function roundAt<T>(round: T | null, cell: T | null): (T | string)[] {
   return cell === null ? [round] : [round, ' (', cell, ')'];
 }
 
-/// A round at a cell as plain text, for a tip: "R10-55 (Q0 What can be picked)".
+/// A round at a cell as plain text, for a tip: "R10-55 (N0 What can be picked)".
 export function roundAtText(round: string | null, cell: string | null | undefined, title?: string | null): string {
   const named = cell !== undefined && cell !== null && cell !== '' ? (title ? `${cell} ${title}` : cell) : null;
   return roundAt(round, named).join('');

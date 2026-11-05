@@ -77,7 +77,7 @@ fn base_db(model: &str, schema: &str) -> Db {
         )?;
         tx.execute(
             "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at, ended_at, usage)
-             VALUES (1, 1, 'N1', 1, ?1, 'c', ?2, ?3, ?4)",
+             VALUES (1, 1, 'B2', 1, ?1, 'c', ?2, ?3, ?4)",
             params![
                 input.to_string(),
                 BUILT - MINUTE,

@@ -1,7 +1,7 @@
 //! What the engine does at each kind of cell: an agent's round, its own steps, the tool cells, and asking the owner.
 
 use db::Actor;
-use db::rusqlite::{OptionalExtension, Transaction, params};
+use db::rusqlite::{OptionalExtension, params};
 use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, CompiledRow};
 use serde_json::{Map, Value, json};
@@ -11,11 +11,29 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
+use crate::{ARCHITECT, Advance, Engine, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// Whether every interjection a round's message gave (`given`, as the view `waiting_interjections` gave them) is still
+/// in the database as it was given: the owner takes back the words that no agent has taken up yet (`api::take_back`),
+/// which deletes them, and words said after may take the number the deleted ones had, so that the number alone does
+/// not tell; the words do.
+fn interjections_there(conn: &db::rusqlite::Connection, given: &[Value]) -> db::rusqlite::Result<bool> {
+    let listed: Vec<Value> = given
+        .iter()
+        .map(|i| json!({ "id": i["interjection"], "text": i["text"] }))
+        .collect();
+    let there: i64 = conn.query_row(
+        "SELECT count(*) FROM interjections j, json_each(?1) g
+         WHERE j.id = json_extract(g.value, '$.id') AND j.text = json_extract(g.value, '$.text')",
+        [Value::Array(listed).to_string()],
+        |r| r.get(0),
+    )?;
+    Ok(there == given.len() as i64)
 }
 
 /// A round the engine stopped in the middle of is closed as not done; its cell runs again.
@@ -71,7 +89,7 @@ pub fn new_session_why(
         ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
-        sessions::Start::Fork => "the matter's session, forked from the base".into(),
+        sessions::Start::Fork => "forked from the base".into(),
     }
 }
 
@@ -290,8 +308,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     };
     // The matter a session of a line whose sessions are each a matter's is for: the matter in hand.
     let matter = match cell.fork_of {
-        Some(_) => architect::picked(e.db.conn(), w.id)?,
-        None => None,
+        Some(_) if !cell.whole_run => architect::picked(e.db.conn(), w.id)?,
+        _ => None,
     };
     let (sid, resume, new_session, fork) = match plan {
         Plan::Going {
@@ -384,9 +402,17 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // The images the message gives, after its text, each after its address.
     let mut images = Vec::new();
     for i in msg.images.iter().filter(|i| i.given) {
-        let (media_type, bytes) = db::attachments::bytes(e.db.conn(), i.attachment)
-            .map_err(sql)?
-            .ok_or_else(|| format!("{number}: image {} is not kept", i.attachment))?;
+        let Some((media_type, bytes)) = db::attachments::bytes(e.db.conn(), i.attachment).map_err(sql)? else {
+            // The image goes with the words it came with when the owner takes them back: that is no fault, the round
+            // does not start and the next pass builds the message without them.
+            if !interjections_there(e.db.conn(), &interjections).map_err(sql)? {
+                let _ = std::fs::remove_file(&given_again);
+                return Ok(Advance::Waits(format!(
+                    "the owner took back words the message of {number} gave"
+                )));
+            }
+            return Err(format!("{number}: image {} is not kept", i.attachment));
+        };
         images.push(agent::Image {
             address: db::attachments::address(i.attachment),
             media_type,
@@ -467,13 +493,26 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         let runs = e.runs_on(&level);
         crate::warm::before_fork(e, w, &req, &input["call"], &cli_version, &runs)?;
     }
-    let round =
+    // The owner may take back words not taken up yet, and has had the time since the message was built to: the words the
+    // message gave are checked in the write that records the round. One taken back since means the round does not start;
+    // the work waits, and the next pass builds the message again without it.
+    let recorded =
         e.db.write(Actor::Engine, |tx| {
+            if !interjections_there(tx, &interjections)? {
+                return Ok(None);
+            }
             db::keep(tx, &kept)?;
             work::start_numbered(tx, number, &cell.id, Some(sid), &input, &commit, Some(&level.model))
+                .map(Some)
                 .map_err(db::Error::Abort)
         })
         .map_err(sql)?;
+    let Some(round) = recorded else {
+        let _ = std::fs::remove_file(&given_again);
+        return Ok(Advance::Waits(format!(
+            "the owner took back words the message of {number} gave"
+        )));
+    };
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
     let watching = watch::Watch::begin(e, round, started);
     let reply = e.sessions().run(&req, &|seen| watching.see(seen));
@@ -625,6 +664,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         };
         let r = crate::unparsed::recover(e, &req, &reply, round, cell, &accepts);
         let mut record = r.record;
+        // The round's model time is that of every run it made: the first run's, the repair's and the hand-in again's.
+        let mut api_ms = sessions::cli::api_ms_sum(&[reply.usage[sessions::cli::API_MS].clone(), r.repair_api_ms]);
         if let Some(again) = r.again {
             // The hand-in again resumed the round's session: it cost what the session grew by since the first run.
             let was = reply.usage["session_cost_usd"].as_f64();
@@ -637,10 +678,17 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             let compactions = reply.compactions + again.compactions;
             reply = again;
             reply.compactions = compactions;
+            api_ms = sessions::cli::api_ms_sum(&[
+                api_ms.unwrap_or(Value::Null),
+                reply.usage[sessions::cli::API_MS].clone(),
+            ]);
         }
         let mut usage = sessions::cost::own_cost(reply.usage.clone(), before);
         if let Some(c) = usage["cost_usd"].as_f64() {
             usage["cost_usd"] = json!(c + r.repair_cost);
+        }
+        if let Some(ms) = api_ms {
+            usage[sessions::cli::API_MS] = ms;
         }
         ended = Ended {
             usage: Some(usage).filter(|u| !u.is_null()),
@@ -911,8 +959,7 @@ pub fn cell_request(
 
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
 /// advisor, which is the engineer with a higher model; for the architect's base, each matter's session and the second
-/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks; for
-/// the search of observations, the level it names for the observer.
+/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -921,7 +968,6 @@ pub fn level_of(
 ) -> Result<(String, config::Level, config::Cli), String> {
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
-        None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e
@@ -1237,18 +1283,32 @@ pub fn finish(
     Ok(Advance::Moved)
 }
 
-/// What the end of a graph writes besides its round, in the round's transaction.
-type AtEnd<'a> = &'a dyn Fn(&Transaction<'_>) -> Result<(), String>;
-
-/// Ends the round at the graph's end, which has no rows: the work is done.
-fn finish_end(e: &mut Engine, w: &Work, round: RoundId, output: Value, also: AtEnd<'_>) -> Result<Advance, String> {
+/// Ends the round at the graph's end, which has no rows: the work is done. In the same write the work ends
+/// ([`crate::ending::end`]), so that it is never left ended with its last round open, or done and still loaded by the
+/// engine's loop, and the matter `followup` is queued for the architect.
+fn finish_end(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    round: RoundId,
+    output: Value,
+    followup: Option<db::Matter>,
+) -> Result<Advance, String> {
     let ended = Ended {
         output: Some(output),
         ..Ended::default()
     };
+    let projects = &e.config.config.projects;
     e.db.write(Actor::Engine, |tx| {
         work::finish_round(tx, round, &ended).map_err(db::Error::Abort)?;
-        also(tx).map_err(db::Error::Abort)
+        if cell.id == g.end {
+            crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)?;
+        }
+        if let Some(m) = &followup {
+            db::queue_matter(tx, m)?;
+        }
+        Ok(())
     })
     .map_err(sql)?;
     e.say(&format!("work {} done", w.id));
@@ -1447,18 +1507,35 @@ pub fn engine(
             crate::reasoning::check(e, &project, wt, &fork)?
         }
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
-        Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
+        Some("end_architect_work") => {
+            // The run is over: the session its matters shared ends with it, and the next run forks anew.
+            let lines: Vec<&str> = g
+                .cells
+                .iter()
+                .filter(|c| c.whole_run)
+                .filter_map(|c| c.line.as_deref())
+                .collect();
+            e.db.write(Actor::Engine, |tx| {
+                for line in &lines {
+                    sessions::choose::end_line(tx, w.id, line).map_err(db::Error::Abort)?;
+                }
+                Ok(())
+            })
+            .map_err(sql)?;
+            json!({})
+        }
+        Some("end_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some("check_main") => crate::main_watch::check(e, w, round)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };
     if cell.rows.is_empty() {
-        let output = match step.as_deref() {
+        let (output, followup) = match step.as_deref() {
             Some("end_work") => end_work(e, w, g, cell)?,
-            _ => output,
+            _ => (output, None),
         };
-        return finish_end(e, w, round, output, &|_| Ok(()));
+        return finish_end(e, w, g, cell, round, output, followup);
     }
     let row = g.take(&cell.id, &output, &given)?.clone();
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
@@ -1637,19 +1714,12 @@ pub fn waits_for_slot(w: &Work) -> Advance {
 }
 
 /// Whether a row that waits was the last the work took, at this cell: taken again with nothing new, it is not
-/// recorded again. The merge gate's row for merge conditions has something new once the condition it asked of is judged
-/// and another is open: it is taken again, and asks of that one.
+/// recorded again.
 fn waits_again(e: &Engine, w: &Work, cell: &CompiledCell, row: &CompiledRow) -> Result<bool, String> {
     let last = work::rounds(e.db.conn(), w.id)?.pop();
-    let same = last.is_some_and(|r| {
+    Ok(last.is_some_and(|r| {
         r.cell.as_deref() == Some(cell.id.as_str()) && r.transition.as_deref() == Some(row.name.as_str())
-    });
-    match w.item {
-        Some(item) if same && row.name == crate::conditions::JUDGES => {
-            crate::conditions::asked(e.db.conn(), item, w.id)
-        }
-        _ => Ok(same),
-    }
+    }))
 }
 
 /// Takes a row that waits, which the engine chose without running the cell's step: recorded once, with what chose it.
@@ -1715,13 +1785,20 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
     Ok(json!({ "place": place }))
 }
 
-/// Cell `E1`: the work ends as every work does ([`crate::ending::end`]): its sessions end, and its worktree is removed
-/// once the round is written; the branch stays. A work that delivered a report and handed in what to do next queues it
-/// for the architect, as a matter of its own, when the cell names that (`queue_followup`), as a flow version before
-/// the cell named what it does did too. What was said to the work and never handed in stays so: no round runs off the
-/// graph to answer it, the way on no longer changes, and the owner's page marks it on the words themselves as not
-/// received, in place of the notice a flow version's `tell_undelivered` named, which tells nothing now.
-fn end_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Value, String> {
+/// Cell `E1`: what the engine records of the work as it ends (`numbers`), and, for a work that delivered a report and
+/// handed in what to do next, the matter that queues it for the architect, when the cell names that
+/// (`queue_followup`), as a flow version before the cell named what it does did too. The work then ends as every work
+/// does ([`crate::ending::end`]) in the write that completes the round ([`finish_end`]): its sessions end, and its
+/// worktree is removed once that write is in; the branch stays. What was said to the work and never handed in stays
+/// so: no round runs off the graph to answer it, the way on no longer changes, and the owner's page marks it on the
+/// words themselves as not received, in place of the notice a flow version's `tell_undelivered` named, which tells
+/// nothing now.
+fn end_work(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+) -> Result<(Value, Option<db::Matter>), String> {
     let project = e.project_of(w)?;
     let numbers = numbers(e, w, g)?;
     let follows = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "queue_followup");
@@ -1730,16 +1807,7 @@ fn end_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) ->
     } else {
         None
     };
-    let projects = &e.config.config.projects;
-    e.db.write(Actor::Engine, |tx| {
-        crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)?;
-        if let Some(m) = &followup {
-            db::queue_matter(tx, m)?;
-        }
-        Ok(())
-    })
-    .map_err(sql)?;
-    Ok(json!({ "numbers": numbers }))
+    Ok((json!({ "numbers": numbers }), followup))
 }
 
 /// What the engine records of a work as it ends (cell `E1`'s `numbers`), the data the flow's convergence is judged by:

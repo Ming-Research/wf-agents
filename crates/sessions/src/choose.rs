@@ -6,8 +6,8 @@
 //! other round goes on in the line's session. The architect's line, at its first round in a work, takes up the session
 //! the project's previous architect work left, unless it ended. A line that forks from another (`forks`) has a session
 //! for each matter the work takes: the matter's first round there forks the latest session of the line it forks from,
-//! the base, so that it holds all the base held; its later rounds go on in it, in whichever work of the architect takes
-//! the matter up again; and where there is no base yet, or the command line cannot fork, it starts a new session. A
+//! the base, so that it holds all the base held; its later rounds go on in it, until the matter is handled or asks the
+//! owner, which ends it; and where there is no base yet, or the command line cannot fork, it starts a new session. A
 //! cell on no line has a session of its own every round.
 
 use std::path::Path;
@@ -39,7 +39,7 @@ pub enum Start {
     Carried,
     /// The owner asked for a new session with the round's Start or Step on the page.
     Owner,
-    /// A matter's first round on a line that forks from another: a copy of that line's latest session, the base.
+    /// A session's first round on a line that forks from another: a copy of that line's latest session, the base.
     Fork,
 }
 
@@ -78,7 +78,7 @@ pub enum Plan {
         /// under the fork's id, as the first would have.
         fork_from: Option<String>,
     },
-    /// In a fork of the base, the session `base` (its row and the CLI's id for it), for a matter's first round on a line
+    /// In a fork of the base, the session `base` (its row and the CLI's id for it), for a session's first round on a line
     /// that forks: the base's rounds, oldest first, and what it holds, which the fork holds from its start.
     Fork {
         base: i64,
@@ -92,12 +92,31 @@ pub enum Plan {
 
 /// What a round on a line that forks from another finds its session by: the matter in hand, whose session it is, the
 /// base it forks from (the latest session of the line it forks from: its row and the CLI's id for it; none when there
-/// is none yet), and whether the command line can fork a session at all.
+/// is none yet), whether the command line can fork a session at all, and the round of the work that took the matter.
 #[derive(Debug, Clone)]
 pub struct Fork {
     pub matter: i64,
     pub base: Option<(i64, String)>,
     pub can_fork: bool,
+    pub taken_at: i64,
+}
+
+impl Fork {
+    /// Where a round goes that forks: from the base, or into a new session when there is none or the command line cannot.
+    fn plan(&self, conn: &Connection) -> Result<Plan, String> {
+        Ok(match &self.base {
+            Some((base, base_cli)) if self.can_fork => {
+                let (rounds, held) = held::of_session(conn, base_cli)?;
+                Plan::Fork {
+                    base: *base,
+                    base_cli: base_cli.clone(),
+                    rounds,
+                    held: Box::new(held),
+                }
+            }
+            _ => Plan::New(Start::Line),
+        })
+    }
 }
 
 /// The line a cell's session is on: its own, or for a cell on no line the cell itself, whose session is its own.
@@ -183,23 +202,15 @@ pub fn plan(
     let Some(line) = &cell.line else {
         return Ok(Plan::New(Start::Line));
     };
-    let found = match fork.filter(|_| cell.fork_of.is_some()) {
+    let fork = fork.filter(|_| cell.fork_of.is_some());
+    let found = match fork {
+        Some(f) if cell.whole_run => match of_run(conn, work, line, f)? {
+            Some(found) => found,
+            None => return f.plan(conn),
+        },
         Some(f) => match of_matter(conn, work, line, f.matter)? {
             Some(found) => found,
-            None => {
-                return Ok(match &f.base {
-                    Some((base, base_cli)) if f.can_fork => {
-                        let (rounds, held) = held::of_session(conn, base_cli)?;
-                        Plan::Fork {
-                            base: *base,
-                            base_cli: base_cli.clone(),
-                            rounds,
-                            held: Box::new(held),
-                        }
-                    }
-                    _ => Plan::New(Start::Line),
-                });
-            }
+            None => return f.plan(conn),
         },
         None => {
             let going: Option<(i64, String)> = conn
@@ -240,7 +251,12 @@ pub fn plan(
     // cell's line starts a new session then.
     if !rewrites(&rounds, &cell.id) {
         if context(&rounds).is_some_and(|c| c > i64::try_from(limit).unwrap_or(i64::MAX)) {
-            return Ok(Plan::New(Start::Limit));
+            // A session of a whole run forks anew at the next matter, and the matter in hand is not cut off.
+            match fork.filter(|_| cell.whole_run) {
+                Some(f) if rounds.last().is_some_and(|r| r.id.work == work && r.id.n > f.taken_at) => {}
+                Some(f) => return f.plan(conn),
+                None => return Ok(Plan::New(Start::Limit)),
+            }
         }
         if model(&rounds).is_some_and(|m| m != on.model) {
             return Ok(Plan::New(Start::Model));
@@ -284,7 +300,26 @@ fn of_matter(conn: &Connection, work: i64, line: &str, matter: i64) -> Result<Op
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    Ok(latest.map(|(id, cli, w, ended)| (id, cli, w != work || ended.is_some())))
+    Ok(latest
+        .filter(|(_, _, _, ended)| ended.is_none())
+        .map(|(id, cli, w, _)| (id, cli, w != work)))
+}
+
+/// The session a work's matters share on a line of a whole run: its row, the CLI's id for it, and false, as no other
+/// work's is taken up; none when it has none going on, or the one going on was forked from a base no longer the latest.
+fn of_run(conn: &Connection, work: i64, line: &str, f: &Fork) -> Result<Option<(i64, String, bool)>, String> {
+    let going: Option<(i64, String, Option<i64>)> = conn
+        .query_row(
+            "SELECT id, cli_session, fork_of FROM sessions WHERE work = ?1 AND line = ?2 AND ended IS NULL",
+            params![work, line],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let latest = f.base.as_ref().map(|(id, _)| *id).filter(|_| f.can_fork);
+    Ok(going
+        .filter(|(_, _, from)| latest.is_none() || *from == latest)
+        .map(|(id, cli, _)| (id, cli, false)))
 }
 
 /// The CLI's id for the base a session was forked from; none for a session that is no fork.
@@ -585,7 +620,7 @@ mod tests {
         db.write(db::Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
-                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'N1', 'p')",
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B2', 'p')",
                 [],
             )?;
             tx.execute(
@@ -609,7 +644,7 @@ mod tests {
         db.write(db::Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at, ended_at, usage)
-                 VALUES (1, ?1, 'N1', 1, ?2, 'c', ?3, ?4, ?5)",
+                 VALUES (1, ?1, 'B2', 1, ?2, 'c', ?3, ?4, ?5)",
                 db::rusqlite::params![n, input.to_string(), ended - 1_000, ended, usage],
             )?;
             Ok(())
@@ -636,7 +671,7 @@ mod tests {
         let relations = db::relations(db::SCHEMA).unwrap();
         let tables = db::index_of(db::SCHEMA).unwrap();
         let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
-        let mut cell = f.graph("architect").unwrap().cell("N1").unwrap().clone();
+        let mut cell = f.graph("architect").unwrap().cell("B2").unwrap().clone();
         assert!(
             !cell.cache_expiry,
             "the architect's base does not expire with the cache"

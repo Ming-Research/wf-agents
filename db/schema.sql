@@ -96,11 +96,6 @@ CREATE TABLE items (
   -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
   -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
   rank INTEGER,
-  -- The mark of a bug fix or a feature, which a flow version before took for the light route its works went; normal
-  -- otherwise. Only an item that delivers a change carries a mark. The architect sets it when it creates or edits the
-  -- item. The flow no longer reads it: every work's research judges whether it can be started directly. Read by: the
-  -- views of the routes works of a flow version before went (work_routes); the owner's interface.
-  route TEXT NOT NULL DEFAULT 'normal' CHECK (route IN ('normal', 'bugfix', 'feature')),
   -- The decision points the item carries, JSON list in the flow's decision point shape, each with the option the owner
   -- chose and why: what a discussion settled that goes into the project's decisions/ once deep research confirms it.
   -- NULL when it carries none. An item that carries one goes to deep research, whatever its research finds. The
@@ -109,7 +104,6 @@ CREATE TABLE items (
   decision_points TEXT CHECK (decision_points IS NULL OR json_valid(decision_points)),
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
   CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
-  CHECK (route = 'normal' OR deliver = 'change'),
   FOREIGN KEY (acceptance_work, acceptance_round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -216,49 +210,14 @@ CREATE TABLE owner_asks (
   -- The round that put it to the owner: its work, and its number in the work.
   work INTEGER NOT NULL,
   round INTEGER NOT NULL,
-  -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in; for the merge gate's ask
-  -- of a merge condition, that condition's number too (`condition`). Copied from what that round was given, which
-  -- never changes.
+  -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in. Copied from what that
+  -- round was given, which never changes.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The owner's answer, JSON: who answered and when, and the text, and who the caller declared to speak (`speaker`,
   -- owner or delegate; none for an answer kept before it was declared); for an ask of the architect, the rest of the
-  -- architect's reply too; for the merge gate's ask of a merge condition, the option chosen (`choice`, met or
-  -- withdrawn) when one was. NULL while it waits. Read by: the engine; cells `R1` and `L2`.
+  -- architect's reply too. NULL while it waits. Read by: the engine; cells `R1` and `L2`.
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
-) STRICT;
-
-CREATE TABLE merge_conditions (
-  -- Something the owner set to be done before an item's work merges, one row for each. The merge gate (cell `M1`) holds
-  -- the work until each is judged met or withdrawn, by asking the owner one at a time; the row keeps no state: the view
-  -- `item_merge_conditions` works it out from the answers. A row is written when the owner ticks it on words said or an
-  -- answer given, or by an item change of the project's architect; what neither ticked nor recorded holds nothing.
-  -- Read by: the view `item_merge_conditions`.
-  id INTEGER PRIMARY KEY,
-  item INTEGER NOT NULL REFERENCES items(id),
-  -- One sentence that reads alone, written by whoever recorded it, since the words it rests on may be only "OK". The
-  -- engineer reports on it, and the owner judges it. Read by: cells `R1`, `D1`, `I1`, `T6` and `M1`; the owner's interface.
-  what TEXT NOT NULL CHECK (trim(what) <> ''),
-  -- The record the words are in: an ask, by the owner's answer to it; an interjection; or a matter of the architect's
-  -- queue, by the owner's words or the owner's reply it holds. Read by: the merge gate's ask, which links to it.
-  source TEXT NOT NULL CHECK (source IN ('ask', 'interjection', 'matter')),
-  source_id INTEGER NOT NULL,
-  -- The words as that record has them. Empty only for an answer that was images alone.
-  quote TEXT NOT NULL,
-  -- Who the record says said those words: the owner; relayed, the owner's own words as a delegate declared them, checked
-  -- by no one; delegate, a session that speaks for the owner, in words of its own; or unrecorded, a record kept before
-  -- who speaks was declared. Never written as the owner's when the record does not say so.
-  said_by TEXT NOT NULL CHECK (said_by IN ('owner', 'relayed', 'delegate', 'unrecorded')),
-  -- Who recorded it: the owner or a delegate, by ticking it as the caller declared; or the architect, by an item change.
-  recorded_by TEXT NOT NULL CHECK (recorded_by IN ('owner', 'delegate', 'architect')),
-  -- The round that made the architect's item change, by its work and its number in the work; NULL for one ticked.
-  recorded_work INTEGER,
-  recorded_round INTEGER,
-  -- When it was recorded.
-  at INTEGER NOT NULL,
-  CHECK ((recorded_by = 'architect') = (recorded_work IS NOT NULL)),
-  CHECK ((recorded_work IS NULL) = (recorded_round IS NULL)),
-  FOREIGN KEY (recorded_work, recorded_round) REFERENCES rounds (work, n)
 ) STRICT;
 
 CREATE TABLE owner_messages (
@@ -396,8 +355,10 @@ CREATE TABLE works (
   -- Why the work is paused: the engine's reason, when a step could not be taken or returns were sent back too often,
   -- or the owner's words; NULL while it goes on. Read by: the engine; the slots view.
   paused TEXT,
-  -- Why the work was stopped before its end cell, for example because its item was cancelled; NULL otherwise.
-  -- Read by: the engine; the status view.
+  -- How the work ended: `done` when it reached the end of its graph, written in the write that completes the round at
+  -- its end cell; otherwise why it was stopped before its end, for example because its item was cancelled. NULL while
+  -- it goes on, a work waiting for a change to take effect included. Read by: the engine, which takes no step of a work
+  -- that ended and does not load it; the status view.
   ended TEXT,
   -- Who paused the work, the owner or the engine; NULL while it goes on. The owner's Start all lets go on only the
   -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
@@ -418,8 +379,8 @@ CREATE TABLE sessions (
   -- configuration directory of the CLI does not hold the session, when the CLI's prompt cache let it go (a line the
   -- flow says expires with the cache, its session last called a cache lifetime or more ago), and when the owner asks
   -- for one. Each project's architect's base, the session that read the project last, goes on in one CLI session across
-  -- the works of the project's architect: each has a row of its own with the same cli_session. A matter of the
-  -- architect is handled in a session of its own, forked from the base: the CLI copies the base's session under a new
+  -- the works of the project's architect: each has a row of its own with the same cli_session. The matters of
+  -- one run of the architect are handled in one session forked from the base: the CLI copies the base's session under a new
   -- id, so that it holds all the base read, and the fork's rounds are read after the base's. A cell on no line has a
   -- session of its own for each round, ended once the round has.
   -- Hidden from agents.
@@ -443,8 +404,8 @@ CREATE TABLE sessions (
   -- architect work left; account, the line's rounds run under another login account of the CLI than its session
   -- before, in another configuration directory, which does not hold that session; expired, the CLI's prompt cache
   -- let the line's session go, its last call a cache lifetime or more before, on a line the flow says expires with
-  -- it; owner, the owner asked for a new session with the round's Start or Step on the page; fork, a matter's first
-  -- round on a line that forks from another, forked from that line's latest session, the base. Read by: the owner's
+  -- it; owner, the owner asked for a new session with the round's Start or Step on the page; fork, a first round on a
+  -- line that forks from another, forked from that line's latest session, the base. Read by: the owner's
   -- interface.
   started TEXT NOT NULL DEFAULT 'line'
     CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'account', 'expired', 'owner', 'fork')),
@@ -454,7 +415,8 @@ CREATE TABLE sessions (
   fork_of INTEGER REFERENCES sessions(id),
   -- The matter of a project's architect the session is for, on a line whose sessions are each a matter's: a matter
   -- parked by a question to the owner takes its session up again when the answer comes, in whichever work of the
-  -- architect runs then. NULL on any other line. Read by: the session manager, to find a matter's session.
+  -- architect runs then. NULL on any other line, and on the line whose session a work's matters share. Read by: the
+  -- session manager, to find a matter's session.
   matter INTEGER REFERENCES architect_matters(id),
   CHECK ((started = 'fork') = (fork_of IS NOT NULL))
 ) STRICT;
@@ -998,12 +960,11 @@ CREATE TABLE architect_matters (
   -- Read by: architect_queue, which leaves it out; the engine, which tells a new work on the item what an earlier
   -- work asked and had withdrawn; the owner's interface, which leaves it out of the queue.
   withdrawn TEXT,
-  -- What the session that handled it left as it ended, JSON: its line of the decision log (`log`), and its answers
-  -- whether the matter changes the plan (`plan`: no or yes) and whether something that matters in the base no longer
-  -- holds (`base`: holds or wrong), each with why (`plan_why`, `base_why`), with the round that handed them in
-  -- (`round`). NULL until then, and for a matter handled before the architect's matters were forked. Read by: the
-  -- engine, which gives every matter handled after it the decision log since the base, and counts the answers among
-  -- the facts that call for a new base; the owner's interface.
+  -- What the session that handled it left as it ended, JSON: its record (`record`), and the lines it adds to the plan
+  -- (`plan`) and to the understanding (`understanding`) when it adds any, with the round that handed them in (`round`).
+  -- NULL until then, and for a matter handled before the architect's matters were forked. Read by: the engine, which
+  -- gives every matter handled after it what came since the base, and the next plan what came since the plan before;
+  -- the owner's interface.
   logged TEXT CHECK (logged IS NULL OR json_valid(logged)),
   -- What the round handed in that waits for the second eye, JSON: its effects and its answer, made once the second eye
   -- finds the changes sound, or dropped when it sends them back. NULL otherwise. Read by: the engine.
@@ -1165,7 +1126,7 @@ CREATE TABLE dispatch_holds (
   -- What stops new works of a project from starting, one row for each: the owner's hold, its architect's own hold, its
   -- architect setting it straight. While a project has a row here, the engine starts no new work on its items; works
   -- already running go on, and the other projects' works start as usual.
-  -- Read by: the engine at cell `S0`; the architect, through its board; the owner's interface.
+  -- Read by: the engine at cell `S0`; the architect; the owner's interface.
   project TEXT NOT NULL,
   -- owner: held by the owner. architect: held by the architect's own action. set_straight: its plan of what to do next
   -- found the whole must be set straight. The owner releases any of them; the architect only its own and the one to
@@ -1201,13 +1162,42 @@ CREATE TABLE slot_waits (
   CHECK ((until IS NULL) = (ended IS NULL))
 ) STRICT;
 
+CREATE TABLE engine_runs (
+  -- Each time the engine's loop (`wf-agents run`) ran on this database, from its start to its stop, so that a gap in
+  -- which no work moved can be told to be a stop and a start of the engine or not: when it started, which build and
+  -- configuration it ran, and why it stopped. A row is written as the loop starts and completed as it stops. A start
+  -- that finds a row never completed marks it lost: the engine's process ended without recording its stop (it was
+  -- killed, or the machine went down), and when is not known. Two engines are not run on one database at once.
+  -- Read by: the owner and the architect, through the tool `query`, looking at why works stood still; the engine
+  -- reads it only to mark the rows a start finds never completed.
+  id INTEGER PRIMARY KEY,
+  -- When the loop started.
+  started_at INTEGER NOT NULL,
+  -- The commit the engine was built from, the one every round records as the engine's version.
+  built_from TEXT NOT NULL,
+  -- The commit of the configuration the loop started with. A committed change applies from the next round on, and each
+  -- round says which commit it ran with.
+  config_commit TEXT NOT NULL,
+  -- The version the flow built into this build is stored as.
+  flow_version INTEGER NOT NULL REFERENCES flow_versions(id),
+  -- When the loop stopped; NULL while it runs, and for a row marked lost.
+  stopped_at INTEGER,
+  -- Why it stopped; NULL while it runs. `stop file`: the owner, or whoever installs a new build, asked it to stop, and
+  -- it dispatched nothing more and waited for the jobs in flight to end. `error: ` and the text: the loop ended on an
+  -- error it could not deal with. `lost`: the row was found never completed, as above.
+  stop_reason TEXT,
+  CHECK ((stop_reason IS NULL) = (stopped_at IS NULL) OR stop_reason IS 'lost')
+) STRICT;
+
 CREATE TABLE notebook_edits (
-  -- Each version of a section of a project's architect's notebook, as a round of its architect's line wrote it whole:
-  -- what the project is now (project_now), the plan (plan), what is unclear (unclear), and anything else (other), in
-  -- the owner's language. A section is what its latest version says; the versions before are kept for the owner.
-  -- Read by: the engine, which gives each section to the architect's cells as an input of its own and checks a
-  -- round's sections against their sizes, through notebook; the owner's interface, which shows each section with its
-  -- versions.
+  -- Each version of a part of a project's architect's notebook, as a round of its base wrote it whole: its
+  -- understanding of the project (project_now) and its plan (plan), in the owner's language; unclear and other are
+  -- sections earlier flow versions wrote, kept as they were. A part is what its latest version says; the versions
+  -- before are kept for the owner.
+  -- A new base writes its understanding from nothing, and the next plan is given the plan before.
+  -- Hidden from agents.
+  -- Read by: the engine, which gives the next plan the plan before, through notebook; the owner's interface, which
+  -- shows each part with its versions.
   id INTEGER PRIMARY KEY,
   -- The project whose architect's notebook it is.
   project TEXT NOT NULL,
@@ -1298,8 +1288,6 @@ CREATE INDEX design_cards_by_round ON design_cards (work, round);
 CREATE UNIQUE INDEX design_cards_current ON design_cards (work, key) WHERE status IN ('open', 'ruled');
 -- The ask of the owner a round put.
 CREATE INDEX owner_asks_by_round ON owner_asks (work, round);
--- The merge conditions of an item.
-CREATE INDEX merge_conditions_by_item ON merge_conditions (item);
 -- The messages to the owner still unread.
 CREATE INDEX owner_messages_unread ON owner_messages (id) WHERE read_at IS NULL;
 -- Interjections still to hand in to a work.
@@ -1337,6 +1325,30 @@ CREATE INDEX notebook_edits_by_section ON notebook_edits (project, section);
 CREATE UNIQUE INDEX attachments_of_interjection ON attachments (interjection, position) WHERE interjection IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_matter ON attachments (matter, position) WHERE matter IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask IS NOT NULL;
+-- The largest transaction number in the change log: `Db::write` reads it on every write, under the write lock.
+CREATE INDEX changes_by_tx ON changes (tx);
+-- The sessions a CLI session's id names: the rows its rounds are read through.
+CREATE INDEX sessions_by_cli_session ON sessions (cli_session);
+-- The rounds a CLI session ran, found through the session's row.
+CREATE INDEX rounds_by_session ON rounds (session);
+-- The rounds of a cell in any work: an architect's rounds at the cell of a matter.
+CREATE INDEX rounds_by_cell ON rounds (cell);
+-- The interjections a matter holds the owner's words of, said in a work's group.
+CREATE INDEX interjections_by_matter ON interjections (matter);
+-- The interjections of a work delivered after a round: the words given since a merge.
+CREATE INDEX interjections_by_work_delivered ON interjections (work, delivered_round);
+-- The matters of a work of a kind: the questions an engineer asked the architect, the reports of its line.
+CREATE INDEX architect_matters_by_work ON architect_matters (work, kind);
+-- The matter an owner's ask put to the architect.
+CREATE INDEX architect_matters_by_asked ON architect_matters (asked);
+-- The notices about an owner's ask.
+CREATE INDEX engine_notices_by_ask ON engine_notices (ask);
+-- The blockers an owner's ask holds.
+CREATE INDEX blockers_by_ask ON blockers (ask);
+-- The blocker a matter of the architect's queue stands for.
+CREATE INDEX blockers_by_matter ON blockers (matter);
+-- The works on each flow version.
+CREATE INDEX works_by_flow_version ON works (flow_version);
 
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
 -- work or project at hand has a column of that name; the engine filters on it.
@@ -1344,7 +1356,7 @@ CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask 
 CREATE VIEW item_blocked_by AS
   -- Each item with each item it depends on by a blocking dependency that is not merged yet, as the merge cell
   -- (`M2`) records a merge: no work starts on the item until every one is. A cancelled item, which never
-  -- delivers, holds back none. Read by: ready_items; the architect, through its board; the owner's interface, which
+  -- delivers, holds back none. Read by: ready_items; the agents; the owner's interface, which
   -- shows an item that would start but for them as waiting for them.
   SELECT l.item, l.depends_on, l.needs
   FROM item_links l JOIN items d ON d.id = l.depends_on
@@ -1359,7 +1371,8 @@ CREATE VIEW ready_items AS
   -- depends on by a blocking dependency unmerged (item_blocked_by), and, unless the owner queued it, is not done. An
   -- item leaves the owner's queue when a work starts on it, and may be queued again once its works ended. A work runs
   -- until it ends or its last round, at the cell it is at, completed without taking a row, which only the end of its
-  -- graph does; it is done at the end of the engineer's graph. While dispatch_holds has a row, the engine starts none.
+  -- graph does; it is done at the end of the engineer's graph, ended as `done` or, while its round there is not
+  -- completed, not ended. While dispatch_holds has a row, the engine starts none.
   -- Read by: cell `S0`; the architect, through what runs and starts next.
   WITH
   running(item) AS (
@@ -1370,12 +1383,53 @@ CREATE VIEW ready_items AS
         AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
   done(item) AS (
     SELECT w.item FROM works w
-    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end'))
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
   FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
   WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
     AND i.id NOT IN (SELECT item FROM item_blocked_by)
     AND (q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done))
+  ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
+
+CREATE VIEW open_items AS
+  -- The items not done or cancelled, a short row each, in the order they start. An item's state: `running`, a work is
+  -- on it, whose number and cell are in work and at; `paused`, that work is paused; `resuming`, it is paused and asked
+  -- to go on, which waits for a free slot; `stopping`, a cancel or a start over was asked, and it reads as it stands
+  -- until the work's step has ended; `held`, the architect holds it (items.held says why); `blocked`, an item it waits
+  -- for is not merged (item_blocked_by); `ready`, it starts when a slot is free (ready_items). version is what a change
+  -- to the item is written on. Read by: the agents, to see what is on hand.
+  WITH
+  running(item, work, at, paused) AS (
+    SELECT w.item, w.id, w.at, w.paused FROM works w
+    WHERE w.item IS NOT NULL AND w.ended IS NULL AND w.at NOT IN ('E1', '20', 'end') AND NOT EXISTS (
+      SELECT 1 FROM rounds r
+      WHERE r.work = w.id AND r.n = (SELECT max(x.n) FROM rounds x WHERE x.work = w.id)
+        AND r.cell = w.at AND r.ended_at IS NOT NULL AND r.transition IS NULL AND r.rejected IS NULL)),
+  done(item) AS (
+    SELECT w.item FROM works w
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end'))
+  SELECT i.id AS item, i.project, i.title,
+    CASE
+      WHEN EXISTS (
+        SELECT 1 FROM outbox o
+        WHERE (o.kind = 'start_over' AND o.work = r.work)
+          OR (o.kind = 'cancel_item' AND json_extract(o.args, '$.item') = i.id)) THEN 'stopping'
+      WHEN r.paused IS NOT NULL AND EXISTS (
+        SELECT 1 FROM outbox o WHERE o.kind = 'resume_work' AND o.work = r.work) THEN 'resuming'
+      WHEN r.paused IS NOT NULL THEN 'paused'
+      WHEN r.item IS NOT NULL THEN 'running'
+      WHEN i.held IS NOT NULL THEN 'held'
+      WHEN i.id IN (SELECT item FROM item_blocked_by) THEN 'blocked'
+      ELSE 'ready'
+    END AS state,
+    i.rank,
+    (SELECT coalesce(max(c.id), 0) FROM changes c WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id))
+      AS version,
+    r.work, r.at
+  FROM items i LEFT JOIN running r ON r.item = i.id LEFT JOIN dispatch_queue q ON q.item = i.id
+  WHERE i.cancelled IS NULL AND (r.item IS NOT NULL OR q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done))
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
 CREATE VIEW item_body AS
@@ -1396,13 +1450,14 @@ CREATE VIEW item_problem AS
 
 CREATE VIEW item_acceptance AS
   -- The item's acceptance, and the round that gave it, by its work and its number in the work; NULL until the work
-  -- goes on to implement. locked says only whether there is one. Read by: cells `I1`, `T2`, `T3`, `T1`, `T6`, `W1` and
-  -- `W2`.
+  -- goes on to implement: until then what its creator wanted is `wanted` of item_body. locked says only whether there
+  -- is one. Read by: cells `I1`, `T2`, `T3`, `T1`, `T6`, `V1` and
+  -- `V2`.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_work, acceptance_round FROM items;
 
 CREATE VIEW item_verifications AS
   -- What each acceptance condition written in_effect came to, at each look of the cell that checks it once the work's
-  -- change took effect (`W2`): the item, the work and the round, the condition's number (`id`), its verdict, and for a
+  -- change took effect (`V2`): the item, the work and the round, the condition's number (`id`), its verdict, and for a
   -- verdict that rests on a run the run and what it showed there. A condition stands as its latest round has it. Read
   -- by: the agents and the architect, by query.
   SELECT w.item, r.work, r.n AS round, json_extract(v.value, '$.id') AS id,
@@ -1410,7 +1465,7 @@ CREATE VIEW item_verifications AS
     json_extract(v.value, '$.run') AS run,
     json_extract(v.value, '$.seen') AS seen
   FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.verdicts') v
-  WHERE r.cell = 'W2' AND r.transition IS NOT NULL;
+  WHERE r.cell = 'V2' AND r.transition IS NOT NULL;
 
 CREATE VIEW item_design_cards AS
   -- Every decision card of the item's works, by key, with its rulings, and why one withdrawn was. Read by: cells `R1`,
@@ -1422,26 +1477,6 @@ CREATE VIEW item_asks AS
   -- Every ask of the owner of the item's works, with its answer. Read by: cell `R1`.
   SELECT w.item, a.work, a.id AS ask, a.round, a.body, a.answer
   FROM owner_asks a JOIN works w ON w.id = a.work;
-
-CREATE VIEW item_merge_conditions AS
-  -- Each merge condition of each item with where it stands: open, or as the merge gate's ask of it was judged, met or
-  -- withdrawn, with that ask (`judged`) and who judged it (`judged_by`, owner or delegate). This is the one place that
-  -- says whose answer judges a condition: an answer declared as the owner's or as a delegate's that chose an option.
-  -- Words with no option leave it open, and go to the engineer as words. Read by: the engine, for the merge gate's value
-  -- `gates` and for what cells `R1`, `D1`, `I1`, `T6` and `M1` are given; the owner's interface, on the item's page.
-  SELECT c.item, c.id, c.what, c.source, c.source_id, c.quote, c.said_by, c.recorded_by, c.recorded_work,
-    c.recorded_round, c.at,
-    coalesce(j.choice, 'open') AS status, j.ask AS judged, j.judged_by
-  FROM merge_conditions c
-  LEFT JOIN (
-    SELECT json_extract(a.body, '$.condition') AS condition, max(a.id) AS ask,
-      json_extract(a.answer, '$.choice') AS choice, json_extract(a.answer, '$.speaker') AS judged_by
-    FROM owner_asks a
-    WHERE json_extract(a.body, '$.condition') IS NOT NULL
-      AND json_extract(a.answer, '$.speaker') IN ('owner', 'delegate')
-      AND json_extract(a.answer, '$.choice') IN ('met', 'withdrawn')
-    GROUP BY 1
-  ) j ON j.condition = c.id;
 
 CREATE VIEW parent_design_cards AS
   -- The current decision cards of the items that depend on this one, open or ruled: what a split-off item's parent
@@ -1464,7 +1499,7 @@ CREATE VIEW item_context AS
   -- Where the item sits in the whole: the items above it (those that depend on it, up to the root), beside it
   -- (the other items its parents depend on) and below it (those it depends on), each with its problem and why and
   -- the kind of the dependency that brings it in: above, how it depends on the item below it on the way; beside, how
-  -- their parent depends on it; below, how this item depends on it. Read by: cell `R1`.
+  -- their parent depends on it; below, how this item depends on it. Read by: the agents.
   WITH RECURSIVE up(item, other, depth, kind) AS (
     SELECT depends_on, item, 1, kind FROM item_links
     UNION
@@ -1559,22 +1594,21 @@ CREATE VIEW work_counters AS
   GROUP BY r.work;
 
 CREATE VIEW work_routes AS
-  -- The route each work of the engineer goes: light; normal; or turned, a work on the light route that took a row
-  -- counting `route_to_normal`, which goes the normal route for good. Before its research (cell `R1`) answers, a work
-  -- goes as its item is marked, the light route for a bug fix or a feature; after, as the research's latest answer took
-  -- its row (`light`, or `done` or `to_normal`), so that a change of the item's mark does not turn a work under way.
-  -- Read by: the engine's value `route_taken`; the owner's interface and the architect's board, beside the item's mark.
+  -- The way each work of the engineer went, from the rows it took: `turned`, a work that started to implement on the
+  -- research's plan and then took the row counting `shallow_research`, which sent it to the design; `designed`, one
+  -- that went to the design (cell `D1`), whether its research sent it there or not; `direct`, one whose research
+  -- (cell `R1`) answered with its row `start`, so that it implements on the research's plan and has had no design; none
+  -- before the research answers, and for a work of a flow version whose research took other rows. Nothing marks the
+  -- item for a way: the research judges it. Read by: the owner's interface, beside the item's head; the agents.
   SELECT w.id AS work, w.item,
     CASE
-      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.counts = 'route_to_normal') THEN 'turned'
-      WHEN coalesce(
-        (SELECT r.transition FROM rounds r
-         WHERE r.work = w.id AND r.cell = 'R1' AND r.transition IN ('done', 'light', 'to_normal')
-         ORDER BY r.n DESC LIMIT 1),
-        CASE WHEN i.route = 'normal' THEN 'done' ELSE 'light' END) = 'light' THEN 'light'
-      ELSE 'normal'
+      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.counts = 'shallow_research') THEN 'turned'
+      WHEN EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell = 'D1') THEN 'designed'
+      WHEN (SELECT r.transition FROM rounds r
+            WHERE r.work = w.id AND r.cell = 'R1' AND r.transition IN ('start', 'cannot_start')
+            ORDER BY r.n DESC LIMIT 1) = 'start' THEN 'direct'
     END AS route
-  FROM works w JOIN items i ON i.id = w.item
+  FROM works w
   WHERE w.graph = 'engineer';
 
 CREATE VIEW work_asking AS
@@ -1623,8 +1657,9 @@ CREATE VIEW work_owner_words AS
   WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
   UNION ALL
   SELECT j.work, 'interjection', j.id, j.declared, j.text,
-    coalesce((SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0), j.relayed
+    coalesce((SELECT max(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
+                AND c.old_row IS NULL), 0), j.relayed
   FROM interjections j
   WHERE j.speaker = 'owner' AND j.matter IS NULL AND j.cancelled_item IS NULL
   UNION ALL
@@ -1759,18 +1794,18 @@ CREATE VIEW known_red_counts AS
 
 CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
-  -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
-  -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
+  -- each with who waits for it (an agent: an engineer stopped at the architect's cell on this very matter; the owner,
+  -- for the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
   -- answer and to which cell, the second cell a flow version before had a matter of two cells go on at, and whether
   -- its reporter marked it as harming now (urgent).
-  -- Read by: cells `S0` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
+  -- Read by: cells `S0` and `N0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
   -- work, and takes the next matter by it in its fixed order; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
-        SELECT 1 FROM works w
+        SELECT 1 FROM works w JOIN blockers b ON b.work = w.id
         WHERE w.id = m.work AND w.graph = 'engineer' AND w.at IN ('A2', '15', 'to_architect', 'ask.architect')
-          AND w.ended IS NULL)
+          AND w.ended IS NULL AND b.matter = m.id AND b.ended IS NULL)
         THEN 'agent'
       WHEN m.kind = 'owner_words' THEN 'owner'
       ELSE 'none' END AS waits,
@@ -1787,15 +1822,16 @@ CREATE VIEW architect_queue AS
 
 CREATE VIEW work_handled AS
   -- The matters each work of an architect handled, in the order it handled them: each matter, its kind, the cell and
-  -- the round that closed it, and what that round said it did. Read by: the owner's interface.
+  -- the round that closed it, and its record. Read by: the owner's interface; the engine, which gives a matter the log
+  -- of what was handled on its item.
   SELECT m.handled_work AS work, m.handled_round AS round, m.id AS matter, m.kind, m.detail, m.what, r.cell,
-    json_extract(r.output, '$.progress') AS said
+    coalesce(json_extract(m.logged, '$.record'), json_extract(r.output, '$.progress')) AS said
   FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
   ORDER BY m.handled_work, m.handled_round;
 
 CREATE VIEW policy_current AS
   -- Each project's policy in force: the draft the architect wrote last (cell `P2`) before the round in which the
-  -- owner's approval took effect (cell `P12`), in whichever of its works, with the round of that approval; none before
+  -- owner's approval took effect (cell `P3`), in whichever of its works, with the round of that approval; none before
   -- the first policy takes effect. A flow version before set a policy in a setting of its own, whose text was written,
   -- or put together from a correction, last before the owner's latest approval in it, in whichever of the architect's
   -- works the setting went on in since its matter was raised; a setting a flow version before that held in a work of
@@ -1832,15 +1868,15 @@ CREATE VIEW policy_current AS
          ORDER BY t.n DESC LIMIT 1)) AS policy,
       row_number() OVER (PARTITION BY w.project ORDER BY a.work DESC, a.n DESC) AS k
     FROM rounds a JOIN works w ON w.id = a.work
-    WHERE w.graph IN ('architect', 'policy') AND a.cell IN ('P12', 'takes_effect', 'policy.takes_effect')
+    WHERE w.graph IN ('architect', 'policy') AND a.cell IN ('P3', 'P12', 'takes_effect', 'policy.takes_effect')
       AND a.transition IS NOT NULL)
   WHERE k = 1;
 
 CREATE VIEW policy_draft AS
   -- Each project's draft of a new policy that waits for the owner's approval: the latest the architect wrote (cell
-  -- `P2`), in whichever of its works, when no new policy took effect after it (cell `P12`) and no later round of `P2`
+  -- `P2`), in whichever of its works, when no new policy took effect after it (cell `P3`) and no later round of `P2`
   -- dropped it, the owner's reply keeping the policy in force (`kept`, with no policy); none otherwise. Read by: cell
-  -- `P2`, which writes it again by the owner's reply, and cell `P12`, which makes it the policy in force; the owner's
+  -- `P2`, which writes it again by the owner's reply, and cell `P3`, which makes it the policy in force; the owner's
   -- interface.
   SELECT project, work, round, policy FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.policy') AS policy,
@@ -1849,11 +1885,13 @@ CREATE VIEW policy_draft AS
     WHERE w.graph = 'architect' AND r.cell = 'P2' AND r.transition IS NOT NULL) d
   WHERE k = 1 AND policy IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM rounds a JOIN works x ON x.id = a.work
-    WHERE x.graph = 'architect' AND x.project = d.project AND a.cell = 'P12' AND a.transition IS NOT NULL
+    WHERE x.graph = 'architect' AND x.project = d.project AND a.cell IN ('P3', 'P12') AND a.transition IS NOT NULL
       AND (a.work > d.work OR (a.work = d.work AND a.n > d.round)));
 
 CREATE VIEW notebook AS
-  -- Each project's architect's notebook as it stands: each section's latest version, with the round that wrote it.
+  -- Each project's architect's notebook as it stands: each part's latest version, with the round that wrote it.
+  -- A new base writes its understanding from nothing, and the next plan is given the plan before.
+  -- Hidden from agents.
   -- Read by: the engine, for the architect's cells; the owner's interface.
   SELECT project, section, text, work, round FROM (
     SELECT project, section, text, work, round,
@@ -1881,8 +1919,8 @@ CREATE VIEW observations_all AS
 
 CREATE VIEW observations_open AS
   -- Each project's open observations, each with its number, its title, what it is, its tags, how many times it was
-  -- reported, where it came from, what it refers to and the item that took it in, if one has. Read by: cell `X2`,
-  -- which searches them; the engine.
+  -- reported, where it came from, what it refers to and the item that took it in, if one has. Read by: the agents;
+  -- the engine.
   SELECT project, id, title, what, tags, times_reported, source, refs, folded_into
   FROM observations_all WHERE closed IS NULL;
 
@@ -1913,8 +1951,8 @@ CREATE VIEW conversation_entries AS
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
   -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. design_card: the decision
   -- card the entry is, or is a ruling on, or the owner's question asks about, or an answer answers about. waiting: it waits for the
-  -- owner (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter still
-  -- open, neither handled nor withdrawn, not answered; a design card not ruled while its work goes on; a fault not
+  -- owner (an ask that stands for an open blocker the owner holds, an architect's ask that holds a matter still
+  -- open, neither handled nor withdrawn, or an ask the work goes on without while it runs, not answered; a design card not ruled while its work goes on; a fault not
   -- read). pending: the owner's words not taken
   -- up yet. undelivered: the owner's words to an agent that its work ended without taking in. answerable: an
   -- engineer's question the architect holds now, which the owner may answer in the group instead.
@@ -1968,7 +2006,8 @@ CREATE VIEW conversation_entries AS
     a.answer IS NULL AND (
       (w.graph = 'architect' AND EXISTS (
         SELECT 1 FROM architect_matters m WHERE m.asked = a.id AND m.handled_round IS NULL AND m.withdrawn IS NULL))
-      OR EXISTS (SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')), 0, 0, 0, NULL
+      OR EXISTS (SELECT 1 FROM blockers b WHERE b.ask = a.id AND b.ended IS NULL AND b.holder = 'owner')
+      OR (w.ended IS NULL AND json_extract(a.body, '$.kind') IN ('design_review', 'points', 'change'))), 0, 0, 0, NULL
   FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
   LEFT JOIN items i ON i.id = w.item
   UNION ALL
@@ -1976,16 +2015,17 @@ CREATE VIEW conversation_entries AS
     coalesce(w.project, i.project), 'interjection', j.id, j.speaker,
     CASE WHEN j.matter IS NULL THEN j.line WHEN j.informs = 1 THEN 'architect' ELSE 'both' END,
     coalesce((SELECT json_extract(x.body, '$.text') FROM architect_matters x WHERE x.id = j.matter), j.text),
-    coalesce((SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),
+    coalesce((SELECT max(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
+                AND c.old_row IS NULL),
              (SELECT min(x.started_at) FROM rounds x WHERE x.work = j.work), 0),
     j.work, j.delivered_round, NULL, j.design_card, j.matter, NULL, 0,
     j.speaker = 'owner' AND ((j.informs = 0 AND j.delivered_round IS NULL AND w.ended IS NULL
-        AND w.at NOT IN (CASE WHEN w.graph = 'architect' THEN 'E2' ELSE 'E1' END, '20', 'end'))
+        AND w.at NOT IN (CASE WHEN w.graph = 'architect' THEN 'R1' ELSE 'E1' END, 'E2', '20', 'end'))
       OR EXISTS (SELECT 1 FROM architect_matters x
                  WHERE x.id = j.matter AND x.handled_round IS NULL AND x.withdrawn IS NULL)),
     j.speaker = 'owner' AND j.informs = 0 AND j.delivered_round IS NULL
-      AND (w.ended IS NOT NULL OR w.at IN (CASE WHEN w.graph = 'architect' THEN 'E2' ELSE 'E1' END, '20', 'end')),
+      AND (w.ended IS NOT NULL OR w.at IN (CASE WHEN w.graph = 'architect' THEN 'R1' ELSE 'E1' END, 'E2', '20', 'end')),
     0, NULL
   FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
   WHERE j.text NOT LIKE 'Ruling on design card %'

@@ -208,7 +208,9 @@ slower to read.
 
 Text an agent or the owner wrote reads as one document in the page's font, as GitHub's markdown reads (ours, after
 Primer's markdown style): body medium with line height 1.5, paragraphs and list items `--base-size-8` apart, lists
-indented `--base-size-24`, a heading the agent wrote drawn as a sub-heading whatever its level, inline code and code
+indented `--base-size-24`, a heading the agent wrote drawn as a sub-heading whatever its level, lines quoted with `>`
+as the strip over the box that replies quotes a question (`--fgColor-muted` words, a `--borderWidth-thick`
+`--borderColor-accent-emphasis` edge at the left, `--base-size-8` between the edge and the words), inline code and code
 blocks as Primer's markdown draws them (`--bgColor-neutral-muted`, `--borderRadius-medium`), with no background or
 indent of its own, an agent's text inside the box of what an agent handed back (below) where it stands among the page's
 own words, and a document that fills a section by itself as that section's body text (below), because the agent's
@@ -216,7 +218,7 @@ headings must not outrank the page's own.
 
 ### The page's own markdown
 
-The markdown agents write in that text (paragraphs, lists, headings, fenced and inline code, bold, links) is drawn by a
+The markdown agents write in that text (paragraphs, lists, headings, quoted lines, fenced and inline code, bold, links) is drawn by a
 small renderer of the page's own, and a paragraph that is plainly code, such as a command, is kept as code, instead of
 the text shown raw or a markdown library, because raw markdown is hard to read, the page needs only these few forms, and
 nothing an agent writes may become markup the page did not mean.
@@ -427,8 +429,8 @@ holds only if the mapping is written down and checked.
 A page's title and what it is about is a `PageHeader`: `PageHeader.Title` as the h1, a thing with a number titled by its
 number in `--fgColor-muted` then its title ("#1 Document the commands"), as an item is written everywhere (below),
 instead of "Item 1"; its facts (below) in body text, after a bar on the title's line in `PageHeader.TitleArea`, aligned
-with the title's words and wrapping under it where the line is short, an item's its project, its tier, the route its work
-goes when that is not the normal route, its state's chip with the items it waits for after it, and its pull request ("#1 Document the
+with the title's words and wrapping under it where the line is short, an item's its project, its tier, the way its work
+went when that is not through the design, its state's chip with the items it waits for after it, and its pull request ("#1 Document the
 commands | wf-agents | Tier 2 | working | PR #3"); under them, in `PageHeader.Description`, while a work goes on on it, a second line of that work's facts: the
 work as a link with its state's chip beside it and no bar between them, its stage, its cell, what it waits for and its
 conversation ("Work 5 ready | test and review | 16 Owner | Conversation"); a page's controls, where it has any (an
@@ -611,7 +613,7 @@ its parts, each part's name a sub-heading, and every list of it an ordered list 
 `--base-size-8` apart, each its lead `strong` and each other part a paragraph in body medium opening with its name and a
 colon (ours), instead of option boxes for a list of approaches already compared, because a document is read through, and
 a box inside it would say it is something else. Where it fills a section or a tab by itself (the design on the item's
-page, the policy in force, the draft awaiting approval, the constitution and each section of the notebook in the panel
+page, the policy in force, the draft awaiting approval, the constitution and each part of the notebook in the panel
 beside the one-to-one with an architect) it has no box: it is that section's body text under its heading. Where it
 stands among the page's own words it keeps the box of what an agent handed back: folded under a card of the page's own
 in a conversation (a stage's design, the policy that took effect), or in a message, whose box it is in already.
@@ -843,8 +845,7 @@ when the box goes away, and instead of keeping every page shown, which is what t
 
 - **One draft for each box, under a key made of the number of what the box belongs to.** A box takes its words from
   `useDraft(key)` (`src/drafts.ts`): `conv:<conversation key>`, `ask:<id>`, `question:<work>:<matter>`, `card:<id>`,
-  `obs-close:<id>`, `settings`, `account:<cli>`, `flow-compare-ref`; the tick of a merge condition on a box and its line
-  (below) under `condition-ticked:<the box's key>` and `condition:<the box's key>`. A key is never made of where the box stands or
+  `obs-close:<id>`, `settings`, `account:<cli>`, `flow-compare-ref`. A key is never made of where the box stands or
   of a title, so that one box never shows another's words; two boxes with one key are one box. The keys are not
   tied to a database: a draft the owner never sent goes after 30 days.
 - **Kept at each change, in this browser.** Every change is written to `localStorage` at once, with no timer and no hook
@@ -877,7 +878,8 @@ when the box goes away, and instead of keeping every page shown, which is what t
   where the commit is the same; where the files changed since, they are dropped and the form says so, because writing
   them back would put old values over the new ones.
 - **Words put in from outside** (a quote, words taken back) go through `putDraft(key, words, 'append' | 'replace')`,
-  which works whether the box is shown or not.
+  which works whether the box is shown or not. A bubble quoted into the box at the bottom of a conversation is such
+  words ("Quoting a bubble", below), so that it is kept as the owner's own words are.
 - **A new box takes a draft, and the lint holds it to that.** `SayBox`, `SendForm`, `DraftArea` and `DraftInput` (all in
   `src/parts.tsx`) take a `Draft`, and `FieldInput` is for the fields of a form kept as one draft; Primer's `Textarea`
   and `TextInput`, and the HTML `input` and `textarea`, are drawn nowhere else, and the page's lint refuses them.
@@ -932,9 +934,9 @@ rest is checked only now and then.
 
 A round at a cell, wherever the page names the two together (a round panel's title, the round beside the row it came in
 by and the row it left by, who wrote something, a decision card's head, a tip of the usage chart), is one part, ours,
-written one way: the round's name first, then the cell's code and title in parentheses, "R10-55 (Q0 What can be
+written one way: the round's name first, then the cell's code and title in parentheses, "R10-55 (N0 What can be
 picked)", the round alone where its cell is not known and the cell alone where no round has run there yet, each a link
-where it opens something, instead of "R10-55 Q0 What can be picked" on one line and "Q2 Route the matter, R10-57" on the
+where it opens something, instead of "R10-55 N0 What can be picked" on one line and "N2 Route the matter, R10-57" on the
 next, because the owner found the two lines of one panel written two ways and asked for one.
 
 ### A round's name
@@ -1081,15 +1083,16 @@ of worded buttons too long for one line of the list's pane.
 ### An item's head
 
 An item's page is read only; its head is the item's number, muted, and its title ("#1 Document the commands"), with its
-facts after it on the title's line: its project, its tier, the route its work goes when that is not the normal route,
-named by what the item was marked ("Bug fix, light route", or "Bug fix, turned to the normal route" for a work that
-went light and needed more; what the route leaves out, or why the work went on as it did, said on hovering), the route
-its mark gives a work before one starts, and nothing for a work its research put on the normal route whatever the item
-was marked since, its state with the items it waits for, and its pull request; and under them, while a work goes on
+facts after it on the title's line: its project, its tier, the way its latest work went when that is not through the design,
+as the rows the work took give it ("Implemented straight from the research" for a work whose research judged it could be
+started directly, or "Sent to the design after it began" for one that began so and found the plan did not hold; what
+the way leaves out, or why the work went on as it did, said on hovering), and nothing for a work that went through the
+design, nor before the research answers, since nothing marks an item for a way, its state with the items it waits for,
+and its pull request; and under them, while a work goes on
 on it, that work once, with how it stands, its stage and cell, what it waits for and its group (above), instead of
 "Item 1", its state beside the title, the work and what it waits for on lines of their own, what the item delivers, and
-the normal route, which most items go, because the owner decided, and because which works skip the design and the
-blind review, and which turned back to them, is for the owner to see at a glance.
+the way through the design, which most works go, is not written, because the owner decided, and because which works
+skip the design, and which began so and turned back to it, is for the owner to see at a glance.
 
 ### An item's page
 
@@ -1120,14 +1123,6 @@ the approach chosen as its heading, the design itself and the measure, with wher
 pitfalls, why and the approaches compared folded; the acceptance is shown once, the locked one with the round that
 locked it, each condition with how the work said it was met. A condition checked after the merge says so in a sentence, in
 place of how it was met, with what result means it holds; what its checks came to is not shown yet.
-
-Under the acceptance, only on an item that has any, the merge conditions, what the owner set to be done before its work
-merges: a list of the document's shape (`DocList`), each with its sentence as its lead, where it stands as a `Label` beside
-it (not judged yet neutral, since the merge gate's ask of it comes only once the work gets there, and what waits for the
-owner is told by that ask and the waiting bar; met success; withdrawn neutral; each judged by the delegate saying so), then
-the words it rests on and who said them, who recorded it and when, with the architect's round as a link, and the engineer's
-latest report, with its round as a link, or that it has not reported. It is read here; it is judged in the work's group,
-where the merge gate's ask of it comes.
 
 ### Fields drawn by their shape
 
@@ -1819,6 +1814,11 @@ the matter, what matters most in the bubble, too faint to find; what the owner s
 said on the message in `--fgColor-danger` or `--fgColor-attention` small text; an ask is the asking agent's message,
 answered in it where it was asked, the bar of what waits pinning it while it waits (below).
 
+Everything a line says in a conversation is a bubble, an ask above all, whichever line said it, with what answers it inside
+it, and every ask or review that waits for the owner is pinned on the bar over the stream, which leads to that bubble:
+the owner decided this, reads conversations as a chat, and cannot go looking in other places for what waits. A line the
+flow gains changes nothing of it.
+
 In wf-agents' own conversation, the engine's notices are the page's own voice, a condensed `Timeline` between the
 messages: a card's badge its state's Octicon and state colour, its first line its name in semibold, its state as a
 `Label`, its facts in small `--fgColor-muted` and its links, what it holds folded under it, and a notice one small
@@ -2017,28 +2017,6 @@ to that ask or question, with the choice made and the words, and it shows nowher
 ask as one entry, the answer in it, and the owner's reply to a question shows in the question's bubble, not as words of
 the owner's of its own; an ask the engine closed says there why no answer was needed.
 
-The merge gate's ask of a merge condition, what the owner set to be done before the work merges, is an ask as any other:
-its points say the condition's sentence, the words it rests on and who said them with a link to the record they are in,
-who recorded it and when, the engineer's latest report on it or that it has not reported, and the pull request; its two
-options on their boxes are met and withdrawn. The option picked is sent apart from the words, since the engine reads which
-was chosen, and needs no words with it; words with no option go to the engineer, and the gate asks again. It takes neither
-the hand-back to the architect, who does not judge a condition, nor the tick below.
-
-### The tick of a merge condition
-
-Every box where the owner's words can set something to be done before a work merges takes one tick, the same part in each
-(ours, `ConditionLine`, a Primer `Checkbox` and `FormControl` under the box): the box at the bottom of a work's group, the
-small box that answers an engineer's ask or question in its bubble, and the box at the bottom of the one-to-one while it
-replies to a question of the architect's about one item. A question about no item or about several takes no tick, and the
-architect records the condition from the words; neither does a box once the merge of the item stands, since nothing is left
-to hold, and the engine refuses one then. Ticked, "Must be met before it merges" adds one line under it, "The
-condition", a `DraftInput` holding the box's words until the owner writes in it, because the owner's words may be only "OK",
-and a condition must read alone; a line left empty keeps the words from being sent. The words go as they would have gone;
-the line goes with them, and the engine records it with the record the words are kept in. Instead of a form of its own, or
-a command after the words are sent, because a condition is set while saying it, and instead of having agents pick it out of
-the words, which a missed one would make silent. A word that neither the owner ticked nor the architect recorded holds
-nothing at the merge gate, and the part's caption says what the line is for.
-
 A decision card that waits for the owner's ruling, whether or not its work waits on it yet, waits in its stage's bubble
 with its verdicts, folded to its head line as every card there, since open it took most of the conversation, the bar
 opening it; and a work the architect paused for what only the owner can do (a credential, a permission, a configuration
@@ -2182,7 +2160,7 @@ box, pinned on the bar of what waits (above) while it waits; under it Reply, whi
 to it, a strip over the box naming it ("Reply to:" and the question), the owner's words then the reply to that question,
 which the interface's say to the architect takes with `reply_to`, its matter coming back to the cell that asked with the
 reply; with the strip taken off, the words are the owner's words to the architect, which H8 answers. The strip names at
-first the question the architect waits on, as its look at the queue (`Q0`'s row `waits`) works it out from the same
+first the question the architect waits on, as its look at the queue (`N0`'s row `waits`) works it out from the same
 reading of the database (the newest question pending that does not pin an open question of an engineer's design, put
 less than the installation's wait for the owner's reply ago, with nothing said by the owner since), which the interface
 gives the page with the questions; a question that pins an open question is never the one the strip names, because the
@@ -2229,6 +2207,26 @@ Instead of the engine's sentence for agents cut to one line with the whole in a 
 of their own, because the owner reads a matter alike in the queue and in the conversation, its kind already says what is
 to be done, and a sentence cut short told the owner nothing.
 
+### Quoting a bubble
+
+A message of the owner's or of an agent's in a conversation has, at the end of its head, a small invisible `IconButton`
+with a `QuoteIcon` ("Quote in the box at the bottom"), which shows while the pointer is on the
+bubble or the keyboard is on the button, and always where there is no pointer; its height takes none from the head's
+line. It puts the bubble's words into the draft of the box at the bottom (`putDraft` with `append`, after the words
+already there) and puts the keyboard in the box: the words the owner selected inside that bubble, or, with none
+selected, all of what the bubble says. The words come as markdown: a line of its own with who said them in bold
+(`owner`, or the line of the agent), then the words, each line after a `> `, then a blank line, so that what the owner
+writes next is not part of the quote. They are the box's words: the owner trims them or adds to them in the box, they are kept with
+the draft, and Send sends them with what the owner wrote, as words, to whoever the box is for; an agent reads the lines
+as they are, and the page draws them as a quote (above) in the bubble the owner's words become. The button is on a
+bubble only while the box can take words: not on a work's group once the work is at its end, and not on a line of
+the engine's, a fault, a bubble of what a stage or an architect's matter came to, or the words of a ruling.
+
+Instead of a strip over the box naming the bubble, kept apart from the words as the reply to an architect's question is,
+because a quote is words the owner may cut or answer in between, it must stay when the owner goes to another
+conversation as the words do, and the box at the bottom answers no bubble: a quote is no reply, and sends no more than
+words. A mouse going down on the button does not end the selection it quotes.
+
 ### Where the owner's words stand
 
 The owner's words to an architect are no matter card in a conversation: once the architect took them up, where they
@@ -2242,6 +2240,23 @@ words that wait, as any matter.
 Instead of a matter card for the owner's words, kind "Your words" and "The owner says: ...", under their bubble, because
 that card repeated the bubble over it and the owner asked what the box was.
 
+### Taking words back
+
+While no agent has taken the owner's words up, the head of their bubble says "not taken up yet" and, after it, has a small
+invisible `Button` with an `UndoIcon`, "Take back". It puts the words back in the box of the conversation, after what the
+box holds already, with their images and whom they were for, and the bubble leaves the stream: the words are deleted from
+the database, which keeps the old rows in `changes`, so that the agent they were for does not read them. They can be taken
+back until an agent has them, and an agent has them once the message of a round that has not ended gave them (the head
+then says "taken up already: cannot be taken back", in the same small attention-coloured text, with no button, though the
+page does not yet count them taken up), once a hook handed them in, or, for the architect, once a round of its work picked
+the matter that holds them, handled it or held it by a question to the owner. "Taken up" means what the page always meant by
+it: the architect may have read words nobody picked in its account of the one-to-one, which does not make them taken up. A
+word to the architect and the engineer is taken back only while neither has it. Not taken back, and unchanged on the page:
+words said to several architects at once, words that ask about a decision card, a word that needs no answer, the relay of an
+answer to an ask (the ask records it) and everything an agent said. While the architect is choosing what it takes next, the
+button is shown and, pressed, answers that it is to be tried again in a moment, in small `--fgColor-danger` text beside the
+button; a refusal of any kind is said there too.
+
 ### The panel beside the one-to-one
 
 The one-to-one with a project's architect has a panel on its right, split from it by a divider that drags its width,
@@ -2250,9 +2265,11 @@ it is closed, a button at the end of the head's row that opens it, whether it is
 every one-to-one, open at first, and an address that names one of its tabs opening it there; where the window is too
 narrow for the list, the conversation and the panel side by side (below 1280px), the panel is over the conversation, in
 its place, open only while the address names one of its tabs, the button at the head's end opening it and its close
-going back to the conversation; its tabs: Notebook, each section of the architect's notebook (what the project is now,
-the plan, what is unclear, anything else) as it stands, under the round and cell that last wrote it, or that nothing
-wrote it yet, its earlier versions folded under it, newest first, each under the round and cell that wrote it and when;
+going back to the conversation; its tabs: Notebook, the two parts of the architect's notebook (how it understands the
+project, and the plan) as they stand, under the round and cell that last wrote them, or that nothing wrote them yet, the
+earlier versions folded under each, newest first, each under the round and cell that wrote it and when; then what came
+since the base wrote them, oldest first, each matter handled with its record and the lines it added, and each item
+merged or cancelled, which a new base clears;
 Policy, the draft that waits for the owner's approval on top while one does, headed as such, then the policy in force
 with the project's constitution folded under it; and Queue, counting the matters left, how many are left, how long the
 oldest waited and how many were handled today over the list of the matters, the one in hand marked, then those handled
@@ -2339,7 +2356,7 @@ display tokens of that colour: `--display-<colour>-borderColor-emphasis` a cell'
 cell's fill and a bubble's, `-borderColor-muted` a bubble's edge and `-bgColor-emphasis` an avatar's circle. The
 engineer is blue, the deep research plum, the review teal, the adversarial testing auburn, the advisor pink, the
 architect purple, the review of
-the architect's batch indigo, the reader of a work's history green, the search of observations brown and the pick of the
+the architect's batch indigo, the reader of a work's history green and the pick of the
 architect's next matter cyan; orange (the owner's cells), yellow (the tools') and red (danger) are kept from roles, and
 grey is the engine's own steps'; an agent with no colour of its own is the neutral grey of the engine's own steps, as a
 box.
@@ -2737,9 +2754,9 @@ card's flow, has no such section: what it would cost to install is asked of a fl
 ### The policy's stage on the architect's chart
 
 The architect's chart draws the check of the policy in force, the writing of a new one and its taking effect as a stage
-of its graph, the policy's box (`P1`, `P2`, `P12`), each entered from the router (`Q2`) and going back to the batch
+of its graph, the policy's box (`P1`, `P2`, `P3`), each entered from the router (`N2`) and going back to the batch
 (`B1`), as every other stage, and no circle to or from another graph, instead of a circle beside the actions that
-started the setting leading to `P2` of a graph of its own and one above `N1` from each cell of that graph that queued
+started the setting leading to `P2` of a graph of its own and one above `B2` from each cell of that graph that queued
 the matter of its end, because the setting is the architect's own work, which the owner reads on its one chart and in
 its one conversation, and a work of the policy's graph is drawn on the chart of the version it ran on.
 

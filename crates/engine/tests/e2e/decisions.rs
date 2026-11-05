@@ -15,7 +15,7 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
     let mut agents = scripts();
     let (first, second) = (held.clone(), held.replace("- Parse it.", "- Parse it first."));
     agents.insert(
-        "H8",
+        "H1",
         Box::new(move |_: &Request, n: usize| {
             let changes = versioned(
                 &path,
@@ -36,9 +36,9 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
                 },
             );
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.reply", json!({ "text": "Noted." })),
                     ("outcome.effects", json!({ "item_changes": changes })),
                 ],
             )
@@ -60,7 +60,7 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
-    let sent_back = why_sent_back(&e, arch, "H8");
+    let sent_back = why_sent_back(&e, arch, "H1");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
     for part in [
         "change 1 (create_item)",
@@ -98,7 +98,7 @@ fn a_text_that_replaces_the_approach_of_the_item_kept_in_a_merge_keeps_the_decis
                Words: \"x\" (matter 99, 2026-10-01)";
     let mut agents = scripts();
     agents.insert(
-        "H8",
+        "H1",
         Box::new(|_: &Request, n: usize| {
             let merge = json!({ "kind": "merge", "keep": "1", "absorbed": ["2"], "reason": "The same work." });
             let edit = json!({ "kind": "edit_item", "item": "1", "part": "approach", "reason": "Say it first.",
@@ -109,9 +109,9 @@ fn a_text_that_replaces_the_approach_of_the_item_kept_in_a_merge_keeps_the_decis
                 _ => return (Vec::new(), Vec::new()),
             };
             (
-                vec![("outcome.answer", "done")],
+                Vec::new(),
                 vec![
-                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.reply", json!({ "text": "Noted." })),
                     ("outcome.effects", json!({ "item_changes": changes })),
                 ],
             )

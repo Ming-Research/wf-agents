@@ -5,7 +5,8 @@ use super::*;
 
 // A query an agent asks for runs in the tool cell, and the tool cell's return, the rows included, fits the schema the
 // compiled flow gives cell `X1`: the engine checks its own tool cell's return against it and pauses the work when it
-// does not, so a result the flow does not describe fails here.
+// does not, so a result the flow does not describe fails here. A query too long to give, past the row limit too, gives
+// its first rows, how many it found and the file that holds them.
 #[test]
 fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     let s = setup("query");
@@ -15,7 +16,12 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
         "I1",
         Box::new(move |r: &Request, n: usize| {
             if n == 1 {
-                let tools = json!([{ "tool": "query", "sql": "SELECT id, title FROM items" }]);
+                let long = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 500)
+                            SELECT i, printf('%03000d', i) AS text FROM n;";
+                let tools = json!([
+                    { "tool": "query", "sql": "SELECT id, title FROM items" },
+                    { "tool": "query", "sql": long },
+                ]);
                 return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
             }
             implement(r, n - 1)
@@ -46,6 +52,16 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     assert_eq!(result["tool"], "query", "{output}");
     let rows = result["ran"]["rows"].as_array().cloned().unwrap_or_default();
     assert!(rows.iter().any(|r| r["title"] == "Add the feature"), "{output}");
+    assert_eq!(result["ran"]["total"], json!(rows.len()), "{output}");
+    let long = &output["results"][1]["ran"];
+    let first = long["rows"].as_array().cloned().unwrap_or_default();
+    assert!(!first.is_empty() && first[0]["i"] == 1, "{output}");
+    assert_eq!(long["cut"], true, "{output}");
+    assert_eq!(long["total"], 500, "{output}");
+    assert!(
+        long["saved"].as_str().is_some_and(|s| s.contains("saved to")),
+        "{output}"
+    );
     let w = e.work(work).unwrap();
     let g = e.graph_of(&w).unwrap();
     let schema = g.cell("X1").and_then(|c| c.schema.clone()).unwrap();

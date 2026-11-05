@@ -18,20 +18,21 @@ pub use rusqlite;
 pub mod attachments;
 pub mod backup;
 mod cells;
+mod engine_runs;
 mod holds;
 mod matters;
-mod merge_conditions;
 mod questions;
 mod slots;
 mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
+pub use engine_runs::{start_engine_run, stop_engine_run};
 pub use holds::{HoldReason, hold_starts, holds_of, release_starts};
 pub use matters::{
-    Declared, FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause,
-    one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
+    Appended, BASE_BUILT, Declared, FAULT, Forwarder, Matter, Speaker, appended_since, base_built_at, fault_forwarding,
+    forward_fault, forward_new_fault, lift_pause, one_sentence, plan_written_at, project_of_item, queue_matter,
+    say_to_architect, set_fault_forwarding, without_final_terminal,
 };
-pub use merge_conditions::{MergeCondition, item_of_ask, record_merge_condition};
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
 pub use start_over::{
@@ -41,6 +42,10 @@ pub use start_over::{
 
 /// The database's definition, as `db/schema.sql` writes it.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
+
+/// What `works.ended` holds for a work that reached the end of its graph. Any other value is the reason a work was
+/// stopped before its end. The views of `db/schema.sql` write it out as `'done'`.
+pub const ENDED_DONE: &str = "done";
 
 /// One step that brings an existing database nearer to [`SCHEMA`]: a file of `db/migrations/`.
 #[derive(Debug, Clone, Copy)]
@@ -67,8 +72,24 @@ pub const MIGRATIONS: &[Migration] = include!(concat!(env!("OUT_DIR"), "/migrati
 /// database newer than it.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
+/// The statement that gives the next transaction number, one more than the largest in the change log. `Db::write` runs
+/// it under the write lock on every write, so the largest is found through the index `changes_by_tx`, not by a scan.
+/// The aggregate is a scalar subquery: the plan test in `tests/query_plans.rs` holds that SQLite answers it from the index.
+pub const NEXT_TX: &str = "SELECT coalesce((SELECT max(tx) FROM changes), 0) + 1";
+
+/// The steps SQLite plans for `sql`, one per line, as `EXPLAIN QUERY PLAN` gives them: each names the table a step reads
+/// and the index it reads it by, when it has one. Parameters are bound to zero, since the plan does not depend on them.
+pub fn query_plan(conn: &Connection, sql: &str) -> rusqlite::Result<String> {
+    let mut st = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+    let zeros = vec![0_i64; st.parameter_count()];
+    let steps = st
+        .query_map(rusqlite::params_from_iter(zeros), |r| r.get::<_, String>(3))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(steps.join("\n"))
+}
+
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 15] = [
+const UNTRACKED: [&str; 16] = [
     "migrations",
     "rounds",
     "tool_runs",
@@ -84,6 +105,7 @@ const UNTRACKED: [&str; 15] = [
     "contents",
     "attachments",
     "slot_waits",
+    "engine_runs",
 ];
 
 /// The line a table's description has when agents may not read it.
@@ -93,6 +115,20 @@ const HIDDEN: &str = "Hidden from agents.";
 /// owner's ruling writes it and the engine's checks read it. A confirmation is a word that needs no answer, worded
 /// otherwise.
 pub const CARD_RULING: &str = "Ruling on decision card";
+
+/// What the owner's answer to an ask is relayed to the engineer with, as an interjection of the owner's, when the work
+/// goes on past the ask: for the ask whether the change may merge, `RELAY_APPROVAL` and the answer; for the kinds in
+/// `owner::GONE_ON_PAST`, `RELAY_ABOUT`, what the owner was asked, `RELAY_ANSWERED`, the ask's number, `): ` and the
+/// answer. The owner's page tells such a relay from words the owner typed by [`relays_an_answer`], since the answer is
+/// already recorded on the ask and is not the owner's to take back.
+pub const RELAY_APPROVAL: &str = "Asked to approve the change before it merges, the owner replied:";
+pub const RELAY_ABOUT: &str = "Asked about ";
+pub const RELAY_ANSWERED: &str = ", the owner answered (ask ";
+
+/// Whether an interjection's words are the relay of an answer to an ask, as the owner's answer writes them.
+pub fn relays_an_answer(text: &str) -> bool {
+    text.starts_with(RELAY_APPROVAL) || (text.starts_with(RELAY_ABOUT) && text.contains(RELAY_ANSWERED))
+}
 
 /// What a line is given of an interjection: who said it and, for the owner's question about a decision card, which card
 /// by its number and key, then the words.
@@ -487,7 +523,7 @@ impl Db {
     /// succeeds.
     pub fn write<T>(&mut self, actor: Actor, f: impl FnOnce(&Transaction<'_>) -> Result<T>) -> Result<T> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let id: i64 = tx.query_row("SELECT coalesce(max(tx), 0) + 1 FROM changes", [], |r| r.get(0))?;
+        let id: i64 = tx.query_row(NEXT_TX, [], |r| r.get(0))?;
         set(
             &self.writer,
             Some(Writer {
@@ -1121,6 +1157,17 @@ pub fn put_back(conn: &Connection, v: &Value) -> Value {
 mod tests {
     use super::*;
 
+    #[test]
+    fn next_transaction_number_reads_changes_by_changes_by_tx() {
+        let db = Db::in_memory().unwrap();
+        let steps = query_plan(db.conn(), NEXT_TX).unwrap();
+        assert!(
+            steps.contains("changes_by_tx"),
+            "the plan does not read by changes_by_tx:\n{steps}"
+        );
+        assert!(!steps.contains("SCAN changes"), "the plan scans changes:\n{steps}");
+    }
+
     fn temp(name: &str) -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("wf-agents-db-{}-{name}.sqlite", std::process::id()));
         for ext in ["", "-wal", "-shm"] {
@@ -1467,6 +1514,57 @@ mod tests {
         );
     }
 
+    // What is on hand, each item with its state: a work on it gives its number and cell, what is ready here is what
+    // ready_items starts, and an item done or cancelled is not there. A work paused or an item held that a work is on
+    // is at that work; nothing but the items' own order sorts them.
+    #[test]
+    fn open_items_gives_each_item_not_done_or_cancelled_with_its_state() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let [running, paused, held, blocked, ready, done, cancelled] =
+                ["running", "paused", "held", "blocked", "ready", "done", "cancelled"].map(|t| item(tx, t).unwrap());
+            add_dependency(tx, blocked, ready, "its part", "blocking")?;
+            tx.execute("UPDATE items SET held = 'later' WHERE id = ?1", [held])?;
+            tx.execute("UPDATE items SET cancelled = 'no' WHERE id = ?1", [cancelled])?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at) VALUES (1, ?1, 1, 'engineer', 'R1')",
+                [running],
+            )?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at, paused, paused_by)
+                 VALUES (2, ?1, 1, 'engineer', 'D1', 'to look', 'owner')",
+                [paused],
+            )?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at) VALUES (3, ?1, 1, 'engineer', 'E1')",
+                [done],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, config_commit, started_at, ended_at)
+                 VALUES (3, 1, 'E1', '{}', '{}', 'c', 1, 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let rows = |sql: &str| names(db.conn(), sql).unwrap();
+        assert_eq!(
+            rows("SELECT title || ' ' || state || ' ' || coalesce(work || ' ' || at, '-') FROM open_items"),
+            [
+                "running running 1 R1",
+                "paused paused 2 D1",
+                "held held -",
+                "blocked blocked -",
+                "ready ready -",
+            ]
+        );
+        assert_eq!(
+            rows("SELECT title FROM open_items WHERE state = 'ready'"),
+            rows("SELECT title FROM ready_items")
+        );
+    }
+
     /// Three works of project `p`, each of an item of its own, in the order of their numbers, all at `T6`; the
     /// database they are in has the one flow version they run on.
     fn three_works() -> (Db, [i64; 3]) {
@@ -1700,6 +1798,207 @@ mod tests {
         old.create_schema(v1, &[]).unwrap();
         old.migrate(&MIGRATIONS[..version as usize - 1]).unwrap();
         old
+    }
+
+    // Item #313: a work that reached the end of its graph is ended as done, by the id any flow version gave its end cell
+    // (the engineer's `E1`, `20`, `end`; the architect's `R1`, `E2`), when its latest round there is complete; one whose
+    // round at the end is open, one at another cell, one waiting for a change to take effect and one stopped are left
+    // as they were, and a paused one stays paused. The views of the items on hand give the same rows before and after.
+    #[test]
+    fn works_at_the_end_of_their_graph_are_ended_and_the_items_on_hand_stay_as_they_were() {
+        let at = MIGRATIONS
+            .iter()
+            .position(|m| m.name == "202611060100-works-that-reached-the-end-are-ended")
+            .unwrap();
+        let mut old = at_version(at as i64 + 1);
+        // The engineer's works, one on each item: where it is, whether it is paused, why it was stopped, and whether
+        // its round there is complete. Then the architect's works: where each is and whether its round there is complete.
+        let engineer = [
+            ("E1", None, None, true),
+            ("20", Some("held while the new flow is checked"), None, true),
+            ("end", None, None, true),
+            ("E1", Some("held"), None, false),
+            ("I1", None, None, false),
+            ("V1", None, None, true),
+            ("T3", None, Some("stopped: taken over"), false),
+            ("E1", None, None, true),
+        ];
+        let architect = [("R1", true), ("E2", true), ("R1", false), ("N0", false)];
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            let work = |item: Option<i64>,
+                        graph: &str,
+                        at: &str,
+                        paused: Option<&str>,
+                        ended: Option<&str>,
+                        complete: bool| {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, paused, ended, project)
+                     VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6)",
+                    params![item, graph, at, paused, ended, item.is_none().then_some("p")],
+                )?;
+                let id = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at, transition)
+                     VALUES (?1, 1, 'M2', '{}', 'c', 1, 1, 'merged')",
+                    [id],
+                )?;
+                // A work waiting for a change to take effect is at the cell with a row taken there.
+                let row = (at == "V1").then_some("not_carried");
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at, transition)
+                     VALUES (?1, 2, ?2, '{}', 'c', 2, ?3, ?4)",
+                    params![id, at, complete.then_some(2), row],
+                )?;
+                Ok::<i64, rusqlite::Error>(id)
+            };
+            for (n, (at, paused, ended, complete)) in engineer.into_iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [format!("Item {}", n + 1)],
+                )?;
+                let item = tx.last_insert_rowid();
+                work(Some(item), "engineer", at, paused, ended, complete)?;
+            }
+            for (at, complete) in architect {
+                work(None, "architect", at, None, None, complete)?;
+            }
+            // The eighth item is queued by the owner, and a ninth has no work.
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (8, 1.0)", [])?;
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Item 9', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let on_hand = |db: &Db| -> (Vec<String>, Vec<String>) {
+            (
+                names(
+                    db.conn(),
+                    "SELECT json_array(item, project, title, level, position, rank) FROM ready_items",
+                )
+                .unwrap(),
+                names(
+                    db.conn(),
+                    "SELECT json_array(item, project, title, state, rank, work, at) FROM open_items",
+                )
+                .unwrap(),
+            )
+        };
+        let before = on_hand(&old);
+        // The items the views give are those worked out by hand: the queued one first, then the others in order.
+        let items = |rows: &[String]| -> Vec<i64> {
+            rows.iter()
+                .map(|r| serde_json::from_str::<Value>(r).unwrap()[0].as_i64().unwrap())
+                .collect()
+        };
+        assert_eq!(items(&before.0), [8, 7, 9]);
+        assert_eq!(items(&before.1), [8, 5, 6, 7, 9]);
+        let ended = |db: &Db| -> Vec<(i64, Option<String>)> {
+            let mut st = db.conn().prepare("SELECT id, ended FROM works ORDER BY id").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        assert!(ended(&old).iter().all(|(id, ended)| *id == 7 || ended.is_none()));
+
+        old.migrate(MIGRATIONS).unwrap();
+
+        let done = Some(ENDED_DONE.to_string());
+        assert_eq!(
+            ended(&old),
+            [
+                (1, done.clone()),
+                (2, done.clone()),
+                (3, done.clone()),
+                (4, None),
+                (5, None),
+                (6, None),
+                (7, Some("stopped: taken over".to_string())),
+                (8, done.clone()),
+                (9, done.clone()),
+                (10, done),
+                (11, None),
+                (12, None),
+            ]
+        );
+        let paused: Option<String> = old
+            .conn()
+            .query_row("SELECT paused FROM works WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(paused.as_deref(), Some("held while the new flow is checked"));
+        assert_eq!(on_hand(&old), before);
+    }
+
+    // The migration that drops the mark of a bug fix or a feature from the items makes their table afresh: a database
+    // from just before it, with items of both marks, a link between them and a work whose research took `start`, comes
+    // out with every item as it was but for the mark, the link and the work still pointing at them, no column `route`,
+    // and the view of the ways works went reading the work's rows. The migrations of the whole come out as
+    // `db/schema.sql` has them, which `migrate` checks. Before the migration the column is there and the view gave the
+    // item's mark.
+    #[test]
+    fn items_lose_their_route_mark_and_keep_everything_else() {
+        let at = MIGRATIONS
+            .iter()
+            .position(|m| m.name == "202611042230-drop-the-route-mark-of-items")
+            .unwrap();
+        let mut old = at_version(at as i64 + 1);
+        old.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level, route, rank, held)
+                 VALUES ('p', 'a', 'x', 'y', 'change', 'l', 'bugfix', 3, 'held'),
+                        ('p', 'b', 'x', 'y', 'report', 'l', 'normal', NULL, NULL)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (2, 1, 'n', 'blocking')",
+                [],
+            )?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, transition)
+                 VALUES (1, 1, 'R1', '{}', 'c', 1, 'start')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let before: String = old
+            .conn()
+            .query_row("SELECT route FROM work_routes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(before, "light");
+        old.migrate(MIGRATIONS).unwrap();
+        assert!(old.conn().prepare("SELECT route FROM items").is_err());
+        let mut st = old
+            .conn()
+            .prepare("SELECT json_array(id, title, deliver, rank, held) FROM items ORDER BY id")
+            .unwrap();
+        let items: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        assert_eq!(items, [r#"[1,"a","change",3,"held"]"#, r#"[2,"b","report",null,null]"#]);
+        let (links, works): (i64, i64) = old
+            .conn()
+            .query_row(
+                "SELECT (SELECT count(*) FROM item_links WHERE item = 2 AND depends_on = 1),
+                        (SELECT count(*) FROM works WHERE item = 1)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((links, works), (1, 1));
+        let after: String = old
+            .conn()
+            .query_row("SELECT route FROM work_routes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(after, "direct");
     }
 
     // Item #217: the comment of an observation's title is part of the table's text, which an agent reads with
@@ -2122,7 +2421,7 @@ mod tests {
             )?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
-                 VALUES (1, 1, 'U1', 1, '{}', 'c', 1)",
+                 VALUES (1, 1, 'B1', 1, '{}', 'c', 1)",
                 [],
             )?;
             Ok(())
