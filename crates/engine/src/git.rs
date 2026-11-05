@@ -70,12 +70,20 @@ pub fn changed_among(dir: &Path, from: &str, to: &str, paths: &[String]) -> Resu
 /// against main as merged into it. A file that only main changed, brought in by merging main, drops out; a file both
 /// main and the work changed stays.
 pub fn own_changes(dir: &Path, main: &str, from: &str, to: &str) -> Result<Vec<String>, String> {
-    let all = changed(dir, from, to)?;
+    // A file moved to another name is listed at the name it had and at the name it has: with renames found, git lists
+    // only the new name, and a file moved out of a directory vanishes from that directory's list.
+    let whole = |from: &str| -> Result<Vec<String>, String> {
+        Ok(names(&git(
+            dir,
+            &["diff", "--name-only", "--no-renames", "-z", &format!("{from}..{to}")],
+        )?))
+    };
+    let all = whole(from)?;
     if all.is_empty() {
         return Ok(all);
     }
     let merged = main_merged_into(dir, to, main)?;
-    let own: BTreeSet<String> = changed(dir, &merged, to)?.into_iter().collect();
+    let own: BTreeSet<String> = whole(&merged)?.into_iter().collect();
     Ok(all.into_iter().filter(|f| own.contains(f)).collect())
 }
 
