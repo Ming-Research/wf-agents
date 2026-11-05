@@ -248,7 +248,8 @@ fn of_two_works_back_from_waiting_one_takes_the_one_free_slot() {
     let mut one = one_waits_for_a_slot("one-free-slot");
     let [a, b, c] = one.works;
     // The wait is the database's, not this engine's memory: an engine started afresh on it names it too.
-    let (mut afresh, _) = engine(&one.s, scripts());
+    // It reads only, since the engine of the setup holds the data directory's lock.
+    let mut afresh = reading_engine(&one.s, scripts());
     assert_eq!(afresh.waiting_for_slot().unwrap(), vec![b], "{}", one.log());
     drop(afresh);
     // The owner pauses the third, which frees its slot: the second goes on in it.

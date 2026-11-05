@@ -165,6 +165,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/faults/{id}/forward", post(forward_fault))
         .route("/api/v1/faults/forward-new", post(forward_new))
         .route("/api/v1/conversations/read", post(read_to))
+        .route("/api/v1/conversation/retract", post(take_back))
         .route(
             "/api/v1/projects/say",
             post(say_to_projects).layer(DefaultBodyLimit::max(SAID_MAX)),
@@ -918,6 +919,16 @@ async fn decide(
     app: &App,
     f: impl FnOnce(&mut db::Db) -> Result<String, String> + Send + 'static,
 ) -> Result<Json<api::Done>, Fail> {
+    let done = owner_writes(app, f).await?;
+    Ok(Json(api::Done { done }))
+}
+
+/// Runs a write of the owner's, which gives what it came to, then wakes the engine's loop; refused with the reason the
+/// write gives.
+async fn owner_writes<T: Send + 'static>(
+    app: &App,
+    f: impl FnOnce(&mut db::Db) -> Result<T, String> + Send + 'static,
+) -> Result<T, Fail> {
     let path = Arc::clone(&app.db);
     let done = tokio::task::spawn_blocking(move || {
         let mut conn = db::Db::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -927,7 +938,12 @@ async fn decide(
     .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))?;
     app.control.wake();
-    Ok(Json(api::Done { done }))
+    Ok(done)
+}
+
+/// Takes back the owner's words that no agent has taken up yet, giving what goes back in the box.
+async fn take_back(State(app): State<App>, Json(t): Json<api::TakeBack>) -> Result<Json<api::TakenBack>, Fail> {
+    owner_writes(&app, move |db| api::take_back(db, &t)).await.map(Json)
 }
 
 /// What the owner says in a group of connected projects' architects: to one of them, or to every one.

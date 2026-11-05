@@ -43,8 +43,12 @@ with warnings as errors, and the tests, on the toolchain
 `rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
 build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
-flow as the engine stores it, which the page's tests read and git leaves out). Its job `check` is red whenever another
-of its jobs is. A red format check leaves the files as rustfmt makes them, and a stale `client/src/api.ts` the file as
+flow as the engine stores it, which the page's tests read and git leaves out). The page's tests in files named
+`*.browser.test.tsx` draw the page in a real Chromium (Vitest's browser mode, `.github/actions/browser`), for what
+happy-dom has no real version of: layout, the pointer, focus and the keys; the full CI runs them with the page's other
+tests, which it skips when the page's files are the same as in a run that passed, and the workflow `fast` only when a
+run names one. On the project's own machine the libraries Chromium links against are installed by hand, as a workflow
+has no root there. Its job `check` is red whenever another of its jobs is. A red format check leaves the files as rustfmt makes them, and a stale `client/src/api.ts` the file as
 generated, in the artifact `page-types`, for the engine to put in the work's worktree. The workflow `fast` runs only
 when asked, by hand, and only what it is asked for: it compiles and runs the tests named (its input `tests`), and runs
 the lint only when that is named (its input `checks`), in a few minutes; it has no job `check`, so that a head only
@@ -83,6 +87,114 @@ The program is installed on its own, never in the data directory: build the page
 architects' worktrees under `worktrees/`, which its git leaves out. Once the configuration is committed,
 `wf-agents init` makes the database; it is the only command that does, and every command that works on the database,
 the engine included, fails when there is none, so a wrong `--data` is an error and not an empty view.
+
+To replace the installed program while an engine runs, stop the engine first, as Running below says, then copy the new
+program over the old one and start it with `wf-agents run`.
+
+## Running
+
+Start the engine on a data directory, then open the owner's page:
+
+```
+wf-agents run --data DIR
+```
+
+`--data DIR` can be left out when `WF_AGENTS_DATA` names the directory. The engine serves the page at
+`http://127.0.0.1:7480/`, on the loopback address only; `wf-agents run --port PORT` takes another port. It starts with
+every work paused: nothing runs until the owner presses Start all in the page's bar, or starts one work. The owner
+works on the page: answering the asks, ruling on the decision cards, pausing, starting and stepping works, starting a
+work over, saying something in a work's group, holding a project's new starts. [The owner's page](#the-owners-page) below says
+what each view holds. `wf-agents run --once` takes one pass without the page, which is how a script or a test steps the
+engine.
+
+One engine runs on a data directory. It takes an operating-system lock on the file `db/engine.lock` before it opens the
+database, removes the stop file or writes anything, and keeps it until it exits. A second `wf-agents run`, or a second
+`wf-agents run --once`, on the same directory fails at once with the number of the process that holds the lock, so two
+engines never take the same work, which would run its round twice, two agents in one worktree and two pushes. The lock
+goes with the process however it ends, a crash or a kill included, and a program the engine started does not keep it, so
+there is nothing to clear by hand. The text in the file only says who holds the lock; deleting the file frees nothing.
+
+To stop the engine, for instance before installing a new program, create the file `stop` in the data directory, as `touch DIR/stop` does.
+The engine dispatches nothing more, waits for the rounds under way, says it stopped, removes the file and
+exits, and the lock goes with the process. A new `wf-agents run` started while the old process still holds the lock
+fails at once, naming that process; start it again once the old one has exited.
+
+## On the command line
+
+Much of what the owner does on the page can also be done on the command line, which is for a session that works beside
+the owner and for scripts, and the commands below are the ones for the owner. Starting, stepping and starting a work over, and the
+page's Start all and Pause all, are on the page only. Each command works on the data directory (`--data DIR`, or `WF_AGENTS_DATA`) and prints what it
+finds; `--help` of each tells what its arguments mean, and a command line given none of the commands fails with the
+usage and their names. The engine itself and the checks of a change come first:
+
+- `wf-agents run --once`: the engine takes one pass without the page, as above; `wf-agents run` is how the engine and
+  the page start.
+- `wf-agents init`: makes the database, once.
+- `wf-agents config check`: checks the configuration as the data directory's files are now, committed or not.
+- `wf-agents flow check flow/flow.json`: checks a flow against its format, the database and every state the engine can
+  be in.
+- `wf-agents flow cost flow/flow.json`: tells what installing a flow would do with each work that goes on.
+
+What the page shows, read:
+
+- `wf-agents status`: where each work stands.
+- `wf-agents history WORK --full`: a work's rounds, in full.
+- `wf-agents message WORK --json`: the message a work's next agent round would be sent.
+- `wf-agents counters WORK`: how many times a work took the rows that count each counter.
+- `wf-agents anomalies`: returns sent back, compactions, counters past their limits, and works paused.
+- `wf-agents cost WORK`: the time and cost of each work, or of one work's rounds.
+
+Items and the queue:
+
+- `wf-agents item add --project P --title T --problem X --why Y --level L`: creates an item.
+- `wf-agents item list`: every item.
+- `wf-agents item depend ITEM ON --needs WHAT --kind blocking`: makes an item depend on another.
+- `wf-agents item cancel ITEM --why WHY`: cancels an item.
+- `wf-agents queue list`: the items waiting to start, in order.
+- `wf-agents queue put ITEM --first`: puts an item in the queue.
+
+Asks and decision cards, which the page shows where they were asked:
+
+- `wf-agents asks --all`: the asks of the owner, those waiting for an answer, or all of them.
+- `wf-agents ask ASK`: one ask in full, with its answer.
+- `wf-agents answer ASK --text TEXT --speaker owner`: answers an ask.
+- `wf-agents design-cards --all`: the current decision cards, open or ruled, or every one.
+- `wf-agents design-card CARD`: one decision card in full, with its rulings.
+- `wf-agents rule CARD --confirm`: rules on a decision card, here by confirming the option it recommends; `--choose`
+  takes another of its options and `--disagree` says why not.
+
+Saying something, and pausing:
+
+- `wf-agents say WORK TEXT --speaker owner --to both`: says something in a work's group, to its engineer, its architect
+  or both.
+- `wf-agents architect say TEXT --speaker owner`: says something to a project's architect.
+- `wf-agents pause WORK --why WHY`: pauses a work; `wf-agents resume WORK` asks to lift the pause.
+- `wf-agents hold --why WORDS`: holds a project's new starts; `wf-agents release` lifts the hold.
+
+`--speaker owner` is for the owner. A session that speaks for the owner gives `--speaker delegate`, and marks a part of
+what it says that is the owner's own words, found in it letter for letter, with `--relayed`.
+
+## The data directory
+
+The data directory is a git repository with at least one commit that the owner keeps outside this repository, named by
+`--data` or `WF_AGENTS_DATA`. The engine reads only the configuration that is committed. Its `.gitignore` should leave out
+what the engine writes: `db/`, `logs/`, `tool-output/`, `notifications.log` and `worktrees/`. It holds:
+
+- `install.toml`: the owner, the machines and their slots, the CLIs and agent levels, the gh allow list and the limits of
+  a query.
+- `shared/`: files that a project's file starts from, by `extends`.
+- `projects/`: one file for each project.
+- `rules/`: the rules agents are given, by the names the projects list them under.
+- `agents/`: the configuration directory of each agent CLI, and of each account it may run under; the engine keeps it out
+  of git.
+- `db/`: the database `wf-agents.sqlite`, made by `wf-agents init`, and `engine.lock`, the lock that keeps a second
+  engine off the directory.
+- `logs/`: the logs of the runs of the project's CI.
+- `tool-output/`: the output of a tool too long to give in a message, saved under the round that asked for it.
+- `notifications.log`: what the engine told the owner, one line each.
+- `worktrees/`: the worktrees of the works and of the architects.
+- `reasoning-system/`: the clone of the reasoning system that projects with records are checked by.
+- `stop`: made by the owner to stop the engine; the engine removes it when it starts and when it stops.
 
 ## A project's records
 
@@ -251,10 +363,9 @@ owner and the assistant to go through later and goes to no agent. A project's fi
 
 ## The owner's page
 
-`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). However the engine ends,
-Ctrl-C and a closed terminal included, the agents it was running are stopped with it. The engine starts with
-every work paused, so nothing runs until the owner presses Start all in the page's bar, which is also how the page is
-looked at against a copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
+However the engine ends, Ctrl-C and a closed terminal included, the agents it was running are stopped with it. Start all in
+the page's bar, which the engine's start with every work paused waits for, is also how the page is looked at against a
+copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
 switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in the head of its
 group in the Messages view, which win over the global state when they come later, Start all aside, which lifts no
 work's own pause; Step runs one round of a work, after showing what it will be, and leaves it paused; Start and Step
@@ -263,7 +374,7 @@ at once, a round of it under way cut off, and a new work begins the item again f
 branch, worktree and pull request; the item's architect can start a work over too.
 
 To let the system wind down without stopping what runs, the owner holds one project's new starts: the button Hold new
-starts at the right end of the architect's title row, or `wf-agents hold --why <words>` (`--project` when the
+starts at the right end of the architect's title row, or `wf-agents hold --why WORDS` (`--project` when the
 configuration has more than one project). No new work of the project starts; works already running go on to their
 merge, and works waiting for a result go on after it. It is kept in the database, so it stands across a restart of the
 engine, and it is another thing from Pause all, which stops every work and is not kept. The owner releases it with the

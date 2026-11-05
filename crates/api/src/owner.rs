@@ -103,9 +103,9 @@ fn live(db: &Db, work: i64) -> Result<(), String> {
         .map_err(sql)?;
     match found {
         None => return Err(format!("no work {work}")),
-        Some((Some(why), _, _)) => return Err(format!("work {work} has ended: {why}")),
+        Some((Some(why), _, _)) if why != db::ENDED_DONE => return Err(format!("work {work} has ended: {why}")),
         // A work at its end no longer changes its way on: what would change it is a new item.
-        Some((None, graph, at)) if graph == "engineer" && db::is_cell("engineer", "E1", &at) => {
+        Some((_, graph, at)) if graph == "engineer" && db::is_cell("engineer", "E1", &at) => {
             return Err(format!(
                 "work {work} is at its end and its way on no longer changes: a change becomes a new item"
             ));
@@ -629,9 +629,11 @@ fn relayed_words(conn: &Connection, ask: i64, body: &Value, text: &str) -> Resul
         return Ok(None);
     };
     let ended: bool = conn
-        .query_row("SELECT ended IS NOT NULL FROM works WHERE id = ?1", [work], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT ended IS NOT NULL AND ended <> ?2 FROM works WHERE id = ?1",
+            params![work, db::ENDED_DONE],
+            |r| r.get(0),
+        )
         .optional()
         .map_err(sql)?
         .unwrap_or(true);
@@ -652,7 +654,7 @@ fn relayed_words(conn: &Connection, ask: i64, body: &Value, text: &str) -> Resul
     }
     Ok(Some((
         work,
-        format!("Asked about {what}, the owner answered (ask {ask}): {}", text.trim()),
+        format!("{}{what}{}{ask}): {}", db::RELAY_ABOUT, db::RELAY_ANSWERED, text.trim()),
     )))
 }
 

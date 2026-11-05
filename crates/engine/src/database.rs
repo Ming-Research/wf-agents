@@ -14,6 +14,16 @@ pub fn open(data: &Path) -> Result<Db, String> {
     Db::open(&path).map_err(|e| told(&path, e))
 }
 
+/// Fails, as [`open`] fails, when the data directory `data` has no database file, and opens nothing: for a command that
+/// must leave the directory as it is when the database is not there, before it makes anything of its own beside it.
+pub fn require(data: &Path) -> Result<(), String> {
+    let path = config::database(data);
+    match path.try_exists() {
+        Ok(false) => Err(told(&path, Error::Missing)),
+        _ => Ok(()),
+    }
+}
+
 /// Opens the database in the data directory `data` only to read it, as it is. It makes nothing, and a missing
 /// database is told as [`open`] tells it.
 pub fn open_read_only(data: &Path) -> Result<Db, String> {

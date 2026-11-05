@@ -319,6 +319,32 @@ export function replyingTo(
   return pinned.find((e) => e.id === chosen) ?? pinned.find((e) => e.id === waitsOn) ?? null;
 }
 
+/// The key of the draft of a conversation's box at the bottom, which keeps its words, a quote put in from a bubble
+/// among them.
+export const boxDraftKey = (c: Conversation): string => `conv:${c.key}`;
+
+/// Whether the owner can quote a bubble into the box: it is a message of the owner's or of an agent's, with words in it
+/// (an engine's line, a fault, a bubble of what a work's stage or an architect's matter came to, and the words of a
+/// ruling, which the page says itself, have none to quote).
+export const quotable = (e: ConversationEntry): boolean =>
+  (voiceOf(e) === 'owner' || voiceOf(e) === 'agent') && e.source !== 'ruling' && e.text.trim() !== '';
+
+/// Who a quote names as having said the words: the owner, the line of an agent, or, in a group of projects, the
+/// architect of the project. In the words the receiving agent reads, so `owner`, never "you".
+export const quotedBy = (e: ConversationEntry): string =>
+  e.source === 'between' ? party(e, e.sender) : e.sender === 'owner' ? 'owner' : words(member(e.sender));
+
+/// The words of a bubble as the owner puts them into the box: who said them in bold on a line of their own, then the
+/// words, each line after a `> `, and a blank line, so that what the owner writes next is not part of the quote. The
+/// words are those the owner selected in the bubble (`selected`) when there are any, else all of what the bubble says
+/// (`text`). The agent that is told them reads the lines as they are, and the page draws them as a quote
+/// (`markdown.tsx`).
+export function quoted(who: string, text: string, selected: string | null): string {
+  const said = selected !== null && selected.trim() !== '' ? selected.trim() : text.trim();
+  const lines = [`**${who}**`, '', ...said.split(/\r\n?|\n/)];
+  return `${lines.map((l) => (l === '' ? '>' : `> ${l}`)).join('\n')}\n\n`;
+}
+
 /// What the box at the bottom of the one-to-one sends to the architect: the owner's words, and the question they reply
 /// to when it replies to one.
 export const toArchitect = (

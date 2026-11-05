@@ -9,7 +9,9 @@
 //! sessions, to a thread of its own with an execution context of its own ([`Engine::fork`]), one job at most for each
 //! work, so that the rounds and tool runs of different works overlap while each work moves one step after another,
 //! and a pause of a work takes effect when the round under way ends. A job's thread marks its job as over and says so
-//! (the hook `ended`), and the loop reaps it ([`Engine::reap`]).
+//! (the hook `ended`), and the loop reaps it ([`Engine::reap`]). A fault of one work in the loop's turn, or in its step,
+//! pauses that work with why and the others go on; a fault that belongs to no work is told once and tried again at the
+//! next turn ([`crate::runs`]).
 
 use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -107,11 +109,9 @@ struct Outcome {
     /// Whether it was the owner's round asked and ran no round, as a failed run's cause that stops every work stood:
     /// the ask stands.
     deferred: bool,
-    /// What went wrong that the job could not deal with itself: an error left once its step paused its work, or the
-    /// panic its thread ended in.
+    /// What went wrong that the job could not deal with itself: an error its step could not deal with, or the panic
+    /// its thread ended in. The loop pauses the work of a step that left one.
     failed: Option<String>,
-    /// Whether its thread ended in a panic, which leaves the work for the loop to pause.
-    panicked: bool,
 }
 
 impl Outcome {
@@ -128,7 +128,6 @@ impl Outcome {
             held: false,
             deferred: false,
             failed: Some(format!("its step's thread panicked: {what}")),
-            panicked: true,
         }
     }
 }
@@ -200,24 +199,30 @@ impl Engine {
     /// granted a free slot of its machine for its next step, in the order of the works' ids and before any new work
     /// starts, not dispatched while its machine has none free. Gives the owner's rounds asked that it took without a
     /// step, since none could run: a project's architect with nothing to start a work for, or a work brought to the
-    /// version the engine runs that could go on from no cell there, whose step that was.
+    /// version the engine runs that could go on from no cell there, whose step that was. A work the turn cannot read
+    /// or dispatch is paused with why ([`Engine::fault_work`]), the owner's round asked of it given back, and the others
+    /// go on; a part of the turn that fails and belongs to no work is told once ([`Engine::faulted`]) and does not keep
+    /// the other parts from running, so that this gives an error for none of them.
     pub fn dispatch(&mut self, go: &Go) -> Result<Vec<Stepped>, String> {
         self.reload_config();
         self.set_global_pause(go.pause.clone());
-        if actions::run_outbox(self)? {
+        let outbox = actions::run_outbox(self);
+        if self.faulted("carrying out the outbox", outbox) == Some(true) {
             self.rouse();
         }
         let mut taken = Vec::new();
         if self.halted() {
             return Ok(taken);
         }
+        let outdated = self.outdated();
         let old: Vec<Work> = self
-            .outdated()?
+            .faulted("looking for the works on an older flow version", outdated)
+            .unwrap_or_default()
             .into_iter()
             .filter(|w| goes_on(go.pause.as_ref(), w) && !self.has_job(w.id))
             .collect();
         if !old.is_empty() {
-            self.bring_up(&old)?;
+            self.bring_up(&old);
             self.rouse();
         }
         // The owner's Start of a work taken over, here or by a start over the outbox held, goes on at once in the work
@@ -232,20 +237,34 @@ impl Engine {
         });
         self.set_global_pause(pause.clone());
         let pause = pause.as_ref();
-        self.architects_due(pause)?;
-        let held_for_slot = self.held_for_slot()?;
+        let due = self.architects_due(pause);
+        self.faulted("starting the works of the architects", due);
+        let held = self.held_for_slot();
+        let held_for_slot = self
+            .faulted("reading which works wait for a free slot", held)
+            .unwrap_or_default();
+        // A round the owner asked for that cannot be taken is given back all the same: asked again at every turn, it
+        // would let go on, each time, a work the engine paused for it.
         for &work in &go.steps {
             let ask = Ask::Work(work);
             if self.has_job(work) || self.asked_in_flight(&ask) {
                 continue;
             }
-            match self.owner_round(work)? {
-                Some(id) => self.dispatch_step(id, true, false, Some(ask), None)?,
-                None => taken.push(Stepped {
+            let stepped = self.owner_round(work).and_then(|id| match id {
+                Some(id) => self
+                    .dispatch_step(id, true, false, Some(ask.clone()), None)
+                    .map(|()| true),
+                None => Ok(false),
+            });
+            if let Err(x) = &stepped {
+                self.say(&format!("work {work}: the round the owner asked for is not taken: {x}"));
+            }
+            if self.or_fault(work, stepped) != Some(true) {
+                taken.push(Stepped {
                     work: Some(work),
                     asked: Some(ask),
                     ..Stepped::default()
-                }),
+                });
             }
         }
         for project in &go.architects {
@@ -253,54 +272,89 @@ impl Engine {
             if self.asked_in_flight(&ask) {
                 continue;
             }
-            match architect::running(self, project)? {
-                Some(id) if self.has_job(id) => {}
-                Some(id) => match self.owner_round(id)? {
-                    Some(n) => self.dispatch_step(n, true, false, Some(ask), None)?,
-                    None => taken.push(Stepped {
-                        asked: Some(ask),
-                        ..Stepped::default()
-                    }),
-                },
-                None => {
-                    architect::queue_due(self)?;
-                    match architect::start(self, project, true)? {
-                        Some(id) => {
-                            self.say(&format!(
-                                "work {id}: a work of the architect of {project} starts, as the owner steps it"
-                            ));
-                            self.dispatch_step(id, true, false, Some(ask), None)?;
-                        }
-                        None => taken.push(Stepped {
-                            asked: Some(ask),
-                            ..Stepped::default()
-                        }),
+            let round = self.architect_round(project, &ask);
+            let what = format!("taking the round of the architect of {project}");
+            match self.faulted(&what, round) {
+                Some(Some(s)) => taken.push(s),
+                Some(None) => {}
+                None => taken.push(Stepped {
+                    asked: Some(ask),
+                    ..Stepped::default()
+                }),
+            }
+        }
+        let active = self.active();
+        for id in self.faulted("listing the works that go on", active).unwrap_or_default() {
+            let dispatched = self.dispatch_work(id, pause, &held_for_slot);
+            self.or_fault(id, dispatched);
+        }
+        if pause.is_none() {
+            let started = self.start_ready();
+            self.faulted("starting works on ready items", started);
+        }
+        let warmed = self.keep_warm(db::now(), pause);
+        self.faulted("keeping the sessions warm", warmed);
+        Ok(taken)
+    }
+
+    /// Dispatches the step of a work that goes on, unless it has a job in flight, is idle, is held back by the owner's
+    /// global pause or runs an older flow version, or waits on for a free slot and finds none.
+    fn dispatch_work(
+        &mut self,
+        id: i64,
+        pause: Option<&GlobalPause>,
+        held_for_slot: &BTreeSet<i64>,
+    ) -> Result<(), String> {
+        if self.has_job(id) || lock(&self.shared.idle).contains(&id) {
+            return Ok(());
+        }
+        let w = self.work(id)?;
+        if !goes_on(pause, &w) || w.flow_version != self.flow_now {
+            return Ok(());
+        }
+        // Only a work whose last step found its wait over is granted a slot; while its machine has none free it
+        // is not dispatched, and the slots are kept for it ([`Engine::start_ready`]).
+        let held = held_for_slot.contains(&id) && self.waiting(&w)?;
+        let granted = held && self.room_for(&w)?;
+        if held && !granted {
+            return Ok(());
+        }
+        self.dispatch_step(id, false, granted, None, None)
+    }
+
+    /// Takes the owner's round of a project's architect: the next round of its work that runs, or, when none runs and
+    /// a matter is due, of a work started for it. Gives the round asked when it was taken without a step, since none
+    /// could run; none when a step was dispatched or the architect's work has a job in flight.
+    fn architect_round(&mut self, project: &str, ask: &Ask) -> Result<Option<Stepped>, String> {
+        let without_a_step = || {
+            Some(Stepped {
+                asked: Some(ask.clone()),
+                ..Stepped::default()
+            })
+        };
+        match architect::running(self, project)? {
+            Some(id) if self.has_job(id) => Ok(None),
+            Some(id) => match self.owner_round(id)? {
+                Some(n) => {
+                    self.dispatch_step(n, true, false, Some(ask.clone()), None)?;
+                    Ok(None)
+                }
+                None => Ok(without_a_step()),
+            },
+            None => {
+                architect::queue_due(self)?;
+                match architect::start(self, project, true)? {
+                    Some(id) => {
+                        self.say(&format!(
+                            "work {id}: a work of the architect of {project} starts, as the owner steps it"
+                        ));
+                        self.dispatch_step(id, true, false, Some(ask.clone()), None)?;
+                        Ok(None)
                     }
+                    None => Ok(without_a_step()),
                 }
             }
         }
-        for id in self.active()? {
-            if self.has_job(id) || lock(&self.shared.idle).contains(&id) {
-                continue;
-            }
-            let w = self.work(id)?;
-            if !goes_on(pause, &w) || w.flow_version != self.flow_now {
-                continue;
-            }
-            // Only a work whose last step found its wait over is granted a slot; while its machine has none free it
-            // is not dispatched, and the slots are kept for it ([`Engine::start_ready`]).
-            let held = held_for_slot.contains(&id) && self.waiting(&w)?;
-            let granted = held && self.room_for(&w)?;
-            if held && !granted {
-                continue;
-            }
-            self.dispatch_step(id, false, granted, None, None)?;
-        }
-        if pause.is_none() {
-            self.start_ready()?;
-        }
-        self.keep_warm(db::now(), pause)?;
-        Ok(taken)
     }
 
     /// Starts works on ready items, each with its first step dispatched, while more slots are free than the works that
@@ -332,14 +386,12 @@ impl Engine {
         );
         let mut n = 0;
         for id in ids {
-            let w = self.work(id)?;
-            if w.graph == ENGINEER
-                && w.ended.is_none()
-                && w.paused.is_none()
-                && !self.granted(id)
-                && self.waiting(&w)?
-            {
-                n += 1;
+            let Some(w) = self.work_or_fault(id) else { continue };
+            if w.graph == ENGINEER && w.ended.is_none() && w.paused.is_none() && !self.granted(id) {
+                let waiting = self.waiting(&w);
+                if self.or_fault(id, waiting) == Some(true) {
+                    n += 1;
+                }
             }
         }
         Ok(n)
@@ -376,6 +428,9 @@ impl Engine {
     /// could go on from no cell of the version and stays where it was brought, paused, or ended as the version has no
     /// graph for it: that was its step.
     fn owner_round(&mut self, work: i64) -> Result<Option<i64>, String> {
+        // The work is read first: one that cannot be read stays as the engine paused it, with its reason, and is not
+        // let go on as paused by the owner.
+        self.work(work)?;
         self.take_in_hand(work)?;
         let w = self.work(work)?;
         if w.ended.is_some() || w.flow_version == self.flow_now || self.done(&w)? {
@@ -413,7 +468,7 @@ impl Engine {
         let mut held = db::slot_waiting(self.db.conn()).map_err(|e| e.to_string())?;
         let mut stopped = Vec::new();
         for &id in &held {
-            let w = self.work(id)?;
+            let Some(w) = self.work_or_fault(id) else { continue };
             if w.ended.is_some() {
                 stopped.push((id, SlotWaitEnd::Ended));
             } else if w.paused.is_some() {
@@ -559,7 +614,6 @@ impl Engine {
             held,
             deferred,
             failed,
-            panicked: false,
         }
     }
 
@@ -577,8 +631,9 @@ impl Engine {
     /// waited for come but was granted no slot waits for a free slot, recorded so until a later step of it ends
     /// ([`Engine::record_slot_wait`]), and is granted one as soon as its machine has one free; any other work whose
     /// step moved nothing is idle, not dispatched again until something moves, and a step that moved something lets
-    /// every work be dispatched again ([`Engine::rouse`]); a work whose step's thread panicked is paused with why,
-    /// unless it ended. Gives what each step came to, in the order of their works' ids.
+    /// every work be dispatched again ([`Engine::rouse`]); a work whose step failed with an error it did not deal with
+    /// itself, or whose thread panicked, is paused with why, unless it ended or is paused. Gives what each step came to,
+    /// in the order of their works' ids.
     pub fn reap(&mut self) -> Result<Vec<Stepped>, String> {
         let over: Vec<(i64, Job)> = {
             let mut jobs = lock(&self.shared.jobs);
@@ -607,12 +662,11 @@ impl Engine {
                 }
             }
             if let Some(why) = &outcome.failed {
+                // A step that failed with an error it did not deal with itself, or panicked, leaves its work paused
+                // with why; the pings due to a work's sessions that failed are only said.
                 self.say(&format!("work {work}: {why}"));
-                if outcome.panicked
-                    && self.ended(work)?.is_none()
-                    && let Err(x) = self.pause(work, why)
-                {
-                    self.say(&format!("work {work} is not paused: {x}"));
+                if job.step {
+                    self.fault_work(work, why);
                 }
             }
             if job.step {
