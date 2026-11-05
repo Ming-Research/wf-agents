@@ -50,6 +50,7 @@ mod reasoning;
 mod reminders;
 mod results;
 mod review;
+mod runs;
 pub mod schedule;
 mod set_aside;
 mod steps;
@@ -194,6 +195,9 @@ struct Shared {
     /// The kinds of failed run the owner was told stop every work, until a round runs to a return again: the owner is
     /// told of each once, though the rounds of several works meet several causes in turn.
     told: Mutex<BTreeSet<String>>,
+    /// The faults of the loop that belong to no work and that the owner was told of since the engine started, by their
+    /// text ([`Engine::faulted`]): the owner is told of each once, though the loop meets it at every turn.
+    faults_told: Mutex<BTreeSet<String>>,
     /// How many times in a row the engine looked at the network itself and found it down, since a round last tried.
     looked: Mutex<u32>,
     /// The owner's global pause while it holds, as the loop that runs the engine hands it each turn: no work takes a
@@ -237,6 +241,7 @@ impl Shared {
             config: RwLock::new(Arc::new(config)),
             halt: Mutex::default(),
             told: Mutex::default(),
+            faults_told: Mutex::default(),
             looked: Mutex::default(),
             global_pause: Mutex::default(),
             replaced: Mutex::default(),
@@ -542,11 +547,11 @@ impl Engine {
     /// has no graph for it, where no cell can run it, and when the row its graph's cell for a work on an older version
     /// takes leads to the graph's end for a work stopped before its end, as an architect's work that can go on from
     /// none of its cells ([`Engine::bring_back`]).
-    fn bring_up(&mut self, works: &[Work]) -> Result<(), String> {
+    fn bring_up(&mut self, works: &[Work]) {
         for w in works {
-            self.bring(w)?;
+            let brought = self.bring(w);
+            self.or_fault(w.id, brought);
         }
-        Ok(())
     }
 
     /// Brings a work on an older flow version to the version the engine runs, as its plan says ([`Engine::plan`]): it
@@ -863,7 +868,7 @@ impl Engine {
     fn outdated(&mut self) -> Result<Vec<Work>, String> {
         let mut out = Vec::new();
         for id in self.active()? {
-            let w = self.work(id)?;
+            let Some(w) = self.work_or_fault(id) else { continue };
             if w.flow_version != self.flow_now {
                 out.push(w);
             }
@@ -1185,7 +1190,8 @@ impl Engine {
         Ok(rs.iter().any(|r| r.ended_at.is_some() && r.rejected.is_none()))
     }
 
-    /// The works still to take further: not ended, not paused, not done.
+    /// The works still to take further: not ended, not paused, not done. A work that cannot be read is paused with why
+    /// ([`Engine::fault_work`]) and is not among them.
     pub fn active(&mut self) -> Result<Vec<i64>, String> {
         let ids: Vec<i64> = {
             let mut st = self
@@ -1200,8 +1206,9 @@ impl Engine {
         };
         let mut out = Vec::new();
         for id in ids {
-            let w = self.work(id)?;
-            if !self.done(&w)? {
+            let Some(w) = self.work_or_fault(id) else { continue };
+            let done = self.done(&w);
+            if let Some(false) = self.or_fault(id, done) {
                 out.push(id);
             }
         }
@@ -1308,14 +1315,18 @@ impl Engine {
 
     /// Pauses a work whose step cannot be taken: the round the step left open is closed with the reason, so it shows
     /// as what it was and not as running, and the owner is told once. A question waiting for its answer stays open.
+    /// A work whose graph cannot be found is paused all the same, since that is one of the faults it is paused for:
+    /// its open round is then closed whatever cell it is at.
     pub fn pause(&mut self, id: i64, why: &str) -> Result<(), String> {
-        let w = self.work(id)?;
-        let g = self.graph_of(&w)?;
+        let w = Work::load(self.db.conn(), id, None)?;
+        let g = self.graph_of(&w).ok();
         let asks = |r: &Round| {
-            r.cell
-                .as_deref()
-                .and_then(|c| g.cell(c))
-                .is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
+            g.as_ref().is_some_and(|g| {
+                r.cell
+                    .as_deref()
+                    .and_then(|c| g.cell(c))
+                    .is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
+            })
         };
         let text = match self.subject(&w) {
             Ok(Some(item)) => format!("Work {id} on item {} ({}) is paused: {why}", item.id, item.title),
@@ -1395,8 +1406,15 @@ impl Engine {
         works.extend(self.stepping());
         let mut holding = Vec::new();
         for id in works {
-            let w = self.work(id)?;
-            if w.graph == ENGINEER && (!self.waiting(&w)? || self.granted(id)) {
+            let Some(w) = self.work_or_fault(id) else { continue };
+            if w.graph != ENGINEER {
+                continue;
+            }
+            let waiting = self.waiting(&w);
+            let Some(waiting) = self.or_fault(id, waiting) else {
+                continue;
+            };
+            if !waiting || self.granted(id) {
                 holding.push(w.machine.clone());
             }
         }
@@ -1416,14 +1434,26 @@ impl Engine {
         let mut out = BTreeSet::new();
         let held = db::slot_waiting(self.db.conn()).map_err(|e| e.to_string())?;
         for id in held {
-            let w = self.work(id)?;
-            if w.ended.is_none() && w.paused.is_none() && self.waiting(&w)? && !self.room_for(&w)? {
+            let Some(w) = self.work_or_fault(id) else { continue };
+            if w.ended.is_some() || w.paused.is_some() {
+                continue;
+            }
+            let waits = self.waiting(&w);
+            if self.or_fault(id, waits) != Some(true) {
+                continue;
+            }
+            let room = self.room_for(&w);
+            if self.or_fault(id, room) == Some(false) {
                 out.insert(id);
             }
         }
         for id in db::resume_asked(self.db.conn()).map_err(|e| e.to_string())? {
-            let w = self.work(id)?;
-            if w.graph == ENGINEER && w.ended.is_none() && w.paused.is_some() && !self.room_for(&w)? {
+            let Some(w) = self.work_or_fault(id) else { continue };
+            if w.graph != ENGINEER || w.ended.is_some() || w.paused.is_none() {
+                continue;
+            }
+            let room = self.room_for(&w);
+            if self.or_fault(id, room) == Some(false) {
                 out.insert(id);
             }
         }
