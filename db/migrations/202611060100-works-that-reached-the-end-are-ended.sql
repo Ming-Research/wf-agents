@@ -78,6 +78,8 @@ CREATE VIEW open_items AS
   WHERE i.cancelled IS NULL AND (r.item IS NOT NULL OR q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done))
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
+-- The tracking triggers come back after every migration; a migration changes rows outside the engine's own writes.
+DROP TRIGGER IF EXISTS track_works_update;
 UPDATE works SET ended = 'done'
 WHERE ended IS NULL
   AND ((graph = 'engineer' AND at IN ('E1', '20', 'end')) OR (graph = 'architect' AND at IN ('R1', 'E2', 'record')))
