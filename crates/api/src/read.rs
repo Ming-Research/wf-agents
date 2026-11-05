@@ -484,7 +484,10 @@ fn work_time(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> WorkTime 
     };
     let span = (until - from).max(0);
     let (mut model_ms, mut tool_ms, mut engine_ms) = (0, 0, 0);
-    // For each cell, how long a model and how long the tools ran in it.
+    // Times are counted from `from` and multiplied by `BAR_CELLS`, so that cell i is the stretch from `span * i` up to
+    // `span * (i + 1)` and every cell is `span` long, with no edge of a cell divided out for each round.
+    let at = |t: i64| (t - from) * BAR_CELLS;
+    // For each cell, how long a model and how long the tools ran in it, in those units.
     let cells = BAR_CELLS as usize;
     let mut in_cell = vec![(0_i64, 0_i64); cells];
     for r in rounds {
@@ -507,12 +510,13 @@ fn work_time(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> WorkTime 
         if span == 0 || stop <= start {
             continue;
         }
-        // The cells the round touches: cell i holds from + span * i / BAR_CELLS up to the next.
-        let first = ((start - from) * BAR_CELLS / span).clamp(0, BAR_CELLS - 1);
-        let last = ((stop - from - 1) * BAR_CELLS / span).clamp(0, BAR_CELLS - 1);
+        // The cells the round touches: from the one it starts in to the one its last millisecond is in.
+        let (s, e) = (at(start), at(stop));
+        let first = (s / span).clamp(0, BAR_CELLS - 1);
+        let last = ((e - BAR_CELLS) / span).clamp(0, BAR_CELLS - 1);
         for i in first..=last {
-            let (lo, hi) = (from + span * i / BAR_CELLS, from + span * (i + 1) / BAR_CELLS);
-            let overlap = (stop.min(hi) - start.max(lo)).max(0);
+            let lo = span * i;
+            let overlap = (e.min(lo + span) - s.max(lo)).max(0);
             let cell = &mut in_cell[i as usize];
             if model {
                 cell.0 += overlap;
@@ -526,11 +530,9 @@ fn work_time(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> WorkTime 
     } else {
         in_cell
             .iter()
-            .enumerate()
-            .map(|(i, (model, tool))| {
-                let i = i as i64;
-                let len = from + span * (i + 1) / BAR_CELLS - (from + span * i / BAR_CELLS);
-                if (model + tool) * 2 < len || model + tool == 0 {
+            .map(|(model, tool)| {
+                // A cell that models and tools together ran less than half of, or none, is no one's.
+                if (model + tool) * 2 < span {
                     '.'
                 } else if model >= tool {
                     'm'
