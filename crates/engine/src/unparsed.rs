@@ -258,6 +258,8 @@ pub struct Recovery {
     pub record: Value,
     /// What the repair by the lowest level cost, in dollars.
     pub repair_cost: f64,
+    /// The model time of the repair's run, as its usage record keeps it; Null when no repair ran.
+    pub repair_api_ms: Value,
 }
 
 /// Repairs, within its round, a return the command line gave up on: takes the last attempt as it is when its text is
@@ -282,6 +284,7 @@ pub fn recover(
         .collect();
     let mut record = json!({ "attempts": attempts });
     let mut repair_cost = 0.0;
+    let mut repair_api_ms = Value::Null;
     let last = reply.refused.last();
     let whole = last.and_then(|u| serde_json::from_str::<Value>(&u.raw).ok().filter(Value::is_object));
     match last.filter(|u| !cut_off(&u.raw, u.length)) {
@@ -296,6 +299,7 @@ pub fn recover(
                 again: None,
                 record,
                 repair_cost,
+                repair_api_ms,
             };
         }
         Some(u) => {
@@ -308,17 +312,20 @@ pub fn recover(
                     again: None,
                     record,
                     repair_cost,
+                    repair_api_ms,
                 };
             }
-            let (repaired, cost, taken) = repair(e, req, round, u, cell, accepts);
+            let (repaired, cost, api_ms, taken) = repair(e, req, round, u, cell, accepts);
             record["repair"] = repaired;
             repair_cost = cost;
+            repair_api_ms = api_ms;
             if taken.is_some() {
                 return Recovery {
                     output: taken,
                     again: None,
                     record,
                     repair_cost,
+                    repair_api_ms,
                 };
             }
         }
@@ -359,6 +366,7 @@ pub fn recover(
         again: Some(again),
         record,
         repair_cost,
+        repair_api_ms,
     }
 }
 
@@ -371,11 +379,11 @@ fn repair(
     u: &Refused,
     cell: &CompiledCell,
     accepts: &dyn Fn(&Engine, &Value) -> Result<(), String>,
-) -> (Value, f64, Option<Value>) {
+) -> (Value, f64, Value, Option<Value>) {
     let name = e.config.config.lowest_level();
     let Some((level, cli)) = e.config.config.level(&name).map(|(l, c)| (l.clone(), c.clone())) else {
         let why = format!("no level of the configuration repairs it: {name}");
-        return (json!({ "refused": why }), 0.0, None);
+        return (json!({ "refused": why }), 0.0, Value::Null, None);
     };
     let schema = cell.schema.clone().unwrap_or(Value::Null);
     let prompt = format!(
@@ -413,15 +421,16 @@ fn repair(
     let tell = |what: &str| e.activity(round.work, round.n, what);
     let r = e.sessions().run(&ask, &agent::telling(&tell));
     let cost = r.usage["session_cost_usd"].as_f64().unwrap_or(0.0);
+    let api_ms = r.usage[sessions::cli::API_MS].clone();
     let mut record = json!({ "level": name, "model": level.model, "session": r.session, "cost_usd": cost });
     match repaired(e, &r, u, accepts) {
         Ok(v) => {
             record["taken"] = json!(true);
-            (record, cost, Some(v))
+            (record, cost, api_ms, Some(v))
         }
         Err(why) => {
             record["refused"] = json!(why);
-            (record, cost, None)
+            (record, cost, api_ms, None)
         }
     }
 }

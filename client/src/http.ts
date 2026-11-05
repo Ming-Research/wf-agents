@@ -62,12 +62,23 @@ export async function getText(path: string): Promise<string> {
 /// that speaks for the owner declares `delegate` instead. The engine keeps it with the words; it cannot tell who spoke.
 export const SPEAKER = 'owner';
 
-/// What the owner asks of the engine: a POST that carries JSON, as the interface requires of every POST.
-export async function postJson(path: string, body: unknown): Promise<void> {
+/// A POST that carries JSON, as the interface requires of every POST, refused with the interface's reason.
+async function post(path: string, body: unknown): Promise<Response> {
   const r = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!r.ok) throw await failure(r);
+  return r;
+}
+
+/// What the owner asks of the engine: a POST that carries JSON, as the interface requires of every POST.
+export async function postJson(path: string, body: unknown): Promise<void> {
+  await post(path, body);
+}
+
+/// What the owner asks of the engine, where the interface answers with what came of it: the JSON it gave.
+export async function postJsonFor<T>(path: string, body: unknown): Promise<T> {
+  return JSON.parse(await (await post(path, body)).text()) as T;
 }
