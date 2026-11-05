@@ -150,23 +150,27 @@ async function openFlowPage() {
       </BaseStyles>
     </ThemeProvider>,
   );
-  // Laid out, the viewer has put the drawing where it opens, and the page has stopped moving it: two looks, 100 ms
-  // apart, find it in the same place.
+  // Laid out, and the viewer has put the drawing where it opens.
+  await landed(() => (document.querySelector<HTMLElement>('.viewer-stage')?.style.transform ?? '') !== '', 15_000);
+  return screen;
+}
+
+/// Waits until `ready` holds and the drawing has stopped moving: two looks, 100 ms apart, find it in the same place. A
+/// move of the view takes a fifth of a second, and what is measured while it goes on is not where it ends.
+async function landed(ready: () => boolean, timeout: number): Promise<void> {
   let last = '';
   await expect
     .poll(
       () => {
-        const stage = document.querySelector<HTMLElement>('.viewer-stage');
-        const s = stage === null || stage.style.transform === '' ? null : seen();
+        const s = ready() ? seen() : null;
         const now = s === null ? '' : JSON.stringify([s.zoom, s.left, s.top]);
         const still = now !== '' && now === last;
         last = now;
         return still;
       },
-      { timeout: 15_000, interval: 100 },
+      { timeout, interval: 100 },
     )
     .toBe(true);
-  return screen;
 }
 
 /// Where the drawing is on the screen: its zoom (its width on the screen over its width in the layout), and how far
@@ -222,7 +226,7 @@ describe('Space on the flow page, in a real browser', () => {
     await userEvent.keyboard(' ');
     // The browser reported the key as Space, and the page took it.
     expect(keys[0]).toEqual({ code: 'Space', prevented: true });
-    await expect.poll(whole, { timeout: 3000 }).toBe(true);
+    await landed(whole, 3000);
     const all = seen();
     expect(all.zoom).toBeLessThan(opened.zoom / 1.05);
     // The point of the drawing under the pointer now, in the drawing's own pixels.
