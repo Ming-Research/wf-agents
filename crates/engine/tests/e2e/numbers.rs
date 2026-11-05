@@ -262,7 +262,8 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
 
 /// Seven cells' rounds of an item's work, each ended an hour ago with a context a thousand tokens larger than the cell
 /// before, the last the largest; two runs of CI that overlap, 1,500 ms in all, and the merge after them; a blocker of each
-/// of the five kinds, lasting 2,000 ms, and a pause of a work; and eight days ago the merge of another item, with no CI.
+/// of the five kinds, lasting 2,000 ms, a wait for a free slot of as long, and a pause of a work; and eight days ago the
+/// merge of another item, with no CI.
 fn seed_a_week_of_numbers(e: &mut Engine, item: i64, other: i64) {
     let v = e.flow_now;
     let now = db::now();
@@ -312,6 +313,11 @@ fn seed_a_week_of_numbers(e: &mut Engine, item: i64, other: i64) {
                 params![work, kind, holder, now - 2 * HOUR, now - 2 * HOUR + 2_000],
             )?;
         }
+        // The wait for a free slot after the last blocker, granted 2,000 ms later.
+        tx.execute(
+            "INSERT INTO slot_waits (work, since, until, ended) VALUES (?1, ?2, ?3, 'granted')",
+            params![work, now - 2 * HOUR + 2_000, now - 2 * HOUR + 4_000],
+        )?;
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'M2', 'merged')",
             params![other, v],
@@ -417,27 +423,18 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
         "{numbers}"
     );
     assert_eq!(context["other_cells"], 2, "{numbers}");
-    // Every reason a work stopped, with the time in milliseconds; waiting for a slot, which is not counted yet, is null.
+    // Every reason a work stopped, a wait for a free slot among them, with the time in milliseconds.
     let stops = &measures["work.stops"]["by_reason"];
     let stopped = &measures["work.stopped"]["by_reason"];
-    for reason in ["question", "tool_failure", "owner_ask", "items", "ruling"] {
+    for reason in ["question", "tool_failure", "owner_ask", "items", "ruling", "slot"] {
         assert_eq!(stops[reason], json!([1, 0, 0, 0]), "{reason}: {numbers}");
         assert_eq!(stopped[reason], json!([2000, 0, 0, 0]), "{reason}: {numbers}");
     }
     assert_eq!(stops["paused"], json!([1, 0, 0, 0]), "{numbers}");
-    assert_eq!(stops["slot"], json!([null, null, null, null]), "{numbers}");
     // Only what nothing records yet is listed as not measured, each with why, and only there.
     let listed = numbers["not_measured"].as_object().unwrap();
     let names: BTreeSet<&str> = listed.keys().map(String::as_str).collect();
-    assert_eq!(
-        names,
-        BTreeSet::from([
-            "merge.defects",
-            "work.stops for reason slot",
-            "work.stopped for reason slot"
-        ]),
-        "{numbers}"
-    );
+    assert_eq!(names, BTreeSet::from(["merge.defects"]), "{numbers}");
     assert!(
         listed.values().all(|why| why.as_str().is_some_and(|t| !t.is_empty())),
         "{numbers}"
@@ -449,8 +446,8 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
     );
     assert_eq!(measures["merge.defects"].get("no_value"), None, "{numbers}");
     // A signal of the policy that names a measure is given it as the numbers give it: its four weeks, what it is, its
-    // unit, and why a week has no value; a measure nothing records, or that has a part nothing records, says why, since
-    // whoever reads only the signals is given neither `measures` nor `not_measured`.
+    // unit, and why a week has no value; a measure nothing records says why, since whoever reads only the signals is
+    // given neither `measures` nor `not_measured`.
     let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }],
                          "signals": [{ "what": "CI takes longer", "how": "ci wait grows week by week" },
                                      { "what": "Errors found late", "how": "merge defects go up" },
@@ -490,11 +487,8 @@ fn the_numbers_give_each_measure_four_weeks_and_none_twice() {
     );
     let stops = &signals["3"]["numbers"]["work.stops"];
     assert_eq!(stops["by_reason"]["question"], json!([1, 0, 0, 0]), "{signals}");
-    assert_eq!(
-        stops["not_measured"],
-        json!({ "work.stops for reason slot": listed["work.stops for reason slot"] }),
-        "{signals}"
-    );
+    assert_eq!(stops["by_reason"]["slot"], json!([1, 0, 0, 0]), "{signals}");
+    assert_eq!(stops.get("not_measured"), None, "{signals}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
