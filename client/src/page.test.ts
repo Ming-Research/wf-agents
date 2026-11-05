@@ -2719,7 +2719,7 @@ describe("the owner's conversations", () => {
         entry('message', { id: 10, sender: 'policy' }),
         entry('stage', { id: 1, sender: 'engineer' }),
       ],
-      asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, answer: null, answer_images: [], asked_at: 0 }],
+      asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, answer: null, answer_images: [], asked_at: 0, condition_item: null }],
       design_cards: [],
       questions: [],
       waits_on: null,

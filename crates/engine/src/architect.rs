@@ -1580,7 +1580,7 @@ fn make_changes(ctx: &Ctx, tx: &Transaction<'_>, matter: i64, changes: &[Value])
     if changes.is_empty() {
         return Ok(());
     }
-    let written = crate::arch_changes::write_all(tx, changes, &ctx.projects)?;
+    let written = crate::arch_changes::write_all(tx, changes, &ctx.projects, ctx.round)?;
     let created: BTreeMap<String, i64> = written
         .created
         .iter()
@@ -1668,7 +1668,7 @@ fn apply_checked(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let rows = held_changes(tx, matter)?;
     let changes: Vec<Value> = rows.iter().map(|r| r.2.clone()).collect();
     if !changes.is_empty() {
-        let written = crate::arch_changes::write_all(tx, &changes, &ctx.projects)?;
+        let written = crate::arch_changes::write_all(tx, &changes, &ctx.projects, ctx.round)?;
         let created: BTreeMap<String, i64> = written
             .created
             .iter()
@@ -2056,7 +2056,7 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64
         let c = &r["change"];
         let (new, id) = match c["kind"].as_str() {
             Some("create_item") => (true, r["outcome"]["created"].as_i64()),
-            Some("fold_observations" | "edit_item" | "edit_acceptance" | "move") => (
+            Some("fold_observations" | "edit_item" | "edit_acceptance" | "move" | "add_merge_condition") => (
                 false,
                 item_number(&c["item"]).or_else(|| created.get(text(&c["item"]).trim()).copied()),
             ),

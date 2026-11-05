@@ -1,5 +1,6 @@
 //! The tool cells: the tools agents ask for (cell `X1`, in each graph; `dependency_sources` is in
-//! [`crate::dependency_sources`]), the full CI on the draft (`T2`), the merge queue (`M2`) and watching main (`L1`).
+//! [`crate::dependency_sources`], `lock_update` in [`crate::lock_update`]), the full CI on the draft (`T2`), the merge
+//! queue (`M2`) and watching main (`L1`).
 //! Each attempt of a tool is a row of tool_runs under the cell's round. A tool that fails is tried twice more; a
 //! refusal is a result, not a failure, and is not tried again.
 
@@ -755,6 +756,7 @@ pub fn run_tools(
             ("query", _) => query(e, round, n, req),
             ("decision_history", _) => decision_history(e, w, project.as_ref(), round, n, req),
             ("dependency_sources", _) => crate::dependency_sources::run(e, w, project.as_ref(), round, n, req),
+            ("lock_update", _) => crate::lock_update::run(e, w, project.as_ref(), round, n, req),
             (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
         };
         got.push((n, tool.clone(), ran));
@@ -1603,6 +1605,10 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     // line loses: the loop finds the merge when it comes to carry the stop out, and drops it.
     if db::stop_asked(e.db.conn(), w.id).map_err(sql)? {
         return Ok(json!({ "result": { "kind": "stopped" } }));
+    }
+    // A merge condition recorded while this step waited holds the merge as well, for the same reason; the gate asks of it.
+    if crate::conditions::any_open(e.db.conn(), item.id)? {
+        return Ok(json!({ "result": { "kind": "condition_set" } }));
     }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
     match attempts(e, round, "merge", &json!({ "head": head, "pr": pr }), |e| {

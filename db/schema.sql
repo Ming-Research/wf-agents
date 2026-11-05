@@ -216,14 +216,49 @@ CREATE TABLE owner_asks (
   -- The round that put it to the owner: its work, and its number in the work.
   work INTEGER NOT NULL,
   round INTEGER NOT NULL,
-  -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in. Copied from what that
-  -- round was given, which never changes.
+  -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in; for the merge gate's ask
+  -- of a merge condition, that condition's number too (`condition`). Copied from what that round was given, which
+  -- never changes.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The owner's answer, JSON: who answered and when, and the text, and who the caller declared to speak (`speaker`,
   -- owner or delegate; none for an answer kept before it was declared); for an ask of the architect, the rest of the
-  -- architect's reply too. NULL while it waits. Read by: the engine; cells `R1` and `L2`.
+  -- architect's reply too; for the merge gate's ask of a merge condition, the option chosen (`choice`, met or
+  -- withdrawn) when one was. NULL while it waits. Read by: the engine; cells `R1` and `L2`.
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
+) STRICT;
+
+CREATE TABLE merge_conditions (
+  -- Something the owner set to be done before an item's work merges, one row for each. The merge gate (cell `M1`) holds
+  -- the work until each is judged met or withdrawn, by asking the owner one at a time; the row keeps no state: the view
+  -- `item_merge_conditions` works it out from the answers. A row is written when the owner ticks it on words said or an
+  -- answer given, or by an item change of the project's architect; what neither ticked nor recorded holds nothing.
+  -- Read by: the view `item_merge_conditions`.
+  id INTEGER PRIMARY KEY,
+  item INTEGER NOT NULL REFERENCES items(id),
+  -- One sentence that reads alone, written by whoever recorded it, since the words it rests on may be only "OK". The
+  -- engineer reports on it, and the owner judges it. Read by: cells `R1`, `D1`, `I1`, `T6` and `M1`; the owner's interface.
+  what TEXT NOT NULL CHECK (trim(what) <> ''),
+  -- The record the words are in: an ask, by the owner's answer to it; an interjection; or a matter of the architect's
+  -- queue, by the owner's words or the owner's reply it holds. Read by: the merge gate's ask, which links to it.
+  source TEXT NOT NULL CHECK (source IN ('ask', 'interjection', 'matter')),
+  source_id INTEGER NOT NULL,
+  -- The words as that record has them. Empty only for an answer that was images alone.
+  quote TEXT NOT NULL,
+  -- Who the record says said those words: the owner; relayed, the owner's own words as a delegate declared them, checked
+  -- by no one; delegate, a session that speaks for the owner, in words of its own; or unrecorded, a record kept before
+  -- who speaks was declared. Never written as the owner's when the record does not say so.
+  said_by TEXT NOT NULL CHECK (said_by IN ('owner', 'relayed', 'delegate', 'unrecorded')),
+  -- Who recorded it: the owner or a delegate, by ticking it as the caller declared; or the architect, by an item change.
+  recorded_by TEXT NOT NULL CHECK (recorded_by IN ('owner', 'delegate', 'architect')),
+  -- The round that made the architect's item change, by its work and its number in the work; NULL for one ticked.
+  recorded_work INTEGER,
+  recorded_round INTEGER,
+  -- When it was recorded.
+  at INTEGER NOT NULL,
+  CHECK ((recorded_by = 'architect') = (recorded_work IS NOT NULL)),
+  CHECK ((recorded_work IS NULL) = (recorded_round IS NULL)),
+  FOREIGN KEY (recorded_work, recorded_round) REFERENCES rounds (work, n)
 ) STRICT;
 
 CREATE TABLE owner_messages (
@@ -1263,6 +1298,8 @@ CREATE INDEX design_cards_by_round ON design_cards (work, round);
 CREATE UNIQUE INDEX design_cards_current ON design_cards (work, key) WHERE status IN ('open', 'ruled');
 -- The ask of the owner a round put.
 CREATE INDEX owner_asks_by_round ON owner_asks (work, round);
+-- The merge conditions of an item.
+CREATE INDEX merge_conditions_by_item ON merge_conditions (item);
 -- The messages to the owner still unread.
 CREATE INDEX owner_messages_unread ON owner_messages (id) WHERE read_at IS NULL;
 -- Interjections still to hand in to a work.
@@ -1385,6 +1422,26 @@ CREATE VIEW item_asks AS
   -- Every ask of the owner of the item's works, with its answer. Read by: cell `R1`.
   SELECT w.item, a.work, a.id AS ask, a.round, a.body, a.answer
   FROM owner_asks a JOIN works w ON w.id = a.work;
+
+CREATE VIEW item_merge_conditions AS
+  -- Each merge condition of each item with where it stands: open, or as the merge gate's ask of it was judged, met or
+  -- withdrawn, with that ask (`judged`) and who judged it (`judged_by`, owner or delegate). This is the one place that
+  -- says whose answer judges a condition: an answer declared as the owner's or as a delegate's that chose an option.
+  -- Words with no option leave it open, and go to the engineer as words. Read by: the engine, for the merge gate's value
+  -- `gates` and for what cells `R1`, `D1`, `I1`, `T6` and `M1` are given; the owner's interface, on the item's page.
+  SELECT c.item, c.id, c.what, c.source, c.source_id, c.quote, c.said_by, c.recorded_by, c.recorded_work,
+    c.recorded_round, c.at,
+    coalesce(j.choice, 'open') AS status, j.ask AS judged, j.judged_by
+  FROM merge_conditions c
+  LEFT JOIN (
+    SELECT json_extract(a.body, '$.condition') AS condition, max(a.id) AS ask,
+      json_extract(a.answer, '$.choice') AS choice, json_extract(a.answer, '$.speaker') AS judged_by
+    FROM owner_asks a
+    WHERE json_extract(a.body, '$.condition') IS NOT NULL
+      AND json_extract(a.answer, '$.speaker') IN ('owner', 'delegate')
+      AND json_extract(a.answer, '$.choice') IN ('met', 'withdrawn')
+    GROUP BY 1
+  ) j ON j.condition = c.id;
 
 CREATE VIEW parent_design_cards AS
   -- The current decision cards of the items that depend on this one, open or ruled: what a split-off item's parent

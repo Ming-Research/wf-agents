@@ -1466,6 +1466,7 @@ mod tests {
             "\"ci\"",
             "\"ci_before\"",
             "\"dependency_sources\"",
+            "\"lock_update\"",
             "\"gh\"",
             "\"query\"",
             "\"advisor\"",
@@ -1493,7 +1494,7 @@ mod tests {
         assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
         let implement = cell_format(&g, g.cell("I1").unwrap());
         assert!(
-            implement.contains("`tools` (of ci, ci_before, measure, dependency_sources, gh, query)"),
+            implement.contains("`tools` (of ci, ci_before, measure, dependency_sources, lock_update, gh, query)"),
             "{implement}"
         );
         assert!(

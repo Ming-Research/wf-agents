@@ -232,6 +232,14 @@ pub fn set_ask(tx: &Transaction<'_>, id: i64, ask: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// What the blocker says it waits on now, when the ask that stands for it changes while it stays open: from one of the
+/// merge gate's asks of the owner to another.
+pub fn set_what(tx: &Transaction<'_>, id: i64, what: &str) -> Result<(), String> {
+    tx.execute("UPDATE blockers SET what = ?2 WHERE id = ?1", params![id, what])
+        .map_err(sql)?;
+    Ok(())
+}
+
 /// Records what is said about a blocker without resolving it or moving it: by whom, of what kind, and what.
 pub fn say(tx: &Transaction<'_>, id: i64, by: &str, kind: &str, what: &Value) -> Result<(), String> {
     let said = json!({ "at": db::now(), "by": by, "kind": kind, "what": what });
@@ -808,7 +816,7 @@ fn holder_now(
 }
 
 /// What a work is, for a blocker's sentence.
-fn about(ctx: &crate::actions::Ctx) -> String {
+pub(crate) fn about(ctx: &crate::actions::Ctx) -> String {
     match (&ctx.item, &ctx.work.project) {
         (Some(i), _) => format!("Work {} on item {} ({})", ctx.work.id, i.id, i.title),
         (None, Some(p)) => format!("The setting of the policy of {p} (work {})", ctx.work.id),
@@ -843,6 +851,9 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
                     "items" => "an item it depends on is not merged",
                     "owner" if review => "the architect reviewed its design, and the owner reviews it next",
                     "architect" if review => "its design was written again, and the architect reviews it first",
+                    "owner" if h.cell == crate::approval::GATE && ctx.row.name == crate::conditions::JUDGES => {
+                        "every item it depends on is merged, and a merge condition waits for the owner's judgment"
+                    }
                     "owner" if h.cell == crate::approval::GATE => {
                         "every item it depends on is merged, and it waits for the owner's answers before it merges"
                     }
@@ -893,6 +904,9 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
             "{about} waits, before it implements, for the ruling on where its design departs from decisions of its \
              item, by whoever made each"
         ),
+        "ruling" if h.cell == crate::approval::GATE && ctx.row.name == crate::conditions::JUDGES => {
+            format!("{about} waits for the owner to judge a merge condition before it merges")
+        }
         "ruling" if h.cell == crate::approval::GATE => {
             format!("{about} waits for the owner's answers it asked for before it merges")
         }
