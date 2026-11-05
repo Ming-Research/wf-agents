@@ -12,7 +12,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Conversation, ConversationDetail, ConversationEntry } from './api';
-import { quoted } from './conversation';
 import { forgetMemory } from './drafts';
 import { Open } from './pages/Messages';
 import { t } from './text';
@@ -183,7 +182,10 @@ afterEach(async () => {
 });
 
 const ASKED = 'Which table?\n\nOr both.';
-const quote = quoted('engineer', ASKED, null);
+/// The engineer's question as the owner quotes it, written out, and the owner's own words the same way.
+const quote = '> **engineer**\n>\n> Which table?\n>\n> Or both.\n\n';
+const OWNER_QUOTE = '> **owner**\n>\n> Use the old one.\n\n';
+const ARCHITECT_QUOTE = '> **architect**\n>\n> Should it wait?\n\n';
 
 /// A work's group where the engineer asked something and the engine said something.
 const group = () => {
@@ -197,7 +199,7 @@ const group = () => {
 };
 
 describe('the button that quotes a bubble', () => {
-  it('is on the messages of the group, not on the engine’s line', async () => {
+  it('is on the messages of the group, not on a line of the engine', async () => {
     const c = group();
     const page = await show(<Open c={c} works={undefined} side={null} />);
     await settle();
@@ -233,7 +235,7 @@ describe('quoting a bubble', () => {
     await click(quoteButtons(page)[0]);
     expect(textarea(page).value).toBe(`Before\n${quote}`);
     await click(quoteButtons(page)[1]);
-    expect(textarea(page).value).toBe(`Before\n${quote}${quoted('owner', 'Use the old one.', null)}`);
+    expect(textarea(page).value).toBe(`Before\n${quote}${OWNER_QUOTE}`);
   });
 
   it('is kept with the draft when the conversation is left and shown again, and in the browser', async () => {
@@ -268,13 +270,13 @@ describe('quoting a bubble', () => {
     expect(keptWords('conv:work:5')).toBeUndefined();
   });
 
-  it('is sent to the architect in the one-to-one as the owner’s words, not as the reply to a question', async () => {
+  it('is sent to the architect in the one-to-one as words of the owner, not as the reply to a question', async () => {
     const c = conversation('architect:p', 'architect');
     entries.set(c.key, [entry(1, { sender: 'architect', work: null, text: 'Should it wait?' })]);
     const page = await show(<Open c={c} works={undefined} side={null} />);
     await settle();
     await click(quoteButtons(page)[0]);
-    await type(textarea(page), `${quoted('architect', 'Should it wait?', null)}No.`);
+    await type(textarea(page), `${ARCHITECT_QUOTE}No.`);
     await click(button(page, t('conv_send')));
     await settle();
     expect(posts).toHaveLength(1);
@@ -285,7 +287,7 @@ describe('quoting a bubble', () => {
 });
 
 describe('the words the owner sent with a quote', () => {
-  it('are drawn in their bubble as a quote with what the owner wrote after it, not as `>` lines', async () => {
+  it('are drawn in their bubble as a quote with what the owner wrote after it, not as lines of marks', async () => {
     const c = conversation('work:5', 'work');
     entries.set(c.key, [entry(1, { sender: 'owner', source: 'interjection', recipient: 'engineer', text: `${quote}Both.` })]);
     const page = await show(<Open c={c} works={undefined} side={null} />);

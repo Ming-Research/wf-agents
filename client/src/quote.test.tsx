@@ -41,7 +41,7 @@ const entry = (extra: Partial<ConversationEntry> = {}): ConversationEntry => ({
 });
 
 describe('the words a quote puts in the box', () => {
-  it('name who said them on a line of their own, then every line of what the bubble says after a `> `', () => {
+  it('name who said them on a line of their own, then every line of what the bubble says after a quote mark', () => {
     expect(quoted('architect', 'Which table?\n\nOr both.', null)).toBe('> **architect**\n>\n> Which table?\n>\n> Or both.\n\n');
   });
 
@@ -97,7 +97,7 @@ describe('who can be quoted, and named', () => {
     for (const source of ['stage', 'matter', 'policy', 'plan']) expect(quotable(entry({ source }))).toBe(false);
   });
 
-  it("names the owner as `owner`, a line as itself, the architect's policy line as the architect", () => {
+  it('names the owner as owner, a line as itself, the policy line of the architect as the architect', () => {
     expect(quotedBy(entry({ sender: 'owner' }))).toBe('owner');
     expect(quotedBy(entry({ sender: 'engineer' }))).toBe('engineer');
     expect(quotedBy(entry({ sender: 'policy' }))).toBe('architect');
