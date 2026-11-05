@@ -1689,7 +1689,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     // The very run the last try read red, its engineer having changed nothing: reading it again says nothing new, and
     // only sends the work round to the architect, as a flaky test did to W330. Its red checks run again.
     if !reds(&counted(&checks, &project, &known)).is_empty() && read_red_before(e, w.id, &checks)? {
-        checks = match attempts(e, round, "merge", &args, |e| {
+        checks = match attempts(e, round, "merge", &waited, |e| {
             Ok(checks_json(&rerun_full(e, &project, &head, &checks)?))
         }) {
             Ok(v) => serde_json::from_value(v).unwrap_or_default(),
@@ -3741,9 +3741,16 @@ timeout_ms = 1000
                 Ok(())
             })
             .unwrap();
+        let before = last_tool_run(r);
         let again = r.run(merge);
         assert_eq!(again["result"]["kind"], "red", "{again}");
         assert_eq!(r.runs.state().reruns, 1);
+        // The red checks run again are a wait for the full CI as much as the read before them.
+        let waited = (Some(health::FULL_CI_STEP.to_string()), "array".to_string());
+        assert_eq!(
+            merge_rows(r, before),
+            [(None, "null".to_string()), waited.clone(), waited]
+        );
     }
 
     // The head that caught up with main is a new commit: the full run of the head before it says nothing of it, and one

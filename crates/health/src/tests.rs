@@ -176,7 +176,7 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
     }
     // A statement that reads the rounds whole is found so; so is one that reads the blockers raised before a time, from
     // the first, and one that reads a measure's samples of every time.
-    let whole = plan(conn, "SELECT count(*) FROM rounds r WHERE r.cell = 'I1'", &[]);
+    let whole = plan(conn, "SELECT count(*) FROM rounds r WHERE r.model = 'm'", &[]);
     assert!(whole.iter().any(|s| scans_large(s)), "{whole:?}");
     let before = plan(conn, "SELECT count(*) FROM blockers b WHERE b.at < 5", &[]);
     assert!(before.iter().any(|s| from_the_start(s)), "{before:?}");
