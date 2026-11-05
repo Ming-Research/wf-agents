@@ -431,6 +431,25 @@ mod tests {
         );
     }
 
+    // A round's return that copies what the engine gave the session is referred to where the session got it, not given
+    // again; a word it got alike keeps the round's own address.
+    #[test]
+    fn a_round_s_value_the_session_got_from_the_engine_is_referred_to() {
+        let tests = json!([{ "name": "a test", "why": "it guards the parser" }]);
+        let mut held = Held::default();
+        let got = "R4-16·engine·guard_tests".to_string();
+        held.conditional.insert((got.clone(), hash(&tests)));
+        held.got.insert(hash(&tests), (RoundId::new(4, 16), got.clone()));
+        let registry = HashMap::new();
+        let conn = Connection::open_in_memory().unwrap();
+        let mut m = Giver::new(&held, &registry, &conn, &[]);
+        let at = m.earliest("R4-27·T1·guard_tests".into(), &tests);
+        assert_eq!(at, got);
+        assert_eq!(m.add(at, tests), got);
+        assert!(m.repeats().is_empty(), "{:?}", m.repeats());
+        assert_eq!(m.earliest("R4-27·T1·verdict".into(), &json!("no")), "R4-27·T1·verdict");
+    }
+
     // What the engine reads for a round that the session got before under another address, as a round's value, is
     // referred to by that address and not given again; a word it got alike keeps the engine's own address.
     #[test]
