@@ -18,16 +18,22 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// Whether every interjection a round's message gave is still in the database: the owner takes back the words that no
-/// agent has taken up yet (`api::take_back`), which deletes them.
-fn interjections_there(tx: &Transaction<'_>, ids: &[i64]) -> db::rusqlite::Result<bool> {
-    let listed = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
-    let there: i64 = tx.query_row(
-        "SELECT count(*) FROM interjections WHERE id IN (SELECT value FROM json_each(?1))",
-        [listed],
+/// Whether every interjection a round's message gave (`given`, as the view `waiting_interjections` gave them) is still
+/// in the database as it was given: the owner takes back the words that no agent has taken up yet (`api::take_back`),
+/// which deletes them, and words said after may take the number the deleted ones had, so that the number alone does
+/// not tell; the words do.
+fn interjections_there(conn: &db::rusqlite::Connection, given: &[Value]) -> db::rusqlite::Result<bool> {
+    let listed: Vec<Value> = given
+        .iter()
+        .map(|i| json!({ "id": i["interjection"], "text": i["text"] }))
+        .collect();
+    let there: i64 = conn.query_row(
+        "SELECT count(*) FROM interjections j, json_each(?1) g
+         WHERE j.id = json_extract(g.value, '$.id') AND j.text = json_extract(g.value, '$.text')",
+        [Value::Array(listed).to_string()],
         |r| r.get(0),
     )?;
-    Ok(there == ids.len() as i64)
+    Ok(there == given.len() as i64)
 }
 
 /// A round the engine stopped in the middle of is closed as not done; its cell runs again.
@@ -396,9 +402,17 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // The images the message gives, after its text, each after its address.
     let mut images = Vec::new();
     for i in msg.images.iter().filter(|i| i.given) {
-        let (media_type, bytes) = db::attachments::bytes(e.db.conn(), i.attachment)
-            .map_err(sql)?
-            .ok_or_else(|| format!("{number}: image {} is not kept", i.attachment))?;
+        let Some((media_type, bytes)) = db::attachments::bytes(e.db.conn(), i.attachment).map_err(sql)? else {
+            // The image goes with the words it came with when the owner takes them back: that is no fault, the round
+            // does not start and the next pass builds the message without them.
+            if !interjections_there(e.db.conn(), &interjections).map_err(sql)? {
+                let _ = std::fs::remove_file(&given_again);
+                return Ok(Advance::Waits(format!(
+                    "the owner took back words the message of {number} gave"
+                )));
+            }
+            return Err(format!("{number}: image {} is not kept", i.attachment));
+        };
         images.push(agent::Image {
             address: db::attachments::address(i.attachment),
             media_type,
@@ -484,7 +498,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // the work waits, and the next pass builds the message again without it.
     let recorded =
         e.db.write(Actor::Engine, |tx| {
-            if !interjections_there(tx, &ids)? {
+            if !interjections_there(tx, &interjections)? {
                 return Ok(None);
             }
             db::keep(tx, &kept)?;

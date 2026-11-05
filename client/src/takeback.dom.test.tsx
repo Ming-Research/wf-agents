@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AnswersHere } from './answer';
 import type { Conversation, ConversationDetail, ConversationEntry, TakenBack } from './api';
-import { forgetMemory } from './drafts';
+import { forgetMemory, putDraft } from './drafts';
 import { useResource } from './live';
 import { Composer, Stream } from './pages/Messages';
 import { t } from './text';
@@ -161,14 +161,23 @@ function Talk() {
 const bubbles = (h: HTMLElement): string[] =>
   [...h.querySelectorAll('.talk-bubble-body')].map((b) => b.textContent?.trim() ?? '');
 
+/// Whom the box says its words to: the names of the parties ticked.
+const ticked = (h: HTMLElement): string[] =>
+  [...h.querySelectorAll<HTMLLabelElement>('.talk-say-to label')]
+    .filter((l) => (document.getElementById(l.htmlFor) as HTMLInputElement | null)?.checked === true)
+    .map((l) => l.textContent?.trim() ?? '');
+
 const takeBackButtons = (h: HTMLElement): HTMLButtonElement[] =>
   [...h.querySelectorAll('button')].filter((b) => b.textContent?.trim() === t('conv_take_back'));
 
 describe("the owner's words not taken up yet", () => {
   it('come back into the box when no agent has them, and say they cannot when an agent has them', async () => {
-    back = { text: 'Make it blue.', images: [{ media_type: 'image/png', data: 'iVBORw0KGgo=' }], to: ['engineer'] };
+    back = { text: 'Make it blue.', images: [{ media_type: 'image/png', data: 'iVBORw0KGgo=' }], to: ['architect'] };
     const page = await show(<Talk />);
     await settle();
+    // The box already holds words the owner is writing, for the engineer (the box's own choice until the owner ticks).
+    await act(async () => putDraft('conv:work:5', { text: 'Already here.' }, 'replace'));
+    expect(ticked(page)).toEqual(['@engineer']);
 
     // Side by side: the words no agent has offer to be taken back; those an agent has say they cannot, and have no button.
     expect(bubbles(page)).toEqual(['Make it blue.', 'Why this size?']);
@@ -184,9 +193,11 @@ describe("the owner's words not taken up yet", () => {
     expect(bubbles(page)).toEqual(['Why this size?']);
     expect(takeBackButtons(page)).toHaveLength(0);
     expect(page.textContent).toContain(t('conv_given'));
+    // The words come after what the box held, not in place of it, with their image and for whom they were said.
     const box = page.querySelector('textarea');
-    expect(box?.value).toBe('Make it blue.');
+    expect(box?.value).toBe('Already here.\nMake it blue.');
     expect(page.querySelectorAll('.talk-say img').length).toBeGreaterThan(0);
+    expect(ticked(page)).toEqual(['@architect']);
   });
 
   it('stay where they are, and say why, when the interface refuses to take them back', async () => {
