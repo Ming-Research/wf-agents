@@ -74,6 +74,11 @@ runs:
       working-directory: client
       run: npm run check:ui
       shell: bash
+    # The page's tests include the ones that draw it in a real Chromium (`npm test` runs the project `browser`), so
+    # Chromium is installed here too, and only where the tests will run.
+    - name: Chromium for the page's browser tests
+      if: steps.page.outputs.passed != 'true'
+      uses: ./.github/actions/browser
     - name: Test the page
       if: steps.page.outputs.passed != 'true'
       working-directory: client
