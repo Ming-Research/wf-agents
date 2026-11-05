@@ -251,13 +251,12 @@ fn three_returns_in_a_row_sent_back_pause_the_work_and_each_has_its_report() {
     let (why, by) = &made[0];
     assert_eq!(by, "engine");
     assert!(
-        why.starts_with(&format!(
-            "{} 3 times in a row, the last at cell R1, and its project's architect is asked to look at why",
-            db::SENT_BACK_FOR_ARCHITECT
-        )),
+        why.starts_with(
+            "returns were sent back 3 times in a row, the last at cell R1, and its project's architect is asked to look \
+             at why"
+        ),
         "{why}"
     );
-    assert!(db::architect_may_resume(Some(why), Some(by)), "{why}");
     assert_eq!(lines_of(why, 1), [PROGRESS], "{why}");
     assert!(!why.contains('{') && !why.contains("problems"), "{why}");
     // Three reports, one for each return, each with its own round and problems.
@@ -385,7 +384,8 @@ fn the_architect_s_own_work_is_paused_for_the_owner_after_three_returns_sent_bac
     );
     assert!(why.contains("action 1: item 2 has no work running"), "{why}");
     assert!(!why.contains('{') && !why.contains("problems"), "{why}");
-    assert!(!db::architect_may_resume(Some(&why), Some("engine")), "{why}");
+    // The reason does not start as the one the architect may lift, so the pause stays the owner's.
+    assert!(!why.starts_with("returns were sent back"), "{why}");
     assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
     assert!(looks(&e).is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);

@@ -37,10 +37,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let log = said.lock().unwrap().join("\n");
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(
-        why.starts_with(&format!(
-            "{} 3 times in a row, the last at cell R1",
-            db::SENT_BACK_FOR_ARCHITECT
-        )),
+        why.starts_with("returns were sent back 3 times in a row, the last at cell R1"),
         "{why}"
     );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
@@ -238,10 +235,9 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "R1", "{log}");
     assert!(
-        paused.as_deref().is_some_and(|p| p.starts_with(&format!(
-            "{} 2 times in a row, the last at cell R1",
-            db::SENT_BACK_FOR_ARCHITECT
-        ))),
+        paused
+            .as_deref()
+            .is_some_and(|p| p.starts_with("returns were sent back 2 times in a row, the last at cell R1")),
         "{paused:?}\n{log}"
     );
     // Each return sent back is counted, and none is a retry.
@@ -286,9 +282,8 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
         paused.as_deref(),
         Some(
             format!(
-                "{} 2 times in a row, the last at cell R1, and its project's architect is asked to look at why; the \
-                 architect or the owner lets the work go on. Problems of the last return:\n{}\n{}",
-                db::SENT_BACK_FOR_ARCHITECT,
+                "returns were sent back 2 times in a row, the last at cell R1, and its project's architect is asked to \
+                 look at why; the architect or the owner lets the work go on. Problems of the last return:\n{}\n{}",
                 db::problem_line(
                     "format",
                     problems[0]["field"].as_str(),
@@ -790,10 +785,9 @@ fn three_returns_sent_back_in_a_row_pause_the_work() {
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "R1", "{log}");
     assert!(
-        paused.as_deref().is_some_and(|p| p.starts_with(&format!(
-            "{} 3 times in a row, the last at cell R1",
-            db::SENT_BACK_FOR_ARCHITECT
-        ))),
+        paused
+            .as_deref()
+            .is_some_and(|p| p.starts_with("returns were sent back 3 times in a row, the last at cell R1")),
         "{paused:?}\n{log}"
     );
     assert_eq!(sent_back(&e), 3, "{log}");
