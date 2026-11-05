@@ -602,6 +602,9 @@ fn a_push_signing_program_in_the_configuration_is_not_run_by_the_engines_git() {
     let signer = fx.program("gpg", "exit 1");
     fx.configure("push.gpgSign", "true");
     fx.configure("gpg.program", &signer);
+    // An identity for the push certificate, so that what stops a push that signs is the program, not a missing name.
+    fx.configure("user.name", "t");
+    fx.configure("user.email", "t@t");
 
     // The reference: plain git signs the push, which fails, since the program signs nothing.
     let control = plain(&work, &["push", "-q", "origin", "HEAD:refs/heads/control"]);
@@ -613,9 +616,11 @@ fn a_push_signing_program_in_the_configuration_is_not_run_by_the_engines_git() {
     );
 
     let sha = head(&work).unwrap();
-    push(&work, &sha, "refs/heads/work", false).unwrap();
-    delete_ref(&work, "refs/heads/work").unwrap();
+    let pushed = push(&work, &sha, "refs/heads/work", false);
+    let deleted = delete_ref(&work, "refs/heads/work");
     assert_eq!(fx.ran(), NONE, "the engine's push ran the signing program");
+    pushed.unwrap();
+    deleted.unwrap();
     fx.finish();
 }
 
