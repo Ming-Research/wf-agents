@@ -1144,7 +1144,7 @@
         },
         {
           "value": "redesign",
-          "desc": "Go back and change the design: the approach or the acceptance",
+          "desc": "The approach or the acceptance changes: research answers again whether a sound approach can be settled, and only research sends a work to deep research",
           "fields": []
         },
         {
@@ -7453,7 +7453,7 @@
             },
             {
               "name": "Why it came to deep research",
-              "what": "Why the work came here: where the research got stuck, and a decision it would depart from; or, from the implementation, where the plan or the design did not hold",
+              "what": "Why the work came here: where the research got stuck, and a decision it would depart from",
               "from": [
                 [
                   "R1",
@@ -7462,17 +7462,8 @@
                 [
                   "R1",
                   "departs[yes]"
-                ],
-                [
-                  "I1",
-                  "holds[no]"
-                ],
-                [
-                  "I1",
-                  "departs[yes]"
                 ]
-              ],
-              "maybe": true
+              ]
             },
             {
               "name": "The review it comes back from",
@@ -8288,7 +8279,7 @@
             "Change the code by the plan or the design; change only what this work needs, nothing on the side.",
             "For behaviour that is wrong, first write a test that reproduces it, see it red on the code before the change with ci_before, then change the code until ci runs it green; where it cannot be reproduced, use the other evidence the research named.",
             "Every acceptance condition has a test, which the conditions name, but one written in_effect: it has none, is checked after the merge, and its row says `how: in_effect`.",
-            "A small case the design did not foresee you handle yourself, and write it as a departure. To change the approach, or where the plan or the design does not hold, do not work around it: say where it does not hold, and the work goes back to deep research.",
+            "A small case the design did not foresee you handle yourself, and write it as a departure. To change the approach, or where the plan or the design does not hold, do not work around it: say where it does not hold, and the work goes back to research.",
             "Before handing in, merge the latest main into the branch, resolve any conflict yourself, and run ci again: hand in only once it is green. To run CI or a measurement, commit locally and use ci or measure.",
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
             "Write each option the owner chose for a decision point into the project's directory of decisions, one Markdown file for each decision, in English, saying: what is done now; why, what it is for and the reasons; each option not chosen, and why not; and one line for each challenge considered and turned down: when, what change was proposed, and why it was not made. It merges with this work's pull request. Name each file in decisions_written. A decision the owner overturned is rewritten in its file, and one withdrawn deleted, the commit message saying what changed and why.",
@@ -8377,7 +8368,7 @@
                 },
                 {
                   "value": "no",
-                  "desc": "It does not: deep research takes it",
+                  "desc": "It does not: research answers again whether a sound approach can be settled",
                   "fields": [
                     {
                       "name": "where",
@@ -8410,7 +8401,7 @@
                 },
                 {
                   "value": "yes",
-                  "desc": "It departs: deep research takes it, where a decision may change",
+                  "desc": "It departs: research takes it again, and what the owner must rule on is asked on the way on",
                   "fields": [
                     {
                       "name": "decision",
@@ -8478,14 +8469,10 @@
                   ]
                 ]
               ],
-              "to": "D1",
-              "do": [
-                "open_session"
-              ],
+              "to": "R1",
               "counts": "shallow_research",
               "sets": {
-                "stage": "design_on",
-                "designed": "yes"
+                "stage": "research"
               },
               "note": "The research's plan did not hold: the research was too shallow, and deep research takes it."
             },
@@ -8510,13 +8497,10 @@
                   ]
                 ]
               ],
-              "to": "D1",
-              "do": [
-                "open_session"
-              ],
+              "to": "R1",
               "counts": "redesigns",
               "sets": {
-                "stage": "design_on"
+                "stage": "research"
               }
             },
             {
@@ -8540,14 +8524,10 @@
                   ]
                 ]
               ],
-              "to": "D1",
-              "do": [
-                "open_session"
-              ],
+              "to": "R1",
               "counts": "redesigns",
               "sets": {
-                "stage": "design_on",
-                "designed": "yes"
+                "stage": "research"
               }
             }
           ],
@@ -11962,7 +11942,7 @@
             }
           ],
           "prompt": [
-            "This round thinks about one thing only: where this work goes next. Your choice here decides all the work after it; choose wrong, and all of that may be wasted, so take care, think it through before you decide, and do not hurry back to what you had in hand. First read again, from the start, the reply or interjection that brought you here (how it came is said below), and work out what it changes: which premise it overturns or changes, such as a fact the design rests on, the chosen approach, the acceptance, or the problem this work solves; of what you have done, what still stands and what rests on an overturned premise; and whether going on the old way would still deliver what this work needs. Then decide: carry on, change the design, or, if what this work must deliver has changed, go back and research again. If the reply or interjection plainly says to change the design, or that what this work must deliver has changed, choose accordingly. If the reply has this work stop and wait for other items to deliver, choose wait_for_items: the engine stops this work to wait for them and keeps the session; do not carry on first or change the design first, but decide when they have delivered. While still researching, there is no design to change. If the architect split off sub-items, this work's design and estimate still cover the whole, and it must redesign for the part that remains. If everything went to sub-items and this work keeps nothing, there is no way on to choose here: hand in carry_on as next, as anything else is a flow anomaly, and write in progress what the sub-items need to know when they take over, such as how far it got and what is on the branch; the engine ends this work. If you choose a way that cannot be chosen in the situation, the engine does not go on but marks a flow anomaly and hands it to the architect. If you lack one fact to decide, ask again; do not question the reply you brought back. In progress, write what you decided and why."
+            "This round thinks about one thing only: where this work goes next. Your choice here decides all the work after it; choose wrong, and all of that may be wasted, so take care, think it through before you decide, and do not hurry back to what you had in hand. First read again, from the start, the reply or interjection that brought you here (how it came is said below), and work out what it changes: which premise it overturns or changes, such as a fact the design rests on, the chosen approach, the acceptance, or the problem this work solves; of what you have done, what still stands and what rests on an overturned premise; and whether going on the old way would still deliver what this work needs. Then decide: carry on, change the approach, or, if what this work must deliver has changed, go back and research again. If the reply or interjection plainly says to change the design, or that what this work must deliver has changed, choose accordingly. If the reply has this work stop and wait for other items to deliver, choose wait_for_items: the engine stops this work to wait for them and keeps the session; do not carry on first or change the design first, but decide when they have delivered. While still researching, there is no design to change. If the architect split off sub-items, this work's design and estimate still cover the whole, and it must redesign for the part that remains. If everything went to sub-items and this work keeps nothing, there is no way on to choose here: hand in carry_on as next, as anything else is a flow anomaly, and write in progress what the sub-items need to know when they take over, such as how far it got and what is on the branch; the engine ends this work. If you choose a way that cannot be chosen in the situation, the engine does not go on but marks a flow anomaly and hands it to the architect. If you lack one fact to decide, ask again; do not question the reply you brought back. In progress, write what you decided and why."
           ],
           "promptBy": {
             "by": "came_by",
@@ -12059,14 +12039,10 @@
                   ]
                 ]
               ],
-              "to": "D1",
+              "to": "R1",
               "sets": {
-                "stage": "design_on",
-                "designed": "yes"
+                "stage": "research"
               },
-              "do": [
-                "open_session"
-              ],
               "counts": "redesigns"
             },
             {

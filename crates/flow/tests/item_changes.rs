@@ -42,7 +42,7 @@ fn no_change_to_an_item_names_a_route() {
 
 // The view `work_routes` reads the engineer's graph by the names it has: the research (`R1`) takes `start` to the
 // implementation and `cannot_start` to the design (`D1`), and the implementation (`I1`) has the row `shallow_research`,
-// which counts the counter of that name and goes to the design. A graph that renamed any of them would leave the view
+// which counts the counter of that name and goes back to the research, the one way to deep research. A graph that renamed any of them would leave the view
 // giving no way, with no test of the view's own to notice, since those use the names as the view does.
 #[test]
 fn the_rows_the_view_of_the_ways_works_went_reads_are_in_the_engineers_graph() {
@@ -60,6 +60,6 @@ fn the_rows_the_view_of_the_ways_works_went_reads_are_in_the_engineers_graph() {
     assert_eq!(row("R1", "start").to, "I1");
     assert_eq!(row("R1", "cannot_start").to, "D1");
     let turn = row("I1", "shallow_research");
-    assert_eq!(turn.to, "D1");
+    assert_eq!(turn.to, "R1");
     assert_eq!(turn.counts.as_deref(), Some("shallow_research"));
 }
