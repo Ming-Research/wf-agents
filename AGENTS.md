@@ -26,6 +26,11 @@ What an agent needs to know for this repository, beyond the rules every agent is
   going on), as `wf-agents flow cost <the branch's flow/flow.json> --data <dir>` does. Where the change can leave
   earlier returns passing (a new field an earlier return may lack, optional), it is made so, since every tightening of an
   early cell's output sends each work that went past it back to do the cell again.
+- What a cell of the flow is given or hands in changes only with the owner's explicit approval, each time: an input or
+  an output added, removed or made to hold more or less, whether in `flow/flow.json` or in the code that fills it. The
+  proposal names each cell and each input or output, says by how many characters it grows or shrinks, measured on real
+  rounds, and shows why it is needed: what goes wrong without it. Each addition looks small alone, and every later round
+  of the session pays for all of them (Article 3).
 - A test holds no total of a whole graph of the flow (its cells, rows, states, places or samples): every work that
   changes the flow would rewrite it, and works that do so side by side cannot be merged, in git or in meaning. What
   the flow must keep is held by the flow's own source (`each_graph_compiles_to_the_cells_of_its_nodes`) or by a named
