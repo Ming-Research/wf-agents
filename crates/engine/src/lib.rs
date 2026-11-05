@@ -57,8 +57,6 @@ mod set_aside;
 mod steps;
 mod test_name;
 mod test_tables;
-#[cfg(test)]
-mod tests;
 mod tools;
 mod unparsed;
 mod values;

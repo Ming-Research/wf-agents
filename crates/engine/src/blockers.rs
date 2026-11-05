@@ -1022,6 +1022,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn blockers_of_matter_reads_blockers_by_matter() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &of_matter_sql()).unwrap();
+        assert!(
+            steps.contains("blockers_by_matter"),
+            "the plan does not read by blockers_by_matter:\n{steps}"
+        );
+    }
+
+    #[test]
     fn a_cycle_among_the_items_waited_for_is_found() {
         let mut w = BTreeMap::new();
         w.insert(1, BTreeSet::from([2]));

@@ -2640,6 +2640,16 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn flows_count_works_by_works_by_flow_version() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), FLOWS_SQL).unwrap();
+        assert!(
+            steps.contains("works_by_flow_version"),
+            "the plan does not read by works_by_flow_version:\n{steps}"
+        );
+    }
+
     struct Setup {
         db: Db,
         compiled: Compiled,

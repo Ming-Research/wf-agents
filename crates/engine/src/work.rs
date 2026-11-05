@@ -515,6 +515,16 @@ pub fn cell_json(v: rusqlite::types::ValueRef<'_>) -> Value {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rounds_of_matter_reads_rounds_by_cell() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &rounds_of_matter_sql()).unwrap();
+        assert!(
+            steps.contains("rounds_by_cell"),
+            "the plan does not read by rounds_by_cell:\n{steps}"
+        );
+    }
+
     // A query with more rows than the limit gives the first rows and the exact number of the rest, at the limit and
     // one past it too; with no more it leaves none out; and `query_json` gives the same rows as before.
     #[test]

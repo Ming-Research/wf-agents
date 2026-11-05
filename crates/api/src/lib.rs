@@ -20,8 +20,6 @@ mod settings;
 mod source;
 mod system;
 mod talk;
-#[cfg(test)]
-mod tests;
 mod types;
 mod typescript;
 mod view;

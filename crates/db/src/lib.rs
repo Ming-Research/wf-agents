@@ -1151,6 +1151,17 @@ pub fn put_back(conn: &Connection, v: &Value) -> Value {
 mod tests {
     use super::*;
 
+    #[test]
+    fn next_transaction_number_reads_changes_by_changes_by_tx() {
+        let db = Db::in_memory().unwrap();
+        let steps = query_plan(db.conn(), NEXT_TX).unwrap();
+        assert!(
+            steps.contains("changes_by_tx"),
+            "the plan does not read by changes_by_tx:\n{steps}"
+        );
+        assert!(!steps.contains("SCAN changes"), "the plan scans changes:\n{steps}");
+    }
+
     fn temp(name: &str) -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("wf-agents-db-{}-{name}.sqlite", std::process::id()));
         for ext in ["", "-wal", "-shm"] {

@@ -360,3 +360,16 @@ pub fn input(conn: &Connection, work: i64) -> Result<Option<Value>, String> {
     };
     Ok(Some(json!({ "architect": m.reply, "owner": owner })))
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn asked_reads_architect_matters_by_work() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), super::ASKED_SQL).unwrap();
+        assert!(
+            steps.contains("architect_matters_by_work"),
+            "the plan does not read by architect_matters_by_work:\n{steps}"
+        );
+    }
+}

@@ -693,6 +693,16 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn words_given_reads_interjections_by_work_delivered() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &words_given_sql()).unwrap();
+        assert!(
+            steps.contains("interjections_by_work_delivered"),
+            "the plan does not read by interjections_by_work_delivered:\n{steps}"
+        );
+    }
+
     fn said(p: Problems) -> Vec<String> {
         p.texts().to_vec()
     }

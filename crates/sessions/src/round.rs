@@ -123,3 +123,27 @@ fn own_rounds(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String
         .collect::<rusqlite::Result<_>>()
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn own_rounds_reads_rounds_by_session() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &super::own_rounds_sql()).unwrap();
+        assert!(
+            steps.contains("rounds_by_session"),
+            "the plan does not read by rounds_by_session:\n{steps}"
+        );
+    }
+
+    #[test]
+    fn own_rounds_finds_the_session_by_its_cli_session_and_scans_no_table() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &super::own_rounds_sql()).unwrap();
+        assert!(
+            steps.contains("sessions_by_cli_session"),
+            "the plan does not find the session by sessions_by_cli_session:\n{steps}"
+        );
+        assert!(!steps.contains("SCAN"), "the plan scans a table:\n{steps}");
+    }
+}
