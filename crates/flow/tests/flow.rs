@@ -336,6 +336,17 @@ fn the_architect_graph_has_no_cell_the_design_left_out() {
     assert!(c.graph("policy").is_none());
 }
 
+// A cell with no form but its own answer is told so: the schema its line shares offers the others, and the rules speak of
+// `query`, so that the reading of the project handed in look-ups, to be sent back.
+#[test]
+fn a_cell_with_no_other_form_is_told_it_cannot_look_anything_up() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let told = "This cell hands in only this answer";
+    assert!(flow::formats::cell_format(g, g.cell("B1").unwrap()).contains(told));
+    assert!(!flow::formats::cell_format(g, g.cell("B2").unwrap()).contains(told));
+}
+
 /// The rule the architect's cells are given, whole.
 fn architect_rule(c: &flow::Compiled) -> String {
     let g = c.graph("architect").unwrap();

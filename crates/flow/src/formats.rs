@@ -397,7 +397,9 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
         }
     }
     let forms = if others.is_empty() {
-        String::new()
+        ". This cell hands in only this answer: none of `tools`, `ask` or `pause`, so it cannot look anything up with \
+         `query`"
+            .to_string()
     } else {
         format!(
             "; instead of it, a return of this cell may hold these forms of `format:common`: {}",
