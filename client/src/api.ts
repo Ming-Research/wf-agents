@@ -465,7 +465,12 @@ answer_images: Array<number>,
  * When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
  * that put it.
  */
-asked_at: number, };
+asked_at: number,
+/**
+ * The one item a merge condition ticked on its answer goes on: its work's, or for an ask of an architect the item
+ * the matters it holds are about; none for an ask about no item or about several, which takes no tick.
+ */
+condition_item: number | null, };
 
 /**
  * What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -916,6 +921,11 @@ question?: number,
  */
 design_card?: number,
 /**
+ * The sentence of a merge condition the words set, when the owner ticked it: what must be done before the work
+ * merges, reading alone.
+ */
+condition?: string,
+/**
  * The images sent with the words, in the order the owner added them; words may be images alone.
  */
 images: Array<ImageSent>, };
@@ -969,6 +979,11 @@ item?: number,
  * The question pinned in the one-to-one that the words reply to.
  */
 reply_to?: number,
+/**
+ * The sentence of a merge condition the reply sets, when the owner ticked it, on a question about one item: what
+ * must be done before the work merges, reading alone.
+ */
+condition?: string,
 /**
  * The images sent with the words, in the order the owner added them; words may be images alone.
  */
@@ -1047,6 +1062,16 @@ reply?: JsonValue,
  * the answer as a decision for it to carry out, instead of resolving it.
  */
 to?: string,
+/**
+ * The option chosen, for the merge gate's ask of a merge condition alone: `met` or `withdrawn`. The answer may then
+ * have no words.
+ */
+choice?: string,
+/**
+ * The sentence of a merge condition the answer sets, when the owner ticked it: what must be done before the work
+ * merges, reading alone.
+ */
+condition?: string,
 /**
  * The images sent with the answer, in the order the owner added them.
  */
@@ -1408,7 +1433,62 @@ shown: Array<Shown>,
 /**
  * Each time its tier changed after it was made, oldest first: when, by whom, from what to what.
  */
-level_changes: Array<LevelChange>, };
+level_changes: Array<LevelChange>,
+/**
+ * What the owner set to be done before its work merges, oldest first.
+ */
+merge_conditions: Array<MergeCondition>, };
+
+/**
+ * Something the owner set to be done before an item's work merges, as the item's page shows it.
+ */
+export type MergeCondition = { id: number,
+/**
+ * The sentence that says it, reading alone.
+ */
+what: string,
+/**
+ * The record its words are in: ask, interjection or matter; and that record's number.
+ */
+source: string, source_id: number,
+/**
+ * The words as that record has them.
+ */
+quote: string,
+/**
+ * Who the record says said them: owner, relayed, delegate or unrecorded.
+ */
+said_by: string,
+/**
+ * Who recorded it: owner, delegate or architect; with the architect's round that did.
+ */
+recorded_by: string, recorded_work: number | null, recorded_round: number | null, at: number,
+/**
+ * Where it stands: open, met or withdrawn.
+ */
+status: string,
+/**
+ * The ask of the merge gate it was judged on, and who judged it, owner or delegate; none while it is open.
+ */
+judged: number | null, judged_by: string | null,
+/**
+ * The latest report of the engineer on it: done or not_done, in its words, and the round that handed it in; none
+ * when it has not reported.
+ */
+report: MergeConditionReport | null, };
+
+/**
+ * The engineer's report on a merge condition.
+ */
+export type MergeConditionReport = {
+/**
+ * done or not_done.
+ */
+answer: string, words: string,
+/**
+ * The round that handed it in: its work and its number in the work.
+ */
+work: number, round: number, };
 
 /**
  * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
