@@ -74,10 +74,21 @@ pub fn commit(checkout: &Path, rev: &str) -> Result<String> {
     Ok(id.trim().to_string())
 }
 
+/// `flow/flow.json` as it is at a commit of the checkout, as git writes it.
+fn flow_text_at(checkout: &Path, commit: &str) -> Result<String> {
+    git(checkout, &["show", &format!("{commit}:flow/flow.json")])
+}
+
+/// `flow/flow.json` as it is at a ref of the checkout, as git writes it, not compiled: for what judges the flow by the
+/// engine's own compiler and database definition rather than the ones of the commit it is read at.
+pub fn flow_text(checkout: &Path, rev: &str) -> Result<String> {
+    flow_text_at(checkout, &commit(checkout, rev)?)
+}
+
 /// The flow at a commit of the checkout, compiled against the database schema at the same commit to be shown, so that
 /// a flow written before its lines had colours is shown too.
 pub fn compile_at(checkout: &Path, commit: &str) -> Result<Compiled> {
-    let text = git(checkout, &["show", &format!("{commit}:flow/flow.json")])?;
+    let text = flow_text_at(checkout, commit)?;
     let schema = git(checkout, &["show", &format!("{commit}:db/schema.sql")])?;
     let at = |e| Error::Invalid(format!("db/schema.sql at {commit}: {e}"));
     let relations = db::relations(&schema).map_err(at)?;

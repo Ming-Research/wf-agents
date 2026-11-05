@@ -78,7 +78,7 @@ pub struct Beat {
 /// queue has waited (none waits: 0), for the projects given and any other a matter waits for: the states under the
 /// start of the sample's minute, and the amounts since the sample before under the start of that one's minute. A
 /// minute already sampled keeps what it has.
-pub fn record(conn: &Connection, beat: &Beat, projects: &[String]) -> Result<(), String> {
+pub fn sample(conn: &Connection, beat: &Beat, projects: &[String]) -> Result<(), String> {
     let failed = |e: db::rusqlite::Error| format!("writing the minute's sample: {e}");
     let at = minute(beat.at);
     let mut rows: Vec<(&str, String, i64, f64)> = vec![

@@ -245,8 +245,8 @@ fn fields_of(g: &CompiledGraph, c: &CompiledCell) -> Vec<(String, Value)> {
             out.insert(
                 format!("{form}{}", f.path),
                 json!({
-                    "kind": f.kind, "item": f.item, "desc": f.desc, "optional": f.optional, "min": f.min,
-                    "values": f.values, "disc": f.disc,
+                    "kind": f.kind, "item": f.item, "desc": f.desc, "optional": f.optional, "earlier": f.earlier,
+                    "min": f.min, "values": f.values, "disc": f.disc,
                     "branches": f.branches.iter().map(|b| (&b.value, &b.desc)).collect::<Vec<_>>(),
                 }),
             );
@@ -315,5 +315,72 @@ mod tests {
         assert!(input_change.after.is_none());
         let last = cells.last().unwrap();
         assert_eq!((last.id.as_str(), last.status), (removed.as_str(), ChangeKind::Removed));
+    }
+
+    // A field that a return handed in on an earlier flow version may lack, or hold as another kind, changes in the
+    // comparison the owner rules on a flow change by, saying what earlier returns may hold there; the agent's schema,
+    // and so its prompt, does not change.
+    #[test]
+    fn what_earlier_returns_may_hold_at_a_field_is_a_change_of_the_field() {
+        let from = compiled();
+        let mut to = from.clone();
+        let g = &mut to.graphs[0];
+        let within = g.within.clone();
+        // The fields an agent's own form requires that are not themselves alternatives, which a carried return's
+        // schema would write as such; a cell of two of them at least is taken.
+        let plain_required = |c: &CompiledCell, own: usize| -> Vec<String> {
+            let form = &c.schema.as_ref().unwrap()["properties"][&within]["anyOf"][own];
+            form["required"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|r| form["properties"][*r].get("anyOf").is_none())
+                .map(str::to_string)
+                .collect()
+        };
+        let (c, own, required) = g
+            .cells
+            .iter_mut()
+            .filter(|c| c.kind == "agent" && c.carried.is_none() && c.schema.is_some())
+            .find_map(|c| {
+                let own = c.forms.iter().position(|f| f.field.is_none())?;
+                let required = plain_required(c, own);
+                (required.len() >= 2).then_some((c, own, required))
+            })
+            .unwrap();
+        let id = c.id.clone();
+        let mut carried = c.schema.clone().unwrap();
+        let form = &mut carried["properties"][&within]["anyOf"][own];
+        let (other, absent) = (required[0].clone(), required[1].clone());
+        let now = form["properties"][&other].clone();
+        form["properties"][&other] = json!({ "anyOf": [now, { "type": "string" }] });
+        form["required"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|r| *r != absent.as_str());
+        c.carried = Some(carried);
+        let d = diff(&from, &to);
+        let cell = d.graphs[0].cells.iter().find(|x| x.id == id).unwrap();
+        let earlier = |key: &str| {
+            let ch = cell
+                .changes
+                .iter()
+                .find(|x| x.part == Part::Field && x.key == key)
+                .unwrap_or_else(|| panic!("no change of {key}: {:?}", cell.changes));
+            (
+                ch.before.as_ref().unwrap()["earlier"].clone(),
+                ch.after.as_ref().unwrap()["earlier"].clone(),
+            )
+        };
+        assert_eq!(
+            earlier(&other),
+            (
+                Value::Null,
+                json!({ "was": "kind", "kind": "text", "item": null, "absent": false })
+            )
+        );
+        assert_eq!(earlier(&absent), (Value::Null, json!({ "was": "absent" })));
+        assert_eq!(cell.changes.len(), 2, "{:?}", cell.changes);
     }
 }

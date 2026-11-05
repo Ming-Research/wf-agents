@@ -7,23 +7,40 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use db::rusqlite::types::Value as Sql;
 use serde_json::Value;
+use sessions::cost::context_end;
 
-use crate::round::{Outcome, context_end, outcome};
-use crate::{Fact, MainLog, Reader, args, project_arg};
+use crate::round::{Outcome, outcome};
+use crate::{FULL_CI_STEP, Fact, MainLog, Reader, args, project_arg};
 
 /// The graph works on items run.
 const ENGINEER: &str = "engineer";
 
+/// The graph a project's architect runs, which checks main's red CI (its cell `L1`): the cell of the same code on the
+/// engineer's graph is a work's old watch of main, which no version of the flow runs now.
+const ARCHITECT: &str = "architect";
+
 /// The project an engineer's work or an architect's is of, for a statement that reads works `w` and items `i`.
 const PROJECT_OF_WORK: &str = "(?1 IS NULL OR coalesce(i.project, w.project) = ?1)";
 
-/// The checks of main after a merge (cell `L1`) that found main broken by the merge, which the engine reverted.
+/// The checks of main's red CI that found a merge made main red.
 pub(crate) fn broken_merges(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
     let sql = format!(
-        "SELECT r.ended_at FROM rounds r CROSS JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-         WHERE r.ended_at >= ?2 AND r.ended_at < ?3 AND r.cell IN {}
-           AND json_extract(r.output, '$.main.kind') = 'broken_by_merge' AND (?1 IS NULL OR i.project = ?1)",
-        db::cells_sql(ENGINEER, &["L1"])
+        "SELECT r.ended_at FROM rounds r CROSS JOIN works w ON w.id = r.work
+         WHERE r.ended_at >= ?2 AND r.ended_at < ?3 AND r.cell IN {} AND w.graph = '{ARCHITECT}'
+           AND json_extract(r.output, '$.main.kind') = 'broken_by_merge' AND (?1 IS NULL OR w.project = ?1)",
+        db::cells_sql(ARCHITECT, &["L1"])
+    );
+    r.rows(&sql, args(project, from, to), |row| {
+        Ok(Fact::event(row.get(0)?, "", 1.0))
+    })
+}
+
+/// The merges the engine reverted, when each revert merged; read whole, as the reverts are few, a merge that made main
+/// red being rare.
+pub(crate) fn reverted_merges(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
+    let sql = format!(
+        "SELECT v.at FROM reverts v CROSS JOIN works w ON w.id = v.work LEFT JOIN items i ON i.id = w.item
+         WHERE v.at >= ?2 AND v.at < ?3 AND {PROJECT_OF_WORK}"
     );
     r.rows(&sql, args(project, from, to), |row| {
         Ok(Fact::event(row.get(0)?, "", 1.0))
@@ -228,18 +245,44 @@ pub(crate) fn to_merge(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64
     })
 }
 
-/// Each item merged, with how long its works waited for CI before the merge: each run of ci, ci_before and full_ci
-/// from when it was queued to when it ended, added up.
+/// How long a set of spans, each from one time up to another, covers: a moment two of them cover counts once.
+fn covered(mut spans: Vec<(i64, i64)>) -> i64 {
+    spans.sort_unstable();
+    let mut total = 0;
+    let mut reached = i64::MIN;
+    for (from, to) in spans {
+        let from = from.max(reached);
+        if to > from {
+            total += to - from;
+            reached = to;
+        }
+    }
+    total
+}
+
+/// Each item merged, with how long it waited for CI before the merge: the time covered by the runs of ci, ci_before and
+/// full_ci of all its works and by the merge tool's waits for the full CI, each from when it was queued to when it
+/// ended. The merge tool's other rows are no wait for CI, and what ended after the merge was no wait for it.
 pub(crate) fn ci_wait(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
-    let sql = merges_sql(
-        "r.ended_at, (SELECT coalesce(sum(t.ended_at - t.queued_at), 0) FROM works v
+    let sql = merges_sql(&format!(
+        "r.ended_at, (SELECT json_group_array(json_array(t.queued_at, t.ended_at)) FROM works v
                       CROSS JOIN tool_runs t ON t.work = v.id
-                      WHERE v.item = w.item AND t.tool IN ('ci', 'ci_before', 'full_ci')
-                        AND t.ended_at IS NOT NULL AND t.ended_at <= r.ended_at)",
-    );
-    r.rows(&sql, args(project, from, to), |row| {
-        Ok(Fact::event(row.get(0)?, "", row.get::<_, i64>(1)? as f64))
-    })
+                      WHERE v.item = w.item
+                        AND (t.tool IN ('ci', 'ci_before', 'full_ci')
+                             OR (t.tool = 'merge' AND json_extract(t.args, '$.step') = '{FULL_CI_STEP}'))
+                        AND t.ended_at IS NOT NULL AND t.ended_at <= r.ended_at)"
+    ));
+    let merges = r.rows(&sql, args(project, from, to), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    merges
+        .into_iter()
+        .map(|(at, spans)| -> Result<Fact, String> {
+            let spans: Vec<(i64, i64)> =
+                serde_json::from_str(&spans).map_err(|e| format!("reading the wait for CI: {e}"))?;
+            Ok(Fact::event(at, "", covered(spans) as f64))
+        })
+        .collect()
 }
 
 /// Each item merged.
@@ -249,9 +292,9 @@ pub(crate) fn items_merged(r: &Reader<'_>, project: Option<&str>, from: i64, to:
     })
 }
 
-/// Each merge by the flow whose commit is not on main's first-parent line, when its round ended: of the merges that
-/// ended no later than the newest commit of main read was made, since main as read cannot hold one that ended after it.
-/// A merge recorded with no commit is not on main either.
+/// Each merge by the flow whose commit main does not reach, when its round ended: of the merges that ended no later than
+/// the commit of main read was made, since main as read cannot hold one that ended after it. A merge recorded with no
+/// commit is not on main either.
 pub(crate) fn not_on_main(
     r: &Reader<'_>,
     project: Option<&str>,
@@ -271,11 +314,13 @@ pub(crate) fn not_on_main(
         .collect())
 }
 
-/// Each commit on main's first-parent line made from `from` up to `to`, by its committer time, that came onto main
-/// without the flow: no merge by the flow (cell `M2`) has it as its commit, nor any revert the engine made of a merge
-/// that broke main (`reverts`). A commit is told by its full id, which belongs to one repository; the project is not
-/// read. The merges are read by their commit (index `rounds_merge_commit`), the expression written as the index has it.
-pub(crate) fn direct_pushes(
+/// Each commit main reaches made from `from` up to `to`, by its committer time, that came onto main without the flow: no
+/// merge by the flow (cell `M2`) has it as its commit, nor any revert the engine made of a merge (`reverts`). The flow
+/// merges by squashing, each merge one commit on main, so a work's own commits are not among those main reaches; a
+/// way of merging that keeps them would have them counted here. A commit is told by its full id, which belongs to one
+/// repository; the project is not read. The merges are read by their commit (index `rounds_merge_commit`), the
+/// expression written as the index has it.
+pub(crate) fn outside_flow(
     r: &Reader<'_>,
     _project: Option<&str>,
     main: &MainLog,

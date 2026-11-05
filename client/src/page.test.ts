@@ -947,6 +947,7 @@ function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'
     outcome,
     transition,
     why: null,
+    set_aside: null,
     started_at: n,
     ended_at: outcome === 'running' ? null : n + 1,
     model: null,

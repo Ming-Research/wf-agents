@@ -10,7 +10,7 @@ import type { ReactNode } from 'react';
 
 import type { Status, WorkSummary } from '../api';
 import { type Course, heldName, StateChip, TagChip, WorkBadge } from '../components';
-import { held, runningWords, takeoverWords, waitsWords } from '../course';
+import { bringUpWords, held, runningWords, waitsWords } from '../course';
 import { duration } from '../format';
 import { useNow, useStatus } from '../live';
 import { LabelLink } from '../parts';
@@ -123,9 +123,9 @@ export function State({ w, c }: { w: WorkSummary; c: Course }) {
   );
 }
 
-/// That a work is on an older flow version, as a tag's chip, saying on hovering what taking it over will do.
+/// That a work is on an older flow version, as a tag's chip, saying on hovering how it will move to the new one.
 export function OldFlow({ w, status }: { w: WorkSummary; status: Status | null }) {
-  return <TagChip title={takeoverWords(w, status)}>{t('course_outdated')}</TagChip>;
+  return <TagChip title={bringUpWords(w, status)}>{t('course_outdated')}</TagChip>;
 }
 
 /// Where a work is: the cell's code, that the work is on an older flow version or was moved to the one it is on, and the

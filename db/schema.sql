@@ -25,6 +25,20 @@
 --   work: a committed change applies from the next round on. Each round keeps the input it was actually given and
 --   the configuration commit it ran with.
 
+CREATE TABLE migrations (
+  -- Each migration the database has taken, by its file in db/migrations. A database made from this file has taken
+  -- every one there is; one opened by a wf-agents with migrations it has not taken takes them, in the order their names
+  -- sort, and its rows here name them. A migration is named by the minute it was written and what it does, so that
+  -- works written side by side never take the same name, and these rows, not a count, say which a database took: a
+  -- migration merged after one whose name sorts after it is taken after that one where that one came first. A database
+  -- from before this table took the first migrations, as many as its version (`user_version`) less one.
+  -- Hidden from agents.
+  -- Read by: the engine, as it opens a database, to take the migrations it has not and to refuse one that took a
+  -- migration it does not know, which a newer wf-agents made.
+  -- The migration's file's name without `.sql`, as `0079` or `202611040140-record-migrations-taken`.
+  name TEXT PRIMARY KEY
+) STRICT;
+
 CREATE TABLE items (
   -- A piece of work to do, as its creator wrote it. Text that a work's rounds produce later (the problem as the
   -- engineer understood it, the study, the design, progress) is not stored here: views read it from rounds. Items own
@@ -35,30 +49,28 @@ CREATE TABLE items (
   -- Item number, one sequence across all projects.
   id INTEGER PRIMARY KEY,
   -- The project the item belongs to. Picks the repository, CI and settings its works run with.
-  -- Read by: the engine; cells `D1` and `D3`, through the project's design goals.
+  -- Read by: the engine; cells `R1` and `D1`, through the project's design goals.
   project TEXT NOT NULL,
   -- What to do, as an action. Read by: cell `R1` for the items around this one; people.
   title TEXT NOT NULL,
   -- What cannot be done or is wrong, and why the work is worth doing, as written at creation. The engineer's own
   -- understanding replaces them in views once cell `R1` has run; these stay as written.
-  -- Read by: cell `R1`, for this item and the items that depend on it; cell `T3` reads the
-  -- problem only.
+  -- Read by: cell `R1`, for this item and the items that depend on it.
   problem TEXT NOT NULL,
   why TEXT NOT NULL,
   -- How to do it, when the creator already knows; NULL otherwise. Read by: cell `R1`.
   approach TEXT,
-  -- What the work hands in: a change to merge, or a report. Read by: cells `R1` and `T4`;
-  -- the engine, which runs reports without full CI on the draft.
+  -- What the work hands in: a change to merge, or a report. Read by: cells `R1`, `D1` and `I1`; the engine.
   deliver TEXT NOT NULL CHECK (deliver IN ('change', 'report')),
   -- Agent level; decides which agent and model run the work. Read by: the engine at cell `S1`.
   level TEXT NOT NULL,
-  -- The locked acceptance: a JSON list of acceptance rows in the flow's acceptance shape. NULL until a first design, or
-  -- on the light route a first plan, passes its checks. Every later design or plan must hand in exactly this list;
-  -- only the advisor can change it. Read by: cells `D2`, `F1`, `F2`, `I1`, `T3`, `T4` and `T1`; the engine, which
-  -- compares each design's and each plan's acceptance with it.
+  -- The acceptance: a JSON list of acceptance rows in the flow's acceptance shape, as the research's plan or the design
+  -- the owner approved gave them when the work went on to implement, and as the implementation, a fix or the advisor
+  -- changed them since, each saying why; NULL until then. Read by: cells `I1`, `T2`, `T3`, `T1` and `T6`; the engine,
+  -- which checks the conditions met against it.
   acceptance TEXT CHECK (acceptance IS NULL OR json_valid(acceptance)),
-  -- The round whose acceptance was locked, by its work and its number in the work: a design round, a plan round on the
-  -- light route, or an advisor round that changed it. Read by: cell `D2`, to see whether the advisor changed it.
+  -- The round that gave the acceptance, by its work and its number in the work: the research's, the design's, or the
+  -- round of the implementation, a fix or the advisor that changed it. Read by: people following a condition back.
   acceptance_work INTEGER,
   acceptance_round INTEGER,
   -- Why the item was cancelled; NULL while it is not. Read by: the engine; cell `R1` for the items around
@@ -73,8 +85,8 @@ CREATE TABLE items (
   -- `R1`; the owner's interface.
   imported_branch TEXT,
   imported_pr INTEGER,
-  -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The locked
-  -- acceptance, designed by the work, is acceptance. Read by: cell `R1`, through item_body.
+  -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The acceptance
+  -- the work goes by is acceptance. Read by: cell `R1`, through item_body.
   wanted TEXT CHECK (wanted IS NULL OR json_valid(wanted)),
   -- Why the architect holds the item, with the owner's approval: no work starts on it while it is held; NULL while it
   -- is not. Read by: ready_items; the architect.
@@ -84,12 +96,17 @@ CREATE TABLE items (
   -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
   -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
   rank INTEGER,
-  -- The route its works go: normal; or bugfix or feature, which go the light route, a plan reviewed before it is
-  -- implemented in place of the judgment whether it stands, the design and its checks. Only an item that delivers a
-  -- change goes the light route. The architect sets it when it creates or edits the item; a work past its research
-  -- keeps the route it took. Read by: the engine's value of the route a work takes, until the work's research
-  -- answers; cells `R1`, `G4`, `F1` and `F2`, through item_body; the owner's interface.
+  -- The mark of a bug fix or a feature, which a flow version before took for the light route its works went; normal
+  -- otherwise. Only an item that delivers a change carries a mark. The architect sets it when it creates or edits the
+  -- item. The flow no longer reads it: every work's research judges whether it can be started directly. Read by: the
+  -- views of the routes works of a flow version before went (work_routes); the owner's interface.
   route TEXT NOT NULL DEFAULT 'normal' CHECK (route IN ('normal', 'bugfix', 'feature')),
+  -- The decision points the item carries, JSON list in the flow's decision point shape, each with the option the owner
+  -- chose and why: what a discussion settled that goes into the project's decisions/ once deep research confirms it.
+  -- NULL when it carries none. An item that carries one goes to deep research, whatever its research finds. The
+  -- architect writes them as it creates or edits the item. Read by: the engine's value `decision_points`; cells `R1`,
+  -- `D1` and `T2`, through item_body.
+  decision_points TEXT CHECK (decision_points IS NULL OR json_valid(decision_points)),
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
   CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
   CHECK (route = 'normal' OR deliver = 'change'),
@@ -365,8 +382,10 @@ CREATE TABLE sessions (
   -- changed, whose prompt cache it would have to write again whole, when the agents' login account changed, whose
   -- configuration directory of the CLI does not hold the session, when the CLI's prompt cache let it go (a line the
   -- flow says expires with the cache, its session last called a cache lifetime or more ago), and when the owner asks
-  -- for one. Each project's architect's line goes on in one CLI session across the works of the project's architect,
-  -- the setting of a new policy included: each has a row of its own with the same cli_session. A cell on no line has a
+  -- for one. Each project's architect's base, the session that read the project last, goes on in one CLI session across
+  -- the works of the project's architect: each has a row of its own with the same cli_session. A matter of the
+  -- architect is handled in a session of its own, forked from the base: the CLI copies the base's session under a new
+  -- id, so that it holds all the base read, and the fork's rounds are read after the base's. A cell on no line has a
   -- session of its own for each round, ended once the round has.
   -- Hidden from agents.
   -- Read by: the session manager, to resume a line, to start a new session and to keep a waiting session warm; the
@@ -389,24 +408,39 @@ CREATE TABLE sessions (
   -- architect work left; account, the line's rounds run under another login account of the CLI than its session
   -- before, in another configuration directory, which does not hold that session; expired, the CLI's prompt cache
   -- let the line's session go, its last call a cache lifetime or more before, on a line the flow says expires with
-  -- it; owner, the owner asked for a new session with the round's Start or Step on the page. Read by: the owner's
+  -- it; owner, the owner asked for a new session with the round's Start or Step on the page; fork, a matter's first
+  -- round on a line that forks from another, forked from that line's latest session, the base. Read by: the owner's
   -- interface.
   started TEXT NOT NULL DEFAULT 'line'
-    CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'account', 'expired', 'owner'))
+    CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'account', 'expired', 'owner', 'fork')),
+  -- The session it was forked from, the base, for a session started as fork: it holds what the base held when it was
+  -- forked, and its rounds are read after the base's. NULL for any other. Read by: the session manager, to tell what a
+  -- fork holds and what it cost.
+  fork_of INTEGER REFERENCES sessions(id),
+  -- The matter of a project's architect the session is for, on a line whose sessions are each a matter's: a matter
+  -- parked by a question to the owner takes its session up again when the answer comes, in whichever work of the
+  -- architect runs then. NULL on any other line. Read by: the session manager, to find a matter's session.
+  matter INTEGER REFERENCES architect_matters(id),
+  CHECK ((started = 'fork') = (fork_of IS NOT NULL))
 ) STRICT;
 
 CREATE TABLE pings (
   -- Each keep-warm ping: one minimal message the session manager sent an idle session of a line its work could come
   -- back to, 55 minutes after the session's last call, so that the session's prompt cache was read before it expired
   -- instead of written again whole at the line's next round. A ping means the line waited over an hour, while its work
-  -- waited or went on without it: it says where the work stood and for what. Its cost is the work's.
+  -- waited or went on without it: it says where the work stood and for what. Its cost is the work's. A project's
+  -- architect's base, which the matters' sessions and the second eyes fork, is pinged so while its architect has a work
+  -- running, and once before a fork is made when the cache may not hold the base's end under the fork's command line:
+  -- after the base was built, after an install, or an hour after its last call; a fork holds the pings its base was
+  -- sent before the fork was made.
   -- Hidden from agents.
-  -- Read by: the session manager, which counts a wait's pings and a session's cost; the owner's interface and the
-  -- anomalies command.
+  -- Read by: the session manager, which counts a wait's pings and a session's cost, and tells what the cache last kept
+  -- a session under; the owner's interface and the anomalies command.
   id INTEGER PRIMARY KEY,
   session INTEGER NOT NULL REFERENCES sessions(id),
-  -- Where the work stood and for what the line waited, JSON: the cell, what the work waited on (pause, owner,
-  -- architect, items or tool) or work when it went on without the line, and that in words.
+  -- Where the work stood and for what the line waited, JSON: the cell, what the work waited on (pause, slot, owner,
+  -- architect, items or row) or work when it went on without the line, or fork when the ping warmed an architect's
+  -- base before a fork of it, and that in words.
   waited TEXT NOT NULL CHECK (json_valid(waited)),
   -- The model the ping ran on, as the CLI reported it.
   model TEXT,
@@ -420,7 +454,13 @@ CREATE TABLE pings (
   error TEXT,
   -- When it started and ended.
   started_at INTEGER NOT NULL,
-  ended_at INTEGER
+  ended_at INTEGER,
+  -- The call the ping ran, JSON, as a round's record keeps one (`rounds.input.call`), each large text kept in contents:
+  -- for a ping of an architect's base, which runs the command line its forks run with. NULL for a ping that ran its
+  -- session's last round's command line again, whose call is that round's. Read by: the session manager, which tells
+  -- whether the cache keeps the base's end under a fork's command line, and compares a round that missed the cache with
+  -- the call the cache kept its session under last.
+  call TEXT CHECK (call IS NULL OR json_valid(call))
 ) STRICT;
 
 CREATE TABLE cache_misses (
@@ -443,7 +483,8 @@ CREATE TABLE cache_misses (
   -- The line of its session.
   line TEXT NOT NULL,
   -- The cause as far as the record tells it, JSON: each part of the command line and each variable of its environment
-  -- that differs from the session's round before, with its value there and in this round; an empty list when none
+  -- that differs from the session's round before, or from the keep-warm ping since it that recorded its call (as one
+  -- that warmed an architect's base for a fork), with its value there and in this round; an empty list when none
   -- differs.
   differs TEXT NOT NULL CHECK (json_valid(differs)),
   -- The tokens of what the session held that the round's first call did not read from the cache, and so wrote to it
@@ -545,6 +586,13 @@ CREATE TABLE rounds (
   -- `transition` or `rejected`. 'total_time' is kept as the row says it, though the views count no round for it.
   -- Read by: the views of counters and of how many times a work asked, through the index `rounds_counts`.
   counts TEXT CHECK (counts IS NULL OR transition IS NOT NULL OR rejected IS NOT NULL),
+  -- The problems of a return taken that only checks the work said it changes (`checks_changed`) found, JSON: each as
+  -- `rejected` keeps a problem under `problems`, `{check, field, text}`, with its number in the work under `id` (S1,
+  -- S2, ...), in the order found. Until a change to the engine's checks is installed, the engine judges the work that
+  -- makes it by the checks as they were; what only those checks find is kept here instead of sending the return back,
+  -- for the reviews to judge. NULL for a round with none, and for any round that took no row: a return sent back keeps
+  -- every problem in `rejected`. Read by: the view `work_set_aside`.
+  set_aside TEXT CHECK (set_aside IS NULL OR (json_valid(set_aside) AND transition IS NOT NULL)),
   PRIMARY KEY (work, n),
   CHECK (transition IS NULL OR rejected IS NULL)
 ) STRICT;
@@ -701,22 +749,18 @@ CREATE TABLE samples (
 ) STRICT;
 
 CREATE TABLE reverts (
-  -- Each merge the engine reverted because it broke main: after the check of main after a merge (cell `L1`) found main
-  -- broken by it, the engine opened a pull request that reverts it and merged it into main (the outbox's
-  -- `revert_merge`). Written once the revert is merged, never changed after.
-  -- Read by: the health numbers, which count a commit on main that is a revert apart from one that came onto it
-  -- without the flow.
-  -- The check of main that found it broken: its work, and its round in the work.
-  work INTEGER NOT NULL,
-  round INTEGER NOT NULL,
-  -- The merge reverted, by the full id of its commit on main.
+  -- Each merge the engine reverted: the project's architect judged that it made main red and asked for its revert
+  -- (the action `revert_merge`), and the engine opened a pull request that reverts it and merged it into main. Written
+  -- once the revert is merged, never changed after.
+  -- Read by: the health numbers, which count the reverts, and count a commit on main that is a revert apart from one
+  -- that came onto it without the flow.
+  -- The architect's work that asked for the revert, which says whose project it is.
+  work INTEGER NOT NULL REFERENCES works(id),
+  -- The merge reverted, and the commit the revert's merge put on main, each by its full id.
   merge_commit TEXT NOT NULL,
-  -- The revert's pull request, and the full id of the commit its merge put on main.
-  pr INTEGER NOT NULL,
   revert_commit TEXT NOT NULL UNIQUE,
-  -- When the revert was merged.
-  at INTEGER NOT NULL,
-  FOREIGN KEY (work, round) REFERENCES rounds (work, n)
+  -- When the revert was merged into main.
+  at INTEGER NOT NULL
 ) STRICT;
 
 CREATE TABLE interjections (
@@ -824,22 +868,24 @@ CREATE TABLE outbox (
 CREATE TABLE architect_matters (
   -- A matter for a project's architect: an engineer's question, a report, a fault of wf-agents forwarded to it, a
   -- design card to look at, a failure, the owner's words, a message from another project's architect, slots free with
-  -- nothing of the project ready, a place its plan of what to do next found to set straight, or the check of its
-  -- policy or the plan of what to do next, which come at the head of its queue. The project's queue is its
-  -- matters not handled; its architect picks among them by the constitution and the policy, not by the order they
-  -- came. A matter in the queue starts a work of the project's architect when none runs, but for flow feedback, the
-  -- project's own or forwarded by another project's architect, which waits for a work something else started and is
-  -- picked only when it came before that work started.
-  -- Read by: the engine, which starts the architect's works, picks a lone matter, routes each to its path, hands it its
+  -- nothing of the project ready, main's CI red, a place its plan of what to do next found to set straight, or the
+  -- check of its policy. The project's queue is its matters not handled; the engine takes them in a fixed order, by
+  -- what waits on each: the owner's words and replies first, then main's CI red, then what a work stopped waits on, the
+  -- one that came first; then the base when it is due; then what the plan queued; then what waited for the planning.
+  -- Each is handled in a session of its own forked from the base. A matter something waits on starts a work of the
+  -- project's architect when none runs; one that waits for the planning starts one only once it came before the base
+  -- was built, or once as many wait as the installation's amount.
+  -- Read by: the engine, which starts the architect's works, takes each matter, routes it to its path, hands it its
   -- material and takes its replies back; the architect's cells through architect_queue and work_handled; the owner's
   -- interface.
   id INTEGER PRIMARY KEY,
   -- The project whose architect it is for.
   project TEXT NOT NULL,
   -- Its kind, which decides the path it takes: set_straight, engineer_question, open_question, report, design_card,
-  -- failure, owner_words, other_architect, slots_free, or check_policy and make_plan, the check of the policy in force
-  -- and the plan of what to do next, which the architect's cells queue at the head of the queue, one of each open at a
-  -- time. An open question is what an engineer's design could not settle: its body holds the question, the options, the
+  -- failure, owner_words, other_architect, slots_free, main_red (main's CI red, which the engine's watch of main
+  -- queues: its body holds the commit, its red checks and their runs, and while one is open the project's merge queue
+  -- is stopped), or check_policy, the check of the policy in force, one open at a time; slots_free and make_plan (the
+  -- plan of what to do next, which a flow version before queued) are what a planning answers. An open question is what an engineer's design could not settle: its body holds the question, the options, the
   -- one recommended, the link to the design (design_link) and, once it has come, the answer (answer) with who gave it
   -- (answered_by: architect, or owner when the architect pinned the question for the owner and the owner answered), for
   -- the owner the ask that holds their words (owner_ask), and the time it came (answered_at, in milliseconds). A
@@ -887,28 +933,24 @@ CREATE TABLE architect_matters (
   -- the draft of a new policy, the cell that wrote it, a reply of exactly approved going to where it takes effect
   -- instead.
   resume_cell TEXT,
-  -- For a matter of two cells that its first cell sent back to the queue, so that the owner's words that came meanwhile
-  -- are taken first: its second cell, where it goes on (`H3` after `H2`, `H5` after `H4`, `P2` after `P1`). NULL
-  -- otherwise, and again once it is closed or a cell on its path asks the owner about it. Read by: the queue, which
-  -- takes it again before any other matter but the owner's words, a reply and the waits; the engine, which routes it.
+  -- For a matter of two cells that its first cell sent back to the queue, as a flow version before did so that the
+  -- owner's words that came meanwhile were taken first: its second cell, where it goes on (`H3` after `H2`, `H5` after
+  -- `H4`, `P2` after `P1`). No cell sets it now, since a matter's cells follow one another in its own session; it is
+  -- cleared once the matter is closed or a cell on its path asks the owner about it. Read by: the engine, which routes
+  -- a matter that still holds one there.
   goes_on_at TEXT,
-  -- For a side report or an engineer's answer the architect picked together with others of its kind in one pick (the
-  -- pick's `with`), the matter that leads the group: the one that was picked. NULL for a matter picked alone, and for
-  -- the lead itself. A group is its lead and the matters not handled whose group_lead is the lead; the lead's cells
-  -- answer for each of them, and one round closes them all. It is cleared for the matters of a group when the lead is
-  -- parked for the owner's reply (the group falls apart, each goes its own way), for a member the round that takes the
-  -- group in gives the way back_for_owner (it needs the owner, so it goes back to the queue on its own while the rest
-  -- are handled) and for any not handled when the next pick is made (a group left by a work that ended before it was
-  -- handled); it stays on a matter handled, saying with which others it was handled. Read by: the engine, which gives the lead's cells each matter of the group, closes
-  -- them together and tells each one's reporter what became of it.
+  -- For a side report or an engineer's answer a flow version before had the architect pick together with others of
+  -- its kind in one pick, the matter that led the group: the one picked. No pick groups matters now, each being handled
+  -- in a session of its own; it stays on a matter handled so, saying with which others it was handled. Read by: the
+  -- owner's interface.
   group_lead INTEGER REFERENCES architect_matters(id),
   -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
   -- work's group to a question the architect holds is the reply too, said by the owner (by), with who the caller
   -- declared to speak (speaker, owner or delegate). Read by: the engine, which takes it back unchanged to the work that
   -- asked.
   reply TEXT CHECK (reply IS NULL OR json_valid(reply)),
-  -- A reply that waits for the item changes of its round to be made, JSON, as the round handed it in: it becomes the
-  -- reply, with the numbers of the items they made, once the review of their batch lets them be made. NULL otherwise.
+  -- A reply that waits for the second eye, JSON, as the round handed it in: it becomes the reply, with the numbers of
+  -- the items made, once the second eye finds the round's changes sound. NULL otherwise.
   reply_held TEXT CHECK (reply_held IS NULL OR json_valid(reply_held)),
   -- The architect's round that handled it: its work and the round that closed it; NULL while it is not handled.
   handled_work INTEGER,
@@ -921,6 +963,16 @@ CREATE TABLE architect_matters (
   -- Read by: architect_queue, which leaves it out; the engine, which tells a new work on the item what an earlier
   -- work asked and had withdrawn; the owner's interface, which leaves it out of the queue.
   withdrawn TEXT,
+  -- What the session that handled it left as it ended, JSON: its line of the decision log (`log`), and its answers
+  -- whether the matter changes the plan (`plan`: no or yes) and whether something that matters in the base no longer
+  -- holds (`base`: holds or wrong), each with why (`plan_why`, `base_why`), with the round that handed them in
+  -- (`round`). NULL until then, and for a matter handled before the architect's matters were forked. Read by: the
+  -- engine, which gives every matter handled after it the decision log since the base, and counts the answers among
+  -- the facts that call for a new base; the owner's interface.
+  logged TEXT CHECK (logged IS NULL OR json_valid(logged)),
+  -- What the round handed in that waits for the second eye, JSON: its effects and its answer, made once the second eye
+  -- finds the changes sound, or dropped when it sends them back. NULL otherwise. Read by: the engine.
+  effects_held TEXT CHECK (effects_held IS NULL OR json_valid(effects_held)),
   CHECK ((work IS NULL) = (round IS NULL)),
   CHECK ((handled_work IS NULL) = (handled_round IS NULL)),
   CHECK ((asked IS NULL) = (resume_cell IS NULL)),
@@ -1016,23 +1068,27 @@ CREATE TABLE blockers (
 ) STRICT;
 
 CREATE TABLE architect_item_changes (
-  -- A change to the items a project's architect handed in while handling a matter: collected into its batch, made only
-  -- once the review of the whole batch finds it sound, and kept as the log of every change made or dropped.
-  -- Read by: the engine, which gives the batch to the review and makes the changes; the owner's interface.
+  -- A change to the items a project's architect handed in while handling a matter: made as its round ends, once the
+  -- engine's checks found it sound, or, with the rest of a round that holds a change of a kind a second eye checks,
+  -- once the second eye finds it sound; kept as the log of every change made, sent back or dropped. A flow version
+  -- before collected the changes into a batch, made once a review of the whole batch found them sound.
+  -- Read by: the engine, which gives the second eye the changes that wait for it and makes the changes; the owner's
+  -- interface.
   id INTEGER PRIMARY KEY,
-  -- The round that handed it in: an architect work's round on a matter's path, or a revision of the batch.
+  -- The round that handed it in: an architect work's round on a matter's path.
   work INTEGER NOT NULL,
   round INTEGER NOT NULL,
   -- The matter it came from.
   matter INTEGER NOT NULL REFERENCES architect_matters(id),
   -- The change, JSON, in the flow's item_change shape, with its reason.
   change TEXT NOT NULL CHECK (json_valid(change)),
-  -- collected: in the batch, waiting for the review; made: the review found it sound and the engine made it; revised: a
-  -- revision of the batch took its place; dropped: the review still found it wrong at its third look, and the owner
-  -- was asked.
+  -- collected: waiting for the second eye (in a flow version before, for the review of its batch); made: the engine
+  -- made it; revised: the second eye sent it back, and the matter's session handed in another in its place (in a flow
+  -- version before, a revision of the batch took its place); dropped: it could not be made in the state the changes
+  -- before it left, as a dependency that would close a cycle (in a flow version before, the review dropped it).
   state TEXT NOT NULL CHECK (state IN ('collected', 'made', 'revised', 'dropped')),
-  -- For a change made, what it made, JSON, such as the number of the item it created; for one dropped, what the review
-  -- found. NULL otherwise. Read by: the owner's interface.
+  -- For a change made, what it made, JSON, such as the number of the item it created; for one sent back, what the
+  -- second eye found; for one dropped, why. NULL otherwise. Read by: the owner's interface.
   outcome TEXT CHECK (outcome IS NULL OR json_valid(outcome)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -1071,20 +1127,43 @@ CREATE TABLE observations (
 ) STRICT;
 
 CREATE TABLE dispatch_holds (
-  -- What stops new works of a project from starting, one row for each: its architect's own hold, its architect setting
-  -- it straight. While a project has a row here, the engine starts no new work on its items; works already running go
-  -- on, and the other projects' works start as usual.
+  -- What stops new works of a project from starting, one row for each: the owner's hold, its architect's own hold, its
+  -- architect setting it straight. While a project has a row here, the engine starts no new work on its items; works
+  -- already running go on, and the other projects' works start as usual.
   -- Read by: the engine at cell `S0`; the architect, through its board; the owner's interface.
   project TEXT NOT NULL,
-  -- architect: held by the architect's own action. set_straight: its plan of what to do next found the whole must be
+  -- owner: held by the owner. architect: held by the architect's own action. set_straight: its plan of what to do next
+  -- found the whole must be set straight. The owner releases any of them; the architect only its own and the one to
   -- set straight.
-  reason TEXT NOT NULL CHECK (reason IN ('architect', 'set_straight')),
+  reason TEXT NOT NULL CHECK (reason IN ('owner', 'architect', 'set_straight')),
   -- When it began.
   since INTEGER NOT NULL,
-  -- Why, in the owner's language, as the architect said it for its own hold; NULL for the others, whose reason says
-  -- why. Read by: the owner's interface.
+  -- Why, in the owner's language, as the owner or the architect said it for their own hold; NULL for the one to set
+  -- straight, whose reason says why. Read by: the owner's interface.
   why TEXT,
   PRIMARY KEY (project, reason)
+) STRICT;
+
+CREATE TABLE slot_waits (
+  -- Each stretch of time a work waited for a free slot: what it waited for had come (the owner's or the architect's
+  -- answer, or what the row it took waited for), and it waited on, holding no slot, until its machine had one free.
+  -- The engine's loop opens a row as it reaps a step of the work that found its wait over and was granted no slot, and
+  -- closes it as it grants the work a slot or finds the work ended, paused or gone on.
+  -- Read by: the engine's loop, which grants the works with an open row a free slot before any new work starts; the
+  -- owner's interface, through the engine's status, which names such a work as waiting for a free slot; whoever looks
+  -- at why works stood still.
+  id INTEGER PRIMARY KEY,
+  -- The work that waited.
+  work INTEGER NOT NULL REFERENCES works(id),
+  -- When its wait for a slot began: when the step that found its wait over ended.
+  since INTEGER NOT NULL,
+  -- When its wait for a slot ended; NULL while it lasts.
+  until INTEGER,
+  -- How it ended: granted, the loop granted the work a free slot; ended, the work ended; paused, the work was paused;
+  -- gone_on, the work went on without a slot, as by a round the owner asked for, or no longer waited where it had, as
+  -- when it was brought to a newer flow version. NULL while it lasts.
+  ended TEXT CHECK (ended IN ('granted', 'ended', 'paused', 'gone_on')),
+  CHECK ((until IS NULL) = (ended IS NULL))
 ) STRICT;
 
 CREATE TABLE notebook_edits (
@@ -1209,6 +1288,8 @@ CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
 -- The blockers raised within a time, and those that ended after a time, which the health numbers read a period by.
 CREATE INDEX blockers_by_time ON blockers (at);
 CREATE INDEX blockers_by_end ON blockers (ended_at);
+-- The open wait for a free slot of each work: one at most.
+CREATE UNIQUE INDEX slot_waits_open ON slot_waits (work) WHERE until IS NULL;
 -- The item changes of a batch still waiting for its review.
 CREATE INDEX architect_item_changes_collected ON architect_item_changes (work) WHERE state = 'collected';
 -- A project's observations.
@@ -1261,9 +1342,9 @@ CREATE VIEW ready_items AS
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
 CREATE VIEW item_body AS
-  -- The item as its creator wrote it, the acceptance it wanted and the route its works go included. Read by: cells
-  -- `R1`, `G4`, `F1`, `F2`, `I1` and `T4`.
-  SELECT id AS item, project, title, problem, why, approach, deliver, route, wanted FROM items;
+  -- The item as its creator wrote it, the acceptance it wanted and the decision points it carries included. Read by:
+  -- cells `R1`, `D1`, `I1`, `T2`, `T3` and `T6`.
+  SELECT id AS item, project, title, problem, why, approach, deliver, wanted, decision_points FROM items;
 
 CREATE VIEW item_problem AS
   -- The item's problem: the engineer's understanding once cell `R1` has run, as written before.
@@ -1277,10 +1358,22 @@ CREATE VIEW item_problem AS
   FROM items i;
 
 CREATE VIEW item_acceptance AS
-  -- The item's locked acceptance, and the round that locked it, by its work and its number in the work; NULL until a
-  -- first design passes its checks. Read by: cells `D2`, `I1`, `T3`,
-  -- `T4` and `T1`.
+  -- The item's acceptance, and the round that gave it, by its work and its number in the work; NULL until the work
+  -- goes on to implement. locked says only whether there is one. Read by: cells `I1`, `T2`, `T3`, `T1`, `T6`, `W1` and
+  -- `W2`.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_work, acceptance_round FROM items;
+
+CREATE VIEW item_verifications AS
+  -- What each acceptance condition written in_effect came to, at each look of the cell that checks it once the work's
+  -- change took effect (`W2`): the item, the work and the round, the condition's number (`id`), its verdict, and for a
+  -- verdict that rests on a run the run and what it showed there. A condition stands as its latest round has it. Read
+  -- by: the agents and the architect, by query.
+  SELECT w.item, r.work, r.n AS round, json_extract(v.value, '$.id') AS id,
+    json_extract(v.value, '$.verdict') AS verdict,
+    json_extract(v.value, '$.run') AS run,
+    json_extract(v.value, '$.seen') AS seen
+  FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.verdicts') v
+  WHERE r.cell = 'W2' AND r.transition IS NOT NULL;
 
 CREATE VIEW item_design_cards AS
   -- Every decision card of the item's works, by key, with its rulings, and why one withdrawn was. Read by: cells `R1`,
@@ -1378,6 +1471,20 @@ CREATE VIEW sent_back_problems AS
     json_extract(p.value, '$.field') AS field,
     json_extract(p.value, '$.text') AS text
   FROM rounds r, json_each(r.rejected, '$.problems') p;
+
+CREATE VIEW work_set_aside AS
+  -- Each finding set aside in each work, one row each, in the order found (`position` counts from 0 in its round): the
+  -- round whose return was taken despite it, its number in the work (`id`, S1, S2, ...), the check that found it
+  -- (`check_name`), the field and the text, as `rounds.set_aside` keeps them. A finding is judged once a round of the
+  -- details review (`T3`) or the re-check (`T4`) after it handed in its answer, which the engine works out. Read by: the
+  -- engine, which numbers each new one after those before, gives the reviews and the merge gate those no review judged
+  -- (the input `set_aside`), and has the merge gate send those to the fix.
+  SELECT r.work, r.n AS round, r.cell, p.key AS position,
+    json_extract(p.value, '$.id') AS id,
+    json_extract(p.value, '$.check') AS check_name,
+    json_extract(p.value, '$.field') AS field,
+    json_extract(p.value, '$.text') AS text
+  FROM rounds r, json_each(r.set_aside) p;
 
 CREATE VIEW work_counters AS
   -- How many times each work took the rows that count each counter, by the counter each round recorded when it ended
@@ -1585,19 +1692,22 @@ CREATE VIEW not_applicable_answers AS
   WHERE json_extract(r.output, '$.outcome.answer.verdict') = 'not_applicable';
 
 CREATE VIEW known_red_counts AS
-  -- How often main was red only on known red checks, by project. Read by: the owner's interface.
-  SELECT i.project, count(*) AS times
-  FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+  -- How often main was red only on known red checks, by project: as the architect's watch of main checked it, and as
+  -- each engineer's work watched main after its merge before main was watched for the project. Read by: the owner's
+  -- interface.
+  SELECT coalesce(i.project, w.project) AS project, count(*) AS times
+  FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN items i ON i.id = w.item
   WHERE r.cell IN ('L1', '10', 'watch_main') AND json_extract(r.output, '$.main.kind') = 'known_red'
-  GROUP BY i.project;
+  GROUP BY coalesce(i.project, w.project);
 
 CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
   -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
   -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
-  -- answer and to which cell, the second cell a matter of two cells goes on at, and whether it is urgent.
-  -- Read by: cells `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect
-  -- runs no work, and gives the architect its queue; the owner's interface.
+  -- answer and to which cell, the second cell a flow version before had a matter of two cells go on at, and whether
+  -- its reporter marked it as harming now (urgent).
+  -- Read by: cells `S0` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
+  -- work, and takes the next matter by it in its fixed order; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
@@ -1740,7 +1850,8 @@ CREATE VIEW conversation_entries AS
   -- interface takes it to the group of every project the configuration connects them with), or wf-agents. source is
   -- what the entry is (message, notice, ask, interjection, words, talk, question, report, reply, card, ruling or
   -- between) and id its row in the table it comes from; an ask is one entry, the owner's answer to it shown in it, never
-  -- an entry of its own beside it. sender and recipient are a line, the owner, the engine or wf-agents, the recipient of
+  -- an entry of its own beside it. sender and recipient are a line (the architect for its base and for a matter's
+  -- session forked from it), the owner, the engine or wf-agents, the recipient of
   -- the owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
   -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. design_card: the decision
@@ -1757,17 +1868,20 @@ CREATE VIEW conversation_entries AS
                                            THEN 'work:' || json_extract(x.body, '$.work') END
                              FROM architect_matters x LEFT JOIN works y ON y.id = x.work
                              WHERE x.id = (
-                               SELECT coalesce(json_extract(p.output, '$.outcome.pick.matter'),
+                               SELECT coalesce(json_extract(p.output, '$.next.matter'),
+                                 json_extract(p.output, '$.outcome.pick.matter'),
                                  json_extract(p.output, '$.queue.matter'))
                                FROM rounds p
                                WHERE p.work = m.work AND p.n < m.round AND p.transition IS NOT NULL
-                                 AND coalesce(json_extract(p.output, '$.outcome.pick.matter'),
+                                 AND coalesce(json_extract(p.output, '$.next.matter'),
+                                   json_extract(p.output, '$.outcome.pick.matter'),
                                    json_extract(p.output, '$.queue.matter')) IS NOT NULL
                                ORDER BY p.n DESC LIMIT 1)
                                AND (x.handled_round IS NULL OR x.handled_work <> m.work OR x.handled_round >= m.round)),
                             'architect:' || w.project) END AS conversation,
     coalesce(w.project, i.project) AS project, 'message' AS source, m.id AS id,
-    coalesce(s.line, CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect' ELSE 'engineer' END) AS sender,
+    CASE WHEN w.graph NOT IN ('architect', 'policy') THEN coalesce(s.line, 'engineer')
+         WHEN s.line IS NULL OR s.line IN ('architect', 'matter') THEN 'architect' ELSE s.line END AS sender,
     'owner' AS recipient, m.text AS text, coalesce(r.ended_at, r.started_at) AS at, m.work AS work, m.round AS round,
     NULL AS ask, m.design_card AS design_card, NULL AS matter, m.read_at AS read_at, 0 AS waiting, 0 AS pending,
     0 AS undelivered, 0 AS answerable, NULL AS fault

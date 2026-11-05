@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
 use crate::check::Analysis;
-use crate::field::{Field, segment};
+use crate::field::{Earlier, Field, segment};
 use crate::format::{
     Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, FRESH_SESSION, Form,
     GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src, Then,
@@ -53,9 +53,14 @@ pub struct CompiledGraph {
     pub name: String,
     pub start: String,
     pub end: String,
-    /// The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
+    /// The end a work stopped before its end ends at: cancelled or taken over, from wherever it stands, or brought
+    /// there by a row of the cell for a work on an older flow version; none in a graph without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel: Option<String>,
+    /// The cell a work on an older flow version comes to when this version cannot take it on where it stands, from
+    /// wherever it stands; none in a graph without one, or in a flow version stored before there was one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// The field an agent's return holds its one form in.
     pub within: String,
     /// The cells of the asking part, and the one that receives answers to the cells of its line.
@@ -190,6 +195,10 @@ pub struct CompiledCell {
     /// line's session was last called a cache lifetime or more ago. False in a flow version stored before lines said so.
     #[serde(default, skip_serializing_if = "is_false")]
     pub cache_expiry: bool,
+    /// The line whose latest session a new session of the cell's line forks from, as the cell's line says; none for a
+    /// line whose new sessions start empty, and in a flow version stored before lines forked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_of: Option<String>,
     /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
     /// declared one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,6 +220,12 @@ pub struct CompiledCell {
     /// What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
+    /// What a return a work carries from an earlier flow version must be for the work to move to this one without
+    /// doing the cell again: the schema, with what each field names as it was earlier (`earlier`) taken too; none when
+    /// no field names it, and the schema is that, and in a flow version stored before fields named it. No agent is
+    /// given it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carried: Option<Value>,
     pub rows: Vec<CompiledRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub always: Vec<Always>,
@@ -241,6 +256,14 @@ pub struct CompiledCell {
     /// page heads it with. No agent is sent these.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub titles: BTreeMap<String, String>,
+}
+
+impl CompiledCell {
+    /// What a return a work carries from an earlier flow version is held to when the work moves to this one:
+    /// [`CompiledCell::carried`], else the schema.
+    pub fn carried_schema(&self) -> Option<&Value> {
+        self.carried.as_ref().or(self.schema.as_ref())
+    }
 }
 
 /// Whether a flag is off, which the compiled flow leaves out.
@@ -292,7 +315,8 @@ impl CompiledGraph {
         }
         let at = |p: &str| gone.iter().any(|f| p == f || p.starts_with(&format!("{f}.")));
         for c in self.cells.iter_mut().filter(|c| c.kind == CellKind::Agent.name()) {
-            if let Some(Value::Object(s)) = &mut c.schema {
+            for s in [&mut c.schema, &mut c.carried].into_iter().flatten() {
+                let Value::Object(s) = s else { continue };
                 if let Some(Value::Object(props)) = s.get_mut("properties") {
                     props.retain(|k, _| !gone.contains(k));
                 }
@@ -876,10 +900,22 @@ pub fn valid(s: &Value, x: &Value) -> bool {
 
 struct Schemas<'a> {
     text: &'a EnumText,
+    /// Whether the schemas are those a return a work carries from an earlier flow version is held to: what each field
+    /// names as it was earlier is taken too.
+    carried: bool,
 }
 
 impl Schemas<'_> {
     fn field(&self, f: &Field) -> Value {
+        let s = self.now(f);
+        match &f.earlier {
+            Some(Earlier::Shape(was)) if self.carried => json!({ "anyOf": [s, self.field(was)] }),
+            _ => s,
+        }
+    }
+
+    /// A field as a return handed in now holds it.
+    fn now(&self, f: &Field) -> Value {
         let mut s = match f.kind {
             Kind::Text => json!({ "type": "string" }),
             Kind::Int => json!({ "type": "integer" }),
@@ -948,7 +984,13 @@ impl Schemas<'_> {
         }
         for f in fs {
             props.insert(f.name.clone(), self.field(f));
-            if !f.optional {
+            let absent = self.carried
+                && match &f.earlier {
+                    Some(Earlier::Absent) => true,
+                    Some(Earlier::Shape(was)) => was.optional,
+                    None => false,
+                };
+            if !f.optional && !absent {
                 required.push(json!(f.name));
             }
         }
@@ -1095,6 +1137,11 @@ pub fn own_answer<'c>(cell: &'c CompiledCell, within: &str) -> Option<&'c Value>
 pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), String> {
     let schemas = Schemas {
         text: &g.source.enum_text,
+        carried: false,
+    };
+    let carrying = Schemas {
+        text: &g.source.enum_text,
+        carried: true,
     };
     let mut cells = Vec::new();
     for (ci, c) in g.cells.iter().enumerate() {
@@ -1105,6 +1152,8 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         }
         let mut titles = BTreeMap::new();
         titled(&c.id, &c.out, "", &mut titles)?;
+        let schema = schemas.cell(g, c);
+        let carried = carrying.cell(g, c).filter(|s| Some(s) != schema.as_ref());
         cells.push(CompiledCell {
             id: c.id.clone(),
             kind: c.kind.name().to_string(),
@@ -1135,6 +1184,14 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 .line
                 .as_ref()
                 .is_some_and(|line| g.flow.sessions.lines.iter().any(|l| &l.name == line && l.cache_expiry)),
+            fork_of: c.line.as_ref().and_then(|line| {
+                g.flow
+                    .sessions
+                    .lines
+                    .iter()
+                    .find(|l| &l.name == line)
+                    .and_then(|l| l.forks.clone())
+            }),
             effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),
@@ -1167,7 +1224,8 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             prompt: c.prompt.clone(),
             prompt_by: c.prompt_by.clone(),
             forms: c.forms.clone(),
-            schema: schemas.cell(g, c),
+            schema,
+            carried,
             rows: c
                 .rows
                 .iter()
@@ -1179,7 +1237,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     actions: r.actions.clone(),
                     counts: r.counts.clone(),
                     waits: r.waits,
-                    pauses: false,
+                    pauses: r.pauses,
                     interject: r.interject,
                     main: r.main,
                     drops: r.drops,
@@ -1236,6 +1294,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         start: f.start.clone(),
         end: f.end.clone(),
         cancel: f.cancel.clone(),
+        version: f.version.clone(),
         within: f.agent_common.returns.within.name.clone(),
         asking: f.asking.nodes.clone(),
         receive: f.asking.receive.clone(),
@@ -1294,7 +1353,18 @@ fn rounds(r: &Rounds, counters: &[Counter], cells: &[CompiledCell]) -> Result<Ro
                 "{at} runs again, and its pause is the row for being taken too often"
             );
         }
+        // A case that runs a step again does not pause by itself, as checked above, so this one runs nothing again.
+        if let Some(n) = k.steps {
+            ensure!(
+                n > 1 && k.pauses,
+                "{at} bounds a work's steps without an agent: it needs steps, at least 2, and pauses"
+            );
+        }
     }
+    ensure!(
+        r.engine.iter().filter(|k| k.steps.is_some()).count() < 2,
+        "rounds.engine has more than one case that bounds a work's steps without an agent"
+    );
     for c in r.counters() {
         ensure!(
             counters.iter().any(|x| x.name == c && !x.time),
@@ -1503,5 +1573,32 @@ mod tests {
         );
         let one = refused(|s| s["guard"]["samples"] = 1.into());
         assert!(one.contains("rounds.guard.samples is less than 2"), "{one}");
+    }
+
+    // The bound on a work's steps without an agent pauses the work, allows a run of at least two, and is one: two would
+    // each say how far a work may go.
+    #[test]
+    fn the_bound_on_steps_without_an_agent_pauses_and_is_one() {
+        let bounded = |s: &mut Value| -> Value {
+            let cases = s["engine"].as_array().unwrap();
+            cases.iter().find(|k| k.get("steps").is_some()).unwrap().clone()
+        };
+        let changes: [fn(&mut Value); 2] = [|k| k["steps"] = 1.into(), |k| k["pauses"] = false.into()];
+        for change in changes {
+            let e = refused(|s| {
+                let cases = s["engine"].as_array_mut().unwrap();
+                change(cases.iter_mut().find(|k| k.get("steps").is_some()).unwrap());
+            });
+            assert!(
+                e.contains("bounds a work's steps without an agent: it needs steps, at least 2, and pauses"),
+                "{e}"
+            );
+        }
+        let two = refused(|s| {
+            let mut k = bounded(s);
+            k["name"] = "steps_again".into();
+            s["engine"].as_array_mut().unwrap().push(k);
+        });
+        assert!(two.contains("more than one case that bounds"), "{two}");
     }
 }

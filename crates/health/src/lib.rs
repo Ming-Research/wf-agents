@@ -5,11 +5,11 @@
 //! why.
 //!
 //! Most measures are computed from the records as they stand, each time they are read (the rounds, the tool runs, the
-//! blockers, the changes, the architect's matters), so that a definition put right puts their whole history right. Two
-//! are computed from the records and the commits on a project's main, which the caller reads from git and gives
-//! ([`MainLog`], in [`Scope::main`]). A state of the engine at a moment, which no record holds (its CPU, the page's
-//! reads, the slots, the works running, the architect's queue), the engine samples once a minute into `samples`
-//! ([`record`]).
+//! blockers, the changes, the architect's matters, the reverts), so that a definition put right puts their whole
+//! history right. Two are computed from the records and the commits on a project's main, which the caller reads from
+//! git and gives ([`MainLog`], in [`Scope::main`]). A state of the engine at a moment, which no record holds (its CPU,
+//! the page's reads, the slots, the works running, the architect's queue), the engine samples once a minute into
+//! `samples` ([`sample`]).
 //!
 //! An event falls in the point that holds the moment it was done: a round when it ended, a merge when it merged, an
 //! item when it was made, a commit on main when it was made by its committer time; the one exception is what a round
@@ -28,11 +28,16 @@ use std::collections::{BTreeMap, HashMap};
 use db::rusqlite::types::Value as Sql;
 use db::rusqlite::{self, Connection, Row, params_from_iter};
 
-pub use round::{Outcome, context_end, outcome};
-pub use samples::{Beat, MINUTE, PageReads, cpu_ms, minute, record};
+pub use round::{Outcome, outcome};
+pub use samples::{Beat, MINUTE, PageReads, cpu_ms, minute, sample};
 
 /// The most points a series may have: a year at a step of a minute, twice over.
 const MOST_POINTS: i64 = 1_051_200;
+
+/// What marks a row of the merge tool (`tool_runs.tool` `merge`, in `args.step`) as a wait for the full CI, which
+/// [`measure`] `ci.wait` counts: the tool's other rows look it up on GitHub or call the merge, and a row that failed
+/// shows by nothing else which it was. Its writer and its reader use this one name.
+pub const FULL_CI_STEP: &str = "full_ci";
 
 /// Whose a measure is to act on when it goes wrong.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,19 +176,31 @@ impl Measure {
 }
 
 /// Why waiting for a free slot is not among the stops yet.
-const SLOT_UNRECORDED: &str = "a wait for a free slot is kept only in the engine's memory, not in the database";
+const SLOT_UNRECORDED: &str = "a wait for a free slot is recorded in slot_waits, but not counted among the stops yet";
 
 /// Why a measure of the commits on main has no values when the reader gave none.
 const MAIN_UNREAD: &str = "the commits on the project's main were not read";
 
 /// What the engine measures, each measure once.
-static MEASURES: [Measure; 23] = [
+static MEASURES: [Measure; 24] = [
     Measure {
         name: "merge.broken",
-        what: "Merges that broke main, as the check of main after a merge (cell L1) found, which the engine reverted",
+        what: "The checks of main's red CI (the architect's cell L1) that found a merge made main red; the merges among \
+               them not in merge.reverted are those the architect chose to fix forward",
         layer: Layer::System,
         unit: Unit::Count,
         source: Source::Records(records::broken_merges),
+        fold: Fold::Count,
+        by: By::Nothing,
+        missing: &[],
+        empty: "",
+    },
+    Measure {
+        name: "merge.reverted",
+        what: "Merges the engine reverted, as the architect asked once it judged they made main red",
+        layer: Layer::System,
+        unit: Unit::Count,
+        source: Source::Records(records::reverted_merges),
         fold: Fold::Count,
         by: By::Nothing,
         missing: &[],
@@ -309,8 +326,9 @@ static MEASURES: [Measure; 23] = [
     },
     Measure {
         name: "ci.wait",
-        what: "How long an item's works waited for CI, the runs of ci, ci_before and full_ci from queued to ended \
-               added up, the median of the items merged",
+        what: "How long an item waited for CI before its merge, the median of the items merged: the time covered by \
+               the runs of ci, ci_before and full_ci of all its works and by the merge's waits for the full CI, each \
+               from queued to ended, time when several ran counted once",
         layer: Layer::Project,
         unit: Unit::Ms,
         source: Source::Records(records::ci_wait),
@@ -344,9 +362,8 @@ static MEASURES: [Measure; 23] = [
     },
     Measure {
         name: "merge.not_on_main",
-        what: "Merges the flow recorded (cell M2) whose commit is not on the project's main, following its first \
-               parents, by when the round ended; a merge that ended after the newest commit of main read was made is \
-               judged once main has moved on",
+        what: "Merges the flow recorded (cell M2) whose commit cannot be reached from the project's main, by when the \
+               round ended; a merge that ended after the commit of main read was made is judged once main has moved on",
         layer: Layer::System,
         unit: Unit::Count,
         source: Source::Main(records::not_on_main),
@@ -356,14 +373,14 @@ static MEASURES: [Measure; 23] = [
         empty: "",
     },
     Measure {
-        name: "main.direct_pushes",
-        what: "Commits that came onto the project's main without the flow, following main's first parents: neither the \
-               merge of a pull request the flow merged (cell M2) nor the engine's revert of a merge that broke main. \
-               Each falls when it was made, by its committer time: for a commit pushed by hand, when it was made, not \
-               when it was pushed; for a merge on GitHub, when it was merged",
+        name: "main.outside_flow",
+        what: "Commits that came onto the project's main without the flow, each one counted, all that a merge by hand \
+               brought and the merge itself: every commit main reaches but the merge of a pull request the flow merged \
+               (cell M2) and the engine's revert of a merge. Each falls when it was made, by its committer time: for a \
+               commit pushed by hand, when it was made, not when it was pushed; so a week already past can still grow",
         layer: Layer::Project,
         unit: Unit::Count,
-        source: Source::Main(records::direct_pushes),
+        source: Source::Main(records::outside_flow),
         fold: Fold::Count,
         by: By::Nothing,
         missing: &[],
@@ -467,22 +484,24 @@ pub struct Scope<'a> {
     pub main: Option<&'a MainLog>,
 }
 
-/// The commits on a project's main, following first parents from the commit read, as git gives them: each by its
-/// full id with when it was made, by its committer time, and when the newest was made.
+/// The commits a project's main holds: all that the commit read can reach through any parent, as git gives them, each
+/// by its full id with when it was made, by its committer time; and when the commit read was made. Reaching a commit
+/// through any parent, and not along first parents alone, is what holding it means: a merge made by hand may put main
+/// as its second parent, and what it brought from elsewhere is on main all the same.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MainLog {
     /// Each commit's committer time, in milliseconds, by its full id.
     at: HashMap<String, i64>,
-    /// The newest commit's committer time, in milliseconds.
+    /// The committer time of the commit read, main's tip, in milliseconds.
     tip_at: i64,
 }
 
 impl MainLog {
-    /// The git command that gives what [`MainLog::parse`] reads, the commit to read from after it: every commit on
-    /// main's first-parent line, the newest first, as its full id and its committer time in seconds. It reads them all,
-    /// not since a time, since git's `--since` stops at the first commit made before the time, and a commit pushed by
-    /// hand can have been made before one under it.
-    pub const GIT_LOG: [&'static str; 3] = ["log", "--first-parent", "--format=%H %ct"];
+    /// The git command that gives what [`MainLog::parse`] reads, the commit to read from after it: every commit it
+    /// reaches, itself first, as its full id and its committer time in seconds. It reads them all, not since a time,
+    /// since git's `--since` stops at a commit made before the time, and a commit pushed by hand can have been made
+    /// before one under it.
+    pub const GIT_LOG: [&'static str; 2] = ["log", "--format=%H %ct"];
 
     /// The commits of main as [`MainLog::GIT_LOG`] gives them.
     pub fn parse(log: &str) -> Result<MainLog, String> {
@@ -505,7 +524,7 @@ impl MainLog {
         Ok(MainLog { at, tip_at })
     }
 
-    /// Whether a commit, by its full id, is on main's first-parent line.
+    /// Whether main reaches a commit, by its full id.
     pub fn holds(&self, commit: &str) -> bool {
         self.at.contains_key(commit)
     }

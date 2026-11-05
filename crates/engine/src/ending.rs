@@ -41,7 +41,8 @@ const WAITING_ON_IT: &str = "('engineer_question', 'open_question', 'failure', '
 /// saying why. A work stopped before its end records why; a round of it still open, a question that waits, a round the
 /// engine was cut off in or one whose work was asked to stop while it ran, which hands in nothing (`steps::agent`), is
 /// cut off saying why; its decision cards are replaced, since the owner can no longer rule on them, and its asks
-/// of the owner still open need no answer. A work of the engineer's graph then lets go of what it held: its sessions
+/// of the owner still open need no answer, but an architect's, which hold matters of its project's queue and stay the
+/// owner's to answer. A work of the engineer's graph then lets go of what it held: its sessions
 /// end; unless a new work takes them over, its worktree is removed and, when it has a pull request that did not merge,
 /// the pull request is closed with a comment that its work ended without merging, while a work done at its end had its
 /// pull request merged, or closed by the sub-items that took it over. Its branch stays. A work of the architect holds
@@ -108,7 +109,11 @@ pub fn end(
             work::finish_round(tx, r.id, &cut)?;
         }
         replace_design_cards(tx, work)?;
-        close_asks(tx, work, why)?;
+        // An architect's asks of the owner stay the owner's to answer, as they do once its work is done: each holds a
+        // matter of the project's queue, which comes back with the answer to the architect's next work.
+        if graph != crate::ARCHITECT {
+            close_asks(tx, work, why)?;
+        }
     }
     if graph == crate::POLICY {
         end_sessions(tx, work)?;
@@ -631,7 +636,7 @@ mod tests {
                 [merged],
             )?;
             end(tx, done, End::Done, &projects()).map_err(db::Error::Abort)?;
-            end(tx, taken, End::TakenOver("stopped: a new flow"), &projects()).map_err(db::Error::Abort)?;
+            end(tx, taken, End::TakenOver("stopped: started over"), &projects()).map_err(db::Error::Abort)?;
             end(tx, merged, End::Stopped("item cancelled: late"), &projects()).map_err(db::Error::Abort)
         })
         .unwrap();

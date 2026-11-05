@@ -54,12 +54,14 @@ fn stopped_at_its_first_call(dir: &Path, script: &str, wait: Duration) -> Reply 
         worktree: dir.to_path_buf(),
         config_dir: None,
         resume: None,
+        fork: false,
         system: None,
         new_session: "s1".into(),
         prompt: "p".into(),
         images: Vec::new(),
         schema: Value::Null,
         envelope: Value::Null,
+        allowed: Vec::new(),
         refused: Vec::new(),
         readable: Vec::new(),
         replay: None,
@@ -521,7 +523,7 @@ fn before_the_ledger(path: &Path, fill: impl FnOnce(&Connection)) {
     conn.execute_batch(include_str!("../../../db/migrations/0001.sql"))
         .unwrap();
     for m in &db::MIGRATIONS[..BEFORE_THE_LEDGER] {
-        conn.execute_batch(m).unwrap();
+        conn.execute_batch(m.sql).unwrap();
     }
     conn.execute_batch("COMMIT").unwrap();
     conn.pragma_update(None, "user_version", BEFORE_THE_LEDGER as i64 + 1)

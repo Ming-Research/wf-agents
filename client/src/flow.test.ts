@@ -162,7 +162,7 @@ describe('the flow as the engine stores it', () => {
     expect(cells.some((c) => !('stage' in c))).toBe(true);
   });
 
-  it("badges every agent's cell, the gates' among them, with an effort of the scale, and no other cell", () => {
+  it("badges every agent's cell with an effort of the scale, and no other cell", () => {
     const cells = compiled.graphs.flatMap((g) => g.cells);
     for (const c of cells) {
       const e = effortOf(c);
@@ -173,7 +173,6 @@ describe('the flow as the engine stores it', () => {
         expect(e, c.id).toBeNull();
       }
     }
-    expect(cells.some((c) => c.gate && effortOf(c) !== null)).toBe(true);
     // The legend gives every level the flow uses, low to high.
     const levels = effortsOf(cells).map((e) => e.level);
     expect(levels).toEqual(EFFORTS.map(([level]) => level).filter((l) => cells.some((c) => c.effort === l)));
@@ -345,10 +344,12 @@ describe('the flow as the engine stores it', () => {
         c.edges.some((e) => e.source === n.id && e.target === m1),
     );
     expect(back).toHaveLength(1);
-    expect(back[0].actions).toEqual(['raise_blocker', 'notify_pending_approvers']);
-    expect(back[0].only).toBeUndefined();
-    expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe('wait, wait_questions');
-    expect(actionLine('notify_pending_approvers', ['wait'])).toBe('notify pending approvers (on wait)');
+    expect(back[0].actions).toEqual(['raise_blocker', 'hold_for_approvals', 'ask_owner_approval']);
+    expect(back[0].only).toEqual({ hold_for_approvals: ['approvals'], ask_owner_approval: ['owner_approves'] });
+    expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe(
+      'wait, approvals, owner_approves',
+    );
+    expect(actionLine('ask_owner_approval', ['owner_approves'])).toBe('ask owner approval (on owner_approves)');
     expect(actionLine('raise_blocker', undefined)).toBe('raise blocker');
   });
 

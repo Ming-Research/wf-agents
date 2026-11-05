@@ -533,20 +533,21 @@ fn a_name_the_agent_wrote_is_the_field_as_it_wrote_it() {
 
 /// A return a cell refuses is refused with the places it is about besides the text `take` gives: a return that does not
 /// fit the schema with each place of it, one that no row takes with its sentence as its one place of no field (the row
-/// of cell D2 that takes a return is chosen by the values the engine gives it), and a cell that is not there likewise.
+/// of cell A4 that takes a return is chosen by the values the engine gives it too), and a cell that is not there likewise.
 /// Part of the test of the four statements, which has the flow compiled already.
 fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String, Vec<Value>>) {
-    let sample = samples["D2"]
+    let sample = samples["R1"]
         .iter()
-        .find(|s| s["given"]["rethought"] == "no")
-        .expect("a sample of D2 that a row takes by what the engine gives");
+        .find(|s| s["row"] == "start")
+        .expect("a sample of R1 that a row takes by what the engine gives");
     let given: Map<String, Value> = sample["given"].as_object().cloned().unwrap();
     // Given what the engine gives, the row is taken.
-    let row = g.take_or_places("D2", &sample["json"], &given).unwrap();
-    assert_eq!(row.name, "first");
+    let row = g.take_or_places("R1", &sample["json"], &given).unwrap();
+    assert_eq!(row.name, "start");
     // Given nothing, no row takes it: the one sentence, said as `take` says it.
-    let none = g.take_or_places("D2", &sample["json"], &Map::new()).unwrap_err();
-    assert_eq!(none.text, "no row of D2 takes the return");
+    let way_on = &samples["A4"][0]["json"];
+    let none = g.take_or_places("A4", way_on, &Map::new()).unwrap_err();
+    assert_eq!(none.text, "no row of A4 takes the return");
     assert_eq!(
         none.places,
         [flow::Misfit {
@@ -554,7 +555,7 @@ fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String
             text: none.text.clone()
         }]
     );
-    assert_eq!(g.take("D2", &sample["json"], &Map::new()).unwrap_err(), none.text);
+    assert_eq!(g.take("A4", way_on, &Map::new()).unwrap_err(), none.text);
     // A cell that is not there.
     let missing = g.take_or_places("ZZ", &json!({}), &Map::new()).unwrap_err();
     assert_eq!(missing.text, "no such cell: ZZ");
@@ -569,15 +570,15 @@ fn refusals_give_their_places(g: &flow::CompiledGraph, samples: &BTreeMap<String
     let mut wrong = sample["json"].clone();
     wrong["progress"] = json!(7);
     wrong["flow_feedback"] = json!(7);
-    let refused = g.take_or_places("D2", &wrong, &given).unwrap_err();
+    let refused = g.take_or_places("R1", &wrong, &given).unwrap_err();
     let fields: Vec<Option<&str>> = refused.places.iter().map(|p| p.field.as_deref()).collect();
     assert_eq!(fields, [Some("progress"), Some("flow_feedback")], "{refused:?}");
     assert_eq!(
         refused.text,
         format!(
-            "the return does not fit the schema of D2 in 2 places:\n{}\n{}",
+            "the return does not fit the schema of R1 in 2 places:\n{}\n{}",
             refused.places[0].text, refused.places[1].text
         )
     );
-    assert_eq!(g.take("D2", &wrong, &given).unwrap_err(), refused.text);
+    assert_eq!(g.take("R1", &wrong, &given).unwrap_err(), refused.text);
 }

@@ -1,14 +1,17 @@
-// What changed from one flow to another: in a cell, each input, rule, prompt line, form, return field, row, check,
-// action done every time and handoff added, removed or changed, with what it was and what it is; in the whole, every
-// cell added, removed or changed, and what changed in each graph apart from its cells.
+// What changed from one flow to another: in a cell, each input, rule, prompt line, form, return field (with what a
+// return handed in on an earlier flow version may hold there instead), row, check, action done every time and handoff
+// added, removed or changed, with what it was and what it is; in the whole, every cell added, removed or changed, and
+// what changed in each graph apart from its cells.
 
 import { Label, type LabelColorOptions } from '@primer/react';
 
-import type { CellDiff, Change, CompiledInput, CompiledRow, FlowDiff, JsonValue, Part } from '../api';
+import type { CellDiff, Change, CompiledInput, CompiledRow, FieldEarlier, FlowDiff, JsonValue, Part } from '../api';
+import { isObj } from '../labelled';
 import { Fold } from '../parts';
 import { type Key, srcText, t } from '../text';
 import { SEP } from '../voices';
 import { useFlow } from './context';
+import { earlierWords } from './Returns';
 import { CellLink, conditionsWords, inline, targetWords } from './words';
 
 const PART: Record<Part, Key> = {
@@ -66,7 +69,8 @@ function side(part: Part, v: JsonValue | null, known: Set<string>): string[] {
   if (o && part === 'field') {
     const kind = String(o.kind ?? '');
     const values = Array.isArray(o.values) && o.values.length > 0 ? ` (${o.values.map((x) => (Array.isArray(x) ? x[0] : x)).join(', ')})` : '';
-    return [`${kind}${o.optional ? ', optional' : ''}${values}: ${String(o.desc ?? '')}`];
+    const earlier = isObj(o.earlier) ? `, ${earlierWords(o.earlier as unknown as FieldEarlier)}` : '';
+    return [`${kind}${o.optional ? ', optional' : ''}${earlier}${values}: ${String(o.desc ?? '')}`];
   }
   if (o && part === 'always') return [`\`${String(o.at)}\` → \`${String(o.do ?? o.view ?? '')}\``];
   if (o && part === 'check') return [`\`${String(o.check)}\`${o.at ? ` on \`${String(o.at)}\`` : ''}`];

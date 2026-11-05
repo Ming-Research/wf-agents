@@ -4,13 +4,14 @@
 // line, and a key saying on hovering what the flow says of its place. On a cell, the pattern of what it hands back, in
 // the same look, what each round fills in as a placeholder: for an agent's cell the forms its return may hold, one at
 // a time, in the field that holds one, beside the fields every return holds; a field of fixed values those values; a
-// key saying on hovering what the agent is told it is and what reads it. Under an agent cell's pattern, the checks the
+// field that may be left out, or that a return handed in on an earlier flow version may hold otherwise, saying so after
+// it; a key saying on hovering what the agent is told it is and what reads it. Under an agent cell's pattern, the checks the
 // engine makes on a return before it takes a row.
 
 import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
 import { type ReactNode, useState } from 'react';
 
-import type { CompiledCell, EngineNames, Field, FieldKind, JsonValue, Use } from '../api';
+import type { CompiledCell, EngineNames, Field, FieldEarlier, FieldKind, JsonValue, Use } from '../api';
 import { actionWords } from '../graph/flowModel';
 import { isObj, type Obj } from '../labelled';
 import { chars, FOLD_AT, placeSchema, props, resolve, titleOf, under } from '../round';
@@ -32,6 +33,14 @@ const KIND: Record<FieldKind, Key> = {
   union: 'kind_union',
   any: 'kind_any',
 };
+
+/// What a return handed in on an earlier flow version may hold at a field instead, in words: a work carrying such a
+/// return still moves to the version that says so.
+export function earlierWords(e: FieldEarlier): string {
+  if (e.was === 'absent') return t('field_earlier_absent');
+  const kind = e.kind === 'list' && e.item !== null ? t('kind_list_of', { item: t(KIND[e.item]) }) : t(KIND[e.kind]);
+  return t(e.absent ? 'field_earlier_or_absent' : 'field_earlier', { kind });
+}
 
 /// How deep a cell's pattern is open at first: its forms, their fields and the shapes a field may take, and one level
 /// inside them.
@@ -358,12 +367,16 @@ function Shapes({ head, f, c, depth, note, tail }: { head: ReactNode; f: Field; 
 function FieldAt({ f, c, depth, tail }: { f: Field; c: CompiledCell; depth: number; tail: string }) {
   const engine = useFlow().compiled.engine;
   const head = <KeyName k={f.name} tip={fieldTip(f, c, engine)} />;
-  const note = f.optional ? (
-    <>
-      {' '}
-      <InnerName>{t('field_optional')}</InnerName>
-    </>
-  ) : null;
+  const notes = [f.optional ? t('field_optional') : null, f.earlier !== null ? earlierWords(f.earlier) : null].filter(
+    (x) => x !== null,
+  );
+  const note =
+    notes.length > 0 ? (
+      <>
+        {' '}
+        <InnerName>{notes.join(', ')}</InnerName>
+      </>
+    ) : null;
   if (f.kind === 'object') return <Members head={head} fields={f.fields} c={c} depth={depth} note={note} tail={tail} />;
   if (f.kind === 'union') return <Shapes head={head} f={f} c={c} depth={depth} note={note} tail={tail} />;
   if (f.kind === 'list' && (f.item === 'object' || f.item === 'union')) {

@@ -2,7 +2,7 @@
 //! resumed from included, so each call's own cost is what that grew by since the session's call before it. And what
 //! each kind of token costs each model, by which a round's cost is split by kind and a miss of the cache is priced.
 
-use db::rusqlite::{Connection, OptionalExtension};
+use db::rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::cli::{Call, FIRST_CALL};
@@ -152,18 +152,19 @@ fn prompt(call: &Value) -> i64 {
     n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")
 }
 
+/// The context a round ended with, from its usage record as the command line reported it (`rounds.usage`): the prompt of
+/// its last call. None when the record holds no call. Every reader of it calls this.
+pub fn context_end(usage: &Value) -> Option<i64> {
+    usage.get("usage")?.get("iterations")?.as_array()?.last().map(prompt)
+}
+
 /// What each kind of a round's own tokens cost, from its usage record: the totals of the calls the round made on its
 /// model, at the model's prices for its last call's prompt, since the record sums the calls and keeps only the last.
 /// They add up to the round's cost when those calls are all it cost; what a compaction or a subagent spent is in its
 /// cost and not in these tokens. None for a model with no prices here, or a record with no tokens.
 pub fn parts(model: &str, usage: &Value) -> Option<Parts> {
     let u = usage.get("usage")?;
-    let last = u["iterations"]
-        .as_array()
-        .and_then(|xs| xs.last())
-        .map(prompt)
-        .unwrap_or(0);
-    let p = prices(model, last)?;
+    let p = prices(model, context_end(usage).unwrap_or(0))?;
     let [input, read, w5, w1, output] = kinds(u);
     Some(Parts {
         input: input * p.input / 1e6,
@@ -202,23 +203,18 @@ pub fn own_cost(mut usage: Value, before: Option<f64>) -> Value {
 }
 
 /// What a CLI session had cost by its last call that reported it, a round's or a keep-warm ping's, whichever came
-/// last; its rounds are given oldest first.
+/// last; its rounds are given oldest first. The pings are those it holds ([`crate::warm::held_pings`]): a fork's
+/// command line counts what its base cost, the pings the base was sent before the fork was made included, so that a
+/// fork's first round costs what it grew by beyond them, and the pings are not counted twice.
 pub fn spent(conn: &Connection, cli_session: &str, rounds: &[Round]) -> Result<Option<f64>, String> {
     let round = rounds.iter().rev().find_map(|r| {
         let total = r.usage.as_ref()?["session_cost_usd"].as_f64()?;
         Some((r.ended_at.unwrap_or(r.started_at), total))
     });
-    let ping: Option<(i64, f64)> = conn
-        .query_row(
-            "SELECT p.started_at, json_extract(p.usage, '$.session_cost_usd') FROM pings p
-             JOIN sessions s ON s.id = p.session
-             WHERE s.cli_session = ?1 AND json_extract(p.usage, '$.session_cost_usd') IS NOT NULL
-             ORDER BY p.started_at DESC LIMIT 1",
-            [cli_session],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
+    let ping: Option<(i64, f64)> = crate::warm::held_pings(conn, cli_session)?
+        .into_iter()
+        .rev()
+        .find_map(|p| Some((p.started_at, p.usage?["session_cost_usd"].as_f64()?)));
     Ok(match (round, ping) {
         (Some(r), Some(p)) => Some(if p.0 > r.0 { p.1 } else { r.1 }),
         (r, p) => r.or(p).map(|x| x.1),

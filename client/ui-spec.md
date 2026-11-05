@@ -329,7 +329,7 @@ flow's chart fills the window under the bar, and a second row would take its hei
 The bar holds the views, the engine's state in words (running; paused, saying which works the owner started run
 meanwhile; pausing while the last round finishes, with how many; or waiting for what stops every work, until when),
 beside it the switch of every work plainly as a button, "Pause all" while works go on and "Start all" while they are
-paused, which asks first, saying what goes on and how many works on an older flow version are taken over, the switch
+paused, which asks first, saying what goes on and how many works on an older flow version are brought up, the switch
 "Keep warm", as tall as the button beside it, that one click turns over, the slots in use and the unread messages, and
 nothing of a view: a work's facts are its row in the list of works and its line above its chart, and its own controls
 are in the head of its group (below), and the flow page's choice of version and comparison floats over the chart's top
@@ -1117,7 +1117,8 @@ that asked; each line opens to its progress notes.
 The problem is the engineer's understanding once research has run, the item as written folded under it; the design is
 the approach chosen as its heading, the design itself and the measure, with where it changes, what it leaves out, its
 pitfalls, why and the approaches compared folded; the acceptance is shown once, the locked one with the round that
-locked it, each condition with how the work said it was met.
+locked it, each condition with how the work said it was met. A condition checked after the merge says so in a sentence, in
+place of how it was met, with what result means it holds; what its checks came to is not shown yet.
 
 ### Fields drawn by their shape
 
@@ -1360,8 +1361,8 @@ on it; a work picked from the table takes the whole window under the bar in the 
 that goes back to the table,
 says which work it is (its number, its item, and its project while there is more than one), how it goes on in the list's
 words, where it is (its cell and stage, and while it is on an older flow version a chip saying so, or once it moved to
-the version the engine runs a chip saying to which, since the owner wants to see a work that went on at its cell after
-an upgrade apart from one taken over), its rounds, cost and pull request, linked, and leads to its group, with no links
+the version the engine runs a chip saying to which, since the owner wants to see a work an upgrade moved apart from one
+that started on the version it runs), its rounds, cost and pull request, linked, and leads to its group, with no links
 to the other works, which the owner found of no use; the address names the work, and going back in the browser returns
 to the table as it was. The view has no heading above its table (the bar's tab says it) and the table fills the width, and
 holds no control of a work, which is in its group's head. Where the window is narrower than the table's columns, the
@@ -1386,7 +1387,7 @@ engine for a problem, a work held only because every work is paused reading as w
 since the bar already says that nothing runs until Start all and "paused by you" there made the owner take a work for
 paused that was not; what it waits for, linked to where the owner gives it; the decision cards and asks the owner has to
 do as small chips; the engine's reason after them), beside the cell it is at that it is on an older flow version, saying
-on hovering that it is taken over when it goes on, with the link to its group beside the state, where the owner acts on
+on hovering how it moves when it goes on, with the link to its group beside the state, where the owner acts on
 it (below), because the groups are read as one table, a reason prefixed with the state its badge already shows says it
 twice, and a row that wraps makes the table slow to scan. A work's item is not followed by its project, which the group
 it is in says, instead of the project after each title, since it would say it twice.
@@ -1419,7 +1420,7 @@ ticking each second from the one clock every view shares; what holds it back, sa
 a chip that links to where the owner gives it; once what it waited for came, while it waits for a free slot, that
 state's chip in its place), the owner's asks and decision cards to do as such links, and only for a stop of the engine's
 or the architect's, why in muted words after them; that it is on an older flow version is a tag's chip "old flow" beside
-its cell (`TagChip`), saying in full on hovering what taking it over does, and a work moved to the version it is on says
+its cell (`TagChip`), saying in full on hovering how it moves, and a work moved to the version it is on says
 so ("moved to version N") as a tag's chip too; and what Start, Pause, Step and Start all do in the state the work is in
 is said on hovering each of them.
 
@@ -1760,11 +1761,34 @@ round of such a work hands in is of no use.
 
 ### What stops new works
 
-What stops a project's new works from starting (a new policy being set, the project being set straight, the architect's
+What stops a project's new works from starting (the owner's own hold, the project being set straight, the architect's
 own hold) stands at the right end of the architect's title row, in the conversation's head and on the architect's page
 alike, as a sign and its words in the attention colour with no box, instead of a Label under the title like the
 architect's own state, because it is not what the architect does but a rule on the project's works, and the title row
 had the room.
+
+The owner's controls of it stand in the same row, since the sign is the one place that says what holds the project, and
+the owner acts where a thing is said: while the owner has no hold of their own on the project, a small `Button`, "Hold
+new starts", at the row's end; and on each sign, whoever's hold it is, a small invisible `Button`, "Release", since the
+owner may release any of the three. Each asks first, in a form of its own in a row under the title row, never in a
+dialog that covers the conversation: holding says in plain words what follows (no new work of the project starts, the
+works already running go on and merge, a work waiting for a result goes on once it comes, and Pause all in the bar is
+another thing), asks why in a box of words whose button is greyed with the reason while it is empty, and is sent only
+on that button; releasing says what it lets happen (for the architect's own hold and the one to set the project
+straight, that the architect may hold again in its next plan) and is sent on its "Release". The sign says "You stopped
+new works from starting" with the owner's words for an owner's hold.
+
+Pause all and the hold are two things and look two ways: the hold is one project's rule on its new works, kept in the
+database, so it stands across a restart of the engine and for every work that is waiting or running; Pause all is every
+work's stop, is not kept, and the engine starts with it on. Neither sets or lifts the other; Start all leaves a hold in
+place.
+
+Instead of one control in the bar that holds every project's new starts, because the stop wanted is one project's and
+the bar's two switches already say that every work goes on or stops; instead of a dialog over the page for the words,
+because the owner reads the row and the architect's state beside it to decide whether to hold, and a dialog hides
+them; and instead of a Release only on the owner's own sign, because an architect's hold that the architect does not
+release would leave the project stopped, the owner's only way being to ask the architect, one round later, to let it
+go.
 
 ### A conversation reads as a chat
 
@@ -2282,7 +2306,8 @@ colours (`GET /api/v1/flows/lines`), which the page reads once, as it starts, fo
 page draws a colour through one lookup, a class to a colour (`role-<colour>`, `roles.css`) setting four of Primer's
 display tokens of that colour: `--display-<colour>-borderColor-emphasis` a cell's edge on a chart, `-bgColor-muted` a
 cell's fill and a bubble's, `-borderColor-muted` a bubble's edge and `-bgColor-emphasis` an avatar's circle. The
-engineer is blue, the review teal, the adversarial testing auburn, the advisor pink, the architect purple, the review of
+engineer is blue, the deep research plum, the review teal, the adversarial testing auburn, the advisor pink, the
+architect purple, the review of
 the architect's batch indigo, the reader of a work's history green, the search of observations brown and the pick of the
 architect's next matter cyan; orange (the owner's cells), yellow (the tools') and red (danger) are kept from roles, and
 grey is the engine's own steps'; an agent with no colour of its own is the neutral grey of the engine's own steps, as a
@@ -2654,8 +2679,29 @@ beside the other.
 The flow page compares two flows: two stored versions, a stored version and the flow as `flow/flow.json` is at a git ref
 of a project's checkout, which the interface reads with git and compiles with the flow's compiler without writing
 anything, or a stored version and the flow a decision card carries, read from the database; the chart of the newer is
-drawn with the cells added and changed marked, and a panel lists what changed in each cell, because a proposed change to
-the flow is reviewed against the flow it changes, on the page the flow is read on.
+drawn with the cells added and changed marked, and a panel lists what changed in each cell, a return field's change
+saying of each side what earlier returns may hold there as the pattern does, because a proposed change to the flow is
+reviewed against the flow it changes, on the page the flow is read on.
+
+When the newer flow is read at a git ref, which no work runs on, the panel opens with a section above what changed,
+Works going on: what installing that flow would do with each work that is neither ended nor done, as the engine judges
+it (`GET /api/v1/flows/cost`, the judgment `wf-agents flow cost` prints for the same file), under a line saying which
+flow version the flow would be. The works are in runs by what happens to them, in the order the engine gives: those that
+cannot be worked out, those that go back through a cell and do work again, those stuck, those that end, those that move
+where they stand, and those already on the version. Each run is a `Fold` headed by how many works it holds and what
+happens to them, open for the first four and folded for the last two, since the owner reads the works that cost
+something and has nothing to read in those that go on as they are. Each work is a row: its name, a link to its page,
+the item (by its number and title) or the graph it works on, the flow version and cell it stands at and who paused it,
+muted, and under it, set in by a line, what happens to it: the cell it goes back through and the cell it goes to, the
+round it does again, or the cell it is stuck at and what the owner can do, or why it ends, with the engine's own words.
+A flow this engine cannot judge, because it does not compile against the engine's database definition or does not fit
+the configuration, shows the reason in a warning in place of the runs, and says what judges it instead, because a cost
+that is missing must not read as no cost. The section is read once as the comparison opens, as the works stand then, and
+no event of a work changing keeps it current, so that the list the owner reads does not move under the owner's eyes as
+works go on; it is worked out again only when the page reads everything it shows again (the event stream
+resynchronising, the engine restarting), which is when a new flow has often just been installed. The owner rules a change to the flow with its cost before it, which only the command line
+gave, and an owner who must ask for a command does not see it. A comparison of two stored versions, or with a decision
+card's flow, has no such section: what it would cost to install is asked of a flow that is not installed.
 
 ### The policy's stage on the architect's chart
 
@@ -2858,7 +2904,11 @@ on in its session or started one and why; or the tools, the engine's step or the
 ended; Cost, what it cost and the shares read again from the cache, newly cached and output, with its steps and its
 context at its start and its end; and a return sent back, a run that failed or a round cut off said in a Flash with the
 engine's reason, a return sent back for several problems with each on a line of its own, since the Flash would run
-them together; the reason's text carries the `reason` class (`white-space: pre-line`), which the reason has wherever it
+them together; a return taken with problems set aside (what only checks the work says it changes found, which the
+engine did not send back, until the change to its checks is installed, and the reviews judge) said in the same warning
+Flash as a return sent back, each problem on a line of its own after its number in the work (S1, S2, ...), since it is
+what the checks would have sent the return back with and the owner learns that look once, and a reader who follows the
+number finds the review's answer to it; the reason's text carries the `reason` class (`white-space: pre-line`), which the reason has wherever it
 is shown whole, also in the notes under a line of the item page's checklist, while a list of rounds that keeps a round
 to one line (above) lets the lines run on: the work page's table cuts them and says them whole on hovering, and the cell
 panel's list wraps them, so it shows them whole. In: the inputs new this round, a row each with its name, its address,
@@ -2934,8 +2984,11 @@ same look, in the sheet of what is sent to an agent, since the agent is sent it 
 page): what each round fills in as its placeholder (a kind, such as "text"), a field of fixed values its values joined
 by " | ", each saying on hovering what it means, the forms an agent's cell may hand in one under another after "one of"
 in the field that holds one, as the shapes a field may take are, a field that may be left out followed by "optional", a
-key saying on hovering what the agent is told it is and what reads it; open at first to the fields of each form and one
-level inside them, and the checks the engine makes on a return listed under it.
+field that a return handed in on an earlier flow version may lack or hold otherwise followed by what it may ("earlier
+returns may lack it", "earlier returns may hold text"), since a work carrying such a return moves to the version all the
+same and the owner rules on that with the flow, a key saying on hovering what the agent is told it is and what reads it;
+open at first to the fields of each form and one level inside them, and the checks the engine makes on a return listed
+under it.
 
 Instead of each field of the return under its title, its value in a box of its own, with the JSON folded at the bottom,
 and a cell's fields as a tree of titles opening to what the agent is told, because the owner found the field-by-field

@@ -1,4 +1,4 @@
-//! What a round came to, defined here once for every reader: the health numbers, and the owner's interface that shows
+//! How a round ended, defined here once for every reader: the health numbers, and the owner's interface that shows
 //! each round.
 
 use serde_json::Value;
@@ -32,13 +32,4 @@ pub fn outcome(transition: Option<&str>, rejected: Option<&Value>, ended: bool) 
         (None, None) if ended => Outcome::Ended,
         (None, None) => Outcome::Running,
     }
-}
-
-/// The context an agent's round ended with, from its usage as the command line reported it (`rounds.usage`): its last
-/// call's prompt, the tokens read from the cache, written to it and neither added up. None when the record holds no
-/// call.
-pub fn context_end(usage: &Value) -> Option<i64> {
-    let last = usage.get("usage")?.get("iterations")?.as_array()?.last()?;
-    let n = |k: &str| last[k].as_i64().unwrap_or(0);
-    Some(n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens"))
 }

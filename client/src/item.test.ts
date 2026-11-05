@@ -184,6 +184,7 @@ function round(n: number, at: string, transition: string | null, extra: Partial<
     outcome: transition === null ? 'running' : 'took',
     transition,
     why: null,
+    set_aside: null,
     started_at: n,
     ended_at: transition === null ? null : n + 1,
     model: null,
@@ -423,6 +424,16 @@ describe('the acceptance of an item', () => {
     expect(html).toContain('Met: green in the CI: lint, which run npm run check:ui');
     expect(html).toContain('Met: green in the CI: check, test 1 of 3<');
     expect(html).toContain('Met: read in flow/flow.json: the rule lists all columns');
+  });
+
+  it('says a condition checked after the merge is one, by what holds, and shows no field of its row', () => {
+    const value = [
+      { by: 'in_effect', id: 'A1', condition: 'A real call fetches.', when: 'installed', tool: 'query', holds: 'A row says fetched.' },
+    ];
+    const html = shown(value, new Map<string, Met>([['A1', { how: 'in_effect', id: 'A1' }]]));
+    expect(html).toContain('by a real run once the change is in effect: A row says fetched.');
+    expect(html).toContain('Checked after the merge, with a real run once the change is in effect');
+    expect(html).not.toContain('in_effect');
   });
 });
 

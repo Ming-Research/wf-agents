@@ -23,8 +23,8 @@ export type StepTaken = {
  */
 at: number,
 /**
- * The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
- * item over, when the asked work was on an older flow version.
+ * The work the owner asked a round of, and the work the round was of, which a new flow version leaves the same
+ * work.
  */
 asked: number, work: number,
 /**
@@ -259,7 +259,12 @@ transition: string | null,
 /**
  * Why it was sent back, failed or was cut off; for a row the engine took as a session would start afresh, why.
  */
-why: string | null, started_at: number, ended_at: number | null, model: string | null, cost_usd: number | null, compactions: number, tool_runs: number,
+why: string | null,
+/**
+ * For a return taken with problems set aside, which only checks the work said it changes found: one line for
+ * each, its number in the work first (`S1 check (field): text`).
+ */
+set_aside: string | null, started_at: number, ended_at: number | null, model: string | null, cost_usd: number | null, compactions: number, tool_runs: number,
 /**
  * What the round said it did.
  */
@@ -1006,6 +1011,17 @@ export type ForwardFault = { project: string, };
 export type ForwardNew = { project: string | null, };
 
 /**
+ * What the owner sends to hold a project's new starts: why, in the owner's words.
+ */
+export type HoldStarts = { why: string, };
+
+/**
+ * What the owner sends to release a hold on a project's new starts: whose it is, `owner`, `architect` or
+ * `set_straight`.
+ */
+export type ReleaseHold = { reason: string, };
+
+/**
  * The owner's answer to an ask of the owner, as the page and the command line hand it in.
  */
 export type Answer = { text: string,
@@ -1124,7 +1140,9 @@ ended: number | null, };
  */
 export type Ping = { id: number, session: number, line: string,
 /**
- * The cell the work waited at, what it waited on (pause, owner, architect, items or tool) and that in words.
+ * The cell the work waited at, what it waited on (pause, slot, owner, architect, items or row) or `work` when it
+ * went on without the line, or `fork` when the ping warmed an architect's base before a fork of it, and that in
+ * words.
  */
 cell: string, on: string, what: string, started_at: number, ended_at: number | null, model: string | null,
 /**
@@ -1816,9 +1834,9 @@ card: MatterCard | null, };
 export type MatterCard = { id: number, status: string, rulings: JsonValue, replaced_by: number | null, };
 
 /**
- * What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
- * architect sets it straight (`policy`, while a new policy was set, a flow version before); since when; and for the
- * architect's own hold, why, as it said it.
+ * What stops a project's new works from starting: `owner`, the owner's own hold; `architect`, its architect's own
+ * hold; `set_straight`, while its architect sets it straight (`policy`, while a new policy was set, a flow version
+ * before); since when; and for the owner's and the architect's own hold, why, as they said it.
  */
 export type DispatchHold = { reason: string, since: number, why: string | null, };
 
@@ -2426,6 +2444,12 @@ used_by: Array<Use>, };
 export type FieldKind = "text" | "integer" | "number" | "boolean" | "enum" | "object" | "list" | "union" | "any";
 
 /**
+ * What a return handed in on an earlier flow version may hold at a field instead, which a work carrying such a return
+ * still moves with to the version that says so.
+ */
+export type FieldEarlier = { "was": "absent" } | { "was": "kind", kind: FieldKind, item: FieldKind | null, absent: boolean, };
+
+/**
  * A field of a return, with whatever reads it.
  */
 export type Field = { name: string,
@@ -2437,6 +2461,10 @@ path: string, kind: FieldKind,
  * For a list, the kind of its items.
  */
 item: FieldKind | null, desc: string | null, optional: boolean,
+/**
+ * What a return handed in on an earlier flow version may hold here instead; none when only what it is now.
+ */
+earlier: FieldEarlier | null,
 /**
  * For a list, the fewest items it holds.
  */
@@ -2552,6 +2580,73 @@ rev: string, commit: string, digest: string,
 version: number | null, compiled: Compiled, view: FlowView, };
 
 /**
+ * What installing a flow would do with each work that is neither ended nor done, as `wf-agents flow cost` tells it: the
+ * version the flow would be stored as, and the works.
+ */
+export type FlowCost = {
+/**
+ * The flow version the flow would be stored as.
+ */
+version: number,
+/**
+ * Whether the database has that version already.
+ */
+stored: boolean,
+/**
+ * The works, those paused included, in the order the command lists them: by what happens to them (what cannot be
+ * worked out first, then those that go back, those stuck, those that end, those that move and those on the version
+ * already), and by id within each.
+ */
+works: Array<WorkCost>, };
+
+/**
+ * A work that is neither ended nor done, with what installing the flow does with it.
+ */
+export type WorkCost = { work: number,
+/**
+ * What the work is and where it stands; none when it cannot be read.
+ */
+stands: WorkStands | null, effect: CostEffect, };
+
+/**
+ * What a work is and where it stands now.
+ */
+export type WorkStands = {
+/**
+ * The item it works on; none for a work of a project's architect.
+ */
+item: number | null,
+/**
+ * The item's title.
+ */
+title: string | null,
+/**
+ * For a work of a project's architect, its project.
+ */
+project: string | null,
+/**
+ * The graph it runs through.
+ */
+graph: string,
+/**
+ * The flow version it is on, and the cell it stands at.
+ */
+version: number, at: string,
+/**
+ * Who paused it, while it is.
+ */
+paused: PausedBy | null, };
+
+/**
+ * What installing a flow does with a work when the work next goes on (one that is paused, once it is started).
+ */
+export type CostEffect = { "kind": "unreadable", why: string, } | { "kind": "goes_back", through: string, to: string, why: string,
+/**
+ * The number, in the work, of the first round done again; none when no round is.
+ */
+from: number | null, redone: number, } | { "kind": "stuck", at: string, pause: string, } | { "kind": "ends", why: string, taken_over: boolean, } | { "kind": "moves" } | { "kind": "stays" };
+
+/**
  * The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
  * are.
  */
@@ -2576,7 +2671,7 @@ colour: Colour, };
  * those it keeps for other things: orange for the owner's cells, yellow for the tools', red for danger and grey for
  * the engine's own steps.
  */
-export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "green" | "brown" | "cyan";
+export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "green" | "brown" | "cyan" | "plum";
 
 export type Compiled = { format: string, engine: EngineNames, tools: Array<ToolUse>, graphs: Array<CompiledGraph>,
 /**
@@ -2670,9 +2765,15 @@ export type ToolUse = { name: string, runs: string, };
 
 export type CompiledGraph = { name: string, start: string, end: string,
 /**
- * The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
+ * The end a work stopped before its end ends at: cancelled or taken over, from wherever it stands, or brought
+ * there by a row of the cell for a work on an older flow version; none in a graph without one.
  */
 cancel?: string | null,
+/**
+ * The cell a work on an older flow version comes to when this version cannot take it on where it stands, from
+ * wherever it stands; none in a graph without one, or in a flow version stored before there was one.
+ */
+version?: string | null,
 /**
  * The field an agent's return holds its one form in.
  */
@@ -2845,7 +2946,12 @@ then?: Then | null,
 /**
  * The counter that counts each time the engine takes the case, one of the flow's counters.
  */
-counts?: string | null, };
+counts?: string | null,
+/**
+ * A case that bounds the steps a work takes in a row with no agent's round among them, at whichever cells of its
+ * graph: how many it may take. Its next step takes the case instead, which pauses it.
+ */
+steps?: number | null, };
 
 /**
  * What the engine does once a row that runs a round or a step again has been taken so many times in a row as its
@@ -2888,6 +2994,11 @@ fresh_session?: Array<string>,
  */
 cache_expiry?: boolean,
 /**
+ * The line whose latest session a new session of the cell's line forks from, as the cell's line says; none for a
+ * line whose new sessions start empty, and in a flow version stored before lines forked.
+ */
+fork_of?: string | null,
+/**
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.
  */
@@ -2899,7 +3010,14 @@ rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null, for
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */
-schema?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>,
+schema?: JsonValue | null,
+/**
+ * What a return a work carries from an earlier flow version must be for the work to move to this one without
+ * doing the cell again: the schema, with what each field names as it was earlier (`earlier`) taken too; none when
+ * no field names it, and the schema is that, and in a flow version stored before fields named it. No agent is
+ * given it.
+ */
+carried?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>,
 /**
  * What an engine's cell does besides its step and its rows, in order: at an end, how the work ends.
  */

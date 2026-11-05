@@ -131,7 +131,7 @@ pub fn cache_miss(e: &mut Engine, w: &Work, round: RoundId, cell: &str, line: &s
             "{round} wrote its session's prompt cache again, as expected after {} changed since {}: kept for its cost, \
              no fault",
             parts.join(", "),
-            m.before
+            compared(m)
         ));
         return Ok(());
     }
@@ -222,8 +222,18 @@ fn record(tx: &Transaction<'_>, round: RoundId, line: &str, m: &Miss, notice: Op
     Ok(())
 }
 
+/// What a miss's round was compared with: the session's round before, or the keep-warm ping since it that recorded its
+/// call, under which the cache kept the session last.
+fn compared(m: &Miss) -> String {
+    match m.ping {
+        Some(p) => format!("keep-warm ping {p}, after the session's round before, {}", m.before),
+        None => format!("the session's round before, {}", m.before),
+    }
+}
+
 /// What the owner is told of a cache miss: where it came up, what it read of what the session held, what it wrote again
-/// and cost, and what differs in the command line and its environment from the session's round before.
+/// and cost, and what differs in the command line and its environment from the session's round before, or from the
+/// keep-warm ping since it that recorded its call.
 fn told(about: &str, round: RoundId, cell: &str, line: &str, m: &Miss) -> String {
     let cost = match m.cost_usd {
         Some(c) => format!(", which cost about ${c:.2} more than reading them"),
@@ -231,14 +241,14 @@ fn told(about: &str, round: RoundId, cell: &str, line: &str, m: &Miss) -> String
     };
     let differs = if m.differs.is_empty() {
         format!(
-            "No part of the command line or its environment differs from the session's round before, {}.",
-            m.before
+            "No part of the command line or its environment differs from {}.",
+            compared(m)
         )
     } else {
         let parts: Vec<String> = m.differs.iter().map(differ).collect();
         format!(
-            "The command line or its environment differs from the session's round before, {}, in: {}.",
-            m.before,
+            "The command line or its environment differs from {}, in: {}.",
+            compared(m),
             parts.join("; ")
         )
     };
@@ -324,6 +334,7 @@ mod tests {
     fn a_cache_miss_is_told_with_its_cause() {
         let mut m = Miss {
             before: RoundId::new(7, 4),
+            ping: None,
             after_ms: 14 * 60_000 + 5_000,
             read: 5_655,
             written: 412_345,
@@ -364,6 +375,13 @@ mod tests {
             ),
             "{text}"
         );
+        // A fork of the architect's base after the ping that warmed the base is compared with the ping's call.
+        m.ping = Some(12);
+        let text = told("work 7", RoundId::new(7, 5), "B4", "matter", &m);
+        assert!(
+            text.contains("differs from keep-warm ping 12, after the session's round before, R7-4, in: the CLI's"),
+            "{text}"
+        );
         assert_eq!(
             (thousands(999), thousands(1_000), thousands(6_492)),
             ("999".into(), "1,000".into(), "6,492".into())
@@ -392,6 +410,7 @@ mod tests {
         .unwrap();
         let mut m = Miss {
             before: RoundId::new(1, 1),
+            ping: None,
             after_ms: 60_000,
             read: 10_000,
             written: 400_000,
@@ -480,6 +499,7 @@ mod tests {
         let mut db = with_rounds();
         let mut m = Miss {
             before: RoundId::new(1, 1),
+            ping: None,
             after_ms: 60_000,
             read: 10_000,
             written: 400_000,
@@ -514,6 +534,7 @@ mod tests {
         let mut db = with_rounds();
         let m = Miss {
             before: RoundId::new(1, 1),
+            ping: None,
             after_ms: 60_000,
             read: 10_000,
             written: 400_000,
@@ -576,6 +597,7 @@ mod tests {
         assert_eq!(api::fault_forwarding(db.conn()).unwrap().as_deref(), Some("wf"));
         let mut m = Miss {
             before: RoundId::new(1, 1),
+            ping: None,
             after_ms: 60_000,
             read: 10_000,
             written: 400_000,

@@ -15,6 +15,8 @@ flow = { path = "../flow" }
 flate2 = "1.1.10"
 # The health numbers: the architect's numbers are read from them, and the engine samples what no record holds.
 health = { path = "../health" }
+# Reads the JUnit XML files a project's fast CI reports its tests' results in; it only reads, and refuses a DTD.
+roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # The session manager: which session a round runs in, what it holds and costs, and the command line it runs in.

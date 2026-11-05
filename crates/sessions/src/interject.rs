@@ -3,17 +3,30 @@
 //! the command line adds them to the session before the agent goes on. Those still waiting when the round ends go at
 //! the top of the next round's message. What the owner said with images waits for that message too: the hook adds text
 //! only, and the images go to the agent with their words.
+//!
+//! The round's message has given the interjections that waited when the round began, and the round's record lists them
+//! (`rounds.input`, `$.engine.interjections`); the hook records them as delivered in the round, so that the owner's
+//! page does not show them as not taken up while it runs, but does not hand them in again. An interjection that needs
+//! no answer (`informs`) is handed in under its own lead, which says so.
 
 use db::rusqlite::params;
 use db::{Actor, Db};
 use serde_json::{Value, json};
 
+/// What the hook says before the interjections that may need an answer.
+const ASKS: &str = "Said to you while this round runs; answer in this round's return, as format:common says.";
+
+/// What the hook says before the interjections that need no answer (`informs`).
+const TELLS: &str = "Told to you while this round runs; none of it needs an answer.";
+
 /// The interjections waiting for a work's line, handed in to its running round: each recorded as delivered in the
 /// round, and what the hook gives the session, as the command line reads a hook's output after a tool use; none when
-/// none waits. One that carries images, its own or those of the owner's words its matter holds, is left for the line's
-/// next message, which gives the words and the images together.
+/// none waits. One that the round's message gave, images included, is recorded as delivered in the round but not handed
+/// in again, since the agent has it. One that came since and carries images, its own or those of the owner's words its
+/// matter holds, is left for the line's next message, which gives the words and the images together. Those that may
+/// need an answer come first, then those that need none, each under its own lead.
 pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<String>, String> {
-    let said: Vec<(i64, String)> = db
+    let said: Vec<(i64, bool, String)> = db
         .write(Actor::Engine, |tx| {
             // A round that has ended, such as the one a keep-warm ping replays the command line of, takes none.
             let open: bool = tx.query_row(
@@ -25,43 +38,69 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
                 return Ok(Vec::new());
             }
             let mut st = tx.prepare(
-                "SELECT j.id, j.speaker, j.text, j.design_card, c.key FROM interjections j
-                 LEFT JOIN design_cards c ON c.id = j.design_card
+                "SELECT j.id, j.speaker, j.text, j.design_card, c.key, j.informs,
+                        j.id IN (SELECT g.value FROM rounds r, json_each(r.input, '$.engine.interjections') g
+                                 WHERE r.work = ?1 AND r.n = ?3) AS given,
+                        EXISTS (SELECT 1 FROM attachments a
+                                WHERE a.interjection = j.id OR a.matter = j.matter) AS imaged
+                 FROM interjections j LEFT JOIN design_cards c ON c.id = j.design_card
                  WHERE j.work = ?1 AND j.line = ?2 AND j.delivered_round IS NULL
-                   AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.interjection = j.id OR a.matter = j.matter)
                  ORDER BY j.id",
             )?;
-            let rows: Vec<(i64, String)> = st
-                .query_map(params![work, line], |r| {
-                    let words = db::interjection_words(
-                        &r.get::<_, String>(1)?,
-                        &r.get::<_, String>(2)?,
-                        r.get(3)?,
-                        r.get::<_, Option<String>>(4)?.as_deref(),
-                    );
-                    Ok((r.get(0)?, words))
-                })?
-                .collect::<Result<_, _>>()?;
-            for (id, _) in &rows {
+            // What the round's message gave, images included, the agent has: it is recorded as delivered and not
+            // handed in again. What came since is handed in and recorded, unless it carries images.
+            let mut handed = Vec::new();
+            let mut recorded = Vec::new();
+            let rows = st.query_map(params![work, line, round], |r| {
+                let words = db::interjection_words(
+                    &r.get::<_, String>(1)?,
+                    &r.get::<_, String>(2)?,
+                    r.get(3)?,
+                    r.get::<_, Option<String>>(4)?.as_deref(),
+                );
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, bool>(5)?,
+                    words,
+                    r.get::<_, bool>(6)?,
+                    r.get::<_, bool>(7)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, informs, words, given, imaged) = row?;
+                if given {
+                    recorded.push(id);
+                } else if !imaged {
+                    recorded.push(id);
+                    handed.push((id, informs, words));
+                }
+            }
+            for id in &recorded {
                 tx.execute(
                     "UPDATE interjections SET delivered_round = ?2 WHERE id = ?1",
                     params![id, round],
                 )?;
             }
-            Ok(rows)
+            Ok(handed)
         })
         .map_err(|e| e.to_string())?;
     if said.is_empty() {
         return Ok(None);
     }
-    let lines: Vec<String> = said
-        .iter()
-        .map(|(id, words)| format!("### ij:{id}\n\n{words}"))
-        .collect();
-    let context = format!(
-        "Said to you while this round runs; answer in this round's return, as format:common says.\n\n{}",
-        lines.join("\n\n")
-    );
+    // Each kind under its lead, left out when it has none.
+    let under = |told: bool, lead: &str| {
+        let lines: Vec<String> = said
+            .iter()
+            .filter(|(_, informs, _)| *informs == told)
+            .map(|(id, _, words)| format!("### ij:{id}\n\n{words}"))
+            .collect();
+        (!lines.is_empty()).then(|| format!("{lead}\n\n{}", lines.join("\n\n")))
+    };
+    let context = [under(false, ASKS), under(true, TELLS)]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n\n");
     Ok(Some(
         json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": context } }).to_string(),
     ))

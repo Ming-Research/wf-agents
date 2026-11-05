@@ -35,6 +35,16 @@ fn row<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
     rows(v, id).iter_mut().find(|r| r["name"] == name).unwrap()
 }
 
+/// The field `name` of what cell `id` hands in.
+fn out_field<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
+    node(v, id)["out"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["name"] == name)
+        .unwrap()
+}
+
 fn obj(v: &mut Value) -> &mut serde_json::Map<String, Value> {
     v.as_object_mut().unwrap()
 }
@@ -52,6 +62,43 @@ fn drop_source(v: &mut Value, id: &str, src: Value) {
 
 fn remove_row(v: &mut Value, id: &str, name: &str) {
     rows(v, id).retain(|r| r["name"] != name);
+}
+
+/// The input `name` of cell `id`.
+fn input<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
+    node(v, id)["inputs"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|x| x["name"] == name)
+        .unwrap()
+}
+
+/// The flow with a gate, `G9`, between the research and the implementation, as flows before had gates: the flow has
+/// none now, and a flow at an older commit, which the flow page shows, may still have them.
+fn gated(v: &mut Value) {
+    row(v, "R1", "start")["to"] = json!("G9");
+    graph(v)["nodes"].as_array_mut().unwrap().push(json!({
+        "id": "G9", "kind": "gate", "title": "Whether it stands", "effort": "medium",
+        "question": "Judge whether this work stands.", "to": "I1", "shown": ["answer"],
+        "inputs": [{ "name": "How the work is understood", "what": "How this work is understood",
+                     "from": [["R1", "understanding"]] }],
+        "outcomes": { "on": ["stands", "It stands"], "problem": ["does_not_stand", "It does not stand"] }
+    }));
+    graph(v)["blocks"][1]["nodes"].as_array_mut().unwrap().push(json!("G9"));
+    let stages = graph(v)["stages"]["list"].as_array_mut().unwrap();
+    let research = stages.iter_mut().find(|s| s["name"] == "research").unwrap();
+    research["nodes"].as_array_mut().unwrap().push(json!("G9"));
+    let forms = graph(v)["agentCommon"]["returns"]["forms"].as_array_mut().unwrap();
+    let tools = forms.iter_mut().find(|f| f["field"] == "tools").unwrap();
+    tools["cells"].as_array_mut().unwrap().push(json!("G9"));
+}
+
+/// The gate `G9` going on by rows instead of to one cell.
+fn by_rows(v: &mut Value) {
+    let g = node(v, "G9");
+    obj(g).remove("to");
+    g["rows"] = json!([{ "name": "stands", "if": [], "to": "I1", "main": true }]);
 }
 
 /// The flow with one edit fails, and one of its problems says `want`.
@@ -84,7 +131,7 @@ macro_rules! case {
 
 // The format and the names.
 case!(a_row_with_two_targets, "expected a string", |v| {
-    row(v, "T7", "adversarial")["to"] = json!(["T1", "T3"]);
+    row(v, "T3", "adversarial")["to"] = json!(["T1", "T6"]);
 });
 case!(an_input_said_to_be_in_the_session, "fits none of the forms", |v| {
     node(v, "D1")["inputs"][0]["from"][0] = json!("session");
@@ -92,6 +139,63 @@ case!(an_input_said_to_be_in_the_session, "fits none of the forms", |v| {
 case!(an_unknown_key, "unknown field", |v| {
     node(v, "D1")["colour"] = json!("red");
 });
+// What a field was in a return handed in on an earlier version is a shape, which names none earlier in turn and whose
+// faults name the field, or `absent` for a field a return handed in now may not leave out and that is no list's item.
+// It is a field of a cell's own answer, which a work moving to the version compares, never one every agent's return
+// has; and no row's condition reads it, since a row takes a return as it is handed in now.
+case!(
+    an_earlier_field_named_by_no_known_word,
+    "no such earlier shape: gone, in field examined",
+    |v| {
+        out_field(v, "D2", "examined")["earlier"] = json!("gone");
+    }
+);
+case!(
+    an_earlier_absence_of_a_field_a_return_may_leave_out,
+    "a field a return may leave out names no earlier absence: examined",
+    |v| {
+        let f = out_field(v, "D2", "examined");
+        f["optional"] = json!(true);
+        f["earlier"] = json!("absent");
+    }
+);
+case!(
+    an_earlier_absence_of_a_list_s_item,
+    "a list's item names no earlier absence, as an item is never absent: examined",
+    |v| {
+        out_field(v, "D2", "examined")["item"]["earlier"] = json!("absent");
+    }
+);
+case!(
+    a_fault_of_an_earlier_shape,
+    "a list with no item: , in what field examined was earlier",
+    |v| {
+        out_field(v, "D2", "examined")["earlier"] = json!({ "type": "list" });
+    }
+);
+case!(
+    an_earlier_shape_that_names_one_earlier_still,
+    "a field names what it was earlier only once, in what field examined was earlier",
+    |v| {
+        out_field(v, "D2", "examined")["earlier"] = json!({ "type": "text", "earlier": "absent" });
+    }
+);
+case!(
+    an_earlier_shape_of_a_field_every_agent_return_has,
+    "a field every agent's return has names what it was earlier: tell_owner",
+    |v| {
+        let out = graph(v)["agentCommon"]["out"].as_array_mut().unwrap();
+        let told = out.iter_mut().find(|f| f["name"] == "tell_owner").unwrap();
+        told["earlier"] = json!("absent");
+    }
+);
+case!(
+    an_earlier_shape_a_row_s_condition_reads,
+    "a row's condition reads a field that names what it was earlier: T3 adversarial silent.verdict (silent)",
+    |v| {
+        out_field(v, "T3", "silent")["earlier"] = json!("absent");
+    }
+);
 case!(a_line_with_no_colour, "a line with no colour: engineer", |v| {
     obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
 });
@@ -110,7 +214,7 @@ case!(a_cache_expiry_that_is_not_a_yes_or_a_no, "invalid type", |v| {
 });
 case!(
     two_lines_of_a_graph_with_one_colour,
-    "two lines share the colour blue: engineer and review",
+    "two lines share the colour blue: engineer and designer",
     |v| {
         graph(v)["sessions"]["lines"][1]["colour"] = json!("blue");
     }
@@ -130,7 +234,7 @@ fn a_flow_only_shown_with_two_lines_of_one_colour() {
         flow::compile_shown,
         |v| {
             obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
-            graph(v)["sessions"]["lines"][2]["colour"] = json!("teal");
+            graph(v)["sessions"]["lines"][3]["colour"] = json!("teal");
         },
         "two lines share the colour teal: review and adversarial",
     );
@@ -156,8 +260,8 @@ fn a_flow_with_a_colour_the_page_no_longer_draws_is_only_shown() {
     // Both names go through one reading of a colour, so one flow holds them both: olive on the librarian line (the
     // engineer's graph) and lime on the observer line (the architect's).
     let edit = |v: &mut Value| {
-        graph(v)["sessions"]["lines"][4]["colour"] = json!("olive");
-        v["flows"][1]["sessions"]["lines"][2]["colour"] = json!("lime");
+        graph(v)["sessions"]["lines"][5]["colour"] = json!("olive");
+        v["flows"][1]["sessions"]["lines"][3]["colour"] = json!("lime");
     };
     refused_by(flow::compile, edit, "a line with no colour: librarian");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
@@ -171,7 +275,7 @@ case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
     v["engine"]["steps"]["extra"] = json!("x");
 });
 case!(no_such_engine_action, "no such engine action: nope", |v| {
-    row(v, "D10", "report")["do"] = json!(["lock_acceptance", "post_open_questions", "nope"]);
+    row(v, "M1", "clear")["do"] = json!(["resolve_blocker", "nope"]);
 });
 case!(
     a_line_mixing_low_with_other_efforts,
@@ -221,32 +325,31 @@ case!(
     an_engine_cell_leaving_out_forms,
     "only an agent's cell leaves out forms of the return",
     |v| {
-        node(v, "T7")["without"] = json!(["ask"]);
+        node(v, "M1")["without"] = json!(["ask"]);
     }
 );
 case!(
     a_row_outside_the_asking_part_leaving_the_callers_waiting,
     "a row that goes on without answering the cells that wait goes from the asking part or an owner's cell to a cell",
     |v| {
-        row(v, "T7", "adversarial")["drops"] = json!(true);
+        row(v, "T3", "adversarial")["drops"] = json!(true);
     }
 );
 case!(
     a_branch_field_named_like_the_marker,
-    "a branch has a field named like the union's marker kind",
+    "a branch has a field named like the union's marker verdict",
     |v| {
-        let out = &mut node(v, "T2")["out"][0];
-        out["branches"][4]["fields"][0] = json!({ "$ref": "failure_kind" });
+        let must = out_field(v, "T3", "must_fix");
+        must["branches"][0]["fields"][0] =
+            json!({ "name": "verdict", "title": "Verdict", "type": "text", "desc": "x" });
     }
 );
 case!(
     a_field_every_branch_has_is_also_in_a_branch,
     "a field every branch has is also in a branch",
     |v| {
-        v["shapes"]["review_columns"]["item"]["branches"][0]["fields"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({ "name": "id", "type": "text", "desc": "x" }));
+        out_field(v, "T3", "must_fix")["common"] =
+            json!([{ "name": "why", "title": "Why", "type": "text", "desc": "x" }]);
     }
 );
 case!(
@@ -275,27 +378,33 @@ case!(
     a_gate_that_may_not_apply_and_goes_on_by_rows,
     "a gate that may not apply goes on to one cell",
     |v| {
-        node(v, "D10")["na"] = json!("only documents change");
+        gated(v);
+        by_rows(v);
+        node(v, "G9")["na"] = json!("only documents change");
     }
 );
 case!(
     a_gate_that_goes_on_both_ways,
     "a gate goes on to one cell or by rows",
     |v| {
-        node(v, "D10")["to"] = json!("D11");
+        gated(v);
+        node(v, "G9")["rows"] = json!([{ "name": "stands", "if": [], "to": "I1", "main": true }]);
     }
 );
 case!(
     a_gate_with_rows_that_records_a_value,
     "a gate with rows records what each row does",
     |v| {
-        node(v, "D10")["sets"] = json!({ "stage": "design_on" });
+        gated(v);
+        by_rows(v);
+        node(v, "G9")["sets"] = json!({ "stage": "design_on" });
     }
 );
 case!(
     gate_cells_in_a_flow_with_no_gate,
     "gate cells in a flow with no gate",
     |v| {
+        gated(v);
         obj(graph(v)).remove("gate");
     }
 );
@@ -303,7 +412,7 @@ case!(
     own_on_a_cell_that_is_not_an_agent,
     "only an agent has an own answer to tell apart",
     |v| {
-        row(v, "T7", "review_again")["if"] = json!([["own"]]);
+        row(v, "M1", "clear")["if"] = json!([["own"]]);
     }
 );
 case!(a_cell_that_asks_itself, "a cell that asks itself", |v| {
@@ -325,11 +434,11 @@ case!(
     an_answer_from_a_cell_nobody_asks,
     "only a cell that is asked answers the one that asked",
     |v| {
-        row(v, "T4", "done")["to"] = json!("@asker");
+        row(v, "T4", "clear")["to"] = json!("@asker");
     }
 );
 case!(a_row_counts_no_such_counter, "no such counter", |v| {
-    row(v, "T4", "done")["counts"] = json!("x");
+    row(v, "T4", "clear")["counts"] = json!("x");
 });
 case!(a_counter_no_row_counts, "a counter no row counts", |v| {
     graph(v)["limits"]["counters"]
@@ -338,13 +447,13 @@ case!(a_counter_no_row_counts, "a counter no row counts", |v| {
         .push(json!({ "name": "x", "desc": "x" }));
 });
 case!(a_cell_in_no_block, "a cell in no block", |v| {
-    graph(v)["blocks"][2]["nodes"]
+    graph(v)["blocks"][3]["nodes"]
         .as_array_mut()
         .unwrap()
-        .retain(|x| x != "T7");
+        .retain(|x| x != "T2");
 });
 case!(a_cell_in_two_blocks, "in two blocks", |v| {
-    graph(v)["blocks"][1]["nodes"].as_array_mut().unwrap().push(json!("T7"));
+    graph(v)["blocks"][1]["nodes"].as_array_mut().unwrap().push(json!("T2"));
 });
 case!(
     a_prompt_without_a_case_for_a_value,
@@ -363,28 +472,30 @@ case!(
         graph(v)["askKinds"] = json!([{ "group": "technical", "kinds": [["split", "It must be split"]] }]);
     }
 );
+// A flow anomaly goes to the architect: a way on that hands it to the owner leaves the owner nothing asked.
 case!(
     a_way_on_that_still_hands_a_flow_anomaly_to_the_owner,
-    "no such cell: A4 should_wait A3",
+    "missing A3 1",
     |v| {
         row(v, "A4", "should_wait")["to"] = json!("A3");
     }
 );
 case!(
     a_blocker_the_owner_holds_at_a_cell_the_graph_lost,
-    "a blocker is held at no such cell: A3",
+    "a blocker is held at no such cell: A9",
     |v| {
         graph(v)["blockers"]["cells"]
             .as_array_mut()
             .unwrap()
-            .push(json!({ "cell": "A3", "holders": ["owner"] }));
+            .push(json!({ "cell": "A9", "holders": ["owner"] }));
     }
 );
 case!(
     a_gate_that_names_a_kind,
-    "an ask carries no kind, and gate D10 names one",
+    "an ask carries no kind, and gate G9 names one",
     |v| {
-        node(v, "D10")["about"] = json!("split");
+        gated(v);
+        node(v, "G9")["about"] = json!("split");
     }
 );
 // A flow from before asks lost their kinds, as at an older commit, is still shown: its kinds of question, the kind its
@@ -401,7 +512,8 @@ fn a_flow_from_before_asks_lost_their_kinds_is_shown_and_does_not_run() {
             0,
             json!({ "name": "kind", "title": "Kind", "type": "enum", "desc": "Which kind", "values": "askKinds" }),
         );
-    node(&mut v, "D10")["about"] = json!("an_old_kind");
+    gated(&mut v);
+    node(&mut v, "G9")["about"] = json!("an_old_kind");
     let text = serde_json::to_string(&v).unwrap();
     let shown = flow::compile_shown(&text, &context()).unwrap();
     let ask = shown
@@ -473,9 +585,9 @@ case!(
 );
 case!(
     an_effort_on_a_cell_that_is_not_an_agent,
-    "only an agent runs at an effort: T7",
+    "only an agent runs at an effort: M1",
     |v| {
-        node(v, "T7")["effort"] = json!("high");
+        node(v, "M1")["effort"] = json!("high");
     }
 );
 case!(
@@ -488,9 +600,9 @@ case!(
 // A row opens a new session only into an agent's cell: an engine's step has no session.
 case!(
     a_new_session_into_an_engine_step,
-    "a row opens a new session into a cell that is not an agent's: T4 done",
+    "a row opens a new session into a cell that is not an agent's: T4 clear",
     |v| {
-        row(v, "T4", "done")["do"] = json!(["open_session"]);
+        row(v, "T4", "clear")["do"] = json!(["open_session"]);
     }
 );
 case!(
@@ -518,7 +630,8 @@ case!(
 
 // Every return takes one row.
 case!(two_rows_hold_together, "overlap", |v| {
-    row(v, "T7", "review_again")["if"] = json!([["is", "plan.review", ["changed", "disputes"]]]);
+    let clear = row(v, "T4", "clear")["if"].clone();
+    row(v, "T4", "fix_again")["if"] = clear;
 });
 case!(no_row_holds, "no row", |v| {
     remove_row(v, "M1", "wait");
@@ -538,13 +651,14 @@ case!(a_recorded_value_nobody_reads, "never read", |v| {
     row(v, "A2", "answered")["sets"] = json!({ "extra": "x" });
 });
 case!(a_row_no_return_takes, "never taken", |v| {
-    row(v, "D8", "no")["if"]
+    row(v, "T3", "clear")["if"]
         .as_array_mut()
         .unwrap()
-        .push(json!(["inp", "other_projects", ["yes"]]));
+        .push(json!(["is", "must_fix.verdict", ["yes"]]));
 });
 case!(a_value_no_way_records, "never taken", |v| {
-    obj(row(v, "I1", "done")).remove("sets");
+    obj(row(v, "R1", "start")).remove("sets");
+    obj(row(v, "D3", "posted")).remove("sets");
 });
 case!(a_cell_asked_again_while_it_waits, "asked again", |v| {
     node(v, "A1")["out"][0]["fields"].as_array_mut().unwrap().push(json!({
@@ -566,8 +680,8 @@ case!(
         );
     }
 );
-case!(the_design_never_asked_about_other_projects, "unreached D8", |v| {
-    node(v, "D7")["to"] = json!("D10");
+case!(a_design_never_reviewed, "unreached D3", |v| {
+    row(v, "D2", "done")["to"] = json!("I1");
 });
 
 // A cell whose rows test a value the engine works out lists what it is worked out from.
@@ -600,22 +714,61 @@ case!(an_interjection_at_an_engine_step_with_no_counter, "no counter", |v| {
     obj(row(v, "M1", "interjection")).remove("counts");
 });
 
+// The cell a work on an older flow version comes to is a cell of the graph, which the engine brings a work to and no
+// row does, and whose rows only take it back to where it stopped, keep it there or end it at the end for a work stopped
+// before its end, which no other row leads to; only an engine's cell pauses a work by a row.
+case!(
+    a_cell_for_an_older_version_that_is_not_there,
+    "no such cell for a work on an older flow version",
+    |v| {
+        graph(v)["version"] = json!("V9");
+    }
+);
+case!(
+    a_row_from_the_cell_for_an_older_version_to_another_cell,
+    "keep it there or end it at the end for a work stopped before its end: V1",
+    |v| {
+        row(v, "V1", "went_back")["to"] = json!("T1");
+    }
+);
+case!(
+    a_row_into_the_end_for_a_work_stopped_before_its_end,
+    "no row leads to the end for a work stopped before its end but one of the cell for a work on an older flow version",
+    |v| {
+        row(v, "T6", "done")["to"] = json!("C1");
+    }
+);
+case!(
+    a_row_into_the_cell_for_an_older_version,
+    "no row leads to the cell for a work on an older flow version",
+    |v| {
+        row(v, "T6", "done")["to"] = json!("V1");
+    }
+);
+case!(
+    a_row_of_an_agent_s_cell_that_pauses,
+    "only an engine's cell has a row that pauses the work: I1",
+    |v| {
+        rows(v, "I1")[0]["pauses"] = json!(true);
+    }
+);
+
 // Every row into a block goes to an entry.
 case!(
     a_row_into_the_asking_part_past_the_cells_that_are_asked,
     "side entry",
     |v| {
-        node(v, "D6")["to"] = json!("A4");
+        row(v, "D1", "done")["to"] = json!("A4");
     }
 );
 case!(a_row_into_another_block_past_its_entries, "side entry", |v| {
-    row(v, "D11", "needed")["to"] = json!("T1");
+    row(v, "R1", "start")["to"] = json!("T2");
 });
 case!(
     a_row_into_the_receiving_cell_not_marked_as_taking_an_interjection,
     "side entry",
     |v| {
-        obj(row(v, "T7", "interjection")).remove("interject");
+        obj(row(v, "M1", "cancelled")).remove("interject");
     }
 );
 
@@ -650,7 +803,7 @@ case!(
 );
 case!(
     a_field_every_agent_return_has_with_no_title,
-    "a return field with no title: G1 progress",
+    "a return field with no title: R0 progress",
     |v| {
         obj(&mut v["shapes"]["progress_form"]).remove("title");
     }
@@ -676,7 +829,7 @@ case!(
     a_way_on_for_no_row_on_an_input_that_is_no_table,
     "only a numbered table says where the work goes when it has no row",
     |v| {
-        node(v, "T6")["inputs"][1]["empty"] = json!({ "to": "T7", "note": "Nothing." });
+        node(v, "T6")["inputs"][1]["empty"] = json!({ "to": "T4", "note": "Nothing." });
     }
 );
 // Which way a work goes is a cell of its own with a row each way: a cell of a flow that runs needs nothing to apply,
@@ -684,11 +837,12 @@ case!(
 #[test]
 fn a_cell_that_needs_something_to_apply_is_only_shown() {
     let edit = |v: &mut Value| {
-        node(v, "D5")["needs"] = json!("flow_feedback");
+        gated(v);
+        node(v, "G9")["needs"] = json!("flow_feedback");
     };
     refused(
         edit,
-        "cell D5 needs something to apply, which a cell of its own with a row each way decides",
+        "cell G9 needs something to apply, which a cell of its own with a row each way decides",
     );
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     edit(&mut v);
@@ -714,71 +868,37 @@ case!(
         graph(v)["agentCommon"]["lines"] = json!({ "ask": ["engineer"] });
     }
 );
-// The re-review reads its own last findings too, so both reads go.
+// The fix reads what adversarial testing did: the directions it took, what it wrote and what it suspects. Reading only
+// part of it drops the rest.
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
-    drop_source(v, "T6", json!(["T4", "columns[findings]"]));
-    drop_source(v, "T4", json!(["T4", "columns[findings]"]));
+    drop_source(v, "T6", json!(["T1", "directions"]));
 });
-case!(a_reason_on_a_withdrawn_finding_nobody_reads, "dropped", |v| {
-    let previous = node(v, "T4")["out"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find(|f| f["name"] == "previous")
-        .unwrap();
-    let branch = previous["item"]["branches"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find(|b| b["value"] == "withdraw")
-        .unwrap();
-    branch["fields"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({ "name": "reason", "type": "text", "desc": "x" }));
+case!(what_adversarial_testing_suspects_read_by_nobody, "nobody reads", |v| {
+    drop_source(v, "T6", json!(["T1", "suspects"]));
 });
-case!(the_blind_round_read_by_nobody, "nobody reads", |v| {
-    node(v, "T4")["inputs"].as_array_mut().unwrap().remove(1);
-});
-case!(the_blind_conclusions_on_a_report_read_by_nobody, "nobody reads", |v| {
-    drop_source(v, "T4", json!(["T3", "conclusions"]));
-    obj(node(v, "T3")).remove("checks");
-});
-case!(
-    a_fix_that_never_hears_the_merge_broke_main,
-    "nobody reads main[broken_by_merge]",
-    |v| {
-        drop_source(v, "T6", json!(["L1", "main[broken_by_merge]"]));
-    }
-);
 case!(
     an_answer_to_an_engine_step_that_the_step_does_not_read,
     "nobody reads reply.text",
     |v| {
         node(v, "X1")["inputs"].as_array_mut().unwrap().pop();
-        drop_source(v, "T4", json!(["A2", "reply"]));
     }
 );
 
 // Nothing missing.
+// The design, which the implementation straight from the research has not, is taken as one it always has.
 case!(an_input_missing_on_some_way, "missing", |v| {
-    let x = node(v, "M1")["inputs"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find(|x| x["id"] == "re")
-        .unwrap();
-    obj(x).remove("maybe");
+    obj(input(v, "I1", "The design")).remove("maybe");
 });
 case!(an_input_marked_maybe_that_is_always_there, "marked maybe", |v| {
-    node(v, "T4")["inputs"][3]["maybe"] = json!(true);
+    input(v, "T3", "The first pass's findings")["maybe"] = json!(true);
 });
-// The fix's table, which a change asked at the way on may leave empty, is taken as one it must always have a row of.
+// The fix's table, which on the way from an interjection at the merge's judge holds only the change the way on asked,
+// is taken as one it must always have a row of without the reviews' findings and that change.
 case!(an_input_missing_behind_an_engine_step, "missing", |v| {
     obj(&mut node(v, "T6")["inputs"][0]).remove("maybe");
     drop_source(v, "T6", json!(["A4", "next.change"]));
-    drop_source(v, "T6", json!(["T4", "previous[not_fixed]"]));
-    drop_source(v, "T6", json!(["T4", "previous[insist]"]));
+    drop_source(v, "T6", json!(["T2", "findings"]));
+    drop_source(v, "T6", json!(["T3", "findings"]));
 });
 
 // A rule given with an input goes with it: a cell given the policy, in force or being set, is given what a policy
@@ -820,7 +940,7 @@ case!(
     |v| {
         let input = json!({
             "name": "Where the history is",
-            "what": "The database's read-only address and the project's checkout",
+            "what": "The database's read-only address and the directory your git runs in",
             "from": [{ "engine": "history_sources" }]
         });
         node(v, "T4")["inputs"].as_array_mut().unwrap().push(input);

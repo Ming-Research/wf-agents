@@ -71,12 +71,25 @@ pub fn at_main(checkout: &Path, dir: &Path, main: &str) -> Result<String, String
     head(dir)
 }
 
-/// Removes a work's worktree; its branch stays.
+/// Removes a work's worktree; its branch stays. A worktree already gone is what the removal is for: a directory that is
+/// not there, or one that is no worktree of the checkout, such as another checkout's, is left as it is, where git would
+/// answer that it is not a working tree.
 pub fn remove_worktree(checkout: &Path, dir: &Path) -> Result<(), String> {
-    if dir.exists() {
+    if dir.exists() && is_worktree_of(checkout, dir)? {
         git(checkout, &["worktree", "remove", "--force", &dir.to_string_lossy()])?;
     }
     Ok(())
+}
+
+/// Whether a directory that is there is one of the worktrees git lists for the checkout, each by its real path; asked
+/// of git's list rather than read from what it answers, which is in the language of the machine's locale.
+fn is_worktree_of(checkout: &Path, dir: &Path) -> Result<bool, String> {
+    let dir = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let listed = git(checkout, &["worktree", "list", "--porcelain"])?;
+    Ok(listed
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .any(|p| std::fs::canonicalize(p).is_ok_and(|p| p == dir)))
 }
 
 pub fn head(dir: &Path) -> Result<String, String> {
@@ -265,6 +278,60 @@ mod tests {
         std::fs::write(dir.join("b"), "new").unwrap();
         assert_eq!(handed_in(&dir, &second), Err(Unfit::Uncommitted));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A worktree already gone is a removal done, never one to try again: a directory not there, one that is no
+    // worktree, and another checkout's worktree, which stays as it is; a worktree of the checkout is removed, and once
+    // removed is done with.
+    #[test]
+    fn a_worktree_already_gone_is_removed() {
+        let root = std::env::temp_dir().join(format!("wf-agents-sessions-remove-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let run = |dir: &Path, args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        let repo = |name: &str| {
+            let dir = root.join(name);
+            run(&root, &["init", "-q", &dir.to_string_lossy()]);
+            std::fs::write(dir.join("a"), "1").unwrap();
+            run(&dir, &["add", "-A"]);
+            run(&dir, &["commit", "-q", "-m", "one"]);
+            dir
+        };
+        let (checkout, other) = (repo("checkout"), repo("other"));
+        let own = root.join("worktrees").join("own");
+        let others = root.join("worktrees").join("others");
+        run(
+            &checkout,
+            &["worktree", "add", "-q", "-b", "own", &own.to_string_lossy()],
+        );
+        run(
+            &other,
+            &["worktree", "add", "-q", "-b", "others", &others.to_string_lossy()],
+        );
+        let plain = root.join("worktrees").join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert_eq!(remove_worktree(&checkout, &root.join("worktrees").join("none")), Ok(()));
+        assert_eq!(remove_worktree(&checkout, &plain), Ok(()));
+        assert!(plain.exists());
+        assert_eq!(remove_worktree(&checkout, &others), Ok(()));
+        assert!(others.join("a").exists());
+        assert_eq!(remove_worktree(&checkout, &own), Ok(()));
+        assert!(!own.exists());
+        assert_eq!(remove_worktree(&checkout, &own), Ok(()));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // A worktree that only reads is made detached at main where an empty directory stood, and each time after is

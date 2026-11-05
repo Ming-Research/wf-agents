@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
+use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, earlier_on, head, is_path, resolve};
 use crate::format::{
     Always, Atom, Branches, Check, Choice, Do, Empty, FRESH_SESSION, Flow, Form, Input, Kind, NOTHING_TO_ANSWER, Node,
     NodeKind, OPEN_SESSION, PromptBy, RawBranch, RawField, RawRow, ReadBy, Role, Rule, Source, Src,
@@ -85,6 +85,8 @@ pub(crate) struct Row {
     pub common: bool,
     pub counts: Option<String>,
     pub waits: bool,
+    /// The row pauses the work and tells the owner.
+    pub pauses: bool,
     /// A row that waits no longer than an installation's setting says, the cell taking another row once it ran out.
     pub bounded: bool,
     pub interject: bool,
@@ -153,8 +155,12 @@ pub(crate) struct Graph<'s> {
     pub at: BTreeMap<String, usize>,
     pub start: usize,
     pub end: usize,
-    /// The end a work cancelled or taken over ends at, which no row leads to.
+    /// The end a work stopped before its end ends at, which no row leads to but one of the cell for a work on an older
+    /// flow version.
     pub cancel: Option<usize>,
+    /// The cell a work on an older flow version comes to when this version cannot take it on where it stands, which
+    /// no row leads to.
+    pub version: Option<usize>,
     pub region: BTreeSet<usize>,
     pub receive: Option<usize>,
     /// The cells with a row back to the caller or the asker.
@@ -373,6 +379,16 @@ impl<'s> Graph<'s> {
 
         // The forms one return may hold.
         let common_out: Vec<RawField> = common.out.iter().map(|f| shapes.merged(f)).collect::<Result<_, _>>()?;
+        // A return in a form every return shares, or what every return holds beside its form, is never compared when
+        // a work moves to another version but as the last return of the cell that asked: none of it names what it
+        // was earlier.
+        for f in &common_out {
+            ensure!(
+                !names_earlier(&shapes, f)?,
+                "a field every agent's return has names what it was earlier: {}",
+                f.name.as_deref().unwrap_or_default()
+            );
+        }
         let common_names: Vec<String> = common_out.iter().map(|f| f.name.clone().unwrap_or_default()).collect();
         ensure!(
             ret.forms.iter().filter(|f| f.own).count() == 1,
@@ -608,6 +624,7 @@ impl<'s> Graph<'s> {
                             actions: Some(h.actions.clone()),
                             counts: Some(h.counts.clone()),
                             waits: None,
+                            pauses: None,
                             until: None,
                             interject: None,
                             main: None,
@@ -623,6 +640,7 @@ impl<'s> Graph<'s> {
                             actions: r.actions.clone(),
                             counts: Some(flow.asking.counts.clone()),
                             waits: None,
+                            pauses: None,
                             until: None,
                             interject: None,
                             main: None,
@@ -754,6 +772,12 @@ impl<'s> Graph<'s> {
                     "only a row that waits has a setting that bounds the wait: {nid} {}",
                     r.name
                 );
+                let pauses = r.pauses.unwrap_or(false);
+                ensure!(
+                    !pauses || n.kind == NodeKind::Engine,
+                    "only an engine's cell has a row that pauses the work: {nid} {}",
+                    r.name
+                );
                 let interject = r.interject.unwrap_or(false);
                 // Or, from a cell that answers the cell that asked, back to it: through choosing the way on for an
                 // agent of its line.
@@ -781,6 +805,7 @@ impl<'s> Graph<'s> {
                     common: is_common,
                     counts: r.counts,
                     waits,
+                    pauses,
                     bounded: r.until.is_some(),
                     interject,
                     actions: r.actions.unwrap_or_default(),
@@ -986,6 +1011,67 @@ impl<'s> Graph<'s> {
             cancel.is_none_or(|x| x != end && cells[x].kind == CellKind::Engine && cells[x].step.is_some()),
             "the end for a work cancelled is an engine's step of its own"
         );
+        let version = flow
+            .version
+            .as_deref()
+            .map(idx)
+            .transpose()
+            .map_err(|e| format!("no such cell for a work on an older flow version: {e}"))?;
+        // The engine brings a work there from wherever it stands, and the rows take it back to the cell it goes back
+        // to, keep it where it is or end it at the end for a work stopped before its end: no row leads in, so the walk
+        // never reaches it, and these are all its rows say.
+        let cancel_id = cancel.map(|x| cells[x].id.clone());
+        if let Some(v) = version {
+            let c = &cells[v];
+            ensure!(
+                v != start
+                    && v != end
+                    && Some(v) != cancel
+                    && c.kind == CellKind::Engine
+                    && c.step.is_some()
+                    && !c.rows.is_empty()
+                    && c.rows
+                        .iter()
+                        .all(|r| r.to == "@stopped" || r.to == "@self" || Some(&r.to) == cancel_id.as_ref()),
+                "the cell for a work on an older flow version is an engine's step of its own, whose rows go back to \
+                 where the work stopped, keep it there or end it at the end for a work stopped before its end: {}",
+                c.id
+            );
+            let into: Vec<String> = cells
+                .iter()
+                .flat_map(|m| {
+                    m.rows
+                        .iter()
+                        .filter(|r| r.to == c.id)
+                        .map(move |r| format!("{} {}", m.id, r.name))
+                })
+                .collect();
+            ensure!(
+                into.is_empty(),
+                "no row leads to the cell for a work on an older flow version: {into:?}"
+            );
+        }
+        // The engine ends a work at the end for a work stopped before its end from wherever it stands, and the cell for
+        // a work on an older flow version brings one there by a row, whose step the engine runs at once: no other row
+        // leads in, since a work brought there by another would stand at an end that did not end it.
+        if let Some(x) = cancel {
+            let into: Vec<String> = cells
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| Some(*i) != version)
+                .flat_map(|(_, m)| {
+                    m.rows
+                        .iter()
+                        .filter(|r| r.to == cells[x].id)
+                        .map(move |r| format!("{} {}", m.id, r.name))
+                })
+                .collect();
+            ensure!(
+                into.is_empty(),
+                "no row leads to the end for a work stopped before its end but one of the cell for a work on an older \
+                 flow version: {into:?}"
+            );
+        }
         for (i, c) in cells.iter_mut().enumerate() {
             ensure!(
                 c.rows.is_empty() == (i == end || Some(i) == cancel),
@@ -1037,6 +1123,15 @@ impl<'s> Graph<'s> {
             }
         }
         for l in &flow.sessions.lines {
+            // A line forks from another line of the graph, which forks from none: a fork of a fork would hold what
+            // neither the base nor it was given.
+            if let Some(base) = &l.forks {
+                ensure!(
+                    base != &l.name && flow.sessions.lines.iter().any(|b| &b.name == base && b.forks.is_none()),
+                    "a line forks from no other line of its graph that forks from none: {} forks {base}",
+                    l.name
+                );
+            }
             // Where the line goes when its session would start afresh: a cell, from cells of the line.
             if let Some(a) = &l.anew {
                 ensure!(
@@ -1193,19 +1288,19 @@ impl<'s> Graph<'s> {
         }
         // A cell at no stage asks, answers or runs tools for another: it goes on only back to a cell the engine
         // keeps track of, into the asking part, or to a cell that answers it, as waiting for the owner's Start after a
-        // pause does.
+        // pause does; or it ends the work at the end for a work stopped before its end, as the cell for a work on an
+        // older flow version may.
         let answers: BTreeSet<usize> = cells
             .iter()
             .enumerate()
             .filter(|(_, c)| !c.rows.is_empty() && c.rows.iter().all(|r| r.target == Target::Caller))
             .map(|(i, _)| i)
             .collect();
+        let kept = |t: usize| region.contains(&t) || answers.contains(&t) || Some(t) == cancel;
         for (i, c) in cells.iter().enumerate() {
             let ok = stage.contains_key(&i)
                 || region.contains(&i)
-                || c.rows
-                    .iter()
-                    .all(|r| !matches!(r.target, Target::Cell(t) if !region.contains(&t) && !answers.contains(&t)));
+                || c.rows.iter().all(|r| !matches!(r.target, Target::Cell(t) if !kept(t)));
             ensure!(ok, "a cell at no stage that goes on by itself: {}", c.id);
         }
         let mut into: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
@@ -1235,6 +1330,7 @@ impl<'s> Graph<'s> {
             start,
             end,
             cancel,
+            version,
             region,
             receive,
             called,
@@ -1366,6 +1462,18 @@ impl<'s> Graph<'s> {
             let mut sw = c.out.clone();
             sw.extend(pseudo);
             let paths = c.paths_named(false);
+            // A row takes a return as it is handed in now: a field that names what it was earlier, which a return a
+            // work carries from then may hold otherwise, is read by no row's condition.
+            for r in &c.rows {
+                let mut read = Vec::new();
+                atom_paths(&r.atoms, false, &mut read);
+                if let Some((p, f)) = read.iter().find_map(|p| earlier_on(&sw, p).map(|f| (p, f))) {
+                    return Err(format!(
+                        "a row's condition reads a field that names what it was earlier: {} {} {p} ({f})",
+                        c.id, r.name
+                    ));
+                }
+            }
             let c = &mut self.cells[ci];
             c.sw = sw;
             c.reads_all = reads_all;
@@ -1521,6 +1629,31 @@ fn blockers(flow: &Flow, cells: &[Cell], at: &BTreeMap<String, usize>) -> Result
 /// no stop on a blocker.
 const WAIT_FOR_START: &str = "wait_for_start";
 
+/// Whether a field, or one it holds at any depth, names what it was earlier.
+fn names_earlier(shapes: &Shapes, x: &RawField) -> Result<bool, String> {
+    let x = shapes.merged(x)?;
+    if x.earlier.is_some() {
+        return Ok(true);
+    }
+    let branches = match &x.branches {
+        Some(crate::format::Branches::List(bs)) => bs.iter().flat_map(|b| &b.fields).collect(),
+        _ => Vec::new(),
+    };
+    for y in x
+        .fields
+        .iter()
+        .flatten()
+        .chain(x.common.iter().flatten())
+        .chain(x.item.as_deref())
+        .chain(branches)
+    {
+        if names_earlier(shapes, y)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Whether a field holds, at any depth, a union whose branches are `what`.
 fn asks_for(shapes: &Shapes, x: &RawField, what: &str) -> Result<bool, String> {
     let x = shapes.merged(x)?;
@@ -1589,6 +1722,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate) -> Result<Node, String> {
             actions: None,
             counts: None,
             waits: None,
+            pauses: None,
             until: None,
             interject: None,
             main: Some(true),

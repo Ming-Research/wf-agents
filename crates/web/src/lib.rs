@@ -32,6 +32,8 @@ mod built {
     include!(concat!(env!("OUT_DIR"), "/page.rs"));
 }
 
+mod cost;
+
 /// The most of a kept file the interface hands out.
 const FILE_MAX: u64 = 4 * 1024 * 1024;
 
@@ -142,6 +144,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/flows/sources", get(flow_sources))
         .route("/api/v1/flows/lines", get(flow_lines))
         .route("/api/v1/flows/at", get(flow_at))
+        .route("/api/v1/flows/cost", get(flow_cost))
         .route("/api/v1/flows/diff", get(flow_diff))
         .route("/api/v1/flows/{id}", get(flow))
         .route("/api/v1/flows/{id}/view", get(flow_view))
@@ -180,6 +183,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/architect/start", post(start_architect))
         .route("/api/v1/architect/pause", post(pause_architect))
+        .route("/api/v1/projects/{project}/hold", post(hold_starts))
+        .route("/api/v1/projects/{project}/hold/release", post(release_hold))
         .route("/api/v1/observations", get(observations))
         .route("/api/v1/observations/{id}/close", post(close_observation))
         .route("/api/v1/files/{dir}/{name}", get(file))
@@ -475,6 +480,24 @@ async fn flow_at(State(app): State<App>, Query(q): Query<At>) -> Result<Json<api
             view: api::view(&compiled),
             compiled: (*compiled).clone(),
         })
+    })
+    .await
+    .map(Json)
+}
+
+/// What installing the flow as `flow/flow.json` is at a git ref of a project's checkout would do with each work that is
+/// neither ended nor done, as `wf-agents flow cost` tells it for the same file: judged by this program's engine and its
+/// database definition, not the ones of the commit the flow is read at, so a flow that does not compile against them,
+/// or does not fit the committed configuration, is refused with the compiler's words (422).
+async fn flow_cost(State(app): State<App>, Query(q): Query<At>) -> Result<Json<api::FlowCost>, Fail> {
+    read(&app, move |_, a| {
+        let checkout = checkout_of(&a.data, &q.project)?;
+        let text = api::flow_text(&checkout, &q.rev)?;
+        let costed = engine::flow_cost::of_text(&a.data, &text).map_err(|e| match e {
+            engine::flow_cost::Refused::Flow(why) => api::Error::Invalid(why),
+            engine::flow_cost::Refused::Data(why) => api::Error::Failed(why),
+        })?;
+        Ok(cost::flow_cost(&costed.cost))
     })
     .await
     .map(Json)
@@ -877,6 +900,31 @@ async fn pause_architect(State(app): State<App>, Query(q): Query<OfProject>) -> 
     app.control.pause(&api::Fresh::Architect(project.clone()));
     tell_status(&app);
     decide(&app, move |db| api::pause_architect(db, &project)).await
+}
+
+/// Holds a project's new starts, as the owner, saying why: the engine starts no new work on the project from its next
+/// look, and works already running go on. It is the project's own hold, apart from Pause all, which it does not touch.
+async fn hold_starts(
+    State(app): State<App>,
+    Path(project): Path<String>,
+    Json(h): Json<api::HoldStarts>,
+) -> Result<Json<api::Done>, Fail> {
+    let (project, c) = project_of(&app, &OfProject { project: Some(project) })?;
+    decide(&app, move |db| api::hold_starts(db, &c, Some(project.as_str()), &h.why)).await
+}
+
+/// Releases a hold on a project's new starts, as the owner, whoever held: the owner, the architect, or the architect
+/// setting the project straight.
+async fn release_hold(
+    State(app): State<App>,
+    Path(project): Path<String>,
+    Json(r): Json<api::ReleaseHold>,
+) -> Result<Json<api::Done>, Fail> {
+    let (project, c) = project_of(&app, &OfProject { project: Some(project) })?;
+    decide(&app, move |db| {
+        api::release_hold(db, &c, Some(project.as_str()), &r.reason)
+    })
+    .await
 }
 
 /// Writes what the owner decided, then wakes the engine's loop.

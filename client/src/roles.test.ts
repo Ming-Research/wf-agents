@@ -16,7 +16,7 @@ import rolesCss from './styles/roles.css?raw';
 
 /// Every colour the flow may give a line, which TypeScript holds to the colours the flow's compiler knows: a colour
 /// added there and not here, or here and not there, does not type-check.
-const KNOWN: Record<Colour, true> = { blue: true, teal: true, auburn: true, pink: true, purple: true, indigo: true, green: true, brown: true, cyan: true };
+const KNOWN: Record<Colour, true> = { blue: true, teal: true, auburn: true, pink: true, purple: true, indigo: true, green: true, brown: true, cyan: true, plum: true };
 
 /// The declarations of a rule in a stylesheet, by property, its comments left out.
 function rule(stylesheet: string, selector: string): Map<string, string> {

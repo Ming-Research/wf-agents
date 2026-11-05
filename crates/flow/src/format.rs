@@ -182,6 +182,21 @@ pub struct RawField {
     pub by: Option<String>,
     /// The fewest items a list holds.
     pub min: Option<u32>,
+    /// What a return handed in on an earlier flow version may hold here instead, for a work that carries it to move to
+    /// this version without doing the cell again: `absent`, for a field it did not have, or the field's shape then
+    /// (which may itself be optional). No agent is asked for it: a return handed in now holds the field as it is now.
+    /// A field of a cell's own answer only, never one every agent's return has, nor a list's item absent; no row's
+    /// condition reads it, and the engine's code and checks that read it take what it was earlier as well. It is taken
+    /// out of the flow once no work under way carries such a return.
+    pub earlier: Option<RawEarlier>,
+}
+
+/// A field as a return handed in on an earlier flow version may hold it: `absent`, or the shape it had then.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum RawEarlier {
+    Named(String),
+    Shape(Box<RawField>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -231,9 +246,16 @@ pub struct Flow {
     /// The cell a work starts at, and the one it ends at.
     pub start: String,
     pub end: String,
-    /// The end a work cancelled or taken over at any cell ends at: the engine ends it there, from wherever it stands,
-    /// so that no row leads to it; the work keeps the cell it stopped at.
+    /// The end a work stopped before its end ends at. A work cancelled or taken over at any cell ends there: the engine
+    /// ends it, from wherever it stands, and the work keeps the cell it stopped at. A row of the cell for a work on an
+    /// older flow version (`version`) may bring one there, and no other row: the engine runs its step at once, which
+    /// ends the work.
     pub cancel: Option<String>,
+    /// The cell a work on an older flow version comes to when this version cannot take it on where it stands: the
+    /// engine brings it there, from wherever it stands, so that no row leads to it, with the cell it goes back to as
+    /// where it stopped; its rows go back there, keep it where it is or end it at the end for a work stopped before its
+    /// end (`cancel`).
+    pub version: Option<String>,
     /// Parts of the graph: a row from one block into another goes to one of that block's entries.
     pub blocks: Vec<Block>,
     /// The lines: an agent's cell on a line resumes the session the line's earlier cells left.
@@ -373,6 +395,10 @@ pub struct EngineCase {
     /// The counter that counts each time the engine takes the case, one of the flow's counters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counts: Option<String>,
+    /// A case that bounds the steps a work takes in a row with no agent's round among them, at whichever cells of its
+    /// graph: how many it may take. Its next step takes the case instead, which pauses it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<u32>,
 }
 
 /// What the engine does once a row that runs a round or a step again has been taken so many times in a row as its
@@ -492,6 +518,10 @@ pub struct Line {
     /// Where the work goes when a new session of the line would start at one of its cells: a row every agent's cell
     /// of the line has, but those it names, which the engine takes itself in place of the cell's round.
     pub anew: Option<Anew>,
+    /// The line whose latest session a new session of this line forks from, so that it holds all that session held
+    /// and is given only what it lacks: a matter's session forked from the architect's base. Each matter a work takes
+    /// has a session of its own on such a line. None for a line whose new sessions start empty.
+    pub forks: Option<String>,
 }
 
 /// A colour a line's role is drawn in on the owner's page (its cells on a chart, its avatar and its bubbles), by the
@@ -510,6 +540,7 @@ pub enum Colour {
     Green,
     Brown,
     Cyan,
+    Plum,
 }
 
 /// The colours the page drew lines in once and does not now, which a flow written then still names: such a flow is read
@@ -965,6 +996,9 @@ pub struct RawRow {
     pub counts: Option<String>,
     /// The row waits for someone, and counts nothing.
     pub waits: Option<bool>,
+    /// The row pauses the work and tells the owner, at an engine's cell that cannot take the work on: once the owner
+    /// lets it go on, the cell runs again.
+    pub pauses: Option<bool>,
     /// For a row that waits, the installation's setting that bounds the wait: the cell takes another row once it ran
     /// out, so that a holder's own graph waits no longer than that, as the architect for the owner's reply in a talk.
     pub until: Option<String>,

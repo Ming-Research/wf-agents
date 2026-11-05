@@ -773,9 +773,16 @@ fn holder_now(
         Some(i) => unmerged(tx, i.id)?,
         None => Vec::new(),
     };
-    let name = if h.cell == crate::open_questions::RULING {
+    let name = if h.cell == crate::review::CELL {
+        crate::review::holder(tx, ctx.work.id)?.to_string()
+    } else if h.cell == crate::open_questions::RULING {
         match crate::open_questions::ruling_due(tx, ctx.work.id, &ctx.within)? {
             "architect" => "architect".to_string(),
+            _ => "owner".to_string(),
+        }
+    } else if h.cell == crate::approval::GATE && waited.is_empty() {
+        match crate::review::waits(tx, ctx.work.id)? {
+            Some("architect") => "architect".to_string(),
             _ => "owner".to_string(),
         }
     } else if h.holders.len() == 1 {
@@ -831,8 +838,17 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
     if let Some(b) = open(tx, w)? {
         if h.waits && b.cell == h.cell {
             if b.holder != holder.holder {
+                let review = h.cell == crate::review::CELL;
                 let why = match holder.holder.as_str() {
                     "items" => "an item it depends on is not merged",
+                    "owner" if review => "the architect reviewed its design, and the owner reviews it next",
+                    "architect" if review => "its design was written again, and the architect reviews it first",
+                    "owner" if h.cell == crate::approval::GATE => {
+                        "every item it depends on is merged, and it waits for the owner's answers before it merges"
+                    }
+                    "architect" if h.cell == crate::approval::GATE => {
+                        "every item it depends on is merged, and the review of its design waits for the architect"
+                    }
                     "architect" if rules => {
                         "the departures of its design left to rule on are all from the architect's own decisions"
                     }
@@ -856,6 +872,7 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
         "items" => "items",
         _ if rules => "ruling",
         "owner" if h.waits => "ruling",
+        "architect" if h.waits => "question",
         "owner" => "owner_ask",
         "advisor" => "question",
         _ if ctx.cell.kind == "agent" => "question",
@@ -876,6 +893,16 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
             "{about} waits, before it implements, for the ruling on where its design departs from decisions of its \
              item, by whoever made each"
         ),
+        "ruling" if h.cell == crate::approval::GATE => {
+            format!("{about} waits for the owner's answers it asked for before it merges")
+        }
+        "question" if h.cell == crate::approval::GATE => {
+            format!("{about} waits for the architect's review of its design before it merges")
+        }
+        "ruling" if h.cell == crate::review::CELL => format!("{about} waits for the owner's review of its design"),
+        "question" if h.cell == crate::review::CELL => {
+            format!("{about} waits for the architect's review of its design at the project's level")
+        }
         "ruling" => format!("{about} waits for the answers to its open questions to merge"),
         "tool_failure" => {
             let tools: Vec<String> = ctx.unwrapped["failed"]

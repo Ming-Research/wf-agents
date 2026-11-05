@@ -1,0 +1,172 @@
+//! The way of a work through deep research and the review of its design, which the work does not wait for, the owner's
+//! approvals at the merge gate, and the branch brought to main before the cells that read what main changed.
+
+use super::*;
+
+/// The line of the session a work's first round at a cell ran in.
+fn line_at(e: &Engine, work: i64, cell: &str) -> String {
+    e.db.conn()
+        .query_row(
+            "SELECT s.line FROM rounds r JOIN sessions s ON s.id = r.session WHERE r.work = ?1 AND r.cell = ?2
+             ORDER BY r.n LIMIT 1",
+            params![work, cell],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A work whose research cannot settle its approach goes to deep research, in a session of its own on the designer's
+// line; its design goes to its review, first for the architect, whose matter asks it at the project's level, then for
+// the owner, who is given the design with the architect's comments. The work does not wait for either: it implements
+// in a new session on the engineer's line, and the merge gate waits for the review until the owner replies approved.
+// Its end records how long each stage took and what it cost.
+#[test]
+fn a_design_goes_to_its_review_while_the_work_implements_it_and_the_merge_waits_for_the_answer() {
+    let s = setup("deep-research");
+    let (mut e, said, item) = start(&s, designing());
+    step_to(&mut e, item, "D3");
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(line_at(&e, work, "D1"), "designer");
+    assert_eq!(session_of(&e, work, "D1"), session_of(&e, work, "D2"));
+    assert_ne!(session_of(&e, work, "D1"), session_of(&e, work, "R1"));
+    // The architect is asked, and the work goes on to implement without waiting.
+    step_to(&mut e, item, "I1");
+    assert!(review_matter(&e, work).is_some());
+    assert_eq!(open_ask(&e, work), None);
+    // The merge gate waits for the review, and the architect's reply puts the design to the owner with its comments.
+    step_until(&mut e, item, &said, "the gate's wait", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "approvals")
+    });
+    step_until(&mut e, item, &said, "the owner's ask", |e| open_ask(e, work).is_some());
+    assert!(transitions(&e, item, "M2").is_empty());
+    let (ask, body) = open_ask(&e, work).unwrap();
+    assert_eq!(body["kind"], "design_review", "{body}");
+    assert!(body["asked"][1]["value"]["text"].is_string(), "{body}");
+    assert!(body["asked"][0]["value"]["design"].is_object(), "{body}");
+    owner_answers(&mut e, ask, "approved");
+    step_until(&mut e, item, &said, "the merge", |e| {
+        transitions(e, item, "M2").iter().any(|t| t == "merged")
+    });
+    assert_eq!(line_at(&e, work, "I1"), "engineer");
+    assert_ne!(session_of(&e, work, "I1"), session_of(&e, work, "R1"));
+    assert_eq!(transitions(&e, item, "D3"), ["posted"]);
+    let mut gate = transitions(&e, item, "M1");
+    gate.dedup();
+    assert_eq!(gate, ["approvals", "clear"]);
+    step_until(&mut e, item, &said, "the end", |e| ended_at(e, item, "E1").len() == 1);
+    let numbers = &output_at(&e, work, "E1")["numbers"];
+    let stages: Vec<&str> = numbers["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|x| x["stage"].as_str())
+        .collect();
+    for stage in ["research", "design", "implement", "test", "merge"] {
+        assert!(stages.contains(&stage), "{numbers}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's answer to the review of a design, when it is not approved, reaches the engineer at once as the owner's
+// words, which take the work on to choose the way on.
+#[test]
+fn an_answer_to_the_review_other_than_approved_reaches_the_engineer_as_the_owner_s_words() {
+    let s = setup("review-words");
+    let (mut e, said, item) = start(&s, designing());
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let matter = review_matter(&e, work).unwrap();
+    architect_replies(&mut e, matter, "It fits the plan.");
+    step_until(&mut e, item, &said, "the owner's ask", |e| open_ask(e, work).is_some());
+    let (ask, _) = open_ask(&e, work).unwrap();
+    owner_answers(&mut e, ask, "Keep the old cache.");
+    let relayed: String =
+        e.db.conn()
+            .query_row(
+                "SELECT text FROM interjections WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(relayed.ends_with("Keep the old cache."), "{relayed}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The output of a work's last round at a cell.
+fn output_at(e: &Engine, work: i64, cell: &str) -> Value {
+    let output: String =
+        e.db.conn()
+            .query_row(
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n DESC LIMIT 1",
+                params![work, cell],
+                |r| r.get(0),
+            )
+            .unwrap();
+    serde_json::from_str(&output).unwrap()
+}
+
+// A change under a path the project has the owner approve is put to the owner once the branch touches it, naming the
+// files, and waits at the merge gate for the answer. An answer other than approved goes to the engineer as the owner's words, and the work chooses the way on;
+// carried on, it comes back to the gate, which asks again, and the reply approved lets the work merge.
+#[test]
+fn a_change_the_owner_approves_waits_at_the_merge_gate_until_the_owner_replies_approved() {
+    let s = setup("owner-approves");
+    owner_approves_src(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the gate's wait", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "owner_approves")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let (ask, body) = open_ask(&e, work).unwrap();
+    assert_eq!(body["kind"], "change", "{body}");
+    assert_eq!(body["asked"][0]["value"]["files"], json!(["src/lib.txt"]), "{body}");
+    owner_answers(&mut e, ask, "Keep the old line too.");
+    step_until(&mut e, item, &said, "the gate's second ask", |e| {
+        open_ask(e, work).is_some_and(|(id, _)| id != ask)
+    });
+    let relayed: String =
+        e.db.conn()
+            .query_row(
+                "SELECT text FROM interjections WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(
+        relayed.ends_with("the owner replied: Keep the old line too."),
+        "{relayed}"
+    );
+    let (again, _) = open_ask(&e, work).unwrap();
+    owner_answers(&mut e, again, "approved");
+    step_until(&mut e, item, &said, "the merge", |e| {
+        transitions(e, item, "M2").iter().any(|t| t == "merged")
+    });
+    let mut gate = transitions(&e, item, "M1");
+    gate.dedup();
+    assert_eq!(gate, ["owner_approves", "owner_answered", "owner_approves", "clear"]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work comes to the implementation after main moved on: the engine merges main into its branch before the round,
+// and the round is told the files main changed.
+#[test]
+fn the_implementation_is_given_what_main_changed_since_the_branch_took_it() {
+    let s = setup("catch-up");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "I1");
+    main_moves_on(&s.root, &[("docs/new.md", "A new page.\n")], "Add a page");
+    step_until(&mut e, item, &said, "the implementation", |e| {
+        !transitions(e, item, "I1").is_empty()
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let brought = given_value(&message_at(&e, work, "I1", false), "·engine·main_changes").unwrap();
+    assert_eq!(brought, json!({ "merged": true, "files": ["docs/new.md"] }));
+    let wt = worktree_of(&e, work);
+    assert!(wt.join("docs/new.md").exists());
+    let _ = std::fs::remove_dir_all(&s.root);
+}

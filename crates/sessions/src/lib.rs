@@ -33,7 +33,7 @@ use db::rusqlite::Connection;
 
 use flow::{CompiledCell, CompiledGraph};
 
-pub use choose::{On, Plan, Start};
+pub use choose::{Fork, On, Plan, Start};
 pub use held::Held;
 pub use round::{Round, RoundId};
 
@@ -94,7 +94,8 @@ impl Manager {
 
     /// Where a work's next round at a cell runs at `now` ([`choose::plan`]), unless the owner asked for a new session,
     /// which it then starts, recorded as the owner's; the session the line had going on ends as at any new session, and
-    /// is otherwise left as it is. `architect` names the project of a work of its architect's graph.
+    /// is otherwise left as it is. `architect` names the project of a work of its architect's graph; `fork` says, for a
+    /// cell whose line forks, the matter in hand and the base it forks from.
     #[allow(clippy::too_many_arguments)]
     pub fn plan(
         &self,
@@ -105,11 +106,12 @@ impl Manager {
         limit: u64,
         on: On,
         now: i64,
+        fork: Option<&Fork>,
     ) -> Result<Plan, String> {
         if self.asked_new(work, architect) {
             return Ok(Plan::New(Start::Owner));
         }
-        choose::plan(conn, work, cell, limit, on, now)
+        choose::plan(conn, work, cell, limit, on, now, fork)
     }
 
     /// The new session the owner asked for started: the work's next rounds go on in it.
@@ -186,8 +188,8 @@ mod tests {
         let all = flow::formats::common_format(g);
         let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()));
         assert_eq!(of("R1"), of("T6"));
-        assert_eq!(of("T3"), of("T4"));
-        for cell in ["R1", "T3", "T1", "A1"] {
+        assert_eq!(of("T2"), of("T4"));
+        for cell in ["R1", "T2", "T1", "A1"] {
             assert!(of(cell).len() <= all.len(), "{cell}");
         }
         assert!(
@@ -200,15 +202,17 @@ mod tests {
             .map(|c| c.id.as_str())
             .collect();
         assert!(
-            cells.contains(&"T3") && cells.contains(&"T4") && !cells.contains(&"I1"),
+            cells.contains(&"T2") && cells.contains(&"T4") && !cells.contains(&"I1"),
             "{cells:?}"
         );
     }
 
-    // The flow starts the engineer's new sessions at researching, implementing and fixing, the reader's at its first
-    // gathering, and the reviewer's at the blind review, which no plan the reviewer reviewed before may shape.
+    // The flow starts the engineer's new sessions at researching and at implementing a design, the reader's at its
+    // gathering of the background, the deep research's at its first round, the reviewer's at the first pass of the review
+    // and the adversarial tester's at its one round; implementing straight from the research and the fix go on in the
+    // research's session, and implementing starts one afresh each time the review of a design approves it.
     #[test]
-    fn the_engineer_starts_new_sessions_at_researching_implementing_and_fixing() {
+    fn the_engineer_starts_new_sessions_at_researching_and_implementing() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let starts: Vec<&str> = g
@@ -217,6 +221,7 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["G1", "R1", "I1", "T3", "T6"]);
+        assert_eq!(starts, ["R0", "R1", "D1", "T2", "T1"]);
+        assert_eq!(g.cell("I1").unwrap().fresh_session, ["D3·posted"]);
     }
 }

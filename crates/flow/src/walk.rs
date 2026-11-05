@@ -302,8 +302,11 @@ impl Analysis<'_, '_> {
             }
         }
         for (ci, c) in g.cells.iter().enumerate() {
-            // The end for a work cancelled is reached from every cell by the engine, by no row.
-            if Some(ci) == g.cancel {
+            // The end for a work stopped before its end, and the cell for a work on an older flow version, are reached
+            // from every cell by the engine. The second's rows go back to where the work stopped, a cell the walk
+            // reaches already, keep it there or end it at the first: the graph checks their shape, and the walk follows
+            // none of them.
+            if Some(ci) == g.cancel || Some(ci) == g.version {
                 continue;
             }
             if !reached.contains(&ci) {

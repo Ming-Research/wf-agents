@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Compiled, CompiledCell, CompiledGraph, CompiledRow, FlowView, GraphView, JsonValue, RoundDetail, RoundSummary } from './api';
+import { Changes } from './flow/Changes';
 import { flowOf, FlowContext } from './flow/context';
 import { type Lights, LightsContext } from './flow/lights';
 import { Json, ReturnPattern } from './flow/Returns';
@@ -142,6 +143,7 @@ const summary = (n: number, at: string, transition: string | null): RoundSummary
   outcome: 'took',
   transition,
   why: null,
+  set_aside: null,
   started_at: n,
   ended_at: n + 1,
   model: null,
@@ -320,6 +322,7 @@ describe("a cell's panel", () => {
       item: null,
       desc: null,
       optional: false,
+      earlier: null,
       min: null,
       values: [],
       used_by: [],
@@ -341,7 +344,11 @@ describe("a cell's panel", () => {
                 within: 'outcome',
                 forms: [
                   { field: null, fields: [field('take', 'object', { fields: [way] })], used_by: [] },
-                  { field: 'search', fields: [field('search', 'text')], used_by: [] },
+                  {
+                    field: 'search',
+                    fields: [field('search', 'text', { earlier: { was: 'kind', kind: 'list', item: 'text', absent: false } })],
+                    used_by: [],
+                  },
                 ],
                 every: [field('progress', 'text', { optional: true })],
                 used_by: [],
@@ -356,7 +363,34 @@ describe("a cell's panel", () => {
       </FlowContext.Provider>,
     );
     const text = html.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"');
-    expect(text).toBe('{"outcome": one of{"take": {"way": "do_now" | "later"}}{"search": text},"progress": text optional}');
+    expect(text).toBe(
+      '{"outcome": one of{"take": {"way": "do_now" | "later"}}{"search": text earlier returns may hold a list of text},"progress": text optional}',
+    );
     expect(html).toContain('title="At once"');
+  });
+
+  it('says in a comparison what earlier returns may hold at a return field', () => {
+    const side = (earlier: JsonValue) => ({ kind: 'list', item: 'object', desc: 'One row each.', optional: false, earlier, min: null, values: [] });
+    const html = renderToStaticMarkup(
+      <FlowContext.Provider value={f}>
+        <Changes
+          d={{
+            id: 'H8',
+            title: 'Take the matter',
+            status: 'changed',
+            changes: [
+              { part: 'field', key: 'rows', before: side(null), after: side({ was: 'kind', kind: 'text', item: null, absent: false }) },
+              { part: 'field', key: 'note', before: side(null), after: side({ was: 'kind', kind: 'text', item: null, absent: true }) },
+              { part: 'field', key: 'answers', before: side(null), after: side({ was: 'absent' }) },
+            ],
+          }}
+        />
+      </FlowContext.Provider>,
+    );
+    const text = html.replace(/<[^>]+>/g, '');
+    expect(text).toContain('+ list, earlier returns may hold text: One row each.');
+    expect(text).toContain('+ list, earlier returns may lack it: One row each.');
+    expect(text).toContain('+ list, earlier returns may lack it or hold text: One row each.');
+    expect(text).toContain('− list: One row each.');
   });
 });

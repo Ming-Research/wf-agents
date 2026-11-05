@@ -6,7 +6,11 @@
 //! came up in, so the engine tells the owner of it, with the parts of the command line and of its environment that
 //! differ from the session's round before, where a cause most often shows, or that none does; but a miss after what
 //! comes before the session's messages in the prompt changed since that round (the model, the tools the envelope is
-//! given with, the command line's own version) is what the command line does by design, and is no fault.
+//! given with, the command line's own version) is what the command line does by design, and is no fault. Where a
+//! keep-warm ping that recorded its call came after that round, as one that warms an architect's base for its forks
+//! does, the round is compared with the ping's call instead, which is what the cache kept the session under last: a fork
+//! that misses its base after such a ping is a fault, though what it puts before the messages differs from the base's
+//! own last round.
 
 use std::collections::BTreeSet;
 
@@ -52,8 +56,12 @@ pub struct Differs {
 /// A round's miss of its session's prompt cache.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Miss {
-    /// The session's round before, whose command line this round's is compared with.
+    /// The session's round before, whose command line this round's is compared with unless a ping came after it.
     pub before: RoundId,
+    /// The keep-warm ping since the round before whose call this round's is compared with, the latest that recorded
+    /// one: it ran the command line the session's forks run with, not the round's ([`crate::warm::before_fork`]), and
+    /// what the cache kept is what it put before the messages. None when no such ping came since the round before.
+    pub ping: Option<i64>,
     /// How long after the session's last call the round started, in milliseconds.
     pub after_ms: i64,
     /// The tokens the round's first call read from the cache.
@@ -98,6 +106,23 @@ impl Miss {
     pub fn expected(&self) -> bool {
         !self.before_messages().is_empty()
     }
+}
+
+/// What comes before a session's messages in the prompt of a call, as far as its record tells: each part of
+/// [`BEFORE_MESSAGES`] it has, with its value, and the tools `--disallowedTools` takes from the model. A round reads its
+/// session from the prompt cache only where this is what the call before it had: the session's round before, or for a
+/// fork's first round its base's last, which the fork reads from the cache only so.
+pub fn before_messages_of(call: &Value) -> Vec<(String, String)> {
+    let all = parts(call);
+    let mut out: Vec<(String, String)> = all
+        .iter()
+        .filter(|(p, _)| BEFORE_MESSAGES.contains(&p.as_str()))
+        .cloned()
+        .collect();
+    let taken = all.iter().find(|(p, _)| p == TAKEN_TOOLS).map(|(_, v)| v.clone());
+    let taken: Vec<&str> = tools_taken(&taken).into_iter().collect();
+    out.push((TAKEN_TOOLS.to_string(), taken.join(" ")));
+    out
 }
 
 /// The tools a value of `--disallowedTools` takes from the model: its words that name a tool alone, with no rule on how
@@ -159,14 +184,24 @@ pub fn missed(
         return Ok(None);
     }
     let written = held - read;
+    // The call the cache kept the session's prompt under last: a ping's since the round before, when it recorded one,
+    // as a ping that warms an architect's base for its forks does, with what a fork puts before the messages.
+    let since = prev.ended_at.unwrap_or(prev.started_at);
+    let pinged = warm::held_pings(conn, cli_session)?
+        .into_iter()
+        .filter(|p| p.usage.is_some() && p.started_at >= since && p.started_at <= started)
+        .filter_map(|p| Some((p.id, p.call?)))
+        .next_back();
+    let compared = pinged.as_ref().map_or(&prev.input["call"], |(_, c)| c);
     Ok(Some(Miss {
         before: prev.id,
+        ping: pinged.as_ref().map(|(id, _)| *id),
         after_ms,
         read,
         written,
         held,
         cost_usd: model.and_then(|m| cost::rewritten(m, usage, written)),
-        differs: differs(&prev.input["call"], call),
+        differs: differs(compared, call),
     }))
 }
 
@@ -336,6 +371,7 @@ mod tests {
         let before_messages = |now: &Value| -> Vec<String> {
             let miss = Miss {
                 before: RoundId::new(1, 1),
+                ping: None,
                 after_ms: 0,
                 read: 0,
                 written: 1,
@@ -370,6 +406,31 @@ mod tests {
         ] {
             assert!(before_messages(&now).is_empty(), "{now}");
         }
+    }
+
+    // What comes before the messages is told by its parts and their values, which a fork's first round must share with
+    // its base's last: the model, the schema, the command line's version and the tools taken from the model, not the
+    // rules on how a tool may be used, the effort, the hooks or the flag that names the session.
+    #[test]
+    fn what_comes_before_the_messages_is_named_with_its_values() {
+        let named = |xs: &[(&str, &str)]| -> Vec<(String, String)> {
+            xs.iter().map(|(p, v)| (p.to_string(), v.to_string())).collect()
+        };
+        let base = call("high", "2.1.3", "1", true);
+        assert_eq!(
+            before_messages_of(&base),
+            named(&[
+                ("--model", "m"),
+                ("--json-schema", "content abc"),
+                ("the CLI's version", "2.1.3"),
+                ("--disallowedTools", "WebFetch"),
+            ])
+        );
+        let mut fork = call("low", "2.1.3", "2", false);
+        fork["command"][9] = json!("Bash(git push:*)");
+        assert_eq!(before_messages_of(&fork), before_messages_of(&base));
+        fork["command"][5] = json!({ "content": "def" });
+        assert_ne!(before_messages_of(&fork), before_messages_of(&base));
     }
 
     const SONNET: Option<&str> = Some("claude-sonnet-5-5");

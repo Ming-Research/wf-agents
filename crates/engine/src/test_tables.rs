@@ -2,8 +2,9 @@
 //! row for each, `{ name, by, on_head, on_base }` as the tables of adversarial testing have them.
 //!
 //! The engineer writes a test once, as a row of the test changes of a return (`added`, or `extended` for a test that
-//! was there before), with its kind and its two results. The tables are read from those rows here, so that no second
-//! list of the same tests has to agree with the first. A return of a flow version from before holds the tables itself,
+//! was there before), with its kind; the engine reads its two results from the runs of ci and ci_before it recorded
+//! (`checks::with_results`), and a flow version before had the engineer write them in the row. The tables are read from
+//! those rows here, so that no second list of the same tests has to agree with the first. A return of a flow version from before holds the tables itself,
 //! and they are read as they are. Nothing is written back to a return: a return stays as the engineer handed it in.
 
 use serde_json::{Map, Value, json};
@@ -79,7 +80,9 @@ pub fn of_return(ret: &Value) -> Tables {
         let mut row = Map::new();
         row.insert("name".into(), change["test"].clone());
         row.insert("by".into(), json!("engineer"));
-        for k in ["on_head", "on_base"] {
+        // The two results a flow version before had the engineer write; why it cannot run before the change, which the
+        // engineer says where the engine finds no result there.
+        for k in ["on_head", "on_base", "not_before"] {
             if let Some(v) = change.get(k).filter(|v| !v.is_null()) {
                 row.insert(k.into(), v.clone());
             }

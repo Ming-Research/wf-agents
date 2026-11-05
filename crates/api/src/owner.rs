@@ -1,11 +1,12 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
 //! decision card, what the owner says to a work's line, pausing a work and lifting a work's pause, starting a work over,
-//! the switch that keeps waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an
-//! architect, the setting that forwards each new one as it comes, removing a dependency between items, and ending a
-//! talk with an architect. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as
-//! it goes on; a start over is an action of the outbox, which the engine carries out and records as the owner's in the
-//! end it writes. What the owner says to the architect is `db::say_to_architect`. The owner's words and answers may
-//! carry images, kept with them in the same write, and may be images alone.
+//! the switch that keeps waiting sessions warm while every work is paused, holding a project's new starts and releasing
+//! a hold on them, forwarding a fault of wf-agents to an architect, the setting that forwards each new one as it comes,
+//! removing a dependency between items, and ending a talk with an architect. Each is written as the owner, so `changes`
+//! records it as theirs, and the engine reads it as it goes on; a start over is an action of the outbox, which the
+//! engine carries out and records as the owner's in the end it writes. What the owner says to the architect is
+//! `db::say_to_architect`. The owner's words and answers may carry images, kept with them in the same write, and may
+//! be images alone.
 
 use db::attachments::{self, Image, Words};
 use db::rusqlite::{Connection, OptionalExtension, params};
@@ -329,7 +330,8 @@ fn answer_question(
         .query_row(
             "SELECT count(*) FROM rounds p JOIN works w ON w.id = p.work
              WHERE w.graph = 'architect' AND w.ended IS NULL AND p.transition IS NOT NULL
-               AND ?1 IN (json_extract(p.output, '$.outcome.pick.matter'), json_extract(p.output, '$.queue.matter'))",
+               AND ?1 IN (json_extract(p.output, '$.outcome.pick.matter'), json_extract(p.output, '$.queue.matter'),
+                          json_extract(p.output, '$.next.matter'))",
             [matter],
             |r| r.get(0),
         )
@@ -575,16 +577,83 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
         );
         answer["reply"] = reply;
     }
+    let relay = relayed_words(db.conn(), ask, &body, &a.text)?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
             "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
             params![ask, answer.to_string()],
         )?;
         attachments::attach(tx, Words::Ask(ask), &images)?;
+        if let Some((work, text)) = &relay {
+            let declared = answer["speaker"]
+                .as_str()
+                .filter(|s| matches!(*s, "owner" | "delegate"));
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, declared, text) VALUES (?1, 'engineer', 'owner', ?2, ?3)",
+                params![work, declared, text],
+            )?;
+            tx.execute(
+                "UPDATE owner_asks SET body = json_set(body, '$.relayed', ?2) WHERE id = ?1",
+                params![ask, db::now()],
+            )?;
+        }
         Ok(())
     })
     .map_err(sql)?;
     Ok(format!("ask {ask} answered"))
+}
+
+/// The kinds of ask a work goes on past, and what the owner was asked in each: their answers reach the engineer at
+/// once, unless they approve exactly.
+const GONE_ON_PAST: [(&str, &str); 3] = [
+    ("design_review", "the review of the design the work goes on by"),
+    (
+        "points",
+        "the decision points and departures the research left, which the work goes on by as it recommended",
+    ),
+    ("change", "whether the change may merge"),
+];
+
+/// What an answer to an ask its work goes on past says to the engineer, and to which work: none for an answer of
+/// exactly approved, for an ask of another kind, for a work that ended, or where the cell the work waits at takes the
+/// answer in itself: the merge gate the answer of the change it asked, the review's cell on an older version of the
+/// flow the answer of the review.
+fn relayed_words(conn: &Connection, ask: i64, body: &Value, text: &str) -> Result<Option<(i64, String)>, String> {
+    let Some((kind, what)) = GONE_ON_PAST.iter().find(|(k, _)| body["kind"] == *k) else {
+        return Ok(None);
+    };
+    if text.trim() == "approved" {
+        return Ok(None);
+    }
+    let Some(work) = body["work"].as_i64() else {
+        return Ok(None);
+    };
+    let ended: bool = conn
+        .query_row("SELECT ended IS NOT NULL FROM works WHERE id = ?1", [work], |r| {
+            r.get(0)
+        })
+        .optional()
+        .map_err(sql)?
+        .unwrap_or(true);
+    let held_at: Option<String> = conn
+        .query_row(
+            "SELECT cell FROM blockers WHERE ask = ?1 AND ended IS NULL",
+            [ask],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?;
+    let taken_in = matches!(
+        (*kind, held_at.as_deref()),
+        ("change", Some(_)) | ("design_review", Some("D3"))
+    );
+    if ended || taken_in {
+        return Ok(None);
+    }
+    Ok(Some((
+        work,
+        format!("Asked about {what}, the owner answered (ask {ask}): {}", text.trim()),
+    )))
 }
 
 /// Rules on a decision card that is current: the owner confirms the option it recommends, chooses another of its
@@ -936,6 +1005,62 @@ pub fn set_fault_forwarding(db: &mut Db, project: Option<&str>) -> Result<String
         Some(p) => format!("each new fault of wf-agents goes to the architect of {}", p.trim()),
         None => "new faults of wf-agents go to nobody: you forward each or not".into(),
     })
+}
+
+/// Holds a project's new starts, as the owner: the engine starts no new work on the project's items from its next
+/// look on, while works already running go on to their merge and works waiting for a result go on after it. Why is the
+/// owner's words and cannot be empty. The project is named or, when the configuration has one project only, left out;
+/// one the configuration does not have is refused, so that no hold is written for nothing. A hold of the owner's
+/// already there keeps its time and takes the new words. The page and the command line both write it through here.
+pub fn hold_starts(db: &mut Db, config: &config::Config, project: Option<&str>, why: &str) -> Result<String, String> {
+    let project = project_named(config, project)?;
+    let why = why.trim();
+    if why.is_empty() {
+        return Err("holding new starts says why".into());
+    }
+    db.write(Actor::Owner, |tx| {
+        db::hold_starts(tx, &project, db::HoldReason::Owner, Some(why))
+    })
+    .map_err(sql)?;
+    Ok(format!(
+        "new works of {project} do not start; works already running go on"
+    ))
+}
+
+/// Releases a hold on a project's new starts, as the owner, who may release any of the three: their own (`owner`), the
+/// architect's (`architect`) and the architect's to set the project straight (`set_straight`). Refused, saying so, when
+/// the project has no hold of that reason, since nothing was released; the refusal lists the holds the project does
+/// have, for the command line has no other view of them. Both the page and the command line release through here.
+pub fn release_hold(
+    db: &mut Db,
+    config: &config::Config,
+    project: Option<&str>,
+    reason: &str,
+) -> Result<String, String> {
+    let project = project_named(config, project)?;
+    let reason = db::HoldReason::parse(reason)?;
+    // The holds that remain are read in the same write as the delete, so that the refusal names what is there now.
+    let remaining = db
+        .write(Actor::Owner, |tx| {
+            if db::release_starts(tx, &project, reason)? {
+                Ok(None)
+            } else {
+                db::holds_of(tx, &project).map(Some)
+            }
+        })
+        .map_err(sql)?;
+    if let Some(held) = remaining {
+        let held = if held.is_empty() {
+            "it holds none".to_string()
+        } else {
+            format!("it holds: {}", held.join(", "))
+        };
+        return Err(format!("{project} has no hold of the reason {}; {held}", reason.name()));
+    }
+    Ok(format!(
+        "the hold of {} on {project} is released; its new works start again unless another hold remains",
+        reason.name()
+    ))
 }
 
 #[cfg(test)]
@@ -1339,6 +1464,95 @@ mod tests {
         );
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A configuration of the named projects, read from files in a directory of its own, which it removes.
+    fn config_of(name: &str, projects: &[&str]) -> config::Config {
+        let dir = std::env::temp_dir().join(format!("wf-agents-holds-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("projects")).unwrap();
+        std::fs::create_dir_all(dir.join("rules")).unwrap();
+        let install = "[owner]\nlanguage = \"English\"\n[items]\ntitle_max = 40\n[machines]\nworkstation = \"here\"\n\
+                       heavy = \"builds\"\npoll_interval = 60\n[machines.hosts.here]\nslots = 1\n\
+                       [agents.clis.claude]\nkind = \"claude\"\ncommand = \"claude\"\n[agents.levels.1]\n\
+                       desc = \"all work\"\ncli = \"claude\"\nmodel = \"m\"\n[gh]\nallow = [\"pr view\"]\n\
+                       [query]\nmax_rows = 10\ntimeout_ms = 1000\n";
+        std::fs::write(dir.join("install.toml"), install).unwrap();
+        let project = "repo = \"o/p\"\ncheckout = \"/tmp\"\ndesign_goal = \"simple\"\ntest_paths = [\"tests/\"]\n\
+                       rules = [\"ground\"]\n[ci]\nfast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = [\"check\"]\n\
+                       [limits]\nfixes = 5\n";
+        for p in projects {
+            std::fs::write(dir.join(format!("projects/{p}.toml")), project).unwrap();
+        }
+        std::fs::write(dir.join("rules/ground.md"), "Facts first.\n").unwrap();
+        let config = config::working(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        config
+    }
+
+    /// The projects and reasons of the holds in the database, in order.
+    fn held(db: &Db) -> Vec<(String, String)> {
+        let mut st = db
+            .conn()
+            .prepare("SELECT project, reason FROM dispatch_holds ORDER BY project, reason")
+            .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    }
+
+    // A release of a reason the project does not hold is refused, and the refusal lists the holds the project has now,
+    // since the command line has no other view of them. It deletes nothing and leaves another project's holds out.
+    #[test]
+    fn a_refused_release_lists_the_holds_the_project_has() {
+        let config = config_of("refused", &["p", "q"]);
+        let mut db = Db::in_memory().unwrap();
+        let refusal = |db: &mut Db| release_hold(db, &config, Some("p"), "owner").unwrap_err();
+        assert_eq!(refusal(&mut db), "p has no hold of the reason owner; it holds none");
+        db.write(Actor::Architect, |tx| {
+            db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+            db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)?;
+            db::hold_starts(tx, "q", db::HoldReason::Architect, None)
+        })
+        .unwrap();
+        assert_eq!(
+            refusal(&mut db),
+            "p has no hold of the reason owner; it holds: architect, set_straight"
+        );
+        assert_eq!(held(&db).len(), 3, "a refused release deletes nothing");
+        hold_starts(&mut db, &config, Some("p"), "Leaving.").unwrap();
+        release_hold(&mut db, &config, Some("p"), "owner").unwrap();
+        assert_eq!(
+            refusal(&mut db),
+            "p has no hold of the reason owner; it holds: architect, set_straight"
+        );
+    }
+
+    // The project may be left out of a hold or a release only where the configuration has one project; with two,
+    // both are refused naming them and write nothing, and naming the project works.
+    #[test]
+    fn leaving_the_project_out_of_a_hold_or_a_release_works_only_with_one_project() {
+        let two = config_of("two", &["p", "q"]);
+        let mut db = Db::in_memory().unwrap();
+        let err = hold_starts(&mut db, &two, None, "x").unwrap_err();
+        assert!(err.contains("name the project, one of: p, q"), "{err}");
+        assert!(held(&db).is_empty());
+        hold_starts(&mut db, &two, Some("q"), "x").unwrap();
+        let err = release_hold(&mut db, &two, None, "owner").unwrap_err();
+        assert!(err.contains("name the project, one of: p, q"), "{err}");
+        assert_eq!(
+            held(&db),
+            [("q".to_string(), "owner".to_string())],
+            "a refused release deletes nothing"
+        );
+        release_hold(&mut db, &two, Some("q"), "owner").unwrap();
+        assert!(held(&db).is_empty());
+        let one = config_of("one", &["p"]);
+        hold_starts(&mut db, &one, None, "x").unwrap();
+        assert_eq!(held(&db), [("p".to_string(), "owner".to_string())]);
+        release_hold(&mut db, &one, None, "owner").unwrap();
+        assert!(held(&db).is_empty());
     }
 
     // The owner answers an ask once; a second answer is refused.

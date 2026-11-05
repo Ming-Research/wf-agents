@@ -32,6 +32,9 @@ pub struct Request {
     pub config_dir: Option<PathBuf>,
     /// The CLI's session to resume; none for the line's first round, which starts `new_session`.
     pub resume: Option<String>,
+    /// The session to resume is forked, not resumed: the CLI copies it under `new_session`, which holds all it held and
+    /// goes on from there, and leaves it as it was. A matter of the architect forks its base so.
+    pub fork: bool,
     /// What the command line appends to its own system prompt: what every session of the round's line is given alike,
     /// which the session started with ([`crate::system`]); none for a session started without one.
     pub system: Option<String>,
@@ -42,8 +45,12 @@ pub struct Request {
     pub images: Vec<Image>,
     /// What the return must be, as JSON Schema; the engine checks the return against it.
     pub schema: Value,
-    /// The schema the CLI is given, the same for every cell of the line: [`envelope`].
+    /// The schema the CLI is given, the same for every cell of the line and of the lines forked together with it:
+    /// [`envelope`].
     pub envelope: Value,
+    /// The commands the round may run besides those the CLI's own arguments allow, as the CLI's tool rules name them:
+    /// its line's permissions.
+    pub allowed: Vec<String>,
     /// The tools and commands the round may not use, as the CLI's tool rules name them: its line's permissions.
     pub refused: Vec<String>,
     /// Directories outside the worktree the agent may read but not change, such as where the engine saves a tool's
@@ -101,11 +108,14 @@ pub fn sign_in(kind: config::CliKind) -> (&'static str, &'static str) {
 }
 
 /// The environment every agent's command line starts with, besides its configuration directory: each tool input
-/// streamed whole, not in pieces, so that the service checks its JSON; and three attempts at a return, not five, since
-/// each attempt writes the whole return again.
-pub const ENVIRONMENT: [(&str, &str); 2] = [
+/// streamed whole, not in pieces, so that the service checks its JSON; three attempts at a return, not five, since
+/// each attempt writes the whole return again; and no Rust toolchain installed by rustup when a command the agent may
+/// run, such as `cargo update` or `rustfmt`, asks for one the machine lacks: the command fails instead of downloading
+/// it.
+pub const ENVIRONMENT: [(&str, &str); 3] = [
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
+    ("RUSTUP_AUTO_INSTALL", "0"),
 ];
 
 /// The tool the command line hands a return in with, under `--json-schema`.
@@ -281,8 +291,9 @@ pub fn command_line(r: &Request) -> Vec<String> {
         out.extend([crate::system::FLAG.to_string(), s.clone()]);
     }
     // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to the
-    // next would leave nothing of the session's prompt cache: it is the line's envelope, the same for every cell of the
-    // line. A bare call is given no schema and no tools.
+    // next would leave nothing of the session's prompt cache, and a fork given another schema than its base would read
+    // nothing of the base from it: it is the line's envelope, the same for every cell of the line and of the lines
+    // forked together with it. A bare call is given no schema and no tools.
     if r.bare {
         out.extend(["--tools".to_string(), String::new()]);
     } else {
@@ -298,9 +309,16 @@ pub fn command_line(r: &Request) -> Vec<String> {
     for d in &r.readable {
         out.extend(["--add-dir".to_string(), d.display().to_string()]);
     }
+    // The line's permissions, after the CLI's own arguments: the CLI allows what any rule of either allows, unless a
+    // rule of either refuses it, and refuses what any rule of either refuses. A flag given twice adds its values to
+    // those it was given before, as `claude`'s parser of arguments does with every flag that takes a list (checked
+    // with claude 2.1.316).
+    if !r.allowed.is_empty() {
+        out.push("--allowedTools".into());
+        out.extend(r.allowed.iter().cloned());
+    }
     let mut refused = r.refused.clone();
     refused.extend(r.readable.iter().map(|d| format!("Edit(/{}/**)", d.display())));
-    // The line's permissions, after the CLI's own arguments: the CLI refuses what any rule of either refuses.
     if !refused.is_empty() {
         out.push("--disallowedTools".into());
         out.extend(refused);
@@ -312,9 +330,18 @@ pub fn command_line(r: &Request) -> Vec<String> {
         out.push("--settings".into());
         out.push(h.to_string());
     }
-    match &r.resume {
-        Some(s) => out.extend(["--resume".to_string(), s.clone()]),
-        None => out.extend(["--session-id".to_string(), r.new_session.clone()]),
+    // A fork resumes the base under the fork's own id, which the CLI takes only with its flag to fork (checked with
+    // claude 2.1.318: `--session-id` with `--resume` is refused without `--fork-session`).
+    match (&r.resume, r.fork) {
+        (Some(s), true) => out.extend([
+            "--resume".to_string(),
+            s.clone(),
+            "--fork-session".to_string(),
+            "--session-id".to_string(),
+            r.new_session.clone(),
+        ]),
+        (Some(s), false) => out.extend(["--resume".to_string(), s.clone()]),
+        (None, _) => out.extend(["--session-id".to_string(), r.new_session.clone()]),
     }
     out
 }
@@ -410,9 +437,10 @@ pub fn read_by_cli(vars: impl IntoIterator<Item = (OsString, OsString)>) -> BTre
 /// environment it runs with as far as the CLI reads it, the one the engine inherited and the variables the engine sets,
 /// the session it started or resumed, and the engine's and the CLI's versions.
 pub fn call(r: &Request, command: &[String], cli_version: &str, engine: &str) -> Value {
-    let session = match &r.resume {
-        Some(s) => json!({ "resumed": s }),
-        None => json!({ "started": r.new_session }),
+    let session = match (&r.resume, r.fork) {
+        (Some(s), true) => json!({ "forked": s, "started": r.new_session }),
+        (Some(s), false) => json!({ "resumed": s }),
+        (None, _) => json!({ "started": r.new_session }),
     };
     let mut env: serde_json::Map<String, Value> = read_by_cli(std::env::vars_os())
         .into_iter()
@@ -473,11 +501,13 @@ impl Claude {
 impl Agents for Claude {
     fn run(&self, r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
         let reply = Claude::once(r, watch);
-        // A session whose first round was cut off exists, though no round of it ever ended: resume it.
+        // A session whose first round was cut off exists, though no round of it ever ended: resume it. So does a fork
+        // whose first round was cut off once the CLI had copied the base: it is resumed, not forked again.
         let in_use = reply.error.as_deref().is_some_and(|e| e.contains("already in use"));
-        if r.resume.is_none() && reply.output.is_none() && in_use {
+        if (r.resume.is_none() || r.fork) && reply.output.is_none() && in_use {
             let again = Request {
                 resume: Some(r.new_session.clone()),
+                fork: false,
                 ..r.clone()
             };
             let mut reply = Claude::once(&again, watch);
@@ -503,12 +533,14 @@ impl Agents for Claude {
 
 /// How long a stopped command line has, from the polite signal, to end by itself and what it started, before it and
 /// its process group are killed. It is what the command line's own clean-up may take, and a stopped round holds a slot.
-const STOP_WAIT: Duration = Duration::from_secs(3);
+/// The engine's tool `dependency_sources` gives a command it stops for its time limit the same.
+pub const STOP_WAIT: Duration = Duration::from_secs(3);
 
 /// Sends a signal to a process group, by the `kill` command, which needs no `unsafe`. Only the engine's own child's
 /// group is ever named, while that child is not reaped: a group's id cannot be taken by another while its leader's
-/// process entry stands, so the signal cannot reach anyone else's.
-fn signal_group(group: u32, signal: &str) {
+/// process entry stands, so the signal cannot reach anyone else's. The engine's tool `dependency_sources` stops the
+/// command it runs the same way.
+pub fn signal_group(group: u32, signal: &str) {
     let _ = Command::new("kill")
         .args(["-s", signal, "--", &format!("-{group}")])
         .stdin(Stdio::null())
@@ -558,7 +590,10 @@ impl Claude {
     /// `watch`, which may answer that the run be stopped.
     fn once(r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
         let mut reply = Reply {
-            session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
+            session: match &r.resume {
+                Some(s) if !r.fork => s.clone(),
+                _ => r.new_session.clone(),
+            },
             ..Reply::default()
         };
         let child = Claude::command(r)
@@ -1008,19 +1043,26 @@ fn activity_of_value(v: &Value) -> Option<String> {
     }
 }
 
-/// The schema the CLI is given for every round of a line's agents, those of the graph's agents' cells on `line`, the
-/// same for every cell of the line, since a schema that changed from one round to the next leaves nothing of the
-/// session's prompt cache, and a session is a line's; the line's own, instead of the graph's, since a field every return
-/// of some lines holds (`tell_owner`) is one another line's agents must not hand in, which the schema the CLI gives the
+/// The schema the CLI is given for every round of a line's agents, those of the graph's agents' cells on `line` and on
+/// the lines forked together with it ([`forked_together`]), the same for every cell of them, since the CLI gives the
+/// schema among the tools, which come first in the prompt, so that a schema that changed from one round to the next
+/// leaves nothing of the session's prompt cache, and a fork whose schema is not its base's reads nothing of the base
+/// from it, writing the whole base again (in a trial each matter forked from the architect's base read 31,414 tokens of
+/// the 80,301 or 133,030 the base held). It is these lines' own, instead of the graph's, since a field every return of
+/// some lines holds (`tell_owner`) is one another line's agents must not hand in, which the schema the CLI gives the
 /// model would otherwise offer them. It holds a return's top-level fields: the short fields every return holds first,
 /// each with only its type, and the field an agent's forms are under last, so that only closing brackets come after
-/// the long answer; that field with the [`Shape`] of every form of every agent's cell of the line taken together
+/// the long answer; that field with the [`Shape`] of every form of every agent's cell of the lines taken together
 /// ([`Shape::merged`]), each object with its fields and each list with its items, down to every value. It refuses what
-/// no agent's cell of the line takes, as far as types and fields tell: an object requires the fields every one of its
-/// alternatives requires, at the top those every agent's cell of the line requires, and a
-/// field some forms leave out unless the return is one of those forms ([`unless_left_out`]: `progress`, which `tools`
+/// no agent's cell of the lines takes, as far as types and fields tell: an object requires the fields every one of its
+/// alternatives requires, at the top those every agent's cell of the lines requires, and a
+/// field some forms leave out unless the return is one of those forms ([`chained`]: `progress`, which `tools`
 /// and `search` leave out, so that a return of the architect's `B4` without it, which a trial's engine sent back, is
-/// refused by the command line); and it takes no field beyond those it lists when none of its alternatives does, the
+/// refused by the command line); a field the cells of some of the lines hold and require and those of the others do not
+/// hold (`tell_owner`, which the base and each matter's session hand in and the second eye does not) is required unless
+/// the return is a form the others hand in, and refused beside a form only they hand in, so that the second eye's
+/// `check` with `tell_owner` is refused by the command line, while `tools` with it or without it is left to the engine's
+/// check of the cell's own schema; and it takes no field beyond those it lists when none of its alternatives does, the
 /// field of the forms included, so that a field written inside the form it does not belong to is refused, and a field
 /// every return holds written inside the field of the forms is too. A union below the field of the forms, whose
 /// branches fix one field to a value of their own (a deviation of the kind `surprise` or `workaround`), keeps its
@@ -1042,10 +1084,11 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// the field left out. Without the types the model hands in each field as the JSON text of its value, and with the
 /// field of the forms an object with no fields it handed in the whole form as a string holding its JSON.
 pub fn envelope(g: &flow::CompiledGraph, line: Option<&str>) -> Value {
+    let lines = forked_together(g, line);
     let cells: Vec<&flow::CompiledCell> = g
         .cells
         .iter()
-        .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
+        .filter(|c| c.kind == "agent" && lines.contains(&c.line))
         .collect();
     let schemas: Vec<&Value> = cells.iter().filter_map(|c| c.schema.as_ref()).collect();
     // The fields beside the forms', of every agent's cell of the line, in the order the cells give them.
@@ -1104,46 +1147,143 @@ pub fn envelope(g: &flow::CompiledGraph, line: Option<&str>) -> Value {
         "required": required,
         "additionalProperties": false,
     });
-    // The fields some forms leave out, which every agent's cell of the line has and requires of its other forms, as the
-    // engine checks: grouped by the forms that leave them out.
+    // The fields some forms leave out, as the engine checks, grouped by the forms that leave them out: a field every
+    // agent's cell of the lines has and requires of its other forms is left out by the forms that say so; a field the
+    // cells of some of the lines have and require and those of the others do not have is left out by every form the
+    // others take, and refused beside a form only they take.
     let mut left: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
+    let mut refused: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
     for k in beside.iter().filter(|k| !required_of(&out).contains(&k.as_str())) {
-        let has = |s: &&Value| s.get("properties").is_some_and(|p| p.get(k.as_str()).is_some());
-        let forms: BTreeSet<String> = cells
-            .iter()
-            .flat_map(|c| &c.forms)
-            .filter(|f| f.without.contains(k))
-            .filter_map(|f| f.field.clone())
-            .collect();
-        if !forms.is_empty() && schemas.iter().all(has) {
-            left.entry(forms.into_iter().collect()).or_default().push(k.clone());
+        let has = |s: &Value| s.get("properties").is_some_and(|p| p.get(k.as_str()).is_some());
+        let (having, lacking): (Vec<&Value>, Vec<&Value>) = schemas.iter().copied().partition(|&s| has(s));
+        if lacking.is_empty() {
+            let forms: BTreeSet<String> = cells
+                .iter()
+                .flat_map(|c| &c.forms)
+                .filter(|f| f.without.contains(k))
+                .filter_map(|f| f.field.clone())
+                .collect();
+            if !forms.is_empty() {
+                left.entry(forms.into_iter().collect()).or_default().push(k.clone());
+            }
+        } else if having.iter().all(|s| required_of(s).contains(&k.as_str())) {
+            let (theirs, others) = (taken_under(&lacking, &g.within), taken_under(&having, &g.within));
+            if !theirs.is_empty() {
+                left.entry(theirs.iter().cloned().collect())
+                    .or_default()
+                    .push(k.clone());
+            }
+            let only: Vec<String> = theirs.difference(&others).cloned().collect();
+            if !only.is_empty() {
+                refused.entry(only).or_default().push(k.clone());
+            }
         }
     }
-    let groups: Vec<(Vec<String>, Vec<String>)> = left.into_iter().collect();
-    if let (Some(rule), Some(o)) = (unless_left_out(&g.within, &groups), out.as_object_mut()) {
+    // A return holds each field of a group unless its form is one of the group's; and beside a form only the cells
+    // that lack some fields take, it holds none of those.
+    let one_of = |forms: &[String]| -> Vec<Value> {
+        forms
+            .iter()
+            .map(|f| json!({ "type": "object", "required": [f] }))
+            .collect()
+    };
+    let mut rules: Vec<(Value, Value)> = left
+        .iter()
+        .map(|(forms, fields)| {
+            (
+                json!({ "properties": { &g.within: { "type": "object", "not": { "anyOf": one_of(forms) } } } }),
+                json!({ "required": fields }),
+            )
+        })
+        .collect();
+    for (forms, fields) in &refused {
+        let kept: serde_json::Map<String, Value> = beside
+            .iter()
+            .filter(|k| !fields.contains(k))
+            .chain([&g.within])
+            .map(|k| (k.clone(), json!({})))
+            .collect();
+        rules.push((
+            json!({ "required": [&g.within],
+                    "properties": { &g.within: { "type": "object", "anyOf": one_of(forms) } } }),
+            json!({ "properties": kept, "additionalProperties": false }),
+        ));
+    }
+    if let (Some(rule), Some(o)) = (chained(&rules), out.as_object_mut()) {
         o.extend(rule);
     }
     out
 }
 
-/// The rule that a return holds each field of a group unless its form is one of the group's, which leave the fields
-/// out, for every group: an `if` and `then` at the top, a later group's in the `then` of an earlier and in its `else`,
-/// since the API takes no `anyOf` or `allOf` at the top of the schema of the tool a return is handed in with (as tried
-/// with 2.1.312: "input_schema does not support oneOf, allOf, or anyOf at the top level"). An object a keyword reads
-/// says it is one, which the command line's strict check otherwise warns of. None for no group.
-fn unless_left_out(within: &str, groups: &[(Vec<String>, Vec<String>)]) -> Option<serde_json::Map<String, Value>> {
-    let ((forms, fields), rest) = groups.split_first()?;
-    let rest = unless_left_out(within, rest);
-    let leaving: Vec<Value> = forms
+/// The lines whose sessions share with a session of `line` all that comes before their messages in the prompt: the
+/// line a session of it forks from in the end (the line its sessions fork from, and the line that one's fork from, and
+/// so on), and every line whose sessions fork from that one in the end, `line` among them, in the order the agents'
+/// cells of the graph give them; `line` alone for a line no session forks from or to, and for a cell on no line. A fork
+/// holds its base's session and reads it from the prompt cache only where its tools, the schema the command line gives
+/// among them, and its system prompt are the base's: so these lines are given one schema ([`envelope`]), and a fork
+/// carries its base's system prompt (`crate::system`).
+pub fn forked_together(g: &flow::CompiledGraph, line: Option<&str>) -> Vec<Option<String>> {
+    let agents = || g.cells.iter().filter(|c| c.kind == "agent");
+    // The line a line's sessions fork from in the end; itself for one that forks from none.
+    let base = |line: &str| -> String {
+        let mut at = line.to_string();
+        let mut seen = vec![at.clone()];
+        while let Some(up) = agents()
+            .find(|c| c.line.as_deref() == Some(at.as_str()))
+            .and_then(|c| c.fork_of.clone())
+        {
+            if seen.contains(&up) {
+                break;
+            }
+            seen.push(up.clone());
+            at = up;
+        }
+        at
+    };
+    let Some(root) = line.map(base) else {
+        return vec![None];
+    };
+    let mut out: Vec<Option<String>> = Vec::new();
+    for c in agents() {
+        if let Some(l) = c.line.as_deref()
+            && !out.contains(&c.line)
+            && base(l) == root
+        {
+            out.push(c.line.clone());
+        }
+    }
+    if out.is_empty() {
+        out.push(line.map(str::to_string));
+    }
+    out
+}
+
+/// The fields under the field of the forms that any of these cells' schemas takes: each form's field, and those beside
+/// it in the form, as `notebook`.
+fn taken_under(schemas: &[&Value], within: &str) -> BTreeSet<String> {
+    schemas
         .iter()
-        .map(|f| json!({ "type": "object", "required": [f] }))
-        .collect();
-    let mut then = json!({ "required": fields });
+        .filter_map(|s| s.get("properties")?.get(within))
+        .flat_map(|w| {
+            Shape::of(w)
+                .field_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Rules at the top of the schema, each an `if` and its `then`, as one: the first's `if` and `then`, with the rest in its
+/// `then` and in its `else`, since the API takes no `anyOf` or `allOf` at the top of the schema of the tool a return is
+/// handed in with (as tried with 2.1.312: "input_schema does not support oneOf, allOf, or anyOf at the top level"). An
+/// object a keyword reads says it is one, which the command line's strict check otherwise warns of. None for no rule.
+fn chained(rules: &[(Value, Value)]) -> Option<serde_json::Map<String, Value>> {
+    let ((when, then), rest) = rules.split_first()?;
+    let rest = chained(rest);
+    let mut then = then.clone();
     let mut rule = serde_json::Map::new();
-    rule.insert(
-        "if".into(),
-        json!({ "properties": { within: { "type": "object", "not": { "anyOf": leaving } } } }),
-    );
+    rule.insert("if".into(), when.clone());
     if let Some(r) = rest {
         if let Some(t) = then.as_object_mut() {
             t.extend(r.clone());
@@ -1632,18 +1772,22 @@ mod tests {
             );
         }
         let a = f.graph("architect").unwrap();
-        let arch = envelope(a, Some("architect"));
-        assert_eq!(keys(&arch), ["tell_owner", "progress", "flow_feedback", "outcome"]);
-        assert_eq!(arch["required"], json!(["tell_owner", "flow_feedback", "outcome"]));
-        // The search of observations asks for no tools, so nothing it hands in leaves out `progress`.
-        for (line, required) in [
-            ("architect_review", json!(["flow_feedback", "outcome"])),
-            ("observer", json!(["progress", "flow_feedback", "outcome"])),
-        ] {
-            let h = envelope(a, Some(line));
-            assert_eq!(keys(&h), ["progress", "flow_feedback", "outcome"], "{line}");
-            assert_eq!(h["required"], required, "{line}");
+        // The base and each matter's session tell the owner; the second eye and the search of observations do not. The
+        // second eye shares one schema with the base and each matter's session, which fork the same base: it offers
+        // `tell_owner` and requires it of no form the second eye hands in too.
+        for line in ["architect", "matter", "second_eye"] {
+            let arch = envelope(a, Some(line));
+            assert_eq!(
+                keys(&arch),
+                ["tell_owner", "progress", "flow_feedback", "outcome"],
+                "{line}"
+            );
+            assert_eq!(arch["required"], json!(["flow_feedback", "outcome"]), "{line}");
         }
+        // The search of observations asks for no tools, so nothing it hands in leaves out `progress`.
+        let h = envelope(a, Some("observer"));
+        assert_eq!(keys(&h), ["progress", "flow_feedback", "outcome"]);
+        assert_eq!(h["required"], json!(["progress", "flow_feedback", "outcome"]));
         // A project that does not ask for flow feedback gives its agents no such field.
         let off = envelope(&g.clone().as_asked(|_| false), Some("engineer"));
         assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
@@ -1673,6 +1817,99 @@ mod tests {
                         assert!(required_of(schema).contains(&k), "cell {}: {k}", c.id);
                     }
                 }
+            }
+        }
+    }
+
+    // A fork reads its base's session from the prompt cache only where its tools are the base's, and the command line
+    // gives the schema of the return among them: in a trial each matter's session, forked from the architect's base with
+    // a schema of its own, read 31,414 tokens of a base that held 80,301 or 133,030, and wrote the rest again. The lines
+    // that fork from one another are given one schema, made from the cells of them all, and every other line keeps its
+    // own: on the architect's, the base, each matter's session and the second eye share one, and the search of
+    // observations has its own.
+    #[test]
+    fn a_fork_is_given_the_schema_of_the_session_it_forks() {
+        let f = compiled();
+        let mut forks = 0;
+        for g in &f.graphs {
+            for c in g.cells.iter().filter(|c| c.kind == "agent") {
+                if let Some(base) = &c.fork_of {
+                    assert_eq!(
+                        envelope(g, c.line.as_deref()).to_string(),
+                        envelope(g, Some(base)).to_string(),
+                        "graph {}, cell {}",
+                        g.name,
+                        c.id
+                    );
+                    forks += 1;
+                }
+            }
+        }
+        assert!(forks > 0);
+        let a = f.graph("architect").unwrap();
+        let line = |l: &str| Some(l.to_string());
+        let together = forked_together(a, Some("matter"));
+        for l in ["architect", "matter", "second_eye"] {
+            assert!(together.contains(&line(l)), "{l}: {together:?}");
+            assert_eq!(forked_together(a, Some(l)), together, "{l}");
+        }
+        assert_eq!(forked_together(a, Some("observer")), [line("observer")]);
+        assert_eq!(forked_together(a, None), [None]);
+        let g = f.graph("engineer").unwrap();
+        assert_eq!(forked_together(g, Some("engineer")), [line("engineer")]);
+    }
+
+    // The base and each matter's session tell the owner and the second eye does not, and the three share one schema:
+    // it requires `tell_owner` of every form but those the second eye hands in too (the base's `plan` among them, below),
+    // and refuses it beside the second eye's own `check`, as the command line did when the second eye had a schema of
+    // its own. A form the second eye hands in too, as `tools`, is taken with it and without it, and the engine's check of
+    // the cell's own schema tells which the cell needs.
+    #[test]
+    fn a_field_some_lines_of_one_schema_hold_is_required_or_refused_by_the_form() {
+        let f = compiled();
+        let g = f.graph("architect").unwrap();
+        let s = envelope(g, Some("second_eye"));
+        let schema = g.cell("G2").unwrap().schema.clone().unwrap();
+        let mut check = json!({
+            "progress": "Looking at what the change loses",
+            "flow_feedback": "none",
+            "outcome": { "check": { "verdict": "sound", "why": "Nothing it holds is lost." } },
+        });
+        assert!(flow::valid(&schema, &check), "{check}");
+        assert_eq!(refused(&s, &check, ""), None);
+        check["tell_owner"] = json!([]);
+        assert!(!flow::valid(&schema, &check));
+        assert_eq!(
+            refused(&s, &check, "").as_deref(),
+            Some("root: must NOT have additional properties ('tell_owner' is not allowed)")
+        );
+        let tools = json!({
+            "flow_feedback": "none",
+            "outcome": { "tools": [{ "tool": "query", "sql": "SELECT id FROM items" }] },
+        });
+        assert_eq!(refused(&s, &tools, ""), None);
+        let mut told = tools.clone();
+        told["tell_owner"] = json!([]);
+        assert_eq!(refused(&s, &told, ""), None);
+    }
+
+    // A round whose effort turns thinking on or off reads nothing of its session from the cache, which the flow's check
+    // keeps from happening within a line: a fork's first round whose effort does so against its base's last reads
+    // nothing of the base, so the lines forked together run at `low`, which does not think, all or none.
+    #[test]
+    fn the_lines_forked_together_think_alike() {
+        let f = compiled();
+        for g in &f.graphs {
+            for line in lines_of(g) {
+                let lines = forked_together(g, line);
+                let low: BTreeSet<bool> = g
+                    .cells
+                    .iter()
+                    .filter(|c| c.kind == "agent" && lines.contains(&c.line))
+                    .filter_map(|c| c.effort.as_deref())
+                    .map(|e| e == "low")
+                    .collect();
+                assert!(low.len() <= 1, "graph {}, lines {lines:?}", g.name);
             }
         }
     }
@@ -1767,7 +2004,7 @@ mod tests {
         let mut ret = json!({
             "progress": "Reading where each line stands",
             "flow_feedback": "",
-            "outcome": { "notebook": notebook },
+            "outcome": { "notebook": notebook, "plan": { "verdict": "holds", "why": "Nothing it rests on moved." } },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
@@ -1804,7 +2041,9 @@ mod tests {
         let f = compiled();
         let g = f.graph("architect").unwrap();
         let schema = g.cell("H5").unwrap().schema.clone().unwrap();
-        let s = envelope(g, Some("architect"));
+        let s = envelope(g, Some("matter"));
+        let closing = json!({ "log": "Took nothing in.", "plan": "no", "plan_why": "w", "base": "holds",
+                              "base_why": "w" });
         let take = json!({ "way": "nothing", "why": "Nothing in it to take in" });
         let mut inside = take.clone();
         inside["effects"] = json!({});
@@ -1812,48 +2051,58 @@ mod tests {
             "tell_owner": [],
             "progress": "Taking in an observation",
             "flow_feedback": "",
-            "outcome": { "take": inside },
+            "outcome": { "take": inside, "closing": closing },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
             Some("/outcome/take: must NOT have additional properties ('effects' is not allowed)")
         );
-        ret["outcome"] = json!({ "take": take, "effects": {} });
+        ret["outcome"] = json!({ "take": take, "effects": {}, "closing": closing });
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
     }
 
-    // In the sixth trial a return of the architect's cell B4 handed in no `progress`, which every return holds but one of
-    // the forms that leave it out, `tools` and `search`, and the engine sent it back, which cost a whole round: the
-    // schema the command line was given had left it out. It now requires it unless the return is one of those forms,
-    // and the command line refuses a return without it, naming it, as the installed one did when tried (2.1.312:
-    // "root: must have required property 'progress', root: must match \"then\" schema"), while a return asking for
-    // tools without it passed. So on the engineer's and the architect's lines: a pause without it is refused, and a
-    // return asking for tools is not.
+    // In the sixth trial a return of the architect's cell that rethought a batch handed in no `progress`, which every
+    // return holds but one of the forms that leave it out, `tools` and `search`, and the engine sent it back, which cost
+    // a whole round: the schema the command line was given had left it out. It now requires it unless the return is one
+    // of those forms, and the command line refuses a return without it, naming it, as the installed one did when tried
+    // (2.1.312: "root: must have required property 'progress', root: must match \"then\" schema"), while a return
+    // asking for tools without it passed. So on the engineer's and the architect's lines: a pause without it is
+    // refused, and a return asking for tools is not.
     #[test]
     fn a_return_without_progress_is_refused_unless_its_form_leaves_it_out() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let s = envelope(g, Some("architect"));
-        let schema = g.cell("B4").unwrap().schema.clone().unwrap();
+        let s = envelope(g, Some("matter"));
+        let schema = g.cell("H4").unwrap().schema.clone().unwrap();
         let mut ret = json!({
             "tell_owner": [],
             "flow_feedback": "none",
-            "outcome": { "rethink": { "verdict": "go_on", "why": "Nothing the batch changed calls for it." } },
+            "outcome": { "finding": { "what": "A slow parser.", "grounds": "Ran it.", "sure": "checked" } },
         });
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
             Some("root: must have required property 'progress'")
         );
-        ret["progress"] = json!("Judged what the batch changed");
+        ret["progress"] = json!("Found what the report is");
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
         for (g, line) in [("engineer", "engineer"), ("architect", "architect")] {
             let g = f.graph(g).unwrap();
             let s = envelope(g, Some(line));
+            // The fields every cell of the line requires, beside the forms.
+            let schemas: Vec<&Value> = g
+                .cells
+                .iter()
+                .filter(|c| c.kind == "agent" && c.line.as_deref() == Some(line))
+                .filter_map(|c| c.schema.as_ref())
+                .collect();
             let mut base = json!({});
-            for k in required_of(&s).into_iter().filter(|k| *k != g.within) {
+            for k in required_of(schemas[0])
+                .into_iter()
+                .filter(|k| *k != g.within && schemas.iter().all(|s| required_of(s).contains(k)))
+            {
                 base[k] = if k == "flow_feedback" { json!("none") } else { json!([]) };
             }
             let mut pause = base.clone();
@@ -1877,49 +2126,28 @@ mod tests {
         }
     }
 
-    // In the engineer's trial a return of cell D2 handed in its answer without `why`, which the answer requires and no
-    // other form of the graph has, and the engine sent it back, which cost a round (R18-6, $0.34): the shape of every
+    // In the engineer's trial a return of the design handed in its answer without `why`, which the answer required and
+    // no other form of the graph had, and the engine sent it back, which cost a round (R18-6, $0.34): the shape of every
     // form taken together could not require it. A form with a field of its own is now told apart by it, and the command
-    // line refuses such a return naming the missing field, as the installed one did when tried (2.1.312: "/outcome: must
-    // have required property 'why', /outcome: must match \"then\" schema"). So D2's answer without `why` is refused
-    // naming it, with it passes the envelope and the cell's schema, and beside a field of another form it is refused.
+    // line refuses such a return naming the missing field, as the installed one did when tried (2.1.312). So thinking
+    // again outside the frame without `changed`, its field of its own, is refused naming it, with it passes the envelope
+    // and the cell's schema, and beside a field of another form it is refused.
     #[test]
     fn a_cell_s_own_answer_without_a_field_it_requires_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let s = envelope(g, Some("engineer"));
+        let s = envelope(g, Some("designer"));
         let schema = g.cell("D2").unwrap().schema.clone().unwrap();
-        let mut ret = json!({
-            "tell_owner": [],
-            "side_reports": [],
-            "flow_feedback": "none",
-            "progress": "Chose one SQL statement with a total row",
-            "outcome": {
-                "chosen": "One SQL statement with a total row",
-                "why": "The total and the rows come from one read of the data",
-                "measure": { "verdict": "not_measured", "why": "Nothing here is slow" },
-                "design": {
-                    "solution": "Add a total row to the query",
-                    "where": "The cost command",
-                    "excluded": "A second query",
-                    "pitfalls": "The row limit must not cut the total",
-                },
-                "articles": [{ "article": "Article 1", "verdict": "untouched", "why": "It touches no project's settings" }],
-                "item_decisions": [],
-                "open_questions": [],
-                "acceptance": [{ "by": "test", "id": "A1", "condition": "The total row is shown past the limit" }],
-                "estimate": "One test file and one query",
-            },
-        });
+        let mut ret = samples()["D2"][0]["json"].clone();
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
-        let why = ret["outcome"].as_object_mut().unwrap().shift_remove("why").unwrap();
+        let changed = ret["outcome"].as_object_mut().unwrap().shift_remove("changed").unwrap();
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome: must have required property 'why'")
+            Some("/outcome: must have required property 'changed'")
         );
-        ret["outcome"]["why"] = why;
+        ret["outcome"]["changed"] = changed;
         ret["outcome"]["pause"] = json!({});
         let mixed = refused(&s, &ret, "").unwrap_or_default();
         assert!(mixed.contains("is not allowed"), "{mixed}");
@@ -1989,36 +2217,33 @@ mod tests {
         );
     }
 
-    // `considered` belongs to the branch `present_best` of the design's second look (R242-15 handed it in with `found`):
-    // the command line refuses it with `found`, naming it, and takes it with `present_best`.
+    // `stuck` belongs to the branch `no` of whether the research settles the approach: the command line refuses it with
+    // `yes`, naming it, and takes it with `no`.
     #[test]
-    fn a_better_design_found_with_the_approaches_considered_is_refused_by_the_command_line() {
+    fn a_field_of_another_branch_of_the_research_s_answer_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("engineer"));
-        let schema = g.cell("D3").unwrap().schema.clone().unwrap();
-        let mut ret = samples()["D3"][0]["json"].clone();
-        assert_eq!(ret["outcome"]["better"]["verdict"], "present_best");
+        let schema = g.cell("R1").unwrap().schema.clone().unwrap();
+        let mut ret = samples()["R1"][0]["json"].clone();
+        assert_eq!(ret["outcome"]["can_start"]["verdict"], "yes");
         assert_eq!(refused(&s, &ret, ""), None);
         assert!(flow::valid(&schema, &ret));
-        ret["outcome"]["better"] = json!({
-            "verdict": "found", "what": "A better one", "why": "It is simpler", "considered": ["Another"],
-        });
+        ret["outcome"]["can_start"]["stuck"] = json!("Two approaches to compare");
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome/better: must NOT have additional properties ('considered' is not allowed)")
+            Some("/outcome/can_start: must NOT have additional properties ('stuck' is not allowed)")
         );
-        ret["outcome"]["better"]
-            .as_object_mut()
-            .unwrap()
-            .shift_remove("considered");
+        ret["outcome"]["can_start"] =
+            json!({ "verdict": "no", "why": "Unchecked", "stuck": "Two approaches to compare" });
         assert!(flow::valid(&schema, &ret));
         assert_eq!(refused(&s, &ret, ""), None);
     }
 
-    // A null in a field of a form the return is not (`ask: null` beside a `brief`, R241-2 and R262-2; `why: null` in a
-    // `surprise`) is refused by the command line, which the agent puts right within its run; a return the command line
+    // A null in a field of a form the return is not (`ask: null` beside what was learned, as R241-2 and R262-2 beside a
+    // brief; `why: null` in a `surprise`) is refused by the command line, which the agent puts right within its run; a
+    // return the command line
     // did not check reaches the engine with it, which takes it as left out, so that the return fits the cell's schema,
     // and gives the path of each such null. A null in a field the return's own form requires, a value of nothing but
     // nulls, and a null in a field the form may leave out (which is left out as ever) are not among them.
@@ -2038,12 +2263,12 @@ mod tests {
         assert!(flow::valid(&schema, &surprise), "{surprise}");
         // The same two lines of a `brief` of the reader of the history.
         let reader = envelope(g, Some("librarian"));
-        let brief_schema = g.cell("G1").unwrap().schema.clone().unwrap();
-        let mut brief = samples()["G1"][0]["json"].clone();
-        brief["outcome"]["ask"] = Value::Null;
-        assert!(refused(&reader, &brief, "").is_some_and(|r| r.contains("ask")));
+        let brief_schema = g.cell("R0").unwrap().schema.clone().unwrap();
+        let mut brief = samples()["R0"][0]["json"].clone();
+        brief["outcome"]["pause"] = Value::Null;
+        assert!(refused(&reader, &brief, "").is_some_and(|r| r.contains("pause")));
         assert!(!flow::valid(&brief_schema, &brief));
-        assert_eq!(flow::without_null_options(&brief_schema, &mut brief), ["outcome.ask"]);
+        assert_eq!(flow::without_null_options(&brief_schema, &mut brief), ["outcome.pause"]);
         assert!(flow::valid(&brief_schema, &brief), "{brief}");
         // What the form requires is not left out.
         let mut required = done_with(json!([{ "kind": "workaround", "what": "A thing", "why": null }]));
@@ -2051,8 +2276,8 @@ mod tests {
         assert_eq!(flow::without_null_options(&schema, &mut required), Vec::<String>::new());
         assert!(!flow::valid(&schema, &required));
         // A value of nothing but nulls is no form's.
-        let mut only = samples()["G1"][0]["json"].clone();
-        only["outcome"] = json!({ "ask": null });
+        let mut only = samples()["R0"][0]["json"].clone();
+        only["outcome"] = json!({ "pause": null });
         assert_eq!(
             flow::without_null_options(&brief_schema, &mut only),
             Vec::<String>::new()
@@ -2216,10 +2441,12 @@ mod tests {
         for g in &f.graphs {
             for line in lines_of(g) {
                 let env = envelope(g, line);
+                // The cells the line's schema is made of: those of the lines forked together with it too.
+                let lines = forked_together(g, line);
                 let cells: Vec<&flow::CompiledCell> = g
                     .cells
                     .iter()
-                    .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
+                    .filter(|c| c.kind == "agent" && lines.contains(&c.line))
                     .collect();
                 let found: Vec<(&str, Vec<Union<'_>>)> = cells
                     .iter()
@@ -2714,28 +2941,41 @@ mod tests {
 
     #[test]
     fn a_round_runs_with_its_whole_command_line_and_its_own_configuration_directory() {
+        let cli = config::Cli {
+            kind: config::CliKind::Claude,
+            command: "claude".into(),
+            args: [
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                "Bash(git *)",
+                "Bash(cargo fmt *)",
+            ]
+            .iter()
+            .map(|a| a.to_string())
+            .collect(),
+            config_dir: None,
+        };
+        let permissions = config::Permissions::default();
         let r = Request {
             work: 1,
             cell: "I1".into(),
             line: "engineer".into(),
-            cli: config::Cli {
-                kind: config::CliKind::Claude,
-                command: "claude".into(),
-                args: vec!["--permission-mode".into(), "acceptEdits".into()],
-                config_dir: None,
-            },
+            cli: cli.clone(),
             model: "m".into(),
             effort: Some("high".into()),
             worktree: PathBuf::from("/w"),
             config_dir: Some(PathBuf::from("/data/agents/claude")),
             resume: Some("s1".into()),
+            fork: false,
             system: None,
             new_session: "s2".into(),
             prompt: "p".into(),
             images: Vec::new(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             envelope: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
-            refused: config::Permissions::default().refused("engineer"),
+            allowed: permissions.allowed("engineer", &cli),
+            refused: permissions.refused("engineer", &cli),
             readable: vec![PathBuf::from("/data/tool-output")],
             replay: None,
             regive: Some(PathBuf::from("/tmp/given it.md")),
@@ -2751,24 +2991,56 @@ mod tests {
             "{line:?}"
         );
         assert!(line.iter().any(|a| a == "Edit(//data/tool-output/**)"), "{line:?}");
-        assert_eq!(&line[..4], ["claude", "--permission-mode", "acceptEdits", "-p"]);
-        // Heavy work is refused on every line; an engineer may still edit and commit.
-        assert!(line.iter().any(|a| a == "Bash(cargo *)") && line.iter().any(|a| a == "Bash(npm run *)"));
+        assert_eq!(
+            &line[..7],
+            [
+                "claude",
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                "Bash(git *)",
+                "Bash(cargo fmt *)",
+                "-p"
+            ]
+        );
+        // Heavy work is refused on every line; an engineer may still edit and commit, and update a lock file with the
+        // package manager, which the line's own rule allows, after the CLI's own, and no rule refuses. What the CLI's
+        // own arguments allow of a heavy command left out for that is refused again.
+        let flag = |f: &str| line.iter().rposition(|a| a == f).unwrap();
+        let (allowed, refused) = (flag("--allowedTools"), flag("--disallowedTools"));
+        assert!(allowed > 7);
+        assert_eq!(line[allowed + 1..refused], permissions.allowed("engineer", &cli)[..]);
+        assert!(line[allowed + 1..refused].iter().any(|a| a == "Bash(cargo update *)"));
+        for a in ["Bash(npm run *)", "Bash(cargo fmt *)", "Bash(npm install *=*)"] {
+            assert!(line[refused..].iter().any(|x| x == a), "{a}: {line:?}");
+        }
+        assert!(
+            !line.iter().any(|a| a == "Bash(cargo *)" || a == "Bash(npm install *)"),
+            "{line:?}"
+        );
         assert!(
             !line.iter().any(|a| a == "Edit" || a == "Bash(git commit *)"),
             "{line:?}"
         );
-        // The review and the advisor only read; the adversarial tester writes tests.
+        // The review and the advisor only read: they may not edit or commit, and their command line allows nothing
+        // beyond the CLI's own arguments; the adversarial tester writes tests.
         for l in ["review", "advisor"] {
-            let refused = config::Permissions::default().refused(l);
+            let refused = permissions.refused(l, &cli);
             assert!(refused.iter().any(|a| a == "Edit") && refused.iter().any(|a| a == "Bash(git commit *)"));
+            let reader = command_line(&Request {
+                line: l.into(),
+                allowed: permissions.allowed(l, &cli),
+                refused,
+                ..r.clone()
+            });
+            assert_eq!(
+                reader.iter().filter(|a| *a == "--allowedTools").count(),
+                1,
+                "{reader:?}"
+            );
+            assert!(!reader.iter().any(|a| a.starts_with("Bash(cargo update")), "{reader:?}");
         }
-        assert!(
-            !config::Permissions::default()
-                .refused("adversarial")
-                .iter()
-                .any(|a| a == "Edit")
-        );
+        assert!(!permissions.refused("adversarial", &cli).iter().any(|a| a == "Edit"));
         assert_eq!(&line[line.len() - 2..], ["--resume", "s1"]);
         // A compaction within the round has the command line give the session again what the round was given.
         let settings = line.iter().position(|a| a == "--settings").unwrap();
@@ -2789,6 +3061,7 @@ mod tests {
         assert_eq!(c["env"]["CLAUDE_CONFIG_DIR"], "/data/agents/claude");
         assert_eq!(c["env"]["CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING"], "0");
         assert_eq!(c["env"]["MAX_STRUCTURED_OUTPUT_RETRIES"], "3");
+        assert_eq!(c["env"]["RUSTUP_AUTO_INSTALL"], "0");
         // The structured-output schema is in the command line, and not recorded again beside it.
         assert!(c.get("schema").is_none());
         assert!(
@@ -2812,7 +3085,8 @@ mod tests {
             want("CLAUDE_CONFIG_DIR", "/data/agents/claude")
                 && want("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0")
                 && want("MAX_STRUCTURED_OUTPUT_RETRIES", "3")
-                && env.len() == 3,
+                && want("RUSTUP_AUTO_INSTALL", "0")
+                && env.len() == 4,
             "{env:?}"
         );
         // A bare call, as a repair, is offered no tools and given no structured output.
@@ -2859,6 +3133,7 @@ mod tests {
             worktree: PathBuf::from("/w"),
             config_dir: None,
             resume: None,
+            fork: false,
             system: None,
             new_session: "s1".into(),
             prompt: "# R1-2 · cell I1\n\nFrom the owner: look.\n\nImages: image:12, image:13\n".into(),
@@ -2876,6 +3151,7 @@ mod tests {
             ],
             schema: json!({}),
             envelope: json!({}),
+            allowed: Vec::new(),
             refused: Vec::new(),
             readable: Vec::new(),
             replay: None,
@@ -3061,12 +3337,14 @@ mod tests {
             worktree: dir.to_path_buf(),
             config_dir: None,
             resume: None,
+            fork: false,
             system: None,
             new_session: "s1".into(),
             prompt: "p".into(),
             images: Vec::new(),
             schema: Value::Null,
             envelope: Value::Null,
+            allowed: Vec::new(),
             refused: Vec::new(),
             readable: Vec::new(),
             replay: None,

@@ -22,6 +22,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+pub mod decisions;
 pub mod shared_git;
 
 /// Everything wrong with a configuration.
@@ -57,6 +58,43 @@ pub struct Install {
     pub reasoning: Reasoning,
     #[serde(default)]
     pub backup: Backup,
+    #[serde(default)]
+    pub architect: Architect,
+}
+
+/// How a project's architect keeps its base, the session that read the project last, from which each matter's session
+/// forks. The two amounts are first guesses, to be set by what the architects' works measure: how many matters waited
+/// for a planning when it was due, and how long the decision log and what changed since the base grew before a rebuild
+/// paid for itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Architect {
+    /// How many matters that wait for the planning (side reports, what to do next after a report, engineers' answers to
+    /// what the architect said, faults the owner's setting forwarded, other architects' messages no work waits on) call
+    /// for one: 10 when not set, to be measured.
+    #[serde(default = "gathered_most")]
+    pub gathered_most: u64,
+    /// How long, in characters, the decision log and what changed since the base may grow before carrying them into
+    /// every matter's session costs more than reading the project again: 40,000 when not set, to be measured.
+    #[serde(default = "carried_most")]
+    pub carried_most: u64,
+}
+
+impl Default for Architect {
+    fn default() -> Architect {
+        Architect {
+            gathered_most: gathered_most(),
+            carried_most: carried_most(),
+        }
+    }
+}
+
+fn gathered_most() -> u64 {
+    10
+}
+
+fn carried_most() -> u64 {
+    40_000
 }
 
 /// The installation's one copy of the reasoning system, which every project that keeps records is kept by.
@@ -187,8 +225,8 @@ pub struct Agents {
     /// How many subagents a round may start for chores.
     #[serde(default)]
     pub subagents: Subagents,
-    /// The level the architect runs at, by its name among the levels, and the review of its item changes; the top level
-    /// when none is named.
+    /// The level the architect runs at, by its name among the levels: its base, each matter's session and the second eye
+    /// alike; the top level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architect: Option<String>,
     /// The level the search of a project's observations runs at, by its name among the levels; the lowest level when
@@ -199,40 +237,33 @@ pub struct Agents {
     /// lowest level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub librarian: Option<String>,
-    /// The level the pick of the architect's next matter runs at (the line `picker`), by its name among the levels; the
-    /// lowest level when none is named.
+    /// Retired: the level the pick of the architect's next matter ran at, before the engine took the architect's
+    /// matters in a fixed order (2026-11-04). It is still read, so that an installation that names it loads, and nothing
+    /// uses it; it goes once no installation names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picker: Option<String>,
     /// The context, in tokens, past which a line's session is replaced by a new one at the line's next round: the
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
-    /// The context, in tokens, past which the architect's session ends before the next matter it takes afresh (cell
-    /// `Q0`), so that a new session takes that matter: every round of a session reads the whole session again, and the
-    /// architect's rounds each add little to a long one.
-    #[serde(default = "architect_context_limit")]
-    pub architect_context_limit: u64,
-    /// How long, in seconds, the architect's understanding of a project (cell `U1`) holds: a new session of the
-    /// architect's within it goes on from the notebook the understanding wrote, and one past it understands the project
-    /// again.
+    /// Retired: how long, in seconds, the architect's understanding of a project held, before each matter was handled
+    /// in a session forked from the base (2026-11-04). It is still read, so that an installation that sets it loads,
+    /// and nothing uses it; it goes once no installation sets it.
     #[serde(default = "understanding_life")]
     pub understanding_life: u64,
     /// The least time, in seconds, between two matters of slots free for one project's architect (cell `S0`'s
     /// `queue_slots_free`): one that found nothing to start does not come back at once.
     #[serde(default = "slots_free_wait")]
     pub slots_free_wait: u64,
-    /// The longest time, in seconds, a project's architect waits for the owner's reply in a talk with the owner (cell
-    /// `H11`) before it goes on with its queue, holding the talk until the owner says more or ends it.
+    /// Retired: the longest time, in seconds, a project's architect waited for the owner's reply, before a question to
+    /// the owner parked its matter and the architect went on at once (2026-11-04). It is still read, so that an
+    /// installation that sets it loads, and nothing uses it; it goes once no installation sets it.
     #[serde(default = "owner_reply_wait")]
     pub owner_reply_wait: u64,
 }
 
 fn context_limit() -> u64 {
     500_000
-}
-
-fn architect_context_limit() -> u64 {
-    150_000
 }
 
 fn understanding_life() -> u64 {
@@ -247,8 +278,9 @@ fn owner_reply_wait() -> u64 {
     300
 }
 
-/// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine
-/// gives each round's command line these as commands and tools it refuses.
+/// What the agents of each line may not do on this machine, besides what the CLI's own arguments say, and the commands
+/// that update a lock file, which the agents of a line that writes code may run besides those. The engine gives each
+/// round's command line these as commands and tools it refuses and commands it allows.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Permissions {
@@ -256,6 +288,16 @@ pub struct Permissions {
     /// building, test suites, benchmarks and measurements run in CI.
     #[serde(default = "heavy")]
     pub heavy: Vec<String>,
+    /// The commands that update a lock file and build, run and install nothing, each a command with the start of its
+    /// arguments: an agent of a line that writes code runs them, though a heavy command covers them, rather than write
+    /// a lock file by hand and leave it to CI to find its mistakes.
+    #[serde(default = "locks")]
+    pub locks: Vec<String>,
+    /// The uses of the lock commands refused all the same, wherever those are allowed, each a command whose arguments
+    /// may hold `*` for any text: the arguments with which a lock command would build, run or install after all, as a
+    /// later npm option overrides an earlier one.
+    #[serde(default = "locks_except")]
+    pub locks_except: Vec<String>,
     /// The lines whose agents only read: they edit no file and commit nothing.
     #[serde(default = "read_only")]
     pub read_only: Vec<String>,
@@ -265,6 +307,8 @@ impl Default for Permissions {
     fn default() -> Permissions {
         Permissions {
             heavy: heavy(),
+            locks: locks(),
+            locks_except: locks_except(),
             read_only: read_only(),
         }
     }
@@ -311,18 +355,58 @@ fn heavy() -> Vec<String> {
     .collect()
 }
 
+/// Cargo's and npm's: `cargo update` and `cargo add` resolve the dependencies and write Cargo.lock without compiling
+/// anything; `npm install --package-lock-only` writes package-lock.json and leaves node_modules alone, and with
+/// `--ignore-scripts` runs none of the package's own scripts, which it runs when it is given no package.
+fn locks() -> Vec<String> {
+    [
+        "cargo update",
+        "cargo add",
+        "npm install --package-lock-only --ignore-scripts",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// npm's options that would undo `--package-lock-only` or `--ignore-scripts` or install elsewhere: a negated option,
+/// which npm reads in any case (`--no-ignore-scripts`, `--NO-ignore-scripts`); any option given a value after `=`,
+/// which turns a flag off with `false`, `null`, `0` or nothing and sets `--location=global` or `--prefix=<dir>`; a flag
+/// turned off by a separate `false`; and `-g`, `--global`, `--location`, `--prefix` and `-C`, written out or shortened,
+/// and the short ones with two dashes, which npm takes as well. A short option in a cluster of them, as the `g` of
+/// `-Dg`, cannot be named in the CLI's patterns without refusing the lock command itself, and is a risk left.
+fn locks_except() -> Vec<String> {
+    [
+        "npm install *-no-*",
+        "npm install *-NO-*",
+        "npm install *-No-*",
+        "npm install *-nO-*",
+        "npm install *=*",
+        "npm install * false*",
+        "npm install * -g*",
+        "npm install *--g*",
+        "npm install *--loc*",
+        "npm install *--pref*",
+        "npm install * -C*",
+        "npm install *--C*",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 /// The review and the advisor, which look at a work's worktree, the reader of a work's history, and every line of a
-/// project's architect, which reads the project in a worktree of its own at main: its work's, the setting of a new
-/// policy included, the review of its item changes and the search of observations.
+/// project's architect, which reads the project in a worktree of its own at main: its base, each matter's session
+/// forked from it, the second eye and the search of observations.
 fn read_only() -> Vec<String> {
     [
         "review",
         "advisor",
         "librarian",
         "architect",
-        "architect_review",
+        "matter",
+        "second_eye",
         "observer",
-        "picker",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -357,16 +441,130 @@ pub const GIT_CHANGES: [&str; 19] = [
 ];
 
 impl Permissions {
-    /// What a round on `line` may not use, as the CLI's tool rules name it: each heavy command, and for a line that
-    /// only reads, the tools that edit files and the git commands that change the repository.
-    pub fn refused(&self, line: &str) -> Vec<String> {
-        let mut out: Vec<String> = self.heavy.iter().map(|c| format!("Bash({c} *)")).collect();
-        if self.read_only.iter().any(|l| l == line) {
+    /// Whether the agents of `line` only read.
+    pub fn reads_only(&self, line: &str) -> bool {
+        self.read_only.iter().any(|l| l == line)
+    }
+
+    /// The commands that update a lock file the agents of `line`, run in `cli`, may run: on a line that writes code
+    /// every one but those under a heavy command the CLI's own arguments allow all of, which stays refused whole
+    /// ([`Permissions::refused`]); none on a line that only reads.
+    pub fn locks_of(&self, line: &str, cli: &Cli) -> Vec<String> {
+        if self.reads_only(line) {
+            return Vec::new();
+        }
+        let allows = cli.allows();
+        let commands = bash_commands(&allows);
+        self.locks
+            .iter()
+            .filter(|l| {
+                !self
+                    .heavy
+                    .iter()
+                    .any(|h| falls_under(l, h) && allowed_whole(h, &commands))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// What a round on `line`, run in `cli`, may use besides what the CLI's own arguments allow, as the CLI's tool rules
+    /// name it: the commands that update a lock file it may run.
+    pub fn allowed(&self, line: &str, cli: &Cli) -> Vec<String> {
+        self.locks_of(line, cli)
+            .iter()
+            .map(|c| format!("Bash({c} *)"))
+            .collect()
+    }
+
+    /// What a round on `line`, run in `cli`, may not use, as the CLI's tool rules name it: each heavy command, and for a
+    /// line that only reads, the tools that edit files and the git commands that change the repository.
+    ///
+    /// On a line that writes code a heavy command that a command updating a lock file falls under, such as `cargo` for
+    /// `cargo update`, is left out, since the CLI refuses what any of its rules refuses even where another allows it.
+    /// Its other uses are then refused only as every command is that no rule allows, so each rule of the CLI's own
+    /// arguments that allows one, such as `Bash(cargo fmt *)`, is refused again; where those arguments allow all of the
+    /// heavy command, it is kept whole, and the lock commands under it are not allowed ([`Permissions::locks_of`]).
+    /// The uses of the lock commands that would build, run or install after all are refused there too.
+    pub fn refused(&self, line: &str, cli: &Cli) -> Vec<String> {
+        let locks = self.locks_of(line, cli);
+        let allows = cli.allows();
+        let commands = bash_commands(&allows);
+        let mut out: Vec<String> = Vec::new();
+        for h in &self.heavy {
+            if !locks.iter().any(|l| falls_under(l, h)) {
+                out.push(format!("Bash({h} *)"));
+                continue;
+            }
+            for (rule, c) in &commands {
+                if falls_under(c, h) && !locks.iter().any(|l| falls_under(c, l)) && !out.contains(rule) {
+                    out.push(rule.to_string());
+                }
+            }
+        }
+        if !locks.is_empty() {
+            out.extend(self.locks_except.iter().map(|c| format!("Bash({c})")));
+        }
+        if self.reads_only(line) {
             out.extend(EDIT_TOOLS.iter().map(|t| t.to_string()));
             out.extend(GIT_CHANGES.iter().map(|g| format!("Bash(git {g} *)")));
         }
         out
     }
+}
+
+/// Whether `command`, a command with the start of its arguments, falls under `heavy`, another: it is that one, or that
+/// one with more arguments after it.
+fn falls_under(command: &str, heavy: &str) -> bool {
+    command
+        .strip_prefix(heavy)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+}
+
+/// The rules of `allows` that let commands run in the CLI's shell, each with the commands it names
+/// ([`bash_command`]).
+fn bash_commands(allows: &[String]) -> Vec<(&String, &str)> {
+    allows.iter().filter_map(|r| bash_command(r).map(|c| (r, c))).collect()
+}
+
+/// Whether the CLI's own arguments, by the rules `commands` of theirs, allow all of `heavy`: a rule names it or a
+/// command it falls under, or may cover every command.
+fn allowed_whole(heavy: &str, commands: &[(&String, &str)]) -> bool {
+    commands.iter().any(|(_, c)| c.is_empty() || falls_under(heavy, c))
+}
+
+/// The rules a value of a list of tool rules holds, split at commas and spaces outside parentheses.
+fn rules_in(value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let (mut depth, mut start) = (0usize, 0usize);
+    for (i, c) in value.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if depth == 0 && (c == ',' || c.is_whitespace()) => {
+                out.push(&value[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    out.push(&value[start..]);
+    out.into_iter().filter(|r| !r.is_empty()).map(str::to_string).collect()
+}
+
+/// The commands a rule of the CLI's tools lets run in its shell, as a command with the start of its arguments: what
+/// `Bash(cargo fmt *)`, `Bash(cargo fmt:*)` or `Bash(cargo fmt)` names, `cargo fmt`; empty for one that may cover every
+/// command, a bare `Bash` or a rule that starts with `*`. None for a rule of another tool.
+fn bash_command(rule: &str) -> Option<&str> {
+    if rule == "Bash" {
+        return Some("");
+    }
+    let body = rule.strip_prefix("Bash(")?.strip_suffix(')')?;
+    let command = body
+        .strip_suffix(":*")
+        .or_else(|| body.strip_suffix('*'))
+        .unwrap_or(body)
+        .trim();
+    Some(if command.starts_with('*') { "" } else { command })
 }
 
 /// How many subagents a round may start for chores within it, such as reading documents or searching code.
@@ -406,6 +604,41 @@ pub struct Cli {
 }
 
 impl Cli {
+    /// The rules of the CLI's tools that its own arguments allow, as written there: each value of `--allowedTools`
+    /// split into its rules, as `claude` splits it, at commas and spaces outside parentheses; and a bare `Bash` when
+    /// the arguments skip the CLI's permission checks or leave them to its own judgment (the permission modes
+    /// `bypassPermissions` and `auto`), which may then let every command run.
+    pub fn allows(&self) -> Vec<String> {
+        const OPEN_MODES: [&str; 2] = ["bypassPermissions", "auto"];
+        let mut out = Vec::new();
+        let mut taking = false;
+        for (i, a) in self.args.iter().enumerate() {
+            if let Some(v) = a
+                .strip_prefix("--allowedTools=")
+                .or_else(|| a.strip_prefix("--allowed-tools="))
+            {
+                out.extend(rules_in(v));
+                taking = false;
+            } else if a == "--allowedTools" || a == "--allowed-tools" {
+                taking = true;
+            } else if a.starts_with('-') {
+                taking = false;
+                let mode = match a.strip_prefix("--permission-mode=") {
+                    Some(m) => Some(m),
+                    None if a == "--permission-mode" => self.args.get(i + 1).map(String::as_str),
+                    None => None,
+                };
+                let open = a == "--dangerously-skip-permissions" || mode.is_some_and(|m| OPEN_MODES.contains(&m));
+                if open {
+                    out.push("Bash".to_string());
+                }
+            } else if taking {
+                out.extend(rules_in(a));
+            }
+        }
+        out
+    }
+
     /// The directory the CLI named `name` runs agents with, for the data directory `data`.
     pub fn home(&self, data: &Path, name: &str) -> PathBuf {
         match &self.config_dir {
@@ -425,6 +658,15 @@ pub enum CliKind {
 const CLAUDE_FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
 
 impl CliKind {
+    /// Whether the CLI can fork a session: copy it under a new id, which holds all it held, leaving it as it was.
+    /// `claude` does, with `--resume` and `--fork-session`. A line that forks starts a new session instead on a CLI
+    /// that cannot, given whole what its cells read.
+    pub fn forks(self) -> bool {
+        match self {
+            CliKind::Claude => true,
+        }
+    }
+
     /// How long, in milliseconds, the CLI's prompt cache keeps a session's prompt after the session's last call: a call
     /// later than that writes the whole prompt again, at many times the price of reading it. `claude` keeps it an hour.
     /// None for a CLI with no prompt cache, whose sessions lose nothing by waiting.
@@ -540,6 +782,13 @@ pub struct Project {
     /// text as main has it, never as the checkout's files have it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution: Option<PathBuf>,
+    /// Where the project keeps its decisions in force: a directory of its repository, `decisions` unless set, spelled
+    /// as the project's main has it, holding one file for each decision. Agents are given every file in it as main has
+    /// them, but its `README.md`, which says what the directory is ([`decisions::in_force`]); none when it is not there
+    /// or holds nothing else. A decision replaced lives on only in the repository's history, which the tool
+    /// `decision_history` gives ([`decisions::history`]), and one withdrawn is deleted.
+    #[serde(default = "default_decisions")]
+    pub decisions: PathBuf,
     /// The tags the project's observations may carry, each with what it covers: the architect tags an observation with
     /// these only. The owner sets them; none, and observations carry no tag.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -548,7 +797,130 @@ pub struct Project {
     /// takes in to improve the flow: on unless set to false; off, no agent is asked for it.
     #[serde(default = "on", skip_serializing_if = "is_on")]
     pub flow_feedback: bool,
+    /// The paths whose change merges only once the owner approved it, each matched as a test path is (a directory with
+    /// its trailing slash, `*` within a segment, `**` across segments), such as `flow/flow.json` for wf-agents: a work
+    /// whose change touches one waits before the merge queue for the owner's approval, unless the owner approved its
+    /// design at the review. None, and every change merges without it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owner_approves: Vec<String>,
+    /// How many rounds the initial research runs since it last handed in its answer before the engine asks it, at the
+    /// top of its next round, whether the work can be started directly or goes to deep research; none, and
+    /// [`RESEARCH_ROUNDS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub research_rounds: Option<u64>,
+    /// How many hours a merged work whose acceptance holds a condition written in_effect waits for its change to take
+    /// effect before it reports the condition unverified and ends; none, and [`INSTALL_WAIT_HOURS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_wait_hours: Option<u64>,
+    /// How many times the check of such a condition may find its evidence not there yet and send the work back to wait,
+    /// before it reports the condition unverified and ends; none, and [`VERIFICATION_LOOKS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_looks: Option<u64>,
+    /// The lock files whose dependencies' source an agent may have put in its worktree to read, each with the command
+    /// that does it ([`DependencySources`]); none, and the tool `dependency_sources` refuses and says so. Left out of
+    /// the settings an agent is shown when empty, which they read as `none`. An engine that does not include the tool
+    /// refuses a project's file that has the field, since a field the types do not know is an error: add it only once
+    /// an engine that includes the tool is installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependency_sources: Vec<DependencySources>,
 }
+
+/// One lock file of a project, with the command the engine's tool `dependency_sources` runs to put the source of what
+/// the lock file locks on disk for an agent to read. The tool knows no language and no lock file format: it runs the
+/// words of `command` in the root of the work's worktree, and what they do with the lock file is theirs. So a project
+/// of any language writes the command of its own, and one that needs a shell writes `sh -c '...'` itself.
+///
+/// The command must fetch each package at the version the lock file locks, as it was published (its types included),
+/// without compiling anything and without running any code of a package, and it must write only into `into`, a
+/// directory of its own, which it may empty first: `cargo vendor` empties the directory it is given and `npm ci`
+/// removes `node_modules`. `into` must be ignored by the project's git (`.gitignore`), so that what the command writes
+/// never shows as a change of the work; the tool refuses to run when it is not. It is checked as a directory, with a
+/// trailing slash, which is how a rule such as `/client/node_modules/` reads, so `into` may name a directory that does
+/// not exist yet.
+///
+/// Written as `[[dependency_sources]]` tables in the project's file, one for each lock file:
+///
+/// ```toml
+/// [[dependency_sources]]
+/// # The lock file, by its path in the repository.
+/// lock = "Cargo.lock"
+/// # The directory the command fills, by its path in the repository; git must ignore it.
+/// into = "target/dependency-sources"
+/// # Run in the worktree's root, split into words as a shell would, never through one; --locked keeps cargo from
+/// # changing the lock file.
+/// command = "cargo vendor --locked --versioned-dirs target/dependency-sources"
+///
+/// [[dependency_sources]]
+/// lock = "client/package-lock.json"
+/// into = "client/node_modules"
+/// # --prefix makes npm take client/ for the project's root; --ignore-scripts runs no script of a package.
+/// command = "npm ci --ignore-scripts --no-audit --no-fund --prefix client"
+/// # Optional: how many seconds the command may run before the engine stops it and what it started; 600 unless set.
+/// timeout = 600
+/// ```
+///
+/// The time limit only ends a command that hangs: it says nothing of how long fetching should take.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DependencySources {
+    /// The lock file, by its path in the repository; what an agent names to ask for its dependencies' source.
+    pub lock: String,
+    /// The directory the command fills, by its path in the repository; git must ignore it.
+    pub into: String,
+    /// The command, as one line: split into words as a shell splits a line (quotes group, a backslash escapes), and
+    /// run without a shell in the root of the work's worktree.
+    pub command: String,
+    /// How many seconds the command may run before the engine stops it, and everything it started; none, and
+    /// [`DEPENDENCY_SOURCES_TIMEOUT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+}
+
+/// How many seconds a dependency sources command may run where the project sets no other limit: a hung command is
+/// stopped, and the limit is far above what a fetch of one project's packages takes.
+pub const DEPENDENCY_SOURCES_TIMEOUT: u64 = 600;
+
+/// A path in a repository as the parts it names, so that `a/b`, `a/b/` and `./a/b` are one.
+fn parts(path: &str) -> Vec<std::path::Component<'_>> {
+    Path::new(path)
+        .components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect()
+}
+
+impl DependencySources {
+    /// Whether `lock` names this entry's lock file, as `Cargo.lock` and `./Cargo.lock` both do.
+    pub fn locks(&self, lock: &str) -> bool {
+        parts(&self.lock) == parts(lock)
+    }
+
+    /// The directory the command fills, as a path from the repository's root, with no trailing slash.
+    pub fn directory(&self) -> PathBuf {
+        parts(&self.into).into_iter().collect()
+    }
+
+    /// How many seconds the command may run.
+    pub fn timeout_secs(&self) -> u64 {
+        self.timeout.unwrap_or(DEPENDENCY_SOURCES_TIMEOUT)
+    }
+}
+
+/// How many rounds the initial research runs before it is asked whether the work can be started directly, where the
+/// project sets no other bound: on the trial board the research took 3 rounds at the median, 5 at p90 and 8 at most.
+pub const RESEARCH_ROUNDS: u64 = 6;
+
+/// How many hours a merged work waits for its change to take effect, where the project sets no other limit. Measured on
+/// 2026-11-04 over the 39 merges of this flow on main that an installed build has taken in, each from its merge to the
+/// first round of a build holding it: 17 minutes at least, 2.0 hours at the median, 23.4 hours at p90 and 26.2 hours at
+/// most; the longest two installed builds were ever apart is 62 hours. Installing is done by hand, so the limit stays
+/// above the longest of these.
+pub const INSTALL_WAIT_HOURS: u64 = 72;
+
+/// How many times the check of a condition written in_effect may send the work back to wait, where the project sets no
+/// other limit. Taken with its wait of two days at most, the work ends within 16 days of the change taking effect, and
+/// within 19 of its merge with the limit of the wait above: the longest a work ran on the trial board, as far as the
+/// evidence "a work that ran after the change" could need, was 6.2 days (measured on 2026-11-04).
+pub const VERIFICATION_LOOKS: u64 = 8;
 
 /// Where a project keeps its records, and how they are checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -583,6 +955,11 @@ fn default_main() -> String {
     "main".to_string()
 }
 
+/// Where a project that names no other keeps its decisions.
+fn default_decisions() -> PathBuf {
+    PathBuf::from("decisions")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
@@ -594,28 +971,47 @@ pub struct Ci {
     pub full: Vec<String>,
     /// The checks a merge needs to have passed.
     pub merge_checks: Vec<String>,
-    /// The input of the fast CI's workflow that takes the tests to run, their names separated by spaces, when it has
-    /// one: given it, the workflow runs exactly those tests, every one to its end, and the ci_before tool runs it so on
-    /// its temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and
-    /// ci_before then pushes the temporary ref and waits for the whole run the push makes, as
-    /// `runs_on_before_branches` says it does.
+    /// The input of the fast CI's workflow that takes the tests to run, when it has one: given it, the workflow runs the
+    /// tests those names name ([`Results`] says which), every one to its end, and the ci_before tool runs it so on its
+    /// temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and ci_before
+    /// then pushes the temporary ref and waits for the whole run the push makes, as `runs_on_before_branches` says it
+    /// does. The engine gives each name followed by a line break, the last one too, and nothing when no test is named,
+    /// so that a name may hold spaces and an input that holds a test always holds a line break. A workflow that splits
+    /// the input at white space still reads every name that holds no space as it did before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
+    /// The checks of the fast CI besides the tests, such as the lint, that it runs only when the ci tool names them,
+    /// each by the name of its job in the fast workflow: the full CI runs every check once, at the merge, and a check
+    /// it found red is run so while it is fixed. Each needs `checks_input`, and the CI on demand. None, and the ci tool
+    /// runs the tests only and refuses a check named.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named_checks: Vec<String>,
+    /// The input of the fast CI's workflow that takes the checks to run (`named_checks`): the engine gives the names
+    /// asked for as a JSON array of strings, such as `["lint"]`, and gives the input only when one is asked for, so
+    /// that a run with none, and a workflow made before the input, take its default, which runs none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks_input: Option<String>,
     /// Whether the fast CI runs when the engine pushes the temporary ref (`wf-agents-before/...`) that ci_before puts
     /// the code before the change on. Read only where `tests_input` is none: ci_before then waits for the run the push
-    /// makes, and for it to end it reads each listed test's result from its logs. Set to false where the CI ignores
-    /// those refs, so that ci_before refuses at once, saying so, instead of waiting for a run that does not come.
+    /// makes, and for it to end it reads each listed test's result from the run's results (`results`). Set to false
+    /// where the CI ignores those refs, so that ci_before refuses at once, saying so, instead of waiting for a run that
+    /// does not come.
     #[serde(default = "runs_on_before_branches_default", skip_serializing_if = "is_true")]
     pub runs_on_before_branches: bool,
+    /// Where a run of the fast CI reports what became of each test it ran, and how a test is named; none when it
+    /// reports nothing the engine reads, and the ci and ci_before tools then give each test named as unread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub results: Option<Results>,
     /// The artifact a red run of the fast CI uploads with the files the code generates, such as types generated
     /// from other types, each at its path in the repository: the ci tool puts those that differ from the head in the
     /// work's worktree, for the engineer to commit; none when the CI uploads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_artifact: Option<String>,
     /// Whether the fast CI runs only when the engine asks for it: the ci tool then runs the fast workflow by hand on
-    /// the work's branch with the tests named (`tests_input`, which must be set), and the full CI, which no push of a
-    /// work's branch is to run, is run by hand too, by the tools that need it, when the commit has no run of it yet.
-    /// Off, the pushes of a work's branch run both, and the tools only wait for those runs.
+    /// the work's branch with the tests named (`tests_input`, which must be set) and the checks named
+    /// (`named_checks`), and nothing when it names neither, and the full CI, which no push of a work's branch is to
+    /// run, is run by hand too, at the merge, when the commit has no run of it yet. Off, the pushes of a work's branch
+    /// run both, and the tools only wait for those runs.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_demand: bool,
     /// The workflows the measure tool may run, each with what it takes and gives; none when the project has no
@@ -642,6 +1038,33 @@ pub struct MeasureWorkflow {
     /// when it uploads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<String>,
+}
+
+/// How a project's fast CI reports its tests' results to the engine, which reads them only so, whatever runs the tests.
+/// The fast workflow and the engine hold to three conventions:
+///
+/// - The results are JUnit XML: the artifact holds one or more files ending in `.xml`. Each `testsuite` is a unit (a
+///   test binary, a test file), named by its `name`; each `testcase` in it is a test, named by its `name` within the
+///   unit. A testcase with a `failure` or an `error` element in it failed; one with a `skipped` element and neither of
+///   those did not run; any other passed. Its `time` is in seconds. A testcase in a testsuite inside another is of the
+///   innermost one.
+/// - A unit that was not built, so that none of its tests could run, is a `testsuite` with no `testcase` and an
+///   `error` element, named as the unit would be, whose text (or, when it has none, its `message`) says why.
+/// - The workflow runs at least every test a name it is given names, by the separators below: more, never fewer. The
+///   engine alone decides which test a name names.
+///
+/// A name names a test when it is the test's name; the test's unit and name joined by a space or by one of the
+/// separators; or what follows a separator in any of these, cut only right after one, so that `a_row` never names
+/// `a_row_into_the_asking_part`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Results {
+    /// The artifact a run of the fast workflow uploads with its JUnit files.
+    pub artifact: String,
+    /// The strings the project's test runners put between the parts of a test's name, such as those of a path in the
+    /// code or of a chain of titles; none, and a test is named by its name or its unit and name only.
+    #[serde(default)]
+    pub separators: Vec<String>,
 }
 
 /// A project that does not say otherwise has its fast CI run on the temporary refs, as every project's did before the
@@ -1119,11 +1542,6 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.librarian names no level: {l}"));
         }
-        if let Some(p) = &self.install.agents.picker
-            && !self.install.agents.levels.contains_key(p)
-        {
-            problems.push(format!("install.toml: agents.picker names no level: {p}"));
-        }
         if let Some(h) = &self.install.items.highest_level
             && !self.install.agents.levels.contains_key(h)
         {
@@ -1138,13 +1556,18 @@ impl Config {
             // The constitution is a file of the project's repository, named by its path from the repository's root: a
             // path that goes up (`..`) or names no file (empty, `.`) is never read ([`read_at`]), so it is refused here.
             if let Some(c) = &p.constitution
-                && (!c.is_relative()
-                    || c.components().any(|x| matches!(x, std::path::Component::ParentDir))
-                    || !c.components().any(|x| matches!(x, std::path::Component::Normal(_))))
+                && !in_repository(c)
             {
                 problems.push(format!(
                     "projects/{name}.toml: constitution is not a path in the project's repository: {}",
                     c.display()
+                ));
+            }
+            // So are the decisions a directory of it: the root itself holds every file, and is no directory of them.
+            if !in_repository(&p.decisions) {
+                problems.push(format!(
+                    "projects/{name}.toml: decisions is not a directory in the project's repository: {}",
+                    p.decisions.display()
                 ));
             }
             for o in &p.other_projects {
@@ -1165,6 +1588,45 @@ impl Config {
                     "projects/{name}.toml: ci.tests_input is empty; it names the workflow's input"
                 ));
             }
+            // A check named is run by hand, by the input that takes the checks; each is named by its job.
+            match (p.ci.named_checks.is_empty(), p.ci.checks_input.as_deref()) {
+                (false, None) => problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks needs ci.checks_input, the input of the fast workflow that \
+                     takes the checks to run"
+                )),
+                (true, Some(_)) => problems.push(format!(
+                    "projects/{name}.toml: ci.checks_input is set and ci.named_checks lists no check to run by it"
+                )),
+                (_, Some(i)) if i.trim().is_empty() => problems.push(format!(
+                    "projects/{name}.toml: ci.checks_input is empty; it names the workflow's input"
+                )),
+                _ => {}
+            }
+            if !p.ci.named_checks.is_empty() && !p.ci.on_demand {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks needs ci.on_demand: only a run by hand runs a check by name"
+                ));
+            }
+            if p.ci.named_checks.iter().any(|c| c.trim().is_empty()) {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.named_checks holds an empty name; each is the name of a job"
+                ));
+            }
+            if let Some(r) = &p.ci.results {
+                // The artifact is downloaded by its name: an empty name is no artifact.
+                if r.artifact.trim().is_empty() {
+                    problems.push(format!(
+                        "projects/{name}.toml: ci.results.artifact is empty; it names the artifact of the results"
+                    ));
+                }
+                // A cut falls right after a separator: an empty one would cut anywhere, and `a_row` would name every
+                // test whose name ends in it.
+                if r.separators.iter().any(String::is_empty) {
+                    problems.push(format!(
+                        "projects/{name}.toml: ci.results.separators holds an empty separator"
+                    ));
+                }
+            }
             // The fast workflow is run by hand with the tests named, and its green means those tests passed. As one of
             // the full CI's workflows (named alone or with this project's repository) it would give a merge a check
             // the whole CI never ran.
@@ -1179,6 +1641,40 @@ impl Config {
                      (ci.full names {})",
                     p.ci.fast
                 ));
+            }
+            for (i, d) in p.dependency_sources.iter().enumerate() {
+                let at = format!("projects/{name}.toml: dependency_sources of {:?}", d.lock);
+                // The lock file and the directory are paths of the project's repository, read by git there.
+                if !in_repository(Path::new(&d.lock)) {
+                    problems.push(format!("{at}: lock is not a path in the project's repository"));
+                }
+                if !in_repository(Path::new(&d.into)) {
+                    problems.push(format!(
+                        "{at}: into is not a directory in the project's repository: {}",
+                        d.into
+                    ));
+                }
+                // The command is run as its words, never through a shell: it must have some, and a quote must close.
+                match words(&d.command) {
+                    Err(why) => problems.push(format!("{at}: command cannot be split into words: {why}")),
+                    Ok(w) if w.is_empty() => problems.push(format!("{at}: command holds no word")),
+                    Ok(_) => {}
+                }
+                if d.timeout == Some(0) {
+                    problems.push(format!("{at}: timeout is 0; it is the seconds the command may run"));
+                }
+                // An agent names an entry by its lock file, and a directory is filled by one command only.
+                for other in &p.dependency_sources[..i] {
+                    if other.locks(&d.lock) {
+                        problems.push(format!("{at}: lock is listed twice"));
+                    }
+                    if parts(&other.into) == parts(&d.into) {
+                        problems.push(format!(
+                            "{at}: into is the directory of {:?} too: {}",
+                            other.lock, d.into
+                        ));
+                    }
+                }
             }
             let mut tags = BTreeSet::new();
             for t in &p.observation_tags {
@@ -1284,8 +1780,8 @@ impl Config {
             .unwrap_or_default()
     }
 
-    /// The level the architect runs at, with the review of its item changes and the new architects that read a
-    /// policy: the one the installation names, or else the top level.
+    /// The level the architect runs at, its base, each matter's session and the second eye alike: the one the
+    /// installation names, or else the top level.
     pub fn architect_level(&self) -> String {
         match &self.install.agents.architect {
             Some(a) => a.clone(),
@@ -1297,18 +1793,6 @@ impl Config {
     pub fn observer_level(&self) -> String {
         match &self.install.agents.observer {
             Some(o) => o.clone(),
-            None => self
-                .levels_in_order()
-                .first()
-                .map(|n| n.to_string())
-                .unwrap_or_default(),
-        }
-    }
-
-    /// The level the pick of the architect's next matter runs at: the one the installation names, or else the lowest.
-    pub fn picker_level(&self) -> String {
-        match &self.install.agents.picker {
-            Some(p) => p.clone(),
             None => self
                 .levels_in_order()
                 .first()
@@ -1330,10 +1814,18 @@ impl Config {
     }
 
     /// The level a line's agents run at for an item of the given level: the advisor one level above the item's, the
-    /// reader of a work's history at its own level whatever the item's, every other line at the item's.
+    /// deep research (the designer) too but never above the highest level for items, the reader of a work's history at
+    /// its own level whatever the item's, every other line at the item's.
     pub fn level_of_line(&self, item_level: &str, line: &str) -> String {
         if line == "advisor" {
             self.level_above(item_level)
+        } else if line == "designer" {
+            let above = self.level_above(item_level);
+            if self.item_level(&above).is_ok() {
+                above
+            } else {
+                item_level.to_string()
+            }
         } else if line == "librarian" {
             self.librarian_level()
         } else {
@@ -1381,6 +1873,62 @@ impl Config {
         }
         out
     }
+}
+
+/// Splits a command line into words as a shell would, without running anything: quotes group, a backslash escapes. A
+/// line the configuration holds is split by this where it is checked and where it is run, so that both read it alike.
+pub fn words(line: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut has = false;
+    let mut quote: Option<char> = None;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            // A backslash escapes the next character outside quotes; in double quotes only `$`, a backtick, `"` and `\`,
+            // and before any other character it is a character of the word. Before a line break it takes the break
+            // away, and at the end of the line it is a character of the word.
+            (Some('"'), '\\') | (None, '\\') => match chars.peek().copied() {
+                Some('\n') => {
+                    chars.next();
+                }
+                Some(n) if quote.is_none() || matches!(n, '$' | '`' | '"' | '\\') => {
+                    chars.next();
+                    cur.push(n);
+                }
+                _ => cur.push('\\'),
+            },
+            (Some(_), c) => cur.push(c),
+            (None, '\'' | '"') => {
+                quote = Some(c);
+                has = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if has || !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                    has = false;
+                }
+            }
+            (None, c) => cur.push(c),
+        }
+    }
+    if quote.is_some() {
+        return Err("a quote is not closed".into());
+    }
+    if has || !cur.is_empty() {
+        out.push(cur);
+    }
+    Ok(out)
+}
+
+/// Whether a path names something inside a repository from its root: relative, never going up (`..`), and naming more
+/// than the root itself (not empty, not `.`).
+fn in_repository(path: &Path) -> bool {
+    use std::path::Component;
+    path.is_relative()
+        && !path.components().any(|x| matches!(x, Component::ParentDir))
+        && path.components().any(|x| matches!(x, Component::Normal(_)))
 }
 
 /// The database's file in a data directory.
@@ -1630,22 +2178,24 @@ fn records_under(repo: &Path, commit: &str, dir: &str, found: &mut BTreeMap<Stri
         } else {
             format!("{dir}/")
         };
-        walk_records(repo, commit, &prefix, &tree, &mut vec![tree.clone()], found)?;
+        let markdown = |path: &str| path.ends_with(".md");
+        walk_files(repo, commit, &prefix, &tree, &mut vec![tree.clone()], found, &markdown)?;
     }
     Ok(())
 }
 
-/// The Markdown files of the directory `tree` stands for at the path `prefix`, added to `found`
+/// The files of the directory `tree` stands for at the path `prefix` whose paths `keep` keeps, added to `found`
 /// ([`records_under`]); `on_path` holds the trees of the directories this walk is in, the one it started from and each
 /// that a link led into, so that a link that leads back into one of them ends the walk in an error at once: it would
 /// otherwise be followed again from the same place, once for every link there is, however many levels deep.
-fn walk_records(
+fn walk_files(
     repo: &Path,
     commit: &str,
     prefix: &str,
     tree: &str,
     on_path: &mut Vec<String>,
     found: &mut BTreeMap<String, String>,
+    keep: &dyn Fn(&str) -> bool,
 ) -> Result<(), String> {
     let listed = git(repo, &["ls-tree", "-r", "-z", tree])?;
     // Each entry is `<mode> <type> <object>\t<path>`, the path from `tree`.
@@ -1660,14 +2210,14 @@ fn walk_records(
             continue;
         }
         if mode != Some("120000") {
-            if path.ends_with(".md") {
+            if keep(&path) {
                 found.insert(path, object.to_string());
             }
             continue;
         }
         let fail = |x: String| format!("{path} cannot be read at {commit} in {}: {x}", repo.display());
         match resolve(repo, commit, &path).map_err(fail)? {
-            Found::File(object) if path.ends_with(".md") => {
+            Found::File(object) if keep(&path) => {
                 found.insert(path, object);
             }
             Found::Dir { tree, .. } => {
@@ -1677,10 +2227,10 @@ fn walk_records(
                     ));
                 }
                 on_path.push(tree.clone());
-                walk_records(repo, commit, &format!("{path}/"), &tree, on_path, found)?;
+                walk_files(repo, commit, &format!("{path}/"), &tree, on_path, found, keep)?;
                 on_path.pop();
             }
-            Found::Missing(at) if path.ends_with(".md") => {
+            Found::Missing(at) if keep(&path) => {
                 return Err(fail(format!("path '{at}' does not exist in '{commit}'")));
             }
             Found::File(_) | Found::Missing(_) => {}
@@ -1909,14 +2459,14 @@ asks = 9
         let p = Permissions::default();
         for line in [
             "architect",
-            "architect_review",
+            "matter",
+            "second_eye",
             "observer",
-            "picker",
             "review",
             "advisor",
             "librarian",
         ] {
-            let refused = p.refused(line);
+            let refused = p.refused(line, &cli(&[]));
             for t in EDIT_TOOLS {
                 assert!(refused.iter().any(|r| r == t), "{line}: {t}");
             }
@@ -1927,14 +2477,215 @@ asks = 9
                 assert!(!refused.contains(&format!("Bash(git {g} *)")), "{line}: git {g}");
             }
         }
-        let engineer = p.refused("engineer");
+        let engineer = p.refused("engineer", &cli(&[]));
         assert!(!engineer.iter().any(|r| r == "Edit" || r == "Bash(git commit *)"));
     }
 
-    // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level
-    // above. The advisor runs one level above the item's, every other line at the item's.
+    /// A `claude` CLI with these arguments of its own.
+    fn cli(args: &[&str]) -> Cli {
+        Cli {
+            kind: CliKind::Claude,
+            command: "claude".into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            config_dir: None,
+        }
+    }
+
+    // A line that writes code, the engineer's and the adversarial tester's, may update a lock file with the package
+    // manager, and no heavy rule of the engine refuses that: the heavy commands the lock commands fall under are left
+    // out there, every other stays, and the npm options that would undo a lock command are refused. A line that only
+    // reads is allowed none of them, and refused every heavy command.
     #[test]
-    fn the_advisor_runs_one_level_up() {
+    fn only_a_line_that_writes_code_may_update_a_lock_file() {
+        let p = Permissions::default();
+        let bare = cli(&[]);
+        let locks = [
+            "Bash(cargo update *)",
+            "Bash(cargo add *)",
+            "Bash(npm install --package-lock-only --ignore-scripts *)",
+        ];
+        for line in ["engineer", "adversarial"] {
+            assert_eq!(p.allowed(line, &bare), locks, "{line}");
+            let refused = p.refused(line, &bare);
+            for gone in ["Bash(cargo *)", "Bash(npm install *)"] {
+                assert!(!refused.iter().any(|r| r == gone), "{line}: {gone}");
+            }
+            for kept in [
+                "Bash(rustc *)",
+                "Bash(npm run *)",
+                "Bash(npm ci *)",
+                "Bash(npx *)",
+                "Bash(git push *)",
+                "Bash(npm install *-no-*)",
+                "Bash(npm install *=*)",
+                "Bash(npm install * -g*)",
+                "Bash(npm install *--pref*)",
+            ] {
+                assert!(refused.iter().any(|r| r == kept), "{line}: {kept}");
+            }
+            assert_eq!(refused.len(), p.heavy.len() - 2 + p.locks_except.len(), "{line}");
+        }
+        assert!(!p.read_only.is_empty());
+        for line in &p.read_only {
+            assert!(p.allowed(line, &bare).is_empty(), "{line}");
+            assert!(p.locks_of(line, &bare).is_empty(), "{line}");
+            let refused = p.refused(line, &bare);
+            for heavy in &p.heavy {
+                assert!(refused.contains(&format!("Bash({heavy} *)")), "{line}: {heavy}");
+            }
+            assert!(!refused.iter().any(|r| r.contains("-no-")), "{line}");
+        }
+        // A lock command falls under a heavy command by whole words, and a heavy command narrower than a lock command
+        // still refuses what it names: what the installation counts as heavy work holds over its lock commands.
+        let set: Permissions = toml::from_str(
+            "heavy = [\"car\", \"cargo\", \"cargo update --precise\", \"npm\"]\nlocks = [\"cargo update\"]\n\
+             locks_except = []",
+        )
+        .unwrap();
+        assert_eq!(
+            set.refused("engineer", &bare),
+            ["Bash(car *)", "Bash(cargo update --precise *)", "Bash(npm *)"]
+        );
+        assert_eq!(set.allowed("engineer", &bare), ["Bash(cargo update *)"]);
+        // An installation that lists no lock command refuses every heavy command on every line, as before.
+        let none: Permissions = toml::from_str("locks = []").unwrap();
+        assert!(none.allowed("engineer", &bare).is_empty());
+        assert_eq!(none.refused("engineer", &bare).len(), none.heavy.len());
+    }
+
+    // A heavy command left out for a lock command stays refused in every other use the CLI's own arguments allow: the
+    // engine refuses each such rule again, as `cargo fmt` that the installation allows, but not a lock command or a
+    // use under one; and where the arguments allow the whole heavy command, or every command, it keeps it whole.
+    #[test]
+    fn what_the_cli_s_own_arguments_allow_under_a_heavy_command_stays_refused() {
+        let p = Permissions::default();
+        let installed = cli(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash(git *)",
+            "Bash(rustfmt *)",
+            "Bash(cargo fmt *)",
+            "Bash(cargo update -p:*),Read",
+            "--disallowedTools",
+            "Bash(npm install *)",
+        ]);
+        assert_eq!(
+            installed.allows(),
+            [
+                "Bash(git *)",
+                "Bash(rustfmt *)",
+                "Bash(cargo fmt *)",
+                "Bash(cargo update -p:*)",
+                "Read"
+            ]
+        );
+        let refused = p.refused("engineer", &installed);
+        assert!(refused.iter().any(|r| r == "Bash(cargo fmt *)"), "{refused:?}");
+        assert!(
+            !refused
+                .iter()
+                .any(|r| r == "Bash(cargo *)" || r.starts_with("Bash(cargo update") || r == "Bash(git *)"),
+            "{refused:?}"
+        );
+        assert_eq!(refused.len(), p.heavy.len() - 2 + p.locks_except.len() + 1);
+        // A value after `=`, an exact command, and several rules in one word split at commas and spaces.
+        let exact = cli(&["--allowed-tools=Bash(cargo fmt --check) Bash(npm install foo:*)"]);
+        let refused = p.refused("engineer", &exact);
+        assert!(refused.iter().any(|r| r == "Bash(cargo fmt --check)"), "{refused:?}");
+        assert!(refused.iter().any(|r| r == "Bash(npm install foo:*)"), "{refused:?}");
+        // The whole of a heavy command allowed, every command allowed, or the permission checks skipped or left to the
+        // CLI's own judgment: every heavy command the arguments allow whole stays refused whole, and the lock commands
+        // under it are neither allowed nor told; the others are.
+        let npm = "npm install --package-lock-only --ignore-scripts".to_string();
+        let cases: [(&[&str], Vec<String>); 7] = [
+            (&["--allowedTools", "Bash(cargo:*)"], vec![npm.clone()]),
+            (&["--allowedTools", "Bash"], vec![]),
+            (&["--allowedTools", "Bash(* --version)"], vec![]),
+            (&["--dangerously-skip-permissions"], vec![]),
+            (&["--permission-mode", "bypassPermissions"], vec![]),
+            (&["--permission-mode", "auto"], vec![]),
+            (&["--permission-mode=auto"], vec![]),
+        ];
+        for (args, kept) in cases {
+            let c = cli(args);
+            let refused = p.refused("engineer", &c);
+            assert!(refused.iter().any(|r| r == "Bash(cargo *)"), "{args:?}");
+            assert_eq!(p.locks_of("engineer", &c), kept, "{args:?}");
+            assert_eq!(
+                p.allowed("engineer", &c),
+                kept.iter().map(|k| format!("Bash({k} *)")).collect::<Vec<_>>(),
+                "{args:?}"
+            );
+            let npm_whole = refused.iter().any(|r| r == "Bash(npm install *)");
+            assert_eq!(npm_whole, kept.is_empty(), "{args:?}");
+        }
+        // The permission mode the installations run in leaves every lock command allowed.
+        assert_eq!(p.locks_of("engineer", &installed), p.locks);
+        // A read-only line keeps every heavy command whole whatever the arguments allow, and refuses no rule of theirs.
+        let review = p.refused("review", &installed);
+        assert!(review.iter().any(|r| r == "Bash(cargo *)") && !review.iter().any(|r| r == "Bash(cargo fmt *)"));
+    }
+
+    /// Whether a command matches a pattern of the CLI's tool rules, in which `*` stands for any text.
+    fn matches(pattern: &str, command: &str) -> bool {
+        match pattern.split_once('*') {
+            None => pattern == command,
+            Some((head, rest)) => command
+                .strip_prefix(head)
+                .is_some_and(|tail| (0..=tail.len()).any(|i| matches(rest, &tail[i..]))),
+        }
+    }
+
+    // The npm lock command, written as an agent writes it, is allowed and refused by no exception; each later option
+    // that would undo `--package-lock-only` or `--ignore-scripts`, or install elsewhere, is refused by one.
+    #[test]
+    fn the_npm_options_that_would_undo_the_lock_command_are_refused_and_it_is_not() {
+        let p = Permissions::default();
+        let refused = |command: &str| p.locks_except.iter().any(|e| matches(e, command));
+        let lock = "npm install --package-lock-only --ignore-scripts";
+        assert!(!refused(lock));
+        for args in ["happy-dom", "-D --save-exact happy-dom@21.0.4", "-w client vitest"] {
+            let command = format!("{lock} {args}");
+            assert!(
+                p.allowed("engineer", &cli(&[]))
+                    .iter()
+                    .any(|a| matches(&a[5..a.len() - 1], &command)),
+                "{command}"
+            );
+            assert!(!refused(&command), "{command}");
+        }
+        for args in [
+            "--no-package-lock-only",
+            "--no-ignore-scripts",
+            "--NO-ignore-scripts",
+            "--No-package-lock-only",
+            "-nO-ignore-scripts",
+            "--ignore-scripts=false",
+            "--ignore-scripts=0",
+            "--package-lock-only=",
+            "--ignore-scripts false",
+            "-g",
+            "--g",
+            "--globa",
+            "--global",
+            "--location global",
+            "--location=global",
+            "--prefix /elsewhere",
+            "--prefix=/elsewhere",
+            "-C /elsewhere",
+            "--C /elsewhere",
+        ] {
+            let command = format!("{lock} {args} happy-dom");
+            assert!(refused(&command), "{command}");
+        }
+    }
+
+    // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level
+    // above. The advisor and the designer run one level above the item's, the designer never above the highest level
+    // for items, every other line at the item's.
+    #[test]
+    fn the_advisor_and_the_designer_run_one_level_up() {
         let mut c = read(&files(&[])).unwrap();
         let senior = c.install.agents.levels["senior"].clone();
         c.install.agents.levels = ["1", "2", "10"]
@@ -1948,6 +2699,8 @@ asks = 9
         assert_eq!(c.level_of_line("1", "advisor"), "2");
         assert_eq!(c.level_of_line("1", "engineer"), "1");
         assert_eq!(c.level_of_line("10", "advisor"), "10");
+        assert_eq!(c.level_of_line("1", "designer"), "2");
+        assert_eq!(c.level_of_line("10", "designer"), "10");
         // The architect runs at the top level unless the installation names another, and the search of observations
         // at the lowest.
         assert_eq!(c.architect_level(), "10");
@@ -1971,6 +2724,8 @@ asks = 9
             Err("level 10 is above 2, the highest an item may be at (items.highest_level)".into())
         );
         assert_eq!(c.level_of_line("2", "advisor"), "10");
+        assert_eq!(c.level_of_line("1", "designer"), "2");
+        assert_eq!(c.level_of_line("2", "designer"), "2");
         // The levels an item may be at are those up to the highest, lowest first.
         let names: Vec<&String> = c.item_levels().into_iter().map(|l| l.0).collect();
         assert_eq!(names, ["1", "2"]);
@@ -2121,6 +2876,43 @@ asks = 9
         assert!(e.contains("projects/q.toml: ci.on_demand needs ci.tests_input"), "{e}");
     }
 
+    // A project says where its fast CI reports its tests' results and what separates the parts of a name, which an
+    // agent is shown; none, and it reports nothing the engine reads. An empty artifact, an empty separator and a field
+    // the table does not know are refused, all at once.
+    #[test]
+    fn a_project_says_where_its_tests_results_are_and_what_separates_a_name() {
+        const REPORTING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [ci.results]\nartifact = \"test-results\"\nseparators = [\"::\", \" > \"]\n";
+        assert_eq!(read(&files(&[])).unwrap().projects["p"].ci.results, None);
+        let c = read(&files(&[("projects/q.toml", REPORTING)])).unwrap();
+        assert_eq!(
+            c.projects["q"].ci.results,
+            Some(Results {
+                artifact: "test-results".to_string(),
+                separators: vec!["::".to_string(), " > ".to_string()],
+            })
+        );
+        assert_eq!(
+            c.named_settings("q", "`project.ci.results.separators`"),
+            [(
+                "project.ci.results.separators".to_string(),
+                "[\"::\",\" > \"]".to_string()
+            )]
+        );
+        let bad = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [ci.results]\nartifact = \" \"\nseparators = [\"::\", \"\"]\n";
+        let e = read(&files(&[("projects/q.toml", bad)])).unwrap_err().to_string();
+        assert!(e.contains("projects/q.toml: ci.results.artifact is empty"), "{e}");
+        assert!(
+            e.contains("projects/q.toml: ci.results.separators holds an empty separator"),
+            "{e}"
+        );
+        let unknown = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [ci.results]\nartifact = \"a\"\nformat = \"junit\"\n";
+        let e = read(&files(&[("projects/q.toml", unknown)])).unwrap_err().to_string();
+        assert!(e.contains("format"), "{e}");
+    }
+
     // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else
     // is refused.
     #[test]
@@ -2167,6 +2959,36 @@ asks = 9
             "projects/root.toml: constitution is not a path in the project's repository: .",
         ] {
             assert!(e.to_string().contains(bad), "{bad}: {e}");
+        }
+    }
+
+    // A project keeps its decisions in `decisions` unless it names another directory of its repository; one outside
+    // it, and the root itself, are refused, each project's at once.
+    #[test]
+    fn a_project_s_decisions_are_a_directory_of_its_repository() {
+        let named = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\ndecisions = \"docs/decided\"";
+        let c = read(&files(&[("projects/q.toml", named)])).unwrap();
+        assert_eq!(c.projects["p"].decisions, Path::new("decisions"));
+        assert_eq!(c.projects["q"].decisions, Path::new("docs/decided"));
+        let e = read(&files(&[
+            (
+                "projects/up.toml",
+                "extends = [\"common\"]\nrepo = \"o/up\"\ncheckout = \"/up\"\ndecisions = \"../decisions\"",
+            ),
+            (
+                "projects/root.toml",
+                "extends = [\"common\"]\nrepo = \"o/root\"\ncheckout = \"/root\"\ndecisions = \".\"",
+            ),
+            (
+                "projects/abs.toml",
+                "extends = [\"common\"]\nrepo = \"o/abs\"\ncheckout = \"/abs\"\ndecisions = \"/x/decisions\"",
+            ),
+        ]))
+        .unwrap_err()
+        .to_string();
+        for (name, dir) in [("up", "../decisions"), ("root", "."), ("abs", "/x/decisions")] {
+            let said = format!("projects/{name}.toml: decisions is not a directory in the project's repository: {dir}");
+            assert!(e.contains(&said), "{said}: {e}");
         }
     }
 
@@ -2269,6 +3091,116 @@ asks = 9
                 "{e}"
             );
         }
+    }
+
+    // A command line the configuration holds is split into words as a shell would, where it is checked and where it is
+    // run, never run through a shell.
+    #[test]
+    fn a_command_line_is_split_as_a_shell_would() {
+        assert_eq!(
+            words("pr view 12 --json title").unwrap(),
+            ["pr", "view", "12", "--json", "title"]
+        );
+        assert_eq!(
+            words(r#"api 'repos/a/b/pulls?state=all' --jq ".[] | .title""#).unwrap(),
+            ["api", "repos/a/b/pulls?state=all", "--jq", ".[] | .title"]
+        );
+        assert_eq!(words(r#"a "" b\ c"#).unwrap(), ["a", "", "b c"]);
+        assert!(words("pr view 'x").is_err());
+    }
+
+    // A project lists the lock files whose dependencies' source an agent may have put in its worktree as
+    // `[[dependency_sources]]` tables. One that lists none reads as `none` in the settings an agent is shown, one that
+    // lists some as the list; a lock file is named as `./Cargo.lock` as well as `Cargo.lock`, and the time limit is
+    // 600 seconds unless set.
+    #[test]
+    fn a_project_lists_the_lock_files_whose_dependencies_source_an_agent_may_read() {
+        const LISTING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [[dependency_sources]]\nlock = \"Cargo.lock\"\ninto = \"target/dependency-sources\"\n\
+            command = \"cargo vendor --locked --versioned-dirs target/dependency-sources\"\n\
+            [[dependency_sources]]\nlock = \"client/package-lock.json\"\ninto = \"client/node_modules/\"\n\
+            command = \"npm ci --ignore-scripts --no-audit --no-fund --prefix client\"\ntimeout = 90\n";
+        const SETTING: &str = "`project.dependency_sources`";
+        let none = read(&files(&[])).unwrap();
+        assert!(none.projects["p"].dependency_sources.is_empty());
+        assert_eq!(
+            none.named_settings("p", SETTING),
+            [("project.dependency_sources".to_string(), "none".to_string())]
+        );
+        let c = read(&files(&[("projects/q.toml", LISTING)])).unwrap();
+        let listed = &c.projects["q"].dependency_sources;
+        assert_eq!(listed.len(), 2);
+        assert_eq!(
+            (listed[0].lock.as_str(), listed[0].directory(), listed[0].timeout_secs()),
+            ("Cargo.lock", PathBuf::from("target/dependency-sources"), 600)
+        );
+        assert_eq!(
+            (listed[1].directory(), listed[1].timeout_secs()),
+            (PathBuf::from("client/node_modules"), 90)
+        );
+        assert!(listed[0].locks("./Cargo.lock") && listed[0].locks("Cargo.lock"));
+        assert!(!listed[0].locks("client/Cargo.lock") && !listed[0].locks("client/package-lock.json"));
+        assert_eq!(
+            c.named_settings("q", SETTING),
+            [(
+                "project.dependency_sources".to_string(),
+                "[{\"lock\":\"Cargo.lock\",\"into\":\"target/dependency-sources\",\"command\":\"cargo vendor --locked \
+                 --versioned-dirs target/dependency-sources\"},{\"lock\":\"client/package-lock.json\",\"into\":\
+                 \"client/node_modules/\",\"command\":\"npm ci --ignore-scripts --no-audit --no-fund --prefix client\",\
+                 \"timeout\":90}]"
+                    .to_string()
+            )]
+        );
+        // A table with a field the list does not know is refused.
+        let colour = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n[[dependency_sources]]\n\
+                      lock = \"a.lock\"\ninto = \"d\"\ncommand = \"true\"\ncolour = \"red\"\n";
+        let e = read(&files(&[("projects/q.toml", colour)])).unwrap_err();
+        assert!(
+            e.problems
+                .iter()
+                .any(|p| p.contains("projects/q.toml") && p.contains("colour")),
+            "{e}"
+        );
+    }
+
+    // The check of the configuration tells every fault of the `[[dependency_sources]]` tables at once, each with the
+    // file and the lock file it is in: a lock file or a directory that is not a path in the repository, a command that
+    // has no words or a quote that is not closed, a time limit of 0, and a lock file or a directory listed twice,
+    // however its path is spelled.
+    #[test]
+    fn the_check_tells_every_fault_of_the_dependency_sources_at_once() {
+        const FAULTS: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [[dependency_sources]]\nlock = \"../Cargo.lock\"\ninto = \"/abs\"\ncommand = \"cargo 'vendor\"\ntimeout = 0\n\
+            [[dependency_sources]]\nlock = \"Cargo.lock\"\ninto = \"target/sources\"\ncommand = \"  \"\n\
+            [[dependency_sources]]\nlock = \"./Cargo.lock\"\ninto = \"target/sources/\"\ncommand = \"true\"\n";
+        let e = read(&files(&[("projects/q.toml", FAULTS)])).unwrap_err();
+        let said = |what: &str| {
+            e.problems
+                .iter()
+                .any(|p| p.starts_with("projects/q.toml: dependency_sources of ") && p.contains(what))
+        };
+        assert!(
+            said("\"../Cargo.lock\": lock is not a path in the project's repository"),
+            "{e}"
+        );
+        assert!(
+            said("\"../Cargo.lock\": into is not a directory in the project's repository: /abs"),
+            "{e}"
+        );
+        assert!(
+            said("\"../Cargo.lock\": command cannot be split into words: a quote is not closed"),
+            "{e}"
+        );
+        assert!(said("\"../Cargo.lock\": timeout is 0"), "{e}");
+        assert!(said("\"Cargo.lock\": command holds no word"), "{e}");
+        assert!(said("\"./Cargo.lock\": lock is listed twice"), "{e}");
+        assert!(
+            said("\"./Cargo.lock\": into is the directory of \"Cargo.lock\" too: target/sources/"),
+            "{e}"
+        );
+        // Nothing else is said: the faults are those and no others.
+        let ours = e.problems.iter().filter(|p| p.contains("dependency_sources")).count();
+        assert_eq!(ours, 7, "{e}");
     }
 
     // The engine reads the last commit; the working tree's changes count only once committed.

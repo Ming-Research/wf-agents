@@ -82,21 +82,18 @@ fn each_graph_compiles_to_the_cells_of_its_nodes() {
     assert_eq!(e, "architect: a cell ZZ that is no node");
 }
 
-/// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
-/// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
-/// rows' names, conditions and targets, each in their order; hashed short, the file of the cell in `tests/moves/`.
+/// What of a cell decides whether a work that has begun it moves to a new flow version where it stands or goes back to
+/// do it again, as the engine's `versions::plan` compares a cell's two versions: its kind and line, and the ids, names
+/// and sources of the inputs of its own, in their order (those every agent's cell has, and the cell's rows, a work
+/// under way takes on as they change); hashed short, the file of the cell in `tests/moves/`.
 fn moves_by(c: &flow::CompiledCell) -> String {
     let inputs: Vec<Value> = c
         .inputs
         .iter()
+        .filter(|x| !x.common)
         .map(|x| serde_json::json!([x.id, x.name, x.from]))
         .collect();
-    let rows: Vec<Value> = c
-        .rows
-        .iter()
-        .map(|r| serde_json::json!([r.name, r.conditions, r.to]))
-        .collect();
-    let text = serde_json::json!([c.kind, c.line, inputs, rows]).to_string();
+    let text = serde_json::json!([c.kind, c.line, inputs]).to_string();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in text.bytes() {
         h ^= u64::from(b);
@@ -129,10 +126,11 @@ fn moves_misses(have: &BTreeMap<String, String>, files: &BTreeMap<String, String
     misses
 }
 
-// The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
-// are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's files
-// which cells' works a new version takes over when it is installed, at the cost of a work begun again. The comparison
-// is shown to fail for a hash that differs, a cell with no file and a file with no cell, each naming the cell.
+// The parts of each cell of the engineer's graph that decide whether a work that has begun it moves to a new flow
+// version are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's
+// files which cells a work under way goes back to through cell V1 when the version is installed, at the cost of the
+// cell done again. The comparison is shown to fail for a hash that differs, a cell with no file and a file with no
+// cell, each naming the cell.
 #[test]
 fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let c = compiled();
@@ -156,7 +154,7 @@ fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let misses = moves_misses(&have, &files);
     assert!(
         misses.is_empty(),
-        "cells whose works a new version takes over:\n{}",
+        "cells a work under way at goes back to do again:\n{}",
         misses.join("\n")
     );
 
@@ -182,9 +180,8 @@ fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
 }
 
 // The cells that read the histories and the observations judge what matters in a great many records, so they think:
-// the librarian's five cells and the architect's look-up at high effort, the search of observations at medium, and no
-// cell of any graph at low, which does not think. A line cannot hold low cells beside others, so that the librarian's
-// cell G3 goes with its line.
+// the librarian's two cells and the architect's look-up at high effort, the search of observations at medium, and no
+// cell of any graph at low, which does not think. A line cannot hold low cells beside others.
 #[test]
 fn the_cells_that_read_histories_and_observations_think() {
     let c = compiled();
@@ -195,14 +192,7 @@ fn the_cells_that_read_histories_and_observations_think() {
             .effort
             .clone()
     };
-    for (graph, cell) in [
-        ("engineer", "G1"),
-        ("engineer", "G2"),
-        ("engineer", "G4"),
-        ("engineer", "G3"),
-        ("engineer", "X5"),
-        ("architect", "X5"),
-    ] {
+    for (graph, cell) in [("engineer", "R0"), ("engineer", "X5"), ("architect", "X5")] {
         assert_eq!(effort(graph, cell).as_deref(), Some("high"), "{graph} {cell}");
     }
     assert_eq!(effort("architect", "X2").as_deref(), Some("medium"));
@@ -272,7 +262,7 @@ fn t6_table(c: &flow::Compiled) -> flow::CompiledInput {
 }
 
 // The fix, the one cell with a table it must answer, has a way on when the table has no row, which the engine takes in
-// place of its round: on to choose what runs next, where its answer goes.
+// place of its round: on to the re-check, where its answer goes.
 #[test]
 fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
     let c = compiled();
@@ -294,37 +284,36 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
     );
     let t6 = g.cell("T6").unwrap();
     let row = t6.rows.iter().find(|r| r.name == "nothing_to_answer").unwrap();
-    assert_eq!(row.to, "T7");
+    assert_eq!(row.to, "T4");
     assert_eq!(
         serde_json::to_value(&row.conditions).unwrap(),
         serde_json::json!([["engine", "nothing_to_answer"]])
     );
     assert!(!row.common && !row.fallback && row.counts.is_none());
-    assert_eq!(t6.rows.iter().find(|r| r.name == "done").unwrap().to, "T7");
+    assert_eq!(t6.rows.iter().find(|r| r.name == "done").unwrap().to, "T4");
 }
 
 // The architect's graph compiles with no finding, as the design the owner approved: where it waits for a work to start
-// and the start of its work, which only a new session understands the project at (`S0`, `S1`, `U1`), the queue (`Q0`)
-// and each matter's path, the check of the policy, the writing of a new one, or its draft dropped when the owner keeps
-// the policy in force, and its taking effect (`P1`, `P2`, `P12`),
-// the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
-// changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
-// only its matter (`A3`), the tools (`X1`), the observer
-// (`X2`) and the wait for the owner's Start after a pause (`X3`). It has no wrap-up, no wait
-// for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
-// new architects, the owner's buttons).
-// The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
-// one.
+// (`S0`), what comes next in the engine's fixed order and where the matter goes (`Q0`, `Q2`), the base read anew and
+// planned in a new session (`U1`, `N1`), each matter's path in a session forked from the base, main's CI red (`L1`,
+// `L2`), the check of the policy, the writing of a new one and its taking effect (`P1`, `P2`, `P12`), the second eye
+// (`G1`, `G2`), the end (`E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer
+// (`X2`), the wait for the owner's Start after a pause (`X3`) and the bringing of a work to a new flow version (`V1`).
+// It has no pick of the next matter, no batch, its review, its revision, the recording of its decisions or the rethink
+// after it, no wait for the owner's reply, no cell of slots free or of what was said in the groups apart from the
+// planning and what changed, and none of the setting of a policy as a stage of its own. The owner's words reach the
+// architect only through its queue: no cell of it takes an interjection, and none answers one.
 #[test]
 fn the_architect_graph_has_no_cell_the_design_left_out() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
     for gone in [
-        "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
+        "E1", "H6", "H10", "H11", "H12", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "Q1", "S1", "B1",
+        "B2", "B3", "B4", "B5",
     ] {
         assert!(g.cell(gone).is_none(), "{gone}");
     }
-    // Only a new session understands the project: no row but the start's goes to the understanding.
+    // Only the look at the queue, when a planning or a rebuild of the base is due, reads the project anew.
     let into = |cell: &str| -> Vec<&str> {
         g.cells
             .iter()
@@ -332,7 +321,7 @@ fn the_architect_graph_has_no_cell_the_design_left_out() {
             .map(|x| x.id.as_str())
             .collect()
     };
-    assert_eq!(into("U1"), ["S1"]);
+    assert_eq!(into("U1"), ["Q0"]);
     assert!(g.cell("X4").is_none());
     assert!(
         g.cells
@@ -342,12 +331,12 @@ fn the_architect_graph_has_no_cell_the_design_left_out() {
     assert!(c.graph("policy").is_none());
 }
 
-// Every agent's cell of the architect's line and of its pick but the review of a batch and the observer's search may
-// rewrite sections of the notebook in its own answer, beside its effects, the edit made at once and its size checked;
-// the understanding and the plan must, each its own sections. Each such cell is given the four sections, each an engine
-// input of its own, but the understanding, which writes what the project is now afresh and is given only what is
-// unclear, as questions to settle, and the other section; no cell reads the state of things, the notes, the log or the
-// last plan, which the notebook took the place of.
+// Every agent's cell of the base and of a matter's session, but the second eye and the observer's search, may rewrite
+// sections of the notebook in its own answer, beside its effects, the edit made at once and its size checked; reading
+// the project and the plan must, each its own sections. Each such cell is given the four sections, each an engine
+// input of its own, but reading the project, which writes what the project is now afresh and is given the plan to say
+// whether it holds, what is unclear, as questions to settle, and the other section; no cell reads the state of things,
+// the notes, the log or the last plan, which the notebook took the place of.
 #[test]
 fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let c = compiled();
@@ -357,7 +346,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let sections = ["project_now", "plan", "unclear", "other"];
     let mut keep = Vec::new();
     for cell in &g.cells {
-        if cell.kind != "agent" || !matches!(cell.line.as_deref(), Some("architect" | "picker")) {
+        if cell.kind != "agent" || !matches!(cell.line.as_deref(), Some("architect" | "matter")) {
             continue;
         }
         keep.push(cell.id.as_str());
@@ -385,7 +374,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
                     .any(|x| x.from == [flow::format::Src::Engine(name.clone())])
             })
             .collect();
-        let want: &[&str] = if cell.id == "U1" { &sections[2..] } else { &sections };
+        let want: &[&str] = if cell.id == "U1" { &sections[1..] } else { &sections };
         assert_eq!(given, want, "{}", cell.id);
         let node = nodes.iter().find(|n| n["id"] == cell.id.as_str()).unwrap();
         let field = node["out"]
@@ -412,13 +401,10 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
             );
         }
     }
-    assert_eq!(
-        keep,
-        [
-            "U1", "P1", "N1", "P2", "Q1", "H1", "H2", "H3", "H4", "H5", "H7", "H8", "H9", "H10", "H12", "B5", "B3",
-            "B4"
-        ]
-    );
+    // No total of the graph's cells is held here; the cells named are those other tests read the notebook of.
+    for id in ["U1", "N1", "H3", "L2"] {
+        assert!(keep.contains(&id), "{id} is not among {keep:?}");
+    }
     for (cell, check) in [("U1", "understanding_written"), ("N1", "plan_written")] {
         assert!(
             g.cell(cell)
@@ -429,7 +415,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
             "{cell}"
         );
     }
-    for cell in ["B2", "X2"] {
+    for cell in ["G2", "X2"] {
         assert!(
             g.cell(cell).unwrap().always.iter().all(|a| a.at != "notebook"),
             "{cell}"
@@ -438,126 +424,64 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     assert_eq!(g.cell("N1").unwrap().title, "The plan");
 }
 
-// Item #228: the architect picks side reports or answers about one thing together. The pick names the others to go with
-// the matter it picks and sets the group (`group_picked`); the cell that finds what a report is and the cell that takes
-// it in each answer for the group in one round, the others in `with`, which they leave out for a matter alone, and
-// hold the answer to the group (`group_answered`); every cell that may ask the owner takes the group apart as it asks
-// (`dissolve_group`). A `with` that is empty, or lacks a field of an entry, fits no schema.
+// Each matter is handled in a session forked from the base: the lines of a matter's session and of the second eye fork
+// from the base's line, which forks from none, and the compiler gives each of their cells the line it forks from; a line
+// that forks from itself, from a line its graph has not, or from a line that forks itself is refused.
 #[test]
-fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_the_ask() {
+fn a_matter_s_session_and_the_second_eye_fork_from_the_base() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    assert!(
-        g.cell("Q1")
-            .unwrap()
-            .always
-            .iter()
-            .any(|a| a.at == "pick" && a.action.as_deref() == Some("group_picked"))
-    );
-    assert!(
-        g.cell("Q1")
-            .unwrap()
-            .checks
-            .iter()
-            .any(|x| x.at.as_deref() == Some("pick") && x.check == "picked_pickable")
-    );
-    for id in ["H4", "H5"] {
-        assert!(
-            g.cell(id)
-                .unwrap()
-                .checks
-                .iter()
-                .any(|x| x.at.as_deref() == Some("with") && x.check == "group_answered"),
-            "{id}"
-        );
+    for (cell, of) in [
+        ("H3", Some("architect")),
+        ("L2", Some("architect")),
+        ("G2", Some("architect")),
+        ("U1", None),
+        ("N1", None),
+        ("X2", None),
+    ] {
+        assert_eq!(g.cell(cell).unwrap().fork_of.as_deref(), of, "{cell}");
     }
-    let asking: Vec<&str> = g
-        .cells
-        .iter()
-        .filter(|x| x.rows.iter().any(|r| r.name == "ask_owner"))
-        .map(|x| x.id.as_str())
-        .collect();
-    assert!(asking.contains(&"H4") && asking.contains(&"H5"), "{asking:?}");
-    for id in &asking {
-        let row = g.cell(id).unwrap().rows.iter().find(|r| r.name == "ask_owner").unwrap();
-        assert!(row.actions.iter().any(|d| d.name() == "dissolve_group"), "{id}");
+    assert!(
+        !g.cell("N1").unwrap().cache_expiry,
+        "a cold cache is no reason to read the project again"
+    );
+    let line = |v: &mut Value, name: &str| -> usize {
+        v["flows"][1]["sessions"]["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|l| l["name"] == name)
+            .unwrap()
+    };
+    for (to, said) in [
+        (
+            "matter",
+            "a line forks from no other line of its graph that forks from none: matter forks matter",
+        ),
+        (
+            "nowhere",
+            "a line forks from no other line of its graph that forks from none: matter forks nowhere",
+        ),
+        (
+            "second_eye",
+            "a line forks from no other line of its graph that forks from none: matter forks second_eye",
+        ),
+    ] {
+        let mut v: Value = serde_json::from_str(FLOW).unwrap();
+        let i = line(&mut v, "matter");
+        v["flows"][1]["sessions"]["lines"][i]["forks"] = Value::String(to.into());
+        let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+        assert!(e.contains(said), "{e}");
     }
-    // The pick, on a line of its own, tells the owner nothing; the architect's own cells do.
-    let ret = |cell: &str, outcome: Value| {
-        let mut r = serde_json::json!({ "outcome": outcome, "progress": "p", "flow_feedback": "none" });
-        if cell != "Q1" {
-            r["tell_owner"] = serde_json::json!([]);
-        }
-        r
-    };
-    let takes = |cell: &str, outcome: Value| -> Result<String, String> {
-        g.take(cell, &ret(cell, outcome), &Map::new()).map(|r| r.name.clone())
-    };
-    let refused = |cell: &str, outcome: Value| takes(cell, outcome).unwrap_err().contains("does not fit the schema");
-    // The pick names others, or none.
-    let pick = serde_json::json!({ "matter": 1, "why": "w" });
-    assert_eq!(takes("Q1", serde_json::json!({ "pick": pick })).unwrap(), "picked");
-    let group = serde_json::json!({ "matter": 1, "why": "w", "with": [2, 3] });
-    assert_eq!(takes("Q1", serde_json::json!({ "pick": group })).unwrap(), "picked");
-    let empty = serde_json::json!({ "matter": 1, "why": "w", "with": [] });
-    assert!(refused("Q1", serde_json::json!({ "pick": empty })));
-    // The finding is the matter picked's, and `with` the others'.
-    let finding = serde_json::json!({ "what": "w", "grounds": "g", "sure": "checked" });
-    let other = serde_json::json!({ "matter": 2, "what": "w", "grounds": "g", "sure": "likely" });
-    assert_eq!(takes("H4", serde_json::json!({ "finding": finding })).unwrap(), "found");
-    assert_eq!(
-        takes("H4", serde_json::json!({ "finding": finding, "with": [other] })).unwrap(),
-        "found"
-    );
-    let mut lacking = other.clone();
-    lacking.as_object_mut().unwrap().remove("sure");
-    assert!(refused(
-        "H4",
-        serde_json::json!({ "finding": finding, "with": [lacking] })
-    ));
-    assert!(refused("H4", serde_json::json!({ "finding": finding, "with": [] })));
-    // The way is the matter picked's, and `with` the others', with the changes that come of each naming it.
-    let take = serde_json::json!({ "way": "merged", "why": "w" });
-    let way = serde_json::json!({ "matter": 2, "way": "nothing", "why": "w" });
-    let change = serde_json::json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "t", "reason": "r",
-                                     "matter": 2 });
-    assert_eq!(takes("H5", serde_json::json!({ "take": take })).unwrap(), "done");
-    let both = serde_json::json!({ "take": take, "with": [way], "effects": { "item_changes": [change] } });
-    assert_eq!(takes("H5", both).unwrap(), "done");
-    let mut wrong = way.clone();
-    wrong["way"] = "somehow".into();
-    assert!(refused("H5", serde_json::json!({ "take": take, "with": [wrong] })));
-    assert!(refused("H5", serde_json::json!({ "take": take, "with": [] })));
-    // A member that needs the owner goes back to the queue (`release_members`, the cell's first action, before the
-    // others read the group); the way fits the schema of the entries of `with`, and the check, not the schema, turns it
-    // away from the matter picked.
-    let always = &g.cell("H5").unwrap().always;
-    assert_eq!(
-        (always[0].at.as_str(), always[0].action.as_deref()),
-        ("with", Some("release_members"))
-    );
-    let mut back = way.clone();
-    back["way"] = "back_for_owner".into();
-    assert_eq!(
-        takes("H5", serde_json::json!({ "take": take, "with": [back] })).unwrap(),
-        "done"
-    );
 }
 
-// The check of the policy and the plan of what to do next are matters at the head of the queue: a new session's
-// understanding queues both and goes on to the queue; the look at the queue takes them after the owner's words, a
-// matter back with the owner's reply, the waits for the owner and a matter of two cells going on at its second cell,
-// and before the others, without a pick (`head`), and the router sends each to its cell. The check closes it when the
-// policy holds, asks the owner in doubt, and goes on to write a new policy by the owner's reply, or by the owner's
-// words that asked for it (`write_policy`, which the engine refuses otherwise), through the queue, where the owner's
-// words that came meanwhile are taken first; the writing asks the owner to approve it,
-// which parks the check there, and the router sends it back to the writing with any other reply, and with approved to
-// where it takes effect, which queues the plan and closes the check. The plan closes its matter. Whoever wants a check
-// or a plan queues it: no row of a batch's rethink, a talk or the taking effect goes to the check or the plan. An
-// owner's cell of the architect's graph with no row that goes on without the answer is refused, since the architect
-// never stops for the owner.
+// What comes next is the engine's to take, in a fixed order and by fact (`Q0`): the owner's words or reply, main's CI
+// red, a matter a work waits on, a planning or a rebuild of the base, what the plan queued, what waited for the planning,
+// or nothing, which ends the work. A planning and a rebuild read the project anew in a new session each time, which
+// plans when a planning is due or the plan no longer holds; every plan closes what it answers. No row of the graph waits
+// but at its start: a question to the owner parks only its matter, and a row that waits elsewhere is refused.
 #[test]
-fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
+fn what_comes_next_is_taken_in_a_fixed_order_and_the_base_is_read_anew() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
     let row = |cell: &str, name: &str| {
@@ -570,170 +494,75 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
             .clone()
     };
     let does = |r: &flow::CompiledRow| r.actions.iter().map(|d| d.name().to_string()).collect::<Vec<_>>();
-    let way = |r: &flow::CompiledRow| (r.to.clone(), does(r));
-    let to = |to: &str, then: &[&str]| (to.to_string(), then.iter().map(|x| x.to_string()).collect::<Vec<_>>());
-    assert_eq!(
-        way(&row("U1", "understood")),
-        to("Q0", &["queue_check_policy", "queue_make_plan"])
-    );
-    let q0: Vec<&str> = g.cell("Q0").unwrap().rows.iter().map(|r| r.name.as_str()).collect();
-    assert_eq!(
-        q0[..6],
-        ["owner_words", "answered", "waits", "listens", "second_cell", "head"]
-    );
-    assert_eq!(row("Q0", "head").to, "Q2");
-    let given = |v: &str| Map::from_iter([("route".to_string(), Value::String(v.into()))]);
-    for at in ["P1", "P2", "P12", "N1"] {
-        let r = g.take("Q2", &serde_json::json!({}), &given(at)).unwrap();
-        assert_eq!(r.to, at);
+    let next = |verdict: &str, more: Value| {
+        let mut out = serde_json::json!({ "next": { "verdict": verdict } });
+        if let Value::Object(o) = more {
+            for (k, v) in o {
+                out["next"][k] = v;
+            }
+        }
+        g.take("Q0", &out, &Map::new()).unwrap().clone()
+    };
+    for verdict in ["owner", "main_red", "waiting", "planned", "gathered"] {
+        assert_eq!(next(verdict, serde_json::json!({ "matter": 3 })).to, "Q2", "{verdict}");
     }
-    assert_eq!(way(&row("P1", "holds")), to("B1", &["close_matter"]));
-    // A new policy is written at the second cell of the check, which goes back to the queue between them.
-    assert_eq!(way(&row("P1", "write_policy")), to("Q0", &["go_on_at_second_cell"]));
-    assert_eq!(row("P1", "ask_owner").to, "A3");
-    // It writes a new policy only once the owner said yes, by the reply or by the words that asked for the check.
-    assert!(
-        g.cell("P1")
-            .unwrap()
-            .checks
-            .iter()
-            .any(|x| x.at.as_deref() == Some("verdict") && x.check == "asked_before_writing")
-    );
-    // The new measures a draft's signals need are queued once it takes effect, from the draft approved.
-    assert_eq!(way(&row("P2", "written")), to("B1", &["ask_approval"]));
-    assert_eq!(
-        way(&row("P12", "next")),
-        to("B1", &["queue_measures", "queue_make_plan", "close_matter"])
-    );
+    for (verdict, recorded) in [("plan", "plan"), ("rebuild", "rebuild")] {
+        let r = next(verdict, serde_json::json!({ "why": "w" }));
+        assert_eq!(r.to, "U1", "{verdict}");
+        assert!(does(&r).iter().any(|d| d == "fresh_session"), "{verdict}");
+        assert_eq!(
+            r.sets.get("rebuild_for").map(String::as_str),
+            Some(recorded),
+            "{verdict}"
+        );
+    }
+    assert_eq!(next("none", Value::Null).to, "E2");
+    let given = |v: &str| Map::from_iter([("rebuild_for".to_string(), Value::String(v.into()))]);
+    let u1 = |verdict: &str, for_: &str| {
+        let ret = serde_json::json!({
+            "outcome": { "notebook": [{ "section": "project_now", "text": "t" }, { "section": "unclear", "text": "u" }],
+                         "plan": { "verdict": verdict, "why": "w" } },
+            "progress": "p", "tell_owner": [], "flow_feedback": "none",
+        });
+        g.take("U1", &ret, &given(for_)).unwrap().clone()
+    };
+    assert_eq!(u1("holds", "plan").to, "N1");
+    assert_eq!(u1("wrong", "plan").to, "N1");
+    assert_eq!(u1("holds", "rebuild").to, "Q0");
+    assert_eq!(u1("wrong", "rebuild").to, "N1");
     for name in ["fits", "some_to_change", "set_straight"] {
         let r = row("N1", name);
-        assert_eq!(
-            (r.to.as_str(), does(&r).last().map(String::as_str)),
-            ("B1", Some("close_matter"))
-        );
+        assert_eq!(r.to, "Q0", "{name}");
+        assert!(does(&r).iter().any(|d| d == "close_planning"), "{name}");
     }
-    assert_eq!(way(&row("B4", "go_on")), to("Q0", &["queue_group_talk"]));
-    assert_eq!(
-        way(&row("B4", "re_plan")),
-        to("Q0", &["queue_make_plan", "queue_group_talk"])
-    );
-    assert_eq!(
-        way(&row("B4", "check_policy")),
-        to("Q0", &["queue_check_policy", "queue_group_talk"])
-    );
-    // A batch with nothing to rethink goes back to the queue with no round of the rethink, still at a batch's end.
-    assert_eq!(
-        way(&row("B1", "nothing")),
-        to("Q0", &["settle_straight_hold", "queue_group_talk"])
-    );
-    // The owner's words a batch handled have their decisions recorded before its item changes are reviewed: the batch's
-    // end goes to the cell that records them, which goes on to the review when a decision or an item change is there to
-    // review, and to the rethink, as the end of a batch with none, when none is.
-    assert_eq!(way(&row("B1", "decisions")), to("B5", &[]));
-    assert_eq!(way(&row("B5", "decisions")), to("B2", &["open_session"]));
-    assert_eq!(way(&row("B5", "changes")), to("B2", &["open_session"]));
-    assert_eq!(way(&row("B5", "none")), to("B4", &["settle_straight_hold"]));
-    assert_eq!(way(&row("B1", "review")), to("B2", &["open_session"]));
-    assert_eq!(way(&row("B1", "done")), to("B4", &["settle_straight_hold"]));
-    let into = |cell: &str| -> Vec<&str> {
-        g.cells
-            .iter()
-            .filter(|x| x.rows.iter().any(|r| r.to == cell && !r.common))
-            .map(|x| x.id.as_str())
-            .collect()
-    };
-    assert_eq!(into("P1"), ["Q2"]);
-    assert_eq!(into("N1"), ["Q2"]);
-    assert_eq!(into("P2"), ["Q2"]);
-    assert_eq!(into("P12"), ["Q2"]);
-    // Only the end of a batch goes to the recording of the decisions, and a batch's review comes from it, the end of the
-    // batch and the revision.
-    assert_eq!(into("B5"), ["B1"]);
-    assert_eq!(into("B2"), ["B1", "B5", "B3"]);
-    let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    let ask = v["flows"][1]["nodes"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find(|n| n["id"] == "A3")
-        .unwrap();
-    // Back to the cell that asked with the answer, and no row that goes on without it.
-    ask["cases"][0].as_object_mut().unwrap().remove("drops");
-    ask["cases"][0]["to"] = Value::String("@asker".into());
-    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(
-        e.contains("the architect's own graph stops: A3 goes on only with the owner's answer"),
-        "{e}"
-    );
-}
-
-// The owner's words are answered in one round, as the owner decided: the look at the queue takes them first, without a
-// pick (`Q0`); the cell of the owner's words (`H8`) replies and takes one way on, back to the batch (`B1`): done; the
-// plan of what to do next made again, or the policy checked, each a matter it queues at the head of the queue. It may
-// ask the owner, whose reply comes back to it; no cell waits for the owner's reply in a talk (`H11`) any longer, but
-// while its answer leaves the talk open the look at the queue waits a while for the owner's next words. A row that
-// waits in the architect's graph with no setting bounding the wait is refused, since the architect stops for no one.
-#[test]
-fn the_owner_s_words_are_answered_in_one_round() {
-    let c = compiled();
-    let g = c.graph("architect").unwrap();
-    let row = |cell: &str, name: &str| {
-        g.cell(cell)
-            .unwrap()
-            .rows
-            .iter()
-            .find(|r| r.name == name)
-            .unwrap_or_else(|| panic!("{cell} {name}"))
-            .clone()
-    };
-    let does = |r: &flow::CompiledRow| r.actions.iter().map(|d| d.name().to_string()).collect::<Vec<_>>();
-    let none = Map::new();
-    let first = g
-        .take(
-            "Q0",
-            &serde_json::json!({ "queue": { "verdict": "owner_words", "matter": 3 } }),
-            &none,
-        )
-        .unwrap();
-    assert_eq!((first.name.as_str(), first.to.as_str()), ("owner_words", "Q2"));
-    // The owner's words come first, then a matter back with the owner's reply; a question just put waits for the
-    // reply, no longer than the installation's wait.
-    let q0: Vec<&str> = g.cell("Q0").unwrap().rows.iter().map(|r| r.name.as_str()).collect();
-    assert_eq!(q0[..3], ["owner_words", "answered", "waits"]);
-    let wait = g
-        .take(
-            "Q0",
-            &serde_json::json!({ "queue": { "verdict": "waits", "question": 4 } }),
-            &none,
-        )
-        .unwrap();
-    assert_eq!((wait.to.as_str(), wait.waits), ("Q0", true));
-    // While the answer leaves the talk open, the look at the queue waits for the owner's next words, and the batch's
-    // review and rethink wait with it.
-    let listens = g
-        .take(
-            "Q0",
-            &serde_json::json!({ "queue": { "verdict": "listens", "matter": 3 } }),
-            &none,
-        )
-        .unwrap();
-    assert_eq!((listens.to.as_str(), listens.waits), ("Q0", true));
-    let talking = Map::from_iter([("next_in_batch".to_string(), Value::String("talking".into()))]);
-    assert_eq!(g.take("B1", &serde_json::json!({}), &talking).unwrap().to, "Q0");
-    assert!(g.cell("H11").is_none());
-    for (name, to, then) in [
-        ("done", "B1", vec!["close_matter"]),
-        ("re_plan", "B1", vec!["queue_make_plan", "close_matter"]),
-        ("new_policy", "B1", vec!["queue_check_policy", "close_matter"]),
-    ] {
-        let r = row("H8", name);
-        assert_eq!(
-            (r.to.as_str(), does(&r)),
-            (to, then.iter().map(|x| x.to_string()).collect()),
-            "{name}"
-        );
+    // The policy is a matter too, in a fork of the base: its check closes through the second eye's look at what it
+    // handed in, writes a new policy in the same session, and the draft parks the matter for the owner's approval.
+    let route = |v: &str| Map::from_iter([("route".to_string(), Value::String(v.into()))]);
+    for at in ["P1", "P2", "P12", "L1", "L2", "H3", "H5"] {
+        assert_eq!(g.take("Q2", &serde_json::json!({}), &route(at)).unwrap().to, at);
     }
-    assert_eq!(row("H8", "ask_owner").to, "A3");
+    assert_eq!(row("P1", "holds").to, "G1");
+    assert_eq!(row("P1", "write_policy").to, "P2");
+    assert_eq!(
+        (row("P2", "written").to, does(&row("P2", "written"))),
+        ("Q0".to_string(), vec!["ask_approval".to_string()])
+    );
+    assert_eq!(
+        does(&row("P12", "next")),
+        ["queue_measures".to_string(), "close_matter".to_string()]
+    );
+    assert_eq!(row("H2", "found").to, "H3");
+    assert_eq!(row("H4", "found").to, "H5");
+    let held = row("A3", "held");
+    assert!(held.drops && held.to == "Q0");
+    // A row every agent's cell has, as the wait for the command line's usage limit, is the engine's, not the graph's.
+    let agents: Vec<&flow::CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
+    let shared = |name: &str| agents.iter().all(|c| c.rows.iter().any(|r| r.name == name && r.waits));
+    for cell in &g.cells {
+        for r in cell.rows.iter().filter(|r| r.waits && !shared(&r.name)) {
+            assert!(cell.id == "S0" || cell.id == "X3", "{} {}", cell.id, r.name);
+        }
+    }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     let look = v["flows"][1]["nodes"]
         .as_array_mut()
@@ -741,69 +570,94 @@ fn the_owner_s_words_are_answered_in_one_round() {
         .iter_mut()
         .find(|n| n["id"] == "Q0")
         .unwrap();
-    let waits = look["cases"]
+    let none = look["cases"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
-        .find(|c| c["name"] == "waits")
+        .find(|c| c["name"] == "none")
         .unwrap();
-    waits.as_object_mut().unwrap().remove("until");
+    none["waits"] = Value::Bool(true);
+    none["to"] = Value::String("Q0".into());
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("the architect's own graph stops: Q0 waits"), "{e}");
+    assert!(e.contains("the architect's own graph stops: Q0 none waits"), "{e}");
 }
 
-// What was said in the works' groups, other than to the architect, is a matter of its own (`group_talk`), which the
-// cell the architect waits at to start queues (`S0`'s `queue_group_talk`), and each row out of the rethink that ends
-// each batch while a work runs (`B4`), and the router sends to its cell (`H12`): it
-// may do nothing more, interject in its effects, plan again or check the policy, each a matter it queues at the head of
-// the queue, back to the batch; the pick is given it no longer.
+// Each cell that ends a matter leaves its line of the decision log and its two answers (`closing`), which the engine
+// keeps and checks, and goes to the second eye's gate (`G1`): with no change of a kind the second eye checks, the
+// matter closes; with one, the second eye forked from the same base looks (`G2`), and what it finds sound is made and
+// the matter closes, or the changes go back to the cell that handed them in, which is given what it found.
 #[test]
-fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
+fn each_matter_ends_with_its_log_line_and_the_second_eye_where_a_change_can_lose_something() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    assert!(g.cell("S0").unwrap().actions.iter().any(|a| a == "queue_group_talk"));
-    let given = Map::from_iter([("route".to_string(), Value::String("H12".into()))]);
-    assert_eq!(g.take("Q2", &serde_json::json!({}), &given).unwrap().to, "H12");
-    let does = |name: &str| {
-        let r = g
-            .cell("H12")
-            .unwrap()
-            .rows
-            .iter()
-            .find(|r| r.name == name)
-            .unwrap()
-            .clone();
-        (
-            r.to.clone(),
-            r.actions.iter().map(|d| d.name().to_string()).collect::<Vec<_>>(),
-        )
-    };
-    for (name, then) in [
-        ("done", vec!["close_matter"]),
-        ("re_plan", vec!["queue_make_plan", "close_matter"]),
-        ("new_policy", vec!["queue_check_policy", "close_matter"]),
-    ] {
-        assert_eq!(
-            does(name),
-            ("B1".to_string(), then.iter().map(|x| x.to_string()).collect()),
-            "{name}"
-        );
-    }
-    let reads = |cell: &str| {
-        g.cell(cell).unwrap().inputs.iter().any(|x| {
-            x.from
+    for id in ["H1", "H3", "H5", "H7", "H8", "H9", "L2", "P1"] {
+        let cell = g.cell(id).unwrap();
+        assert!(
+            cell.always
                 .iter()
-                .any(|s| matches!(s, flow::format::Src::Engine(n) if n == "group_talk"))
-        })
-    };
-    assert!(reads("H12"));
-    assert!(!reads("Q1"));
-    // Each row from the rethink every batch ends at back to the queue's look queues it too, for the work that runs.
-    for name in ["go_on", "re_plan", "check_policy"] {
-        let r = g.cell("B4").unwrap().rows.iter().find(|r| r.name == name).unwrap();
-        assert_eq!(r.to, "Q0", "{name}");
-        assert!(r.actions.iter().any(|d| d.name() == "queue_group_talk"), "{name}");
+                .any(|a| a.at == "closing" && a.action.as_deref() == Some("log_matter")),
+            "{id}"
+        );
+        assert!(
+            cell.checks
+                .iter()
+                .any(|x| x.at.as_deref() == Some("closing") && x.check == "closing_given"),
+            "{id}"
+        );
+        assert!(cell.rows.iter().any(|r| r.to == "G1" && !r.common), "{id}");
+        assert!(
+            cell.inputs
+                .iter()
+                .any(|x| x.from == [flow::format::Src::Place("G2".into(), "check".into())]),
+            "{id} is not given what the second eye found"
+        );
+        let schema = cell.schema.as_ref().unwrap().to_string();
+        assert!(schema.contains("\"closing\""), "{id}");
     }
+    for id in ["H2", "H4"] {
+        assert!(g.cell(id).unwrap().always.iter().all(|a| a.at != "closing"), "{id}");
+    }
+    let gate = |v: &str| Map::from_iter([("second_eye".to_string(), Value::String(v.into()))]);
+    let none = g.take("G1", &serde_json::json!({}), &gate("none")).unwrap();
+    assert_eq!(none.to, "Q0");
+    assert!(none.actions.iter().any(|d| d.name() == "close_matter"));
+    assert_eq!(g.take("G1", &serde_json::json!({}), &gate("needed")).unwrap().to, "G2");
+    let eye = |verdict: &str| {
+        let check = if verdict == "sound" {
+            serde_json::json!({ "verdict": "sound", "why": "w" })
+        } else {
+            serde_json::json!({ "verdict": "problems", "problems": [{ "change": 1, "kind": "loses", "what": "w",
+                                "fact": "f", "fix": "x" }] })
+        };
+        let ret = serde_json::json!({ "outcome": { "check": check }, "progress": "p", "flow_feedback": "none" });
+        g.take("G2", &ret, &Map::new()).unwrap().clone()
+    };
+    let sound = eye("sound");
+    assert_eq!(sound.to, "Q0");
+    assert_eq!(
+        sound.actions.iter().map(|d| d.name()).collect::<Vec<_>>(),
+        ["apply_checked", "close_matter"]
+    );
+    let problems = eye("problems");
+    assert_eq!(problems.to, "Q2");
+    // What it found goes back as its return is taken, before the way back is read: done at what it found, not by the
+    // row, so that only a return that found problems does it.
+    assert!(problems.actions.is_empty());
+    assert!(
+        g.cell("G2")
+            .unwrap()
+            .always
+            .iter()
+            .any(|a| a.action.as_deref() == Some("return_checked") && a.at == "check[problems].problems")
+    );
+    // The second eye runs on the architect's level as the matter's session does, and never asks, searches or looks up
+    // the history.
+    let g2 = g.cell("G2").unwrap();
+    assert!(
+        g2.rows
+            .iter()
+            .all(|r| !["ask_owner", "search", "history"].contains(&r.name.as_str()))
+    );
 }
 
 // A capability report, an agent saying the system lacks what its work needs, is a defect of the system: the ways read
@@ -851,7 +705,7 @@ fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
         v["engine"]["checks"]["effects_valid"]
             .as_str()
             .unwrap()
-            .contains("reported three times or more is folded into an item by a change of the batch")
+            .contains("reported three times or more is folded into an item by a change of the round")
     );
 }
 
@@ -878,34 +732,47 @@ fn an_ask_carries_no_kind() {
             assert!(n.get("about").is_none(), "{}", n["id"]);
         }
     }
-    let gap = engineer.cell("D5").unwrap();
-    assert!(gap.prompt[0].contains("give the code you want to write, the error it really gives"));
-    // Only a project with something under test is asked it: the cell before chooses so by a row of its own.
-    let under_test = engineer.cell("D4").unwrap();
-    let yes = under_test.rows.iter().find(|r| r.name == "yes").unwrap();
-    assert_eq!(yes.to, "D5");
-    assert_eq!(
-        serde_json::to_value(&yes.conditions).unwrap(),
-        serde_json::json!([["inp", "under_test", ["yes"]]])
-    );
     let ways = c.graph("architect").unwrap().cell("H3").unwrap();
     assert!(ways.prompt_by.is_none() && ways.inenums.is_empty());
 }
 
-// What only the owner can settle reaches the owner through the architect, never as an engineer's ask of the owner: the
-// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but the wait
-// for the ruling on where a design departs from the item's decisions (`D12`), which the architect puts to the owner,
-// and `M1`'s ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on
-// only to a related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the
-// architect at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the
-// work's design, and an action only the owner can do to the owner by pausing the work. An open question left to the
-// owner they pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
+// What the owner alone wants of a work its engineer asks the owner, at the owner's cell (`A3`); what only the owner can
+// do or decide besides reaches the owner through the architect. The owner holds a work's blocker there, at the review of
+// the answers the work asked for while it went on, at the merge gate (`M1`), and nowhere else; the
+// architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a related project's
+// architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect at `A2`, which is
+// given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's design, and an
+// action only the owner can do to the owner by pausing the work. An open question left to the owner they pin in the
+// owner's one-to-one by an ask, and answer the engineer by the owner's reply.
 #[test]
-fn what_only_the_owner_can_settle_goes_through_the_architect() {
+fn what_only_the_owner_wants_is_asked_of_the_owner_and_the_rest_goes_through_the_architect() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
-    assert!(g.cell("A3").is_none());
-    assert!(g.cells.iter().all(|c| c.rows.iter().all(|r| r.to != "A3")));
+    let owner = g.cell("A3").unwrap();
+    assert_eq!(
+        (owner.kind.as_str(), owner.step.as_deref()),
+        ("owner", Some("ask_owner"))
+    );
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let engineer = v["flows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "engineer")
+        .unwrap();
+    let role = engineer["asking"]["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "owner")
+        .unwrap();
+    assert_eq!(role["node"], "A3");
+    assert!(
+        role["desc"]
+            .as_str()
+            .unwrap()
+            .contains("what the owner wants of this work")
+    );
     let held: Vec<&str> = g
         .blockers
         .as_ref()
@@ -915,7 +782,7 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
         .filter(|b| b.holders.iter().any(|h| h == "owner"))
         .map(|b| b.cell.as_str())
         .collect();
-    assert_eq!(held, ["D12", "M1"]);
+    assert_eq!(held, ["A3", "M1"]);
     let asking = g.cell("A2").unwrap();
     assert!(asking.rows.iter().all(|r| r.name != "to_owner"));
     assert!(asking.inputs.iter().any(|x| x.name.as_deref() == Some("Flow anomaly")));
@@ -1005,23 +872,29 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
 
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
 // architect handled, since it would only come to the same end, as the flow says of each: slots free, while the free
-// slots and the items ready are the same; what was said in the groups, the owner's words and what the engineers told
-// the owner, which every message to the owner brings the architect too, while nothing was said since; and the check of
-// the policy asked for with no why of its own, which only a new session's understanding asks for, while the policy in
-// force and the constitution are the same. Every other cell that asks for the check gives its why.
+// slots and the items ready are the same; and the check of the policy asked for with no why of its own, which only
+// reading the project anew asks for, while the policy in force and the constitution are the same. Every other cell that
+// asks for the check gives its why.
 #[test]
 fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
+    // A cell asks with a why of its own by a place that holds one, a `why`; reading the project asks at its plan's
+    // verdict, which holds none.
     let no_why: Vec<&str> = g
         .cells
         .iter()
         .filter(|cell| {
-            cell.rows.iter().any(|r| {
+            let by_row = cell.rows.iter().any(|r| {
                 r.actions
                     .iter()
-                    .any(|d| d.name() == "queue_check_policy" && d.at().is_none())
-            })
+                    .any(|d| d.name() == "queue_check_policy" && !d.at().is_some_and(|at| at.ends_with("why")))
+            });
+            let always = cell
+                .always
+                .iter()
+                .any(|a| a.action.as_deref() == Some("queue_check_policy") && !a.at.ends_with("why"));
+            by_row || always
         })
         .map(|cell| cell.id.as_str())
         .collect();
@@ -1031,14 +904,73 @@ fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     assert!(
         action("queue_slots_free").contains("or the free slots and the items ready are those the last handled held")
     );
-    assert!(
-        action("queue_group_talk")
-            .contains("and what the engineers told the owner, which the architect is to know as well")
-    );
     assert!(action("queue_check_policy").contains(
-        "One asked for with no why of its own, as a new session's understanding asks for it, is not queued while the \
-         policy in force and the constitution are those the last check handled had."
+        "One asked for with no why of its own, as reading the project anew asks for it, is not queued while the policy \
+         in force and the constitution are those the last check handled had."
     ));
+}
+
+// Item #239: the owner can hold a project's new starts, and the architect reads the holds. Every cell of the
+// architect that can hand in a hold or a release among its effects is given the board, where the holds are listed,
+// so that a cell added later which hands in effects without the board is found here; and the texts say who holds,
+// who releases which hold and when the engine queues no matter of free slots.
+#[test]
+fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_texts_say_who_releases_which() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let effects = r#""effects":{"$ref":"format:common#/$defs/effects"}"#;
+    let gives_effects =
+        |cell: &flow::CompiledCell| cell.kind == "agent" && flow::formats::cell_format(g, cell).contains(effects);
+    let handing_effects: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|cell| gives_effects(cell))
+        .map(|cell| cell.id.as_str())
+        .collect();
+    // No total of the graph's cells is held here: a work that adds a cell handing in effects would rewrite it. The
+    // two cells named are the ones other tests here read the effects of, so the filter is shown to find cells at all.
+    for id in ["H1", "H3"] {
+        assert!(
+            handing_effects.contains(&id),
+            "{id} is not found among {handing_effects:?}"
+        );
+    }
+    for id in handing_effects {
+        let cell = g.cell(id).unwrap();
+        let board = cell
+            .inputs
+            .iter()
+            .any(|i| serde_json::to_string(&i.from).unwrap().contains(r#""engine":"board""#));
+        assert!(board, "{id} is given no board, where the architect reads the holds");
+    }
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let text = |path: &[&str]| -> String {
+        path.iter()
+            .fold(&v, |at, k| &at[*k])
+            .as_str()
+            .unwrap_or_else(|| panic!("{path:?}"))
+            .to_string()
+    };
+    assert!(text(&["engine", "inputs", "board"]).contains("`starts_held`"));
+    assert!(text(&["engine", "actions", "queue_slots_free"]).contains("the owner has paused every work"));
+    assert!(text(&["engine", "stores", "holds", "owner"]).contains("releases any hold"));
+    let held = &v["engine"]["stores"]["holds"]["inputs"];
+    assert!(held.as_array().unwrap().iter().any(|i| i == "board"), "{held}");
+    // The row of the cell where a new work starts that a hold keeps waiting says who releases which hold.
+    let start = c.graph("engineer").unwrap().cell("S0").unwrap();
+    let row = start.rows.iter().find(|r| r.name == "project_held").unwrap();
+    let note = row.note.as_deref().unwrap();
+    assert!(
+        note.contains("the owner's, by the owner") && note.contains("by the architect or the owner"),
+        "{note}"
+    );
+    assert!(!note.contains("sets a policy"), "{note}");
+    // The architect's release is said to leave the owner's hold alone.
+    let release = &v["shapes"]["arch_action"];
+    assert!(
+        release.to_string().contains("stays until the owner releases it"),
+        "{release}"
+    );
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every
@@ -1063,8 +995,8 @@ fn a_part_several_cells_hold_alike_is_given_once() {
     };
     let architect = flow::formats::common_format_of(g, &line("H1"));
     assert_eq!(architect.matches(r#""item_changes""#).count(), 1, "{architect}");
-    let review = flow::formats::common_format_of(g, &line("B2"));
-    assert!(!review.contains(r#""item_changes""#), "{review}");
+    let second_eye = flow::formats::common_format_of(g, &line("G2"));
+    assert!(!second_eye.contains(r#""item_changes""#), "{second_eye}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][1]["agentCommon"]["returns"]["once"] = serde_json::json!(["settled"]);
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
@@ -1138,6 +1070,12 @@ fn a_field_a_project_does_not_ask_for_is_taken_out_of_every_agent_cell() {
             assert!(!s["required"].as_array().unwrap().contains(&field), "{}", cell.id);
             assert!(cell.always.iter().all(|a| a.at != "flow_feedback"), "{}", cell.id);
             assert!(cell.read_by.iter().all(|x| x.at != "flow_feedback"), "{}", cell.id);
+            // What a return carried from an earlier version must be loses the field alike.
+            for (was, is) in on.carried.iter().zip(&cell.carried) {
+                assert!(was["properties"].get("flow_feedback").is_some(), "{}", on.id);
+                assert!(is["properties"].get("flow_feedback").is_none(), "{}", cell.id);
+                assert!(!is["required"].as_array().unwrap().contains(&field), "{}", cell.id);
+            }
         }
         assert!(flow::formats::common_format(&asked).contains("flow_feedback"));
         assert!(!flow::formats::common_format(&off).contains("flow_feedback"));
@@ -1200,7 +1138,8 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "step_network_too_often",
                 "step_network",
                 "repeats",
-                "work_ended"
+                "work_ended",
+                "steps_without_agent"
             ],
             "{}",
             cell.id
@@ -1231,7 +1170,8 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "unparsed",
                 "cannot_step",
                 "step_network_too_often",
-                "repeats"
+                "repeats",
+                "steps_without_agent"
             ]
         );
         let waits: Vec<&str> = shared.iter().filter(|x| x.waits).map(|x| x.name.as_str()).collect();
@@ -1270,7 +1210,7 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     for cell in agents.filter(|x| x.line.as_deref() != Some("librarian")) {
         let rules: Vec<(&str, bool)> = cell.rules.iter().map(|r| (r.name.as_str(), r.shared)).collect();
         assert_eq!(rules[0], ("general", true), "{}", cell.id);
-        let engineer = matches!(cell.line.as_deref(), Some("engineer" | "advisor"));
+        let engineer = matches!(cell.line.as_deref(), Some("engineer" | "designer" | "advisor"));
         assert_eq!(rules.contains(&("engineering", true)), engineer, "{}", cell.id);
         assert!(
             cell.inputs
@@ -1297,48 +1237,6 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     );
 }
 
-// The history of the files a change touches is gathered once, by the reader of the history, between the blind review
-// and the table review. The table review is given it and may have more looked up; the blind review is given neither,
-// and a re-review reaches the table review by another row, not by the gathering.
-#[test]
-fn the_history_of_the_changed_files_is_gathered_between_the_two_reviews() {
-    let c = compiled();
-    let g = c.graph("engineer").unwrap();
-    let to = |cell: &str, row: &str| {
-        let rows = &g.cell(cell).unwrap().rows;
-        rows.iter().find(|r| r.name == row).unwrap().to.clone()
-    };
-    assert_eq!(to("T3", "done"), "G3");
-    assert_eq!(to("G3", "done"), "T4");
-    for cell in ["T1", "T2", "T7"] {
-        assert_eq!(to(cell, "review_again"), "T4", "{cell}");
-    }
-    let gather = g.cell("G3").unwrap();
-    assert_eq!(
-        (gather.line.as_deref(), gather.stage.as_deref()),
-        (Some("librarian"), Some("test"))
-    );
-    let v: Value = serde_json::from_str(FLOW).unwrap();
-    let blocks = v["flows"][0]["blocks"].as_array().unwrap();
-    let develop = blocks.iter().find(|b| b["name"] == "develop").unwrap();
-    assert!(develop["nodes"].as_array().unwrap().iter().any(|n| *n == "G3"));
-    let brief = flow::format::Src::Place("G3".into(), "brief".into());
-    let table = g.cell("T4").unwrap();
-    let input = table.inputs.iter().find(|i| i.from == [brief.clone()]).unwrap();
-    assert!(input.maybe, "a re-review may come to it with no gathering run");
-    assert!(table.prompt.iter().any(|p| p.contains("records as dropped")));
-    let blind = g.cell("T3").unwrap();
-    assert!(!blind.inputs.iter().any(|i| i.from.contains(&brief)));
-    assert!(!format!("{:?} {:?}", blind.prompt, blind.prompt_by).contains("dropped"));
-    // The table review can have more looked up, the blind review cannot.
-    let history = serde_json::json!({
-        "side_reports": [], "flow_feedback": "none", "outcome": { "history": "Was this approach dropped?" }
-    });
-    assert_eq!(g.take("T4", &history, &Map::new()).unwrap().name, "history");
-    let e = g.take("T3", &history, &Map::new()).unwrap_err();
-    assert!(e.contains("does not fit the schema"), "{e}");
-}
-
 // What every gatherer of history is told is one rule of the flow, which the reader's line gives to every cell of it and
 // the architect's look-up names: the contract is written once, and what a gatherer does with a path is in it.
 #[test]
@@ -1346,13 +1244,7 @@ fn what_every_gatherer_is_told_is_one_rule_with_the_check_of_paths() {
     let opening = "You gather the history an agent needs before it works.";
     assert_eq!(FLOW.matches(opening).count(), 1);
     let c = compiled();
-    for (graph, id) in [
-        ("engineer", "G1"),
-        ("engineer", "G2"),
-        ("engineer", "G3"),
-        ("engineer", "X5"),
-        ("architect", "X5"),
-    ] {
+    for (graph, id) in [("engineer", "R0"), ("engineer", "X5"), ("architect", "X5")] {
         let g = c.graph(graph).unwrap();
         let cell = g.cell(id).unwrap();
         let used = cell.rules.iter().find(|r| r.name == "history").unwrap();
@@ -1375,7 +1267,8 @@ fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
         "outcome": {
             "fix": { "way": "nothing", "why": "It passed." },
             "reply": { "text": "Go on.", "why": "It passed.", "waits": null, "children": null },
-            "effects": null
+            "effects": null,
+            "closing": { "log": "Nothing to fix.", "plan": "no", "plan_why": "w", "base": "holds", "base_why": "w" }
         },
         "tell_owner": [],
         "progress": "Nothing to fix.",
@@ -1387,7 +1280,9 @@ fn a_null_in_a_field_that_may_be_left_out_is_left_out() {
     assert_eq!(
         ret["outcome"],
         serde_json::json!({ "fix": { "way": "nothing", "why": "It passed." },
-                            "reply": { "text": "Go on.", "why": "It passed." } })
+                            "reply": { "text": "Go on.", "why": "It passed." },
+                            "closing": { "log": "Nothing to fix.", "plan": "no", "plan_why": "w", "base": "holds",
+                                         "base_why": "w" } })
     );
     let mut bad = ret.clone();
     bad["outcome"]["reply"]["text"] = Value::Null;
@@ -1515,6 +1410,32 @@ fn every_sample_takes_its_row() {
     }
 }
 
+// Item #270: adversarial testing goes on, past the engineer's tests, when a guard test cannot be built before the change
+// (the review judges it), and goes back to the engineer only when one fails there. The route reads the result alone: a
+// guard test of the adversarial tester that cannot be built is stopped earlier, by the check `test_kinds_match`.
+#[test]
+fn a_guard_test_that_cannot_be_built_before_the_change_does_not_send_testing_back() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let clear = samples["T1"]
+        .iter()
+        .find(|s| s["row"] == "clear")
+        .expect("a sample of the row clear");
+    let given: Map<String, Value> = clear["given"].as_object().cloned().unwrap_or_default();
+    let row_with = |by: &str, base: &str| {
+        let mut x = clear["json"].clone();
+        x["outcome"]["guard_tests"][0]["by"] = by.into();
+        x["outcome"]["guard_tests"][0]["on_base"] = base.into();
+        g.take("T1", &x, &given).unwrap().name.clone()
+    };
+    for by in ["engineer", "adversarial"] {
+        assert_eq!(row_with(by, "green"), "clear", "{by}");
+        assert_eq!(row_with(by, "cannot_run"), "clear", "{by}");
+        assert_eq!(row_with(by, "red"), "for_engineer", "{by}");
+    }
+}
+
 // The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
 // the conditions table takes a row of either kind beside the others; a kind that is none of these, a row of the CI
 // naming no job, and a reading naming neither where nor what fit no schema.
@@ -1525,7 +1446,8 @@ fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_di
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
     let fits = |cell: &str, sample: &Value, place: &str, value: Value| -> Result<String, String> {
         let mut x = sample.clone();
-        x["outcome"][place] = value;
+        let at = place.split('.').fold(&mut x["outcome"], |v, k| &mut v[k]);
+        *at = value;
         let given: Map<String, Value> = samples[cell][0]["given"].as_object().cloned().unwrap_or_default();
         g.take(cell, &x, &given).map(|r| r.name.clone())
     };
@@ -1536,9 +1458,15 @@ fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_di
             { "by": by, "id": "A2", "condition": "The page passes its check." }
         ])
     };
-    assert_eq!(fits("D2", design, "acceptance", acceptance("ci")).unwrap(), "first");
-    assert_eq!(fits("D2", design, "acceptance", acceptance("diff")).unwrap(), "first");
-    let e = fits("D2", design, "acceptance", acceptance("by_hand")).unwrap_err();
+    assert_eq!(
+        fits("D2", design, "design.acceptance", acceptance("ci")).unwrap(),
+        "done"
+    );
+    assert_eq!(
+        fits("D2", design, "design.acceptance", acceptance("diff")).unwrap(),
+        "done"
+    );
+    let e = fits("D2", design, "design.acceptance", acceptance("by_hand")).unwrap_err();
     assert!(e.contains("does not fit the schema"), "{e}");
     // Of the conditions table, adversarial testing's and the engineer's alike.
     let sample = &samples["T1"][0]["json"];
@@ -1577,10 +1505,10 @@ fn a_sample_that_does_not_fit_or_takes_another_row_is_found() {
     flat.insert("progress".into(), "x".into());
     let e = g.take("A1", &Value::Object(flat), &Map::new()).unwrap_err();
     assert!(e.contains("does not fit the schema"), "{e}");
-    let s = &samples["T7"][0];
+    let s = &samples["M2"][0];
     let mut given = s["given"].as_object().unwrap().clone();
-    given.insert("interjection".into(), "yes".into());
-    assert_eq!(g.take("T7", &s["json"], &given).unwrap().name, "interjection");
+    given.insert("turn".into(), "behind".into());
+    assert_eq!(g.take("M2", &s["json"], &given).unwrap().name, "behind");
 }
 
 // A return that does not fit says where and how, following the alternative it picks.
@@ -1589,23 +1517,107 @@ fn a_return_that_does_not_fit_says_where() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let sample = &samples["D3"][0]["json"];
+    let sample = &samples["T3"][0]["json"];
     let refused = |edit: &dyn Fn(&mut Value)| {
         let mut x = sample.clone();
         edit(&mut x);
-        g.take("D3", &x, &Map::new()).unwrap_err()
+        g.take("T3", &x, &Map::new()).unwrap_err()
     };
-    let e = refused(&|x| x["outcome"]["better"]["verdict"] = "maybe".into());
+    let e = refused(&|x| x["outcome"]["silent"]["verdict"] = "maybe".into());
     assert!(
-        e.ends_with(r#"outcome.better.verdict is "maybe", and must be one of "found", "present_best""#),
+        e.ends_with(r#"outcome.silent.verdict is "maybe", and must be one of "no", "yes""#),
         "{e}"
     );
     let e = refused(&|x| {
-        x["outcome"]["better"].as_object_mut().unwrap().remove("considered");
+        x["outcome"]["silent"].as_object_mut().unwrap().remove("why");
     });
-    assert!(e.ends_with("outcome.better has no considered"), "{e}");
+    assert!(e.ends_with("outcome.silent has no why"), "{e}");
     let e = refused(&|x| x["outcome"] = Value::String(x["outcome"].to_string()));
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
+}
+
+// A field may name what a return handed in on an earlier flow version held there (`earlier`): absent, or another shape,
+// which may itself be left out; a field inside a list's items as well. What such a return is held to when a work moves
+// (`carried`) takes it as well as the field now; what an agent is held to is the schema as it would be without the
+// marks, which refuses a return of the earlier shape, saying where. A cell no field of which names one has no `carried`.
+#[test]
+fn what_a_field_was_earlier_is_carried_and_never_handed_in_now() {
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    let note = serde_json::json!({ "name": "note", "title": "Note", "type": "text", "desc": "A note on the change" });
+    let i1 = v["flows"][0]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|n| n["id"] == "I1")
+        .unwrap();
+    i1["out"].as_array_mut().unwrap().push(note);
+    // A field nobody reads is refused; the owner reads this one on the item.
+    i1["shown"].as_array_mut().unwrap().push("note".into());
+    let plain = flow::compile(&v.to_string(), &context()).unwrap_or_else(|e| panic!("{e}"));
+    let out = v["flows"][0]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|n| n["id"] == "I1")
+        .unwrap()["out"]
+        .as_array_mut()
+        .unwrap();
+    let written = out.iter_mut().find(|f| f["name"] == "decisions_written").unwrap();
+    written["earlier"] = serde_json::json!({ "type": "text", "optional": true });
+    let file = written["item"]["fields"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["name"] == "file")
+        .unwrap();
+    file["earlier"] = "absent".into();
+    let note = out.iter_mut().find(|f| f["name"] == "note").unwrap();
+    note["earlier"] = "absent".into();
+    let marked = flow::compile(&v.to_string(), &context()).unwrap_or_else(|e| panic!("{e}"));
+    let (was, is) = (
+        plain.graph("engineer").unwrap().cell("I1").unwrap(),
+        marked.graph("engineer").unwrap().cell("I1").unwrap(),
+    );
+    assert_eq!(is.schema, was.schema);
+    assert!(was.carried.is_none());
+    let carried = is.carried.as_ref().unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut now = samples["I1"].iter().find(|s| s["row"] == "done").unwrap()["json"].clone();
+    now["outcome"]["note"] = "Two of them are alike.".into();
+    let mut no_file = now.clone();
+    for row in no_file["outcome"]["decisions_written"].as_array_mut().unwrap() {
+        row.as_object_mut().unwrap().shift_remove("file");
+    }
+    let mut text = now.clone();
+    text["outcome"]["decisions_written"] = "One decision, written in a text.".into();
+    text["outcome"].as_object_mut().unwrap().shift_remove("note");
+    let mut neither = text.clone();
+    neither["outcome"]
+        .as_object_mut()
+        .unwrap()
+        .shift_remove("decisions_written");
+    assert!(flow::valid(carried, &now));
+    for old in [&no_file, &text, &neither] {
+        assert!(
+            flow::valid(carried, old),
+            "{old}: {:?}",
+            flow::misfits(carried, old, "")
+        );
+        assert!(!flow::valid(is.schema.as_ref().unwrap(), old), "{old}");
+    }
+    let g = marked.graph("engineer").unwrap();
+    let given = samples["I1"].iter().find(|s| s["row"] == "done").unwrap()["given"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let e = g.take("I1", &text, &given).unwrap_err();
+    assert!(
+        e.contains("outcome.decisions_written must be a list, and is a string"),
+        "{e}"
+    );
+    assert!(e.contains("outcome has no note"), "{e}");
+    let e = g.take("I1", &no_file, &given).unwrap_err();
+    assert!(e.contains("outcome.decisions_written[0] has no file"), "{e}");
 }
 
 // A return that does not fit in several places says every place at once, each on a line of its own after a first line
@@ -1659,16 +1671,17 @@ fn a_null_in_a_field_of_another_form_is_left_out_and_told() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let mut brief = samples["G1"][0]["json"].clone();
-    brief["outcome"]["ask"] = Value::Null;
-    assert!(g.take("G1", &brief, &Map::new()).is_err());
-    let schema = g.cell("G1").unwrap().schema.clone().unwrap();
-    assert_eq!(flow::without_null_options(&schema, &mut brief), ["outcome.ask"]);
-    assert_eq!(g.take("G1", &brief, &Map::new()).unwrap().name, "done");
-    let mut only = samples["G1"][0]["json"].clone();
+    let given: Map<String, Value> = samples["L2"][0]["given"].as_object().cloned().unwrap();
+    let mut learned = samples["L2"][0]["json"].clone();
+    learned["outcome"]["ask"] = Value::Null;
+    assert!(g.take("L2", &learned, &given).is_err());
+    let schema = g.cell("L2").unwrap().schema.clone().unwrap();
+    assert_eq!(flow::without_null_options(&schema, &mut learned), ["outcome.ask"]);
+    assert_eq!(g.take("L2", &learned, &given).unwrap().name, "done");
+    let mut only = samples["L2"][0]["json"].clone();
     only["outcome"] = serde_json::json!({ "ask": null });
     assert_eq!(flow::without_null_options(&schema, &mut only), Vec::<String>::new());
-    assert!(g.take("G1", &only, &Map::new()).is_err());
+    assert!(g.take("L2", &only, &given).is_err());
 }
 
 // The fix has an answer for a row it fixed in no commit, which gives where the fix is and no commit; the ci tool takes a
@@ -1718,10 +1731,10 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
     );
 }
 
-// Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the reader of the
-// history, the review, adversarial testing, the advisor, the review of the architect's batch, the search of
-// observations and the pick of the architect's next matter) has no `tell_owner` in its return, its description does not
-// name one, and nothing is done with it or shown of it there. The helpers of a work
+// Only the engineer, its deep research and the architect tell the owner, the architect from its base and from each
+// matter's session: an agent's cell of a line that helps them (the reader of the history, the review, adversarial
+// testing, the advisor, the second eye on a matter's changes and the search of observations) has no `tell_owner` in its
+// return, its description does not name one, and nothing is done with it or shown of it there. The helpers of a work
 // still hand in side reports, which the architect reads.
 #[test]
 fn only_the_engineer_and_the_architect_tell_the_owner() {
@@ -1729,7 +1742,10 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
     let mut helpers = Vec::new();
     for g in &c.graphs {
         for cell in g.cells.iter().filter(|x| x.kind == "agent") {
-            let tells = matches!(cell.line.as_deref(), Some("engineer" | "architect"));
+            let tells = matches!(
+                cell.line.as_deref(),
+                Some("engineer" | "designer" | "architect" | "matter")
+            );
             let s = cell.schema.as_ref().unwrap();
             let id = &cell.id;
             assert_eq!(s["properties"].get("tell_owner").is_some(), tells, "{id}");
@@ -1741,18 +1757,18 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
             assert_eq!(cell.always.iter().any(|a| a.at == "tell_owner"), tells, "{id}");
             assert_eq!(cell.shown.iter().any(|p| p == "tell_owner"), tells, "{id}");
             if !tells {
-                helpers.push(id.as_str());
+                helpers.push((g.name.as_str(), id.as_str()));
                 let reports = s["properties"].get("side_reports").is_some();
                 assert_eq!(reports, g.name == "engineer", "{id}");
             }
         }
     }
-    assert_eq!(
-        helpers,
-        [
-            "G1", "G2", "G4", "F2", "X5", "T1", "T3", "G3", "T4", "A1", "Q1", "B2", "X2", "X5"
-        ]
-    );
+    // No total of the graphs' cells is held here: the engineer's graph has helpers, and the architect's second eye and
+    // its searches are among them.
+    assert!(helpers.iter().any(|h| h.0 == "engineer"), "{helpers:?}");
+    for id in ["G2", "X2", "X5"] {
+        assert!(helpers.contains(&("architect", id)), "{id} is not among {helpers:?}");
+    }
 }
 
 // The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the
@@ -1838,7 +1854,7 @@ fn a_work_moves_by_its_rows() {
     let p = take(&p, "ready");
     assert_eq!(p.at, "S1");
     let p = take(&p, "started");
-    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("G1", "research"));
+    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("R0", "research"));
     let p = take(&p, "done");
     assert_eq!(p.at, "R1");
     // The look-up of the history goes to its reader, and back to the cell that asked.
@@ -1876,19 +1892,102 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(p.at, "A5");
     let p = take(&p, "back");
     assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("R1", None));
-    let p = take(&p, "done");
-    assert_eq!(p.at, "R2");
     let wrong = g.cell("A5").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
     assert!(g.step(&p, wrong).is_err());
-    // The history of the code is gathered between the research and the design, and what the work learned after it
-    // merged, before its end.
-    assert_eq!(take(&p, "stands").at, "G2");
-    let gathered = g.cell("G2").unwrap().rows.iter().find(|r| r.name == "done").unwrap();
-    assert_eq!(gathered.to, "D1");
-    let l1 = g.cell("L1").unwrap().rows.iter().find(|r| r.name == "green").unwrap();
-    assert_eq!(l1.to, "L2");
+    // The research goes straight to implement, or to deep research, whose design goes to its review while the work
+    // implements by it.
+    assert_eq!(take(&p, "start").at, "I1");
+    let deep = take(&p, "cannot_start");
+    assert_eq!((deep.at.as_str(), deep.recorded["stage"].as_str()), ("D1", "design_on"));
+    let p = take(&take(&deep, "done"), "done");
+    assert_eq!(p.at, "D3");
+    let p = take(&p, "posted");
+    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("I1", "code"));
+    // What the work learned is written after it merged, before its end.
+    let merged = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "merged").unwrap();
+    assert_eq!(merged.to, "L2");
     let l2 = g.cell("L2").unwrap();
     assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
+    assert_eq!(l2.rows.iter().find(|r| r.name == "verify").unwrap().to, "W1");
+}
+
+// A work whose acceptance holds a condition written in_effect goes on after what it learned: it waits, holding no slot
+// and counting nothing, until its change took effect, and each row that lets it on starts a new session of the engineer's
+// line, so that no session is kept warm through the wait. Its looks that find the evidence not there yet are counted,
+// and past the limit, or for what does not hold, it reports and ends. The acceptance and the conditions take the kind,
+// and a condition with no command to run fits no schema.
+#[test]
+fn a_work_with_a_condition_in_effect_waits_for_its_change_and_checks_it_with_a_real_run() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let wait = g.cell("W1").unwrap();
+    assert_eq!(wait.kind, "engine");
+    let row = |cell: &str, name: &str| {
+        g.cell(cell)
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("{cell} has no row {name}"))
+            .clone()
+    };
+    for name in ["not_carried", "cannot_tell", "not_due"] {
+        let waits = row("W1", name);
+        assert!(waits.waits && waits.to == "W1" && waits.counts.is_none(), "{name}");
+    }
+    let does = |r: &flow::CompiledRow, what: &str| r.actions.iter().any(|d| d.name() == what);
+    assert!(does(&row("W1", "cannot_tell"), "tell_wait"));
+    assert!(does(&row("W1", "never_in_effect"), "report_verification"));
+    assert_eq!(row("W1", "never_in_effect").to, "E1");
+    assert_eq!(
+        g.cell("W2").unwrap().fresh_session,
+        ["W1·words".to_string(), "W1·look".to_string()]
+    );
+    assert_eq!(row("W2", "again").to, "W1");
+    assert_eq!(row("W2", "again").counts.as_deref(), Some("verification_looks"));
+    for name in ["past_looks", "failed", "unjudged"] {
+        assert!(does(&row("W2", name), "report_verification"), "{name}");
+        assert_eq!(row("W2", name).to, "E1");
+    }
+    assert!(!does(&row("W2", "verified"), "report_verification"));
+    // Waiting, each way on, then a look that sends it back, and a look that ends it.
+    let waiting = sampled("L2", "verify", &[]);
+    let look = engine_step(&[("interjection", "no"), ("in_effect", "yes"), ("look_due", "yes")]);
+    let steps = [
+        sampled("S1", "started", &[]),
+        sampled("R0", "done", &[]),
+        sampled("R1", "start", &[]),
+        sampled("I1", "done", &[]),
+        sampled("T2", "done", &[]),
+        sampled("T3", "clear", &[]),
+        engine_step(&[("gates", "clear"), ("interjection", "no"), ("cancelled", "no")]),
+        sampled("M2", "merged", &[]),
+        waiting,
+        look.clone(),
+        sampled("W2", "again", &[]),
+        look,
+        sampled("W2", "verified", &[]),
+    ];
+    assert_eq!(
+        walked(g, &steps),
+        [
+            "S1", "R0", "R1", "I1", "T2", "T3", "M1", "M2", "L2", "W1", "W2", "W1", "W2", "E1"
+        ]
+    );
+    // The kind as a return writes it: every field is asked for.
+    let schema = g.cell("D2").unwrap().schema.clone().unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut design = samples["D2"][0]["json"].clone();
+    let whole = serde_json::json!({
+        "by": "in_effect", "id": "A2", "condition": "The median holds.", "when": "merged", "tool": "query",
+        "command": "SELECT 1", "holds": "It is 1.", "enough": "none",
+    });
+    design["outcome"]["design"]["acceptance"] = serde_json::json!([whole.clone()]);
+    assert!(flow::valid(&schema, &design));
+    let mut no_command = whole;
+    no_command.as_object_mut().unwrap().remove("command");
+    design["outcome"]["design"]["acceptance"] = serde_json::json!([no_command]);
+    assert!(!flow::valid(&schema, &design));
 }
 
 /// A cell's return that takes the row `row`, from the samples, given the values of its sample and those of `more`.
@@ -1914,225 +2013,77 @@ fn walked(g: &flow::CompiledGraph, steps: &[(Value, Map<String, Value>)]) -> Vec
     at
 }
 
-/// The engine's choice of what runs next with no adversarial testing, the full CI not yet green on the draft, and the
-/// review as `review_round` says.
-fn full_ci_next(review_round: &str) -> (Value, Map<String, Value>) {
-    let given = [
-        ("full_ci", "not_green"),
-        ("review_round", review_round),
-        ("interjection", "no"),
-    ];
-    (
-        serde_json::json!({ "plan": { "review": "all", "adversarial": "skipped" } }),
-        given.iter().map(|(k, v)| (k.to_string(), Value::from(*v))).collect(),
-    )
+/// What an engine's cell is given, with nothing handed in: its values.
+fn engine_step(given: &[(&str, &str)]) -> (Value, Map<String, Value>) {
+    let given = given.iter().map(|(k, v)| (k.to_string(), Value::from(*v))).collect();
+    (serde_json::json!({}), given)
 }
 
-/// The full CI on the draft, green, before the review as `review_round` says.
-fn full_ci_green(review_round: &str) -> (Value, Map<String, Value>) {
-    (
-        serde_json::json!({ "result": { "kind": "green", "head": "a41c0d2" } }),
-        Map::from_iter([("review_round".to_string(), Value::from(review_round))]),
-    )
-}
-
-// A work whose item is marked a bug fix or a feature goes the light route: from the research it gathers like fixes,
-// plans the fix and has the plan reviewed, then implements, runs the full CI on the draft and goes straight to the
-// table review, never standing at the judgment whether it stands, the design and its checks, adversarial testing or the
-// blind review. A work on the normal route goes through every one of them, as it did before the light route.
+// A work whose research settles its approach goes straight to implement in the research's session; one whose research
+// cannot goes to deep research, whose design goes to its review while the work implements by it; then the review in two
+// passes, the merge gate, the merge queue, what was learned and the end.
 #[test]
-fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_review() {
+fn a_work_goes_straight_to_implement_or_through_deep_research_and_its_review() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
-    let light = walked(
-        g,
-        &[
-            sampled("S1", "started", &[]),
-            sampled("G1", "done", &[]),
-            sampled("R1", "light", &[]),
-            sampled("G4", "done", &[]),
-            sampled("F1", "planned", &[]),
-            sampled("F2", "sound", &[]),
-            sampled("I1", "done", &[]),
-            full_ci_next("table"),
-            full_ci_green("table"),
-            sampled("T4", "done", &[("deliver", "change")]),
-        ],
-    );
+    let tail = [
+        sampled("I1", "done", &[]),
+        sampled("T2", "done", &[]),
+        sampled("T3", "clear", &[]),
+        engine_step(&[("gates", "clear"), ("interjection", "no"), ("cancelled", "no")]),
+        sampled("M2", "merged", &[]),
+        sampled("L2", "done", &[]),
+    ];
+    let straight = [
+        sampled("S1", "started", &[]),
+        sampled("R0", "done", &[]),
+        sampled("R1", "start", &[]),
+    ];
+    let steps: Vec<_> = straight.iter().chain(&tail).cloned().collect();
     assert_eq!(
-        light,
-        ["S1", "G1", "R1", "G4", "F1", "F2", "I1", "T7", "T2", "T4", "M1"]
+        walked(g, &steps),
+        ["S1", "R0", "R1", "I1", "T2", "T3", "M1", "M2", "L2", "E1"]
     );
-    let mut not_needed = sampled("D11", "needed", &[]);
-    not_needed.0["outcome"]["adversarial"]["verdict"] = "not_needed".into();
-    let gathered = (sampled("G4", "done", &[]).0, Map::new());
-    let normal = walked(
-        g,
-        &[
-            sampled("S1", "started", &[]),
-            sampled("G1", "done", &[]),
-            sampled("R1", "done", &[]),
-            sampled("R2", "stands", &[]),
-            sampled("G2", "done", &[]),
-            sampled("D1", "done", &[]),
-            sampled("D2", "first", &[]),
-            sampled("D3", "present_best", &[]),
-            sampled("D4", "no", &[]),
-            sampled("D6", "sure", &[]),
-            sampled("D7", "worth_it", &[]),
-            sampled("D8", "yes", &[]),
-            sampled("D9", "on_its_own", &[]),
-            sampled("D10", "implementation", &[]),
-            not_needed,
-            sampled("D12", "clear", &[]),
-            sampled("I1", "done", &[]),
-            full_ci_next("blind"),
-            full_ci_green("blind"),
-            sampled("T3", "done", &[]),
-            gathered,
-            sampled("T4", "done", &[("deliver", "change")]),
-        ],
-    );
+    let deep = [
+        sampled("S1", "started", &[]),
+        sampled("R0", "done", &[]),
+        sampled("R1", "cannot_start", &[]),
+        sampled("D1", "done", &[]),
+        sampled("D2", "done", &[]),
+        engine_step(&[("interjection", "no")]),
+    ];
+    let steps: Vec<_> = deep.iter().chain(&tail).cloned().collect();
     assert_eq!(
-        normal,
+        walked(g, &steps),
         [
-            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "I1",
-            "T7", "T2", "T3", "G3", "T4", "M1"
+            "S1", "R0", "R1", "D1", "D2", "D3", "I1", "T2", "T3", "M1", "M2", "L2", "E1"
         ]
     );
-    // The plan the review found sound is locked as the design's acceptance is, with the implementer's new session.
-    let sound = g.cell("F2").unwrap().rows.iter().find(|r| r.name == "sound").unwrap();
-    let does: Vec<&str> = sound.actions.iter().map(|d| d.name()).collect();
-    assert_eq!(does, ["open_session", "lock_acceptance"]);
-    // The review of the plan and the table review are one line, and the table review starts no session of its own, so
-    // it goes on in the session that reviewed the plan; the blind review always starts its own.
-    let (f2, t4, t3) = (g.cell("F2").unwrap(), g.cell("T4").unwrap(), g.cell("T3").unwrap());
-    assert_eq!(
-        (f2.line.as_deref(), t4.line.as_deref()),
-        (Some("review"), Some("review"))
-    );
-    assert!(!t4.new_session && t4.fresh_session.is_empty());
-    assert!(t3.new_session);
-    for cell in ["T1", "T2", "T7"] {
-        let row = g
-            .cell(cell)
-            .unwrap()
-            .rows
-            .iter()
-            .find(|r| r.name == "review_first")
-            .unwrap();
-        assert_eq!(row.to, "T3", "{cell}");
-        assert!(row.actions.iter().any(|d| d.name() == "open_session"), "{cell}");
-    }
 }
 
-// A work on the light route turns to the normal route, to be judged whether it stands, when the research, the plan or
-// the review of the plan says it needs it, or when the review sends the plan back a third time, and to design when the
-// way on after a reply or an interjection is a redesign; each of these rows counts `route_to_normal`. A plan sent back before that goes back to be planned again, and counts as a revision.
+// No line of the flow says its session expires with the CLI's prompt cache: the architect's base is carried from work to
+// work and read anew only when a fact calls for it, a cold cache being written once, cheaper than reading the project
+// again, and each matter's session ends with its matter. A line that says so has every cell on it carry it, and no
+// cell of another line; a flow version stored before lines could say so has no such field in its cells, and reads back
+// with it false.
 #[test]
-fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
+fn a_line_expires_with_the_cache_only_where_it_says_so() {
     let c = compiled();
-    let g = c.graph("engineer").unwrap();
-    for (cell, row, more) in [
-        ("R1", "to_normal", vec![]),
-        ("F1", "to_normal", vec![]),
-        ("F2", "to_normal", vec![]),
-        ("F2", "revised_out", vec![("revisions_before", "two")]),
-    ] {
-        let (ret, given) = sampled(cell, row, &more);
-        let taken = g.take(cell, &ret, &given).unwrap();
-        assert_eq!(
-            (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
-            (row, "R2", Some("route_to_normal")),
-            "{cell}"
-        );
+    assert!(c.graphs.iter().all(|g| g.cells.iter().all(|x| !x.cache_expiry)));
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    let lines = v["flows"][1]["sessions"]["lines"].as_array_mut().unwrap();
+    let base = lines.iter_mut().find(|l| l["name"] == "architect").unwrap();
+    base["cacheExpiry"] = Value::Bool(true);
+    let said = flow::compile(&v.to_string(), &context()).unwrap();
+    let architect = said.graph("architect").unwrap();
+    for x in &architect.cells {
+        assert_eq!(x.cache_expiry, x.line.as_deref() == Some("architect"), "{}", x.id);
     }
-    // The third time the review sends the plan back is told apart from the first two by the engine's value alone.
-    let (ret, given) = sampled("F2", "revise", &[]);
-    let taken = g.take("F2", &ret, &given).unwrap();
-    assert_eq!(
-        (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
-        ("revise", "F1", Some("plan_revisions"))
-    );
-    let (_, two) = sampled("F2", "revised_out", &[]);
-    assert_eq!(g.take("F2", &ret, &two).unwrap().name, "revised_out");
-    // A work redesigned after a reply or an interjection goes to design either way, and is counted only when it was on
-    // the light route.
-    let redesign = serde_json::json!({
-        "outcome": { "next": { "way": "redesign" } },
-        "tell_owner": [], "side_reports": [], "progress": "progress", "flow_feedback": "none",
-    });
-    for (route, row, counts) in [
-        ("light", "redesign_from_light", Some("route_to_normal")),
-        ("normal", "redesign", None),
-    ] {
-        let given = Map::from_iter(
-            [
-                ("stage", "code"),
-                ("split", "not_split"),
-                ("must_wait", "no"),
-                ("route_taken", route),
-            ]
-            .map(|(k, v)| (k.to_string(), Value::from(v))),
-        );
-        let taken = g.take("A4", &redesign, &given).unwrap();
-        assert_eq!(
-            (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
-            (row, "D1", counts),
-            "{route}"
-        );
-    }
-    // The research of a work its item does not mark goes the normal route whatever it says of the route; one on the
-    // light route that says nothing of it goes on light, which the engine's check of the research sends back first.
-    let (ret, _) = sampled("R1", "light", &[]);
-    let normal = Map::from_iter([("route_taken".to_string(), Value::from("normal"))]);
-    assert_eq!(g.take("R1", &ret, &normal).unwrap().name, "done");
-    let r1 = g.cell("R1").unwrap();
-    assert!(
-        r1.checks
-            .iter()
-            .any(|c| c.check == "route_given" && c.at.as_deref() == Some("route"))
-    );
-}
-
-// The architect's line and the pick of its next matter say their session expires with the CLI's prompt cache, so that
-// every cell on them carries that, and no cell of any other line does. A flow version stored before lines could say so
-// has no such field in its cells, and reads back with it false.
-#[test]
-fn only_the_architects_line_expires_with_the_cache() {
-    let c = compiled();
-    let mut expiring = Vec::new();
-    for g in &c.graphs {
-        for x in &g.cells {
-            if x.cache_expiry {
-                assert!(
-                    matches!(x.line.as_deref(), Some("architect" | "picker")),
-                    "{} {}",
-                    g.name,
-                    x.id
-                );
-                expiring.push((g.name.as_str(), x.id.as_str()));
-            }
-        }
-    }
-    let architect = c.graph("architect").unwrap();
-    let on_line: Vec<&str> = architect
-        .cells
-        .iter()
-        .filter(|x| x.line.as_deref() == Some("architect"))
-        .map(|x| x.id.as_str())
-        .collect();
-    assert!(on_line.contains(&"U1") && on_line.contains(&"N1"), "{on_line:?}");
-    assert!(
-        on_line.iter().all(|id| expiring.contains(&("architect", *id))),
-        "{on_line:?} against {expiring:?}"
-    );
-    // The architect's other lines (its batch's review, its search) and the engineer's lines go on as they did.
-    assert!(!architect.cell("X2").unwrap().cache_expiry);
-    assert!(c.graph("engineer").unwrap().cells.iter().all(|x| !x.cache_expiry));
+    assert!(architect.cell("U1").unwrap().cache_expiry && architect.cell("N1").unwrap().cache_expiry);
+    assert!(said.graph("engineer").unwrap().cells.iter().all(|x| !x.cache_expiry));
 
     // What is stored of a flow version from before holds the field for no cell; it reads back false for each.
-    let mut stored: Value = serde_json::from_str(&c.json()).unwrap();
+    let mut stored: Value = serde_json::from_str(&said.json()).unwrap();
     fn strip(v: &mut Value) {
         match v {
             Value::Object(m) => {
@@ -2176,47 +2127,38 @@ fn the_engineer_forms_take_the_answer_from_records_and_a_test_written_once() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     assert_a_test_is_written_once_and_the_forms_have_no_tables_of_it(g);
-    let (first, given) = sample("D2", "first");
-    assert_eq!(g.take("D2", &first, &given).unwrap().name, "first");
+    let (first, given) = sample("D1", "done");
+    assert_eq!(g.take("D1", &first, &given).unwrap().name, "done");
     let measure = |x: Value| {
         let mut ret = first.clone();
         ret["outcome"]["measure"] = x;
-        g.take("D2", &ret, &given)
+        g.take("D1", &ret, &given)
     };
     let read = serde_json::json!({ "verdict": "from_records", "read": "The rounds of the item in the database." });
-    assert_eq!(measure(read).unwrap().name, "first");
+    assert_eq!(measure(read).unwrap().name, "done");
     let not_measured = serde_json::json!({ "verdict": "not_measured", "why": "Nothing here is slow." });
-    assert_eq!(measure(not_measured).unwrap().name, "first");
+    assert_eq!(measure(not_measured).unwrap().name, "done");
     // `from_records` has no `why`, and without its own `read` it is not an answer.
     let e = measure(serde_json::json!({ "verdict": "from_records", "why": "x" })).unwrap_err();
     assert!(e.contains("outcome.measure"), "{e}");
 }
 
-// Item #217, R241-28: an engineer writes a test once, as a row of the test changes with its kind and its two results,
-// or as an `extended` row for a test that was there and tests more; the forms of implementing and of fixing have no
-// tables of the same tests beside it.
+// Item #217, R241-28: an engineer writes a test once, as a row of the test changes with its kind, or as an `extended`
+// row for a test that was there and tests more; the engine reads its two results from the runs, and the forms of
+// implementing and of fixing have no tables of the same tests beside it, nor a result of the engineer's.
 fn assert_a_test_is_written_once_and_the_forms_have_no_tables_of_it(g: &flow::CompiledGraph) {
     for cell in ["I1", "T6"] {
         let (done, given) = sample(cell, "done");
         let mut once = done.clone();
         once["outcome"]["test_changes"] = serde_json::json!([
-            { "change": "extended", "test": "every_sample_takes_its_row", "catches": "c", "kind": "new_behaviour",
-              "on_head": "green", "on_base": "red", "time": "1s", "worth": "w" },
-            { "change": "added", "test": "a_new_one", "catches": "c", "kind": "old_behaviour",
-              "on_head": "green", "on_base": "green", "time": "1s", "worth": "w" },
+            { "change": "extended", "test": "every_sample_takes_its_row", "catches": "c", "kind": "new_behaviour" },
+            { "change": "added", "test": "a_new_one", "catches": "c", "kind": "old_behaviour", "worth": "w",
+              "not_before": "It builds only with the change." },
         ]);
         assert_eq!(g.take(cell, &once, &given).unwrap().name, "done", "{cell}");
-        // Both results are left out when the design chose adversarial testing, which runs the tests.
-        let mut bare = once.clone();
-        for row in bare["outcome"]["test_changes"].as_array_mut().unwrap() {
-            let row = row.as_object_mut().unwrap();
-            row.shift_remove("on_head");
-            row.shift_remove("on_base");
-        }
-        assert_eq!(g.take(cell, &bare, &given).unwrap().name, "done", "{cell}");
-        // A result the form does not have is refused, and so is a table of the old forms.
+        // A result is the engine's to read: one written is refused, and so is a table of the old forms.
         let mut wrong = once.clone();
-        wrong["outcome"]["test_changes"][0]["on_base"] = "maybe".into();
+        wrong["outcome"]["test_changes"][0]["on_base"] = "red".into();
         assert!(g.take(cell, &wrong, &given).unwrap_err().contains("on_base"), "{cell}");
         for table in ["new_tests", "guard_tests"] {
             let mut old = once.clone();
@@ -2227,33 +2169,24 @@ fn assert_a_test_is_written_once_and_the_forms_have_no_tables_of_it(g: &flow::Co
     }
 }
 
-// Item #217, R232-45: the inputs that give the locked acceptance say how it changes, and the advisor's field says that
-// what it holds replaces all of it. The ways: the advisor's `new_acceptance`, and a design after the owner disagreed;
-// not an edit of the item's text.
+// The acceptance is no longer locked: the inputs that give it say that the implementation, a fix or the advisor may
+// change it, saying why, and the advisor's field says that what it holds replaces all of it.
 #[test]
-fn the_inputs_say_how_the_locked_acceptance_changes_and_the_advisors_field_says_it_replaces_all() {
-    for (id, name) in [
-        ("D2", "Whether the acceptance is locked"),
-        ("I1", "Locked acceptance"),
-        ("T6", "Locked acceptance"),
-    ] {
+fn the_inputs_say_how_the_acceptance_changes_and_the_advisors_field_says_it_replaces_all() {
+    for id in ["I1", "T6"] {
         let cell = written(id);
         let input = cell["inputs"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|i| i["name"] == name)
+            .find(|i| i["name"] == "Acceptance")
             .unwrap();
         let what = input["what"].as_str().unwrap();
-        for said in [
-            "new_acceptance, which replaces all of them (a condition it does not list is dropped)",
-            "disagreed with a decision of the design or chose another option",
-            "Editing the item's text, by the architect or the owner, does not change them",
-            "use ask to the advisor",
-        ] {
-            assert!(what.contains(said), "{id} {name}: {said}\n{what}");
-        }
-        assert!(!what.contains("acceptance_change"), "{id}: {what}");
+        assert!(
+            what.contains("as the implementation, a fix or the advisor changed them since, saying why"),
+            "{id}: {what}"
+        );
+        assert!(!what.contains("locked"), "{id}: {what}");
     }
     let advisor = written("A1");
     let field = advisor["out"][0]["fields"]
@@ -2264,7 +2197,8 @@ fn the_inputs_say_how_the_locked_acceptance_changes_and_the_advisors_field_says_
         .unwrap();
     let desc = field["desc"].as_str().unwrap();
     assert!(
-        desc.contains("They replace all the locked conditions") && desc.contains("a condition not listed is dropped"),
+        desc.contains("They replace all the conditions on the item")
+            && desc.contains("a condition not listed is dropped"),
         "{desc}"
     );
 }

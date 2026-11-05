@@ -8,10 +8,10 @@ use serde_json::{Map, Value, json};
 
 use crate::agent::{self, Request};
 use crate::failed::{self, Failed};
-use crate::inputs::{self, Gathered, at_path};
+use crate::inputs::{self, Gathered};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, PICKER, actions, architect, checks, git, tools, values, watch};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -51,15 +51,6 @@ fn g_step_waits(e: &mut Engine, w: &Work, r: &Round) -> Result<bool, String> {
     Ok(cell.is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect"))))
 }
 
-/// Whether a row is one the engine takes for a line in place of a round, when the line's session would start afresh
-/// there: a shared row on an engine's case that is not of its fallback, nor the row for a table with no row to answer.
-pub fn anew(r: &CompiledRow) -> bool {
-    !r.fallback
-        && r.conditions
-            .iter()
-            .any(|a| matches!(a, flow::format::Atom::Engine(k) if k != flow::format::NOTHING_TO_ANSWER))
-}
-
 /// Why a round's session starts afresh, in words, for the round's record and the owner's page.
 pub fn new_session_why(
     why: sessions::Start,
@@ -80,6 +71,7 @@ pub fn new_session_why(
         ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
+        sessions::Start::Fork => "the matter's session, forked from the base".into(),
     }
 }
 
@@ -135,41 +127,9 @@ fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
 
 pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     close_interrupted(e, w)?;
-    // The time the round's session is chosen at, one for the check below and the message's own, so that a session
-    // whose cache expires between them is not told apart by them.
+    // The time the round's session is chosen at, which the message is built at too, so that a session whose cache
+    // expires between them is not told apart by them.
     let now = db::now();
-    // A new session of the architect's line in the middle of an architect work understands the project first: the
-    // cell's row for that, recorded with why the session would start afresh; a flow version without the row goes back
-    // unrecorded.
-    if let Some(why) = crate::architect::understand_first(e, w, g, cell, now)? {
-        let Some(row) = cell.rows.iter().find(|r| anew(r)).cloned() else {
-            return crate::architect::back_to_understanding(e, w, g, cell);
-        };
-        let commit = e.config.commit.clone();
-        // The round is pinned to a commit of main as any round of the cell is: the check of the policy its row queues
-        // compares the constitution as that commit has it.
-        let pin = inputs::pin_main(e, w, cell, None, true)?;
-        let mut input = json!({ "engine": { "new_session": why } });
-        pin.record(&mut input["engine"]);
-        let round =
-            e.db.write(Actor::Engine, |tx| {
-                work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
-            })
-            .map_err(sql)?;
-        return finish(
-            e,
-            w,
-            g,
-            cell,
-            round,
-            json!({}),
-            &row,
-            Ended::default(),
-            &[],
-            None,
-            &Map::new(),
-        );
-    }
     let item = e.subject(w)?;
     // A work on an item runs in its project; a work of the architect is on no item and in no project.
     let project = match &item {
@@ -261,6 +221,17 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         },
     };
     let main = pin.commit.clone();
+    // The branch takes the latest main in before the cell's first round each time the work comes to it, for a cell
+    // told what that brought (`main_changes`): the commit the round is pinned to, with no fetch of its own.
+    e.caught_up = None;
+    if crate::catch_up::reads(cell)
+        && let Some(wt) = w.worktree.as_deref()
+        && item.is_some()
+        && crate::catch_up::first_round(e, w, g, cell)?
+    {
+        let project = e.project_of(w)?;
+        e.caught_up = Some((w.id, crate::catch_up::bring(wt, &project.main, main.as_deref())));
+    }
     let line_of_cell = crate::line_of(g, cell);
     let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
     let cli_name = level.cli.clone();
@@ -308,14 +279,27 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             &level.model,
             e.runs_on(&level).on().cache,
         )),
+        Plan::Fork { .. } => Some(new_session_why(
+            sessions::Start::Fork,
+            cell,
+            e.config.config.install.agents.context_limit,
+            &level.model,
+            e.runs_on(&level).on().cache,
+        )),
         Plan::Going { .. } => None,
     };
-    let (sid, resume, new_session) = match plan {
+    // The matter a session of a line whose sessions are each a matter's is for: the matter in hand.
+    let matter = match cell.fork_of {
+        Some(_) => architect::picked(e.db.conn(), w.id)?,
+        None => None,
+    };
+    let (sid, resume, new_session, fork) = match plan {
         Plan::Going {
             id,
             cli_session,
             resume,
             carried,
+            fork_from,
             ..
         } => {
             let id = if carried {
@@ -326,19 +310,43 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             } else {
                 id
             };
-            (id, resume.then(|| cli_session.clone()), cli_session)
+            match fork_from {
+                // A fork whose first round never started the CLI's session forks the base under its id now.
+                Some(base) => (id, Some(base), cli_session, true),
+                None => (id, resume.then(|| cli_session.clone()), cli_session, false),
+            }
+        }
+        Plan::Fork { base, base_cli, .. } => {
+            let fresh = agent::new_session_id();
+            let id =
+                e.db.write(Actor::Engine, |tx| {
+                    sessions::choose::open_for(
+                        tx,
+                        w.id,
+                        &line,
+                        &cli_name,
+                        &fresh,
+                        sessions::Start::Fork,
+                        matter,
+                        Some(base),
+                    )
+                    .map_err(db::Error::Abort)
+                })
+                .map_err(sql)?;
+            (id, Some(base_cli), fresh, true)
         }
         Plan::New(why) => {
             let fresh = agent::new_session_id();
             let id =
                 e.db.write(Actor::Engine, |tx| {
-                    sessions::choose::open(tx, w.id, &line, &cli_name, &fresh, why).map_err(db::Error::Abort)
+                    sessions::choose::open_for(tx, w.id, &line, &cli_name, &fresh, why, matter, None)
+                        .map_err(db::Error::Abort)
                 })
                 .map_err(sql)?;
             if why == sessions::Start::Owner {
                 e.sessions().met(w.id, w.project.as_deref());
             }
-            (id, None, fresh)
+            (id, None, fresh, false)
         }
     };
     // What the cell is given, whole, which a compaction within the round gives the session again at once.
@@ -387,6 +395,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     let req = Request {
         resume,
+        fork,
         system,
         new_session: new_session.clone(),
         prompt: msg.text.clone(),
@@ -450,6 +459,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     if e.halted() {
         let _ = std::fs::remove_file(&given_again);
         return Ok(Advance::Waits("a failed run's cause stops every work".to_string()));
+    }
+    // A fork reads its base from the prompt cache only up to a call the cache keeps under what the fork puts before its
+    // messages: the session manager warms the base first when the cache may not keep its end so, and the fork and every
+    // fork after it read it ([`crate::warm::before_fork`]).
+    if req.fork {
+        let runs = e.runs_on(&level);
+        crate::warm::before_fork(e, w, &req, &input["call"], &cli_version, &runs)?;
     }
     let round =
         e.db.write(Actor::Engine, |tx| {
@@ -603,7 +619,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 interjections: &interjections,
                 main: main.as_deref(),
             };
-            checks::run(&ctx).map_err(|problems| checks::reason(&problems))
+            checks::run(&ctx)
+                .map(|_| ())
+                .map_err(|problems| checks::reason(&problems))
         };
         let r = crate::unparsed::recover(e, &req, &reply, round, cell, &accepts);
         let mut record = r.record;
@@ -772,25 +790,38 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         interjections: &interjections,
         main: main.as_deref(),
     };
-    if let Err(problems) = checks::run(&ctx) {
-        return reject(
-            e,
-            w,
-            &section,
-            round,
-            Ended {
-                output: Some(output),
-                ..ended
-            },
-            checks::record("check", checks::reason(&problems), &problems),
-        );
+    let aside = match checks::run(&ctx) {
+        Ok(aside) => aside,
+        Err(problems) => {
+            return reject(
+                e,
+                w,
+                &section,
+                round,
+                Ended {
+                    output: Some(output),
+                    ..ended
+                },
+                checks::record("check", checks::reason(&problems), &problems),
+            );
+        }
+    };
+    // What only the checks the work says it changes found is kept on the round, for the reviews to judge.
+    let set_aside = crate::set_aside::record(e.db.conn(), w.id, &aside)?;
+    if !aside.is_empty() {
+        e.say(&format!(
+            "{round}: taken with {} problems set aside, found only by checks the work says it changes:\n{}",
+            aside.len(),
+            checks::reason(&aside)
+        ));
     }
+    let ended = Ended { set_aside, ..ended };
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after, &given)
 }
 
 /// A round's call as its record keeps it: the structured-output schema the command line gives and the system prompt it
 /// appends, each the same for every round of a session, kept once in `contents` and referred to there.
-fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
+pub(crate) fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
     for flag in ["--json-schema", sessions::system::FLAG] {
         if let Some(args) = call["command"].as_array_mut()
             && let Some(i) = args.iter().position(|a| a == flag).map(|i| i + 1)
@@ -807,14 +838,33 @@ fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
     call
 }
 
+/// The directory a cell's round runs in, which the command line's tools and git work in: the work's worktree; for a
+/// work on an item that has none yet, the project's checkout; for a project's architect, its graph's worktree, and for
+/// a cell of the architect's on no line an empty directory of its own ([`architect::workdir`]). What tells an agent
+/// where git runs (`history_sources`, in [`crate::inputs`]) reads it here, so that it is where the round really runs.
+pub fn round_directory(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    project: Option<&config::Project>,
+) -> Result<std::path::PathBuf, String> {
+    match (&w.worktree, project) {
+        (Some(wt), _) => Ok(wt.clone()),
+        (None, Some(p)) => Ok(p.checkout.clone()),
+        (None, None) => Ok(architect::workdir(&e.data, g, cell, architect::project_of(w)?)),
+    }
+}
+
 /// What an agent's round at a cell is sent with, but for its message, its session and its hooks: the CLI and the model
 /// of the level the cell runs at, the CLI's configuration directory, the effort, the structured-output schemas, the
 /// tools and commands its line refuses, the directories outside where it runs that it may read, and where it runs: a
 /// work in its worktree, a project's architect in its graph's worktree at the project's main, and a cell of the
 /// architect's on no line in an empty directory ([`architect::workdir`]). What of
-/// it the command line puts before the session is the same for every cell of a line, but for the effort, which the
-/// flow's check keeps from turning thinking on or off, or the line's session reads nothing from the prompt cache at a
-/// change of cell; a test holds every line of the flow to that.
+/// it the command line puts before the session is the same for every cell of a line, and of the lines forked together
+/// with it ([`sessions::cli::forked_together`]), so that a fork reads its base from the prompt cache, but for the
+/// effort, which the flow's check keeps from turning thinking on or off, or the line's session reads nothing from the
+/// prompt cache at a change of cell; tests hold every line of the flow to that.
 pub fn cell_request(
     e: &Engine,
     w: &Work,
@@ -828,12 +878,10 @@ pub fn cell_request(
         Some(_) => Some(e.project_of(w)?),
         None => None,
     };
-    let worktree = match (&w.worktree, &project) {
-        (Some(wt), _) => wt.clone(),
-        (None, Some(p)) => p.checkout.clone(),
-        (None, None) => architect::workdir(&e.data, g, cell, architect::project_of(w)?),
-    };
+    let worktree = round_directory(e, w, g, cell, project.as_ref())?;
     let readable = readable_dirs(e);
+    let permissions = &e.config.config.install.agents.permissions;
+    let (allowed, refused) = (permissions.allowed(&line, &cli), permissions.refused(&line, &cli));
     Ok(Request {
         work: w.id,
         cell: cell.id.clone(),
@@ -843,13 +891,15 @@ pub fn cell_request(
         worktree,
         config_dir: e.cli_home(&level.cli),
         resume: None,
+        fork: false,
         system: None,
         new_session: String::new(),
         prompt: String::new(),
         images: Vec::new(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
         envelope: sessions::cli::envelope(g, cell.line.as_deref()),
-        refused: e.config.config.install.agents.permissions.refused(&line),
+        allowed,
+        refused,
         readable,
         replay: None,
         regive: None,
@@ -860,10 +910,9 @@ pub fn cell_request(
 }
 
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
-/// advisor, which is the engineer with a higher model; for the architect, the review of its item changes and the new
-/// architects that read a policy, the level the installation names for the architect; for the search of
-/// observations, the level it names for the observer; for the pick of the architect's next matter, the level it names
-/// for the picker.
+/// advisor, which is the engineer with a higher model; for the architect's base, each matter's session and the second
+/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks; for
+/// the search of observations, the level it names for the observer.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -873,7 +922,6 @@ pub fn level_of(
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
         None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
-        None if cell.line.as_deref() == Some(PICKER) => e.config.config.picker_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e
@@ -930,21 +978,25 @@ fn compose(
     now: i64,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
-    let (_, level, _) = level_of(e, g, cell, item)?;
+    let (_, level, cli) = level_of(e, g, cell, item)?;
     let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
+    let fork = crate::base::fork_of(e, w, cell, cli.kind.forks())?;
     let mut plan = e
         .sessions()
-        .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now)?;
+        .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now, fork.as_ref())?;
     // The rounds the agent ran or was told of: a step of the engine's before one that failed in passing is neither.
     let work_rounds: Vec<Round> = work::rounds(e.db.conn(), w.id)?
         .into_iter()
         .filter(|r| !failed::was_step(r))
         .collect();
     let number = work::next_round(e.db.conn(), w.id)?;
+    // A fork holds what its base held: the base's rounds are its session's from its start.
     let (line_rounds, held) = match &mut plan {
-        Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
+        Plan::Going { rounds, held, .. } | Plan::Fork { rounds, held, .. } => {
+            (std::mem::take(rounds), *std::mem::take(held))
+        }
         Plan::New(_) => (Vec::new(), Held::default()),
     };
     // A session that has run no round yet starts with the system prompt every session of its line is given alike; one
@@ -1216,6 +1268,12 @@ pub fn engine(
     let item = e.subject(w)?;
     let open = close_interrupted(e, w)?;
     let step = cell.step.clone();
+    if step.as_deref() == Some("bring_up") {
+        return bring_up(e, w, g, cell, None);
+    }
+    if step.as_deref() == Some(architect::STOP) {
+        return architect::stop_work(e, w, g, cell);
+    }
     match step.as_deref() {
         Some("ask_owner") if w.graph == ARCHITECT => {
             return architect::ask_owner(e, w, g, cell, open);
@@ -1266,7 +1324,7 @@ pub fn engine(
     // item back, as the engine works it out for every item that waits.
     if step.as_deref() == Some("wait_to_start") {
         let item = needed(&item, w)?;
-        let changing = architect::held_by_batches(e.db.conn())?;
+        let changing = architect::held_by_checks(e.db.conn())?;
         let free = e.free_slots()?;
         let reason = e.waits_to_start(item.id, &item.project, &changing, free)?;
         let mut given = Map::new();
@@ -1328,7 +1386,7 @@ pub fn engine(
         }
     }
     let commit = e.config.commit.clone();
-    let mut input = if starts {
+    let input = if starts {
         json!({})
     } else {
         json!({ "inputs": recorded_inputs(&gathered), "given": given })
@@ -1336,20 +1394,10 @@ pub fn engine(
     // A step that only chooses the row is taken at once; so is where a project's architect waits for a work to start,
     // which no work of the architect stands at, its works starting where its row leads: a work there would take the row
     // for whether a matter is due for its project.
-    let quick = matches!(
-        step.as_deref(),
-        None | Some("choose_checks") | Some("wait_for_start") | Some("wait_for_matter")
-    );
+    let quick = matches!(step.as_deref(), None | Some("wait_for_start") | Some("wait_for_matter"));
     if quick {
-        let output = match step.as_deref() {
-            Some("choose_checks") => {
-                // What the choice compared is in the round's input, where it is read with the choice.
-                let (output, compared) = choose_checks(e, w, g)?;
-                input["engine"] = json!({ "compared": compared });
-                output
-            }
-            _ => json!({}),
-        };
+        // What such a step returns is nothing but at the merge gate, which hands the fix the findings set aside.
+        let output = crate::set_aside::gate_return(cell, &gathered, &given);
         let row = g.take(&cell.id, &output, &given)?.clone();
         if row.waits && waits_again(e, w, cell, &row)? {
             return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
@@ -1363,15 +1411,6 @@ pub fn engine(
             })
             .map_err(sql)?;
         return finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given);
-    }
-    // The look at the queue that would wait again for the owner by the row it waited by last, for the reply to a
-    // question or for the owner's next words, records no new round.
-    if step.as_deref() == Some("look_at_queue")
-        && let Some(name) = architect::would_wait(e, w, cell)?
-        && let Some(row) = cell.rows.iter().find(|r| r.waits && r.name == name)
-        && waits_again(e, w, cell, row)?
-    {
-        return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
     }
     // A step that acts outside the database starts its round first, so what it does is recorded under it.
     let round =
@@ -1398,7 +1437,6 @@ pub fn engine(
             }
             out
         }
-        Some("full_ci_on_draft") => tools::full_ci(e, w, needed(&item, w)?, round)?,
         Some("check_records") => {
             let project = e.project_of(w)?;
             let wt = w
@@ -1409,21 +1447,154 @@ pub fn engine(
             crate::reasoning::check(e, &project, wt, &fork)?
         }
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
-        Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
-        Some("look_at_queue") => architect::look_at_queue(e, w, g, cell, round)?,
+        Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
+        Some("check_main") => crate::main_watch::check(e, w, round)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };
     if cell.rows.is_empty() {
         let output = match step.as_deref() {
-            Some("end_work") => end_work(e, w, cell)?,
+            Some("end_work") => end_work(e, w, g, cell)?,
             _ => output,
         };
         return finish_end(e, w, round, output, &|_| Ok(()));
     }
     let row = g.take(&cell.id, &output, &given)?.clone();
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
+}
+
+/// What brought a work to its graph's cell for a work on an older flow version, as the engine's loop worked it out: the
+/// version it was on, why the version the engine runs could not take it on where it stood, and whether it stays there
+/// stuck, for the owner to decide, though it has a cell to go back to.
+pub struct Brought {
+    pub from: i64,
+    pub why: String,
+    pub stuck: bool,
+}
+
+/// The step of the cell a work on an older flow version comes to (a graph's `version`, `bring_up`): its round records
+/// the versions, the cell the work goes back to and why, and the rounds the work does again from (`redoes_from`), and
+/// takes `went_back`, to that cell, or, given `stuck`, the row that keeps the work there and pauses it, or the one that
+/// ends it at the graph's end for a work stopped before its end, whose step then runs at once, whatever holds the work
+/// otherwise: that step is how it ends. The engine's loop runs it as it brings the work there (`brought`); a work there
+/// again, as when the owner started one stuck, runs it as its step, by what its last round there said: one with a cell
+/// to go back to goes back, the owner's Start being the word to.
+pub fn bring_up(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    brought: Option<Brought>,
+) -> Result<Advance, String> {
+    let (from, why, stuck) = match brought {
+        Some(b) => (b.from, b.why, b.stuck),
+        None => {
+            let last = work::rounds_at(e.db.conn(), w.id, &cell.id)?
+                .into_iter()
+                .find_map(|r| r.output);
+            let from = last.as_ref().and_then(|o| o["from"].as_i64()).unwrap_or(w.flow_version);
+            let why = last
+                .as_ref()
+                .and_then(|o| o["why"].as_str())
+                .unwrap_or("the engine brought it here")
+                .to_string();
+            (from, why, false)
+        }
+    };
+    let Arrival {
+        given,
+        output,
+        row,
+        pause,
+        ..
+    } = arrival(e, w, g, cell, from, &why, stuck)?;
+    let commit = e.config.commit.clone();
+    let input = json!({ "given": given });
+    let round =
+        e.db.write(Actor::Engine, |tx| {
+            work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
+        })
+        .map_err(sql)?;
+    let moved = finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)?;
+    if let Some(pause) = pause {
+        e.pause(w.id, &pause)?;
+    }
+    let now = e.work(w.id)?;
+    if let Some(end) = g.cancel.as_deref().filter(|c| *c == now.pos.at).and_then(|c| g.cell(c)) {
+        return engine(e, &now, g, end, false);
+    }
+    Ok(moved)
+}
+
+/// What the step of the cell a work on an older flow version comes to does with a work standing there, worked out
+/// without writing: what it is given (`brought_up`), what its round records (the versions, the cell the work goes back
+/// to, why, and the round it does again from), the row it takes by them, the rounds it does again, and, for a row that
+/// pauses the work, what it is paused for. [`bring_up`] carries it out; what installing a flow would do
+/// ([`crate::flow_cost`]) reads it for a work standing there as the engine would leave it.
+pub(crate) struct Arrival {
+    pub given: Map<String, Value>,
+    pub output: Value,
+    pub row: CompiledRow,
+    /// The first round the work does again and how many it does again, from the latest stretch of the cell it goes
+    /// back to on: none when it does not go back, or does no round again.
+    pub redone: Option<(RoundId, usize)>,
+    /// What the work is paused for, when the row pauses it.
+    pub pause: Option<String>,
+}
+
+/// What the step of the cell a work on an older flow version comes to does with work `w` standing there
+/// ([`Arrival`]), brought from version `from` for the reason `why`, and `stuck` when the engine keeps it there though it
+/// has a cell to go back to.
+pub(crate) fn arrival(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    from: i64,
+    why: &str,
+    stuck: bool,
+) -> Result<Arrival, String> {
+    let mut given = Map::new();
+    let back = values::value(e, w, g, None, "brought_up")?;
+    let brought_up = if stuck { "stuck".to_string() } else { back };
+    given.insert("brought_up".into(), json!(brought_up));
+    let back_to = w.pos.stopped.clone().filter(|c| g.cell(c).is_some());
+    let rounds = work::rounds(e.db.conn(), w.id)?;
+    let redone = back_to
+        .as_deref()
+        .filter(|_| brought_up == "went_back")
+        .map(|t| crate::versions::redone_from(g, &rounds, t))
+        .and_then(|i| rounds.get(i).map(|r| (r.id, rounds.len() - i)));
+    let output = json!({
+        "from": from, "to": e.flow_now, "back_to": back_to, "why": why, "redoes_from": redone.map(|(r, _)| r.n),
+    });
+    let row = g.take(&cell.id, &output, &given)?.clone();
+    let pause = if row.pauses {
+        // A paused work is brought to a newer version only as it goes on, so the owner's Start is what looks again.
+        let again = "Start it once a flow version that has a cell it walked is installed, and it looks again";
+        // An engineer's work whose merge stands can be neither started over nor cancelled.
+        let ends = match w.item {
+            Some(item) if w.graph != ARCHITECT => !db::merge_stands(e.db.conn(), item).map_err(|x| x.to_string())?,
+            _ => false,
+        };
+        let then = match (&back_to, ends) {
+            (Some(t), _) => format!("Start takes it back to cell {t} all the same"),
+            (None, false) => again.to_string(),
+            (None, true) => format!("Start it over, or cancel its item; or {again}"),
+        };
+        let now = e.flow_now;
+        Some(format!("it cannot go on in flow version {now}: {why}. {then}"))
+    } else {
+        None
+    };
+    Ok(Arrival {
+        given,
+        output,
+        row,
+        redone,
+        pause,
+    })
 }
 
 /// The first tool of a tool step's output that failed reaching the network or GitHub's API, with what it reported.
@@ -1543,8 +1714,9 @@ fn start_work(e: &mut Engine, w: &Work, item: &Item) -> Result<Value, String> {
 /// the cell named what it does did too. What was said to the work and never handed in stays so: no round runs off the
 /// graph to answer it, the way on no longer changes, and the owner's page marks it on the words themselves as not
 /// received, in place of the notice a flow version's `tell_undelivered` named, which tells nothing now.
-fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
+fn end_work(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Value, String> {
     let project = e.project_of(w)?;
+    let numbers = numbers(e, w, g)?;
     let follows = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "queue_followup");
     let followup = if follows {
         report_followup(e, w, &project)?
@@ -1560,7 +1732,70 @@ fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, Stri
         Ok(())
     })
     .map_err(sql)?;
-    Ok(json!({}))
+    Ok(json!({ "numbers": numbers }))
+}
+
+/// What the engine records of a work as it ends (cell `E1`'s `numbers`), the data the flow's convergence is judged by:
+/// for each stage its rounds went through, in the graph's order, how long they ran, what they cost and how many ran,
+/// a round at a cell of no stage (running tools, asking) counting to the stage the work was at; and each time the work
+/// went back to an earlier stage, the round, the cell it left, the cell it went to and why, as the row it took counts
+/// it, or by the row's name where it counts nothing.
+fn numbers(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
+    let mut order: Vec<String> = Vec::new();
+    for c in &g.cells {
+        if let Some(s) = &c.stage
+            && !order.contains(s)
+        {
+            order.push(s.clone());
+        }
+    }
+    let at = |s: &str| order.iter().position(|x| x == s);
+    let mut stages: Vec<(String, i64, f64, i64)> = Vec::new();
+    let mut went_back = Vec::new();
+    let mut current: Option<String> = None;
+    for r in work::rounds(e.db.conn(), w.id)? {
+        let Some(c) = r.cell.as_deref().and_then(|id| g.cell(id)) else {
+            continue;
+        };
+        if c.stage.is_some() {
+            current.clone_from(&c.stage);
+        }
+        let Some(stage) = current.clone() else { continue };
+        let ms = r.ended_at.map_or(0, |end| (end - r.started_at).max(0));
+        let cost = r.usage.as_ref().and_then(|u| u["cost_usd"].as_f64()).unwrap_or(0.0);
+        match stages.iter_mut().find(|x| x.0 == stage) {
+            Some(x) => {
+                x.1 += ms;
+                x.2 += cost;
+                x.3 += 1;
+            }
+            None => stages.push((stage.clone(), ms, cost, 1)),
+        }
+        let row = r
+            .transition
+            .as_deref()
+            .and_then(|t| c.rows.iter().find(|x| x.name == t));
+        let Some(row) = row else { continue };
+        let to = g.cell(&row.to).and_then(|t| t.stage.clone());
+        if let (Some(to), Some(from)) = (to.as_deref().and_then(at), at(&stage))
+            && to < from
+        {
+            went_back.push(json!({
+                "round": r.id.to_string(),
+                "from": c.id,
+                "to": row.to,
+                "why": row.counts.clone().unwrap_or_else(|| row.name.clone()),
+            }));
+        }
+    }
+    stages.sort_by_key(|x| at(&x.0));
+    let stages: Vec<Value> = stages
+        .into_iter()
+        .map(|(stage, ms, cost, n)| {
+            json!({ "stage": stage, "minutes": ms / 60_000, "cost": format!("{cost:.2}"), "rounds": n })
+        })
+        .collect();
+    Ok(json!({ "stages": stages, "went_back": went_back }))
 }
 
 /// What to do next that a work which delivered a report handed in, as a matter for the architect: the latest the work
@@ -1832,116 +2067,6 @@ fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
     out
 }
 
-/// Whether a round of the fix answered a row that the cell `side` raised: a row of the table that round was given
-/// names the cell it came from. A round's rows are numbered anew, so its answers are read against its own table; a
-/// round given no table (the engine runs none then) answered nothing.
-fn answers_a_row_of(fix: &Round, within: &str, side: &str) -> bool {
-    let table = fix.input["engine"]["table"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    let answers = fix.output.as_ref().and_then(|o| o[within]["rows"].as_array());
-    answers.is_some_and(|rows| {
-        rows.iter().any(|row| {
-            table
-                .iter()
-                .any(|t| t["row"] == row["id"] && t["from"].as_str().and_then(|f| f.split('·').next()) == Some(side))
-        })
-    })
-}
-
-/// Cell `T7`: what runs next, from what the design chose, what the review accepted, whether the work's own lines
-/// changed since each side last looked, and what the fix answered: a side that raised a row the fix answered looks at
-/// it again, whatever the answer was. It gives the choice, and what it compared for each side that has answered, which
-/// the round of `T7` records in `input.engine.compared`: the head the side left the work at, the head now, and whether
-/// the work's own lines at the two are the same (`same`), differ (`differs`), or could not be had to compare
-/// (`cannot_compare: <why>`). What cannot be compared counts as changed. The record is what was compared, not the
-/// choice: the review is also chosen as `changed` when adversarial testing runs again, though its own lines are `same`.
-fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<(Value, Value), String> {
-    let project = e.project_of(w)?;
-    let reviews = inputs::answered(e, w, g, "T4")?;
-    let adversarial = inputs::answered(e, w, g, "T1")?;
-    let fixes = inputs::answered(e, w, g, "T6")?;
-    let chose = inputs::last_return(e, w, g, "D11", "adversarial")?
-        .and_then(|r| at_path(&r, "adversarial.verdict"))
-        .is_some_and(|v| v == "needed");
-    let not_accepted = inputs::last_return(e, w, g, "T4", "no_adversarial")?
-        .and_then(|r| at_path(&r, "no_adversarial.verdict"))
-        .is_some_and(|v| v == "does_not_stand");
-    let worktree = w.worktree.as_deref();
-    // The work's own lines at a commit, or why they cannot be had.
-    let own = |rev: &str| -> Result<Vec<u8>, String> {
-        let wt = worktree.ok_or("the work has no worktree")?;
-        git::own_lines(wt, &project.main, rev)
-    };
-    let now_head = worktree.and_then(|wt| git::head(wt).ok());
-    let now = own("HEAD");
-    // For a side that has answered: the record of what was compared against its newest answer, and whether the work's
-    // own lines changed since. The work stood where the round ended (`head_after`), else where it began (`head`, for a
-    // round recorded before `head_after` existed), so that what the side committed itself is not a change.
-    let compare = |rs: &[Round]| -> Option<(Value, bool)> {
-        let side = rs.first()?;
-        let engine = &side.input["engine"];
-        let since = engine["head_after"].as_str().or_else(|| engine["head"].as_str());
-        let then = match since {
-            Some(head) => own(head),
-            None => Err("the round recorded no head".to_string()),
-        };
-        let (verdict, changed) = match (&then, &now) {
-            (Ok(a), Ok(b)) if a == b => ("same".to_string(), false),
-            (Ok(_), Ok(_)) => ("differs".to_string(), true),
-            (Err(why), _) | (_, Err(why)) => (format!("cannot_compare: {why}"), true),
-        };
-        Some((
-            json!({ "since": since, "now": now_head, "own_lines": verdict }),
-            changed,
-        ))
-    };
-    let adversarial_compared = compare(&adversarial);
-    let review_compared = compare(&reviews);
-    let changed = |compared: &Option<(Value, bool)>| compared.as_ref().is_some_and(|c| c.1);
-    // Whether the fix answered, with any answer, a row that `side` raised since `side` last returned.
-    let answered_since = |rs: &[Round], side: &str| -> bool {
-        let since = rs.first().map(|r| r.id);
-        fixes
-            .iter()
-            .filter(|f| since.is_none_or(|s| f.id > s))
-            .any(|f| answers_a_row_of(f, &g.within, side))
-    };
-    let adv = if (chose || not_accepted) && adversarial.is_empty() {
-        "all"
-    } else if changed(&adversarial_compared) {
-        "changed"
-    } else if !adversarial.is_empty() && answered_since(&adversarial, "T1") {
-        "disputes"
-    } else {
-        "skipped"
-    };
-    let mut review = if reviews.is_empty() {
-        "all"
-    } else if changed(&review_compared) {
-        "changed"
-    } else if answered_since(&reviews, "T4") || !crate::message::unverified_last(e, w, g).is_empty() {
-        // The rows the fix answered, whatever the answer and whether or not it changed the code, and the columns the
-        // last review could not verify: the side that raised them decides them again.
-        "disputes"
-    } else {
-        "none"
-    };
-    if adv != "skipped" && matches!(review, "none" | "disputes") {
-        review = "changed";
-    }
-    // A side that has not answered has nothing to compare against.
-    let compared: Map<String, Value> = [("adversarial", adversarial_compared), ("review", review_compared)]
-        .into_iter()
-        .filter_map(|(side, c)| c.map(|(record, _)| (side.to_string(), record)))
-        .collect();
-    Ok((
-        json!({ "plan": { "review": review, "adversarial": adv } }),
-        Value::Object(compared),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1956,88 +2081,5 @@ mod tests {
         let before = vec![json!({ "value": { "points": [{ "kind": "blocked_by_permission", "what": "Run it." }] } })];
         assert_eq!(what_is_asked(&before), ": Run it.");
         assert_eq!(what_is_asked(&[]), "");
-    }
-
-    // The numbered table of a fix, made as the engine makes it: F1 a finding of the table review, F2 a test of
-    // adversarial testing that went wrong, F3 a red check of the full CI.
-    fn fix_table() -> Value {
-        let place = |cell: &str, path: &str, value: Value| inputs::Part {
-            origin: inputs::Origin::Place {
-                round: crate::work::RoundId::new(1, 9),
-                first: crate::work::RoundId::new(1, 9),
-                cell: cell.into(),
-                path: path.into(),
-            },
-            value,
-        };
-        let finding = json!({ "fid": "R1", "where": "w", "what": "x", "fix": "y" });
-        let gathered = inputs::Gathered {
-            input: flow::CompiledInput {
-                id: None,
-                name: None,
-                common: false,
-                numbered: Some("F".into()),
-                what: "The table to answer".into(),
-                from: Vec::new(),
-                maybe: true,
-                newest: false,
-                unanswered: false,
-            },
-            parts: vec![
-                place(
-                    "T4",
-                    "columns[findings]",
-                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding] }]),
-                ),
-                place(
-                    "T1",
-                    "new_tests",
-                    json!([{ "name": "red_test", "on_head": "red", "on_base": "red" }]),
-                ),
-                place(
-                    "T2",
-                    "result[red]",
-                    json!({ "kind": "red", "checks": [{ "name": "lint", "result": "red", "run": "u" }] }),
-                ),
-            ],
-            value: None,
-        };
-        Value::Array(inputs::table(&[gathered]))
-    }
-
-    fn fix_round(table: Option<&Value>, answer: &str, id: &str) -> Round {
-        Round {
-            id: crate::work::RoundId::new(1, 9),
-            cell: Some("T6".into()),
-            session: None,
-            input: json!({ "engine": { "table": table } }),
-            output: Some(json!({ "outcome": { "rows": [{ "answer": answer, "id": id }] } })),
-            transition: Some("done".into()),
-            rejected: None,
-            compactions: 0,
-            started_at: 0,
-            ended_at: None,
-            usage: None,
-        }
-    }
-
-    // A fix answered a row the cell `side` raised when its answer names a row of the table it was given that came from
-    // that cell, whatever the answer is. Every answer the flow gives is tried, so one added later cannot be left out;
-    // a row of another cell, a number the table does not have and a round given no table answer no one's.
-    #[test]
-    fn any_answer_to_a_row_a_side_raised_is_an_answer_to_that_side() {
-        let table = fix_table();
-        let answers = flow::answers("T6", "rows").unwrap();
-        assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
-        for a in &answers {
-            let answered = |id: &str, side: &str| answers_a_row_of(&fix_round(Some(&table), a, id), "outcome", side);
-            assert!(answered("F1", "T4"), "{a}");
-            assert!(!answered("F1", "T1"), "{a}");
-            assert!(answered("F2", "T1"), "{a}");
-            assert!(!answered("F2", "T4"), "{a}");
-            assert!(!answered("F3", "T4") && !answered("F3", "T1"), "{a}");
-            assert!(!answered("F9", "T4") && !answered("F9", "T1"), "{a}");
-            assert!(!answers_a_row_of(&fix_round(None, a, "F1"), "outcome", "T4"), "{a}");
-        }
     }
 }

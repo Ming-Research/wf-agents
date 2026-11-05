@@ -294,9 +294,19 @@ export function matterResult(m: MatterProgress): MatterResult {
   return { parts, things, one: things.length === 1 && parts.length === 1 ? things[0] : null };
 }
 
-/// What stops a project's new works from starting, in words: the architect's own hold, or setting the project straight;
-/// any other reason as it is written.
+/// What releasing a hold on a project's new works lets happen, in words, said before the owner releases it: the owner
+/// may release any of them, and the architect's own and the one to set straight are the architect's.
+export function releaseWords(reason: string, project: string): string {
+  if (reason === 'owner') return t('hold_release_owner', { project });
+  if (reason === 'architect') return t('hold_release_architect', { project });
+  if (reason === 'set_straight') return t('hold_release_set_straight', { project });
+  return t('hold_release_other', { project });
+}
+
+/// What stops a project's new works from starting, in words: the owner's own hold, the architect's, or setting the
+/// project straight; any other reason as it is written.
 export function holdWords(reason: string): string {
+  if (reason === 'owner') return t('hold_owner');
   if (reason === 'architect') return t('hold_architect');
   if (reason === 'set_straight') return t('hold_set_straight');
   return t('hold_other', { reason: words(reason) });

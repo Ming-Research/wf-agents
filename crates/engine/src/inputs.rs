@@ -470,12 +470,7 @@ pub fn gather(
         let mut parts: Vec<Part> = Vec::new();
         let after = if x.unanswered { last_answer } else { None };
         for s in &x.from {
-            match s {
-                // What the cell before this one answered of the matter, and for a group of matters, of the others too:
-                // one place of its return for each.
-                Src::Engine(n) if n == crate::architect::BEFORE => parts.extend(crate::architect::before(e, w, g)?),
-                _ => parts.extend(source(e, w, g, cell, item, s, x.newest, after, main)?),
-            }
+            parts.extend(source(e, w, g, cell, item, s, x.newest, after, main)?);
         }
         let value = match parts.as_slice() {
             [] => None,
@@ -625,6 +620,16 @@ fn source(
             origin: Origin::Engine(n.clone()),
             value: v,
         }),
+        // Where the history is read from: it names the directory the round runs in, which is the cell's to know.
+        Src::Engine(n) if n == HISTORY_SOURCES => Some(Part {
+            origin: Origin::Engine(n.clone()),
+            value: history_sources(e, w, g, cell, item)?,
+        }),
+        // The findings set aside no review judged: the re-check is not given those it answers in the fix's table.
+        Src::Engine(n) if n == crate::set_aside::INPUT => crate::set_aside::input(e, w, g, cell)?.map(|v| Part {
+            origin: Origin::Engine(n.clone()),
+            value: v,
+        }),
         Src::Engine(n) => engine_input(e, w, g, item, n, main)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,
@@ -699,7 +704,7 @@ fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
             let at = |k: &str| o.get(k).and_then(Value::as_str);
             let (head, base) = (at("on_head"), at("on_base"));
             let unfit = if guards {
-                !matches!(base, Some("green" | "not_run"))
+                !matches!(base, Some("green" | "not_run" | "cannot_run"))
             } else {
                 base == Some("green")
             };
@@ -799,10 +804,6 @@ pub fn engine_input(
         };
         return crate::reasoning::input(e, project, name);
     }
-    if name == HISTORY_SOURCES {
-        let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
-        return Ok(Some(history_sources(e, named)));
-    }
     if name == "free_slots" {
         let hosts = &e.config.config.install.machines.hosts;
         return Ok(Some(
@@ -810,6 +811,20 @@ pub fn engine_input(
         ));
     }
     let Some(item) = item else { return Ok(None) };
+    match name {
+        // What taking main in brought before this round, as the step took it in ([`crate::catch_up`]).
+        crate::catch_up::INPUT => {
+            return Ok(e
+                .caught_up
+                .as_ref()
+                .filter(|(work, _)| *work == w.id)
+                .and_then(|(_, v)| v.clone()));
+        }
+        "owner_approval" => return crate::approval::input(e.db.conn(), &e.project_of(w)?, w),
+        "design_review" => return crate::review::input(e.db.conn(), w.id),
+        crate::verification::INPUT => return crate::verification::effect(e, w, item),
+        _ => {}
+    }
     let wt = w.worktree.as_deref();
     let main = main_of(e, item);
     Ok(match name {
@@ -847,7 +862,10 @@ pub fn engine_input(
                 returns.extend(returns_holding(e, w, g, cell, "test_changes")?);
             }
             returns.sort_by_key(|(round, _)| *round);
-            engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name)
+            match engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name) {
+                Some(Value::Array(rows)) => Some(Value::Array(crate::checks::engineer_results(e, w, &rows)?)),
+                other => other,
+            }
         }
         // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
         // commit of main the branch was cut from or last took main in at, the head under review, the merges of main
@@ -1064,20 +1082,35 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
 /// The input that says where the history a gatherer reads is.
 const HISTORY_SOURCES: &str = "history_sources";
 
-/// Where the history is, for the agents that gather it: the database's address, with the command that reads it, and the
-/// project's checkout, for git. The database is live, in WAL mode, and the engine holds it open while a round runs: a
-/// plain read-only open sees what its write-ahead log holds, where an immutable open would miss it, and needs the log's
-/// files that the engine's connection keeps there.
-fn history_sources(e: &Engine, project: Option<&str>) -> Value {
+/// Where the history is, for the agents that gather it: the database's address, with the command that reads it, and
+/// where git runs, the directory the round itself runs in ([`crate::steps::round_directory`]), with the project's main
+/// as that directory's git has it. That directory is a worktree of the project's repository, which shares the
+/// checkout's objects and refs, so it holds all the history the checkout does; the checkout itself is no place for an
+/// agent to run git: the permission check lets git run in the round's own directory and refuses a `cd` out of it, and
+/// the checkout's own `main` branch is not updated. The database is live, in WAL mode, and the engine holds it open
+/// while a round runs: a plain read-only open sees what its write-ahead log holds, where an immutable open would miss
+/// it, and needs the log's files that the engine's connection keeps there.
+fn history_sources(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    item: Option<&Item>,
+) -> Result<Value, String> {
+    let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
+    let project = named.and_then(|p| e.config.config.projects.get(p)).ok_or_else(|| {
+        format!(
+            "work {}: no project in the configuration to say where its git runs",
+            w.id
+        )
+    })?;
+    let directory = crate::steps::round_directory(e, w, g, cell, item.map(|_| project))?;
     let database = config::database(&e.data);
-    let checkout = project
-        .and_then(|p| e.config.config.projects.get(p))
-        .map(|p| p.checkout.display().to_string());
-    json!({
+    Ok(json!({
         "database": database.display().to_string(),
         "read": format!("sqlite3 -safe -readonly '{}' \"<query>\"", database.display()),
-        "checkout": checkout,
-    })
+        "git": { "directory": directory.display().to_string(), "main": project.main_ref() },
+    }))
 }
 
 /// The branch of the project the flow calls main.
@@ -1129,6 +1162,27 @@ mod tests {
             line_diff("It reads. It writes. It ends.", "It reads. It checks. It ends."),
             " It reads.\n-It writes.\n+It checks.\n It ends."
         );
+    }
+
+    // Item #270: a guard test that cannot be built before the change is no row of the fix's table, as one not run is
+    // none: the check of the return asks for its reason and the review judges it. A guard red on either side is one.
+    #[test]
+    fn a_guard_test_that_cannot_be_built_before_the_change_is_no_row_of_the_fix_table() {
+        let guards = json!([
+            { "name": "green", "on_head": "green", "on_base": "green" },
+            { "name": "not_built", "on_head": "green", "on_base": "cannot_run" },
+            { "name": "not_reached", "on_head": "green", "on_base": "not_run" },
+            { "name": "fails_before", "on_head": "green", "on_base": "red" },
+            { "name": "red_after", "on_head": "red", "on_base": "green" },
+        ]);
+        let names: Vec<_> = entries("guard_tests", &guards)
+            .iter()
+            .map(|m| m["name"].clone())
+            .collect();
+        assert_eq!(names, [json!("fails_before"), json!("red_after")]);
+        // New tests are as they were: cannot_run is right for them.
+        let news = json!([{ "name": "n", "on_head": "green", "on_base": "cannot_run" }]);
+        assert!(entries("new_tests", &news).is_empty());
     }
 
     // Item #217: the engineer's tests with their results are an input only when the engineer wrote results, which is
@@ -1420,29 +1474,37 @@ mod tests {
                 .iter()
                 .any(|x| x.from.iter().any(|s| matches!(s, Src::Engine(n) if n.as_str() == name)))
         };
-        let mut declared: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
         let mut agent = None;
         for g in &compiled.graphs {
             for c in &g.cells {
                 let has = main_inputs.iter().any(|n| declares(c, n));
                 assert_eq!(reads_main(c), has, "{} {}", g.name, c.id);
                 assert!(!has || c.kind == "agent", "{} {} is no agent's cell", g.name, c.id);
-                declared.extend(main_inputs.iter().copied().filter(|n| declares(c, n)));
                 if has && agent.is_none() {
                     agent = Some(c.clone());
                 }
             }
         }
-        // Each is declared by some cell of the flow, and computed by the module that takes the commit of main.
-        assert_eq!(declared.len(), main_inputs.len(), "{declared:?}");
+        // Each is computed by the module that takes the commit of main. Whether the flow's cells declare each is the
+        // flow's check, which holds every input the flow names to some cell; here, a cell with none of them reads no
+        // main, and the same cell given any one of them does.
         assert!(main_inputs.iter().all(|n| crate::architect::INPUTS.contains(n)));
-        // A cell with none of them reads no main.
-        let mut bare = agent.expect("some agent's cell reads main");
-        bare.inputs.retain(|x| {
-            !x.from
+        let agent = agent.expect("some agent's cell reads main");
+        let reads = |x: &CompiledInput| {
+            x.from
                 .iter()
                 .any(|s| matches!(s, Src::Engine(n) if main_inputs.contains(&n.as_str())))
-        });
+        };
+        let template = agent.inputs.iter().find(|x| reads(x)).cloned().unwrap();
+        let mut bare = agent;
+        bare.inputs.retain(|x| !reads(x));
         assert!(!reads_main(&bare));
+        for n in main_inputs {
+            let mut one = bare.clone();
+            let mut x = template.clone();
+            x.from = vec![Src::Engine(n.to_string())];
+            one.inputs.push(x);
+            assert!(reads_main(&one), "{n}");
+        }
     }
 }

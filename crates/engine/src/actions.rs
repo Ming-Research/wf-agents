@@ -48,11 +48,15 @@ pub struct Ctx {
     pub blockers: Option<flow::format::Blockers>,
 }
 
-/// The engineer's cell that writes the design, whose return holds its acceptance conditions.
+/// The engineer's cell that hands in the design the owner reviews, whose return holds its acceptance conditions.
 const DESIGN: &str = "D2";
 
-/// The engineer's cell that plans a fix on the light route, whose plan holds its acceptance conditions.
-const PLAN: &str = "F1";
+/// The cell that splits a design along its parts, whose reply, as an engineer's question's, names the sub-items.
+const SPLIT: &str = "D5";
+
+/// The engineer's cell of the initial research, whose plan holds its acceptance conditions when the work goes straight
+/// to implement.
+const PLAN: &str = "R1";
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -359,19 +363,34 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             )
             .map_err(sql)?;
         }
-        "lock_acceptance" => {
-            // The conditions of the work's latest design, or on the light route of its latest plan.
-            let design = ctx.last(tx, DESIGN, &format!("{}.acceptance", ctx.within))?;
-            let plan = ctx.last(tx, PLAN, &format!("{}.plan.acceptance", ctx.within))?;
+        "record_acceptance" => {
+            // The acceptance the implementation or a fix changed, with why; or else that of the plan or the design the
+            // work implements: the research's plan when it went straight to implement, the design otherwise.
+            if let Some(changed) = at_value
+                .as_ref()
+                .and_then(|v| v.get("acceptance"))
+                .filter(|a| a.is_array())
+            {
+                return lock_designed(tx, ctx.item_id()?, ctx.round, changed);
+            }
+            let design = ctx.last(tx, DESIGN, &format!("{}.design.acceptance", ctx.within))?;
+            let plan = ctx.last(tx, PLAN, &format!("{}.can_start.acceptance", ctx.within))?;
             let newest = match (design, plan) {
                 (Some(d), Some(p)) => Some(if d.0 > p.0 { d } else { p }),
                 (d, p) => d.or(p),
             };
             let Some((round, acceptance)) = newest else {
-                return Err("no design or plan handed in acceptance conditions to lock".into());
+                return Err("no plan or design handed in acceptance conditions to record".into());
             };
             lock_designed(tx, ctx.item_id()?, round, &acceptance)?;
         }
+        "post_design_review" => crate::review::post(ctx, tx)?,
+        "ask_owner_review" => crate::review::ask_owner(ctx, tx)?,
+        "ask_owner_approval" => crate::approval::ask(ctx, tx)?,
+        "relay_owner_answer" => crate::approval::relay(ctx, tx)?,
+        "ask_owner_points" => crate::approval::ask_points(ctx, tx)?,
+        "ask_change_approval" => crate::approval::ask_early(ctx, tx)?,
+        "hold_for_approvals" => crate::approval::hold(ctx, tx)?,
         "lock_new_acceptance" => {
             let new = at_value.or_else(|| at_path(&ctx.unwrapped, "reply.new_acceptance"));
             lock_advised(tx, ctx.item_id()?, ctx.round, new)?;
@@ -390,24 +409,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 more => format!("open questions {} wait for their answers", crate::cards::and_list(more)),
             };
             log_only(tx, w, &format!("{} is ready to merge, but {why}.", ctx.about()))?;
-        }
-        "revert_merge" => {
-            let project = ctx.project()?;
-            let Some((_, merged)) = ctx.last(tx, "M2", "result.merge_commit")? else {
-                return Err("no merge to revert".into());
-            };
-            outbox(
-                tx,
-                Some(w),
-                "revert_merge",
-                &json!({
-                    "repo": project.repo,
-                    "main": project.main,
-                    "checkout": project.checkout,
-                    "merge_commit": merged,
-                    "worktrees": config::worktrees(&ctx.data),
-                }),
-            )?;
         }
         "reopen_with_fix" => {
             // The merged PR is closed; the branch carries on, and its next push opens a new PR with the fix.
@@ -468,10 +469,15 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "hand_over_to_sub_items" => {
             let Some(pr) = ctx.work.pr else { return Ok(()) };
-            let children = ctx
-                .last(tx, "A2", "reply.children")?
-                .map(|(_, v)| v)
-                .unwrap_or(Value::Null);
+            // The architect's latest reply that split the work: to a question, or to the split of its design.
+            let asked = ctx.last(tx, "A2", "reply.children")?;
+            let split = ctx.last(tx, SPLIT, "reply.children")?;
+            let children = match (asked, split) {
+                (Some(a), Some(b)) => Some(if a.0 > b.0 { a } else { b }),
+                (a, b) => a.or(b),
+            }
+            .map(|(_, v)| v)
+            .unwrap_or(Value::Null);
             // Each by its number alone: its title is in the owner's language, and everything in a pull request is in
             // English.
             let list: Vec<String> = children
@@ -520,7 +526,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 if queued > 0 || before > 0 {
                     continue;
                 }
-                let urgent = r["urgent"] == true;
+                // A report of harm done now is urgent; one from before the question of harm says so itself.
+                let urgent = r["harm_now"] == true || r["urgent"] == true;
                 // The line that handed it in: the engineer's, or a line that helps it and tells the owner nothing.
                 let line = line_of(ctx);
                 let what = format!(
@@ -663,28 +670,95 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
             }
         }
-        "queue_flow_feedback" => {
-            // What the round said was wrong with its cell joins its project's architect's flow feedback, by cell, which
-            // starts no work of the architect; none is nothing to add.
-            let said = at_value.as_ref().and_then(Value::as_str).unwrap_or_default().trim();
-            if crate::architect::says_none(said) {
-                return Ok(());
-            }
-            let project = match (&ctx.item, &ctx.work.project) {
-                (Some(i), _) => i.project.clone(),
-                (None, Some(p)) => p.clone(),
-                (None, None) => return Ok(()),
-            };
-            let entry = json!({
-                "work": ctx.round.work,
-                "round": ctx.round.n,
-                "item": ctx.item.as_ref().map(|i| i.id),
-                "said": said,
-            });
-            crate::architect::add_flow_feedback(tx, &project, &ctx.work.graph, &ctx.cell.id, entry)?;
+        "keep_flow_feedback" => {
+            // What the round said was wrong with its cell stays in its return, which the round keeps, for the owner and
+            // the assistant to go through later: it goes to no agent's queue.
+        }
+        "tell_went_back" => {
+            // The notice names the round, where the owner's page shows what the work went back to and why.
+            let o = &ctx.output;
+            let text = format!(
+                "{} goes back to cell {} ({}) in flow version {}, from version {}, and does it again from its start \
+                 (R{}-{}): {}.",
+                capitalized(&ctx.about()),
+                ctx.to.at,
+                ctx.to_title,
+                o["to"],
+                o["from"],
+                ctx.round.work,
+                ctx.round.n,
+                db::without_final_terminal(o["why"].as_str().unwrap_or_default())
+            );
+            notify(tx, Some(w), &text)?;
+        }
+        "tell_wait" => crate::verification::tell_wait(ctx, tx)?,
+        "report_verification" => crate::verification::report(ctx, tx)?,
+        "report_stuck" => {
+            let now = ctx.output["to"].as_i64().unwrap_or_default();
+            report_stuck(tx, w, now, ctx.output["why"].as_str().unwrap_or_default())?;
         }
         other => return Err(format!("no such engine action: {other}")),
     }
+    Ok(())
+}
+
+/// A text with its first letter a capital, as a sentence begins.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// `report_stuck`: asks the project's architect, as a place to set straight, about a work that cannot go on in flow
+/// version `now`, and why, as it waits paused: once for each work and version, a matter for it on that version, open or
+/// handled, asking nothing more, as the owner's Start that finds it stuck again on the same version tells nothing new.
+/// Only an engineer's work asks: a work of the architect is its own architect's, which would be the work that waits, so
+/// the owner alone is told, by its pause. A work whose merge stands is not offered a start over or a cancel, which its
+/// merge refuses.
+pub(crate) fn report_stuck(tx: &Transaction<'_>, work: i64, now: i64, why: &str) -> Result<(), String> {
+    let found: Option<(String, String, i64, String)> = tx
+        .query_row(
+            "SELECT w.graph, i.project, i.id, i.title FROM works w JOIN items i ON i.id = w.item WHERE w.id = ?1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((_, project, item, title)) = found.filter(|f| f.0 == crate::ENGINEER) else {
+        return Ok(());
+    };
+    let open: i64 = tx
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'
+               AND json_extract(body, '$.work') = ?1 AND json_extract(body, '$.version') = ?2
+               AND withdrawn IS NULL",
+            params![work, now],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    if open > 0 {
+        return Ok(());
+    }
+    let why = db::without_final_terminal(why.trim());
+    // A work whose merge stands can be neither started over nor cancelled: the owner's Start alone looks again.
+    let then = if db::merge_stands(tx, item).map_err(sql)? {
+        "for the owner's Start once a flow version that has a cell it walked is installed"
+    } else {
+        "for the owner's Start, a start over or a cancel of its item"
+    };
+    let which = format!("Work {work} on item {item} ({title})");
+    let m = db::Matter {
+        project,
+        kind: "set_straight".into(),
+        detail: None,
+        what: format!("{which} cannot go on in flow version {now}: {why}; it waits, paused, {then}"),
+        body: json!({ "work": work, "version": now, "why": why }),
+        item: Some(item),
+        raised: None,
+    };
+    db::queue_matter(tx, &m).map_err(sql)?;
     Ok(())
 }
 
@@ -704,6 +778,16 @@ pub(crate) enum Carried {
     Done,
     /// Its time has not come, which is no failure: it stays as it is for a later turn of the loop.
     NotYet,
+}
+
+/// Closes a pull request, unless GitHub says it merged. The engine's record of a merge may lack one that GitHub made
+/// (the answer of its merge call was lost), and gh refuses to close a merged pull request, so the state is read from
+/// GitHub when the close is carried out. A merged pull request is done with: it is neither closed nor commented on.
+fn close_unless_merged(github: &dyn crate::hub::GitHub, repo: &str, pr: i64, comment: &str) -> Result<(), String> {
+    if github.merge_commit(repo, pr).map_err(|f| f.what)?.is_some() {
+        return Ok(());
+    }
+    github.close(repo, pr, comment).map_err(|f| f.what)
 }
 
 /// Carries out what is due in the outbox, as only the engine's loop does; an action that fails is tried again later,
@@ -744,12 +828,13 @@ pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
                 let checkout = PathBuf::from(text("checkout"));
                 done(git::remove_worktree(&checkout, Path::new(text("dir"))))
             }
-            "close_pr" => done(
-                e.github()
-                    .close(text("repo"), args["pr"].as_i64().unwrap_or_default(), text("comment"))
-                    .map_err(|f| f.what),
-            ),
-            "revert_merge" => done(revert(e, row["work"].as_i64(), args)),
+            "close_pr" => done(close_unless_merged(
+                e.github(),
+                text("repo"),
+                args["pr"].as_i64().unwrap_or_default(),
+                text("comment"),
+            )),
+            "revert_merge" => done(revert(e, row["work"].as_i64().unwrap_or_default(), args)),
             other => Err(format!("no such outbox action: {other}")),
         };
         if matches!(result, Ok(Carried::NotYet)) {
@@ -791,13 +876,11 @@ fn notify_owner(e: &Engine, text: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens a PR that reverts a merge, merges it, and records the revert (`reverts`): the check of main that called for it,
-/// the work's latest round at cell `L1` that found main broken by the merge, in which the action was put in the outbox;
-/// the merge reverted, the revert's PR and the commit its merge put on main. The revert is carried out whatever the
-/// records hold, since main stays broken until it is: with no such check to record it by, the engine says so and
-/// records nothing. The record is written after the merge and before the outbox lets the action go, in another write:
-/// should the engine stop between the two, the action is carried out again and opens a second revert.
-fn revert(e: &Engine, work: Option<i64>, args: &Value) -> Result<(), String> {
+/// Opens a PR that reverts a merge, merges it, and records the revert (`reverts`): the architect's work that asked for
+/// it, the merge reverted and the commit the revert's merge put on main. The record is written after the merge and
+/// before the outbox lets the action go, in another write: should the engine stop between the two, the action is carried
+/// out again and opens a second revert.
+fn revert(e: &Engine, work: i64, args: &Value) -> Result<(), String> {
     let s = |k: &str| args[k].as_str().unwrap_or_default().to_string();
     let (main, sha) = (s("main"), s("merge_commit"));
     let checkout = PathBuf::from(s("checkout"));
@@ -820,42 +903,19 @@ fn revert(e: &Engine, work: Option<i64>, args: &Value) -> Result<(), String> {
     )?;
     let result = revert_in(e, &dir, &s("repo"), &main, &sha, &branch);
     let _ = git::remove_worktree(&checkout, &dir);
-    let (pr, commit) = result?;
-    let check: Option<i64> = match work {
-        Some(w) => e
-            .db
-            .conn()
-            .query_row(
-                &format!(
-                    "SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {}
-                       AND json_extract(output, '$.main.kind') = 'broken_by_merge'",
-                    db::cells_sql(crate::ENGINEER, &["L1"])
-                ),
-                [w],
-                |r| r.get(0),
-            )
-            .map_err(sql)?,
-        None => None,
-    };
-    let (Some(work), Some(round)) = (work, check) else {
-        e.say(&format!(
-            "the revert of {sha} merged as {commit} (PR {pr}), but no check of main found the merge broke it, so the \
-             revert is not recorded"
-        ));
-        return Ok(());
-    };
+    let commit = result?;
     // History, which no trigger tracks, written as the outbox's own rows are.
     e.db.conn()
         .execute(
-            "INSERT INTO reverts (work, round, merge_commit, pr, revert_commit, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![work, round, sha, pr, commit, db::now()],
+            "INSERT INTO reverts (work, merge_commit, revert_commit, at) VALUES (?1, ?2, ?3, ?4)",
+            params![work, sha, commit, db::now()],
         )
         .map_err(sql)?;
     Ok(())
 }
 
-/// Reverts a merge in a worktree of main, and gives the PR it opened and the commit its merge put on main.
-fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: &str) -> Result<(i64, String), String> {
+/// Reverts a merge in a worktree of main, and gives the commit the merge of the PR it opened put on main.
+fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: &str) -> Result<String, String> {
     let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
     git::git(dir, &[&who[..], &["revert", "--no-edit", sha]].concat())?;
     let head = git::head(dir)?;
@@ -867,8 +927,7 @@ fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: 
         .github()
         .pull_request(repo, branch, main, Some((&title, &body)), None)
         .map_err(|f| f.what)?;
-    let commit = crate::hub::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)?;
-    Ok((pr, commit))
+    crate::hub::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)
 }
 
 #[cfg(test)]

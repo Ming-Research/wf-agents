@@ -89,7 +89,7 @@ function KeepWarm({ status }: { status: Status }) {
 }
 
 /// The switch of every work: Pause all while works go on, Start all while they are paused. Starting asks first, saying
-/// what goes on and which works on an older flow version are taken over.
+/// what goes on and how the works on an older flow version move to the new one.
 function Switch({ status, works }: { status: Status; works: WorkSummary[] | undefined }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,9 +113,11 @@ function Switch({ status, works }: { status: Status; works: WorkSummary[] | unde
       return;
     }
     // The works that go on once all start: those paused by themselves stay paused.
-    const taken = (works ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
+    const outdated = (works ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
     const ask =
-      taken > 0 ? tn('confirm_start_all_takeover', taken, { version: status.flow_version }) : t('confirm_start_all');
+      outdated > 0
+        ? tn('confirm_start_all_outdated', outdated, { version: status.flow_version })
+        : t('confirm_start_all');
     if (!window.confirm(ask)) return;
     post('/api/v1/engine/start');
   };

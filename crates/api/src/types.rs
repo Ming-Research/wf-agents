@@ -28,8 +28,8 @@ pub struct KeepWarm {
 pub struct StepTaken {
     /// When the round ended.
     pub at: i64,
-    /// The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
-    /// item over, when the asked work was on an older flow version.
+    /// The work the owner asked a round of, and the work the round was of, which a new flow version leaves the same
+    /// work.
     pub asked: i64,
     pub work: i64,
     /// The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
@@ -320,6 +320,9 @@ pub struct RoundSummary {
     pub transition: Option<String>,
     /// Why it was sent back, failed or was cut off; for a row the engine took as a session would start afresh, why.
     pub why: Option<String>,
+    /// For a return taken with problems set aside, which only checks the work said it changes found: one line for
+    /// each, its number in the work first (`S1 check (field): text`).
+    pub set_aside: Option<String>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
     pub model: Option<String>,
@@ -557,6 +560,19 @@ pub struct ForwardFault {
     pub project: String,
 }
 
+/// What the owner sends to hold a project's new starts: why, in the owner's words.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct HoldStarts {
+    pub why: String,
+}
+
+/// What the owner sends to release a hold on a project's new starts: whose it is, `owner`, `architect` or
+/// `set_straight`.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ReleaseHold {
+    pub reason: String,
+}
+
 /// What the owner sends to set where each new fault of wf-agents goes as it comes: a project, whose architect takes
 /// it, or none for nobody.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
@@ -707,7 +723,9 @@ pub struct Ping {
     pub id: i64,
     pub session: i64,
     pub line: String,
-    /// The cell the work waited at, what it waited on (pause, owner, architect, items or tool) and that in words.
+    /// The cell the work waited at, what it waited on (pause, slot, owner, architect, items or row) or `work` when it
+    /// went on without the line, or `fork` when the ping warmed an architect's base before a fork of it, and that in
+    /// words.
     pub cell: String,
     pub on: String,
     pub what: String,
@@ -1634,9 +1652,9 @@ pub struct MatterCard {
     pub replaced_by: Option<i64>,
 }
 
-/// What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
-/// architect sets it straight (`policy`, while a new policy was set, a flow version before); since when; and for the
-/// architect's own hold, why, as it said it.
+/// What stops a project's new works from starting: `owner`, the owner's own hold; `architect`, its architect's own
+/// hold; `set_straight`, while its architect sets it straight (`policy`, while a new policy was set, a flow version
+/// before); since when; and for the owner's and the architect's own hold, why, as they said it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DispatchHold {
     pub reason: String,
@@ -2251,6 +2269,22 @@ pub enum FieldKind {
     Any,
 }
 
+/// What a return handed in on an earlier flow version may hold at a field instead, which a work carrying such a return
+/// still moves with to the version that says so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "was", rename_all = "snake_case")]
+pub enum FieldEarlier {
+    /// The return may lack the field.
+    Absent,
+    /// The return may hold a value of another kind there, for a list one of items of `item`, or lack the field when
+    /// `absent`.
+    Kind {
+        kind: FieldKind,
+        item: Option<FieldKind>,
+        absent: bool,
+    },
+}
+
 /// A field of a return, with whatever reads it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Field {
@@ -2262,6 +2296,8 @@ pub struct Field {
     pub item: Option<FieldKind>,
     pub desc: Option<String>,
     pub optional: bool,
+    /// What a return handed in on an earlier flow version may hold here instead; none when only what it is now.
+    pub earlier: Option<FieldEarlier>,
     /// For a list, the fewest items it holds.
     pub min: Option<u64>,
     /// For one of a fixed set of values: each value, with what it means when the flow says.
@@ -2417,6 +2453,73 @@ pub struct FlowAt {
     pub version: Option<i64>,
     pub compiled: flow::Compiled,
     pub view: FlowView,
+}
+
+/// What installing a flow would do with each work that is neither ended nor done, as `wf-agents flow cost` tells it: the
+/// version the flow would be stored as, and the works.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct FlowCost {
+    /// The flow version the flow would be stored as.
+    pub version: i64,
+    /// Whether the database has that version already.
+    pub stored: bool,
+    /// The works, those paused included, in the order the command lists them: by what happens to them (what cannot be
+    /// worked out first, then those that go back, those stuck, those that end, those that move and those on the version
+    /// already), and by id within each.
+    pub works: Vec<WorkCost>,
+}
+
+/// A work that is neither ended nor done, with what installing the flow does with it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WorkCost {
+    pub work: i64,
+    /// What the work is and where it stands; none when it cannot be read.
+    pub stands: Option<WorkStands>,
+    pub effect: CostEffect,
+}
+
+/// What a work is and where it stands now.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WorkStands {
+    /// The item it works on; none for a work of a project's architect.
+    pub item: Option<i64>,
+    /// The item's title.
+    pub title: Option<String>,
+    /// For a work of a project's architect, its project.
+    pub project: Option<String>,
+    /// The graph it runs through.
+    pub graph: String,
+    /// The flow version it is on, and the cell it stands at.
+    pub version: i64,
+    pub at: String,
+    /// Who paused it, while it is.
+    pub paused: Option<PausedBy>,
+}
+
+/// What installing a flow does with a work when the work next goes on (one that is paused, once it is started).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CostEffect {
+    /// It cannot be worked out, and the engine stops with this error when it brings the work up.
+    Unreadable { why: String },
+    /// It comes to cell `through` for the reason `why` and goes from there to cell `to`; the rounds from `from` on, a
+    /// count of `redone` in all, are done again.
+    GoesBack {
+        through: String,
+        to: String,
+        why: String,
+        /// The number, in the work, of the first round done again; none when no round is.
+        from: Option<i64>,
+        redone: i64,
+    },
+    /// It stays at cell `at`, paused for `pause`, which gives the reason and says what the owner can do.
+    Stuck { at: String, pause: String },
+    /// It ends, for the reason `why`; a new work takes its item over when `taken_over`.
+    Ends { why: String, taken_over: bool },
+    /// It moves where it stands: the same work at the same cell, in the same sessions.
+    Moves,
+    /// It is on that version already.
+    Stays,
 }
 
 /// The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they

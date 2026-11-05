@@ -442,6 +442,20 @@ impl Context<'_> {
         Some((r.id, r.rejected.as_ref()?["failed"].get("guard")?))
     }
 
+    /// Whether the interjection at an address (`ij:<id>`) needs no answer (`informs`).
+    fn needs_no_answer(&self, address: &str) -> bool {
+        let Some(id) = address.strip_prefix("ij:").and_then(|n| n.parse::<i64>().ok()) else {
+            return false;
+        };
+        self.e
+            .db
+            .conn()
+            .query_row("SELECT informs = 1 FROM interjections WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap_or(false)
+    }
+
     /// Why this round happens, and the conditional inputs it says it with.
     fn why(&self, m: &mut Giver<'_>, interjections: &[String]) -> Vec<String> {
         let c = self.cell;
@@ -551,11 +565,17 @@ impl Context<'_> {
                 "Your session was compacted {when}: what this round needs is given again."
             ));
         }
-        if !interjections.is_empty() {
+        // What needs no answer (`informs`) is told apart from what may need one.
+        let (told, said): (Vec<&String>, Vec<&String>) = interjections.iter().partition(|a| self.needs_no_answer(a));
+        let list = |a: &[&String]| a.iter().map(|a| a.as_str()).collect::<Vec<_>>().join(", ");
+        if !said.is_empty() {
             out.push(format!(
                 "Said to you: {}. Answer in this round what needs an answer.",
-                interjections.join(", ")
+                list(&said)
             ));
+        }
+        if !told.is_empty() {
+            out.push(format!("Told to you, needing no answer: {}.", list(&told)));
         }
         // The budget of the work's stretch used up while no tool use could ask the agent to pause: this round asks.
         let pauses = c.forms.iter().any(|f| f.field.as_deref() == Some("pause"));
@@ -627,18 +647,23 @@ impl Context<'_> {
                 rules.push(m.give(format!("rule:{}", rule.name), flow_rule(e, named, rule)));
             }
         }
-        // A line the configuration keeps from changing anything only reads the worktree. An architect reads its
-        // project in its graph's worktree at main; its cell on no line, which knows only what its inputs hold, runs in
-        // an empty directory and is told of none.
+        // A line the configuration keeps from changing anything only reads the worktree, and one that writes code is
+        // told the lock commands the round's CLI lets it run. An architect reads its project in its graph's worktree
+        // at main; its cell on no line, which knows only what its inputs hold, runs in an empty directory and is told
+        // of none.
         let line = crate::line_of(g, c);
-        let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
+        let permissions = &e.config.config.install.agents.permissions;
         let workspace = if item.is_none() && c.line.is_none() {
             None
         } else if g.name == ARCHITECT {
             let text = architect_workspace(e, &g.name, named);
             Some(m.give(format!("work:{}", g.name), Value::String(text)))
         } else {
-            workspace(w, project, read_only).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
+            let locks = crate::steps::level_of(e, g, c, item)
+                .map(|(_, _, cli)| permissions.locks_of(&line, &cli))
+                .unwrap_or_default();
+            workspace(w, project, permissions.reads_only(&line), &locks)
+                .map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
         };
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full. A cell's own input that has nothing says none, so that it is not taken for one
@@ -966,8 +991,8 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
         "You are the architect of the project {project}. Your working directory is {}, a worktree of your own at the \
          project's main, the branch {main}, which the engine brings to the latest main before each round: you only \
          read, and change and commit nothing, there or anywhere. Read another branch there without switching: `git \
-         fetch origin <branch>`, then `git show origin/<branch>:<path>`, `git diff origin/{main}...origin/<branch>` \
-         or `git log origin/<branch>`.",
+         fetch origin <branch>`, then `git show origin/<branch>:<path>`, `git grep -n <text> origin/<branch> -- \
+         <path>`, `git diff origin/{main}...origin/<branch>` or `git log origin/<branch>`. {GIT_CHECK}",
         dir.display()
     );
     let others: Vec<&String> = e.config.config.projects.keys().filter(|n| *n != project).collect();
@@ -983,9 +1008,10 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
 }
 
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
-/// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree. None for a work of no
-/// project the configuration knows.
-fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Option<String> {
+/// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree, and one on a line that
+/// writes code the commands it may update a lock file with, `locks`. Every agent in a worktree is told how it runs git
+/// there ([`git_reads`], [`GIT_CHECK`]). None for a work of no project the configuration knows.
+fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool, locks: &[String]) -> Option<String> {
     let p = project?;
     let main = format!(
         "Main, wherever the flow says it, is the branch {0}: the work branches from it, its PR merges into it, and a \
@@ -993,19 +1019,66 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Op
          be missing or out of date.",
         p.main
     );
+    let git = format!("{} {GIT_CHECK}", git_reads(&p.main_ref()));
     Some(match (&w.worktree, &w.branch) {
         (Some(wt), Some(branch)) if read_only => format!(
             "Your working directory is the worktree {}, on the branch {branch}: you only read it, and change and \
-             commit nothing there. {main}",
+             commit nothing there. {main} {git}",
             wt.display()
         ),
         (Some(wt), Some(branch)) => format!(
             "Your working directory is the worktree {}, on the branch {branch}: commit there, and the engine pushes \
-             when you ask it to with a tool. {main}",
-            wt.display()
+             when you ask it to with a tool.{} {main} {git}",
+            wt.display(),
+            lock_commands(locks)
         ),
         _ => main,
     })
+}
+
+/// Where an agent runs git and how it reads with it, whatever the project: in its working directory, a worktree of the
+/// project's repository, which holds all the history the project's checkout does. `main` is the ref of the project's
+/// main there ([`config::Project::main_ref`]).
+fn git_reads(main: &str) -> String {
+    format!(
+        "Run git in your working directory, which holds the whole repository: other branches are there as \
+         `origin/<branch>`. Read with `git log` (also `-S`, `-L`, `--follow`), `git show {main}:<path>` and \
+         `git grep -n <text> {main} -- <path>`."
+    )
+}
+
+/// What the permission check of the agents' command line lets through of git, which they would find out only by being
+/// refused. It is the installed `claude`'s own check, not the configuration's, so each form named here was run on it
+/// (#250): when a new version or the owner's settings change one, this text is wrong and the agents' flow feedback says
+/// so. The same for every line and project: what a line may not do, such as push or, on a line that only reads, change
+/// the repository, is the configuration's ([`config::Permissions`]).
+const GIT_CHECK: &str = "The permission check judges each command of a chain (`&&`, `;`) or a pipe by itself: a \
+                         chain of git commands passes, and so does a pipe into `head`, `tail`, `sed -n`, `wc`, `grep`, \
+                         `sort` or `cut`; a pipe into `awk`, and `$(...)` or backticks, are refused. Run git only \
+                         where you work: a `cd` to another directory before git is refused, and `git -C <another \
+                         directory>` runs `log`, `show` and `ls-tree` but has its `grep` and `diff` refused. The \
+                         project's checkout is such a directory, and holds no history your working directory lacks.";
+
+/// What an agent that writes code is told of the commands it updates a lock file with, after a space; nothing when
+/// there are none. A bare `cargo update` upgrades every dependency, which would fill the work's diff with changes it
+/// did not need, so where it is among them the agent is told how to change only what the work needs.
+fn lock_commands(locks: &[String]) -> String {
+    if locks.is_empty() {
+        return String::new();
+    }
+    let named: Vec<String> = locks.iter().map(|c| format!("`{c}`")).collect();
+    let mut out = format!(
+        " Change a lock file with one of these commands, your arguments after it, in the directory of the manifest it \
+         changes, rather than by hand: {}. Each writes the lock file and builds, runs and installs nothing.",
+        named.join(", ")
+    );
+    if locks.iter().any(|c| c == "cargo update") {
+        out.push_str(
+            " Bring Cargo.lock in line with an edited Cargo.toml with `cargo update --workspace`, and move one \
+             dependency with `cargo update -p <crate>`; a bare `cargo update` upgrades every dependency.",
+        );
+    }
+    out
 }
 
 /// What the column of an acceptance condition adds about the rows of the conditions table that name no test. The engine
@@ -1097,7 +1170,9 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
     // At a re-review of disputes only, the columns the last table review could not verify, by number and with the
     // words they had then.
     let mut only: Option<Unverified> = None;
-    if cell.id == "T4" {
+    // Only a graph with the review table's rule has a table review: the engineer's graph reviews in two passes now.
+    let tabled = g.rules.iter().any(|r| r.name == "review_table");
+    if cell.id == "T4" && tabled {
         let review = crate::inputs::last_return(e, w, g, "T7", "plan")
             .ok()
             .flatten()
@@ -1336,13 +1411,6 @@ fn last_unverified(e: &Engine, w: &Work, g: &CompiledGraph) -> Unverified {
     }
 }
 
-/// The numbers of the columns the last table review that handed in a table could not verify.
-pub(crate) fn unverified_last(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
-    last_table(e, w, g)
-        .map(|(_, table)| cannot_verify(&table))
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1358,128 +1426,6 @@ mod tests {
         )
         .unwrap();
         f.graph(crate::ENGINEER).unwrap().clone()
-    }
-
-    // The review table's fixed columns are the lines of its rule up to the project's review list, the column of cost
-    // under load before the column of tests and checks changed without one of their own, which is the last, and a
-    // report has its own table without the column of cost under load; a flow version with a column fewer before the
-    // review list still gives its own columns and its report's table.
-    #[test]
-    fn the_review_table_gives_its_columns_by_their_words() {
-        let g = graph();
-        let table = g
-            .rules
-            .iter()
-            .find(|r| r.name == "review_table")
-            .map(|r| r.text.clone())
-            .unwrap();
-        let change = fixed_columns(&table, false);
-        assert_eq!(change.len(), 8, "{change:?}");
-        assert!(change[0].starts_with("The change matches the design"), "{}", change[0]);
-        assert!(change[6].starts_with("Cost under load"), "{}", change[6]);
-        assert!(
-            change[7].starts_with("Tests and checks changed without"),
-            "{}",
-            change[7]
-        );
-        let report = fixed_columns(&table, true);
-        assert_eq!(report.len(), 1);
-        assert!(report[0].starts_with("A work that delivers a report"), "{}", report[0]);
-        assert!(!report[0].contains("Cost under load"), "{}", report[0]);
-        // A flow version before the column of tests changed, and one before the column of cost under load.
-        let mut older = table.clone();
-        older.remove(9);
-        assert_eq!(fixed_columns(&older, false), change[..7].to_vec());
-        assert_eq!(fixed_columns(&older, true), report);
-        let mut oldest = table.clone();
-        oldest.remove(8);
-        let no_load = fixed_columns(&oldest, false);
-        assert_eq!(no_load.len(), 7, "{no_load:?}");
-        assert!(
-            no_load[6].starts_with("Tests and checks changed without"),
-            "{}",
-            no_load[6]
-        );
-        assert_eq!(fixed_columns(&oldest, true), report);
-    }
-
-    // What the flow's texts promise the review and the design check to do, read from the compiled flow once:
-    // - the rule and the field of the table review's answer say alike that a re-review after a change lists all the
-    //   columns, each answered whether or not the change touches it, and neither says the engine lists only the columns
-    //   a change concerns;
-    // - the column of cost under load asks how the cost grows when the number of runs and the data they touch double,
-    //   reaches the hot paths outside the diff, asks for no measurement and names no project, and the design check
-    //   asks the same question;
-    // - the column of an acceptance condition and the rule tell the review how to judge the rows the engine can only
-    //   look up by text: for a CI job, its result, and whether each command runs in the job named, not merely is
-    //   written in a file of the branch; for a reading of the diff, to read it; and for either, whether a test could
-    //   have proved the condition.
-    #[test]
-    fn the_flows_texts_say_what_the_review_and_the_design_check_do() {
-        let g = graph();
-        let table = g.rules.iter().find(|r| r.name == "review_table").unwrap().text.clone();
-        let rule = table.join("\n");
-        let field = g.cell("T4").unwrap().schema.as_ref().unwrap().to_string();
-        for (place, text) in [("the review_table rule", &rule), ("the field", &field)] {
-            assert!(
-                text.contains("lists all the columns, and each is answered whether or not the change touches it"),
-                "{place}: {text}"
-            );
-            assert!(
-                !text.contains("the columns the changed part concerns"),
-                "{place}: {text}"
-            );
-            assert!(
-                !text.contains("only the columns to review this time"),
-                "{place}: {text}"
-            );
-        }
-        for want in [
-            "(`ci_job`), read that job's result on this head",
-            "each command in its `steps` runs in the job it names, not only that the command is written in a file of the branch; one that does not is a finding",
-            "(`read_diff`), read the diff at its `where` yourself",
-            "For either, if a test could prove the condition instead, that is a finding.",
-        ] {
-            assert!(ACCEPTANCE_PROOFS.contains(want), "{want}: {ACCEPTANCE_PROOFS}");
-        }
-        for want in [
-            "that job's result on the head to be merged",
-            "each command in its steps runs in the job it names",
-            "for either, if a test could prove the condition instead, that is a finding",
-        ] {
-            assert!(rule.contains(want), "{want}: {rule}");
-        }
-        let column = fixed_columns(&table, false)
-            .into_iter()
-            .find(|c| c.starts_with("Cost under load"))
-            .unwrap();
-        for word in [
-            "per event",
-            "per round",
-            "per work",
-            "per request",
-            "outside the diff",
-            "double",
-            "No measurement",
-        ] {
-            assert!(column.contains(word), "{word}: {column}");
-        }
-        let design = g.cell("D3").unwrap().prompt.join("\n");
-        for word in [
-            "per event",
-            "per round",
-            "per work",
-            "per request",
-            "double",
-            "without measuring",
-        ] {
-            assert!(design.contains(word), "{word}: {design}");
-        }
-        for text in [&column, &design] {
-            for project in ["wf-agents", "whitefoot", "Whitefoot", "SQLite", "sqlite"] {
-                assert!(!text.contains(project), "{project}: {text}");
-            }
-        }
     }
 
     // A change's column of an acceptance condition tells the review how to judge a job of the CI and a reading of the
@@ -1519,6 +1465,7 @@ mod tests {
         for t in [
             "\"ci\"",
             "\"ci_before\"",
+            "\"dependency_sources\"",
             "\"gh\"",
             "\"query\"",
             "\"advisor\"",
@@ -1546,12 +1493,15 @@ mod tests {
         assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
         let implement = cell_format(&g, g.cell("I1").unwrap());
         assert!(
-            implement.contains("`tools` (of ci, ci_before, measure, gh, query)"),
+            implement.contains("`tools` (of ci, ci_before, measure, dependency_sources, gh, query)"),
             "{implement}"
         );
-        assert!(implement.contains("`ask` (to advisor, architect)"), "{implement}");
+        assert!(
+            implement.contains("`ask` (to advisor, architect, owner)"),
+            "{implement}"
+        );
         let advisor = cell_format(&g, g.cell("A1").unwrap());
-        assert!(advisor.contains("`ask` (to architect)"), "{advisor}");
+        assert!(advisor.contains("`ask` (to architect, owner)"), "{advisor}");
         assert!(!advisor.contains("`redirect`"), "{advisor}");
     }
 
@@ -1663,5 +1613,145 @@ mod tests {
         assert!(unrecorded.renumbered && unrecorded.columns == now);
         // The last review verified everything: none.
         assert_eq!(narrowed(now, &last(&[], &[])), ReviewColumns::default());
+    }
+
+    // An engineer's work of an item, in a worktree on a branch.
+    fn work_in_a_worktree() -> Work {
+        Work {
+            id: 7,
+            item: Some(1),
+            flow_version: 1,
+            graph: crate::ENGINEER.into(),
+            pos: flow::Position::default(),
+            machine: None,
+            worktree: Some("/w".into()),
+            branch: Some("item-1".into()),
+            pr: None,
+            pushed_head: None,
+            paused: None,
+            ended: None,
+            paused_by: None,
+            project: None,
+        }
+    }
+
+    // A project whose main branch is `main`, or the one named.
+    fn project_with_main(main: Option<&str>) -> config::Project {
+        let mut p = json!({
+            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple", "test_paths": ["tests/"],
+            "ci": { "fast": "fast", "full": ["ci"], "merge_checks": ["check"] }
+        });
+        if let Some(m) = main {
+            p["main"] = json!(m);
+        }
+        serde_json::from_value(p).unwrap()
+    }
+
+    // An agent in a worktree, on any line, is told to run git there and what the permission check lets through of it,
+    // with the project's main as its configuration names it (#250); the text names no path of the project's checkout,
+    // which is where the agents were once pointed and where git was refused.
+    #[test]
+    fn an_agent_is_told_where_it_runs_git_and_what_the_check_lets_through() {
+        let w = work_in_a_worktree();
+        for (main, line_only_reads) in [(None, false), (Some("trunk"), false), (Some("trunk"), true)] {
+            let p = project_with_main(main);
+            let text = workspace(&w, Some(&p), line_only_reads, &[]).unwrap();
+            let r = format!("origin/{}", main.unwrap_or("main"));
+            for told in [
+                "Run git in your working directory, which holds the whole repository".to_string(),
+                format!("`git show {r}:<path>`"),
+                format!("`git grep -n <text> {r} -- <path>`"),
+                "judges each command of a chain (`&&`, `;`) or a pipe by itself".to_string(),
+                "pipe into `head`, `tail`, `sed -n`, `wc`, `grep`, `sort` or `cut`".to_string(),
+                "a pipe into `awk`, and `$(...)` or backticks, are refused".to_string(),
+                "a `cd` to another directory before git is refused".to_string(),
+                "`git -C <another directory>` runs `log`, `show` and `ls-tree` but has its `grep` and `diff` refused"
+                    .to_string(),
+            ] {
+                assert!(text.contains(&told), "{told}: {text}");
+            }
+            assert!(!text.contains("/checkout"), "{text}");
+            // The main a project names is the only one told: no other branch is written into the text.
+            assert_eq!(text.contains("origin/main"), main.is_none(), "{text}");
+        }
+        // A work with no worktree runs git in no directory of its own, and is told nothing of it.
+        let none = Work {
+            worktree: None,
+            ..work_in_a_worktree()
+        };
+        let told = workspace(&none, Some(&project_with_main(None)), false, &[]).unwrap();
+        assert!(!told.contains("Run git"), "{told}");
+    }
+
+    // An agent on a line that writes code is told the commands it updates a lock file with, word for word as the
+    // configuration names them, which its line's rules allow; one on a line that only reads is told none, and nor is
+    // one where the installation names none.
+    #[test]
+    fn a_line_that_writes_code_is_told_how_it_updates_a_lock_file() {
+        let w = work_in_a_worktree();
+        let p = project_with_main(None);
+        let permissions = config::Permissions::default();
+        let cli = |args: &[&str]| config::Cli {
+            kind: config::CliKind::Claude,
+            command: "claude".into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            config_dir: None,
+        };
+        let installed = cli(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash(cargo fmt *)",
+        ]);
+        let told_in = |line: &str, permissions: &config::Permissions, cli: &config::Cli| {
+            workspace(
+                &w,
+                Some(&p),
+                permissions.reads_only(line),
+                &permissions.locks_of(line, cli),
+            )
+            .unwrap()
+        };
+        let told = |line: &str, permissions: &config::Permissions| told_in(line, permissions, &installed);
+        for line in ["engineer", "adversarial"] {
+            let text = told(line, &permissions);
+            for c in [
+                "cargo update",
+                "cargo add",
+                "npm install --package-lock-only --ignore-scripts",
+            ] {
+                assert!(text.contains(&format!("`{c}`")), "{line}: {text}");
+            }
+            assert!(text.contains("rather than by hand"), "{text}");
+            assert!(
+                text.contains("`cargo update --workspace`") && text.contains("`cargo update -p <crate>`"),
+                "{text}"
+            );
+        }
+        // An installation without `cargo update` is told nothing of it.
+        let npm_only = config::Permissions {
+            locks: vec!["npm install --package-lock-only --ignore-scripts".into()],
+            ..permissions.clone()
+        };
+        assert!(!told("engineer", &npm_only).contains("cargo update"));
+        // A CLI whose own arguments allow all of cargo keeps cargo refused whole, and the agent is told none of the
+        // cargo lock commands, which it would be refused; one that lets every command run is told none at all.
+        let cargo_whole = told_in("engineer", &permissions, &cli(&["--allowedTools", "Bash(cargo:*)"]));
+        assert!(
+            !cargo_whole.contains("`cargo") && cargo_whole.contains("`npm install --package-lock-only"),
+            "{cargo_whole}"
+        );
+        let open = told_in("engineer", &permissions, &cli(&["--permission-mode", "auto"]));
+        assert!(!open.contains("lock file"), "{open}");
+        let review = told("review", &permissions);
+        assert!(
+            review.contains("you only read it") && !review.contains("lock file"),
+            "{review}"
+        );
+        let none = config::Permissions {
+            locks: Vec::new(),
+            ..permissions.clone()
+        };
+        assert!(!told("engineer", &none).contains("lock file"));
     }
 }

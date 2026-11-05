@@ -11,6 +11,8 @@ db = { path = "../db" }
 # The CPU time the engine's process has used, which the engine samples each minute: getrusage through a safe call.
 nix = { version = "0.31.3", default-features = false, features = ["resource"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+# The context a round ended with, defined there once for each of its readers.
+sessions = { path = "../sessions" }
 
 [lints]
 workspace = true

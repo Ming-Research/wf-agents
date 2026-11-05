@@ -7,7 +7,10 @@
 
 use std::collections::BTreeMap;
 
-use crate::format::{Branches, Kind, RawField, Role, Tool, Values};
+use crate::format::{Branches, Kind, RawEarlier, RawField, Role, Tool, Values};
+
+/// The earlier shape of a field a return handed in on an earlier flow version did not have.
+const ABSENT: &str = "absent";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Field {
@@ -29,6 +32,17 @@ pub(crate) struct Field {
     /// The field that tells a union's branches apart.
     pub by: String,
     pub min: u32,
+    /// What a return handed in on an earlier flow version may hold here instead.
+    pub earlier: Option<Earlier>,
+}
+
+/// A field as a return handed in on an earlier flow version may hold it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Earlier {
+    /// The return may lack it.
+    Absent,
+    /// The return may hold it in the shape it had then.
+    Shape(Box<Field>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +87,7 @@ impl Shapes<'_> {
                 common: x.common.or(b.common),
                 by: x.by.or(b.by),
                 min: x.min.or(b.min),
+                earlier: x.earlier.or(b.earlier),
             };
         }
         Err("shapes that are each other".into())
@@ -144,6 +159,28 @@ impl Shapes<'_> {
                 .map(|b| branch(b.value.as_str(), b.desc.as_deref().unwrap_or_default(), &b.fields))
                 .collect::<Result<_, _>>()?,
         };
+        let earlier = match &x.earlier {
+            None => None,
+            Some(RawEarlier::Named(n)) if n == ABSENT => Some(Earlier::Absent),
+            Some(RawEarlier::Named(n)) => return Err(format!("no such earlier shape: {n}, in field {name}")),
+            Some(RawEarlier::Shape(s)) => {
+                let within = |e: String| format!("{e}, in what field {name} was earlier");
+                let was = self.field(s, tools, roles).map_err(within)?;
+                if was.earlier.is_some() {
+                    return Err(within("a field names what it was earlier only once".into()));
+                }
+                Some(Earlier::Shape(Box::new(was)))
+            }
+        };
+        let item = match &x.item {
+            Some(i) => Some(Box::new(self.field(i, tools, roles)?)),
+            None => None,
+        };
+        if item.as_ref().is_some_and(|i| i.earlier == Some(Earlier::Absent)) {
+            return Err(format!(
+                "a list's item names no earlier absence, as an item is never absent: {name}"
+            ));
+        }
         let f = Field {
             title: x.title.clone().unwrap_or_default(),
             kind,
@@ -155,16 +192,20 @@ impl Shapes<'_> {
             },
             fields: all(x.fields.as_deref().unwrap_or_default())?,
             open: kind == Kind::Obj && x.fields.is_none(),
-            item: match &x.item {
-                Some(i) => Some(Box::new(self.field(i, tools, roles)?)),
-                None => None,
-            },
+            item,
             branches,
             common: all(x.common.as_deref().unwrap_or_default())?,
             by: x.by.clone().unwrap_or_default(),
             min: x.min.unwrap_or(0),
+            earlier,
             name,
         };
+        if f.optional && f.earlier == Some(Earlier::Absent) {
+            return Err(format!(
+                "a field a return may leave out names no earlier absence: {}",
+                f.name
+            ));
+        }
         if kind == Kind::Union && f.by.is_empty() {
             return Err(format!(
                 "a union names no field that tells its branches apart: {}",
@@ -450,4 +491,14 @@ pub(crate) fn resolve(fields: &[Field], p: &str) -> Result<(String, Resolved), S
     }
     let f = last.ok_or_else(|| format!("not a path: {p}"))?;
     Ok((key, Resolved::Field(f.clone())))
+}
+
+/// The first field on the way down path `p` of `fields` that names what it was earlier, by its name: the path's own
+/// field or one that holds it; none when no field on the way does, or the path names nothing.
+pub(crate) fn earlier_on(fields: &[Field], p: &str) -> Option<String> {
+    let segs: Vec<&str> = p.split('.').collect();
+    (1..=segs.len()).find_map(|n| match resolve(fields, &segs[..n].join(".")) {
+        Ok((_, Resolved::Field(f))) if f.earlier.is_some() => Some(f.name),
+        _ => None,
+    })
 }

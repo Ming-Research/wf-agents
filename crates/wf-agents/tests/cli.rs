@@ -63,11 +63,14 @@ const UNCHECKED: [&str; 18] = [
 ];
 
 /// The commands that read the committed configuration before they open the database.
-const CHECKED: [&str; 4] = [
+const CHECKED: [&str; 7] = [
     "item add --project p --title t --problem x --why y --level l",
     "anomalies",
     "message 1",
     "run --once",
+    "hold --why x",
+    "release",
+    "flow cost",
 ];
 
 /// A path under the temporary directory that is not there.
@@ -196,7 +199,7 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
     assert!(
         stdout.contains("engineer: format:common ")
             && stdout.contains("engineer ")
-            && stdout.contains("new sessions at R1, I1, T6"),
+            && stdout.contains("new sessions at R1, a new session each time at I1"),
         "{stdout}"
     );
     let out = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
@@ -397,6 +400,106 @@ fn the_owner_s_cancel_of_an_item_with_a_work_going_on_asks_the_engine() {
     assert_eq!(queued, [("cancel_item".to_string(), Some("duplicate".to_string()))]);
     drop(st);
     drop(base);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The built command given its arguments as they are, for a value with spaces in it, and the data directory `data`.
+fn wf_args(data: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .args(args)
+        .arg("--data")
+        .arg(data)
+        .env("GIT_CEILING_DIRECTORIES", std::env::temp_dir())
+        .output()
+        .unwrap()
+}
+
+// Item #239: `hold` and `release` write the owner's hold on a project's new starts and release any hold, as the page
+// does, through the same functions: the project may be left out where the configuration has one, no words or no such
+// project is refused with nothing written, the hold is written as the owner and holding again changes only the words,
+// a release of a reason with no hold is refused saying so, and a reason that is not one of the three is refused by the
+// command line itself.
+#[test]
+fn hold_and_release_write_and_release_the_holds_on_a_project_s_new_starts() {
+    let dir = data_directory("hold");
+    let out = wf(&dir, "init");
+    assert!(out.status.success(), "{}", stderr(&out));
+    let rows = || -> Vec<(String, i64, Option<String>)> {
+        let base = db::Db::open(&config::database(&dir)).unwrap();
+        let mut st = base
+            .conn()
+            .prepare("SELECT reason, since, why FROM dispatch_holds WHERE project = 'p' ORDER BY reason")
+            .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let out = wf_args(&dir, &["hold", "--why", "Leaving for a week."]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let first = rows();
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        (first[0].0.as_str(), first[0].2.as_deref()),
+        ("owner", Some("Leaving for a week."))
+    );
+    let actor: String = db::Db::open(&config::database(&dir))
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT actor FROM changes WHERE table_name = 'dispatch_holds' ORDER BY id DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(actor, "owner");
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let out = wf_args(&dir, &["hold", "--project", "p", "--why", "Installing."]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let again = rows();
+    assert_eq!((again[0].1, again[0].2.as_deref()), (first[0].1, Some("Installing.")));
+    // Refused, and nothing written.
+    let out = wf_args(&dir, &["hold", "--why", "   "]);
+    assert!(failed(&out) && stderr(&out).contains("says why"), "{}", stderr(&out));
+    let out = wf_args(&dir, &["hold", "--project", "nowhere", "--why", "x"]);
+    assert!(
+        failed(&out) && stderr(&out).contains("no project nowhere"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(rows().len(), 1);
+    // The owner releases the architect's hold and the one to set the project straight, as well as their own.
+    let mut base = db::Db::open(&config::database(&dir)).unwrap();
+    base.write(db::Actor::Architect, |tx| {
+        db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
+    })
+    .unwrap();
+    drop(base);
+    for reason in ["architect", "set_straight", "owner"] {
+        let out = wf_args(&dir, &["release", "--reason", reason]);
+        assert!(out.status.success(), "{reason}: {}", stderr(&out));
+        let out = wf_args(&dir, &["release", "--reason", reason]);
+        assert!(
+            failed(&out) && stderr(&out).contains("has no hold of the reason"),
+            "{reason}: {}",
+            stderr(&out)
+        );
+    }
+    assert!(rows().is_empty());
+    let out = wf_args(&dir, &["release", "--reason", "policy"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    // With two projects in the configuration, leaving the project out is refused and nothing is written; the rule
+    // itself is tested in the api crate, this shows the arguments reach it.
+    std::fs::write(dir.join("projects/q.toml"), PROJECT).unwrap();
+    commit_all(&dir);
+    let out = wf_args(&dir, &["hold", "--why", "x"]);
+    assert!(
+        failed(&out) && stderr(&out).contains("name the project, one of: p, q"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(rows().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -862,5 +965,312 @@ fn history_in_full_gives_every_round_of_a_work() {
     assert_eq!(rounds[0]["name"], "R1-1");
     assert_eq!(rounds[10_001]["name"], "R1-10002");
     assert_eq!(rounds[10_001]["cell"], "C10002");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The flows of the data directory `dir`'s database for `flow cost`: version 1, the flow built into the command with a
+/// cell `Z1` its engineer's graph lacks and a graph `policy` it lacks, and version 2, the flow built into the command;
+/// and the works on them, as the engine leaves them. Work 1 stands at `Z1` after a round at `R1`; work 2, paused by
+/// the owner, at `Z1` with no round; work 3 at `R0` with no round; work 4 of the graph `policy`; work 5, the
+/// architect's, at its first cell on version 2; work 6 ended, and work 7 done.
+fn flows_and_works(dir: &Path) {
+    let committed = config::committed(dir).unwrap();
+    let built = engine::compile_for(&committed.config).unwrap();
+    let mut older = built.clone();
+    let engineer = older.graphs.iter_mut().find(|g| g.name == "engineer").unwrap();
+    let mut gone = engineer.cell("R0").unwrap().clone();
+    gone.id = "Z1".into();
+    engineer.cells.push(gone);
+    let mut policy = older.graph("architect").unwrap().clone();
+    policy.name = "policy".into();
+    older.graphs.push(policy);
+    let mut base = db::Db::open(&config::database(dir)).unwrap();
+    base.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'older', ?1), (2, ?2, ?3)",
+            [older.json(), built.digest(), built.json()],
+        )?;
+        tx.execute_batch(
+            r#"INSERT INTO items (id, project, title, problem, why, deliver, level) VALUES
+                   (1, 'p', 'Back', 'x', 'y', 'change', 'l'), (2, 'p', 'Stuck', 'x', 'y', 'change', 'l'),
+                   (3, 'p', 'Moves', 'x', 'y', 'change', 'l'), (4, 'p', 'Over', 'x', 'y', 'change', 'l');
+               INSERT INTO works (id, item, flow_version, graph, at, project, paused, paused_by, ended) VALUES
+                   (1, 1, 1, 'engineer', 'Z1', NULL, NULL, NULL, NULL),
+                   (2, 2, 1, 'engineer', 'Z1', NULL, 'Held.', 'owner', NULL),
+                   (3, 3, 1, 'engineer', 'R0', NULL, NULL, NULL, NULL),
+                   (4, NULL, 1, 'policy', 'P1', 'p', NULL, NULL, NULL),
+                   (5, NULL, 2, 'architect', 'Q0', 'p', NULL, NULL, NULL),
+                   (6, 4, 1, 'engineer', 'Z1', NULL, NULL, NULL, 'over'),
+                   (7, NULL, 2, 'architect', 'E2', 'p', NULL, NULL, NULL);
+               INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+               VALUES (1, 1, 'R1', '{}', '{}', 'done', 'c', 1, 1), (7, 1, 'E2', '{}', '{}', 'done', 'c', 1, 1);"#,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// What the owner's page reads at `/api/v1/flows/cost` with `query`: the answer's status and its JSON.
+fn page_cost(port: u16, query: &str) -> (u16, serde_json::Value) {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(std::time::Duration::from_secs(60))).unwrap();
+    let request =
+        format!("GET /api/v1/flows/cost?{query} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    s.write_all(request.as_bytes()).unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).unwrap();
+    let status = out.split(' ').nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
+    let body = out.split_once("\r\n\r\n").map_or("", |(_, body)| body);
+    (status, serde_json::from_str(body).unwrap_or(serde_json::Value::Null))
+}
+
+// The owner's page tells what installing a flow does with each work that goes on from the engine's own judgment, the
+// judgment `flow cost` prints for the same file: for the flow at a git ref of a project's checkout, `GET
+// /api/v1/flows/cost` lists the same works in the same order, each under the kind the command's heading gives it, with
+// the same standing, cells, rounds done again and reasons, the work on a version that cannot be read among them, as
+// `flows_and_works` and that work leave them. A project or a ref that is not there is a 404, and a flow that does not
+// compile is a 422 with the words the command fails with; nothing is written. The engine compiles the flow for the page
+// and again for the command, so the test takes some 3 s: it is the one that holds the page to the command through the
+// socket, git's ref and the command itself, which no smaller test does.
+#[test]
+fn the_page_tells_what_installing_a_flow_does_as_the_command_does() {
+    let dir = temp("flow-cost-page");
+    let checkout = temp("flow-cost-page-checkout");
+    // The project's checkout: the flow built into the command at its first commit, and a branch where the flow is none.
+    std::fs::create_dir_all(checkout.join("flow")).unwrap();
+    let flow_file = checkout.join("flow/flow.json");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../flow/flow.json"), &flow_file).unwrap();
+    commit_all(&checkout);
+    git(&checkout, &["checkout", "-q", "-b", "broken"]);
+    std::fs::write(&flow_file, "{}").unwrap();
+    git(&checkout, &["commit", "-q", "-a", "-m", "broken"]);
+    git(&checkout, &["checkout", "-q", "-"]);
+    write_config(&dir, INSTALL);
+    std::fs::write(
+        dir.join("projects/p.toml"),
+        PROJECT.replace("/tmp/p", &checkout.display().to_string()),
+    )
+    .unwrap();
+    commit_all(&dir);
+    engine::database::create(&dir).unwrap();
+    flows_and_works(&dir);
+    fill(
+        &dir,
+        r#"INSERT INTO flow_versions (id, digest, compiled) VALUES (3, 'broken', '{}');
+           INSERT INTO items (id, project, title, problem, why, deliver, level)
+           VALUES (5, 'p', 'Broken', 'x', 'y', 'change', 'l');
+           INSERT INTO works (id, item, flow_version, graph, at) VALUES (8, 5, 3, 'engineer', 'R1');"#,
+    );
+    let path = config::database(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let port = web::start(web::Options {
+        data: dir.clone(),
+        db: path.clone(),
+        port: 0,
+        bus: std::sync::Arc::new(api::Bus::new(5)),
+        control: std::sync::Arc::new(api::Control::default()),
+    })
+    .unwrap();
+
+    let (status, page) = page_cost(port, "project=p&ref=HEAD");
+    assert_eq!(status, 200, "{page}");
+    // The command, given the flow the ref holds: it fails because of the work that cannot be worked out, after printing.
+    let out = wf_args(&dir, &["flow", "cost", flow_file.to_str().unwrap()]);
+    assert!(failed(&out), "{:?}: {}", out.status, stderr(&out));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(page["version"], 2, "{page}");
+    assert_eq!(page["stored"], true, "{page}");
+    assert!(text.contains("it is flow version 2, which the database has."), "{text}");
+    // Each work the command lists, in its order, with the heading of its group above it.
+    let mut heading = "";
+    let mut listed: Vec<(&str, &str)> = Vec::new();
+    for l in text.lines() {
+        if l.starts_with("  work ") {
+            listed.push((heading, l));
+        } else if l.ends_with("):") {
+            heading = l;
+        }
+    }
+    let works = page["works"].as_array().unwrap();
+    assert_eq!(works.len(), 6, "{page}");
+    assert_eq!(works.len(), listed.len(), "{text}");
+    for (w, (heading, line)) in works.iter().zip(listed) {
+        let id = w["work"].as_i64().unwrap();
+        let stands = &w["stands"];
+        assert!(stands.is_object(), "work {id}: {page}");
+        let on = match stands["item"].as_i64() {
+            Some(item) => format!("item {item}: {}", stands["title"].as_str().unwrap()),
+            None => {
+                let project = stands["project"].as_str().unwrap();
+                match stands["graph"].as_str().unwrap() {
+                    "architect" => format!("the architect of {project}"),
+                    "policy" => format!("the architect's policy setting for {project}"),
+                    graph => panic!("work {id} of the graph {graph}"),
+                }
+            }
+        };
+        let paused = match stands["paused"].as_str() {
+            None => "",
+            Some("owner") => ", paused by the owner",
+            Some("architect") => ", stopped by the architect",
+            Some(_) => ", paused by the engine",
+        };
+        let at = format!(
+            "work {id} ({on}), on version {} at {}{paused}",
+            stands["version"],
+            stands["at"].as_str().unwrap()
+        );
+        let e = &w["effect"];
+        let s = |k: &str| e[k].as_str().unwrap().to_string();
+        let (group, tail) = match e["kind"].as_str().unwrap() {
+            "unreadable" => ("Cannot be worked out", format!(": {}", s("why"))),
+            "goes_back" => {
+                let again = match (e["from"].as_i64(), e["redone"].as_i64().unwrap()) {
+                    (Some(n), 1) => format!("doing round R{id}-{n} again"),
+                    (Some(n), r) => format!("doing round R{id}-{n} and the {} after it again", r - 1),
+                    (None, _) => "doing no round again".to_string(),
+                };
+                (
+                    "Goes back through",
+                    format!(": through {} back to {}, {again}: {}", s("through"), s("to"), s("why")),
+                )
+            }
+            "stuck" => ("Stays stuck", format!(": stays at {}, paused: {}", s("at"), s("pause"))),
+            "ends" => {
+                let then = if e["taken_over"] == true {
+                    "; a new work takes its item over"
+                } else {
+                    ""
+                };
+                ("Ends", format!(": {}{then}", s("why")))
+            }
+            "moves" => ("Moves where it stands", String::new()),
+            "stays" => ("On version", String::new()),
+            kind => panic!("work {id}: {kind}"),
+        };
+        assert!(
+            heading.starts_with(group),
+            "work {id} is under {heading:?}, not {group:?}: {text}"
+        );
+        assert_eq!(line, format!("  {at}{tail}"), "work {id}: {page}");
+    }
+
+    // What the page is refused: no such project, no such ref, and a flow that is none, with the command's words for it.
+    assert_eq!(page_cost(port, "project=nope&ref=HEAD").0, 404);
+    assert_eq!(page_cost(port, "project=p&ref=nothing").0, 404);
+    let (status, refused) = page_cost(port, "project=p&ref=broken");
+    assert_eq!(status, 422, "{refused}");
+    let none = checkout.join("none.json");
+    std::fs::write(&none, "{}").unwrap();
+    let out = wf_args(&dir, &["flow", "cost", none.to_str().unwrap()]);
+    assert!(failed(&out), "{:?}", out.status);
+    assert_eq!(
+        refused["error"].as_str().unwrap().trim_end(),
+        stderr(&out).trim_end(),
+        "{refused}"
+    );
+    // Nothing was written.
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    for d in [&dir, &checkout] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+// `flow cost` tells what installing a flow would do with each work that is neither ended nor done, the works told by
+// what happens to them and the paused marked, and writes nothing: the database's file stays as it was, and the side
+// files SQLite reads it through come back beside it, empty. Worked out by hand from `flows_and_works`: work 1 goes back
+// through V1 to the cell it walked, which it does again; work 2 walked no cell the version has and stays stuck at V1,
+// paused as the engine pauses it; work 4's graph is gone, so it ends; work 3 moves and work 5 is on the version
+// already; works 6 and 7 are not told. A branch's flow on the standard input, which the database has no version of, is
+// told as the next version, and work 5 moves to it; a work on a version that cannot be read is told first, as the engine
+// stops when it brings it up, and the command fails.
+#[test]
+fn flow_cost_tells_what_installing_a_flow_does_with_each_work_and_writes_nothing() {
+    let dir = data_directory("flow-cost");
+    engine::database::create(&dir).unwrap();
+    flows_and_works(&dir);
+    let path = config::database(&dir);
+    let base = path.parent().unwrap();
+    assert_eq!(entries(base), ["wf-agents.sqlite"]);
+    let before = (entries(&dir), std::fs::read(&path).unwrap());
+    let out = printed(&dir, "flow cost");
+    assert_eq!(
+        out,
+        format!(
+            "Installing the flow built into this command on {}: it is flow version 2, which the database has.
+Each work that is neither ended nor done, as it next goes on (one paused, once it is started):
+Goes back through a cell to a cell it does again (1):
+  work 1 (item 1: Back), on version 1 at Z1: through V1 back to R1, doing round R1-1 again: cell Z1 is gone
+Stays stuck at a cell, paused (1):
+  work 2 (item 2: Stuck), on version 1 at Z1, paused by the owner: stays at V1, paused: it cannot go on in flow \
+version 2: cell Z1 is gone, and the version has none of the cells the work walked. Start it over, or cancel its item; \
+or Start it once a flow version that has a cell it walked is installed, and it looks again
+Ends (1):
+  work 4 (the architect's policy setting for p), on version 1 at P1: the version has no graph policy
+Moves where it stands (1):
+  work 3 (item 3: Moves), on version 1 at R0
+On version 2 already (1):
+  work 5 (the architect of p), on version 2 at Q0
+",
+            dir.display()
+        )
+    );
+    assert_eq!((entries(&dir), std::fs::read(&path).unwrap()), before);
+    assert_eq!(
+        entries(base),
+        ["wf-agents.sqlite", "wf-agents.sqlite-shm", "wf-agents.sqlite-wal"]
+    );
+    assert_eq!(std::fs::metadata(base.join("wf-agents.sqlite-wal")).unwrap().len(), 0);
+    // A work on a version whose compiled flow does not read.
+    fill(
+        &dir,
+        r#"INSERT INTO flow_versions (id, digest, compiled) VALUES (3, 'broken', '{}');
+           INSERT INTO items (id, project, title, problem, why, deliver, level)
+           VALUES (5, 'p', 'Broken', 'x', 'y', 'change', 'l');
+           INSERT INTO works (id, item, flow_version, graph, at) VALUES (8, 5, 3, 'engineer', 'R1');"#,
+    );
+    let before = (entries(&dir), std::fs::read(&path).unwrap());
+    // A branch's flow, as `git show` writes it.
+    let flow = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../flow/flow.json")).unwrap();
+    let title = "\"title\": \"Whether it can go wrong silently\"";
+    assert!(flow.contains(title));
+    let branch = flow.replacen(title, "\"title\": \"Whether it may go wrong silently\"", 1);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .args(["flow", "cost", "-", "--data"])
+        .arg(&dir)
+        .env("GIT_CEILING_DIRECTORIES", std::env::temp_dir())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), branch.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(failed(&out), "{:?}", out.status);
+    assert!(
+        stderr(&out).contains("1 of the works cannot be worked out, and the engine stops when it brings one up"),
+        "{}",
+        stderr(&out)
+    );
+    let out = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        out.starts_with(&format!(
+            "Installing the flow on the standard input on {}: it becomes flow version 4.
+Each work that is neither ended nor done, as it next goes on (one paused, once it is started):
+Cannot be worked out, and the engine stops with that error when it brings it up (1):
+  work 8 (item 5: Broken), on version 3 at R1: flow version 3: ",
+            dir.display()
+        )),
+        "{out}"
+    );
+    assert!(
+        out.contains(
+            "Moves where it stands (2):\n  work 3 (item 3: Moves), on version 1 at R0\n  work 5 (the architect of p), \
+             on version 2 at Q0\n"
+        ),
+        "{out}"
+    );
+    assert_eq!((entries(&dir), std::fs::read(&path).unwrap()), before);
     let _ = std::fs::remove_dir_all(&dir);
 }
