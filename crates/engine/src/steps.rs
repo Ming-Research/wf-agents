@@ -635,8 +635,16 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             };
             record["again"]["cost_usd"] = json!(cost);
             let compactions = reply.compactions + again.compactions;
+            // The round's model time is both runs' together: the first run's is read here, before the second replaces it.
+            let api_ms = sessions::cli::api_ms_of_two_runs(
+                &reply.usage[sessions::cli::API_MS],
+                &again.usage[sessions::cli::API_MS],
+            );
             reply = again;
             reply.compactions = compactions;
+            if let (Some(ms), Some(usage)) = (api_ms, reply.usage.as_object_mut()) {
+                usage.insert(sessions::cli::API_MS.to_string(), ms);
+            }
         }
         let mut usage = sessions::cost::own_cost(reply.usage.clone(), before);
         if let Some(c) = usage["cost_usd"].as_f64() {

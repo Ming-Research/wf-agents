@@ -1401,6 +1401,10 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                 if let Some(f) = first {
                     reply.usage[FIRST_CALL] = f;
                 }
+                // The time the model took, when the CLI reports it: a run that reports none has no such key.
+                if let Some(ms) = v["duration_api_ms"].as_u64() {
+                    reply.usage[API_MS] = json!(ms);
+                }
                 if v["is_error"] == true || v["subtype"] != "success" {
                     // A result that failed on the CLI's side, such as running out of retries, has no text: what went
                     // wrong is in its errors.
@@ -1440,6 +1444,19 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
 /// the CLI reports at the end gives the tokens of the whole run and of its last call only; whether a resumed session
 /// was read from the cache shows in its first call alone, since every later call reads what the calls before it wrote.
 pub const FIRST_CALL: &str = "first_call";
+
+/// The key of a run's usage record that keeps the time the model took, in milliseconds, as the CLI's result reports it
+/// (`duration_api_ms`). A run that reports none has no such key: it is not a time of 0.
+pub const API_MS: &str = "duration_api_ms";
+
+/// The model time of a round that ran the command line twice: its first run, and the run in which it handed its return
+/// in again. The two times added up; the one time when only one run reported it; none when neither did.
+pub fn api_ms_of_two_runs(first: &Value, again: &Value) -> Option<Value> {
+    match (first.as_u64(), again.as_u64()) {
+        (Some(a), Some(b)) => Some(json!(a + b)),
+        (a, b) => a.or(b).map(|ms| json!(ms)),
+    }
+}
 
 /// What a message of the stream says of the call that wrote it, when it is the agent's own message from the model: its
 /// input tokens, those it read from the cache and those it wrote to it. None for a subagent's message and for a message
@@ -1652,6 +1669,17 @@ mod tests {
         assert_eq!(r.output.unwrap()["progress"], "p");
         assert_eq!(r.usage["session_cost_usd"], 0.5);
         assert!(r.error.is_none());
+    }
+
+    // A round that ran the command line twice has the model time of both runs: the first run's is not lost when the
+    // second replaces it, and a run that reports none adds nothing.
+    #[test]
+    fn two_runs_of_a_round_add_up_the_model_time_they_report() {
+        let (a, b, none) = (json!(41_000), json!(9_000), Value::Null);
+        assert_eq!(api_ms_of_two_runs(&a, &b), Some(json!(50_000)));
+        assert_eq!(api_ms_of_two_runs(&a, &none), Some(json!(41_000)));
+        assert_eq!(api_ms_of_two_runs(&none, &b), Some(json!(9_000)));
+        assert_eq!(api_ms_of_two_runs(&none, &none), None);
     }
 
     // The usage record keeps what the run's first call to the model read from the cache and wrote to it, which the
