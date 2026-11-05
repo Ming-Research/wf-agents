@@ -17,11 +17,12 @@
 //! forked from it for each matter, its start's understanding (S1), its pick (Q1), its batch (B1 to B5), the plan after a
 //! batch (H10) and the talk of the groups (H12) left the flow; they keep their rows, H12 one of its own now, so that a
 //! round there still reads as itself, and the cells of main's red CI (L1, L2) and of the second eye (G1, G2) took codes
-//! no version gave another cell.
+//! no version gave another cell. When a report came to be taken in one round, its second cell (H5) left the flow; it
+//! keeps its row. Slots free with nothing to start took H11, a code no version gave another cell.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
-const BEFORE: [(&str, &str, &[&str]); 86] = [
+const BEFORE: [(&str, &str, &[&str]); 87] = [
     ("engineer", "S0", &["U0"]),
     ("engineer", "S1", &["0", "start", "S0"]),
     ("engineer", "G1", &[]),
@@ -93,6 +94,7 @@ const BEFORE: [(&str, &str, &[&str]); 86] = [
         &["M1", "answer_architect", "handle.answer_architect"],
     ),
     ("architect", "H10", &["N1", "what_runs", "handle.what_runs"]),
+    ("architect", "H11", &[]),
     ("architect", "B1", &["batch_done", "handle.batch_done"]),
     ("architect", "B2", &["R1", "review", "batch.review"]),
     ("architect", "B3", &["X1", "revise", "batch.revise"]),

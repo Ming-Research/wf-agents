@@ -611,7 +611,7 @@ its parts, each part's name a sub-heading, and every list of it an ordered list 
 `--base-size-8` apart, each its lead `strong` and each other part a paragraph in body medium opening with its name and a
 colon (ours), instead of option boxes for a list of approaches already compared, because a document is read through, and
 a box inside it would say it is something else. Where it fills a section or a tab by itself (the design on the item's
-page, the policy in force, the draft awaiting approval, the constitution and each section of the notebook in the panel
+page, the policy in force, the draft awaiting approval, the constitution and each part of the notebook in the panel
 beside the one-to-one with an architect) it has no box: it is that section's body text under its heading. Where it
 stands among the page's own words it keeps the box of what an agent handed back: folded under a card of the page's own
 in a conversation (a stage's design, the policy that took effect), or in a message, whose box it is in already.
@@ -2225,9 +2225,11 @@ it is closed, a button at the end of the head's row that opens it, whether it is
 every one-to-one, open at first, and an address that names one of its tabs opening it there; where the window is too
 narrow for the list, the conversation and the panel side by side (below 1280px), the panel is over the conversation, in
 its place, open only while the address names one of its tabs, the button at the head's end opening it and its close
-going back to the conversation; its tabs: Notebook, each section of the architect's notebook (what the project is now,
-the plan, what is unclear, anything else) as it stands, under the round and cell that last wrote it, or that nothing
-wrote it yet, its earlier versions folded under it, newest first, each under the round and cell that wrote it and when;
+going back to the conversation; its tabs: Notebook, the two parts of the architect's notebook (how it understands the
+project, and the plan) as they stand, under the round and cell that last wrote them, or that nothing wrote them yet, the
+earlier versions folded under each, newest first, each under the round and cell that wrote it and when; then what came
+since the base wrote them, oldest first, each matter handled with its record and the lines it added, and each item
+merged or cancelled, which a new base clears;
 Policy, the draft that waits for the owner's approval on top while one does, headed as such, then the policy in force
 with the project's constitution folded under it; and Queue, counting the matters left, how many are left, how long the
 oldest waited and how many were handled today over the list of the matters, the one in hand marked, then those handled

@@ -207,6 +207,21 @@ pub fn rounds_at(conn: &Connection, work: i64, cell: &str) -> Result<Vec<Round>,
         .map_err(sql)
 }
 
+/// The rounds of a cell in the sessions of an architect's matter, newest first, in whichever works they ran.
+pub fn rounds_of_matter(conn: &Connection, matter: i64, cell: &str) -> Result<Vec<Round>, String> {
+    let mut st = conn
+        .prepare(&format!(
+            "{} WHERE r.cell = ?2 AND r.session IN (SELECT id FROM sessions WHERE matter = ?1)
+             ORDER BY r.ended_at DESC, r.n DESC",
+            rounds_query()
+        ))
+        .map_err(sql)?;
+    st.query_map(params![matter, cell], round)
+        .map_err(sql)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(sql)
+}
+
 /// All the work's rounds, oldest first.
 pub fn rounds(conn: &Connection, work: i64) -> Result<Vec<Round>, String> {
     let mut st = conn

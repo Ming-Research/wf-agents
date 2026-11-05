@@ -793,11 +793,15 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
         prompt.contains("The left one.") && prompt.contains(&answered[0]),
         "{prompt}"
     );
+    // A matter that asked the owner comes back in a new fork, which holds none of what the words before it sent.
     let blocks: Vec<&str> = images.iter().map(|i| i.0.as_str()).collect();
-    assert_eq!(blocks, [answered[0].as_str()], "{prompt}");
+    assert_eq!(
+        blocks,
+        [words[0].as_str(), words[1].as_str(), answered[0].as_str()],
+        "{prompt}"
+    );
     let input = input_at(&e, again, "H8", false);
-    assert_eq!(given_ending(&input, "·engine·matter"), Some(false), "{input}");
-    assert_eq!(given(&input, &words[0]), None, "{input}");
+    assert_eq!(given_ending(&input, "·engine·matter"), Some(true), "{input}");
     assert_eq!(given(&input, &answered[0]), Some(true), "{input}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

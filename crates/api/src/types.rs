@@ -1200,9 +1200,11 @@ pub struct ArchitectPanel {
     pub changes: Vec<ItemChange>,
     /// The policy in force for the project; none before the first takes effect.
     pub policy: Option<PolicyInForce>,
-    /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
-    /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
+    /// Its notebook, its two parts in their order (its understanding of the project, its plan), each as its latest
+    /// base wrote it, with the round and the cell that wrote it, and every version of it, newest first.
     pub notebook: Vec<NotebookSection>,
+    /// What came since that base, oldest first, but the words said: a new base clears it.
+    pub appended: Vec<Appended>,
     /// The project's constitution, which the architect judges by with the policy, as the project's main has it: its
     /// path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
     /// why it could not be read; none when the project names none.
@@ -1801,7 +1803,18 @@ pub struct PolicyDraft {
     pub policy: Value,
 }
 
-/// A section of a project's architect's notebook: which (`project_now`, `plan`, `unclear` or `other`), what it says
+/// One thing that came after a project's architect's base: when, what it is (a matter handled, an item merged or
+/// cancelled), the matter's record or the item's title, and the lines a matter added to the plan or the understanding.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Appended {
+    pub at: i64,
+    pub who: String,
+    pub text: String,
+    pub plan: Option<String>,
+    pub understanding: Option<String>,
+}
+
+/// A part of a project's architect's notebook: which (`project_now`, its understanding, or `plan`), what it says
 /// now, none before a round wrote it, and every version of it, newest first.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct NotebookSection {

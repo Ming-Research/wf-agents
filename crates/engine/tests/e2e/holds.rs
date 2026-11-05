@@ -487,7 +487,7 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
     // The board the architect was given at its first cell lists the owner's hold. A later work of the architect, after
     // its hold and release, is given no other: its session already holds that board, which the message refers to by
     // its address because nothing in it changed, the architect's own hold gone and the owner's there.
-    let m = message_at(&e, arch, "U1", false);
+    let m = message_at(&e, arch, "N1", false);
     let board = given_value(&m, "·engine·board").expect(&m);
     let held = &board["starts_held"];
     assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");

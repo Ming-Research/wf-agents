@@ -230,8 +230,8 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
         matters(&e),
         [
             ("other_architect".to_string(), false, true),
-            ("other_architect".to_string(), true, false),
-            ("other_architect".to_string(), true, false)
+            ("other_architect".to_string(), false, true),
+            ("other_architect".to_string(), false, true)
         ],
         "{log}"
     );
@@ -410,6 +410,7 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Check the policy.");
+    say(&mut e, "Check it, really.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
@@ -420,11 +421,11 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
     assert_eq!(
         path_of(&e, arch),
         [
-            "Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
+            "Q0", "U1", "N1", "Q0", "Q2", "H8", "G1", "Q0", "Q2", "H8", "G1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
         ],
         "{log}"
     );
-    assert_eq!(rows_at(&e, arch, "H8"), ["new_policy"], "{log}");
+    assert_eq!(rows_at(&e, arch, "H8"), ["new_policy", "new_policy"], "{log}");
     assert_eq!(
         at_head(&e),
         [(
@@ -432,7 +433,7 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
             true,
             vec![
                 ("H8".to_string(), "The owner doubts the direction.".to_string()),
-                ("U1".to_string(), "Reading the project anew asks for it".to_string())
+                ("H8".to_string(), "The owner doubts the direction.".to_string())
             ]
         )],
         "{log}"
@@ -483,7 +484,7 @@ fn the_owner_s_words_come_first_while_new_starts_are_held_to_set_things_straight
             .position(|c| c == cell)
             .unwrap_or_else(|| panic!("{cell}: {path:?}\n{log}"))
     };
-    assert!(at("H8") < at("H1") && at("H1") < at("P1"), "{path:?}");
-    assert_eq!(rows_at(&e, arch, "Q0")[0], "owner", "{log}");
+    assert!(at("U1") < at("H8") && at("H8") < at("H1"), "{path:?}");
+    assert_eq!(rows_at(&e, arch, "Q0")[1], "owner", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

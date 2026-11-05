@@ -156,14 +156,15 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// The agent's cells whose forms and tools `format:common` gives a session of a cell's line: every agent's cell on the
-/// line, so that it is the same for every round of the line and given once in a session; for a cell on no line, whose
-/// session is its own, the cell alone.
+/// line and on the lines forked together with it, so that it is the same for every round of them and given once, in the
+/// base, which each fork holds; for a cell on no line, whose session is its own, the cell alone.
 pub fn format_cells<'g>(g: &'g CompiledGraph, cell: &CompiledCell) -> Vec<&'g CompiledCell> {
+    let lines = cli::forked_together(g, cell.line.as_deref());
     g.cells
         .iter()
         .filter(|c| c.kind == "agent")
         .filter(|c| match &cell.line {
-            Some(l) => c.line.as_ref() == Some(l),
+            Some(_) => lines.contains(&c.line),
             None => c.id == cell.id,
         })
         .collect()
@@ -177,6 +178,18 @@ mod tests {
         let relations = db::relations(db::SCHEMA).unwrap();
         let tables = db::index_of(db::SCHEMA).unwrap();
         flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap()
+    }
+
+    // A fork goes on from its base, so the base is given the format once and a fork nothing again: as two lines' formats
+    // each fork was sent both, old and new, as a diff of one line of JSON longer than the format itself.
+    #[test]
+    fn a_base_and_its_forks_are_given_one_format() {
+        let compiled = compiled();
+        let g = compiled.graph("architect").unwrap();
+        let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()));
+        assert_eq!(of("U1"), of("H1"));
+        assert_eq!(of("U1"), of("G2"));
+        assert_ne!(of("U1"), of("X2"));
     }
 
     // Each line's sessions are given only the forms and tools some cell of the line has, the same for every cell of

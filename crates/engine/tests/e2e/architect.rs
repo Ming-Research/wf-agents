@@ -29,15 +29,12 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
                         "outcome.effects",
                         json!({ "item_changes": versioned(&path, json!([given.clone()])) }),
                     ),
-                    (
-                        "outcome.closing.log",
-                        json!("Retitled #1 as an action, as the owner asked."),
-                    ),
+                    ("progress", json!("Retitled #1 as an action, as the owner asked.")),
                 ],
             )
         }),
     );
-    let seen = keep_requests(&mut agents, &["H8", "U1", "N1", "P1"]);
+    let seen = keep_requests(&mut agents, &["H8", "U1", "N1"]);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -54,25 +51,19 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
-        [
-            "Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
-        ],
+        ["Q0", "U1", "N1", "Q0", "Q2", "H8", "G1", "Q0", "E2"],
         "{log}"
     );
     let rows: Vec<Option<String>> = cells_of(&e, arch).into_iter().map(|c| c.1).collect();
     assert_eq!(
         rows.iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
         [
+            Some("plan"),
+            Some("done"),
+            Some("fits"),
             Some("owner"),
             Some("to_owner_words"),
             Some("done"),
-            Some("none"),
-            Some("plan"),
-            Some("to_plan"),
-            Some("fits"),
-            Some("planned"),
-            Some("to_policy_check"),
-            Some("holds"),
             Some("none"),
             Some("none"),
             None
@@ -117,24 +108,23 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
     logged.as_object_mut().unwrap().remove("version");
     assert_eq!(logged, change);
     assert_eq!(matters(&e), [("owner_words".to_string(), false, true)], "{log}");
-    // The matter keeps its line of the decision log and its two answers.
+    // The matter keeps its record.
     let line: String =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(logged, '$.log') FROM architect_matters WHERE kind = 'owner_words'",
+                "SELECT json_extract(logged, '$.record') FROM architect_matters WHERE kind = 'owner_words'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
     assert_eq!(line, "Retitled #1 as an action, as the owner asked.");
-    // The owner's words had a session of their own, with no base to fork; the base read the project and planned in one
-    // session, which goes on; the check of the policy forked it, and its session ended with it.
+    // With no base yet the base comes first: it read the project and planned in one session, which goes on; the owner's
+    // words forked it, and their session ended with them.
     let base = base_session(&e, arch);
     let sessions = sessions_of(&e, arch);
     assert_eq!(
         sessions,
         [
-            ("matter".to_string(), "line".to_string(), None, true, true),
             ("architect".to_string(), "line".to_string(), None, false, false),
             ("matter".to_string(), "fork".to_string(), Some(base.clone()), true, true),
         ],
@@ -146,13 +136,12 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
             .find(|r| r.cell == cell)
             .unwrap_or_else(|| panic!("{cell}\n{log}"))
     };
-    assert!(!by("H8").fork && by("H8").resume.is_none());
     assert!(!by("U1").fork && by("U1").resume.is_none());
     assert_eq!(
         (by("N1").fork, by("N1").resume.as_deref()),
         (false, Some(base.as_str()))
     );
-    assert_eq!((by("P1").fork, by("P1").resume.as_deref()), (true, Some(base.as_str())));
+    assert_eq!((by("H8").fork, by("H8").resume.as_deref()), (true, Some(base.as_str())));
     // The fork reads the base from the prompt cache: all that comes before the base's messages in the prompt (the model,
     // the tools with the schema of the return among them, the system prompt and the command line's version) is the same
     // in the base's last round and in the fork's first, where only the messages and the effort differ.
@@ -170,7 +159,7 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
         "{:?}",
         before("N1")
     );
-    assert_eq!(before("P1"), before("N1"));
+    assert_eq!(before("H8"), before("N1"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -183,15 +172,6 @@ type WarmBase = (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, Arc<Mutex<Vec<Requ
 fn warm_base_work(name: &str, fork_read: i64) -> WarmBase {
     let s = setup_priced(name);
     let mut agents = scripts();
-    agents.insert(
-        "H8",
-        Box::new(|_: &Request, _: usize| {
-            (
-                Vec::new(),
-                vec![("outcome.closing.log", json!("Answered the owner on the queue."))],
-            )
-        }),
-    );
     for cell in ["U1", "N1"] {
         agents.insert(cell, adding(cell, |_| vec![("@usage", used(1.0, 90_000))]));
     }
@@ -200,8 +180,8 @@ fn warm_base_work(name: &str, fork_read: i64) -> WarmBase {
         "usage": { "input_tokens": 3, "cache_read_input_tokens": fork_read, "cache_creation_input_tokens": 2_000,
             "output_tokens": 50,
             "iterations": [{ "input_tokens": 3, "cache_read_input_tokens": fork_read, "cache_creation_input_tokens": 2_000 }] } });
-    agents.insert("P1", adding("P1", move |_| vec![("@usage", first.clone())]));
-    let seen = keep_requests(&mut agents, &["P1"]);
+    agents.insert("H8", adding("H8", move |_| vec![("@usage", first.clone())]));
+    let seen = keep_requests(&mut agents, &["H8"]);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -215,9 +195,7 @@ fn warm_base_work(name: &str, fork_read: i64) -> WarmBase {
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
-        [
-            "Q0", "Q2", "H8", "G1", "Q0", "U1", "N1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
-        ],
+        ["Q0", "U1", "N1", "Q0", "Q2", "H8", "G1", "Q0", "E2"],
         "{log}"
     );
     (s, e, said, arch, seen)
@@ -250,13 +228,13 @@ fn the_first_fork_of_a_base_is_made_after_a_ping_that_warms_the_base_for_it() {
     let waited = kept_json(&e, &format!("SELECT p.waited {on_base}"), &base);
     assert_eq!(
         (waited["cell"].as_str(), waited["on"].as_str()),
-        (Some("P1"), Some("fork"))
+        (Some("H8"), Some("fork"))
     );
     let ping = kept_json(&e, &format!("SELECT p.call {on_base}"), &base);
     assert_eq!(ping["session"], json!({ "resumed": base }), "{ping}");
     let fork = kept_json(
         &e,
-        "SELECT json_extract(input, '$.call') FROM rounds WHERE work = ?1 AND cell = 'P1' ORDER BY n LIMIT 1",
+        "SELECT json_extract(input, '$.call') FROM rounds WHERE work = ?1 AND cell = 'H8' ORDER BY n LIMIT 1",
         &arch,
     );
     let before = sessions::miss::before_messages_of(&ping);
@@ -269,7 +247,7 @@ fn the_first_fork_of_a_base_is_made_after_a_ping_that_warms_the_base_for_it() {
     let forked: i64 =
         e.db.conn()
             .query_row(
-                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'P1'",
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'H8'",
                 [arch],
                 |r| r.get(0),
             )
@@ -296,7 +274,7 @@ fn a_fork_that_misses_its_warmed_base_is_a_fault_named_by_the_ping() {
         e.db.conn()
             .query_row(
                 "SELECT c.notice, n.text FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round
-                 LEFT JOIN engine_notices n ON n.id = c.notice WHERE c.work = ?1 AND r.cell = 'P1'",
+                 LEFT JOIN engine_notices n ON n.id = c.notice WHERE c.work = ?1 AND r.cell = 'H8'",
                 [arch],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -318,7 +296,7 @@ fn the_next_work_forks_its_matter_from_the_base_however_long_after() {
         Box::new(|_: &Request, _: usize| {
             (
                 Vec::new(),
-                vec![("outcome.closing.log", json!("Answered the owner on the queue."))],
+                vec![("progress", json!("Answered the owner on the queue."))],
             )
         }),
     );
@@ -346,7 +324,7 @@ fn the_next_work_forks_its_matter_from_the_base_however_long_after() {
         "{log}"
     );
     let h8 = message_at(&e, second, "H8", false);
-    assert!(given_value(&h8, "·engine·since_base").is_some(), "{h8}");
+    assert!(h8.contains("Answered the owner on the queue."), "{h8}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -415,7 +393,7 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
                     },
                     left: wt.join("left.txt").exists(),
                 });
-                if r.cell == "P1" && n == 1 {
+                if r.cell == "N1" && n == 1 {
                     let tools = json!([{ "tool": "gh", "command": "pr view 1" }]);
                     return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
                 }
@@ -433,7 +411,7 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
 fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
     let s = setup("architect-worktrees");
     let mut agents = scripts();
-    let seen = keep_what_they_saw(&mut agents, &["U1", "P1"]);
+    let seen = keep_what_they_saw(&mut agents, &["U1", "N1"]);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     let arch = architect_work_at(&mut e, "Q0");
@@ -451,19 +429,19 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
         let seen = seen.lock().unwrap();
         let log = said.lock().unwrap().join("\n");
         assert_eq!(seen.len(), 2, "{log}");
-        let (u1, p1) = (&seen[0], &seen[1]);
-        assert_eq!((u1.r.cell.as_str(), p1.r.cell.as_str()), ("U1", "P1"), "{log}");
-        for saw in [u1, p1] {
+        let (u1, n1) = (&seen[0], &seen[1]);
+        assert_eq!((u1.r.cell.as_str(), n1.r.cell.as_str()), ("U1", "N1"), "{log}");
+        for saw in [u1, n1] {
             assert_eq!(saw.r.worktree, architect);
             assert_eq!((saw.lib.as_str(), saw.head.as_str()), ("one\n", main.as_str()));
             // The project's checkout is no longer a directory added beside where it runs.
             assert_eq!(saw.r.readable.len(), 2, "{:?}", saw.r.readable);
         }
         for t in config::EDIT_TOOLS {
-            assert!(p1.r.refused.iter().any(|x| x == t), "{t}: {:?}", p1.r.refused);
+            assert!(n1.r.refused.iter().any(|x| x == t), "{t}: {:?}", n1.r.refused);
         }
         for g in config::GIT_CHANGES {
-            assert!(p1.r.refused.contains(&format!("Bash(git {g} *)")), "git {g}");
+            assert!(n1.r.refused.contains(&format!("Bash(git {g} *)")), "git {g}");
         }
         // The session is told where it works in the system prompt it starts with, the same in every work of the
         // project, and the check of the policy, in a session forked from it, is pointed to it.
@@ -475,8 +453,8 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
             )),
             "{system}"
         );
-        assert_eq!(p1.r.system.as_deref(), Some(system.as_str()));
-        assert!(p1.r.prompt.contains("Worktree: work:architect"), "{}", p1.r.prompt);
+        assert_eq!(n1.r.system.as_deref(), Some(system.as_str()));
+        assert!(n1.r.prompt.contains("Worktree: work:architect"), "{}", n1.r.prompt);
     }
     assert!(!worktrees.join("policy").exists());
     e.advance(arch).unwrap();
@@ -580,7 +558,7 @@ fn two_projects_architects_send_each_other_messages() {
     let replied = |e: &Engine| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM architect_queue WHERE project = 'p' AND kind = 'other_architect'",
+                "SELECT count(*) FROM architect_matters WHERE project = 'p' AND kind = 'other_architect'",
                 [],
                 |r| r.get(0),
             )
@@ -588,7 +566,7 @@ fn two_projects_architects_send_each_other_messages() {
     };
     let done_all = |e: &mut Engine| {
         let ws = projects(e);
-        ws.len() >= 2 && replied(e) == 1 && ws.iter().all(|(w, _)| architect_work_done(e, *w))
+        ws.len() >= 3 && replied(e) == 1 && ws.iter().all(|(w, _)| architect_work_done(e, *w))
     };
     assert!(
         steps_until(&mut e, 120, done_all),
@@ -598,7 +576,7 @@ fn two_projects_architects_send_each_other_messages() {
     let log = said.lock().unwrap().join("\n");
     let ws = projects(&e);
     let names: Vec<&str> = ws.iter().map(|w| w.1.as_str()).collect();
-    assert_eq!(names, ["p", "q"], "{log}");
+    assert_eq!(names, ["p", "q", "p"], "{log}");
     assert!(path_of(&e, ws[1].0).contains(&"H9".to_string()), "{log}");
     let messages: Vec<(String, String, String)> = {
         let mut st =
@@ -846,14 +824,11 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
             .query_row("SELECT id FROM works WHERE graph = 'architect'", [], |r| r.get(0))
             .unwrap();
     assert!(
-        steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "N1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let m = message_at(&e, arch, "U1", false);
-    let since = given_value(&m, "·engine·since_last_base").expect(&m);
-    assert_eq!(since["first_base"], true, "{since}");
-    assert_eq!(since["merged"][0]["item"], merged, "{since}");
+    let m = message_at(&e, arch, "N1", false);
     let board = given_value(&m, "·engine·board").expect(&m);
     let row = |id: i64| board["items"][format!("#{id}")].clone();
     assert_eq!(row(merged), Value::Null, "{board}");
@@ -905,8 +880,8 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let understanding = message_at(&e, arch, "U1", false);
-    let numbers = given_value(&understanding, "·engine·numbers").expect(&understanding);
+    let plan = message_at(&e, arch, "N1", false);
+    let numbers = given_value(&plan, "·engine·numbers").expect(&plan);
     assert_eq!(
         numbers["weeks"][0]["spent_usd"],
         json!({ "items": 0.5, "architect": 0.25 }),
@@ -942,8 +917,8 @@ fn main_red_is_checked_by_the_engine_and_then_judged_by_the_architect() {
     );
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
-    assert_eq!(&path[..5], ["Q0", "Q2", "L1", "L2", "G1"], "{log}");
-    assert_eq!(rows_at(&e, arch, "Q0")[0], "main_red", "{log}");
+    assert_eq!(&path[3..8], ["Q0", "Q2", "L1", "L2", "G1"], "{log}");
+    assert_eq!(rows_at(&e, arch, "Q0")[1], "main_red", "{log}");
     assert_eq!(rows_at(&e, arch, "L1"), ["red"], "{log}");
     let checked: Value =
         e.db.conn()

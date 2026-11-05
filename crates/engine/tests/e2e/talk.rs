@@ -186,7 +186,7 @@ fn say_with_an_image(e: &mut Engine, text: &str) {
 #[test]
 fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_asks_and_images() {
     let s = setup("owner-talk-window");
-    let (mut e, said) = engine(&s, base_wrong_later(scripts()));
+    let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Alpha talk. ALPHAEND");
@@ -246,7 +246,8 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
     ask(&mut e, "QSTRADDLE?", t - 35_000, Some(("ASTRADDLE", t + 3_000)), 0);
     ask(&mut e, "QOPEN?", t + 5_000, None, 0);
     ask(&mut e, "QNEW?", t + 4_000, Some(("ANEW", t + 6_000)), 2);
-    // The owner's words now, with one image.
+    // The owner's words now, with one image, and a new base due.
+    a_new_policy_takes_effect(&mut e);
     say_with_an_image(&mut e, "Beta talk. BETAEND");
     let two = e.step(None).unwrap().work.unwrap();
     assert!(
@@ -371,7 +372,7 @@ fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bo
 #[test]
 fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
     let s = setup("owner-talk-kinds");
-    let (mut e, said) = engine(&s, base_wrong_later(scripts()));
+    let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Alpha talk. ALPHAEND");
@@ -388,7 +389,7 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
         said.lock().unwrap().join("\n")
     );
     age_architect(&mut e, 90 * 60_000);
-    // The base began with its reading of the project, after the owner's words were answered.
+    // The base began with its reading of the project.
     let cut: i64 =
         e.db.conn()
             .query_row(
@@ -421,6 +422,7 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
         Ok(())
     })
     .unwrap();
+    a_new_policy_takes_effect(&mut e);
     say(&mut e, "Beta talk. BETAEND");
     let two = e.step(None).unwrap().work.unwrap();
     assert!(

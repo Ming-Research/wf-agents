@@ -121,6 +121,7 @@ pub fn typescript() -> String {
         decl::<CloseObservation>(&cfg),
         decl::<PolicyInForce>(&cfg),
         decl::<PolicyDraft>(&cfg),
+        decl::<Appended>(&cfg),
         decl::<NotebookSection>(&cfg),
         decl::<NotebookVersion>(&cfg),
         decl::<System>(&cfg),

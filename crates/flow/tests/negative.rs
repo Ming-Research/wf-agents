@@ -905,13 +905,13 @@ case!(an_input_missing_behind_an_engine_step, "missing", |v| {
 // governs, so that a new cell cannot miss it.
 case!(
     a_cell_given_the_policy_without_what_a_policy_governs,
-    "cell `N1` is given policy without the rule policy_scope that goes with it",
+    "cell `U1` is given policy without the rule policy_scope that goes with it",
     |v| {
         let next = v["flows"][1]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
-            .find(|n| n["id"] == "N1")
+            .find(|n| n["id"] == "U1")
             .unwrap();
         obj(next).remove("rules");
     }

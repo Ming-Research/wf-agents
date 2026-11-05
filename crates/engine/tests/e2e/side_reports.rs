@@ -21,7 +21,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
         }),
     );
     agents.insert(
-        "H5",
+        "H4",
         Box::new(|_: &Request, _: usize| {
             let new = json!({ "kind": "new", "title": "No jq on the machine", "what": "The machine has no jq.",
                               "tags": [], "source": "A side report.", "refs": [], "reason": "Worth keeping." });
@@ -100,123 +100,6 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
     );
     // A word that needs no answer turns nothing: the work is not taken to choose its way on.
     assert!(!path_of(&e, work).contains(&"A4".to_string()), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A gap reported a third time is work: a merge that makes an observation no item took in yet reported three times is
-// sent back while no change of the batch folds it into an item, and again while that item is not moved ahead; handed in
-// folded into a new item moved first, it is taken, and once the batch is made the observation is the item's, the item
-// starts first, and the work that reported it is told it was reported again and taken into that item.
-#[test]
-fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
-    let s = setup("gap-recurs");
-    let mut agents = scripts();
-    agents.insert(
-        "R0",
-        Box::new(|_: &Request, n: usize| {
-            let reports = if n == 1 {
-                json!([{ "kind": "improvement", "what": "There is no `jq` on the machine.", "harm_now": false }])
-            } else {
-                json!([])
-            };
-            (Vec::new(), vec![("side_reports", reports)])
-        }),
-    );
-    agents.insert(
-        "H5",
-        Box::new(|_: &Request, n: usize| {
-            let merge = json!({ "kind": "merge", "into": 1, "seen": "", "refs": [], "reason": "The same gap." });
-            let mut changes = vec![
-                json!({ "kind": "create_item", "key": "jq", "project": "p", "title": "Install jq",
-                        "problem": "There is no jq on the machine.", "why": "Works keep meeting it.",
-                        "acceptance": ["jq runs."], "level": "l", "deliver": "change", "reason": "It recurs." }),
-                json!({ "kind": "fold_observations", "item": "jq", "observations": [1], "reason": "It is the gap." }),
-            ];
-            if n > 2 {
-                changes
-                    .push(json!({ "kind": "move", "item": "jq", "to": { "place": "first" }, "reason": "It recurs." }));
-            }
-            let effects = if n == 1 {
-                json!({ "observation_changes": [merge] })
-            } else {
-                json!({ "observation_changes": [merge], "item_changes": changes })
-            };
-            (
-                Vec::new(),
-                vec![
-                    ("outcome.take", json!({ "way": "merged", "why": "Reported before." })),
-                    ("outcome.effects", effects),
-                ],
-            )
-        }),
-    );
-    let (mut e, said, _) = start(&s, agents);
-    e.db.write(Actor::Architect, |tx| {
-        tx.execute(
-            "INSERT INTO observations (project, title, what, source, times_reported)
-             VALUES ('p', 'No jq', 'The machine has no jq.', 'Two works.', 2)",
-            [],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    let work = e.step(None).unwrap().work;
-    e.step(work).unwrap();
-    let work = work.unwrap();
-    pause_by_owner(&mut e, work, "Held while the architect looks.");
-    let arch = e.step(Some(work)).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let log = said.lock().unwrap().join("\n");
-    let rejected: Vec<String> = engine::query_json(
-        e.db.conn(),
-        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H5' AND rejected IS NOT NULL ORDER BY n",
-        &[&arch],
-        10,
-    )
-    .unwrap()
-    .iter()
-    .map(|r| r["rejected"].to_string())
-    .collect();
-    assert_eq!(rejected.len(), 2, "{rejected:?}\n{log}");
-    assert!(
-        rejected[0].contains("it makes observation 1 reported 3 times, and an observation reported 3 times is work"),
-        "{rejected:?}"
-    );
-    assert!(
-        rejected[1].contains("item jq, which takes it in, is not moved ahead"),
-        "{rejected:?}"
-    );
-    let fix: i64 =
-        e.db.conn()
-            .query_row("SELECT id FROM items WHERE title = 'Install jq'", [], |r| r.get(0))
-            .unwrap();
-    let (times, folded): (i64, Option<i64>) =
-        e.db.conn()
-            .query_row(
-                "SELECT times_reported, folded_into FROM observations WHERE id = 1",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    assert_eq!((times, folded), (3, Some(fix)), "{log}");
-    let rank: Option<i64> =
-        e.db.conn()
-            .query_row("SELECT rank FROM items WHERE id = ?1", [fix], |r| r.get(0))
-            .unwrap();
-    assert_eq!(rank, Some(1), "{log}");
-    assert_eq!(
-        lines_told(&e, work),
-        [format!(
-            "About your side report at cell R0 (\"There is no `jq` on the machine\"): reported once more on \
-             observation O1 \"No jq\", 3 times now; taken into new item #{fix} \"Install jq\". You need not report \
-             it again."
-        )],
-        "{log}"
-    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

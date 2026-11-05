@@ -361,18 +361,17 @@ impl Agents for Scripted {
         };
         let pick: BTreeMap<String, String> = pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-        // The understanding and the plan rewrite their sections of the notebook, unless the script says otherwise.
-        let sections: &[&str] = match r.cell.as_str() {
-            "U1" => &["project_now", "unclear"],
-            "N1" => &["plan"],
-            _ => &[],
-        };
-        if !sections.is_empty() {
-            let edits: Vec<Value> = sections
-                .iter()
-                .map(|s| json!({ "section": s, "text": format!("The {s} at round {n}.") }))
-                .collect();
-            set.entry("outcome.notebook".into()).or_insert(json!(edits));
+        // The understanding and the plan are handed in by their round, unless the script says otherwise.
+        match r.cell.as_str() {
+            "U1" => {
+                set.entry("outcome.understanding".into())
+                    .or_insert(json!(format!("The understanding at round {n}.")));
+            }
+            "N1" => {
+                set.entry("outcome.plan".into())
+                    .or_insert(json!(format!("The plan at round {n}.")));
+            }
+            _ => {}
         }
         // A fork of a session goes on as the new session it was named, as the CLI's fork does.
         let session = match &r.resume {
@@ -1935,8 +1934,8 @@ fn architect_sessions(e: &Engine, first: i64, second: i64) -> Vec<(String, Strin
 /// Works of project p's architect run one after the other under `agents`: each of `talks` is the owner's words that
 /// start a work, said `age` milliseconds after the work before it ended (that work and what it was told made that much
 /// older; the first has none before it). The first words are said five seconds before the first work starts, so that
-/// no round of it begins in the millisecond they were said in. With `rebuild`, every work after the first reads the
-/// project anew once its matters are handled ([`base_wrong_later`]). Gives the works' ids, oldest first.
+/// no round of it begins in the millisecond they were said in. With `rebuild`, a policy takes effect before each work after
+/// the first, which reads the project anew. Gives the works' ids, oldest first.
 fn architect_works_in(
     name: &str,
     agents: BTreeMap<&'static str, Script>,
@@ -1944,7 +1943,6 @@ fn architect_works_in(
     rebuild: bool,
 ) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Vec<i64>) {
     let s = setup(name);
-    let agents = if rebuild { base_wrong_later(agents) } else { agents };
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
@@ -1952,6 +1950,9 @@ fn architect_works_in(
     for (i, (age, words)) in talks.iter().enumerate() {
         if i > 0 {
             age_architect(&mut e, *age);
+            if rebuild {
+                a_new_policy_takes_effect(&mut e);
+            }
         }
         say(&mut e, words);
         if i == 0 {
@@ -2759,20 +2760,35 @@ fn versioned(path: &Path, mut changes: Value) -> Value {
     changes
 }
 
-/// Scripts whose answer to the owner's words says, from its second round on, that something that matters in the base no
-/// longer holds, so that a work of the architect after the first reads the project anew once that matter is handled.
-fn base_wrong_later(mut agents: BTreeMap<&'static str, Script>) -> BTreeMap<&'static str, Script> {
-    let then = agents.remove("H8");
-    agents.insert(
-        "H8",
-        Box::new(move |r: &Request, n: usize| {
-            let (mut pick, mut set) = then.as_ref().map(|f| f(r, n)).unwrap_or_default();
-            if n > 1 {
-                pick.push(("outcome.closing.base", "wrong"));
-                set.push(("outcome.closing.base_why", json!("What the project is now moved on.")));
-            }
-            (pick, set)
-        }),
-    );
-    agents
+/// A check of project p's policy waits in its queue, as an answer to the owner's words queues one.
+fn a_check_of_the_policy_is_queued(e: &mut Engine) {
+    e.db.write(Actor::Engine, |tx| {
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "check_policy".into(),
+            what: "Check whether the policy of p still holds: a test asks for it".into(),
+            body: json!({ "asked_by": [] }),
+            ..db::Matter::default()
+        };
+        db::queue_matter(tx, &m).map(|_| ())
+    })
+    .unwrap();
+}
+
+/// A policy takes effect in project p, as a work of its architect over before the test set it: a new base is due.
+fn a_new_policy_takes_effect(e: &mut Engine) {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended, project)
+             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
+            [v],
+        )?;
+        let arch = tx.last_insert_rowid();
+        let policy = json!({ "outcome": { "policy": { "direction": "Small steps first." } } });
+        record_round(tx, arch, 1, "P2", &policy, "written")?;
+        record_round(tx, arch, 2, "P12", &json!({}), "next")?;
+        Ok(())
+    })
+    .unwrap();
 }

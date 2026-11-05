@@ -6,8 +6,8 @@
 //! other round goes on in the line's session. The architect's line, at its first round in a work, takes up the session
 //! the project's previous architect work left, unless it ended. A line that forks from another (`forks`) has a session
 //! for each matter the work takes: the matter's first round there forks the latest session of the line it forks from,
-//! the base, so that it holds all the base held; its later rounds go on in it, in whichever work of the architect takes
-//! the matter up again; and where there is no base yet, or the command line cannot fork, it starts a new session. A
+//! the base, so that it holds all the base held; its later rounds go on in it, until the matter is handled or asks the
+//! owner, which ends it; and where there is no base yet, or the command line cannot fork, it starts a new session. A
 //! cell on no line has a session of its own every round.
 
 use std::path::Path;
@@ -285,7 +285,9 @@ fn of_matter(conn: &Connection, work: i64, line: &str, matter: i64) -> Result<Op
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    Ok(latest.map(|(id, cli, w, ended)| (id, cli, w != work || ended.is_some())))
+    Ok(latest
+        .filter(|(_, _, _, ended)| ended.is_none())
+        .map(|(id, cli, w, _)| (id, cli, w != work)))
 }
 
 /// The CLI's id for the base a session was forked from; none for a session that is no fork.

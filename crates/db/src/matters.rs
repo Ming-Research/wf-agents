@@ -13,6 +13,171 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::attachments::{self, Image, Words};
 use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now, withdraw_resume};
 
+/// The rounds that leave a project's architect's base built, of the rounds table named `r`: a plan handed in. A plan of
+/// a flow version before this one went into a notebook section of its return, and is no base now: the understanding a
+/// fork stands on and the plan it adds to are what this flow's base holds.
+pub const BASE_BUILT: &str =
+    "(r.cell = 'N1' AND r.transition IS NOT NULL AND json_type(r.output, '$.outcome.plan') = 'text')";
+
+/// When a project's architect's latest base was built; none before the first.
+pub fn base_built_at(conn: &Connection, project: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        &format!(
+            "SELECT max(r.ended_at) FROM rounds r JOIN works w ON w.id = r.work
+             WHERE w.graph = 'architect' AND w.project = ?1 AND r.ended_at IS NOT NULL AND {BASE_BUILT}"
+        ),
+        [project],
+        |r| r.get(0),
+    )
+}
+
+/// When a project's architect's plan was last written; none before the first.
+pub fn plan_written_at(conn: &Connection, project: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT max(r.ended_at) FROM notebook_edits e JOIN rounds r ON r.work = e.work AND r.n = e.round
+         WHERE e.project = ?1 AND e.section = 'plan'",
+        [project],
+        |r| r.get(0),
+    )
+}
+
+/// One thing that came after a project's architect's base: what a base read stays as it was, and these are added after
+/// it, for every matter forked from it to read and the next plan to take in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Appended {
+    /// When it came.
+    pub at: i64,
+    /// Whether words were said, which the owner has in the conversation; everything else is a fact of the project.
+    pub said: bool,
+    /// What it is: a matter handled, who said it to whom, an item merged or cancelled.
+    pub who: String,
+    /// The matter's record, the words said, or the item's title.
+    pub text: String,
+    /// The line a matter handled adds to the plan.
+    pub plan: Option<String>,
+    /// The line a matter handled adds to the understanding.
+    pub understanding: Option<String>,
+}
+
+/// What came after `since` for a project's architect, oldest first: each matter handled, with its record and the lines it
+/// added; what the owner and the architect said to each other, in their one-to-one or in a work's group, an ask with its
+/// answer once it has one, and what the owner said to a work's engineer, all of it whole; and each item merged or
+/// cancelled.
+pub fn appended_since(conn: &Connection, project: &str, since: i64) -> rusqlite::Result<Vec<Appended>> {
+    let mut out = Vec::new();
+    let mut st = conn.prepare(
+        "SELECT m.id, m.kind, m.logged, r.ended_at FROM architect_matters m
+         JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+         WHERE m.project = ?1 AND m.logged IS NOT NULL AND r.ended_at > ?2",
+    )?;
+    let rows = st.query_map(params![project, since], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i64>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, kind, logged, at) = row?;
+        let logged: Value = serde_json::from_str(&logged).unwrap_or(Value::Null);
+        let line = |k: &str| logged[k].as_str().map(str::to_string);
+        out.push(Appended {
+            at,
+            said: false,
+            who: format!("matter {id} ({kind})"),
+            text: line("record").unwrap_or_default(),
+            plan: line("plan"),
+            understanding: line("understanding"),
+        });
+    }
+    let mut st = conn.prepare(
+        "SELECT c.at, c.sender, c.recipient, c.text, json_extract(a.answer, '$.text'), json_extract(a.answer, '$.at')
+         FROM conversation_shown c LEFT JOIN owner_asks a ON c.source = 'ask' AND a.id = c.id
+         WHERE (c.conversation = 'architect:' || ?1
+                OR (c.conversation LIKE 'work:%' AND c.project = ?1
+                    AND (c.sender = 'owner' OR (c.sender = 'architect' AND c.recipient = 'owner'))))
+           AND max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)) > ?2",
+    )?;
+    let rows = st.query_map(params![project, since], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, Option<String>>(4)?,
+            r.get::<_, Option<i64>>(5)?,
+        ))
+    })?;
+    for row in rows {
+        let (at, sender, recipient, text, answer, answered) = row?;
+        let who = match recipient {
+            Some(to) => format!("{sender} to {to}"),
+            None => sender,
+        };
+        let text = match answer {
+            Some(a) => format!("{text}\nThe owner answered: {a}"),
+            None => text,
+        };
+        out.push(Appended {
+            at: answered.unwrap_or(at).max(at),
+            said: true,
+            who,
+            text,
+            plan: None,
+            understanding: None,
+        });
+    }
+    let mut st = conn.prepare(
+        "SELECT w.item, i.title, r.ended_at FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+         WHERE w.graph = 'engineer' AND i.project = ?1 AND r.ended_at > ?2
+           AND json_extract(r.output, '$.result.kind') = 'merged'",
+    )?;
+    let rows = st.query_map(params![project, since], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+    })?;
+    for row in rows {
+        let (item, title, at) = row?;
+        out.push(Appended {
+            at,
+            said: false,
+            who: format!("item {item} merged"),
+            text: title,
+            plan: None,
+            understanding: None,
+        });
+    }
+    let mut st = conn.prepare(
+        "SELECT i.id, i.title, i.cancelled, c.at FROM changes c JOIN items i ON i.id = json_extract(c.row_key, '$.id')
+         WHERE c.table_name = 'items' AND c.at > ?2 AND i.project = ?1
+           AND json_extract(c.new_row, '$.cancelled') IS NOT NULL AND json_extract(c.old_row, '$.cancelled') IS NULL",
+    )?;
+    let rows = st.query_map(params![project, since], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, i64>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (item, title, why, at) = row?;
+        out.push(Appended {
+            at,
+            said: false,
+            who: format!("item {item} cancelled"),
+            text: match why {
+                Some(w) => format!("{title}: {w}"),
+                None => title,
+            },
+            plan: None,
+            understanding: None,
+        });
+    }
+    out.sort_by_key(|x| x.at);
+    Ok(out)
+}
+
 /// A matter to queue for a project's architect.
 #[derive(Debug, Clone, Default)]
 pub struct Matter {

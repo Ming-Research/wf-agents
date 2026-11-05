@@ -153,8 +153,7 @@ fn an_engineer_s_round_is_given_the_constitution_main_has_and_the_checkout_stays
 
 // A round of a project's architect reads the project at one commit of main, fetched for it: its constitution and its
 // guide are of the same commit, though main moves on while it runs and another work's fetch brings that into the
-// checkout. What its return is checked against, the articles of the constitution it was given, and the hash of the
-// constitution a check of the policy it queues keeps, are of that commit too.
+// checkout.
 #[test]
 fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     let s = setup("main-pinned");
@@ -175,7 +174,7 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     let (root, (to_three, to_four), mut agents) = (s.root.clone(), (three.clone(), four.clone()), scripts());
     let seen = keeps_prompts(&mut agents, &["U1", "P1"], move |r: &Request, _: usize| {
         // Main moves on while the round runs, and another work's fetch brings it into the checkout.
-        let (articles, rows) = if r.cell == "U1" { (&to_three, 0) } else { (&to_four, 3) };
+        let articles = if r.cell == "U1" { &to_three } else { &to_four };
         main_moves_on(
             &root,
             &[
@@ -185,26 +184,11 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
             "More articles",
         );
         git(&checkout, &["fetch", "-q", "origin", "main"]);
-        // The check of the policy was given the articles of the commit it read: three, then.
-        let against: Vec<Value> = ["Small", "Quick", "Plain"]
-            .iter()
-            .enumerate()
-            .take(rows)
-            .map(|(i, what)| {
-                json!({ "article": format!("Article {}. {what}", i + 1), "status": "kept", "where": "all", "grounds": "seen" })
-            })
-            .collect();
-        (
-            Vec::new(),
-            if rows == 0 {
-                Vec::new()
-            } else {
-                vec![("outcome.against", json!(against))]
-            },
-        )
+        (Vec::new(), Vec::new())
     });
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
+    a_check_of_the_policy_is_queued(&mut e);
     let arch = architect_work_at(&mut e, "U1");
     for _ in 0..8 {
         if seen.lock().unwrap().len() >= 2 {
@@ -231,18 +215,6 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     assert!(!p1.contains("Keep it warm."), "{p1}");
     assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
     assert_eq!(pinned_main(&e, arch, "P1").as_deref(), Some(second.as_str()), "{log}");
-    // Its check of the policy was queued under the hash of the constitution of that commit.
-    let kept: Option<String> =
-        e.db.conn()
-            .query_row(
-                "SELECT json_extract(body, '$.constitution') FROM architect_matters
-                 WHERE project = 'p' AND kind = 'check_policy' ORDER BY id LIMIT 1",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(kept, Some(db::content_hash(&two)), "{log}");
-    // The articles the check counted are those of the commit its round read: three, though main has four by now.
     assert_eq!(rows_at(&e, arch, "P1"), ["holds"], "{log}");
     let sent_back: i64 =
         e.db.conn()

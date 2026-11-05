@@ -13,86 +13,6 @@ fn question_now(e: &Engine) -> (i64, String) {
         .unwrap()
 }
 
-/// Project p, whose constitution is `now`, after a check of its policy that the owner's words asked for, handled where
-/// the policy it set took effect, in a work of its architect over before the test, which kept the hash of `kept` as
-/// the constitution it was queued under; when `newer`, another policy took effect after it. A new session then
-/// understands the project. Gives the matters at the head of the queue once it has.
-fn head_after_a_new_session(name: &str, kept: &str, now: &str, newer: bool) -> Vec<AtHead> {
-    let s = setup(name);
-    names_a_constitution(&s);
-    // The constitution is on main only: no file of the checkout holds it, and the checkout has not fetched main since.
-    main_moves_on(&s.root, &[("CONSTITUTION.md", now)], "The constitution");
-    let (mut e, said) = engine(&s, scripts());
-    quiet(&mut e);
-    let v = e.flow_now;
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, ended, project)
-             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
-            [v],
-        )?;
-        let arch = tx.last_insert_rowid();
-        let policy = json!({ "outcome": { "policy": { "direction": "Small steps first." } } });
-        record_round(tx, arch, 1, "P2", &policy, "written")?;
-        record_round(tx, arch, 2, "P12", &json!({}), "next")?;
-        let body = json!({
-            "asked_by": [{ "cell": "H8", "round": format!("R{arch}-1"), "why": "The owner asked for it." }],
-            "constitution": db::content_hash(kept),
-        });
-        tx.execute(
-            "INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
-             VALUES ('p', 'check_policy', 'Check whether the policy of p still holds', ?1, ?2, ?3, 2)",
-            params![body.to_string(), db::now(), arch],
-        )?;
-        if newer {
-            record_round(tx, arch, 3, "P2", &policy, "written")?;
-            record_round(tx, arch, 4, "P12", &json!({}), "next")?;
-        }
-        Ok(())
-    })
-    .unwrap();
-    from_q(&mut e, "Look at the queue.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 20, |e| cells_of(e, arch)
-            .iter()
-            .any(|c| c.0 == "U1" && c.1.is_some())),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let head = at_head(&e);
-    let _ = std::fs::remove_dir_all(&s.root);
-    head
-}
-
-// The check of the policy reading the project anew asks for is not queued while the policy in force and the
-// constitution are those the last check handled had, since it would only come to the same end. Once the constitution
-// changed, or another policy took effect since, the check is queued as before.
-#[test]
-fn reading_the_project_anew_checks_the_policy_only_once_the_policy_or_the_constitution_changed() {
-    let constitution = "## Article 1. Small\n\nKeep it small.\n";
-    let understood = "Reading the project anew asks for it".to_string();
-    let last = (
-        "check_policy".to_string(),
-        true,
-        vec![("H8".to_string(), "The owner asked for it.".to_string())],
-    );
-    let check = ("check_policy".to_string(), false, vec![("U1".to_string(), understood)]);
-    assert_eq!(
-        head_after_a_new_session("check-same", constitution, constitution, false),
-        std::slice::from_ref(&last)
-    );
-    let changed = "## Article 1. Small\n\nKeep it smaller.\n";
-    assert_eq!(
-        head_after_a_new_session("check-constitution", constitution, changed, false),
-        [last.clone(), check.clone()]
-    );
-    assert_eq!(
-        head_after_a_new_session("check-policy", constitution, constitution, true),
-        [last, check]
-    );
-}
-
 // The check of the policy in force, in doubt, asks the owner whether to research a new policy, which parks the check
 // at it, and the work goes on and ends; the reply brings it back in a work of its own, the check cannot hand in that the
 // policy holds while none is in force, and it goes on to write the new policy by the owner's stance. The engine asks the
@@ -124,6 +44,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
+    a_check_of_the_policy_is_queued(&mut e);
     from_q(&mut e, "Look at the queue.");
     // Each work of the architect runs to its end: one for the queue, and one for each reply of the owner.
     let run = |e: &mut Engine| -> i64 {
@@ -234,15 +155,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         last.iter().position(|c| c == "N1").expect(&log) > took_effect,
         "{last:?}"
     );
-    assert_eq!(
-        at_head(&e),
-        [(
-            "check_policy".to_string(),
-            true,
-            vec![("U1".to_string(), "Reading the project anew asks for it".to_string())]
-        )],
-        "{log}"
-    );
+    assert_eq!(at_head(&e), [("check_policy".to_string(), true, Vec::new())], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -266,6 +179,7 @@ fn a_check_of_the_policy_writes_a_new_one_only_once_the_owner_said_yes() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
+    a_check_of_the_policy_is_queued(&mut e);
     say(&mut e, "Look.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(

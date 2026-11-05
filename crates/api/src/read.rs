@@ -15,13 +15,13 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectPanel, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold,
-    FlowSnapshot, FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail,
-    ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, MainText, Matter, MatterCard,
-    NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy,
-    Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
-    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
-    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    Appended, Architect, ArchitectPanel, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard,
+    DispatchHold, FlowSnapshot, FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange,
+    ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, MainText, Matter,
+    MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage,
+    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional,
+    RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag,
+    TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1964,6 +1964,7 @@ pub fn architect_panel(conn: &Connection, project: &str, constitution: Option<Ma
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
         notebook: notebook(conn, project)?,
+        appended: appended(conn, project)?,
         constitution,
     })
 }
@@ -2543,7 +2544,26 @@ fn draft(conn: &Connection, project: &str) -> Result<Option<PolicyDraft>> {
         .optional()?)
 }
 
-/// A project's architect's notebook, by section in their order: each as it stands, the latest version the view
+/// What came since a project's architect's base was built, oldest first, but the words said, which the owner has in the
+/// conversation; none with no base.
+fn appended(conn: &Connection, project: &str) -> Result<Vec<Appended>> {
+    let Some(since) = db::base_built_at(conn, project)? else {
+        return Ok(Vec::new());
+    };
+    Ok(db::appended_since(conn, project, since)?
+        .into_iter()
+        .filter(|x| !x.said)
+        .map(|x| Appended {
+            at: x.at,
+            who: x.who,
+            text: x.text,
+            plan: x.plan,
+            understanding: x.understanding,
+        })
+        .collect())
+}
+
+/// A project's architect's notebook, its two parts in their order: each as it stands, the latest version the view
 /// `notebook` names, and every version, newest first, each with the round and the cell that wrote it.
 fn notebook(conn: &Connection, project: &str) -> Result<Vec<NotebookSection>> {
     let mut st = conn.prepare(
@@ -2568,7 +2588,7 @@ fn notebook(conn: &Connection, project: &str) -> Result<Vec<NotebookSection>> {
     let latest: Vec<(String, i64, i64)> = st
         .query_map([project], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(["project_now", "plan", "unclear", "other"]
+    Ok(["project_now", "plan"]
         .into_iter()
         .map(|section| {
             let versions: Vec<NotebookVersion> = versions
@@ -4997,15 +5017,12 @@ mod tests {
             at: Some(200 + round),
         };
         let sections: Vec<&str> = a.notebook.iter().map(|x| x.section.as_str()).collect();
-        assert_eq!(sections, ["project_now", "plan", "unclear", "other"]);
+        assert_eq!(sections, ["project_now", "plan"]);
         assert_eq!(a.notebook[0].now, Some(version("Now.", 2, "U1")));
         assert_eq!(a.notebook[1].now, Some(version("Plan two.", 10, "B4")));
         assert_eq!(
             a.notebook[1].versions,
             [version("Plan two.", 10, "B4"), version("Plan one.", 4, "N1")]
         );
-        for empty in &a.notebook[2..] {
-            assert_eq!((&empty.now, empty.versions.len()), (&None, 0), "{}", empty.section);
-        }
     }
 }

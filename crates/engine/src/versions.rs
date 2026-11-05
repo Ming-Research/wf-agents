@@ -670,7 +670,7 @@ mod tests {
         let mut more = g1.rows[0].clone();
         more.name = "more".into();
         g1.rows.insert(0, more);
-        let rounds = [ran(1, "H5", "done", json!({}))];
+        let rounds = [ran(1, "H4", "done", json!({}))];
         assert_eq!(plan(&old, &new, &at("G1"), &rounds), Plan::Move);
     }
 

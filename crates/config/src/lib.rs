@@ -69,12 +69,7 @@ pub struct Install {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Architect {
-    /// How many matters that wait for the planning (side reports, what to do next after a report, engineers' answers to
-    /// what the architect said, faults the owner's setting forwarded, other architects' messages no work waits on) call
-    /// for one: 10 when not set, to be measured.
-    #[serde(default = "gathered_most")]
-    pub gathered_most: u64,
-    /// How long, in characters, the decision log and what changed since the base may grow before carrying them into
+    /// How long, in characters, what came since the base may grow before carrying them into
     /// every matter's session costs more than reading the project again: 40,000 when not set, to be measured.
     #[serde(default = "carried_most")]
     pub carried_most: u64,
@@ -83,14 +78,9 @@ pub struct Architect {
 impl Default for Architect {
     fn default() -> Architect {
         Architect {
-            gathered_most: gathered_most(),
             carried_most: carried_most(),
         }
     }
-}
-
-fn gathered_most() -> u64 {
-    10
 }
 
 fn carried_most() -> u64 {

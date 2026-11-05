@@ -310,7 +310,7 @@ pub fn returns_holding(
         return Ok(Vec::new());
     };
     let top = path.split(['.', '[']).next().unwrap_or_default();
-    let rounds = work::rounds_at(e.db.conn(), w.id, cell)?;
+    let rounds = crate::architect::rounds_for_input(e.db.conn(), w, c)?;
     let mut out = Vec::new();
     for r in rounds {
         let Some(ret) = r.output.filter(|_| r.transition.is_some()) else {

@@ -1706,10 +1706,14 @@ changes: Array<ItemChange>,
  */
 policy: PolicyInForce | null,
 /**
- * Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
- * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
+ * Its notebook, its two parts in their order (its understanding of the project, its plan), each as its latest
+ * base wrote it, with the round and the cell that wrote it, and every version of it, newest first.
  */
 notebook: Array<NotebookSection>,
+/**
+ * What came since that base, oldest first, but the words said: a new base clears it.
+ */
+appended: Array<Appended>,
 /**
  * The project's constitution, which the architect judges by with the policy, as the project's main has it: its
  * path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
@@ -1991,7 +1995,13 @@ cell: string, at: number | null, policy: JsonValue, };
 export type PolicyDraft = { work: number, round: number, at: number | null, policy: JsonValue, };
 
 /**
- * A section of a project's architect's notebook: which (`project_now`, `plan`, `unclear` or `other`), what it says
+ * One thing that came after a project's architect's base: when, what it is (a matter handled, an item merged or
+ * cancelled), the matter's record or the item's title, and the lines a matter added to the plan or the understanding.
+ */
+export type Appended = { at: number, who: string, text: string, plan: string | null, understanding: string | null, };
+
+/**
+ * A part of a project's architect's notebook: which (`project_now`, its understanding, or `plan`), what it says
  * now, none before a round wrote it, and every version of it, newest first.
  */
 export type NotebookSection = { section: string, now: NotebookVersion | null, versions: Array<NotebookVersion>, };

@@ -922,12 +922,11 @@ CREATE TABLE architect_matters (
   -- Read by: architect_queue, which leaves it out; the engine, which tells a new work on the item what an earlier
   -- work asked and had withdrawn; the owner's interface, which leaves it out of the queue.
   withdrawn TEXT,
-  -- What the session that handled it left as it ended, JSON: its line of the decision log (`log`), and its answers
-  -- whether the matter changes the plan (`plan`: no or yes) and whether something that matters in the base no longer
-  -- holds (`base`: holds or wrong), each with why (`plan_why`, `base_why`), with the round that handed them in
-  -- (`round`). NULL until then, and for a matter handled before the architect's matters were forked. Read by: the
-  -- engine, which gives every matter handled after it the decision log since the base, and counts the answers among
-  -- the facts that call for a new base; the owner's interface.
+  -- What the session that handled it left as it ended, JSON: its record (`record`), and the lines it adds to the plan
+  -- (`plan`) and to the understanding (`understanding`) when it adds any, with the round that handed them in (`round`).
+  -- NULL until then, and for a matter handled before the architect's matters were forked. Read by: the engine, which
+  -- gives every matter handled after it what came since the base, and the next plan what came since the plan before;
+  -- the owner's interface.
   logged TEXT CHECK (logged IS NULL OR json_valid(logged)),
   -- What the round handed in that waits for the second eye, JSON: its effects and its answer, made once the second eye
   -- finds the changes sound, or dropped when it sends them back. NULL otherwise. Read by: the engine.
@@ -1126,12 +1125,14 @@ CREATE TABLE slot_waits (
 ) STRICT;
 
 CREATE TABLE notebook_edits (
-  -- Each version of a section of a project's architect's notebook, as a round of its architect's line wrote it whole:
-  -- what the project is now (project_now), the plan (plan), what is unclear (unclear), and anything else (other), in
-  -- the owner's language. A section is what its latest version says; the versions before are kept for the owner.
-  -- Read by: the engine, which gives each section to the architect's cells as an input of its own and checks a
-  -- round's sections against their sizes, through notebook; the owner's interface, which shows each section with its
-  -- versions.
+  -- Each version of a part of a project's architect's notebook, as a round of its base wrote it whole: its
+  -- understanding of the project (project_now) and its plan (plan), in the owner's language; unclear and other are
+  -- sections earlier flow versions wrote, kept as they were. A part is what its latest version says; the versions
+  -- before are kept for the owner.
+  -- A new base writes its understanding from nothing, and the next plan is given the plan before.
+  -- Hidden from agents.
+  -- Read by: the engine, which gives the next plan the plan before, through notebook; the owner's interface, which
+  -- shows each part with its versions.
   id INTEGER PRIMARY KEY,
   -- The project whose architect's notebook it is.
   project TEXT NOT NULL,
@@ -1644,8 +1645,8 @@ CREATE VIEW known_red_counts AS
 
 CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
-  -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
-  -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
+  -- each with who waits for it (an agent: an engineer stopped at the architect's cell on this very matter; the owner,
+  -- for the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
   -- answer and to which cell, the second cell a flow version before had a matter of two cells go on at, and whether
   -- its reporter marked it as harming now (urgent).
   -- Read by: cells `S0` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
@@ -1653,9 +1654,9 @@ CREATE VIEW architect_queue AS
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
-        SELECT 1 FROM works w
+        SELECT 1 FROM works w JOIN blockers b ON b.work = w.id
         WHERE w.id = m.work AND w.graph = 'engineer' AND w.at IN ('A2', '15', 'to_architect', 'ask.architect')
-          AND w.ended IS NULL)
+          AND w.ended IS NULL AND b.matter = m.id AND b.ended IS NULL)
         THEN 'agent'
       WHEN m.kind = 'owner_words' THEN 'owner'
       ELSE 'none' END AS waits,
@@ -1672,9 +1673,10 @@ CREATE VIEW architect_queue AS
 
 CREATE VIEW work_handled AS
   -- The matters each work of an architect handled, in the order it handled them: each matter, its kind, the cell and
-  -- the round that closed it, and what that round said it did. Read by: the owner's interface.
+  -- the round that closed it, and its record. Read by: the owner's interface; the engine, which gives a matter the log
+  -- of what was handled on its item.
   SELECT m.handled_work AS work, m.handled_round AS round, m.id AS matter, m.kind, m.detail, m.what, r.cell,
-    json_extract(r.output, '$.progress') AS said
+    coalesce(json_extract(m.logged, '$.record'), json_extract(r.output, '$.progress')) AS said
   FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
   ORDER BY m.handled_work, m.handled_round;
 
@@ -1738,7 +1740,9 @@ CREATE VIEW policy_draft AS
       AND (a.work > d.work OR (a.work = d.work AND a.n > d.round)));
 
 CREATE VIEW notebook AS
-  -- Each project's architect's notebook as it stands: each section's latest version, with the round that wrote it.
+  -- Each project's architect's notebook as it stands: each part's latest version, with the round that wrote it.
+  -- A new base writes its understanding from nothing, and the next plan is given the plan before.
+  -- Hidden from agents.
   -- Read by: the engine, for the architect's cells; the owner's interface.
   SELECT project, section, text, work, round FROM (
     SELECT project, section, text, work, round,

@@ -1997,14 +1997,10 @@ mod tests {
         let g = f.graph("architect").unwrap();
         let schema = g.cell("U1").unwrap().schema.clone().unwrap();
         let s = envelope(g, Some("architect"));
-        let notebook = json!([
-            { "section": "project_now", "text": "The parser: half done." },
-            { "section": "unclear", "text": "Nothing." }
-        ]);
         let mut ret = json!({
             "progress": "Reading where each line stands",
             "flow_feedback": "",
-            "outcome": { "notebook": notebook, "plan": { "verdict": "holds", "why": "Nothing it rests on moved." } },
+            "outcome": { "understanding": "The parser: half done." },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
@@ -2033,17 +2029,16 @@ mod tests {
         );
     }
 
-    // In a trial, a round of the architect's cell H5 wrote `effects` inside `take`, beside `way` and `why`, instead of
+    // In a trial, a round of the architect's cell that takes a report in wrote `effects` inside `take`, beside `way` and `why`, instead of
     // beside `take`, and the engine sent the return back, which cost a whole round. The command line now refuses it,
     // saying where, as the installed one did when tried (2.1.312), where the agent moved it beside `take`.
     #[test]
     fn a_field_written_inside_a_form_it_does_not_belong_to_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let schema = g.cell("H5").unwrap().schema.clone().unwrap();
+        let schema = g.cell("H4").unwrap().schema.clone().unwrap();
         let s = envelope(g, Some("matter"));
-        let closing = json!({ "log": "Took nothing in.", "plan": "no", "plan_why": "w", "base": "holds",
-                              "base_why": "w" });
+        let finding = json!({ "what": "A slow parser.", "grounds": "Ran it.", "sure": "checked" });
         let take = json!({ "way": "nothing", "why": "Nothing in it to take in" });
         let mut inside = take.clone();
         inside["effects"] = json!({});
@@ -2051,14 +2046,14 @@ mod tests {
             "tell_owner": [],
             "progress": "Taking in an observation",
             "flow_feedback": "",
-            "outcome": { "take": inside, "closing": closing },
+            "outcome": { "finding": finding, "take": inside },
         });
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
             Some("/outcome/take: must NOT have additional properties ('effects' is not allowed)")
         );
-        ret["outcome"] = json!({ "take": take, "effects": {}, "closing": closing });
+        ret["outcome"] = json!({ "finding": finding, "take": take, "effects": {} });
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
     }
@@ -2079,7 +2074,10 @@ mod tests {
         let mut ret = json!({
             "tell_owner": [],
             "flow_feedback": "none",
-            "outcome": { "finding": { "what": "A slow parser.", "grounds": "Ran it.", "sure": "checked" } },
+            "outcome": {
+                "finding": { "what": "A slow parser.", "grounds": "Ran it.", "sure": "checked" },
+                "take": { "way": "nothing", "why": "Nothing to take in." }
+            },
         });
         assert_eq!(
             refused(&s, &ret, "").as_deref(),

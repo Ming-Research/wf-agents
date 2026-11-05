@@ -14,7 +14,7 @@ fn searched(name: &str, candidates: Value) -> (Engine, i64, String, Setup) {
     git(&s.data, &["commit", "-q", "-am", "the observer's level"]);
     let mut agents = scripts();
     agents.insert(
-        "H5",
+        "H4",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let search = json!({ "look_for": "A slow parse of large files.", "tags": [], "purpose": "same" });
@@ -74,11 +74,7 @@ fn the_search_of_observations_hands_back_candidates() {
     let (e, arch, log, s) = searched("search", json!([{ "id": 1, "why": "It records the same slowness." }]));
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "X2").expect(&log);
-    assert_eq!(
-        &path[at - 4..at + 3],
-        ["Q0", "Q2", "H4", "H5", "X2", "H5", "G1"],
-        "{log}"
-    );
+    assert_eq!(&path[at - 3..at + 3], ["Q0", "Q2", "H4", "X2", "H4", "G1"], "{log}");
     let (line, model): (String, String) =
         e.db.conn()
             .query_row(
@@ -89,7 +85,7 @@ fn the_search_of_observations_hands_back_candidates() {
             )
             .unwrap();
     assert_eq!((line.as_str(), model.as_str()), ("observer", "m-cheap"));
-    let back = message_at(&e, arch, "H5", true);
+    let back = message_at(&e, arch, "H4", true);
     assert!(back.contains("It records the same slowness."), "{back}");
     // The observer writes what the owner reads in the owner's language, as every line does: its forms, in the system
     // prompt its session starts with or in its message, say which.
@@ -119,7 +115,7 @@ fn a_search_that_found_nothing_comes_back_as_none() {
     let w = e.work(arch).unwrap();
     let g = e.graph_of(&w).unwrap();
     let number = g
-        .cell("H5")
+        .cell("H4")
         .unwrap()
         .inputs
         .iter()
@@ -128,7 +124,7 @@ fn a_search_that_found_nothing_comes_back_as_none() {
         .unwrap()
         + 1;
     let listed = |m: &str| work_from(m).into_iter().find(|l| l.starts_with(&format!("{number}. ")));
-    let (asked, back) = (message_at(&e, arch, "H5", false), message_at(&e, arch, "H5", true));
+    let (asked, back) = (message_at(&e, arch, "H4", false), message_at(&e, arch, "H4", true));
     assert_eq!(listed(&asked), None, "{asked}");
     assert_eq!(listed(&back), Some(format!("{number}. none")), "{back}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
