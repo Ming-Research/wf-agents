@@ -190,6 +190,17 @@ function seen() {
   };
 }
 
+/// The topmost part of a cell that is in the upper third of the viewer.
+function cellNearTop(): Element {
+  const v = find('.viewer').getBoundingClientRect();
+  const found = [...document.querySelectorAll('.fc-sheets [data-node]')]
+    .map((e) => ({ e, r: e.getBoundingClientRect() }))
+    .filter(({ r }) => r.width > 20 && r.height > 20 && r.top >= v.top && r.bottom <= v.top + v.height / 3)
+    .sort((a, b) => a.r.top - b.r.top);
+  if (found.length === 0) throw new Error('no cell is in the upper third of the viewer');
+  return found[0].e;
+}
+
 /// Whether the whole drawing is in the viewer, framed as the viewer frames it: a 16 pixel margin at both sides of the
 /// side it fills.
 function whole(): boolean {
@@ -219,9 +230,12 @@ describe('Space on the flow page, in a real browser', () => {
     // The chart opens at a zoom one can read, on part of the flow.
     expect(whole()).toBe(false);
 
-    await userEvent.hover(find('.viewer'));
+    // The pointer is on a cell near the top of the viewer, far from the viewer's middle, where Space goes back to.
+    await userEvent.hover(cellNearTop());
     const at = pointer;
     if (at === null) throw new Error('the browser sent no pointer move');
+    const start = find('.viewer').getBoundingClientRect();
+    expect(Math.abs(at.y - (start.top + start.height / 2))).toBeGreaterThan(100);
 
     await userEvent.keyboard(' ');
     // The browser reported the key as Space, and the page took it.
