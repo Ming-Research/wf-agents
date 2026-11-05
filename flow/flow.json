@@ -4690,6 +4690,7 @@
       "project_guide": "The project's AGENTS.md, and the index of its records (each file's path and first line), with the full text of the files the item cites.",
       "local_commits": "The bundle of the work's local commits the session manager made (git bundle).",
       "review_base": "What a review reviews, by commits the work's worktree has: main as fetched (`origin/<main>`), which is the pull request's base, the commit of main the branch was cut from or last took main in at, the head under review, the merges of main into the branch since it was cut (an empty list if it never took main in), the git command that reads the change between them, and at a re-review the head the last table review looked at with the merges since it.",
+      "tests_changed": "The tests the engineer changed, from the test changes of every return of implementing and of fixing, oldest round first: `tests`, the latest added or extended row of each test that no later removal took away, each row as the engineer wrote it with the round it came from (it does not say whether the head still has the test: only a run of ci that names it says, and a name no test has gets a result of not_run with nothing matched); `weakened`, the latest removed, skipped and relaxed row of each test with its reason, a removed row dropped when the test was added again; `test_files`, the path of each file the work itself changed under the project's test paths (what merging main brought is left out), for the reader to find what changed in each in its diff, the tests the engineer did not name among them. A head git cannot read is said so as `unreadable`, with no `test_files`; none when the engineer changed no test and no test file was changed.",
       "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, decision cards and asks of the owner, and what each asked the architect and had withdrawn when it ended; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
@@ -4909,7 +4910,8 @@
         ],
         "inputs": [
           "local_commits",
-          "review_base"
+          "review_base",
+          "tests_changed"
         ]
       },
       "recorded": {
@@ -8842,25 +8844,21 @@
               "maybe": true
             },
             {
-              "name": "Tests the engineer added",
-              "what": "The tests the engineer added or extended, what each catches and which kind it is (the engine accumulates them over the rounds); none if the engineer added or extended no test",
+              "name": "Test paths",
+              "what": "The paths that hold tests, as the project's configuration writes them: ci_before takes only the files under them, and you may change only those. A directory is written with its trailing slash, and a `*` stands for one segment of a path",
               "from": [
-                [
-                  "I1",
-                  "test_changes[added]"
-                ],
-                [
-                  "I1",
-                  "test_changes[extended]"
-                ],
-                [
-                  "T6",
-                  "test_changes[added]"
-                ],
-                [
-                  "T6",
-                  "test_changes[extended]"
-                ]
+                {
+                  "config": "test_paths"
+                }
+              ]
+            },
+            {
+              "name": "Tests the engineer changed",
+              "what": "The tests the engineer added or extended (`tests`: what each catches and which kind it is, with the round it came from; whether the head still has a test is not said), those the engineer removed, skipped or relaxed with the reason (`weakened`), and the path of each test file the work changed (`test_files`); the engine accumulates the rounds, and sets the files against the head again each round; none if the engineer changed no test and no test file was changed",
+              "from": [
+                {
+                  "engine": "tests_changed"
+                }
               ],
               "maybe": true
             },
@@ -8908,7 +8906,7 @@
             }
           ],
           "prompt": [
-            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added or extended go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. The latest run of ci_before that reported a test counts: when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. An acceptance condition that is itself a job or a command of the CI, or that only a reading of the change can prove, is met in the condition table by a row of kind `ci_job` (the jobs, as the CI results of this work name them, and the commands the condition points to) or `read_diff` (where to read, and what the reading shows), not by a test; ask only for a condition that none of these fits, saying which one and why. If you asked someone, carry on with this round when the reply comes."
+            "You only write tests: change only files in the test paths (in your input), not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added or extended go by the kind the engineer gave in the test changes. Read the diff of every file in `test_files` of your input, the test files the work changed: what changed in them beyond the tests the engineer named, you find in the diff yourself. A test of `weakened` was removed, skipped or relaxed: judge whether what it checked is still checked. A test of `tests` is one the engineer named, and its row does not say the head still has it (main may have been merged since, or the test renamed): a run of ci that names it says, and a name that run reports with nothing matched is no test of this head. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. The latest run of ci_before that reported a test counts: when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. An acceptance condition that is itself a job or a command of the CI, or that only a reading of the change can prove, is met in the condition table by a row of kind `ci_job` (the jobs, as the CI results of this work name them, and the commands the condition points to) or `read_diff` (where to read, and what the reading shows), not by a test; ask only for a condition that none of these fits, saying which one and why. If you asked someone, carry on with this round when the reply comes."
           ],
           "out": [
             {

@@ -888,6 +888,12 @@ pub fn engine_input(
             Some(wt) => since_adversarial(e, w, g, wt, &main)?,
             None => None,
         },
+        // The tests the engineer changed over all the rounds that wrote test changes, and the test files the work
+        // changed.
+        "tests_changed" => match wt {
+            Some(wt) => tests_changed(e, w, g, item, wt, &main)?,
+            None => None,
+        },
         // A flow version stored before the records named this input `design_tree_diff`.
         "records_diff" | "design_tree_diff" => match wt {
             Some(wt) => {
@@ -996,6 +1002,67 @@ fn since_adversarial(e: &Engine, w: &Work, g: &CompiledGraph, wt: &Path, main: &
     // Oldest first, as the rounds were.
     fixes.reverse();
     Ok(Some(since_json(wt, main, &base, &head, &fixes)))
+}
+
+/// The tests the engineer changed, for adversarial testing: see [`tests_changed_json`]. The rows are those of the test
+/// changes of every return of implementing and of fixing, as the tables of the engineer's tests read them.
+fn tests_changed(
+    e: &Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    item: &Item,
+    wt: &Path,
+    main: &str,
+) -> Result<Option<Value>, String> {
+    let mut returns = Vec::new();
+    for cell in crate::test_tables::CELLS {
+        returns.extend(returns_holding(e, w, g, cell, "test_changes")?);
+    }
+    let test_paths = e
+        .config
+        .config
+        .projects
+        .get(&item.project)
+        .map(|p| p.test_paths.clone())
+        .unwrap_or_default();
+    Ok(tests_changed_json(wt, main, &test_paths, &returns))
+}
+
+/// The tests the engineer changed over all the rounds that wrote test changes, with the test files the work changed;
+/// none when there is nothing to give.
+///
+/// - `tests`: the latest `added` or `extended` row of each test that no later `removed` row followed, each row as the
+///   engineer wrote it with the round it came from. Whether the head still has the test is not said: only a run of the
+///   tests on the head says it.
+/// - `weakened`: the latest `removed`, `skipped` and `relaxed` row of each test, with its reason.
+/// - `test_files`: the path of each file the work itself changed (what merging main brought is left out) under the
+///   project's test paths; the reader finds what changed in each in its diff, the tests the engineer did not name
+///   among them.
+///
+/// A head git cannot read is said so as `unreadable`, with why, and no `test_files` is given.
+fn tests_changed_json(wt: &Path, main: &str, test_paths: &[String], returns: &[(RoundId, Value)]) -> Option<Value> {
+    let changed = crate::test_tables::changed(returns.iter().map(|(round, ret)| (*round, ret)));
+    let mut nothing = changed.tests.is_empty() && changed.weakened.is_empty();
+    let mut v = Map::new();
+    v.insert("tests".into(), Value::Array(changed.tests));
+    v.insert("weakened".into(), Value::Array(changed.weakened));
+    match test_files(wt, main, test_paths) {
+        Ok(files) => {
+            nothing &= files.is_empty();
+            v.insert("test_files".into(), json!(files));
+        }
+        Err(why) => {
+            v.insert("unreadable".into(), Value::String(why));
+        }
+    }
+    (!nothing).then_some(Value::Object(v))
+}
+
+/// The files the work itself changed that are under the project's test paths.
+fn test_files(wt: &Path, main: &str, test_paths: &[String]) -> Result<Vec<String>, String> {
+    let fork = git::fork_point(wt, main)?;
+    let own = git::own_changes(wt, main, &fork, "HEAD")?;
+    Ok(own.into_iter().filter(|f| git::under(f, test_paths)).collect())
 }
 
 /// What already exists for the item, as pointers the agent follows itself: its earlier works here, with how far each
@@ -1373,6 +1440,104 @@ mod tests {
         assert!(v["note"].as_str().is_some_and(|n| n.contains("was rewritten")), "{v}");
         assert_eq!(v["own_files"], json!(["c.txt"]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Item #292: the tests the engineer changed are given with the test files the work itself changed, as paths: a file
+    // only main changed (brought in by the merge), and a file of the work's outside the test paths, are not test
+    // files; a path with a colon in it is whole, and a path pattern in the project's test paths reaches the files it
+    // matches. The engineer's rows are given as written, with their rounds, whatever the files hold.
+    #[test]
+    fn the_tests_the_engineer_changed_are_given_with_the_test_files_the_work_changed() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-tests-changed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let who = [
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "init.defaultBranch=main",
+        ];
+        let run = |args: &[&str]| git::git(&dir, &[&who[..], args].concat()).unwrap().trim().to_string();
+        let put = |file: &str, text: &str| {
+            let at = dir.join(file);
+            std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+            std::fs::write(at, text).unwrap();
+        };
+        let commit = |message: &str| {
+            run(&["add", "-A"]);
+            run(&["commit", "-q", "-m", message]);
+        };
+        run(&["init", "-q"]);
+        put("tests/a.rs", "fn kept_test() {}\n");
+        put("tests/b.rs", "fn other_test() {}\n");
+        put("src/lib.rs", "fn unit_in_src() {}\n");
+        commit("Start");
+        run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&["checkout", "-q", "-b", "work"]);
+        // The work changes a test file, adds a test file with a colon in its name, and changes a file of the source.
+        put("tests/a.rs", "fn kept_test() { assert!(1 < 2); }\n");
+        put("tests/odd:name.rs", "fn colon_test() {}\n");
+        put("src/lib.rs", "fn unit_in_src() {}\n// changed\n");
+        commit("The work's change");
+        // Main changes a test file of its own and another test file, and the branch takes main in.
+        run(&["checkout", "-q", "main"]);
+        put("tests/main_only.rs", "fn main_only_test() {}\n");
+        put("tests/b.rs", "fn other_test() { assert!(true); }\n");
+        commit("Main goes on");
+        run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&["checkout", "-q", "work"]);
+        run(&["merge", "-q", "--no-edit", "origin/main"]);
+
+        let extended = |test: &str| json!({ "change": "extended", "test": test, "catches": "c", "kind": "new_behaviour", "time": "1s", "worth": "w" });
+        let first = json!({ "test_changes": [extended("kept_test"), extended("colon_test"), extended("ghost_test")] });
+        let fix = json!({ "test_changes": [
+            { "change": "removed", "test": "old_removed", "reason": "r" },
+            { "change": "relaxed", "test": "kept_test", "reason": "looser" },
+        ] });
+        let returns = [(RoundId::new(3, 1), first), (RoundId::new(3, 5), fix)];
+        let v = tests_changed_json(&dir, "main", &["tests/".to_string()], &returns).unwrap();
+        // Every test the engineer added or extended is given as written, with the round of its row: whether the head
+        // has it is for a run of the tests to say.
+        let names: Vec<&str> = v["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["test"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["kept_test", "colon_test", "ghost_test"], "{v}");
+        assert_eq!(v["tests"][0]["round"], "R3-1", "{v}");
+        assert_eq!(v["tests"][0]["catches"], "c", "{v}");
+        assert_eq!(v["weakened"][0]["test"], "old_removed", "{v}");
+        assert_eq!(v["weakened"][1]["reason"], "looser", "{v}");
+        // The test files the work changed: not the ones only main changed, and not the file of the source.
+        assert_eq!(v["test_files"], json!(["tests/a.rs", "tests/odd:name.rs"]), "{v}");
+        assert!(v.get("unreadable").is_none(), "{v}");
+        // A pattern in the test paths picks the files it matches.
+        let by_pattern = tests_changed_json(&dir, "main", &["*/odd:name.rs".to_string()], &returns).unwrap();
+        assert_eq!(by_pattern["test_files"], json!(["tests/odd:name.rs"]), "{by_pattern}");
+        // A file of the source is a test file when the paths name it.
+        let source = tests_changed_json(&dir, "main", &["src/".to_string()], &[]).unwrap();
+        assert_eq!(source["test_files"], json!(["src/lib.rs"]), "{source}");
+        // Nothing the engineer changed and no test file the work changed: nothing to give.
+        assert_eq!(tests_changed_json(&dir, "main", &["nowhere/".to_string()], &[]), None);
+        // A repository with no fetched main cannot say what the work changed: the rows are given as they are, and it
+        // is said why.
+        let bare = std::env::temp_dir().join(format!("wf-agents-tests-changed-bare-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&bare);
+        std::fs::create_dir_all(&bare).unwrap();
+        git::git(&bare, &[&who[..], &["init", "-q"]].concat()).unwrap();
+        std::fs::write(bare.join("a.txt"), "a\n").unwrap();
+        git::git(&bare, &[&who[..], &["add", "-A"]].concat()).unwrap();
+        git::git(&bare, &[&who[..], &["commit", "-q", "-m", "x"]].concat()).unwrap();
+        let unread = tests_changed_json(&bare, "main", &["tests/".to_string()], &returns).unwrap();
+        assert!(unread["unreadable"].as_str().is_some_and(|s| !s.is_empty()), "{unread}");
+        assert_eq!(unread["tests"].as_array().unwrap().len(), 3, "{unread}");
+        assert_eq!(unread["weakened"].as_array().unwrap().len(), 2, "{unread}");
+        assert!(unread.get("test_files").is_none(), "{unread}");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bare);
     }
 
     // What a review reviews lists the merges that took main in and no other merge; the head the last table review

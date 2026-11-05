@@ -55,6 +55,7 @@ mod side_reports;
 mod slots;
 mod takeovers;
 mod talk;
+mod tests_changed;
 mod threads;
 mod tools;
 
