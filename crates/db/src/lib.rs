@@ -94,6 +94,20 @@ const HIDDEN: &str = "Hidden from agents.";
 /// otherwise.
 pub const CARD_RULING: &str = "Ruling on decision card";
 
+/// What the owner's answer to an ask is relayed to the engineer with, as an interjection of the owner's, when the work
+/// goes on past the ask: for the ask whether the change may merge, `RELAY_APPROVAL` and the answer; for the kinds in
+/// `owner::GONE_ON_PAST`, `RELAY_ABOUT`, what the owner was asked, `RELAY_ANSWERED`, the ask's number, `): ` and the
+/// answer. The owner's page tells such a relay from words the owner typed by [`relays_an_answer`], since the answer is
+/// already recorded on the ask and is not the owner's to take back.
+pub const RELAY_APPROVAL: &str = "Asked to approve the change before it merges, the owner replied:";
+pub const RELAY_ABOUT: &str = "Asked about ";
+pub const RELAY_ANSWERED: &str = ", the owner answered (ask ";
+
+/// Whether an interjection's words are the relay of an answer to an ask, as the owner's answer writes them.
+pub fn relays_an_answer(text: &str) -> bool {
+    text.starts_with(RELAY_APPROVAL) || (text.starts_with(RELAY_ABOUT) && text.contains(RELAY_ANSWERED))
+}
+
 /// What a line is given of an interjection: who said it and, for the owner's question about a decision card, which card
 /// by its number and key, then the words.
 pub fn interjection_words(speaker: &str, text: &str, card: Option<i64>, key: Option<&str>) -> String {

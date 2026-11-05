@@ -74,5 +74,18 @@ export function readImage(f: File): Promise<PendingImage> {
   });
 }
 
+/// An image the interface gives back as it was sent (words taken back), waiting in a box again: its bytes as a data URL.
+export function imageFromSent(s: ImageSent): PendingImage {
+  added += 1;
+  const padding = s.data.endsWith('==') ? 2 : s.data.endsWith('=') ? 1 : 0;
+  return {
+    key: `image-${loaded}-${added}`,
+    name: t('image_taken_back'),
+    media_type: s.media_type,
+    size: Math.floor((s.data.length * 3) / 4) - padding,
+    data_url: `data:${s.media_type};base64,${s.data}`,
+  };
+}
+
 /// Where the page reads an image the owner sent, by its id: as it was sent.
 export const imageHref = (id: number): string => `/api/v1/attachments/${id}`;

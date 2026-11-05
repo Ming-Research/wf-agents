@@ -18,6 +18,18 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// Whether every interjection a round's message gave is still in the database: the owner takes back the words that no
+/// agent has taken up yet (`api::take_back`), which deletes them.
+fn interjections_there(tx: &Transaction<'_>, ids: &[i64]) -> db::rusqlite::Result<bool> {
+    let listed = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+    let there: i64 = tx.query_row(
+        "SELECT count(*) FROM interjections WHERE id IN (SELECT value FROM json_each(?1))",
+        [listed],
+        |r| r.get(0),
+    )?;
+    Ok(there == ids.len() as i64)
+}
+
 /// A round the engine stopped in the middle of is closed as not done; its cell runs again.
 fn close_interrupted(e: &mut Engine, w: &Work) -> Result<Option<Round>, String> {
     let Some(r) = work::open_round(e.db.conn(), w.id)? else {
@@ -467,13 +479,26 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         let runs = e.runs_on(&level);
         crate::warm::before_fork(e, w, &req, &input["call"], &cli_version, &runs)?;
     }
-    let round =
+    // The owner may take back words not taken up yet, and has had the time since the message was built to: the words the
+    // message gave are checked in the write that records the round. One taken back since means the round does not start;
+    // the work waits, and the next pass builds the message again without it.
+    let started =
         e.db.write(Actor::Engine, |tx| {
+            if !interjections_there(tx, &ids)? {
+                return Ok(None);
+            }
             db::keep(tx, &kept)?;
             work::start_numbered(tx, number, &cell.id, Some(sid), &input, &commit, Some(&level.model))
+                .map(Some)
                 .map_err(db::Error::Abort)
         })
         .map_err(sql)?;
+    let Some(round) = started else {
+        let _ = std::fs::remove_file(&given_again);
+        return Ok(Advance::Waits(format!(
+            "the owner took back words the message of {number} gave"
+        )));
+    };
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
     let watching = watch::Watch::begin(e, round, started);
     let reply = e.sessions().run(&req, &|seen| watching.see(seen));

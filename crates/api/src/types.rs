@@ -623,7 +623,7 @@ pub struct Answer {
 
 /// An image the owner sends with words, as the page hands it in: a PNG, JPEG, GIF or WebP image of at most 5 MB, at
 /// most 10 to a message.
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct ImageSent {
     /// image/png, image/jpeg, image/gif or image/webp.
     pub media_type: String,
@@ -1294,10 +1294,41 @@ pub struct ConversationEntry {
     /// For the owner's words the architect they were said to took up, which have no matter card: where they stand
     /// with it, shown under their bubble.
     pub words_state: Option<WordsState>,
+    /// For the owner's words not taken up yet: whether they can be taken back into the box now.
+    pub retract: Retract,
     /// For the policy taking effect: the policy in force.
     pub policy: Option<PolicyInForce>,
     /// For a version of the architect's plan: what changed and the plan whole.
     pub plan: Option<PlanChange>,
+}
+
+/// Whether the owner's words, which the page shows as not taken up yet, can be taken back into the box: `yes` while no
+/// agent has them; `given` once an agent has them without having recorded them as taken up, so that they cannot be taken
+/// back and the page says so; `no` for words that are not taken back at all (said to several architects at once, asking
+/// about a decision card, the relay of an answer) and for words taken up already.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Retract {
+    Yes,
+    Given,
+    No,
+}
+
+/// What the owner sends to take back words not taken up yet: the entry they are, by its source and its number in the
+/// conversation (`interjection` or `words`).
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct TakeBack {
+    pub source: String,
+    pub id: i64,
+}
+
+/// The words taken back, to be put in the box of the conversation: the text, the images as they were sent, and whom the
+/// words were for, as the box names them (`engineer`, `architect`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct TakenBack {
+    pub text: String,
+    pub images: Vec<ImageSent>,
+    pub to: Vec<String>,
 }
 
 /// A version of the plan in an architect's notebook, as its bubble in the one-to-one says it: what changed from the
