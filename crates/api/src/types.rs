@@ -492,6 +492,9 @@ pub struct OwnerAsk {
     /// When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
     /// that put it.
     pub asked_at: i64,
+    /// The one item a merge condition ticked on its answer goes on: its work's, or for an ask of an architect the item
+    /// the matters it holds are about; none for an ask about no item or about several, which takes no tick.
+    pub condition_item: Option<i64>,
 }
 
 /// What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -616,6 +619,16 @@ pub struct Answer {
     #[serde(default)]
     #[ts(optional)]
     pub to: Option<String>,
+    /// The option chosen, for the merge gate's ask of a merge condition alone: `met` or `withdrawn`. The answer may then
+    /// have no words.
+    #[serde(default)]
+    #[ts(optional)]
+    pub choice: Option<String>,
+    /// The sentence of a merge condition the answer sets, when the owner ticked it: what must be done before the work
+    /// merges, reading alone.
+    #[serde(default)]
+    #[ts(optional)]
+    pub condition: Option<String>,
     /// The images sent with the answer, in the order the owner added them.
     #[serde(default)]
     pub images: Vec<ImageSent>,
@@ -965,6 +978,47 @@ pub struct ItemDetail {
     pub shown: Vec<Shown>,
     /// Each time its tier changed after it was made, oldest first: when, by whom, from what to what.
     pub level_changes: Vec<LevelChange>,
+    /// What the owner set to be done before its work merges, oldest first.
+    pub merge_conditions: Vec<MergeCondition>,
+}
+
+/// Something the owner set to be done before an item's work merges, as the item's page shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MergeCondition {
+    pub id: i64,
+    /// The sentence that says it, reading alone.
+    pub what: String,
+    /// The record its words are in: ask, interjection or matter; and that record's number.
+    pub source: String,
+    pub source_id: i64,
+    /// The words as that record has them.
+    pub quote: String,
+    /// Who the record says said them: owner, relayed, delegate or unrecorded.
+    pub said_by: String,
+    /// Who recorded it: owner, delegate or architect; with the architect's round that did.
+    pub recorded_by: String,
+    pub recorded_work: Option<i64>,
+    pub recorded_round: Option<i64>,
+    pub at: i64,
+    /// Where it stands: open, met or withdrawn.
+    pub status: String,
+    /// The ask of the merge gate it was judged on, and who judged it, owner or delegate; none while it is open.
+    pub judged: Option<i64>,
+    pub judged_by: Option<String>,
+    /// The latest report of the engineer on it: done or not_done, in its words, and the round that handed it in; none
+    /// when it has not reported.
+    pub report: Option<MergeConditionReport>,
+}
+
+/// The engineer's report on a merge condition.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MergeConditionReport {
+    /// done or not_done.
+    pub answer: String,
+    pub words: String,
+    /// The round that handed it in: its work and its number in the work.
+    pub work: i64,
+    pub round: i64,
 }
 
 /// A change of an item's tier, as its history keeps it.
@@ -1512,6 +1566,11 @@ pub struct WorkSaid {
     #[serde(default)]
     #[ts(optional)]
     pub design_card: Option<i64>,
+    /// The sentence of a merge condition the words set, when the owner ticked it: what must be done before the work
+    /// merges, reading alone.
+    #[serde(default)]
+    #[ts(optional)]
+    pub condition: Option<String>,
     /// The images sent with the words, in the order the owner added them; words may be images alone.
     #[serde(default)]
     pub images: Vec<ImageSent>,
@@ -1560,6 +1619,11 @@ pub struct ArchitectSaid {
     #[serde(default)]
     #[ts(optional)]
     pub reply_to: Option<i64>,
+    /// The sentence of a merge condition the reply sets, when the owner ticked it, on a question about one item: what
+    /// must be done before the work merges, reading alone.
+    #[serde(default)]
+    #[ts(optional)]
+    pub condition: Option<String>,
     /// The images sent with the words, in the order the owner added them; words may be images alone.
     #[serde(default)]
     pub images: Vec<ImageSent>,

@@ -40,6 +40,100 @@ fn says_nothing(text: &str, images: &[Image]) -> bool {
     text.trim().is_empty() && images.is_empty()
 }
 
+/// A merge condition the owner ticked on words said or an answer given: the item it goes on, and its sentence.
+struct Tick<'a> {
+    item: i64,
+    what: &'a str,
+}
+
+impl Tick<'_> {
+    /// Records it in the write of the words: the record they are kept in, those words, who said them as that record says,
+    /// and who the caller declares to have ticked it.
+    fn record(
+        &self,
+        tx: &db::rusqlite::Transaction<'_>,
+        source: &str,
+        source_id: i64,
+        quote: &str,
+        speaker: &Declared,
+    ) -> db::Result<i64> {
+        db::record_merge_condition(
+            tx,
+            &db::MergeCondition {
+                item: self.item,
+                what: self.what,
+                source,
+                source_id,
+                quote,
+                said_by: speaker.said_by(quote),
+                recorded_by: speaker.speaker.as_str(),
+                round: None,
+            },
+        )
+    }
+}
+
+/// The sentence of a merge condition as the caller hands it in; refused when it says nothing.
+fn sentence(condition: Option<&str>) -> Result<Option<&str>, String> {
+    match condition.map(str::trim) {
+        Some("") => Err(
+            "a merge condition says what must be done before the merge: write it, on a line of its own, so that it \
+             reads alone"
+                .into(),
+        ),
+        c => Ok(c),
+    }
+}
+
+/// A merge condition ticked on an item; refused once the item's merge stands on main, where it could hold nothing and
+/// would stay open for good.
+fn tick_on_item<'a>(db: &Db, item: i64, what: &'a str) -> Result<Option<Tick<'a>>, String> {
+    if db::merge_stands(db.conn(), item).map_err(sql)? {
+        return Err(format!(
+            "item {item} has merged, so a merge condition can hold nothing: say what is to be done without the tick"
+        ));
+    }
+    Ok(Some(Tick { item, what }))
+}
+
+/// A merge condition ticked on words said in a work's group, which goes on the work's item.
+fn tick_on_work<'a>(db: &Db, work: i64, condition: Option<&'a str>) -> Result<Option<Tick<'a>>, String> {
+    let Some(what) = sentence(condition)? else {
+        return Ok(None);
+    };
+    match item_of(db, work)? {
+        (Some(item), _) => tick_on_item(db, item, what),
+        (None, _) => Err(format!("work {work} is on no item, so no merge condition goes on it")),
+    }
+}
+
+/// A merge condition ticked on the answer to an ask, which goes on the one item the ask is about; refused for an ask
+/// about no item or about several, whose words the architect records a condition from if it must.
+fn tick_on_ask<'a>(db: &Db, ask: i64, condition: Option<&'a str>) -> Result<Option<Tick<'a>>, String> {
+    let Some(what) = sentence(condition)? else {
+        return Ok(None);
+    };
+    match db::item_of_ask(db.conn(), ask).map_err(sql)? {
+        Some(item) => tick_on_item(db, item, what),
+        None => Err(format!(
+            "ask {ask} is about no one item, so no merge condition can be ticked on its answer: the architect records \
+             it from your words"
+        )),
+    }
+}
+
+/// That the option an answer chose is one the ask puts: only the merge gate's ask of a merge condition takes one, met or
+/// withdrawn.
+fn choice_fits(ask: i64, body: &Value, choice: Option<&str>) -> Result<(), String> {
+    match (choice, body["condition"].is_null()) {
+        (None, _) | (Some("met" | "withdrawn"), false) => Ok(()),
+        (Some(_), true) => Err(format!(
+            "ask {ask} puts no merge condition: only the merge gate's ask of one takes a choice"
+        )),
+        (Some(other), false) => Err(format!("the choice on ask {ask} is met or withdrawn, not {other}")),
+    }
+}
+
 /// Says something to a work's engineer as the owner: an interjection, handed to the engineer's round that runs after
 /// its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines: its
 /// helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`) is
@@ -53,10 +147,12 @@ pub fn interject(
     images: &[Image],
     speaker: impl Into<Declared>,
 ) -> Result<i64, String> {
-    interject_about(db, work, line, text, images, None, &speaker.into())
+    interject_about(db, work, line, text, images, None, &speaker.into(), None)
 }
 
-/// [`interject`], the words asking about a decision card of the work (`card`) when they do.
+/// [`interject`], the words asking about a decision card of the work (`card`) when they do, and setting a merge condition
+/// the owner ticked on them (`tick`) when they do.
+#[allow(clippy::too_many_arguments)]
 fn interject_about(
     db: &mut Db,
     work: i64,
@@ -65,6 +161,7 @@ fn interject_about(
     images: &[Image],
     card: Option<i64>,
     speaker: &Declared,
+    tick: Option<&Tick<'_>>,
 ) -> Result<i64, String> {
     let text = text.trim();
     if says_nothing(text, images) {
@@ -86,6 +183,9 @@ fn interject_about(
         )?;
         let id = tx.last_insert_rowid();
         attachments::attach(tx, Words::Interjection(id), images)?;
+        if let Some(t) = tick {
+            t.record(tx, "interjection", id, text, speaker)?;
+        }
         Ok(id)
     })
     .map_err(sql)
@@ -126,15 +226,17 @@ const TOLD_TO_ARCHITECT: &str = "Said to the architect, for you to know";
 /// the words go with them: an interjection's own, or the matter's that holds them, which the engineer told is given too.
 /// With a decision card named, the words ask about that card, one of the work's that waits for the owner's ruling: to
 /// the architect unless said otherwise, which is given the card with them, and to the engineer as an interjection
-/// naming it; no ruling, the card waits on.
+/// naming it; no ruling, the card waits on. With a merge condition ticked, its sentence is recorded on the work's item in
+/// the same write, resting on the record the words are kept in.
 pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, String> {
     let images = images(&said.images)?;
     let speaker = Declared::parse(&said.speaker, said.relayed.as_deref().unwrap_or_default())?;
+    let tick = tick_on_work(db, work, said.condition.as_deref())?;
     if let Some(m) = said.question {
         if said.design_card.is_some() {
             return Err("words answer an engineer's question or ask about a decision card, not both".into());
         }
-        return answer_question(db, work, m, &said.text, &images, &speaker);
+        return answer_question(db, work, m, &said.text, &images, &speaker, tick.as_ref());
     }
     if let Some(card) = said.design_card {
         card_waits(db, work, card)?;
@@ -145,7 +247,7 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         .as_deref()
         .unwrap_or(if card.is_some() { "architect" } else { "engineer" });
     if to == "engineer" {
-        let id = interject_about(db, work, to, &said.text, &images, card, &speaker)?;
+        let id = interject_about(db, work, to, &said.text, &images, card, &speaker, tick.as_ref())?;
         return Ok(format!("interjection {id} goes to the engineer of work {work}"));
     }
     if to != "architect" && to != "both" {
@@ -193,6 +295,9 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
                  VALUES (?1, 'engineer', 'owner', ?2, ?3, ?4, ?5)",
                 params![work, copy, informs, matter, card],
             )?;
+            if let Some(t) = &tick {
+                t.record(tx, "matter", matter, text, &speaker)?;
+            }
             Ok(matter)
         })
         .map_err(sql)?;
@@ -291,7 +396,8 @@ fn item_of(db: &Db, work: i64) -> Result<(Option<i64>, String), String> {
 /// the reply of the architect's matter, said by the owner, which the work takes as it takes an architect's reply, and
 /// the matter leaves the architect's queue, saying so; the architect is told what the owner answered at its next pick.
 /// A question the architect is handling now, or that is not open, is refused. The images sent with the answer are the
-/// matter's. The reply keeps who the caller declared to speak (`speaker`), as the owner's words do.
+/// matter's. The reply keeps who the caller declared to speak (`speaker`), as the owner's words do, and a merge condition
+/// ticked on it (`tick`) is recorded in the same write.
 fn answer_question(
     db: &mut Db,
     work: i64,
@@ -299,6 +405,7 @@ fn answer_question(
     text: &str,
     images: &[Image],
     speaker: &Declared,
+    tick: Option<&Tick<'_>>,
 ) -> Result<String, String> {
     let text = text.trim();
     if says_nothing(text, images) {
@@ -360,6 +467,9 @@ fn answer_question(
             ],
         )?;
         attachments::attach(tx, Words::Matter(matter), images)?;
+        if let Some(t) = tick {
+            t.record(tx, "matter", matter, text, speaker)?;
+        }
         Ok(())
     })
     .map_err(sql)?;
@@ -382,6 +492,20 @@ pub fn reply_to_question(
     text: &str,
     images: &[Image],
     speaker: impl Into<Declared>,
+) -> Result<String, String> {
+    reply_to_question_setting(db, project, ask, text, images, speaker, None)
+}
+
+/// [`reply_to_question`], the reply setting a merge condition the owner ticked on it (`condition`, its sentence) when it
+/// does, on the one item the question is about; refused for a question about no item or about several.
+pub fn reply_to_question_setting(
+    db: &mut Db,
+    project: &str,
+    ask: i64,
+    text: &str,
+    images: &[Image],
+    speaker: impl Into<Declared>,
+    condition: Option<&str>,
 ) -> Result<String, String> {
     let speaker: Declared = speaker.into();
     let text = text.trim();
@@ -408,6 +532,7 @@ pub fn reply_to_question(
     if answered.is_some() {
         return Err(format!("question {ask} is replied to already"));
     }
+    let tick = tick_on_ask(db, ask, condition)?;
     let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     let parked: Option<i64> = db
         .conn()
@@ -431,6 +556,9 @@ pub fn reply_to_question(
             params![ask, answer.to_string()],
         )?;
         attachments::attach(tx, Words::Ask(ask), images)?;
+        if let Some(t) = &tick {
+            t.record(tx, "ask", ask, text, &speaker)?;
+        }
         if parked.is_none() {
             let m = Matter {
                 project: project.to_string(),
@@ -475,8 +603,16 @@ fn holds_of(body: &Value) -> Vec<i64> {
 /// Answers an ask an architect put, by its kind: an answer to what the architect asked, which brings back the matters
 /// the ask holds, each to the cell that asked about it, or, for an ask that held neither a matter nor a work of the
 /// architect, comes to the architect's queue as the owner's words. An ask of the changes an earlier architect collected
-/// for approval is closed: item changes are reviewed now. The images sent with the answer are kept with it.
-fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[Image]) -> Result<String, String> {
+/// for approval is closed: item changes are reviewed now. The images sent with the answer are kept with it, and a merge
+/// condition ticked on it (`tick`) is recorded in the same write.
+fn architect_answer(
+    db: &mut Db,
+    ask: i64,
+    body: &Value,
+    a: &Answer,
+    images: &[Image],
+    tick: Option<&Tick<'_>>,
+) -> Result<String, String> {
     let at = db::now();
     let text = a.text.trim();
     let speaker = Declared::parse(&a.speaker, a.relayed.as_deref().unwrap_or_default())?;
@@ -508,6 +644,9 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
                     params![ask, answer.to_string()],
                 )?;
                 attachments::attach(tx, Words::Ask(ask), images)?;
+                if let Some(t) = tick {
+                    t.record(tx, "ask", ask, text, &speaker)?;
+                }
                 if open {
                     let project = match body["project"].as_str() {
                         Some(p) => Some(p.to_string()),
@@ -536,7 +675,10 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
 }
 
 /// Answers an ask of the owner that waits for an answer. An ask an earlier engine put for the architect, whose answer
-/// the owner gave for it, is the architect's reply too; an ask the architect put is answered by its kind.
+/// the owner gave for it, is the architect's reply too; an ask the architect put is answered by its kind. The merge
+/// gate's ask of a merge condition takes the option chosen, kept with the answer as it was chosen, and needs no words
+/// with it; it cannot be handed to the architect, who does not judge a condition. A merge condition ticked on
+/// the answer is recorded in the same write.
 pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     let asked: Option<(String, Option<String>)> = db
         .conn()
@@ -553,18 +695,26 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     }
     let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     let images = images(&a.images)?;
+    choice_fits(ask, &body, a.choice.as_deref())?;
+    let tick = tick_on_ask(db, ask, a.condition.as_deref())?;
     if body["from"] == "architect" {
-        return architect_answer(db, ask, &body, a, &images);
+        return architect_answer(db, ask, &body, a, &images, tick.as_ref());
     }
-    if says_nothing(&a.text, &images) {
+    if says_nothing(&a.text, &images) && a.choice.is_none() {
         return Err("an answer says something".into());
+    }
+    if says_nothing(&a.text, &images) && tick.is_some() {
+        return Err("a merge condition rests on the words said: an option with no words takes no tick".into());
     }
     let speaker = Declared::parse(&a.speaker, a.relayed.as_deref().unwrap_or_default())?;
     let mut answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": a.text }), &a.text)?;
+    if let Some(choice) = &a.choice {
+        answer["choice"] = json!(choice);
+    }
     // The owner may hand a question it holds back to the architect, with the answer as a decision to carry out.
     match a.to.as_deref() {
         None => {}
-        Some("architect") if body["to"] == "owner" => answer["to"] = json!("architect"),
+        Some("architect") if body["to"] == "owner" && body["condition"].is_null() => answer["to"] = json!("architect"),
         Some(other) => return Err(format!("ask {ask} cannot be handed to {other}")),
     }
     if body["to"] == "architect" {
@@ -584,6 +734,9 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
             params![ask, answer.to_string()],
         )?;
         attachments::attach(tx, Words::Ask(ask), &images)?;
+        if let Some(t) = &tick {
+            t.record(tx, "ask", ask, a.text.trim(), &speaker)?;
+        }
         if let Some((work, text)) = &relay {
             let declared = answer["speaker"]
                 .as_str()
@@ -1129,6 +1282,7 @@ mod tests {
             to: Some(to.into()),
             question: None,
             design_card: None,
+            condition: None,
             images,
         };
         say_to_work(&mut db, 1, &said("engineer", "", vec![png(), png()])).unwrap();
@@ -1170,6 +1324,8 @@ mod tests {
             why: None,
             reply: None,
             to: None,
+            choice: None,
+            condition: None,
             images: vec![png()],
         };
         answer(&mut db, 1, &a).unwrap();
@@ -1205,6 +1361,7 @@ mod tests {
             to: None,
             question: Some(question),
             design_card: None,
+            condition: None,
             images: Vec::new(),
         };
         assert!(say_to_work(&mut db, 1, &said(2, "No.")).is_err());
@@ -1566,6 +1723,8 @@ mod tests {
             why: None,
             reply: None,
             to: None,
+            choice: None,
+            condition: None,
             images: Vec::new(),
         };
         assert_eq!(answer(&mut db, 1, &a).unwrap(), "ask 1 answered");
@@ -1664,6 +1823,7 @@ mod tests {
             to: to.map(str::to_string),
             question: None,
             design_card: Some(card),
+            condition: None,
             images: Vec::new(),
         };
         assert!(say_to_work(&mut db, 1, &asks(None, "Why not one table?", 9)).is_err());
@@ -1788,6 +1948,8 @@ mod tests {
             why: None,
             reply: None,
             to: None,
+            choice: None,
+            condition: None,
             images: Vec::new(),
         }
     }
@@ -1939,6 +2101,180 @@ mod tests {
         db
     }
 
+    // A merge condition ticked on words said in a work's group, to the engineer or to the architect, or on the answer to
+    // an engineer's ask or to an ask of the architect about one item, is recorded with the sentence the box's line holds,
+    // resting on the record the words are kept in and those words, said and recorded by whoever the caller declared.
+    // Nothing is recorded with no tick; an empty line, and an ask of the architect about no item or about several, are
+    // refused and keep nothing of the words.
+    #[test]
+    fn a_tick_records_a_merge_condition_resting_on_the_words_said() {
+        type Row = (String, String, i64, String, String, String);
+        let rows = |db: &Db| -> Vec<Row> {
+            db.conn()
+                .prepare(
+                    "SELECT what, source, source_id, quote, said_by, recorded_by FROM merge_conditions ORDER BY id",
+                )
+                .unwrap()
+                .query_map([], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let row = |what: &str, source: &str, id: i64, quote: &str, who: &str| -> Row {
+            (what.into(), source.into(), id, quote.into(), who.into(), who.into())
+        };
+        let count = |db: &Db, table: &str| -> i64 {
+            db.conn()
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap()
+        };
+        let said = |to: &str, speaker: &str, condition: Option<&str>| WorkSaid {
+            text: "Run it for real.".into(),
+            speaker: speaker.into(),
+            relayed: None,
+            to: Some(to.into()),
+            question: None,
+            design_card: None,
+            condition: condition.map(str::to_string),
+            images: Vec::new(),
+        };
+        let answered = |text: &str, condition: Option<&str>| Answer {
+            text: text.into(),
+            speaker: "owner".into(),
+            relayed: None,
+            why: None,
+            reply: None,
+            to: None,
+            choice: None,
+            condition: condition.map(str::to_string),
+            images: Vec::new(),
+        };
+        let mut db = with_asks_of_the_architect();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'u', 'x', 'y', 'change', '1')",
+                [],
+            )?;
+            // Ask 2 is about item 1 alone; ask 4 about items 1 and 2; ask 3 about none.
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES
+                 (2, 1, '{\"from\":\"architect\",\"project\":\"p\",\"kind\":\"question\",\"question\":\"Both?\",\"holds\":[11,12]}')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (id, project, kind, what, body, item, asked, resume_cell, at) VALUES
+                 (10, 'p', 'owner_words', 'w', '{}', 1, 2, 'H3', 1),
+                 (11, 'p', 'owner_words', 'w', '{}', 1, NULL, NULL, 1),
+                 (12, 'p', 'owner_words', 'w', '{}', 2, NULL, NULL, 1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        say_to_work(&mut db, 1, &said("engineer", "owner", None)).unwrap();
+        assert_eq!(rows(&db), Vec::<Row>::new());
+
+        say_to_work(&mut db, 1, &said("engineer", "owner", Some("  Run it twice. "))).unwrap();
+        say_to_work(&mut db, 1, &said("architect", "delegate", Some("Run it once more."))).unwrap();
+        answer(&mut db, 1, &answered("OK", Some("Show me the output."))).unwrap();
+        reply_to_question_setting(
+            &mut db,
+            "p",
+            2,
+            "Yes.",
+            &[],
+            db::Speaker::Owner,
+            Some("Keep the old path."),
+        )
+        .unwrap();
+        // The matter of the words said to the architect is the first queued since the three written above.
+        let matter: i64 = db
+            .conn()
+            .query_row(
+                "SELECT id FROM architect_matters WHERE json_extract(body, '$.speaker') = 'delegate'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            rows(&db),
+            [
+                row("Run it twice.", "interjection", 2, "Run it for real.", "owner"),
+                row("Run it once more.", "matter", matter, "Run it for real.", "delegate"),
+                row("Show me the output.", "ask", 1, "OK", "owner"),
+                row("Keep the old path.", "ask", 2, "Yes.", "owner"),
+            ]
+        );
+
+        let (conditions, words) = (count(&db, "merge_conditions"), count(&db, "interjections"));
+        let blank = say_to_work(&mut db, 1, &said("engineer", "owner", Some("   "))).unwrap_err();
+        assert!(blank.contains("says what must be done"), "{blank}");
+        for ask in [3, 4] {
+            let refused = answer(&mut db, ask, &answered("Yes.", Some("Do it."))).unwrap_err();
+            assert!(refused.contains("about no one item"), "{refused}");
+            let refused = reply_to_question_setting(&mut db, "p", ask, "Yes.", &[], db::Speaker::Owner, Some("Do it."));
+            assert!(refused.unwrap_err().contains("about no one item"));
+            let kept: Option<String> = db
+                .conn()
+                .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+                .unwrap();
+            assert_eq!(kept, None);
+        }
+        assert_eq!(count(&db, "merge_conditions"), conditions);
+        assert_eq!(count(&db, "interjections"), words);
+        assert_eq!(db::item_of_ask(db.conn(), 1).unwrap(), Some(1));
+        assert_eq!(db::item_of_ask(db.conn(), 2).unwrap(), Some(1));
+        assert_eq!(db::item_of_ask(db.conn(), 3).unwrap(), None);
+        assert_eq!(db::item_of_ask(db.conn(), 4).unwrap(), None);
+    }
+
+    // The merge gate's ask of a merge condition alone takes an option, met or withdrawn, kept with the answer as it was
+    // chosen, with or without words; it cannot be handed to the architect. Any other ask refuses an option.
+    #[test]
+    fn only_the_ask_of_a_merge_condition_takes_an_option() {
+        let mut db = setup();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"to\": \"owner\", \"condition\": 1}')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let with = |text: &str, choice: Option<&str>, to: Option<&str>| Answer {
+            text: text.into(),
+            speaker: "owner".into(),
+            relayed: None,
+            why: None,
+            reply: None,
+            to: to.map(str::to_string),
+            choice: choice.map(str::to_string),
+            condition: None,
+            images: Vec::new(),
+        };
+        let refused = answer(&mut db, 1, &with("Yes.", Some("met"), None)).unwrap_err();
+        assert!(refused.contains("puts no merge condition"), "{refused}");
+        let refused = answer(&mut db, 2, &with("Yes.", Some("done"), None)).unwrap_err();
+        assert!(refused.contains("met or withdrawn, not done"), "{refused}");
+        let refused = answer(&mut db, 2, &with("Yes.", None, Some("architect"))).unwrap_err();
+        assert!(refused.contains("cannot be handed"), "{refused}");
+        let refused = answer(&mut db, 2, &with("  ", None, None)).unwrap_err();
+        assert!(refused.contains("says something"), "{refused}");
+        answer(&mut db, 2, &with("", Some("withdrawn"), None)).unwrap();
+        let (choice, speaker): (String, String) = db
+            .conn()
+            .query_row(
+                "SELECT json_extract(answer, '$.choice'), json_extract(answer, '$.speaker') FROM owner_asks WHERE id = 2",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((choice.as_str(), speaker.as_str()), ("withdrawn", "owner"));
+    }
+
     // Every way the owner's words and answers come in keeps who the caller declared to speak: the words said in a work's
     // group to the architect, those said to the architects of a group, the reply to the architect's question in the
     // one-to-one, an answer to an ask of an engineer and to an ask of the architect that comes back as the owner's
@@ -1954,6 +2290,7 @@ mod tests {
             to: Some("architect".into()),
             question: None,
             design_card: None,
+            condition: None,
             images: Vec::new(),
         };
         let answer_by = |speaker: &str| Answer {
@@ -1963,6 +2300,8 @@ mod tests {
             why: None,
             reply: None,
             to: None,
+            choice: None,
+            condition: None,
             images: Vec::new(),
         };
         for bad in ["", "architect"] {
@@ -2041,6 +2380,7 @@ mod tests {
             to: Some(to.into()),
             question: None,
             design_card: None,
+            condition: None,
             images: Vec::new(),
         };
         say_to_work(&mut db, 1, &said("architect", "Fine. Keep it.", &["Keep it."])).unwrap();

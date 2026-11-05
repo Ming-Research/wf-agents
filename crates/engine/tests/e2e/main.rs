@@ -40,6 +40,7 @@ mod interjection_hook;
 mod line_sessions;
 mod lock_update;
 mod lock_update_corners;
+mod merge_conditions;
 mod messages;
 mod notebook;
 mod observations;
@@ -1384,6 +1385,8 @@ fn owner_answers(e: &mut Engine, ask: i64, text: &str) {
         why: None,
         reply: None,
         to: None,
+        choice: None,
+        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, ask, &answer).unwrap();

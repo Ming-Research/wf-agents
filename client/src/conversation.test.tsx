@@ -91,6 +91,7 @@ const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): Owne
   answer,
   answer_images: [],
   asked_at: 0,
+  condition_item: null,
 });
 
 const entry = (source: string, extra: Partial<ConversationEntry> = {}): ConversationEntry => ({
@@ -679,7 +680,7 @@ describe('the questions an architect put to the owner in its one-to-one', () => 
     expect(replyingTo(pinned, null, 6)).toBeNull();
     // One chosen that no longer waits: the one the architect waits on again.
     expect(replyingTo(pinned, 99, 6)?.id).toBe(6);
-    const reply: Reply = { question: 6, words: approve.text, clear: () => undefined };
+    const reply: Reply = { question: 6, words: approve.text, clear: () => undefined, aboutOneItem: false };
     const box = renderToStaticMarkup(<Composer c={one} w={null} reply={reply} />);
     const strip = box.slice(0, box.indexOf('<textarea'));
     expect(strip).toContain('<div class="talk-reply-strip">');
