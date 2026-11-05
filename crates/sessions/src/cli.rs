@@ -109,10 +109,12 @@ pub fn sign_in(kind: config::CliKind) -> (&'static str, &'static str) {
 
 /// The environment every agent's command line starts with, besides its configuration directory: each tool input
 /// streamed whole, not in pieces, so that the service checks its JSON; three attempts at a return, not five, since
-/// each attempt writes the whole return again; and no Rust toolchain installed by rustup when a command the agent may
+/// each attempt writes the whole return again; no Rust toolchain installed by rustup when a command the agent may
 /// run, such as `cargo update` or `rustfmt`, asks for one the machine lacks: the command fails instead of downloading
-/// it.
-pub const ENVIRONMENT: [(&str, &str); 3] = [
+/// it; and no background tasks, so that a round waits for its subagents: one left in the background has the command
+/// line demand the return before it is back, and again each time one comes back.
+pub const ENVIRONMENT: [(&str, &str); 4] = [
+    ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
     ("RUSTUP_AUTO_INSTALL", "0"),
@@ -3033,6 +3035,7 @@ mod tests {
         assert_eq!(c["env"]["CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING"], "0");
         assert_eq!(c["env"]["MAX_STRUCTURED_OUTPUT_RETRIES"], "3");
         assert_eq!(c["env"]["RUSTUP_AUTO_INSTALL"], "0");
+        assert_eq!(c["env"]["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"], "1");
         // The structured-output schema is in the command line, and not recorded again beside it.
         assert!(c.get("schema").is_none());
         assert!(
