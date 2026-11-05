@@ -88,7 +88,8 @@ not tried.
 Milliseconds. "#248": the report of item #248. "base": the code before #312 and #313, in this run. "after": the candidate.
 "after/base": the 95% interval of the ratio over the five pairs, then the verdict by the rule of section 2. Rows are the
 rows of the ranking table of `research/repeated-paths.md` section 3 (the E, R, I, P numbers are its), then the
-paths those rows name. "rows" are the rows the path read (base, then after, where they differ).
+paths those rows name. The rows each path read are in the table "Rows read" after the tables of milliseconds (base, then
+after, where they differ).
 
 ### Engine, every turn of the loop
 
@@ -242,11 +243,53 @@ The other views changed only where an index serves them: `item_research` (116.9 
 every view, each scale). The views `ready_items` (0.812 to 0.882 of the base at the field's size) and `open_items` (0.910 to 0.966) are 3% to 19%
 faster, probably because fewer works have `ended` empty for their `running` part to check (inferred, not isolated).
 
+### Rows read
+
+The rows the path returned (measured; "base → after" where the two sides differ; for a path that counts, `count(*)` or
+a point lookup, 1 or 0). The fields of the tables above come from `results-after-312-313.txt`, columns "rows base" and
+"rows candidate".
+
+| Path | Scale 1 | Scale 1L10 | Scale 10 |
+|---|---|---|---|
+| E1 `engine.turn.active_pass`, `engine.turn.slots_pass` | 304 → 54 | 304 → 54 | 3,040 → 540 |
+| E1 `engine.turn.keep_warm_scan` | 318 → 68 | 318 → 68 | 3,180 → 680 |
+| E2 `engine.write.next_tx`, R3 `engine.step.resumed_at`, R6 `engine.round.architect_time`, R9 `fact_basis` | 1 | 1 | 1 |
+| E3 `engine.turn.reload_config` (field's size only) | 18 files | | |
+| E4 `engine.turn.reminder` | 2 → 1 | 2 | 2 |
+| E5 `engine.turn.ready_items` | 48 | 50 | 427 |
+| E5 `engine.turn.slots_free_history` | 1 | 1 | 1 |
+| R1 `engine.round.rounds.arch`, I4 `api.work.arch` | 3,330 | 33,300 | 3,330 |
+| R1b `engine.step.open_round.arch`, R5 `rounds_of_matter`, R8 `merges_of_commit` | 0 | 0 | 0 |
+| R2 `own_rounds.eng` | 29 | 39 | 35 |
+| R2 `own_rounds.arch` | 1,689 | 14,838 | 1,701 |
+| R4 `engine.round.counters_all` | 838 | 832 | 8,419 |
+| R4 view `work_counters`, I3 view `conversation_entries`, `side_reports`, `not_applicable_answers` | 1 (a count) | 1 | 1 |
+| R7 `interjections_words` / `asked_matters` | 1 / 0 | 1 / 0 | 1 / 0 |
+| R9 `ci_results` | 45 | 49 | 62 |
+| I1 `api.system.works_of` | 363 | 363 | 3,630 |
+| I1 `api.system.rounds_since` | 14,845 | 13,289 | 41,247 |
+| I1 `api.system.counted` | 14,284 | 43,884 | 142,814 |
+| I1 `api.system.work_changes` | 15,774 | 15,774 | 157,740 |
+| I1 `api.system.item_events` | 311 | 311 | 3,110 |
+| I2 `api.works` | 7,727 | 7,726 | 77,259 |
+| I2 `api.conversations` | 1,096 | 1,126 | 11,010 |
+| I3 `api.conversation.work` | 9 | 18 | 9 |
+| I3 `api.conversation.architect` | 129 | 129 | 1,320 |
+| I5 `api.items_extra` | 713 | 722 | 7,174 |
+| I5 `api.architect.rounds_window` | 100 | 100 | 100 |
+| I5 `api.observations` | 280 | 280 | 2,800 |
+| I5 `api.flows` | 56 | 56 | 560 |
+| I5 `api.architect.notebook` | 410 | 410 | 4,100 |
+| I5 `api.item.level_changes` | 0 | 2 | 0 |
+| I6 `api.events.row_lookups` | 200 | 200 | 200 |
+| P1 the flush | the sum of the rows of its eight reads (`api.works`, `api.items_extra`, `api.conversations`, the five of `/system`) | | |
+
 ## 4. What is left, by weight
 
 Weight is the one number of the report of #248: the database time per 10 s at ten times the data, the time of one
 occurrence at scale 10 (scale 1L10 for the architect's long work, which grows with age and not with the number of works)
-times the occurrences in 10 s. The occurrences are those of #248, not measured again: a turn of the loop once in 10 s
+times the occurrences in 10 s. The occurrences are those of #248, not measured again, except in the row R2, whose
+occurrences and scale were chosen again (below): a turn of the loop once in 10 s
 (read: `crates/wf-agents/src/main.rs:1046`); a flush of an open page 3.3 times in 10 s while events come (read:
 `client/src/live.ts`); a write 87 times in the busiest 10 s (measured then, from `changes`); an agent round 13 times in
 the busiest 10 s, 22% of them the architect's longest work's, so 2.9 (measured then, from `rounds`). "Flow" says whether
@@ -260,7 +303,7 @@ project guide). "Item" names an item that covers it.
 | 3 | I1 `/system`, five reads (part of 1) | 3,082 | 3.3 | 10,171 | (3) 11,405 | read | no |
 | 4 | I2 `/works` and `/conversations` (part of 1) | 720 | 3.3 | 2,376 | (4) 8,554 | read | no |
 | 5 | R6 `architect_time` | 175.5 | 13 at the busiest | 2,281 | (6) 2,652 | inferred (one per step of a waiting work) | no |
-| 6 | R2 `own_rounds`, the architect's long session at 1L10 | 356.2 | 2.9 | 1,033 | (7) 1,781 to 1,976 | inferred (one per agent round) | no |
+| 6 | R2 `own_rounds`, the architect's long session at 1L10 | 356.2 | 2.9 | 1,033 | (7) 1,781 to 1,976 | inferred (one per agent round); not like the #248 row: #248 took all 13 rounds of the busiest 10 s at scale 10 (137 to 152 ms); this row takes the architect's long session only (22% of 13, so 2.9) at 1L10, since that session grows with its age. At the #248 basis (scale 10, 13 rounds) the same path is 35.5 x 13 = 461 for the architect's session and 0.35 x 13 = 4.5 for an engineer's, so the fall from 1,781 to 1,976 is #312's index for the engineer's sessions, and for the architect's long session #312 is slower (160.7 to 356 ms at 1L10) | no |
 | 7 | R3 `resumed_at` (twice per round) | 73.2 | 13 | 952 | (9) 1,071 | inferred | no |
 | 8 | R1 the architect's long work read whole, at 1L10 | 266.2 | 2.9 | 772 | (10) 854 | inferred | no (a change to what a cell is given would be a change of its input: the owner's approval) |
 | 9 | I5 `/architect/rounds` | 198.9 | 3.3 while open | 656 | (11) 764 | read | no |

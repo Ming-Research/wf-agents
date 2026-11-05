@@ -34,8 +34,9 @@ those, not tried.
 ## 1. The answers
 
 **Superseded in part (item #315).** This report is the state of 2026-11-05 before #312 (indexes) and #313 (finished works
-ended). The rows below that name E1, E2, R2, R5, R7, I3 and I5, the ranking table of section 3, section 5 and the steps 1,
-4 and 5 of section 7 are marked where they changed; the numbers after those two items, with the ranking again, are in
+ended). The rows of the ranking table and of the tables of section 3 that name E1, E2, R2, R5, R7, I3 and I5 carry a note
+where #312 or #313 changed them (their numbers stay as they were on 2026-11-05), and so do the answers below, section 5
+and the steps 1, 4 and 5 of section 7; the numbers after those two items, with the ranking again, are in
 [repeated-paths-after-312-313.md](repeated-paths-after-312-313.md).
 
 | Question | Answer |
@@ -112,6 +113,10 @@ ended). The rows below that name E1, E2, R2, R5, R7, I3 and I5, the ranking tabl
 
 ## 3. The list, by severity
 
+*The ranking table and the tables below are the state of 2026-11-05, before #312 and #313. The rows #312 or #313
+changed carry a note in their first cell; the numbers after them and the ranking again are in
+[repeated-paths-after-312-313.md](repeated-paths-after-312-313.md) sections 3 and 4.*
+
 Severity is the cost of one occurrence times how often it occurs, and how it grows. The ranking below fixes it as one
 number: **database time per 10 s at ten times the data** = the time of one occurrence at scale 10 (scale 1L10 for the
 architect's long work) times the occurrences in 10 s. The occurrences are taken from rates that are measured or read:
@@ -124,18 +129,18 @@ busiest rate; the turn and the flush have one rate each, the floor. The column "
 
 | Rank | Path | One occurrence at 10x (ms) | Occurrences in 10 s | ms in 10 s at 10x | Today (ms) | Rate known by |
 |---|---|---|---|---|---|---|
-| 1 | E2 transaction number | 334 | 87 at the busiest (0.077 average) | 29,058 (26 on average) | 2,880 | measured |
+| 1 | E2 transaction number (mended by #312, see the after-312-313 report) | 334 | 87 at the busiest (0.077 average) | 29,058 (26 on average) | 2,880 | measured |
 | 2 | P1 one page flush (the eight reads of the results file) | 6,182 | 3.3 | 20,400: more than the 10 s, so the page's reads never rest | 1,445 | read |
 | 3 | I1 `/system` (part of 2) | 3,456 | 3.3 | 11,405 | 1,160 | read |
 | 4 | I2 `/works` and `/conversations` (part of 2) | 2,592 | 3.3 | 8,554 | 254 | read |
-| 5 | I3 reading one conversation | 1,015 | 3.3 while a conversation is open | 3,350 | 22 | read |
+| 5 | I3 reading one conversation (faster after #312) | 1,015 | 3.3 while a conversation is open | 3,350 | 22 | read |
 | 6 | R6 `blockers::architect_time` | 204 | 13 at the busiest | 2,652 | 280 | inferred (one per step of a waiting work) |
-| 7 | R2 `own_rounds` | 137 to 152 | 13 at the busiest | 1,781 to 1,976 | 181 to 367 | inferred (one per agent round) |
-| 8 | E1 the passes over unended works | 1,100 to 1,700 | 1 per turn | 1,100 to 1,700 | 167 to 220 | read (counts), measured (parts) |
+| 7 | R2 `own_rounds` (changed by #312: engineer sessions faster, the architect's long session slower) | 137 to 152 | 13 at the busiest | 1,781 to 1,976 | 181 to 367 | inferred (one per agent round) |
+| 8 | E1 the passes over unended works (mended by #313) | 1,100 to 1,700 | 1 per turn | 1,100 to 1,700 | 167 to 220 | read (counts), measured (parts) |
 | 9 | R3 `resumed_at` (twice per agent round) | 82 | 13 at the busiest | 1,071 | 107 | inferred |
 | 10 | R1 the architect's long work read whole | 294 (290 MB) | 2.9 at the busiest (22% of rounds) | 854 | 79 | inferred |
-| 11 | I5 `/architect/rounds` (`/observations` 181, `/items` 124, unresolved) | 232 | 3.3 while open | 764 | 75 | read |
-| 12 | R5 `rounds_of_matter` | 178 | 2.9 at the busiest (architect rounds) | 517 | 50 | inferred |
+| 11 | I5 `/architect/rounds` (`/observations` 181, `/items` 124, unresolved; since #312 `/observations` is faster and `/items` slower, item #316) | 232 | 3.3 while open | 764 | 75 | read |
+| 12 | R5 `rounds_of_matter` (faster after #312) | 178 | 2.9 at the busiest (architect rounds) | 517 | 50 | inferred |
 | 13 | E5 `ready_items`, `slots_free_history` | 90 | 1 per turn | 90 | 5.6 | read |
 | 14 | E4 reminder | 88 | 1 per turn, if the installation sets the interval | 88 | 0.4 | inferred |
 | 15 | E3 `reload_config` (twice) | 62 | 1 per turn | 62 | 62 | read |
@@ -152,8 +157,8 @@ an item that already covers the path.
 
 | # | Path and where | Runs | Grows with | Now | At 10x | How known |
 |---|---|---|---|---|---|---|
-| E1 | The passes that load every work not ended: `Engine::active` (called by `outdated` at `schedule.rs:217` and by `dispatch` at `:286`) and `slots_by_machine` (= `active` plus the wait of each active engineer work; called by `free_slots` in `architect.rs:348`, `schedule.rs:364` and `main.rs:840`) and the `keep_warm` scan of every unended work (`warm.rs`). Each loads the work (4 statements) and asks `done` | 2 `active` + 1 to 3 `slots_by_machine` + 1 `keep_warm` per turn | works not ended: finished works are never ended (252 of 316) | `active` 26.0, `slots_pass` 26.5, `keep_warm_scan` 27.3; a turn 167 to 220 | 262.0 (10.03 to 10.12), 268.2, 276.9 (10.07 to 10.17); a turn 1.1 to 1.7 s | passes measured; counts read at the lines named; the sum inferred |
-| E2 | `Db::write` takes the next transaction number: `SELECT coalesce(max(tx), 0) + 1 FROM changes` (`crates/db/src/lib.rs:504`), inside the immediate transaction, so under the write lock | every write: the loop, every step, every model call and tool use that writes (read); at least 18,845 so far (measured) | rows of `changes` (nothing deletes from it; no index on `tx`) | 33.1 | 333.9 (10.00 to 10.16) | measured, read |
+| E1 (mended by #313) | The passes that load every work not ended: `Engine::active` (called by `outdated` at `schedule.rs:217` and by `dispatch` at `:286`) and `slots_by_machine` (= `active` plus the wait of each active engineer work; called by `free_slots` in `architect.rs:348`, `schedule.rs:364` and `main.rs:840`) and the `keep_warm` scan of every unended work (`warm.rs`). Each loads the work (4 statements) and asks `done` | 2 `active` + 1 to 3 `slots_by_machine` + 1 `keep_warm` per turn | works not ended: finished works are never ended (252 of 316) | `active` 26.0, `slots_pass` 26.5, `keep_warm_scan` 27.3; a turn 167 to 220 | 262.0 (10.03 to 10.12), 268.2, 276.9 (10.07 to 10.17); a turn 1.1 to 1.7 s | passes measured; counts read at the lines named; the sum inferred |
+| E2 (mended by #312) | `Db::write` takes the next transaction number: `SELECT coalesce(max(tx), 0) + 1 FROM changes` (`crates/db/src/lib.rs:504`), inside the immediate transaction, so under the write lock | every write: the loop, every step, every model call and tool use that writes (read); at least 18,845 so far (measured) | rows of `changes` (nothing deletes from it; no index on `tx`) | 33.1 | 333.9 (10.00 to 10.16) | measured, read |
 | E3 | `reload_config`: `config::committed` runs `git rev-parse`, `git ls-tree -r` and one `git show` per file, and compares the commit only after (`lib.rs:1174`, `config/src/lib.rs:1300-1321`) | twice per turn (`schedule.rs:207`, `main.rs`) | files of the configuration, not the data | 30.8 per call (16 files assumed) | same | measured on an assumed file count |
 | E4 | The reminder (`reminders.rs:11`): reads `conversation_entries` whole for the oldest waiting ask | once per turn when the installation sets a reminder interval and none is due (inferred from the early return at `interval_ms <= 0`) | asks x matters/notices (indexes missing on `engine_notices.ask`, `architect_matters.asked`, `blockers.ask`) | 0.36 | 88.3 (243 to 253) | measured; frequency inferred |
 | E5 | `start_ready` and `queue_due` read `ready_items` and `slots_free_history` | once per turn | items, rounds of dependency works | 5.4 and 0.15 | 84.2 (15.3 to 16.0), 5.3 (33 to 36) | measured; frequency read |
@@ -165,12 +170,12 @@ an item that already covers the path.
 |---|---|---|---|---|---|---|
 | R1 | The architect's longest work: `work::rounds` (every round of the work with its input and output), called by `steps.rs:1036` (composing every round), `:1346`, `:1626`, `:1705` (only `.pop()`), `:1819`, `inputs.rs:508` | at least once per round of that work | the work's own rounds: the whole work is read for each new round, so O(n^2) per work | 27.2 ms, 29.3 MB | at scale 10 27.8 (1.01 to 1.04: not growing with the works); at 1L10 294.5 (10.68 to 10.99), ~290 MB | measured, call sites read |
 | R1b | The same work: `open_round` at the start of every step; `api.work.arch` for its page | every step; every read of its page | the work's rounds | 3.3 (arch), 73.8 ms and 29.8 MB (page) | at 1L10 34.0 (10.16 to 10.83), 767.5 (10.34 to 10.46) | measured |
-| R2 | `own_rounds` / `of_cli_session` (`sessions/src/round.rs:84,111`; callers `held.rs:270`, `warm.rs:296`): every round of a CLI session. `rounds.session` has no index, so the plan scans all rounds | every agent round (composing it), and E6 | all rounds of the database | engineer 13.9 ms; architect 28.2 ms and 18.6 MB | 137.3 (9.79 to 9.97); 152.2 (5.4 times: the session's rows do not grow) | measured; plan read |
+| R2 (changed by #312) | `own_rounds` / `of_cli_session` (`sessions/src/round.rs:84,111`; callers `held.rs:270`, `warm.rs:296`): every round of a CLI session. `rounds.session` has no index, so the plan scans all rounds | every agent round (composing it), and E6 | all rounds of the database | engineer 13.9 ms; architect 28.2 ms and 18.6 MB | 137.3 (9.79 to 9.97); 152.2 (5.4 times: the session's rows do not grow) | measured; plan read |
 | R3 | `work::resumed_at` (`steps.rs:209`, `failed.rs:145`): `json_extract(row_key, '$.id')` cannot use `changes_by_row`, so every `works` change is read | twice per agent round | changes of the table `works` (15,774) | 4.1 | 41.2 (10.04 to 10.19) | measured, read |
 | R4 | The `work_counters` view read whole (cell A1's input, the owner's page): the `rounds_counts` arm is an index scan, the `total_time` arm scans all rounds. One work's counter does not grow with the data (0.89 to 1.00) | per A1 round and per page read of counters | rounds | 40.5 whole; 0.017 for one work | 408.4 (10.01 to 10.13); one work's does not grow | measured; readers inferred. Overlaps #226 (merged; the scan remains, section 5) |
-| R5 | `rounds_of_matter` (`work.rs:212`): the architect's rounds at a cell, found without an index on `rounds.cell` | per architect round with a place input (inferred from the call chain) | all rounds | 17.1 | 178.4 (10.28 to 10.45) | measured |
+| R5 (faster after #312) | `rounds_of_matter` (`work.rs:212`): the architect's rounds at a cell, found without an index on `rounds.cell` | per architect round with a place input (inferred from the call chain) | all rounds | 17.1 | 178.4 (10.28 to 10.45) | measured |
 | R6 | `blockers::architect_time` | per step of a work waiting on the architect (inferred) | architect rounds in the project | 21.5 | 204.3 (9.41 to 9.55) | measured |
-| R7 | `interjections_words` and `asked_matters`: scans of `interjections` and of `architect_matters` for a work | per round that checks verdicts or reviews (inferred) | interjections, matters | 0.031 and 0.084 | 0.64 (20 to 21) and 4.1 (46 to 50) | measured |
+| R7 (faster after #312) | `interjections_words` and `asked_matters`: scans of `interjections` and of `architect_matters` for a work | per round that checks verdicts or reviews (inferred) | interjections, matters | 0.031 and 0.084 | 0.64 (20 to 21) and 4.1 (46 to 50) | measured |
 | R8 | `main_watch::merges`: parses the output of every round to find one commit | per main-red matter, 5 times (read) | all rounds | 75.6 | 762.6 (10.05 to 10.15) | measured |
 | R9 | `ci` results of the work, parsed several times a return (`checks.rs`); `fact_basis_ran` | per return | the work's tool runs | 0.36 and 1.2 | 0.47 and 1.5 (at most 1.3 times) | measured |
 | R10 | `round_measures` rows of the whole graph read for each round with a guard (`guard.rs:575`) | per agent round | measured rounds of the graph | not measured | not measured | read only; the table cannot be read by `query` |
@@ -181,9 +186,9 @@ an item that already covers the path.
 |---|---|---|---|---|---|
 | I1 | `/system` (`system.rs`): `works_of` 66.6, `rounds_since` 109.0 (a scan of all rounds for the last week), `counted` 67.3, `work_changes` 63.9, `item_events` 44.8 | works, rounds, changes: none is bounded by the week it shows | 351.6 | 3,456.5 (the five: 678.1, 623.8 (5.6 times), 691.4, 798.9 (12.4 to 12.6), 664.3 (14.6 to 15.0)) | measured |
 | I2 | `/works` (58.5; 7,727 rows, 479 kB: every round of every work, the `waiting` and `recorded` columns that the summary does not use) and `/conversations` (18.6) are held by the top bar of every page | works, rounds, messages | 77.1 | 2,592 (`/works` 10.5 to 10.6 times; `/conversations` 105 to 109 times) | measured; the top bar read (`TopBar.tsx`, inventory) |
-| I3 | `conversation_entries` is a UNION of 12 selects built whole for any read of one conversation (the plan is `CO-ROUTINE conversation_entries / COMPOUND QUERY`); some arms scan unindexed columns (`interjections.matter`, `engine_notices.ask`, `architect_matters.asked`, `blockers.ask`) | messages x matters x interjections | `/conversation` of one work 5.7; of the architect 5.8; view 6.6 | 1,014.7 (175 to 183); 1,018.4 (171 to 175); 1,040.7 (155 to 160) | measured; the unindexed arms inferred from the SQL shape |
+| I3 (faster after #312) | `conversation_entries` is a UNION of 12 selects built whole for any read of one conversation (the plan is `CO-ROUTINE conversation_entries / COMPOUND QUERY`); some arms scan unindexed columns (`interjections.matter`, `engine_notices.ask`, `architect_matters.asked`, `blockers.ask`) | messages x matters x interjections | `/conversation` of one work 5.7; of the architect 5.8; view 6.6 | 1,014.7 (175 to 183); 1,018.4 (171 to 175); 1,040.7 (155 to 160) | measured; the unindexed arms inferred from the SQL shape |
 | I4 | `/works/{id}` of the architect's longest work: 3,330 rounds with their whole input and output (29.8 MB); the correlated `min(n)` per round makes it quadratic in the work | the work's rounds | 73.8 | 72.5 at 10 (0.97 to 1.00: not growing with the works); 767.5 at 1L10 | measured |
-| I5 | `/items` (9.3 over `/works`; unresolved, noise: section 2), `/observations` 17.1, `/architect` notebook 3.0 (every version's full text, no limit), `/flows` 1.0 (a scan of `works` for each flow version: works x versions), `/architect/rounds` 22.8 (sorts all architect rounds), item level changes 7.1 (scans every `items` change) | items, observations, notebook versions, works x versions | as listed | 124.3, 180.7, 52.3 (17 to 18), 92.0 (93 to 96), 231.6, 65.6 | measured |
+| I5 (changed by #312; `/items` slower, item #316) | `/items` (9.3 over `/works`; unresolved, noise: section 2), `/observations` 17.1, `/architect` notebook 3.0 (every version's full text, no limit), `/flows` 1.0 (a scan of `works` for each flow version: works x versions), `/architect/rounds` 22.8 (sorts all architect rounds), item level changes 7.1 (scans every `items` change) | items, observations, notebook versions, works x versions | as listed | 124.3, 180.7, 52.3 (17 to 18), 92.0 (93 to 96), 231.6, 65.6 | measured |
 | I6 | `api::events` after each write: two point lookups per changed row (`events.rs:39`) | rows a write changes | 4.1 for 200 rows | 4.2 (1.01 to 1.02: not growing with the data) | measured |
 
 ### Page (`client/src`): not timed
