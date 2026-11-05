@@ -4358,7 +4358,7 @@
       "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, decision cards and asks of the owner, and what each asked the architect and had withdrawn when it ended; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
-      "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
+      "numbers": "The numbers the engine measures for the project, each up to the moment it is given and earlier, for the trend.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
       "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
@@ -13821,7 +13821,7 @@
             },
             {
               "name": "Project numbers",
-              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its records and of the files the project holds on main; items made, merged and cancelled week by week; what its items' works and its architect's works spent week by week, up to this work of the architect. The engine measures nothing else yet, and says so for a signal it does not measure",
+              "what": "The numbers the engine measures for the project, each up to the moment this input is given (`up_to`, UTC), the rounds of this work of the architect until then counted, and earlier for the trend: the size of its records and of the files the project holds on main; items made, merged and cancelled, and what its items' works and its architect's works spent, week by week; and the engine's other health numbers, each with what it is and its unit, week by week for the same four weeks, one split by cell giving the cells with the largest values and how many more there are. Merged counts the pull requests the flow merged; the commits that came onto main without the flow, and the merges whose commit main does not hold, are numbers of their own. A number that had nothing to measure in a week has no value there and says why",
               "from": [
                 {
                   "engine": "numbers"

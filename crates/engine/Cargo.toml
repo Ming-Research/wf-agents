@@ -13,6 +13,8 @@ db = { path = "../db" }
 flow = { path = "../flow" }
 # Compresses the daily copy of the database before it is kept off the machine; pure Rust, on every platform.
 flate2 = "1.1.10"
+# The health numbers: the architect's numbers are read from them, and the engine samples what no record holds.
+health = { path = "../health" }
 # Reads the JUnit XML files a project's fast CI reports its tests' results in; it only reads, and refuses a DTD.
 roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -22,8 +24,11 @@ sessions = { path = "../sessions" }
 unicode-segmentation.workspace = true
 
 [dev-dependencies]
-# What the owner decides, as the page writes it: the tests pause works and let them go on as the owner does.
+# What the owner decides, as the page writes it: the tests pause works and let them go on as the owner does. And the
+# System view, whose items made the architect's numbers agree with.
 api = { path = "../api" }
+# The owner's page as `wf-agents run` serves it beside the engine: the tests count its reads in the engine's samples.
+web = { path = "../web" }
 
 [lints]
 workspace = true

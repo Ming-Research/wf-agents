@@ -13,6 +13,8 @@ config = { path = "../config" }
 db = { path = "../db" }
 engine = { path = "../engine" }
 flow = { path = "../flow" }
+# The count of the page's reads, which the page's server adds to and the engine samples each minute.
+health = { path = "../health" }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # The session manager, for what the flow check says of each line's sessions.
 sessions = { path = "../sessions" }

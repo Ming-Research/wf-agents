@@ -922,7 +922,8 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
 /// a work's own pause is kept. The loop is the engine's only scheduler ([`engine::schedule`]): at each turn it reaps
 /// the jobs that ended, the owner's Start of a work taken over going on in the work that took its item over; hands the
 /// session manager the new sessions the owner asked for, lifts the pause of the works the owner started once each may
-/// hold a slot, reminds the owner of the asks waiting, and dispatches, with what the owner asked, the rounds the owner
+/// hold a slot, reminds the owner of the asks waiting, takes the minute's sample of the health numbers that no record
+/// holds, the page's reads among them, and dispatches, with what the owner asked, the rounds the owner
 /// asked for and a step of each work that goes on and has no job in flight, each on a thread of its own, with the
 /// keep-warm pings due; it tells how the engine stands, and waits until the owner asks something, a job ends or the
 /// idle time passes. So a pause of a work takes effect as soon as its round under way has ended, while the rounds of
@@ -1030,12 +1031,15 @@ fn serve(
     bus.publish(api::Event::Status {
         status: Box::new(control.status(first)),
     });
+    // The page's reads, which its server counts and the engine takes into each minute's sample.
+    let reads = Arc::new(health::PageReads::default());
     let port = web::start(web::Options {
         data: d.to_path_buf(),
         db: config::database(d),
         port,
         bus: Arc::clone(&bus),
         control: Arc::clone(&control),
+        reads: Arc::clone(&reads),
     })?;
     e.say(&format!(
         "the page is at http://127.0.0.1:{port}/; every work is paused until the owner starts them there"
@@ -1067,6 +1071,11 @@ fn serve(
         // The asks waiting for the owner's answer are reminded of once an interval, whatever the works do.
         if let Err(x) = e.remind(db::now()) {
             e.say(&format!("reminding the owner of the asks waiting: {x}"));
+        }
+        // What no record holds is sampled once a minute, whatever the works do; a sample that fails is said and dispatches
+        // nothing less.
+        if let Err(x) = e.beat(db::now(), &reads) {
+            e.say(&format!("sampling the health numbers: {x}"));
         }
         // A copy of the database is kept once a day.
         match e.back_up(db::now()) {

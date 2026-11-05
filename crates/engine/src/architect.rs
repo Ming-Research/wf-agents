@@ -60,10 +60,11 @@ pub const INPUTS: &[&str] = &[
     "handed_in",
 ];
 
-/// The engine's inputs that read the project's files on its main, each as one commit of it has them. A round whose cell
-/// has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a project's architect's line, the
-/// commit its worktree is brought to), which every one of them is read at, after one fetch of main.
-pub const MAIN_INPUTS: &[&str] = &["constitution", "decisions", "guide"];
+/// The engine's inputs that read the project's main, each as one commit of it has it: its files, or for the numbers its
+/// commits. A round whose cell has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a
+/// project's architect's line, the commit its worktree is brought to), which every one of them is read at, after one
+/// fetch of main.
+pub const MAIN_INPUTS: &[&str] = &["constitution", "decisions", "guide", "numbers", "policy_signals"];
 
 /// A section of a project's architect's notebook as it stands: its latest version's text; none before any round wrote
 /// it, and none when it is empty.
@@ -3504,11 +3505,11 @@ pub fn input(
         "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
         "decisions" => decisions(e, project, main),
         "guide" => guide(e, project, main).map(Some),
-        "numbers" => numbers(e, w, project).map(Some),
+        "numbers" => numbers(e, project, main).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
         "levels" => Ok(Some(levels(e))),
         "policy" => policy(e, project),
-        "policy_signals" => policy_signals(e, w, project),
+        "policy_signals" => policy_signals(e, project, main),
         "slots" => slots(e).map(Some),
         "matter" => matter(e, w),
         // Only an engineer's question weighs what other works change.
@@ -3792,65 +3793,147 @@ fn work_waits(e: &Engine, g: Option<&CompiledGraph>, work: i64, at: &str) -> Res
     Ok(None)
 }
 
-/// When a work started: its first round's start; now, before it has one.
-fn work_start(conn: &Connection, work: i64) -> Result<i64, String> {
-    let at: Option<i64> = conn
-        .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [work], |r| {
-            r.get(0)
-        })
-        .map_err(sql)?;
-    Ok(at.unwrap_or_else(db::now))
+/// A health number as the architect is given it, in the unit of its measure: to the cent for money, to three places
+/// for a part, and whole for a time in milliseconds, a count or tokens unless a median falls between two. A time is
+/// given in milliseconds whatever its size, so that a small one, such as how long the page's reads took, is not rounded
+/// away, and its unit and the names that end in `_ms` say the same.
+fn health_value(unit: health::Unit, v: f64) -> Value {
+    let to = |places: i32, x: f64| {
+        let k = 10f64.powi(places);
+        (x * k).round() / k
+    };
+    match unit {
+        health::Unit::Usd => json!(to(2, v)),
+        health::Unit::Ratio | health::Unit::Share => json!(to(3, v)),
+        health::Unit::Ms | health::Unit::Count | health::Unit::Tokens if (v - v.round()).abs() < 1e-9 => {
+            json!(v.round() as i64)
+        }
+        health::Unit::Ms | health::Unit::Count | health::Unit::Tokens => json!(to(1, v)),
+    }
 }
 
-/// The numbers the engine measures for a project, each as the architect's work started and earlier for the trend, so
-/// that they hold through the work: the size of its design paths and of every file on main; its items made, merged and
-/// cancelled, and what its items' works and its architect's works spent, each for the four weeks before the work one by
-/// one.
-fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
+/// A health number's values as the architect is given them, from a series with a point for each week: the latest week
+/// first, and null for a week with no value.
+fn health_weeks(m: &health::Measure, s: &health::Series) -> Value {
+    s.points
+        .iter()
+        .rev()
+        .map(|p| p.value.map_or(Value::Null, |v| health_value(m.unit, v)))
+        .collect()
+}
+
+/// The commits on a project's main from the commit a round is pinned to, as the health numbers read them; or why they
+/// could not be read.
+fn main_log(e: &Engine, project: &str, main: Option<&str>) -> Result<health::MainLog, String> {
+    let p = e
+        .config
+        .config
+        .projects
+        .get(project)
+        .ok_or_else(|| format!("no project {project} in the configuration"))?;
+    let commit = main.ok_or_else(|| "the round is pinned to no commit of main".to_string())?;
+    let mut args = health::MainLog::GIT_LOG.to_vec();
+    args.push(commit);
+    health::MainLog::parse(&git::git(&p.checkout, &args)?)
+}
+
+/// The health numbers the architect's numbers give under `weeks`, by the names the policy's signals use, and so not
+/// again among the measures.
+const IN_WEEKS: [&str; 4] = ["items.made", "items.merged", "items.cancelled", "spend.usd"];
+
+/// How many cells the architect is given of a health number split by cell, those with the largest values in the latest
+/// week; how many more there are is said.
+const CELLS_GIVEN: usize = 5;
+
+/// The numbers the engine measures for a project, up to the moment they are given (`up_to`, UTC to the minute), the
+/// rounds of the architect's work until then counted, and earlier for the trend. All of it is over the same four weeks
+/// before that moment: the items made, merged and cancelled, and what its items' works and its architect's works spent,
+/// one by one (`weeks`); and every other health number ([`health::measures`]), with what it is and its unit, its value
+/// in each week, the latest first (`by_week`), and why a week has no value (`no_value`), split by its subjects where it
+/// has them, only the cells with the largest values for one split by cell. The numbers nothing records yet are listed
+/// with why (`not_measured`). Besides, the size of its design paths and of every file on main. The commits on main are
+/// read from `main`, the commit the round is pinned to. A round is inserted with the input it was given, so the moment
+/// the numbers are computed is no later than its start.
+fn numbers(e: &Engine, project: &str, main: Option<&str>) -> Result<Value, String> {
     let conn = e.db.conn();
     let week = 7 * 24 * HOUR;
-    let now = work_start(conn, w.id)?;
-    let mut weeks = Vec::new();
-    for k in 0..4 {
-        // Each week ends the millisecond before the next begins, the last before the work.
-        let (to, from) = (now - k * week - 1, now - (k + 1) * week);
-        let made = count(
-            conn,
-            "SELECT count(*) FROM items i WHERE i.project = ?1 AND (SELECT min(c.at) FROM changes c
-               WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id)) BETWEEN ?2 AND ?3",
-            &[&project, &from, &to],
-        )?;
-        let merged = count(
-            conn,
-            &format!(
-                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-                 WHERE i.project = ?1 AND r.cell IN {} AND r.transition = 'merged' AND r.ended_at BETWEEN ?2 AND ?3",
-                db::cells_sql(ENGINEER, &["M2"])
-            ),
-            &[&project, &from, &to],
-        )?;
-        let cancelled = count(
-            conn,
-            "SELECT count(*) FROM changes c WHERE c.table_name = 'items' AND c.at BETWEEN ?2 AND ?3
-               AND json_extract(c.new_row, '$.project') = ?1 AND json_extract(c.new_row, '$.cancelled') IS NOT NULL
-               AND json_extract(c.old_row, '$.cancelled') IS NULL",
-            &[&project, &from, &to],
-        )?;
-        let (items, architect): (f64, f64) = conn
-            .query_row(
-                "SELECT coalesce(sum(CASE WHEN w.graph = 'engineer' THEN json_extract(r.usage, '$.cost_usd') END), 0),
-                        coalesce(sum(CASE WHEN w.graph = 'architect' THEN json_extract(r.usage, '$.cost_usd') END), 0)
-                 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN items i ON i.id = w.item
-                 WHERE coalesce(i.project, w.project) = ?1 AND r.started_at BETWEEN ?2 AND ?3",
-                params![project, from, to],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(sql)?;
-        let usd = |x: f64| (x * 100.0).round() / 100.0;
-        weeks.push(json!({
-            "weeks_ago": k, "items_made": made, "merged": merged, "cancelled": cancelled,
-            "spent_usd": { "items": usd(items), "architect": usd(architect) },
-        }));
+    let now = db::now();
+    let measure = |name: &str| health::measure(name).ok_or_else(|| format!("the engine has no health number {name}"));
+    let log = main_log(e, project, main);
+    let scope = health::Scope {
+        project: Some(project),
+        subject: None,
+        main: log.as_ref().ok(),
+    };
+    // The four weeks before now, the earliest first: week k before now is point 3 - k.
+    let from = now - 4 * week;
+    let by_week = |name: &str| health::series(conn, measure(name)?, &scope, from, now, week);
+    let (made, merged, cancelled) = (
+        by_week("items.made")?,
+        by_week("items.merged")?,
+        by_week("items.cancelled")?,
+    );
+    let spent = health::series_by_subject(conn, measure("spend.usd")?, &scope, from, now, week)?;
+    let at = |s: &health::Series, k: usize| s.points.get(k).and_then(|p| p.value).unwrap_or(0.0);
+    let spent_by = |graph: &str, k: usize| spent.iter().find(|(g, _)| g == graph).map_or(0.0, |(_, s)| at(s, k));
+    let usd = |x: f64| (x * 100.0).round() / 100.0;
+    let weeks: Vec<Value> = (0..4)
+        .map(|ago: usize| {
+            let k = 3 - ago;
+            json!({
+                "weeks_ago": ago, "items_made": at(&made, k) as i64, "merged": at(&merged, k) as i64,
+                "cancelled": at(&cancelled, k) as i64,
+                "spent_usd": { "items": usd(spent_by(ENGINEER, k)), "architect": usd(spent_by(ARCHITECT, k)) },
+            })
+        })
+        .collect();
+    // Every other health number over the same four weeks.
+    let mut measures = Map::new();
+    let mut not_measured = Map::new();
+    for m in health::measures().iter().filter(|m| !IN_WEEKS.contains(&m.name)) {
+        let s = health::series(conn, m, &scope, from, now, week)?;
+        let mut entry = Map::new();
+        entry.insert("what".into(), json!(m.what));
+        entry.insert("unit".into(), json!(m.unit.name()));
+        entry.insert("by_week".into(), health_weeks(m, &s));
+        if let Some(why) = s.not_measured {
+            // A number of main's commits that could not be read says what kept them from being read.
+            let why = match (&log, matches!(m.source, health::Source::Main(_))) {
+                (Err(unread), true) => format!("{why}: {unread}"),
+                _ => why.to_string(),
+            };
+            not_measured.insert(m.name.into(), json!(why));
+        } else {
+            if s.points.iter().any(|p| p.value.is_none()) {
+                entry.insert("no_value".into(), json!(m.empty));
+            }
+            if let Some(by) = m.by.name() {
+                let mut split = health::series_by_subject(conn, m, &scope, from, now, week)?;
+                for (subject, s) in &split {
+                    if let Some(why) = s.not_measured {
+                        not_measured.insert(format!("{} for {by} {subject}", m.name), json!(why));
+                    }
+                }
+                // Of the cells, those with the largest values in the latest week; a cell with none there comes last.
+                let by_cell = m.by == health::By::Cell;
+                let mut others = 0;
+                if by_cell {
+                    let latest = |s: &health::Series| s.points.last().and_then(|p| p.value).unwrap_or(f64::MIN);
+                    split.sort_by(|a, b| latest(&b.1).total_cmp(&latest(&a.1)));
+                    others = split.len().saturating_sub(CELLS_GIVEN);
+                    split.truncate(CELLS_GIVEN);
+                }
+                let given: Map<String, Value> = split
+                    .iter()
+                    .map(|(subject, s)| (subject.clone(), health_weeks(m, s)))
+                    .collect();
+                entry.insert(format!("by_{by}"), Value::Object(given));
+                if by_cell {
+                    entry.insert("other_cells".into(), json!(others));
+                }
+            }
+        }
+        measures.insert(m.name.into(), Value::Object(entry));
     }
     let size = e.config.config.projects.get(project).map(|p| {
         let main = p.main_ref();
@@ -3889,10 +3972,11 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         json!({ "now": back(0), "a_week_ago": back(7), "a_month_ago": back(30) })
     });
     Ok(json!({
-        "size_on_main": size,
+        "up_to": utc_minute(now),
         "weeks": weeks,
-        "not_measured": "The engine measures nothing else yet: no test count, no CI time, no specification beyond the \
-                         design paths' size."
+        "size_on_main": size,
+        "measures": measures,
+        "not_measured": not_measured,
     }))
 }
 
@@ -3932,20 +4016,39 @@ fn policy(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 }
 
 /// The signals of the policy in force for a project that the engine measures, each with its numbers: a signal whose
-/// words name a measure of the numbers by its name (`merged`, or `items made` for `items_made`), with that measure week
-/// by week, the latest first, or now, a week ago and a month ago. None when the engine measures none of them, or before
-/// the first policy takes effect.
-fn policy_signals(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+/// words name a measure of the numbers by its name (`merged`, `items made` for `items_made`, or `ci wait` for the
+/// health number `ci.wait`), with that measure week by week, the latest first; or now, a week ago and a month ago. A
+/// health number comes as the numbers give it, with what it is, its unit and why a week has no value, and with why it or
+/// a part of it is not measured (`not_measured`, by the names the numbers list it under): whoever reads only the signals
+/// can tell a number nothing records from a week with nothing to count. None when the engine measures none of them, or
+/// before the first policy takes effect.
+fn policy_signals(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
     let Some(policy) = policy(e, project)? else {
         return Ok(None);
     };
-    let numbers = numbers(e, w, project)?;
+    let numbers = numbers(e, project, main)?;
     let mut measures: Vec<(String, Value)> = Vec::new();
     let weeks = items(numbers.get("weeks"));
     if let Some(first) = weeks.first().and_then(Value::as_object) {
         for k in first.keys().filter(|k| *k != "weeks_ago") {
             let by_week: Vec<Value> = weeks.iter().map(|x| x[k].clone()).collect();
             measures.push((k.clone(), json!({ "by_week": by_week })));
+        }
+    }
+    if let Some(measured) = numbers["measures"].as_object() {
+        let unmeasured = numbers["not_measured"].as_object();
+        for (k, m) in measured {
+            let mut given = m.clone();
+            let why: Map<String, Value> = unmeasured
+                .into_iter()
+                .flatten()
+                .filter(|(name, _)| *name == k || name.starts_with(&format!("{k} for ")))
+                .map(|(name, why)| (name.clone(), why.clone()))
+                .collect();
+            if !why.is_empty() {
+                given["not_measured"] = Value::Object(why);
+            }
+            measures.push((k.clone(), given));
         }
     }
     let size = &numbers["size_on_main"];
@@ -3968,7 +4071,7 @@ fn policy_signals(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, 
         let said = format!(" {} ", said.split_whitespace().collect::<Vec<_>>().join(" "));
         let found: Map<String, Value> = measures
             .iter()
-            .filter(|(k, _)| said.contains(&format!(" {} ", k.replace('_', " "))))
+            .filter(|(k, _)| said.contains(&format!(" {} ", k.replace(['_', '.'], " "))))
             .cloned()
             .collect();
         if !found.is_empty() {

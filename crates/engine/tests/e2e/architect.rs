@@ -908,47 +908,6 @@ fn open_items_holds_every_item_not_done_in_the_order_they_start() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The numbers the architect is given are measured up to the start of its work, its own rounds counting for nothing, and
-// what each week spent is split between the items' works and the architect's works.
-#[test]
-fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
-    let s = setup("numbers");
-    let (mut e, said) = engine(&s, scripts());
-    quiet(&mut e);
-    let item = an_item(&mut e);
-    let v = e.flow_now;
-    let ago = db::now() - 3_600_000;
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute("UPDATE rounds SET usage = '{\"cost_usd\":0.25}' WHERE cell = 'H10'", [])?;
-        tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'I1', 'stopped: by hand')",
-            params![item, v],
-        )?;
-        tx.execute(
-            "INSERT INTO rounds (work, n, cell, input, transition, config_commit, usage, started_at, ended_at)
-             VALUES (?1, 1, 'I1', '{}', 'tools', 'c', '{\"cost_usd\":0.5}', ?2, ?2)",
-            params![tx.last_insert_rowid(), ago],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    say(&mut e, "Look at the numbers.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "B2")),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let plan = message_at(&e, arch, "B2", false);
-    let numbers = given_value(&plan, "·engine·numbers").expect(&plan);
-    assert_eq!(
-        numbers["weeks"][0]["spent_usd"],
-        json!({ "items": 0.5, "architect": 0.25 }),
-        "{numbers}"
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // The engine watches each project's main: once the full CI of the commit main is at has finished red, a matter of main
 // red is queued for that commit, once, which starts a work of the architect and stops the merge queue while it is
 // open. The look at what comes next takes it first after the owner's words; the engine checks it mechanically, running
