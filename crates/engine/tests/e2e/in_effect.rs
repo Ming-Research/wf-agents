@@ -220,6 +220,8 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     assert_eq!(transitions(&e, item, "V1"), ["not_carried"]);
     let w = e.work(work).unwrap();
     assert!(e.waiting(&w).unwrap());
+    // A merged work that waits for its change to take effect has not ended.
+    assert_eq!(ended_of(&e, work), None);
     let rounds = rounds_of(&e, work);
     e.step(None).unwrap();
     assert_eq!(rounds_of(&e, work), rounds);
@@ -249,6 +251,12 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     assert_eq!(looks(&e, item).last().unwrap(), "verified");
     assert_eq!(looks_counted(&e, work), 1);
     assert!(report_of(&e, item).is_none());
+    // It ends, as done, only when its round at the end is complete.
+    let w = e.work(work).unwrap();
+    assert!(!e.done(&w).unwrap() && ended_of(&e, work).is_none());
+    step_until(&mut e, item, &said, "the end", |e| ended_done(e, work));
+    let w = e.work(work).unwrap();
+    assert!(e.done(&w).unwrap());
     let seen = verifications(&e, item);
     assert_eq!(seen.len(), 2, "{seen:?}");
     assert_eq!((seen[0].0.as_str(), seen[0].1.as_str()), ("A2", "not_yet"));

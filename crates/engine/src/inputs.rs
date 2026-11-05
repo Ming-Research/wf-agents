@@ -1086,7 +1086,10 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
     let mut out = vec!["This item was worked on before. Read what exists yourself:".to_string()];
     for x in &earlier {
         let id = x["id"].as_i64().unwrap_or_default();
-        let ended = x["ended"].as_str().unwrap_or("it reached the end of its graph");
+        let ended = x["ended"]
+            .as_str()
+            .filter(|why| *why != db::ENDED_DONE)
+            .unwrap_or("it reached the end of its graph");
         out.push(format!(
             "- Work {id} (flow version {}, {} rounds) was at cell {} when it ended: {ended}. Its rounds, R{id}-1 on, \
              with the cell, the row taken and what each said it did: query `SELECT n, cell, transition, \
