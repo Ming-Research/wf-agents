@@ -18,6 +18,7 @@ pub use rusqlite;
 pub mod attachments;
 pub mod backup;
 mod cells;
+mod engine_runs;
 mod holds;
 mod matters;
 mod questions;
@@ -25,6 +26,7 @@ mod slots;
 mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
+pub use engine_runs::{start_engine_run, stop_engine_run};
 pub use holds::{HoldReason, hold_starts, holds_of, release_starts};
 pub use matters::{
     Appended, BASE_BUILT, Declared, FAULT, Forwarder, Matter, Speaker, appended_since, base_built_at, fault_forwarding,
@@ -67,7 +69,7 @@ pub const MIGRATIONS: &[Migration] = include!(concat!(env!("OUT_DIR"), "/migrati
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 13] = [
+const UNTRACKED: [&str; 14] = [
     "migrations",
     "rounds",
     "tool_runs",
@@ -81,6 +83,7 @@ const UNTRACKED: [&str; 13] = [
     "contents",
     "attachments",
     "slot_waits",
+    "engine_runs",
 ];
 
 /// The line a table's description has when agents may not read it.
