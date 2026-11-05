@@ -127,7 +127,7 @@ busiest rate; the turn and the flush have one rate each, the floor. The column "
 | 9 | R3 `resumed_at` (twice per agent round) | 82 | 13 at the busiest | 1,071 | 107 | inferred |
 | 10 | R1 the architect's long work read whole | 294 (290 MB) | 2.9 at the busiest (22% of rounds) | 854 | 79 | inferred |
 | 11 | I5 `/architect/rounds` (`/observations` 181, `/items` 124, unresolved) | 232 | 3.3 while open | 764 | 75 | read |
-| 12 | R5 `rounds_of_matter` | 178 | 2.9 at the busiest (architect rounds) | 510 | 50 | inferred |
+| 12 | R5 `rounds_of_matter` | 178 | 2.9 at the busiest (architect rounds) | 517 | 50 | inferred |
 | 13 | E5 `ready_items`, `slots_free_history` | 90 | 1 per turn | 90 | 5.6 | read |
 | 14 | E4 reminder | 88 | 1 per turn, if the installation sets the interval | 88 | 0.4 | inferred |
 | 15 | E3 `reload_config` (twice) | 62 | 1 per turn | 62 | 62 | read |
@@ -155,11 +155,11 @@ an item that already covers the path.
 
 | # | Path and where | Runs | Grows with | Now | At 10x | How known |
 |---|---|---|---|---|---|---|
-| R1 | The architect's longest work: `work::rounds` (every round of the work with its input and output), called by `steps.rs:1036` (composing every round), `:1346`, `:1626`, `:1705` (only `.pop()`), `:1819`, `inputs.rs:508` | at least once per round of that work | the work's own rounds: the whole work is read for each new round, so O(n^2) per work | 27.2 ms, 29.3 MB | at scale 10 27.8 (flat); at 1L10 294.5 (10.68 to 10.99), ~290 MB | measured, call sites read |
+| R1 | The architect's longest work: `work::rounds` (every round of the work with its input and output), called by `steps.rs:1036` (composing every round), `:1346`, `:1626`, `:1705` (only `.pop()`), `:1819`, `inputs.rs:508` | at least once per round of that work | the work's own rounds: the whole work is read for each new round, so O(n^2) per work | 27.2 ms, 29.3 MB | at scale 10 27.8 (1.01 to 1.04: not growing with the works); at 1L10 294.5 (10.68 to 10.99), ~290 MB | measured, call sites read |
 | R1b | The same work: `open_round` at the start of every step; `api.work.arch` for its page | every step; every read of its page | the work's rounds | 3.3 (arch), 73.8 ms and 29.8 MB (page) | at 1L10 34.0 (10.16 to 10.83), 767.5 (10.34 to 10.46) | measured |
 | R2 | `own_rounds` / `of_cli_session` (`sessions/src/round.rs:84,111`; callers `held.rs:270`, `warm.rs:296`): every round of a CLI session. `rounds.session` has no index, so the plan scans all rounds | every agent round (composing it), and E6 | all rounds of the database | engineer 13.9 ms; architect 28.2 ms and 18.6 MB | 137.3 (9.79 to 9.97); 152.2 (5.4 times: the session's rows do not grow) | measured; plan read |
 | R3 | `work::resumed_at` (`steps.rs:209`, `failed.rs:145`): `json_extract(row_key, '$.id')` cannot use `changes_by_row`, so every `works` change is read | twice per agent round | changes of the table `works` (15,774) | 4.1 | 41.2 (10.04 to 10.19) | measured, read |
-| R4 | The `work_counters` view read whole (cell A1's input, the owner's page): the `rounds_counts` arm is an index scan, the `total_time` arm scans all rounds. One work's counter is flat | per A1 round and per page read of counters | rounds | 40.5 whole; 0.017 for one work | 408.4 (10.01 to 10.13); flat | measured; readers inferred. Overlaps #226 (merged; the scan remains, section 5) |
+| R4 | The `work_counters` view read whole (cell A1's input, the owner's page): the `rounds_counts` arm is an index scan, the `total_time` arm scans all rounds. One work's counter does not grow with the data (0.89 to 1.00) | per A1 round and per page read of counters | rounds | 40.5 whole; 0.017 for one work | 408.4 (10.01 to 10.13); one work's does not grow | measured; readers inferred. Overlaps #226 (merged; the scan remains, section 5) |
 | R5 | `rounds_of_matter` (`work.rs:212`): the architect's rounds at a cell, found without an index on `rounds.cell` | per architect round with a place input (inferred from the call chain) | all rounds | 17.1 | 178.4 (10.28 to 10.45) | measured |
 | R6 | `blockers::architect_time` | per step of a work waiting on the architect (inferred) | architect rounds in the project | 21.5 | 204.3 (9.41 to 9.55) | measured |
 | R7 | `interjections_words` and `asked_matters`: scans of `interjections` and of `architect_matters` for a work | per round that checks verdicts or reviews (inferred) | interjections, matters | 0.031 and 0.084 | 0.64 (20 to 21) and 4.1 (46 to 50) | measured |
@@ -174,9 +174,9 @@ an item that already covers the path.
 | I1 | `/system` (`system.rs`): `works_of` 66.6, `rounds_since` 109.0 (a scan of all rounds for the last week), `counted` 67.3, `work_changes` 63.9, `item_events` 44.8 | works, rounds, changes: none is bounded by the week it shows | 351.6 | 3,456.5 (the five: 678.1, 623.8 (5.6 times), 691.4, 798.9 (12.4 to 12.6), 664.3 (14.6 to 15.0)) | measured |
 | I2 | `/works` (58.5; 7,727 rows, 479 kB: every round of every work, the `waiting` and `recorded` columns that the summary does not use) and `/conversations` (18.6) are held by the top bar of every page | works, rounds, messages | 77.1 | 2,592 (`/works` 10.5 to 10.6 times; `/conversations` 105 to 109 times) | measured; the top bar read (`TopBar.tsx`, inventory) |
 | I3 | `conversation_entries` is a UNION of 12 selects built whole for any read of one conversation (the plan is `CO-ROUTINE conversation_entries / COMPOUND QUERY`); some arms scan unindexed columns (`interjections.matter`, `engine_notices.ask`, `architect_matters.asked`, `blockers.ask`) | messages x matters x interjections | `/conversation` of one work 5.7; of the architect 5.8; view 6.6 | 1,014.7 (175 to 183); 1,018.4 (171 to 175); 1,040.7 (155 to 160) | measured; the unindexed arms inferred from the SQL shape |
-| I4 | `/works/{id}` of the architect's longest work: 3,330 rounds with their whole input and output (29.8 MB); the correlated `min(n)` per round makes it quadratic in the work | the work's rounds | 73.8 | flat at 10; 767.5 at 1L10 | measured |
+| I4 | `/works/{id}` of the architect's longest work: 3,330 rounds with their whole input and output (29.8 MB); the correlated `min(n)` per round makes it quadratic in the work | the work's rounds | 73.8 | 72.5 at 10 (0.97 to 1.00: not growing with the works); 767.5 at 1L10 | measured |
 | I5 | `/items` (9.3 over `/works`; unresolved, noise: section 2), `/observations` 17.1, `/architect` notebook 3.0 (every version's full text, no limit), `/flows` 1.0 (a scan of `works` for each flow version: works x versions), `/architect/rounds` 22.8 (sorts all architect rounds), item level changes 7.1 (scans every `items` change) | items, observations, notebook versions, works x versions | as listed | 124.3, 180.7, 52.3 (17 to 18), 92.0 (93 to 96), 231.6, 65.6 | measured |
-| I6 | `api::events` after each write: two point lookups per changed row (`events.rs:39`) | rows a write changes | 4.1 for 200 rows | 4.2 (flat) | measured |
+| I6 | `api::events` after each write: two point lookups per changed row (`events.rs:39`) | rows a write changes | 4.1 for 200 rows | 4.2 (1.01 to 1.02: not growing with the data) | measured |
 
 ### Page (`client/src`): not timed
 
@@ -191,7 +191,7 @@ an item that already covers the path.
 Every view was read with `SELECT count(*)`; the full list is in `results-2026-11-05.txt`. The agents' own SQL reaches them
 through the `query` tool (4,378 runs so far, measured), so a view read whole is a cost an agent can cause; the engine's
 cell inputs read most of them with `WHERE work = ?` or `WHERE item = ?`, which a primary-key prefix bounds (inferred;
-only `work_counters` for one work was timed, and it is flat). At scale 1, then at 10: `side_reports` 71.8 -> 727.9,
+only `work_counters` for one work was timed, and it does not grow with the data: 0.89 to 1.00). At scale 1, then at 10: `side_reports` 71.8 -> 727.9,
 `not_applicable_answers` 75.3 -> 760.4 (both `json_each` over every round's output), `work_counters` 39.1 -> 395.5,
 `work_followups` 21.8 -> 217.5, `advisor_rulings` 16.2, `adversarial_directions` 15.9, `item_research` 13.9,
 `sent_back_problems` 13.9, `observations_all` 13.3, `policy_current` and `policy_draft` 13.0, `work_set_aside` 12.7,
