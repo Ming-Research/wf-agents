@@ -457,6 +457,74 @@
           ]
         },
         {
+          "value": "in_effect",
+          "desc": "Only for what no test, check of the CI or measurement on the branch can show, and real runs show once the change is in effect, such as how fast a real run of a tool is once a change to the CI is on main: after the work merges, it waits for the change to take effect and checks this with a real run",
+          "fields": [
+            {
+              "name": "id",
+              "title": "Number",
+              "type": "text",
+              "desc": "Its number, such as A1; tests and measurements refer to it"
+            },
+            {
+              "name": "condition",
+              "title": "Condition",
+              "type": "text",
+              "desc": "One sentence stating the condition that must hold, so that it is clearly true or false; no \"about\" or \"roughly\""
+            },
+            {
+              "name": "when",
+              "title": "What carries the change",
+              "type": "enum",
+              "desc": "What must hold the merge commit for the change to be in effect",
+              "values": [
+                [
+                  "installed",
+                  "The installed program, built from this project: only the project the engine is built from can write this"
+                ],
+                [
+                  "merged",
+                  "Main: the change is in effect as it merges"
+                ]
+              ]
+            },
+            {
+              "name": "tool",
+              "title": "Tool that checks it",
+              "type": "enum",
+              "desc": "The tool whose real run checks it",
+              "values": [
+                [
+                  "query",
+                  "A read-only query of the engine's records"
+                ],
+                [
+                  "gh",
+                  "A read-only gh command"
+                ]
+              ]
+            },
+            {
+              "name": "command",
+              "title": "What to run",
+              "type": "text",
+              "desc": "What to run, whole: the SQL or the gh arguments. Write the time the change took effect as `:in_effect_at`, in milliseconds since the epoch, the one thing put in when it runs"
+            },
+            {
+              "name": "holds",
+              "title": "When it holds",
+              "type": "text",
+              "desc": "What result of that run means the condition holds; no other does"
+            },
+            {
+              "name": "enough",
+              "title": "Evidence to wait for",
+              "type": "text",
+              "desc": "What evidence must be there before it can be judged, such as at least 7 rows; none when it can be judged at once"
+            }
+          ]
+        },
+        {
           "value": "report_answer",
           "desc": "Only for a work that delivers a report: the condition is a question the report must answer, and the review judges whether it does",
           "fields": [
@@ -1196,6 +1264,18 @@
                 "title": "What the reading shows",
                 "type": "text",
                 "desc": "What is to be found there that proves the condition"
+              }
+            ]
+          },
+          {
+            "value": "in_effect",
+            "desc": "Only for a condition written in_effect, and for each of those: it is checked with a real run after the work merges and the change takes effect, and nothing on the branch meets it",
+            "fields": [
+              {
+                "name": "id",
+                "title": "Condition number",
+                "type": "text",
+                "desc": "The acceptance condition's number"
               }
             ]
           },
@@ -4629,6 +4709,8 @@
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
       "write_learned": "Adds what the work learned to its item's approach under `Learned:`, with the commits merged.",
+      "tell_wait": "Tells the owner once in the work, as it first takes the row: the engine cannot tell whether the installed program holds the work's merge, as its build's commit is unknown or not in the project's checkout. Only installing a build of main settles it; words said to the work buy one look, and the work waits again after it, up to the limit of the wait for an installation.",
+      "report_verification": "Queues what became of a work's checks after its change took effect as a matter for the project's architect, of the kind report: the item, the merge commit, the pull request and the result of each condition with the run that shows it, or that the change never took effect within the limit, or that the evidence never came within the limit of looks, each saying that the condition stands unverified. A condition that fails and is doing harm now (`harm_now`) makes the matter urgent, which the architect takes before what can wait.",
       "fresh_session": "The line of the cell the row goes to starts a new session there, each time the work takes the row: the session manager ends the one the line had going on.",
       "record_acceptance": "Writes the acceptance conditions of the plan or the design the work implements onto the item: the research's plan when the work goes straight to implement, the design the owner approved otherwise; later the implementation, a fix or the advisor may change them, saying why. If they are the same as those on the item, nothing changes.",
       "post_design_review": "Queues the work's latest design, with what thinking again outside the frame examined, for the project's architect to review at the project's level, as an engineer's question of the kind design_review, which starts a work of the architect when none runs. The work does not wait for it: once the architect replied, the engine puts the design to the owner with the architect's comments, as an ask of the owner in the work's group of the kind design_review, and notifies the owner, who replies exactly approved to approve it, or says what to change and chooses an option for each decision point. An answer other than approved reaches the engineer as the owner's words. One queued already and not answered is not queued again.",
@@ -4652,7 +4734,10 @@
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it that ci made is green; so is the latest that ran tests, when a later run ran the lint only, which does not stand for them.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a report changes nothing outside `research/`.",
       "checks_changed_known": "Each check the change says it changes is one of the flow's `engine.checks`, named once, and neither this check nor `set_aside_answered`, which make the declaration no exemption and whose problems are never set aside; and the work's project is the one the engine is built from, whose changes alone can change the engine's checks. A declaration this check refuses holds nothing: what the checks it names find in the same return is sent back with it.",
-      "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition); each test named was reported by a run of ci on the pushed head, a name naming a test as the ci tool's tests say, and the tests none reported are named in the next ci, with the tests of the test table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; the report sections named are in the report.",
+      "in_effect_known": "A condition written in_effect is one this project's work can check: `installed` only in the project the engine is built from, since no other project's change can change the installed program; and a work that delivers a report writes none, as nothing of it takes effect.",
+      "verdicts_cover_in_effect": "Each acceptance condition written in_effect has one verdict, and no other condition has one; `skipped` only once words were said to the work since its merge. How long to wait is there exactly when the look waits, a condition being not_yet and none failing, between one minute and two days.",
+      "verdict_basis_ran": "A verdict of holds or fails names the condition's own command, with the time the change took effect put in, as a run the engine recorded for this work since then, which ran and exited well; and what it says it saw is, letter for letter, a value of that run's rows, or part of a row holding one, or in a gh command's output, read from the file where a long result was saved.",
+      "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition), and a row of in_effect exactly for each condition written in_effect; each test named was reported by a run of ci on the pushed head, a name naming a test as the ci tool's tests say, and the tests none reported are named in the next ci, with the tests of the test table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; the report sections named are in the report.",
       "new_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each new-behaviour test this round's test changes add or extend (kind new_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red after the change or green before it is fixed in this round.",
       "guard_test_results": "When the design chose no adversarial testing, or the work goes the light route, which has none: each old-behaviour test this round's test changes add or extend (kind old_behaviour) has two results that match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; one red in either run is fixed in this round; one that cannot be built before the change (cannot_run) says why in `not_before`, and the details review judges it (the re-check, for one the fix added); one not run before the change is the details review's to judge.",
       "adversarial_test_results": "Each row's two results match what the latest ci run on the pushed head that reported the test and the latest ci_before run that reported it give for the tests the name names, as the ci tool's tests say: passed is green and failed red; before the change not built is cannot_run, not run is not_run or cannot_run, and results that could not be read are read by running ci_before again; the tests no ci run on the pushed head reported are named in the next ci, with the other tests of the table, or, when the latest run there could not read its results, run again and taken to the architect if that does not mend it; a project whose configuration names no results of its fast CI is told that no run can report its tests, which is the architect's; a test is to be run again when any of the files that ci_before run put on the code before the change changed after it; at a re-check, those red or disputed last time were run again; when tests were written, the head was pushed with ci.",
@@ -4720,6 +4805,7 @@
       "guard_tests": "The engineer's tests of old behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind old_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for.",
       "history_sources": "The database's read-only address with the command that reads it, for the gatherer's `sqlite3`; and for its git the directory its own round runs in, a worktree of the project's repository, with the project's main as git has it there (`origin/<main>`).",
+      "effect": "How the work's change took effect: its merge commit, when it merged and its pull request; for each acceptance condition written in_effect, what carries the change and that carrier's commit; whether all of them hold the merge now; and the time the change took effect (`at`, in milliseconds since the epoch): when cell `W1` first found them all holding it, or the merge's time before it has, which a command takes as `:in_effect_at`.",
       "main_changes": "Before the first round of cells `R1`, `D1` and `I1` each time the work comes to them, the engine merges the latest main into the work's branch when its worktree is clean: the files main changed since the branch last took it, or the files in conflict when it could not merge cleanly, the merge then undone; none when main changed nothing since.",
       "decisions": "The project's decisions in force, as its main has them at the commit the round is pinned to: every file of the directory its configuration names as decisions (decisions unless set) but a README.md, each by its path with its text; none when there are none. A decision a work writes or changes on its own branch is not here until it merges; it is in the work's diff.",
       "owner_approval": "The files of the work's change against main that match a path of the project's `owner_approves`, with the pull request and, for the flow, the flow page that compares it with main; whether the owner approved the work's design at its review, or replied exactly approved to the ask of this change since its last fix; none when the change touches none.",
@@ -4742,7 +4828,7 @@
       "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the line the work stands on",
       "interjection": "Whether an interjection for the line the work stands on is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
-      "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, or a fault of wf-agents forwarded to the architect.",
+      "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, a fault of wf-agents forwarded to the architect, or what became of a work's check after its change took effect.",
       "route": "Where the matter taken goes: the first cell of its kind's path; the cell that asked when it comes back with the owner's reply, the cell of the owner's words when the flow no longer has that cell; the cell that handed its changes in when the second eye sent them back; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "start": "What holds an item back from starting, if anything.",
@@ -4751,7 +4837,12 @@
       "work": "What the work changes: the implementation, the records only, or a report.",
       "research_rounds": "Whether the initial research has run the project's bound of rounds (6 unless `limits.research_rounds` sets it) since it last handed in its answer.",
       "merge_failures": "Whether this failure in the merge queue is the third in a row since the work last went to the architect for them.",
-      "second_eye": "Whether what the matter's session handed in holds a change of a kind a second eye checks."
+      "second_eye": "Whether what the matter's session handed in holds a change of a kind a second eye checks.",
+      "verifies":"Whether the item's acceptance holds a condition written in_effect, which a real run checks once the change takes effect.",
+      "in_effect": "Whether what carries the change holds the work's merge commit, for every condition written in_effect: main holds it as it merges; the installed program holds it when its build's commit has the merge commit among its ancestors in the project's checkout, and whether it does cannot be told when that commit is unknown or not there.",
+      "install_wait": "Whether the time since the merge is past the project's limit of the wait for the change to take effect (72 hours unless the project's `install_wait_hours` sets it).",
+      "look_due": "Whether cell `W2` is to look now: it has not looked yet, or the time it said to wait after its last look has passed.",
+      "looks": "Whether cell `W2` has sent the work back to wait as many times as the project's limit (8 unless the project's `verification_looks` sets it)."
     },
     "needs": {
       "flow_feedback": "The project's configuration asks its agents what was wrong with each round's cell (`flow_feedback`, on unless set to false)."
@@ -5016,6 +5107,17 @@
         ],
         "inputs": []
       },
+      "verifications": {
+        "title": "Checks after taking effect",
+        "layer": "round",
+        "desc": "What each condition written in_effect came to, once the work's change took effect: its verdict, the run that shows it and the round",
+        "relations": [
+          "item_verifications"
+        ],
+        "inputs": [
+          "effect"
+        ]
+      },
       "set_aside": {
         "title": "Findings set aside",
         "layer": "round",
@@ -5185,6 +5287,12 @@
       ],
       "tell_owner": [
         "owner_messages"
+      ],
+      "tell_wait": [
+        "owner_notices"
+      ],
+      "report_verification": [
+        "architect_queue"
       ],
       "tell_went_back": [
         "owner_notices"
@@ -5413,6 +5521,37 @@
           "items"
         ]
       },
+      "verifies": {
+        "stores": [
+          "acceptance"
+        ],
+        "says": "the kinds of the item's acceptance conditions"
+      },
+      "in_effect": {
+        "stores": [
+          "acceptance",
+          "merge_record"
+        ],
+        "says": "the carrier each condition names against the merge commit, in the project's checkout"
+      },
+      "install_wait": {
+        "stores": [
+          "merge_record"
+        ],
+        "says": "when the work merged"
+      },
+      "look_due": {
+        "stores": [
+          "verifications"
+        ],
+        "says": "when cell `W2` last looked, and how long it said to wait"
+      },
+      "looks": {
+        "stores": [
+          "counters"
+        ],
+        "says": "the times cell `W2` sent the work back to wait"
+      },
       "research_rounds": {
         "stores": [
           "recorded"
@@ -5568,6 +5707,16 @@
           ]
         },
         {
+          "name": "verify",
+          "nodes": [
+            "W1",
+            "W2"
+          ],
+          "entries": [
+            "W1"
+          ]
+        },
+        {
           "name": "asking",
           "asking": true,
           "entries": []
@@ -5632,7 +5781,7 @@
         "lines": [
           {
             "name": "engineer",
-            "desc": "The engineer doing this work: cell `R1` starts a new session, and so does cell `I1` when the work comes from the review of a design; every other round, the implementation that comes straight from the research and every fix included, continues the latest",
+            "desc": "The engineer doing this work: cell `R1` starts a new session, and so does cell `I1` when the work comes from the review of a design, and cell `W2` each time the work comes to it from waiting; every other round, the implementation that comes straight from the research and every fix included, continues the latest",
             "colour": "blue"
           },
           {
@@ -5777,6 +5926,14 @@
             ]
           },
           {
+            "name": "verify",
+            "desc": "A work whose acceptance holds a condition only a real run can show waits, holding no slot, for its change to take effect, and checks it",
+            "nodes": [
+              "W1",
+              "W2"
+            ]
+          },
+          {
             "name": "end",
             "desc": "The work merged, or went to sub-items",
             "nodes": [
@@ -5892,6 +6049,10 @@
             "desc": "The times the merge queue found a conflict or a red check and sent the work back: to the engineer, or the third time in a row to the architect"
           },
           {
+            "name": "verification_looks",
+            "desc": "The times cell `W2`, checking a condition after the change took effect, found its evidence not there yet and sent the work back to wait"
+          },
+          {
             "name": "redesigns",
             "desc": "The times the work went back to deep research once it had been there: the design did not hold, the change departed from a decision, or the way on chosen after a reply or an interjection was to change the design"
           },
@@ -5962,6 +6123,7 @@
                 "T6",
                 "T4",
                 "L2",
+                "W2",
                 "A4",
                 "A1",
                 "A7"
@@ -7037,6 +7199,10 @@
           "checks": [
             {
               "check": "research_only"
+            },
+            {
+              "at": "can_start[yes].acceptance",
+              "check": "in_effect_known"
             }
           ],
           "shown": [
@@ -7427,6 +7593,10 @@
           "checks": [
             {
               "check": "research_only"
+            },
+            {
+              "at": "design.acceptance",
+              "check": "in_effect_known"
             }
           ],
           "handoff": [
@@ -7914,7 +8084,7 @@
           "prompt": [
             "Change the code by the plan or the design; change only what this work needs, nothing on the side.",
             "For behaviour that is wrong, first write a test that reproduces it, see it red on the code before the change with ci_before, then change the code until ci runs it green; where it cannot be reproduced, use the other evidence the research named.",
-            "Every acceptance condition has a test, which the conditions name.",
+            "Every acceptance condition has a test, which the conditions name, but one written in_effect: it has none, is checked after the merge, and its row says `how: in_effect`.",
             "A small case the design did not foresee you handle yourself, and write it as a departure. To change the approach, or where the plan or the design does not hold, do not work around it: say where it does not hold, and the work goes back to deep research.",
             "Before handing in, merge the latest main into the branch, resolve any conflict yourself, and run ci again: hand in only once it is green. To run CI or a measurement, commit locally and use ci or measure.",
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
@@ -8188,6 +8358,10 @@
               "check": "checks_changed_known"
             },
             {
+              "at": "acceptance_changed.acceptance",
+              "check": "in_effect_known"
+            },
+            {
               "at": "conditions",
               "check": "conditions_cover_acceptance"
             },
@@ -8399,7 +8573,7 @@
           ],
           "prompt": [
             "You review this work's change in two passes in this session: this one looks at the upper level, the next at the details. You are given what its engineer was given. Change no file.",
-            "This pass: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says.",
+            "This pass: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history."
           ],
           "out": [
@@ -8611,7 +8785,7 @@
             }
           ],
           "prompt": [
-            "This pass looks at the details: whether what was said is done, and done right; whether each acceptance condition has a test that ran green on the head; for each old-behaviour test of the engineer's that could not be built before the change (cannot_run) or was not run there (not_run), whether the reason it gives in not_before (in the test changes) holds by the diff, that is, whether the old behaviour is shown unchanged some other way, such as old code moved as it was, and a finding when it is not; whether the owner's decisions and the options chosen were followed; whether the conditions to merge are met. Raise again none of the first pass's findings.",
+            "This pass looks at the details: whether what was said is done, and done right; whether each acceptance condition has a test that ran green on the head, but one written in_effect, which has none and whose row says `how: in_effect`, as it is checked after the merge; for each old-behaviour test of the engineer's that could not be built before the change (cannot_run) or was not run there (not_run), whether the reason it gives in not_before (in the test changes) holds by the diff, that is, whether the old behaviour is shown unchanged some other way, such as old code moved as it was, and a finding when it is not; whether the owner's decisions and the options chosen were followed; whether the conditions to merge are met. Raise again none of the first pass's findings.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history.",
             "Judge each finding set aside you are given, in set_aside, by the diff: old_rule when the check as the branch changes it would not report it, saying why; real when it is a problem all the same, which you then also write as a finding and must fix.",
             "Then answer two questions. Must anything be fixed before it can merge: yes when you or the first pass found anything. Is this change of the kinds that go wrong silently, where only an adversary's tests find the error: a compiler, a checker, a runtime, a data format, concurrency, security, parsing?"
@@ -8908,13 +9082,13 @@
             }
           ],
           "prompt": [
-            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added or extended go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. The latest run of ci_before that reported a test counts: when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. An acceptance condition that is itself a job or a command of the CI, or that only a reading of the change can prove, is met in the condition table by a row of kind `ci_job` (the jobs, as the CI results of this work name them, and the commands the condition points to) or `read_diff` (where to read, and what the reading shows), not by a test; ask only for a condition that none of these fits, saying which one and why. If you asked someone, carry on with this round when the reply comes."
+            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. A condition written in_effect is the exception: it has no test, is checked after the merge, and its row says `how: in_effect`. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added or extended go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. The latest run of ci_before that reported a test counts: when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. An acceptance condition that is itself a job or a command of the CI, or that only a reading of the change can prove, is met in the condition table by a row of kind `ci_job` (the jobs, as the CI results of this work name them, and the commands the condition points to) or `read_diff` (where to read, and what the reading shows), not by a test; ask only for a condition that none of these fits, saying which one and why. If you asked someone, carry on with this round when the reply comes."
           ],
           "out": [
             {
               "$ref": "conditions",
               "optional": true,
-              "desc": "Which test, measurement, CI job or reading of the diff meets each acceptance condition: the whole table, one row per acceptance condition, none left out"
+              "desc": "Which test, measurement, CI job or reading of the diff meets each acceptance condition, or for one written in_effect that it is checked after the merge: the whole table, one row per acceptance condition, none left out"
             },
             {
               "name": "directions",
@@ -9584,6 +9758,10 @@
             {
               "at": "checks_changed",
               "check": "checks_changed_known"
+            },
+            {
+              "at": "acceptance_changed.acceptance",
+              "check": "in_effect_known"
             },
             {
               "at": "rows[disagree]",
@@ -10699,6 +10877,13 @@
               "if": [
                 [
                   "own"
+                ],
+                [
+                  "inp",
+                  "verifies",
+                  [
+                    "none"
+                  ]
                 ]
               ],
               "to": "E1",
@@ -10706,8 +10891,670 @@
               "do": [
                 "write_learned"
               ]
+            },
+            {
+              "name": "verify",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "inp",
+                  "verifies",
+                  [
+                    "some"
+                  ]
+                ]
+              ],
+              "to": "W1",
+              "do": [
+                "write_learned"
+              ],
+              "note": "The acceptance holds a condition only a real run can show: the work stays on, to check it once the change takes effect."
             }
-          ]
+          ],
+          "inenums": {
+            "verifies": [
+              [
+                "none",
+                "The item's acceptance holds no condition written in_effect"
+              ],
+              [
+                "some",
+                "It holds one or more"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "W1",
+          "kind": "engine",
+          "title": "Wait for the change to take effect",
+          "inputs": [
+            {
+              "name": "Acceptance",
+              "what": "The acceptance conditions as they stand on the item, whose conditions written in_effect each say what carries the change",
+              "from": [
+                {
+                  "db": "item_acceptance",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "name": "The merge",
+              "what": "The commit the work merged as",
+              "from": [
+                [
+                  "M2",
+                  "result[merged]"
+                ]
+              ]
+            },
+            {
+              "name": "Interjections",
+              "what": "Interjections for the engineer that came while the work waited here, and are not delivered yet; none if there are none",
+              "from": [
+                {
+                  "db": "waiting_interjections",
+                  "by": "work"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "cases": [
+            {
+              "name": "words",
+              "if": [
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "W2",
+              "do": [
+                "fresh_session"
+              ],
+              "note": "Something was said to the work while it waited: cell `W2` is given it, for one look. A merged work cannot be cancelled or started over, so this, with the owner's Pause, is what the owner has over a work that waits here: it can be told to look now, or that a condition is not to be checked, which holds for every look after. The change counts as in effect only by what carries it; the look's own wait is not read until then."
+            },
+            {
+              "name": "not_carried",
+              "if": [
+                [
+                  "inp",
+                  "in_effect",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "install_wait",
+                  [
+                    "within"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "W1",
+              "waits": true,
+              "note": "Until what carries the change holds the merge commit, holding no slot and keeping no session warm. Saying something to the work or the owner's Pause are what stops the wait short of its limit."
+            },
+            {
+              "name": "cannot_tell",
+              "if": [
+                [
+                  "inp",
+                  "in_effect",
+                  [
+                    "cannot_tell"
+                  ]
+                ],
+                [
+                  "inp",
+                  "install_wait",
+                  [
+                    "within"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "W1",
+              "waits": true,
+              "do": [
+                "tell_wait"
+              ],
+              "note": "The installed program's build is unknown or not in the project's checkout, so the engine cannot tell whether it holds the merge: the owner is told once, and the work waits, holding no slot."
+            },
+            {
+              "name": "never_in_effect",
+              "if": [
+                [
+                  "inp",
+                  "in_effect",
+                  [
+                    "no",
+                    "cannot_tell"
+                  ]
+                ],
+                [
+                  "inp",
+                  "install_wait",
+                  [
+                    "past"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "E1",
+              "do": [
+                "report_verification"
+              ],
+              "note": "The limit of the wait passed and the change is still not known to be in effect: the architect is told that its conditions stand unverified, and the work ends, letting its worktree go."
+            },
+            {
+              "name": "not_due",
+              "if": [
+                [
+                  "inp",
+                  "in_effect",
+                  [
+                    "yes"
+                  ]
+                ],
+                [
+                  "inp",
+                  "look_due",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "W1",
+              "waits": true,
+              "note": "The change is in effect, and the evidence cell `W2` looked for was not there yet: the work waits as long as it said, holding no slot and keeping no session warm."
+            },
+            {
+              "name": "look",
+              "if": [
+                [
+                  "inp",
+                  "in_effect",
+                  [
+                    "yes"
+                  ]
+                ],
+                [
+                  "inp",
+                  "look_due",
+                  [
+                    "yes"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "W2",
+              "main": true,
+              "do": [
+                "fresh_session"
+              ]
+            }
+          ],
+          "inenums": {
+            "interjection": "interjection_state",
+            "in_effect": [
+              [
+                "yes",
+                "What carries the change holds the merge commit, for every condition written in_effect"
+              ],
+              [
+                "no",
+                "What carries the change for some condition does not hold it yet"
+              ],
+              [
+                "cannot_tell",
+                "It cannot be told: the installed program's build is unknown or not in the project's checkout"
+              ]
+            ],
+            "install_wait": [
+              [
+                "within",
+                "The time since the merge is within the project's limit of the wait for the change to take effect"
+              ],
+              [
+                "past",
+                "It is past that limit"
+              ]
+            ],
+            "look_due": [
+              [
+                "yes",
+                "Cell `W2` has not looked yet, or the time it said to wait has passed"
+              ],
+              [
+                "no",
+                "The time it said to wait has not passed"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "W2",
+          "kind": "agent",
+          "title": "Check with real runs",
+          "effort": "medium",
+          "line": "engineer",
+          "tools": [
+            "query",
+            "gh"
+          ],
+          "without": [
+            "ask",
+            "redirect"
+          ],
+          "inputs": [
+            {
+              "name": "The item",
+              "what": "The item",
+              "from": [
+                {
+                  "db": "item_body",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "name": "Acceptance",
+              "what": "The acceptance conditions as they stand on the item: check those written in_effect",
+              "from": [
+                {
+                  "db": "item_acceptance",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "name": "The design",
+              "what": "The design the owner approved at the review; none when the work came straight from the research",
+              "from": [
+                [
+                  "D2",
+                  "design"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The research's plan",
+              "what": "How the research said to change it and verify it, when the work came straight from it; none otherwise",
+              "from": [
+                [
+                  "R1",
+                  "can_start[yes]"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "How the change took effect",
+              "what": "The merge commit, when it merged and the pull request; what carries the change for each condition and that carrier's commit; whether they all hold the merge now; and `at`, the time the change took effect, in milliseconds since the epoch, to put in as `:in_effect_at`",
+              "from": [
+                {
+                  "engine": "effect"
+                }
+              ]
+            },
+            {
+              "name": "Your last look",
+              "what": "The verdicts of this cell's last look; none before its first",
+              "from": [
+                [
+                  "W2",
+                  "verdicts"
+                ]
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "The work is merged, and its change is in effect, or something was said to the work while it waited, which is at the top of your input. Check each acceptance condition written in_effect, and only those, with a real run.",
+            "Run each condition's `command` with its `tool` as it is written, putting in only the time the change took effect for `:in_effect_at`. Do not change a command, even to mend it: what the review passed is the condition as written. A command that cannot run, or a result `holds` and `enough` cannot answer, is cannot_judge, saying why.",
+            "Judge by what the run gave against `enough`, then `holds`, and write for each condition: holds or fails, with the run and what you saw in its result; not_yet, when what `enough` asks is not there, with what is missing; cannot_judge, with why; skipped, only when someone said not to check it since the merge, as when the change was reverted, in this round's words or in those your last look names. A look with a not_yet and no fails wants again_after_minutes, the time the missing evidence needs, at most two days; a fails ends the work at once, so what is still not_yet goes to the architect as not checked.",
+            "A condition does not hold because the change is merely installed or a tool merely exists. A real run that was refused, or found nothing to do, for want of what the change does not bring by itself, such as a line of the project's configuration not added yet, is no evidence that it holds: write fails, saying in why that the configuration is what is missing and which. When a condition fails, tell the owner in one sentence in tell_owner.",
+            "Nothing you change here reaches the code: this work has merged. What a condition's failing means and what to do about it is the architect's, who is told by the engine."
+          ],
+          "out": [
+            {
+              "name": "verdicts",
+              "title": "Each condition's verdict",
+              "type": "list",
+              "min": 1,
+              "desc": "One row for each acceptance condition written in_effect, and no other",
+              "item": {
+                "type": "union",
+                "by": "verdict",
+                "branches": [
+                  {
+                    "value": "holds",
+                    "desc": "The run's result meets `enough` and `holds`",
+                    "fields": [
+                      {
+                        "name": "id",
+                        "title": "Condition number",
+                        "type": "text",
+                        "desc": "The acceptance condition's number"
+                      },
+                      {
+                        "name": "run",
+                        "title": "The run",
+                        "type": "text",
+                        "desc": "The run that shows it, since the change took effect: the condition's command, the SQL or the gh arguments, as you handed it in"
+                      },
+                      {
+                        "name": "seen",
+                        "title": "What it showed",
+                        "type": "text",
+                        "desc": "What the verdict rests on, copied letter for letter from the run's result: a value, or part of a row. The engine looks for it there"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "fails",
+                    "desc": "The run's result meets `enough` and not `holds`",
+                    "fields": [
+                      {
+                        "name": "id",
+                        "title": "Condition number",
+                        "type": "text",
+                        "desc": "The acceptance condition's number"
+                      },
+                      {
+                        "name": "run",
+                        "title": "The run",
+                        "type": "text",
+                        "desc": "The run that shows it, since the change took effect: the condition's command, the SQL or the gh arguments, as you handed it in"
+                      },
+                      {
+                        "name": "seen",
+                        "title": "What it showed",
+                        "type": "text",
+                        "desc": "What the verdict rests on, copied letter for letter from the run's result: a value, or part of a row. The engine looks for it there"
+                      },
+                      {
+                        "name": "why",
+                        "title": "Why it does not hold",
+                        "type": "text",
+                        "desc": "What is wrong or missing, in a sentence or two, as the architect will read it: what the code does wrong, or a configuration not made"
+                      },
+                      {
+                        "name": "harm_now",
+                        "title": "Causing harm now",
+                        "type": "bool",
+                        "desc": "Is its not holding causing harm now: data being lost, a feature the owner uses broken, every work affected? True makes the report urgent: the architect takes it before what can wait"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "not_yet",
+                    "desc": "The evidence `enough` asks for is not there yet",
+                    "fields": [
+                      {
+                        "name": "id",
+                        "title": "Condition number",
+                        "type": "text",
+                        "desc": "The acceptance condition's number"
+                      },
+                      {
+                        "name": "missing",
+                        "title": "What is missing",
+                        "type": "text",
+                        "desc": "What evidence is missing, as far as the run shows"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "cannot_judge",
+                    "desc": "The command cannot run, or its result answers neither `enough` nor `holds`",
+                    "fields": [
+                      {
+                        "name": "id",
+                        "title": "Condition number",
+                        "type": "text",
+                        "desc": "The acceptance condition's number"
+                      },
+                      {
+                        "name": "why",
+                        "title": "Why it cannot be judged",
+                        "type": "text",
+                        "desc": "Why, with what the command gave"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "skipped",
+                    "desc": "Someone said not to check it, since the merge",
+                    "fields": [
+                      {
+                        "name": "id",
+                        "title": "Condition number",
+                        "type": "text",
+                        "desc": "The acceptance condition's number"
+                      },
+                      {
+                        "name": "words",
+                        "title": "Whose words",
+                        "type": "text",
+                        "desc": "Who said so, and what they said"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "again_after_minutes",
+              "title": "Minutes until the next look",
+              "type": "int",
+              "optional": true,
+              "desc": "Only when a condition is not_yet and none fails: how many minutes the missing evidence needs before this cell looks again, from 1 to 2880 (two days). Leave it out otherwise"
+            }
+          ],
+          "checks": [
+            {
+              "at": "verdicts",
+              "check": "verdicts_cover_in_effect"
+            },
+            {
+              "at": "again_after_minutes",
+              "check": "verdicts_cover_in_effect"
+            },
+            {
+              "at": "verdicts",
+              "check": "verdict_basis_ran"
+            }
+          ],
+          "cases": [
+            {
+              "name": "again",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "any",
+                  "verdicts.verdict",
+                  [
+                    "not_yet"
+                  ]
+                ],
+                [
+                  "none",
+                  "verdicts.verdict",
+                  [
+                    "fails"
+                  ]
+                ],
+                [
+                  "inp",
+                  "looks",
+                  [
+                    "within"
+                  ]
+                ]
+              ],
+              "to": "W1",
+              "counts": "verification_looks",
+              "note": "Some evidence is not there yet, and nothing was found not to hold: the work waits as long as this round said, then looks again in a new session."
+            },
+            {
+              "name": "past_looks",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "any",
+                  "verdicts.verdict",
+                  [
+                    "not_yet"
+                  ]
+                ],
+                [
+                  "none",
+                  "verdicts.verdict",
+                  [
+                    "fails"
+                  ]
+                ],
+                [
+                  "inp",
+                  "looks",
+                  [
+                    "past"
+                  ]
+                ]
+              ],
+              "to": "E1",
+              "do": [
+                "report_verification"
+              ],
+              "note": "The evidence did not come within the project's limit of looks: the architect is told that the condition stands unverified, and the work ends."
+            },
+            {
+              "name": "failed",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "any",
+                  "verdicts.verdict",
+                  [
+                    "fails"
+                  ]
+                ]
+              ],
+              "to": "E1",
+              "do": [
+                "report_verification"
+              ],
+              "note": "A condition does not hold: the architect is told at once, first of all if it is doing harm now, with whatever is still not_yet as not checked, and the work ends."
+            },
+            {
+              "name": "unjudged",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "none",
+                  "verdicts.verdict",
+                  [
+                    "not_yet",
+                    "fails"
+                  ]
+                ],
+                [
+                  "any",
+                  "verdicts.verdict",
+                  [
+                    "cannot_judge"
+                  ]
+                ]
+              ],
+              "to": "E1",
+              "do": [
+                "report_verification"
+              ],
+              "note": "With no evidence still to wait for, a condition cannot be judged: the architect is told, and the work ends."
+            },
+            {
+              "name": "verified",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "none",
+                  "verdicts.verdict",
+                  [
+                    "not_yet",
+                    "fails",
+                    "cannot_judge"
+                  ]
+                ]
+              ],
+              "to": "E1",
+              "main": true
+            }
+          ],
+          "inenums": {
+            "looks": [
+              [
+                "within",
+                "This cell has sent the work back to wait fewer times than the project's limit"
+              ],
+              [
+                "past",
+                "It has as many times as the limit"
+              ]
+            ]
+          }
         },
         {
           "id": "A4",
@@ -11613,6 +12460,12 @@
             {
               "at": "reply.new_acceptance",
               "do": "lock_new_acceptance"
+            }
+          ],
+          "checks": [
+            {
+              "at": "reply.new_acceptance",
+              "check": "in_effect_known"
             }
           ],
           "handoff": [
@@ -15182,7 +16035,7 @@
           "inputs": [
             {
               "name": "The report",
-              "what": "The report and where it came from: its text as written, the work, the item, and the line and cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled; when you picked others with it, `with` holds each of them, its matter number and its material as the report is given",
+              "what": "The report and where it came from: its text as written, the work, the item, and the line and cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for a check after a change took effect, the merge commit, the pull request and each condition's result with its run; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled; when you picked others with it, `with` holds each of them, its matter number and its material as the report is given",
               "from": [
                 {
                   "engine": "matter"
@@ -15339,6 +16192,9 @@
               ],
               "fault": [
                 "It is a fault of wf-agents itself, which the owner forwarded to you, by hand or by the setting that forwards each new one: the notice the owner was told, with the engine's evidence as it stands now (the rounds that missed their session's prompt cache, each with what differs in its command line or its environment from the session's round before and what it wrote again, or the ask a flow anomaly put, with the owner's answer once given). Find its cause in wf-agents' code or flow, reading the code and, where it matters, the records of the rounds named."
+              ],
+              "verification": [
+                "It is what became of a work's check once its change took effect: the work merged, waited, and a condition only a real run can show does not hold, could not be judged, or stands unverified because the change never took effect or the evidence never came within their limits. The work has ended. Each condition's result and run is in the input. Work out what it means: whether the change is wrong and needs an item, whether an item there is takes it in, whether something only the owner can do is missing, as a line of configuration, or whether the condition itself is what is wrong, and nothing is to be done."
               ]
             }
           },
@@ -15359,6 +16215,10 @@
               [
                 "fault",
                 "A fault of wf-agents forwarded to the architect, by the owner or by the owner's setting"
+              ],
+              [
+                "verification",
+                "What became of a work's check of a condition after its change took effect"
               ]
             ]
           },
