@@ -931,7 +931,7 @@ fn a_part_several_cells_hold_alike_is_given_once() {
 fn the_query_tool_lists_every_table_whole_and_what_it_holds_in_short() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    let schema = g.cell("U1").unwrap().schema.clone().unwrap();
+    let schema = g.cell("N1").unwrap().schema.clone().unwrap();
     let desc = schema["properties"][&g.within]["anyOf"]
         .as_array()
         .unwrap()

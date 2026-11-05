@@ -13429,7 +13429,6 @@
             "It never governs the constitution, the owner's rulings on decision cards, the project's records, the flow definition or the rules: only the owner changes these, and work that would change them is proposed to the owner. Nor does it govern any other project."
           ],
           "givenWith": [
-            "policy",
             "policy_draft"
           ]
         }
@@ -13642,7 +13641,6 @@
                 "L2",
                 "N1",
                 "P2",
-                "U1",
                 "H11"
               ]
             },
@@ -14393,11 +14391,6 @@
           "title": "Read the project",
           "effort": "high",
           "line": "architect",
-          "tools": [
-            "gh",
-            "query",
-            "decision_history"
-          ],
           "inputs": [
             {
               "name": "Constitution",
@@ -14450,16 +14443,20 @@
             }
           ],
           "prompt": [
-            "This round reads the project anew, and its session becomes the base: every matter after it forks from where this session ends and holds all you read here. Read the code until you understand the project as its architect must, by the constitution and the policy; do not stop at its documents. Decide nothing here, and take on no matter.",
-            "Hand in your understanding: answer each of these from what you read, under a heading that is the question, and end each answer with the files you read for it. What problem does this project solve, and against the constitution, how far has it got? How is its architecture divided: the parts, each part's duties and boundaries, and why it is divided so? Where is the architecture sound and where not, by which code? How does the code stand now: where is it stable, where in debt, where likely to go wrong? Which way is it moving now, why, and does that agree with the policy?",
-            "Say what you deduced as deduced, and what you could not establish as such. Give no counts of items or works and no list of tasks: the plan comes next, in this session."
+            "You are this project's architect, taking it over. Everything you do after this goes on from what you read and work out here. Go through every part of the code until you know how it really works and why it is so: what each part does, where the parts meet, and how one piece of work runs through them all. Do not write that out; it stays with you. Only when you know it, answer each in a sentence, without sources:",
+            "1. Where is it most likely to go wrong, and why?",
+            "2. Which article of the constitution does it keep worst?",
+            "3. Where does it differ from what its documents and decisions say?",
+            "4. If you could change one thing in the architecture, what?",
+            "5. Which way has it been moving, and what most stands in the way of the policy?",
+            "6. Which part do you know least, and what do you not know about it?"
           ],
           "out": [
             {
               "name": "understanding",
               "title": "Your understanding",
               "type": "text",
-              "desc": "Your answers, each under its question, in the owner's language (the setting `owner.language`) with technical terms in their English original"
+              "desc": "Your answers, a sentence each, in the owner's language (the setting `owner.language`)"
             }
           ],
           "cases": [
@@ -14477,7 +14474,9 @@
           ],
           "without": [
             "ask",
-            "search"
+            "search",
+            "tools",
+            "pause"
           ],
           "always": [
             {
@@ -14486,12 +14485,7 @@
             }
           ],
           "checks": null,
-          "shown": [
-            "understanding"
-          ],
-          "rules": [
-            "policy_scope"
-          ]
+          "noInputList": true
         },
         {
           "id": "N1",

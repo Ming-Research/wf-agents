@@ -667,14 +667,14 @@ mod tests {
         )
         .unwrap();
         let input = json!({ "conditional": [{
-            "address": "R2-1·engine·queue", "hash": hash(&was), "given": true, "text": key,
+            "address": "R2-1·engine·queued", "hash": hash(&was), "given": true, "text": key,
         }] });
         let session = [round(2, input, Some(json!({})), 0)];
         let held = Held::of(&session);
         let registry = HashMap::new();
         let mut m = Giver::new(&held, &registry, &conn, &session);
         let is = json!({ "now": "10:05", "pickable": [1, 2, 6], "matters": { "#1": {}, "#2": {}, "#6": {} } });
-        m.give("R2-3·engine·queue".into(), is);
+        m.give("R2-3·engine·queued".into(), is);
         let c = &m.list[0];
         assert!(c.given && c.changes, "{c:?}");
         let text = c.content.as_str().unwrap();

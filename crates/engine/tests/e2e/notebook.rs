@@ -2,15 +2,15 @@
 
 use super::*;
 
-// A round of reading the project that asks for tools writes nothing in the notebook: until the cell answers, the
-// project's notebook is empty, as at its architect's first base, and the cell's next round is referred to the inputs it
-// was given. The tool results, which every cell may have, are listed only when there are some.
+// A round of the plan that asks for tools writes nothing in the notebook: until the cell answers, the plan is not there,
+// and the cell's next round is referred to the inputs it was given. The tool results, which every cell may have, are
+// listed only when there are some.
 #[test]
-fn a_round_of_the_understanding_that_asks_for_tools_changes_nothing_in_the_notebook() {
-    let s = setup("understand-tools");
+fn a_round_of_the_plan_that_asks_for_tools_changes_nothing_in_the_notebook() {
+    let s = setup("plan-tools");
     let mut agents = scripts();
     agents.insert(
-        "U1",
+        "N1",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
@@ -28,7 +28,7 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_nothing_in_the_noteb
         move |e: &mut Engine| {
             cells_of(e, arch)
                 .iter()
-                .any(|c| c.0 == "U1" && c.1.as_deref() == Some(row))
+                .any(|c| c.0 == "N1" && c.1.as_deref() == Some(row))
         }
     };
     assert!(
@@ -36,25 +36,34 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_nothing_in_the_noteb
         "{}",
         said.lock().unwrap().join("\n")
     );
-    assert_eq!(notebook(&e), [], "{}", said.lock().unwrap().join("\n"));
+    let understanding = (
+        "project_now".to_string(),
+        "The understanding at round 1.".to_string(),
+        "U1".to_string(),
+    );
+    assert_eq!(
+        notebook(&e),
+        std::slice::from_ref(&understanding),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     assert!(
-        steps_until(&mut e, 10, took("done")),
+        steps_until(&mut e, 10, took("fits")),
         "{}",
         said.lock().unwrap().join("\n")
     );
     assert_eq!(
         notebook(&e),
-        [(
-            "project_now".to_string(),
-            "The understanding at round 2.".to_string(),
-            "U1".to_string()
-        )]
+        [
+            ("plan".to_string(), "The plan at round 2.".to_string(), "N1".to_string()),
+            understanding
+        ]
     );
-    let (first, second) = (message_at(&e, arch, "U1", false), message_at(&e, arch, "U1", true));
+    let (first, second) = (message_at(&e, arch, "N1", false), message_at(&e, arch, "N1", true));
     let w = e.work(arch).unwrap();
     let g = e.graph_of(&w).unwrap();
     let numbered: Vec<&flow::CompiledInput> = g
-        .cell("U1")
+        .cell("N1")
         .unwrap()
         .inputs
         .iter()

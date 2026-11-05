@@ -396,6 +396,9 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
 /// what the numbers in a message's list of inputs to work from stand for. An input every agent's cell has is named
 /// only: `format:common` says what it is.
 pub fn cell_inputs(cell: &CompiledCell) -> String {
+    if cell.no_input_list {
+        return String::new();
+    }
     let lines: Vec<String> = cell
         .inputs
         .iter()

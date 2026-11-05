@@ -215,6 +215,9 @@ pub struct CompiledCell {
     pub prompt: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_by: Option<PromptBy>,
+    /// The cell's message has no `inputs:<cell>`: what it is given says what it is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_input_list: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forms: Vec<Form>,
     /// What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
@@ -1223,6 +1226,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 .collect(),
             prompt: c.prompt.clone(),
             prompt_by: c.prompt_by.clone(),
+            no_input_list: c.no_input_list,
             forms: c.forms.clone(),
             schema,
             carried,

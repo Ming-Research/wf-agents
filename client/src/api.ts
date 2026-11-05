@@ -3012,7 +3012,11 @@ effort?: string | null, stage?: string | null, tools?: Array<string>, inputs: Ar
 /**
  * The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
  */
-rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null, forms?: Array<Form>,
+rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null,
+/**
+ * The cell's message has no `inputs:<cell>`: what it is given says what it is.
+ */
+no_input_list?: boolean, forms?: Array<Form>,
 /**
  * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
  */

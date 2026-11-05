@@ -875,6 +875,9 @@ pub struct Node {
     /// Lines added to the prompt by a value the engine knows, one list per value.
     #[serde(rename = "promptBy")]
     pub prompt_by: Option<PromptBy>,
+    /// A cell whose message has no `inputs:<cell>`: what it is given says what it is.
+    #[serde(default, rename = "noInputList")]
+    pub no_input_list: bool,
     pub out: Option<Vec<RawField>>,
     pub cases: Option<Vec<RawRow>>,
     pub always: Option<Vec<Always>>,

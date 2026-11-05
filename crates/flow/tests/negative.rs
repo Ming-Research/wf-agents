@@ -904,19 +904,6 @@ case!(an_input_missing_behind_an_engine_step, "missing", |v| {
 // A rule given with an input goes with it: a cell given the policy, in force or being set, is given what a policy
 // governs, so that a new cell cannot miss it.
 case!(
-    a_cell_given_the_policy_without_what_a_policy_governs,
-    "cell `U1` is given policy without the rule policy_scope that goes with it",
-    |v| {
-        let next = v["flows"][1]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|n| n["id"] == "U1")
-            .unwrap();
-        obj(next).remove("rules");
-    }
-);
-case!(
     a_cell_given_the_draft_without_what_a_policy_governs,
     "cell `P2` is given policy_draft without the rule policy_scope that goes with it",
     |v| {
