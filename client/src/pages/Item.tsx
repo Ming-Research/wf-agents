@@ -8,13 +8,12 @@
 // formats; a field the page does not know is shown as labelled text.
 
 import { XIcon } from '@primer/octicons-react';
-import { ConfirmationDialog, Flash, IconButton, Label, PageHeader } from '@primer/react';
+import { ConfirmationDialog, Flash, IconButton, PageHeader } from '@primer/react';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 
-import type { DesignCard, ItemDetail, ItemSummary, JsonValue, LinkedItem, MergeCondition, OwnerAsk, Shown, Waits } from '../api';
+import type { DesignCard, ItemDetail, ItemSummary, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
 import { course, DependencyKind, Facts, ItemBadge, liveState, Loaded, StateChip, WorkBadge } from '../components';
-import { DocList } from '../document';
-import { cost, roundName, time } from '../format';
+import { cost, time } from '../format';
 import {
   Acceptance,
   anchored,
@@ -34,7 +33,7 @@ import { postJson } from '../http';
 import { reread, useResource, useStatus } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { By, HeadingLevel, ItemRef, PrLink, RoundLink, Section, SubHeading } from '../parts';
-import { href, Link, workHref } from '../route';
+import { href, Link } from '../route';
 import { t, tn } from '../text';
 import { factsAfter, joined } from '../voices';
 import { AskView, bringIntoView, cardOfKey, currentCard, DesignCardView } from './Decide';
@@ -63,7 +62,6 @@ const DRAWN = new Set([
   'deviations',
   'followup',
   'conditions',
-  'owner_conditions',
   'end.followup',
   'end.conditions',
 ]);
@@ -343,79 +341,6 @@ function AcceptanceBlock({ d, shown }: { d: ItemDetail; shown: Map<string, Shown
     <Block title={t('acceptance')} from={proposed}>
       <p className="muted">{t('acceptance_proposed')}</p>
       <Acceptance value={proposed.value} met={met} />
-    </Block>
-  );
-}
-
-/// Who a merge condition's record says said its words, in words.
-function conditionWords(c: MergeCondition): string {
-  const of = { quote: c.quote, source: c.source, id: c.source_id };
-  switch (c.said_by) {
-    case 'owner':
-      return t('condition_said_by_owner', of);
-    case 'relayed':
-      return t('condition_said_by_relayed', of);
-    case 'delegate':
-      return t('condition_said_by_delegate', of);
-    default:
-      return t('condition_said_by_unrecorded', of);
-  }
-}
-
-/// A round as a link inside a document's text, which is read as Markdown: the same link as `RoundLink`.
-function roundInText(work: number, round: number): string {
-  return `[${roundName(work, round)}](${workHref(work, { round })})`;
-}
-
-/// Who recorded a merge condition, and when.
-export function conditionRecorded(c: MergeCondition): string {
-  const at = time(c.at);
-  if (c.recorded_work !== null && c.recorded_round !== null) {
-    return t('condition_recorded_architect', { round: roundInText(c.recorded_work, c.recorded_round), at });
-  }
-  return t(c.recorded_by === 'delegate' ? 'condition_recorded_delegate' : 'condition_recorded_owner', { at });
-}
-
-/// The engineer's latest report on a merge condition, or that it has not reported.
-export function conditionReport(c: MergeCondition): string {
-  const r = c.report;
-  if (r === null) return t('condition_no_report');
-  const of = { round: roundInText(r.work, r.round), words: r.words };
-  return t(r.answer === 'done' ? 'condition_report_done' : 'condition_report_not_done', of);
-}
-
-/// Where a merge condition stands, in words: judged and by whom, the delegate's judgment marked as such; or not judged
-/// yet, which says nothing of who it waits on, since the merge gate's ask of it comes only once the work gets there.
-export function conditionStatus(c: MergeCondition): string {
-  const delegate = c.judged_by === 'delegate';
-  if (c.status === 'met') return t(delegate ? 'condition_status_met_delegate' : 'condition_status_met');
-  if (c.status === 'withdrawn') {
-    return t(delegate ? 'condition_status_withdrawn_delegate' : 'condition_status_withdrawn');
-  }
-  return t('condition_status_open');
-}
-
-/// What the owner set to be done before the work merges, under the acceptance: each by its sentence, where it stands, the
-/// words it rests on and who said them, who recorded it, and what the engineer reported; nothing for an item with none.
-function MergeConditions({ d }: { d: ItemDetail }) {
-  if (d.merge_conditions.length === 0) return null;
-  const mark = (c: MergeCondition) => (
-    <Label variant={c.status === 'met' ? 'success' : 'secondary'}>{conditionStatus(c)}</Label>
-  );
-  return (
-    <Block title={t('merge_conditions')}>
-      <DocList
-        items={d.merge_conditions.map((c) => ({
-          no: c.id,
-          lead: c.what,
-          mark: mark(c),
-          parts: [
-            [t('condition_words'), conditionWords(c)],
-            [t('condition_recorded'), conditionRecorded(c)],
-            [t('condition_report'), conditionReport(c)],
-          ],
-        }))}
-      />
     </Block>
   );
 }
@@ -730,7 +655,6 @@ function Detail({ d }: { d: ItemDetail }) {
       <Problem d={d} shown={shown} />
       <DesignBlock shown={shown} d={d} />
       <AcceptanceBlock d={d} shown={shown} />
-      <MergeConditions d={d} />
       <Changes shown={shown} />
       <Others shown={shown} />
       {d.depends_on.length > 0 || d.depended_on_by.length > 0 ? (

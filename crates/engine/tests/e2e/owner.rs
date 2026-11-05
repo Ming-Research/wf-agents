@@ -375,8 +375,6 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
         why: None,
         reply: None,
         to: None,
-        choice: None,
-        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();

@@ -579,8 +579,6 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
             why: None,
             reply: None,
             to: None,
-            choice: None,
-            condition: None,
             images: Vec::new(),
         };
         api::answer(&mut e.db, ask, &answer).unwrap();
@@ -1362,8 +1360,6 @@ fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes
         why: None,
         reply: None,
         to: None,
-        choice: None,
-        condition: None,
         images: Vec::new(),
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();

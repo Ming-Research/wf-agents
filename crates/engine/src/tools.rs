@@ -1605,10 +1605,6 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     if db::stop_asked(e.db.conn(), w.id).map_err(sql)? {
         return Ok(json!({ "result": { "kind": "stopped" } }));
     }
-    // A merge condition recorded while this step waited holds the merge as well, for the same reason; the gate asks of it.
-    if crate::conditions::any_open(e.db.conn(), item.id)? {
-        return Ok(json!({ "result": { "kind": "condition_set" } }));
-    }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
     match attempts(e, round, "merge", &args, |e| {
         hub::merge_into(e.github(), &repo(&project), pr, &project.main).map(Value::String)

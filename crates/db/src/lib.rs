@@ -20,7 +20,6 @@ pub mod backup;
 mod cells;
 mod holds;
 mod matters;
-mod merge_conditions;
 mod questions;
 mod slots;
 mod start_over;
@@ -31,7 +30,6 @@ pub use matters::{
     Declared, FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause,
     one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
 };
-pub use merge_conditions::{MergeCondition, item_of_ask, record_merge_condition};
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
 pub use start_over::{

@@ -1637,19 +1637,12 @@ pub fn waits_for_slot(w: &Work) -> Advance {
 }
 
 /// Whether a row that waits was the last the work took, at this cell: taken again with nothing new, it is not
-/// recorded again. The merge gate's row for merge conditions has something new once the condition it asked of is judged
-/// and another is open: it is taken again, and asks of that one.
+/// recorded again.
 fn waits_again(e: &Engine, w: &Work, cell: &CompiledCell, row: &CompiledRow) -> Result<bool, String> {
     let last = work::rounds(e.db.conn(), w.id)?.pop();
-    let same = last.is_some_and(|r| {
+    Ok(last.is_some_and(|r| {
         r.cell.as_deref() == Some(cell.id.as_str()) && r.transition.as_deref() == Some(row.name.as_str())
-    });
-    match w.item {
-        Some(item) if same && row.name == crate::conditions::JUDGES => {
-            crate::conditions::asked(e.db.conn(), item, w.id)
-        }
-        _ => Ok(same),
-    }
+    }))
 }
 
 /// Takes a row that waits, which the engine chose without running the cell's step: recorded once, with what chose it.

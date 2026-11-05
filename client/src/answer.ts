@@ -69,27 +69,18 @@ export const pickAfter = (now: string, clicked: string): string => (now === clic
 /// with nothing picked.
 export const needsWords = (pick: string): boolean => pick === '';
 
-/// Whether an ask is the merge gate's ask of a merge condition, whose option the engine reads as it was chosen.
-export const judgesCondition = (a: OwnerAsk): boolean => isObj(a.body) && typeof a.body.condition === 'number';
-
 /// What an ask's bubble sends to answer it: the option picked and words, or the words alone, and an engineer's handed
 /// back to the architect with the words as the decision it carries out (`back`); images may go with them, or alone
-/// (`images`). The merge gate's ask of a merge condition (`judges`) sends the option apart from the words, needing no words
-/// with it. None while it cannot be sent.
-export function askAnswer(pick: string, text: string, back: boolean, images = false, judges = false): object | null {
+/// (`images`). None while it cannot be sent.
+export function askAnswer(pick: string, text: string, back: boolean, images = false): object | null {
   const words = text.trim();
-  if (judges) {
-    if (pick !== '') return { text: words, speaker: SPEAKER, choice: pick };
-    return words === '' && !images ? null : { text: words, speaker: SPEAKER };
-  }
   const answer = pick !== '' ? `${t('answer_chosen', { option: pick })}${words !== '' ? ` ${words}` : ''}` : words;
   if (answer === '' && !images) return null;
   return back ? { text: answer, speaker: SPEAKER, to: 'architect' } : { text: answer, speaker: SPEAKER };
 }
 
-/// Whether an ask of an engineer's that the owner holds can be handed back to the architect with the owner's answer: not
-/// a merge condition, which the architect does not judge.
-export const handsBack = (a: OwnerAsk): boolean => isObj(a.body) && a.body.to === 'owner' && !judgesCondition(a);
+/// Whether an ask of an engineer's that the owner holds can be handed back to the architect with the owner's answer.
+export const handsBack = (a: OwnerAsk): boolean => isObj(a.body) && a.body.to === 'owner';
 
 /// Whether a key pressed in a box of the owner's words sends them: Enter sends and Shift with Enter starts a new line;
 /// an Enter that ends a word typed through an input method (Chinese, for one) only ends the word.

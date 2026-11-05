@@ -1202,12 +1202,6 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .collect();
             set_aside_problems(&due, &answers, &findings).into_result()
         }
-        // The implementation and the fix report on each merge condition they were given, once, and on no other; given
-        // none, they leave the field out.
-        "owner_conditions_answered" => {
-            let (due, open) = crate::conditions::due(c.e.db.conn(), c.item()?.id, c.w.id)?;
-            crate::conditions::report_problems(&due, &open, v).into_result()
-        }
         // An approved design has the option the owner chose for each of its decision points.
         "points_chosen" => {
             if v.and_then(|x| x["verdict"].as_str()) != Some("approved") {

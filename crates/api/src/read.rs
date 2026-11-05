@@ -18,10 +18,10 @@ use crate::{
     Architect, ArchitectPanel, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold,
     FlowSnapshot, FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail,
     ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, MainText, Matter, MatterCard,
-    MergeCondition, MergeConditionReport, NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange,
-    OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement,
-    RoundConditional, RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
-    Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy,
+    Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
+    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
+    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -860,82 +860,11 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
             answer: json(r.get(5)?),
             answer_images: Vec::new(),
             asked_at: r.get(6)?,
-            condition_item: None,
         })
     })?;
     let mut out: Vec<OwnerAsk> = rows.collect::<rusqlite::Result<_>>()?;
     for a in out.iter_mut().filter(|a| a.answer.is_some()) {
         a.answer_images = db::attachments::of(conn, db::attachments::Words::Ask(a.id))?;
-    }
-    // Only an ask that waits takes a tick on its answer, and only while the merge of its item does not stand.
-    for a in out.iter_mut().filter(|a| a.answer.is_none()) {
-        let item = db::item_of_ask(conn, a.id).map_err(|e| Error::Failed(e.to_string()))?;
-        a.condition_item = match item {
-            Some(i) if !db::merge_stands(conn, i).map_err(|e| Error::Failed(e.to_string()))? => Some(i),
-            _ => None,
-        };
-    }
-    Ok(out)
-}
-
-/// What the owner set to be done before an item's work merges, oldest first, each with where it stands and the latest
-/// report of the engineer on it.
-fn merge_conditions(conn: &Connection, item: i64) -> Result<Vec<MergeCondition>> {
-    let mut st = conn.prepare(
-        "SELECT id, what, source, source_id, quote, said_by, recorded_by, recorded_work, recorded_round, at, status,
-           judged, judged_by
-         FROM item_merge_conditions WHERE item = ?1 ORDER BY id",
-    )?;
-    let mut out = st
-        .query_map([item], |r| {
-            Ok(MergeCondition {
-                id: r.get(0)?,
-                what: r.get(1)?,
-                source: r.get(2)?,
-                source_id: r.get(3)?,
-                quote: r.get(4)?,
-                said_by: r.get(5)?,
-                recorded_by: r.get(6)?,
-                recorded_work: r.get(7)?,
-                recorded_round: r.get(8)?,
-                at: r.get(9)?,
-                status: r.get(10)?,
-                judged: r.get(11)?,
-                judged_by: r.get(12)?,
-                report: None,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if out.is_empty() {
-        return Ok(out);
-    }
-    // The rounds that report on conditions, newest first: the first that names one holds its latest report.
-    let mut reports = conn.prepare(&format!(
-        "SELECT r.work, r.n, json_extract(r.output, '$.outcome.owner_conditions')
-         FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.transition IS NOT NULL AND r.cell IN {}
-           AND json_extract(r.output, '$.outcome.owner_conditions') IS NOT NULL
-         ORDER BY r.work DESC, r.n DESC",
-        db::cells_sql("engineer", &["I1", "T6"])
-    ))?;
-    let reported = reports
-        .query_map([item], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, json(r.get(2)?)))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for c in &mut out {
-        let number = format!("C{}", c.id);
-        c.report = reported.iter().find_map(|(work, round, rows)| {
-            let row = rows.as_ref()?.as_array()?.iter().find(|x| x["id"] == number.as_str())?;
-            let answer = row["answer"].as_str()?.to_string();
-            let words = row["what"].as_str().or_else(|| row["why"].as_str())?.to_string();
-            Some(MergeConditionReport {
-                answer,
-                words,
-                work: *work,
-                round: *round,
-            })
-        });
     }
     Ok(out)
 }
@@ -1898,7 +1827,6 @@ pub fn item(conn: &Connection, flows: &Flows, id: i64) -> Result<ItemDetail> {
         asks: asks(conn, "WHERE w.item = ?1", &[id])?,
         shown: shown(conn, flows, id)?,
         level_changes: level_changes(conn, id)?,
-        merge_conditions: merge_conditions(conn, id)?,
         item: summary,
     })
 }

@@ -167,17 +167,6 @@ impl Declared {
         Ok(declared)
     }
 
-    /// Who these words are told as having said them, as the column `said_by` of a merge condition keeps it: relayed when a
-    /// delegate declared a part that holds the whole of them the owner's own, otherwise whoever speaks. The same rule as
-    /// the engine's reading of a record (`Record::source_of`).
-    pub fn said_by(&self, words: &str) -> &str {
-        if self.speaker == Speaker::Delegate && !words.is_empty() && self.relayed.iter().any(|r| r.contains(words)) {
-            "relayed"
-        } else {
-            self.speaker.as_str()
-        }
-    }
-
     /// That nothing is relayed unless a delegate declares it: the owner at the page relays nothing, since it says its
     /// own words.
     fn only_a_delegate_relays(&self) -> std::result::Result<(), String> {

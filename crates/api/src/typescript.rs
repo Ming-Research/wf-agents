@@ -89,8 +89,6 @@ pub fn typescript() -> String {
         decl::<Items>(&cfg),
         decl::<LinkedItem>(&cfg),
         decl::<ItemDetail>(&cfg),
-        decl::<MergeCondition>(&cfg),
-        decl::<MergeConditionReport>(&cfg),
         decl::<Shown>(&cfg),
         decl::<LevelChange>(&cfg),
         decl::<Settings>(&cfg),
