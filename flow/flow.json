@@ -4446,7 +4446,7 @@
     },
     {
       "name": "lock_update",
-      "desc": "Brings one of the project's lock files in line with its manifest. Change the manifest first, as you change code, committed or not; then ask for this tool, which runs the project's command for that lock file in the directory that holds it in your worktree. You give the tool nothing but the lock file. Where you do not know the version to ask for, write `*` in the manifest, read the version the lock file then locks, write it in the manifest and ask again. For a merge conflict in a lock file, take main's (`git checkout origin/main -- <the lock file>`) and ask again, which locks what your manifest newly asks for. Commit the lock file with its manifest; `git status` shows what changed. Only the lock files the project lists run; where it lists none, the tool refuses and says what to do instead",
+      "desc": "Brings one of the project's lock files in line with its manifest. Change the manifest first, as you change code, committed or not; then ask for this tool, which runs the project's command for that lock file in the directory that holds it in your worktree. You give the tool nothing but the lock file. Where you do not know the version to ask for, write `*` in the manifest, read the version the lock file then locks, write it in the manifest and ask again. For a merge conflict in a lock file, take main's (`git checkout origin/<main> -- <the lock file>`) and ask again, which locks what your manifest newly asks for. Commit the lock file with its manifest; `git status` shows what changed. Only the lock files the project lists run; where it lists none, the tool refuses and says what to do instead",
       "runs": "The engine finds the lock file among those the project's configuration lists (`lock_updates`) and reads it as the worktree has it, uncommitted changes included. It then runs the command the configuration gives for the lock file in the directory that holds it in the work's worktree, without a shell, in a process group of its own, with the engine's environment, and reads its output as it runs; the agent chooses nothing of the command. A command that runs past its time limit (`timeout`, 600 seconds unless the configuration sets it) is stopped with everything it started, and one that ends leaves nothing it started running: what is left in its process group is stopped when it ends. The engine then reads the lock file again and compares its content with what it was. A command that fails while the network is down makes the cell wait for the network, as every tool does. The engine commits nothing and changes nothing else, and records the attempt",
       "in": [
         {
@@ -8872,7 +8872,6 @@
             "ci",
             "ci_before",
             "dependency_sources",
-            "lock_update",
             "gh",
             "query"
           ],

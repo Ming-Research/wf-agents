@@ -145,7 +145,7 @@ directory; the decision behind the tool is `decisions/engine-runs-outside-comman
 
 ## Updating a project's lock files
 
-An agent that implements, fixes or tests a change changes a manifest as it changes code, and has the engine's tool
+An agent that implements or fixes a change changes a manifest as it changes code, and has the engine's tool
 `lock_update` bring the lock file in line with it: the agent names the lock file and nothing else, and the engine runs the
 command the project's file gives for that lock file, in the directory that holds it in the work's worktree, so the command
 need not know the project's layout. The engine knows no language and no lock file format, so a project of any language
