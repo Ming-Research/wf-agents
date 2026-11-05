@@ -85,7 +85,8 @@ pub fn previous_start(conn: &Connection, project: &str) -> Result<Option<i64>, S
 }
 
 /// What a round on a line that forks finds its session by ([`sessions::Fork`]): the matter the architect's work has in
-/// hand and the project's latest base; none for a cell whose line forks from nothing, or of another graph.
+/// hand, the look at the queue that took it and the project's latest base; none for a cell whose line forks from
+/// nothing, or of another graph.
 pub fn fork_of(e: &Engine, w: &Work, cell: &CompiledCell, can_fork: bool) -> Result<Option<sessions::Fork>, String> {
     if w.graph != ARCHITECT || cell.fork_of.is_none() {
         return Ok(None);
@@ -97,7 +98,13 @@ pub fn fork_of(e: &Engine, w: &Work, cell: &CompiledCell, can_fork: bool) -> Res
         return Ok(None);
     };
     let base = latest(e.db.conn(), project)?.map(|b| (b.session, b.cli_session));
-    Ok(Some(sessions::Fork { matter, base, can_fork }))
+    let taken_at = crate::architect::look_round(e.db.conn(), w.id)?;
+    Ok(Some(sessions::Fork {
+        matter,
+        base,
+        can_fork,
+        taken_at,
+    }))
 }
 
 // The fixed order.

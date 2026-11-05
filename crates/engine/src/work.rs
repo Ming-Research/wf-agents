@@ -207,11 +207,15 @@ pub fn rounds_at(conn: &Connection, work: i64, cell: &str) -> Result<Vec<Round>,
         .map_err(sql)
 }
 
-/// The rounds of a cell in the sessions of an architect's matter, newest first, in whichever works they ran.
+/// The rounds of a cell an architect's matter had, newest first, in whichever works they ran: those in a session of the
+/// matter's own, and those whose work's latest look at the queue before them took the matter.
 pub fn rounds_of_matter(conn: &Connection, matter: i64, cell: &str) -> Result<Vec<Round>, String> {
     let mut st = conn
         .prepare(&format!(
-            "{} WHERE r.cell = ?2 AND r.session IN (SELECT id FROM sessions WHERE matter = ?1)
+            "{} WHERE r.cell = ?2 AND (r.session IN (SELECT id FROM sessions WHERE matter = ?1)
+                 OR ?1 = (SELECT json_extract(l.output, '$.next.matter') FROM rounds l
+                          WHERE l.work = r.work AND l.cell = 'N0' AND l.n < r.n AND l.transition IS NOT NULL
+                          ORDER BY l.n DESC LIMIT 1))
              ORDER BY r.ended_at DESC, r.n DESC",
             rounds_query()
         ))

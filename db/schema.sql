@@ -377,8 +377,8 @@ CREATE TABLE sessions (
   -- configuration directory of the CLI does not hold the session, when the CLI's prompt cache let it go (a line the
   -- flow says expires with the cache, its session last called a cache lifetime or more ago), and when the owner asks
   -- for one. Each project's architect's base, the session that read the project last, goes on in one CLI session across
-  -- the works of the project's architect: each has a row of its own with the same cli_session. A matter of the
-  -- architect is handled in a session of its own, forked from the base: the CLI copies the base's session under a new
+  -- the works of the project's architect: each has a row of its own with the same cli_session. The matters of
+  -- one run of the architect are handled in one session forked from the base: the CLI copies the base's session under a new
   -- id, so that it holds all the base read, and the fork's rounds are read after the base's. A cell on no line has a
   -- session of its own for each round, ended once the round has.
   -- Hidden from agents.
@@ -402,8 +402,8 @@ CREATE TABLE sessions (
   -- architect work left; account, the line's rounds run under another login account of the CLI than its session
   -- before, in another configuration directory, which does not hold that session; expired, the CLI's prompt cache
   -- let the line's session go, its last call a cache lifetime or more before, on a line the flow says expires with
-  -- it; owner, the owner asked for a new session with the round's Start or Step on the page; fork, a matter's first
-  -- round on a line that forks from another, forked from that line's latest session, the base. Read by: the owner's
+  -- it; owner, the owner asked for a new session with the round's Start or Step on the page; fork, a first round on a
+  -- line that forks from another, forked from that line's latest session, the base. Read by: the owner's
   -- interface.
   started TEXT NOT NULL DEFAULT 'line'
     CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'account', 'expired', 'owner', 'fork')),
@@ -413,7 +413,8 @@ CREATE TABLE sessions (
   fork_of INTEGER REFERENCES sessions(id),
   -- The matter of a project's architect the session is for, on a line whose sessions are each a matter's: a matter
   -- parked by a question to the owner takes its session up again when the answer comes, in whichever work of the
-  -- architect runs then. NULL on any other line. Read by: the session manager, to find a matter's session.
+  -- architect runs then. NULL on any other line, and on the line whose session a work's matters share. Read by: the
+  -- session manager, to find a matter's session.
   matter INTEGER REFERENCES architect_matters(id),
   CHECK ((started = 'fork') = (fork_of IS NOT NULL))
 ) STRICT;

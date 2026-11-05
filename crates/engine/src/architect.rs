@@ -545,10 +545,20 @@ fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     route_of(e.db.conn(), w.id, g)
 }
 
+/// The round of an architect's work of its latest look at the queue; 0 before the first.
+pub fn look_round(conn: &Connection, work: i64) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT coalesce(max(n), 0) FROM rounds WHERE work = ?1 AND cell = ?2 AND transition IS NOT NULL",
+        params![work, LOOK],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
 /// The rounds of a cell an input reads, newest first. An engineer's work reads all its own. An architect's reads only
-/// those of what it has in hand, never another matter's: for a cell of a matter's own sessions the rounds of those
-/// sessions, in whichever work of the architect they ran, since a matter back with the owner's answer may be in
-/// another; for any other cell the rounds since the look at the queue that took it.
+/// those of what it has in hand, never another matter's: for a cell on a line that forks the rounds the matter had
+/// there, in whichever work of the architect they ran, since a matter back with the owner's answer may be in another;
+/// for any other cell the rounds since the look at the queue that took it.
 pub fn rounds_for_input(conn: &Connection, w: &Work, cell: &CompiledCell) -> Result<Vec<Round>, String> {
     if w.graph != ARCHITECT {
         return work::rounds_at(conn, w.id, &cell.id);
@@ -559,13 +569,7 @@ pub fn rounds_for_input(conn: &Connection, w: &Work, cell: &CompiledCell) -> Res
             None => Ok(Vec::new()),
         };
     }
-    let from: i64 = conn
-        .query_row(
-            "SELECT coalesce(max(n), 0) FROM rounds WHERE work = ?1 AND cell = ?2 AND transition IS NOT NULL",
-            params![w.id, LOOK],
-            |r| r.get(0),
-        )
-        .map_err(sql)?;
+    let from = look_round(conn, w.id)?;
     Ok(work::rounds_at(conn, w.id, &cell.id)?
         .into_iter()
         .filter(|r| r.id.n > from)

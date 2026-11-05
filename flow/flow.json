@@ -12885,14 +12885,15 @@
         "lines": [
           {
             "name": "architect",
-            "desc": "The project's base: a new session reads the project at `B1` and plans at `B2`; every matter forks from where that session ends, until the next base. It is carried from one work of the architect to the next",
+            "desc": "The project's base: a new session reads the project at `B1` and plans at `B2`; each run forks from where that session ends, until the next base. It is carried from one work of the architect to the next",
             "colour": "purple"
           },
           {
             "name": "matter",
-            "desc": "Each matter in a session of its own, forked from the base as it ends: it holds all the base read, and is given what came since and the matter's own material; it goes on through the matter's cells and what a second eye sends back, and ends once the matter is handled or it asks the owner. A matter back with the owner's answer starts a new fork",
+            "desc": "The matters of one run in one session, forked from the base as it ends: it holds all the base read, and is given what came since and each matter's own material. A run lasts from the work leaving `S0` until the queue is empty; the session ends with it, or forks anew from the latest base at the next matter when a new base was built or it passed the limit of a session's context",
             "colour": "cyan",
-            "forks": "architect"
+            "forks": "architect",
+            "wholeRun": true
           },
           {
             "name": "second_eye",
@@ -12902,10 +12903,10 @@
           }
         ],
         "rules": [
-          "The base only saves tokens, and no judgment rests on it: a new session reads the project (`B1`) and plans (`B2`), and every matter forks from where it ended, so that none reads the project again. A new base is made in three cases only: the project has none, the policy in force changed, or what came since the base passed the installation's amount (`architect.carried_most`). Neither time nor a cold prompt cache makes one: a cold cache is written once, cheaper than reading the project again.",
-          "Each matter is handled in a session forked from the base as it ended, one matter at a time: the fork holds everything the base read, and is given what came since the base and the matter's own material. The session ends once the matter is handled, or when it asks the owner: a matter back with the owner's answer forks anew from the base as it is then. A command line that cannot fork a session starts a new one, given only what its cells read.",
+          "The base only saves tokens, and no judgment rests on it: a new session reads the project (`B1`) and plans (`B2`), and each run forks from where it ended, so that none reads the project again. A new base is made in three cases only: the project has none, the policy in force changed, or what came since the base passed the installation's amount (`architect.carried_most`). Neither time nor a cold prompt cache makes one: a cold cache is written once, cheaper than reading the project again.",
+          "The matters of one run are handled in one session forked from the base as it ended, one matter at a time: the fork holds everything the base read, and is given what came since the base and each matter's own material. A run lasts from the work leaving `S0` until the queue is empty, and the session ends with it; at the next matter it forks anew from the latest base when a new base was built or it passed the limit of a session's context. A matter that asks the owner leaves the session to the next matter, and comes back with the answer in whichever session is going on then. A command line that cannot fork a session starts a new one, given only what its cells read.",
           "What a base read stays as it was; what comes after is appended: each matter's record and the lines it adds to the plan or the understanding, what the owner and the architect said, what merged or was cancelled. The next base's `B1` writes its understanding from nothing, and of all that reads only what the owner and the architect said; its `B2` always hands in the whole plan, taking in all of it.",
-          "The second eye is a line of its own, forked from the same base and run on the same model as the matter's session, so that it sees what that session saw and nothing it reasoned.",
+          "The second eye is a line of its own, forked from the same base and run on the same model as the matter's session, one session for each matter, so that it sees what the base holds and nothing the matter's session reasoned, of this matter or the run's others.",
           "When the architect hands in pause, the architect's work waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again.",
           "The lines of the architect's work only read, in a worktree of the project's architect's own, detached at the project's main, which the engine brings to the latest main before each round, dropping whatever was changed there; another branch is read there with git, without switching."
         ]
@@ -13444,7 +13445,7 @@
               "do": [
                 "fresh_session"
               ],
-              "note": "A new session reads the project and plans: it is the next base, which every matter after it forks from."
+              "note": "A new session reads the project and plans: it is the next base, which the matters after it fork from."
             },
             {
               "name": "owner",
@@ -13840,7 +13841,7 @@
             "This round writes the plan: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet, what matters most now and why, and where what runs or waits does not fit. An earlier decision of yours stands only if it is still reasonable with today's facts; an owner's ruling stands until the owner changes it. This thinking is yours: it never goes into the policy.",
             "Start from the plan before and take in what came since: a line a matter added stands unless you say why it no longer does; what the owner wants done stays until it is done or the owner withdrew it.",
             "Then go through the items not done and why each held one is held, and the open observations. Merge what is one thing, not to save work; release or cancel what is held for a reason that no longer holds, where the hold is yours; a hold the owner asked for stays, and a step asks the owner when its reason no longer holds. An observation the policy would have done now becomes an item; one no longer so is closed, saying why. Where your order differs from the items' ranks, a step moves them. Each of these is a step.",
-            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, each in a session forked from this one, and they replace the steps of the plan before not yet done. So write each whole, with what it needs from those it replaces, and check the facts it rests on: its session has nothing else to go by. A step is what effects or a look-up can do. What waits for someone, and what for, goes in notes, not in a step. What the direction needs but the plan does not reach soon is recorded as an observation by a step, to be looked at in a later planning. When slots are free and fewer items are ready than slots, see why each is not ready: release or reorder what may start, or say in notes why nothing should start now. A running work going the wrong way, every round of it wasted, is paused by the first step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
+            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, in a session forked from this one, and they replace the steps of the plan before not yet done. So write each whole, with what it needs from those it replaces, and check the facts it rests on: its session has nothing else to go by. A step is what effects or a look-up can do. What waits for someone, and what for, goes in notes, not in a step. What the direction needs but the plan does not reach soon is recorded as an observation by a step, to be looked at in a later planning. When slots are free and fewer items are ready than slots, see why each is not ready: release or reorder what may start, or say in notes why nothing should start now. A running work going the wrong way, every round of it wasted, is paused by the first step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
           ],
           "out": [
             {
@@ -13888,7 +13889,7 @@
                 "queue_steps",
                 "release_straight_hold"
               ],
-              "note": "This session is the base from now on: the steps and the other matters are taken, each in a session forked from it.",
+              "note": "This session is the base from now on: the steps and the other matters are taken in a session forked from it.",
               "counts": "plans"
             }
           ],
@@ -15107,7 +15108,7 @@
               "to": "N0",
               "drops": true,
               "main": true,
-              "note": "The question is pinned at the bottom of the owner's one-to-one, and parks only the matter that asked, whose session ends: the architect's work goes on with the next matter at once, and the matter comes back with the owner's reply, taken first, to the cell that asked, in a new fork of the base."
+              "note": "The question is pinned at the bottom of the owner's one-to-one, and parks only the matter that asked: the architect's work goes on with the next matter at once, and the matter comes back with the owner's reply, taken first, to the cell that asked, in a new fork of the base."
             }
           ],
           "shown": [

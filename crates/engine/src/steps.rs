@@ -71,7 +71,7 @@ pub fn new_session_why(
         ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
-        sessions::Start::Fork => "the matter's session, forked from the base".into(),
+        sessions::Start::Fork => "forked from the base".into(),
     }
 }
 
@@ -290,8 +290,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     };
     // The matter a session of a line whose sessions are each a matter's is for: the matter in hand.
     let matter = match cell.fork_of {
-        Some(_) => architect::picked(e.db.conn(), w.id)?,
-        None => None,
+        Some(_) if !cell.whole_run => architect::picked(e.db.conn(), w.id)?,
+        _ => None,
     };
     let (sid, resume, new_session, fork) = match plan {
         Plan::Going {
