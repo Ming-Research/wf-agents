@@ -37,32 +37,69 @@ runs:
     - name: Generate the page's types and the flow its tests read
       run: WF_AGENTS_GENERATE=1 cargo test -p api --locked --test typescript
       shell: bash
+    # What the page's checks read: its files, the types and the flow just generated. On the project's machine, whose
+    # runners keep it, checks that passed on the same of these are not run again, so that a change to the Rust alone
+    # pays only for what it can break.
+    - name: Find whether the page's checks passed on this already
+      id: page
+      run: |
+        key=$(git rev-parse HEAD:client)-$(git hash-object client/src/api.ts client/src/stored-flow.json | tr -d '\n' | sha256sum | cut -c1-16)
+        echo "key=$key" >> "$GITHUB_OUTPUT"
+        if [ -f "$HOME/page-builds/checked/$key" ]; then echo "passed=true" >> "$GITHUB_OUTPUT"; fi
+      shell: bash
     - name: Install the page's dependencies
       working-directory: client
-      run: npm ci
+      run: |
+        lock=$(git rev-parse HEAD:client/package-lock.json)
+        if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+          npm ci
+          echo "$lock" > node_modules/.wf-lock
+        fi
       shell: bash
     - name: Type-check the page
+      if: steps.page.outputs.passed != 'true'
       working-directory: client
       run: npm run typecheck
       shell: bash
     - name: Lint the page
+      if: steps.page.outputs.passed != 'true'
       working-directory: client
       run: npm run lint
       shell: bash
     # Every colour, size and spacing in the page's styles is a token, as its UI spec says (client/ui-spec.md); the
     # tests of the next step leave this to it.
     - name: Check the page against its UI spec
+      if: steps.page.outputs.passed != 'true'
       working-directory: client
       run: npm run check:ui
       shell: bash
     - name: Test the page
+      if: steps.page.outputs.passed != 'true'
       working-directory: client
       run: npm test
       shell: bash
-    # Before any cargo step that compiles the crate the page is built into.
+    - name: Keep that the page's checks passed on this
+      if: steps.page.outputs.passed != 'true'
+      run: mkdir -p "$HOME/page-builds/checked" && touch "$HOME/page-builds/checked/${{ steps.page.outputs.key }}"
+      shell: bash
+    # Before any cargo step that compiles the crate the page is built into; the build of the page's files as they are is
+    # kept for every runner of the project's machine.
     - name: Build the page
       working-directory: client
-      run: npm run build
+      run: |
+        tree=$(git rev-parse HEAD:client)
+        kept="$HOME/page-builds/$tree"
+        if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+          :
+        elif [ -f "$kept/index.html" ]; then
+          rm -rf dist && cp -a "$kept" dist
+        else
+          npm run build
+          mkdir -p "$HOME/page-builds"
+          tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
+          find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
+        fi
+        echo "$tree" > node_modules/.wf-tree
       shell: bash
     - name: Lint
       run: cargo clippy --workspace --all-targets --locked -- -D warnings
