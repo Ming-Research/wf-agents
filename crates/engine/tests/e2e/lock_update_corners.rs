@@ -15,9 +15,12 @@ fn ask(lock: &str) -> Value {
     json!({ "tool": "lock_update", "lock": lock })
 }
 
-/// The agents as `scripts` makes them, but for the implementation, whose rounds first do `steps` one at a time: each
-/// changes its worktree, without committing, and asks for the tools it gives. Then it answers as it did.
-fn implementation_steps(steps: Vec<Box<dyn Fn(&Path) -> Value + Send + Sync>>) -> BTreeMap<&'static str, Script> {
+/// One round of the implementation: it changes the worktree, without committing, and gives the tools to ask for.
+type Step = Box<dyn Fn(&Path) -> Value + Send + Sync>;
+
+/// The agents as `scripts` makes them, but for the implementation, whose rounds first do `steps` one at a time. Then it
+/// answers as it did.
+fn implementation_steps(steps: Vec<Step>) -> BTreeMap<&'static str, Script> {
     let mut agents = scripts();
     let implement = agents.remove("I1").unwrap();
     agents.insert(
