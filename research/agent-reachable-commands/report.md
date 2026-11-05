@@ -111,8 +111,10 @@ Both tools run their command in `crates/engine/src/command.rs`, `run_command`, c
 `ubuntu24` image 20261026.354.1: rustup 1.29.2, cargo and rustc 1.99.1, rustfmt 1.10.0, npm 10.9.9, node 22.23.4,
 git 2.56.0. `RUSTUP_TOOLCHAIN` was not set, and `cargo`, `rustc` and `rustfmt` sit in `~/.cargo/bin` beside `rustup`
 (run: `command -v`); `rustup which <name>` outside any checkout names the program in the default toolchain's `bin`
-directory, and the toolchain file redirected all three, so they are rustup proxies (run). The workflow ran the matrix three times, and the three passes gave the same marker and exit code in every
-row (33 rows in each pass, 99 in all; checked by counting each marker and exit code over the log: each count is three
+directory. The toolchain file redirected `cargo` (the eight cargo cells) and `rustfmt` (its cell and the control
+`rustup which rustfmt`), so those two are rustup proxies (run); `rustc` sits beside them and is a proxy by that position
+(inferred; not run: no cell or control redirects it). The workflow ran the matrix three times, and the three passes gave
+the same marker and exit code in every row (33 rows in each pass, 99 in all; checked by counting each marker and exit code over the log: each count is three
 times its count in one pass).
 
 Each cell is built in a temporary directory, with a harmless stand-in that only writes a marker named after itself and
