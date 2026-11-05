@@ -5034,7 +5034,7 @@
       "research_rounds": "Whether the initial research has run the project's bound of rounds (6 unless `limits.research_rounds` sets it) since it last handed in its answer.",
       "merge_failures": "Whether this failure in the merge queue is the third in a row since the work last went to the architect for them.",
       "second_eye": "Whether what the matter's session handed in holds a change of a kind a second eye checks.",
-      "verifies":"Whether the item's acceptance holds a condition written in_effect, which a real run checks once the change takes effect.",
+      "verifies": "Whether the item's acceptance holds a condition written in_effect, which a real run checks once the change takes effect.",
       "in_effect": "Whether what carries the change holds the work's merge commit, for every condition written in_effect: main holds it as it merges; the installed program holds it when its build's commit has the merge commit among its ancestors in the project's checkout, and whether it does cannot be told when that commit is unknown or not there.",
       "install_wait": "Whether the time since the merge is past the project's limit of the wait for the change to take effect (72 hours unless the project's `install_wait_hours` sets it).",
       "look_due": "Whether cell `W2` is to look now: it has not looked yet, or the time it said to wait after its last look has passed.",
@@ -9048,13 +9048,23 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "name": "The standard for adversarial testing",
+              "what": "What makes a change go to adversarial testing in this project, as the project's configuration says it; none if it says none",
+              "from": [
+                {
+                  "config": "adversarial_standard"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
             "This pass looks at the details: whether what was said is done, and done right; whether each acceptance condition has a test that ran green on the head, but one written in_effect, which has none and whose row says `how: in_effect`, as it is checked after the merge; for each old-behaviour test of the engineer's that could not be built before the change (cannot_run) or was not run there (not_run), whether the reason it gives in not_before (in the test changes) holds by the diff, that is, whether the old behaviour is shown unchanged some other way, such as old code moved as it was, and a finding when it is not; whether the owner's decisions and the options chosen were followed; whether the conditions to merge are met. Raise again none of the first pass's findings.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history.",
             "Judge each finding set aside you are given, in set_aside, by the diff: old_rule when the check as the branch changes it would not report it, saying why; real when it is a problem all the same, which you then also write as a finding and must fix.",
-            "Then answer two questions. Must anything be fixed before it can merge: yes when you or the first pass found anything. Is this change of the kinds that go wrong silently, where only an adversary's tests find the error: a compiler, a checker, a runtime, a data format, concurrency, security, parsing?"
+            "Then answer two questions. Must anything be fixed before it can merge: yes when you or the first pass found anything. Is this change of the kinds that go wrong silently, where only an adversary's tests find the error: a compiler, a checker, a runtime, a data format, concurrency, security, parsing? When the project's standard for adversarial testing is given, answer this one by that standard alone, read against the diff: yes when the diff does what it names, no otherwise, adding no reason of your own for or against."
           ],
           "out": [
             {
@@ -9101,7 +9111,7 @@
               "title": "Whether it can go wrong silently",
               "type": "union",
               "by": "verdict",
-              "desc": "Whether the change is of the kinds that go wrong silently (a compiler, a checker, a runtime, a data format, concurrency, security, parsing), with one sentence of why",
+              "desc": "Whether the change is of the kinds that go wrong silently (a compiler, a checker, a runtime, a data format, concurrency, security, parsing), with one sentence of why; when the project gives a standard for adversarial testing, whether the diff meets it",
               "branches": [
                 {
                   "value": "no",
@@ -9123,7 +9133,7 @@
                       "name": "why",
                       "title": "Why",
                       "type": "text",
-                      "desc": "Which kind, and where an adversary should attack"
+                      "desc": "Which kind, or which clause of the standard, and where an adversary should attack"
                     }
                   ]
                 }

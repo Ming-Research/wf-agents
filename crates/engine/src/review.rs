@@ -75,7 +75,8 @@ fn asked(conn: &Connection, work: i64, since: i64) -> Result<Option<Asked>, Stri
     }))
 }
 
-/// The latest ask of the owner that put the design to the owner at round `since` or after, with its answer if it came.
+/// The latest ask of the owner that put the design to the owner since round `since`, the design's, with its answer if it
+/// came.
 fn owner_ask(conn: &Connection, work: i64, since: i64) -> Result<Option<(i64, Option<Value>)>, String> {
     let row: Option<(i64, Option<String>)> = conn
         .query_row(
@@ -103,7 +104,7 @@ pub fn stage(conn: &Connection, work: i64) -> Result<&'static str, String> {
     if m.reply.is_none() {
         return Ok("architect");
     }
-    Ok(match owner_ask(conn, work, m.round)? {
+    Ok(match owner_ask(conn, work, since)? {
         Some((_, Some(_))) => "answered",
         _ => "owner",
     })
@@ -139,7 +140,8 @@ fn design(tx: &Transaction<'_>, work: i64, n: i64, within: &str) -> Result<Value
 }
 
 /// `post_design_review`: queues the latest design for the architect's review, unless a review of it is queued and not
-/// answered nor withdrawn, and has the matter stand for the work's blocker.
+/// answered nor withdrawn or the owner answered one already, as for a work that moved here from a version of the flow
+/// where it waited for the answer, and has the matter stand for the work's blocker.
 pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let work = ctx.work.id;
     let item = ctx
@@ -147,6 +149,9 @@ pub fn post(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
         .as_ref()
         .ok_or_else(|| format!("work {work} reviews a design, and is on no item"))?;
     let since = design_round(tx, work)?.ok_or_else(|| format!("work {work} has no design to review"))?;
+    if stage(tx, work)? == "answered" {
+        return Ok(());
+    }
     let live = asked(tx, work, since)?.filter(|m| m.reply.is_none() && !m.withdrawn);
     let matter = match live {
         Some(m) => m.id,
@@ -211,7 +216,7 @@ fn put_owner_ask(tx: &Transaction<'_>, work: i64, item: i64, title: &str, n: i64
     let m = asked(tx, work, since)?
         .filter(|m| m.reply.is_some())
         .ok_or_else(|| format!("work {work}: the architect has not reviewed its design yet"))?;
-    if let Some((id, None)) = owner_ask(tx, work, m.round)? {
+    if let Some((id, None)) = owner_ask(tx, work, since)? {
         return Ok(id);
     }
     let reviewed = design(tx, work, since, within)?;
@@ -275,12 +280,15 @@ pub fn ask_owner_due(tx: &Transaction<'_>, work: i64) -> Result<Option<i64>, Str
     let Some(m) = asked(tx, work, since)?.filter(|m| m.reply.is_some()) else {
         return Ok(None);
     };
-    match owner_ask(tx, work, m.round)? {
+    match owner_ask(tx, work, since)? {
         Some((id, None)) => return Ok(Some(id)),
         Some((_, Some(_))) => return Ok(None),
         None => {}
     }
-    if crate::blockers::open(tx, work)?.is_some_and(|b| b.cell == CELL) {
+    let at: String = tx
+        .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .map_err(sql)?;
+    if at == CELL && crate::blockers::open(tx, work)?.is_some_and(|b| b.cell == CELL) {
         return Ok(None);
     }
     let body: String = tx
@@ -331,10 +339,7 @@ pub fn pending_matter(conn: &Connection, work: i64) -> Result<Option<i64>, Strin
 /// Whether the owner approved the work's latest design at its review: answered exactly approved.
 pub fn approved(conn: &Connection, work: i64) -> Result<bool, String> {
     let since = design_round(conn, work)?.unwrap_or(0);
-    let Some(m) = asked(conn, work, since)?.filter(|m| m.reply.is_some()) else {
-        return Ok(false);
-    };
-    Ok(match owner_ask(conn, work, m.round)? {
+    Ok(match owner_ask(conn, work, since)? {
         Some((_, Some(a))) => a["text"].as_str().unwrap_or_default().trim() == crate::approval::APPROVED,
         _ => false,
     })
@@ -347,7 +352,7 @@ pub fn input(conn: &Connection, work: i64) -> Result<Option<Value>, String> {
     let Some(m) = asked(conn, work, since)?.filter(|m| m.reply.is_some()) else {
         return Ok(None);
     };
-    let owner = match owner_ask(conn, work, m.round)? {
+    let owner = match owner_ask(conn, work, since)? {
         Some((id, Some(answer))) => {
             let images = attachments::of(conn, Words::Ask(id)).map_err(sql)?;
             let text = attachments::with_named(answer["text"].as_str().unwrap_or_default(), &images);

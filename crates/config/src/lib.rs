@@ -754,6 +754,10 @@ pub struct Project {
     /// The places adversarial testing attacks, beyond the acceptance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attack_points: Option<String>,
+    /// What makes a change go to adversarial testing, which the details review reads against the diff; none, and the
+    /// review answers the general question whether the change can go wrong silently.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adversarial_standard: Option<String>,
     /// What correctness is judged against: a reference implementation, a specification, conformance files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oracles: Option<String>,
@@ -1146,10 +1150,11 @@ fn is_true(b: &bool) -> bool {
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
-pub const SETTINGS: [&str; 8] = [
+pub const SETTINGS: [&str; 9] = [
     "design_goal",
     "attack_points",
     "test_paths",
+    "adversarial_standard",
     "full_ci",
     "deploy",
     "records",
@@ -1185,6 +1190,7 @@ impl Project {
             // The list as the configuration writes it, patterns included, and given even when empty: an empty list
             // says no file may be changed by adversarial testing, which is not the project saying nothing.
             "test_paths" => json!(self.test_paths),
+            "adversarial_standard" => text(&self.adversarial_standard),
             "full_ci" => json!({"workflows": self.ci.full, "merge_checks": self.ci.merge_checks}),
             "deploy" => text(&self.deploy),
             "records" => self.records.as_ref().map_or(Value::Null, |r| json!(r)),
