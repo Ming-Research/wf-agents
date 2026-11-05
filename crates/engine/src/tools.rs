@@ -624,6 +624,30 @@ fn with_tests_named_before(e: &Engine, w: &Work, tests: Vec<String>) -> Result<V
     Ok(out)
 }
 
+/// The result of a run of ci with `ci_before_stale` added to its push when the push leaves results of ci_before stale:
+/// the tests whose latest run of ci_before put test files on the code before the change that the pushed head changed
+/// since. A return naming such a test is sent back, so the engineer is told here, with what to hand in to
+/// ci_before again, while it can still run it. A result that is not a push gets nothing.
+fn with_stale_before(e: &Engine, w: &Work, project: &config::Project, mut ran: Value) -> Result<Value, String> {
+    let Some(head) = ran["push"]["head"]
+        .as_str()
+        .filter(|_| ran["push"]["verdict"] == "pushed")
+        .map(str::to_string)
+    else {
+        return Ok(ran);
+    };
+    let seps = project.ci.results.as_ref().map(|r| r.separators.as_slice());
+    let stale = crate::checks::stale_before_results(e, w, seps.unwrap_or_default(), &head)?;
+    if !stale.is_empty() {
+        let stale: Vec<Value> = stale
+            .iter()
+            .map(|s| json!({ "tests": s.tests, "changed": s.changed, "files": s.files }))
+            .collect();
+        ran["push"]["ci_before_stale"] = Value::Array(stale);
+    }
+    Ok(ran)
+}
+
 /// The checks a request of ci names to run beside the tests, each trimmed and once, in the order named, a blank one
 /// left out.
 fn named_checks(req: &Value) -> Vec<String> {
@@ -820,6 +844,13 @@ pub fn run_tools(
     got.sort_by_key(|(n, _, _)| *n);
     let mut failed: Vec<Value> = Vec::new();
     for (_, tool, ran) in got {
+        // Every ci_before of the call has run by now, so what is stale is what its runs left stale.
+        let ran = match (&project, tool.as_str()) {
+            (Some(project), "ci") => {
+                ran.and_then(|v| with_stale_before(e, w, project, v).map_err(|x| (Failure::other(x), String::new())))
+            }
+            _ => ran,
+        };
         match ran {
             Ok(mut v) => {
                 if let Some(o) = v.as_object_mut() {
