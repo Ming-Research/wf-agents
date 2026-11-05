@@ -396,13 +396,19 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
             *part = json!({ "$ref": format!("format:common#/$defs/{name}") });
         }
     }
+    let forms = if others.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; instead of it, a return of this cell may hold these forms of `format:common`: {}",
+            others.join(", ")
+        )
+    };
     format!(
-        "The answer of cell {id} ({title}), which `{w}` holds, as JSON Schema; instead of it, a return of this cell may \
-         hold these forms of `format:common`: {others}.\n\n{json}",
+        "The answer of cell {id} ({title}), which `{w}` holds, as JSON Schema{forms}.\n\n{json}",
         id = cell.id,
         title = cell.title,
         w = g.within,
-        others = others.join(", "),
         json = once(own),
     )
 }
