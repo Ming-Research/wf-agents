@@ -8,10 +8,12 @@ quotation below is a translation by the author of this report. The original of e
 
 Between 2026-11-03 19:30 UTC and 2026-11-04 19:00 UTC, 96 of the 97 commits that reached main came by direct push, not
 through a pull request. Of the 25 asks of the owner's that were answered in asks 25 to 49, the direct pushes took away or
-changed the approval of 10 (asks 25, 26, 28, 30, 31, 35, 39, 40, 41, 47), which make the 8 rows A1 to A8 below. They left 7
-untouched (asks 27, 29, 34, 36, 42, 48, 49). The other 8 never reached main or are not about the flow (asks 32, 33, 37,
-38, 43, 44, 45, 46). Asks 2 to 24 and 50 to 79 were read too; none of them is such an approval (sections 6 and 7). The 8
-rows, in one line each:
+changed the approval of 10 (asks 25, 26, 28, 30, 31, 35, 39, 40, 41, 47), which make the 8 rows A1 to A8 below; ask 25 has
+two parts and is split: its `speaker` part stays, its recording part goes with A5. They left 7 asks standing as far as
+checked: asks 29, 34, 36, 42, 48 checked in full, and asks 27 and 49 checked in the flow part only (what was not checked is
+named in section 5). The other 8 never reached main or are not about the flow (asks 32, 33, 37, 38, 43, 44, 45, 46).
+10 + 7 + 8 = 25. Asks 2 to 24 and 50 to 79 were read too; none of them is such an approval (sections 6 and 7). The 8 rows,
+in one line each:
 
 | # | Ask | Item | What was approved | Main at the window's end |
 | - | --- | ---- | ----------------- | ------------------------ |
@@ -257,24 +259,25 @@ anything up"); the answers say so in their own words.
 
 ## 5. Approvals that stay
 
-Same JSON value at START and END, unless said:
+Same JSON value at START and END, unless said. Asks 29, 34, 36, 42, 48 are checked in full. Asks 27 and 49 are kept only in
+the part named in the evidence column; the rest of each is not checked, so for it the verdict is "cannot judge" and the
+missing check is named. Ask 25's `speaker` part is kept (its other part is in A5), and is not counted here.
 
 | Ask | Item | Approved | Evidence |
 | --- | ---- | -------- | -------- |
-| 27 | #20 | `stopped` row of the merge cell M2; cancel and pause behaviour | M2 still has `stopped`; it gained `third_failure`; engine behaviour not diffed |
+| 27 | #20 | `stopped` row of the merge cell M2; a cancel waits for the step under way; the page shows "stopping"; with the engine down it waits for the next start; a merge that got there first is not cancelled nor rolled back; unpausing waits for a free slot | Kept: M2 still has `stopped` (it gained `third_failure`), and the step `stop_work` still says a cancel "ends once the step it is in has ended". Cannot judge: the page's "stopping", the wait for the next start, no rollback and the slot wait are engine and page behaviour; the Rust code was not diffed |
 | 29 | #226 | Counters kept per round | views `work_counters`, `work_asking` unchanged in `db/schema.sql` |
 | 34 | #221 | Merge queue ordered by arrival at the merge cell | view `merge_queue` unchanged |
 | 36 | #229 | Questions to the owner written by five points; a question is withdrawn only when the cell it goes back to hears the words | the owner role's text equal but for one dropped `do`; `asking.handOver`, `receive`, `counts` equal |
 | 42 | #233 | `gh` and `measure` described as the code runs them | the descriptions of `gh` and `measure` equal; the check `measure_matches_runs` stays |
 | 48 | #239 | Who may lift which hold; Pause all queues no free-slot matter | `engine.stores.holds`, the action `release_starts`, cell S0's holds input and its cases equal |
-| 49 | #230 | Next round runs the new version; the work is brought to it through V1 | V1 in both graphs; the text of `bring_up` extended; the "new input to the session or redo the cell" part not traced |
-| 25 | #195 | `speaker` required | `speaker: String` in the owner commands |
-| 38 | #217 | Try `claude -p` | not about the flow |
+| 49 | #230 | Next round runs the new version; the work is brought to it through V1 | Kept: V1 in both graphs; `bring_up` still brings a work on "in the middle of a cell, the session that cell has open". Cannot judge: the rule that a changed input of a cell reaches the session or sends the work back to the cell's start; the text of `bring_up` was extended and only its first sentences were compared, and the engine code was not read |
 
 ## 6. Approvals that never reached main, or are not about the flow
 
 - Asks 37, 43, 45 (#236 handing a long round to a new session): PR 37 was closed without a merge; there is no handover cell
   at START, END or NOW. Nothing was removed.
+- Ask 38 (#217: allow the engineer to try `claude -p`): a permission for the engineer's machine, not the flow.
 - Ask 44 (#251 Run both CIs together, two sentences in the flow): no pull request for it in the list; no such sentence at
   START or END.
 - Asks 24, 33, 46 (policy approved) and ask 32 (policy half-sentence), ask 23 (the 11-01 candidate-flow instruction no
@@ -287,7 +290,7 @@ Same JSON value at START and END, unless said:
 - Asks 50 to 79 were answered after the window, so no push of the window changed them. Several say the redraw
   replaced their subjects: ask 54 (#276 cancelled, "replaced by the new engineer graph"), ask 59 ("the old review table and
   its columns no longer exist"), ask 65.
-- Direct pushes after the window, not in the table: `fe319ae9` (2026-11-04 15:01 PST) "Go to deep research only when the
+- Direct pushes after the window, not in the table: `fe319ae9` (2026-11-04 15:24 PST) "Go to deep research only when the
   research cannot settle the approach, and let the work go on past every approval it asks", and `ece3499a` (14:24 PST) "Have
   the owner approve a change to the flow at the merge, not as an open question of a design". The first changes the 11-03
   "stop and confirm before implementing" that ask 77 then replaced; the second changes where the owner approves a flow
@@ -308,8 +311,9 @@ Not read:
   Rust code, tests and `db/schema.sql` other than named above were not compared with the approvals.
 - Whether any approval's rider, such as "send me the flow page's comparison before the merge", was met for the pull requests
   before the window.
-- `decisions/`: the six files given as input were read; none states an approval removed by the redraw. The brief counted
-  eight files; the other two were not read.
+- `decisions/` holds seven decision files and `README.md`. The seven decision files were read (they were given as input)
+  and none states an approval removed by the redraw. `README.md` is read too: it is an index and no decision. Their creation
+  dates were not compared with the window; the first, `7f3d27a5`, put the directory in during the window.
 
 ## 9. Reproduce
 
