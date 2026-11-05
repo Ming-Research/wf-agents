@@ -1,6 +1,7 @@
 -- The GitHub job times behind research/work-time-measured.md (runner wait), and the SQL that sums them per work.
--- It is one SELECT, so that it runs with `sqlite3 -safe -readonly :memory: < research/work-time-measured.sql` and as
--- one statement of the engine's `query` tool alike. It reads nothing but the two tables of data below.
+-- It is one SELECT, so that it runs as one statement of the engine's `query` tool (how the report's figures were got,
+-- with these comments left out) and with `sqlite3 -safe -readonly :memory: < research/work-time-measured.sql` (not
+-- tried). It reads nothing but the tables of data below.
 --
 -- Whom it serves: a reader who wants to re-check the report's runner-wait numbers without GitHub (the job records of a
 -- run are kept for 90 days only, so what GitHub gave on 2026-11-05 is kept here). It is removed with the report.

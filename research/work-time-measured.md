@@ -12,7 +12,7 @@ Files, all in `research/`:
 - `work-time-measured-queries.sql`: the queries on the engine's database, Q1 to Q9, as they were run with the engine's
   `query` tool;
 - `work-time-measured.sql`: the GitHub job times of the runs in the group "after" and the SQL that turns them into the
-  runner wait; run it with `sqlite3 -safe -readonly :memory: < research/work-time-measured.sql`.
+  runner wait (section 9 says how it was run).
 
 Each claim says how it is known: (measured) on the data of the dates above, (read) from the source or the records,
 (inferred) from measurements, not tried.
@@ -253,9 +253,10 @@ after) and the gaps between rounds, while the agent rounds, the largest class, d
 
 - `research/work-time-measured-queries.sql` holds Q1 to Q9; run each with the engine's `query` tool, one at a time. Q2
   to Q8 stop at the cutoff and give the numbers above; Q1 and Q9 have no cutoff.
-- `research/work-time-measured.sql` holds the GitHub job times and the sums of the runner wait: run it with `sqlite3 -safe
-  -readonly :memory: < research/work-time-measured.sql`; it is one statement, so it also runs with the `query` tool. It
-  needs no GitHub. The job times were written by the command in the last comment of the queries file, one for each run
+- `research/work-time-measured.sql` holds the GitHub job times and the sums of the runner wait. It is one statement and was
+  run as such (with its comments left out) by the engine's `query` tool, which gave the runner-wait figures above; it
+  needs no GitHub. It is meant to run as well with `sqlite3 -safe -readonly :memory: < research/work-time-measured.sql`,
+  which was not tried here (the command line asked for approval). The job times were written by the command in the last comment of the queries file, one for each run
   of Q8.
 
 ## 10. What to do next
