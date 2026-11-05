@@ -57,14 +57,33 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The settings every git command of the engine is run with, written as `-c` options. Command-line settings outrank
+/// every file of git's configuration, the repository's own included, and every worktree of a project's checkout shares
+/// that one repository configuration, which an agent working in a worktree can write. A setting that names a program
+/// git runs is pinned here, so that what an agent writes in the configuration cannot make the engine's git run it with
+/// the engine's user and credentials.
+///
+/// `core.hooksPath` is the directory git looks in for hooks, which it runs on `push`, `merge`, `fetch`, a checkout, a
+/// commit and every update of a ref. `/dev/null` is no directory, so git finds no hook in it, and none in the
+/// repository's own `hooks` directory either, which the setting replaces. The engine runs no hook of a project: a
+/// project's hooks are for the people who work in its checkout.
+const PINNED: &[(&str, &str)] = &[("core.hooksPath", "/dev/null")];
+
+/// A git command in `dir` that is run as the engine runs git: with the settings of [`PINNED`]. Every git command the
+/// engine runs in a project's checkout or a work's worktree is built by this function, whether it comes through
+/// [`git`] or is run for its output as bytes, so that a command added later is pinned as well.
+pub fn command(dir: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(dir);
+    for (key, value) in PINNED {
+        command.arg("-c").arg(format!("{key}={value}"));
+    }
+    command
+}
+
 /// Runs git in `dir`, with no lock.
 fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
+    let out = command(dir).args(args).output().map_err(|e| format!("git: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let msg = if err.trim().is_empty() {
