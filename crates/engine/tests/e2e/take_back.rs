@@ -120,3 +120,47 @@ fn words_with_an_image_taken_back_after_the_message_was_built_do_not_stop_the_wo
     step_until(&mut e, item, &said, "the round runs", |e| rounds_of(e, work) > before.0);
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// Words taken back and other words said under the number they had, between the engine building a message and recording
+// the round, are not the words the message gave: the round does not go on with the old words.
+#[test]
+fn old_words_whose_number_new_words_took_are_not_given() {
+    let s = setup("take-back-reused");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "R1");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
+            params![work, WORDS],
+        )?;
+        tx.execute(
+            "UPDATE sessions SET ended = 1 WHERE work = ?1 AND line = 'engineer' AND ended IS NULL",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let id: i64 = number(&e, "SELECT id FROM interjections");
+    // The owner takes the words back and says others, which take the number the first had.
+    e.db.conn()
+        .execute_batch(&format!(
+            "CREATE TRIGGER the_owner_changes_their_mind AFTER INSERT ON sessions WHEN NEW.line = 'engineer'
+             BEGIN
+                 DELETE FROM interjections WHERE id = {id};
+                 INSERT INTO interjections (id, work, line, speaker, text)
+                     VALUES ({id}, NEW.work, 'engineer', 'owner', 'Make it green instead.');
+             END;"
+        ))
+        .unwrap();
+
+    e.step(None).unwrap();
+
+    let log = said.lock().unwrap().join("\n");
+    let told: i64 = number(
+        &e,
+        &format!("SELECT count(*) FROM rounds WHERE work = {work} AND instr(input, '{WORDS}') > 0"),
+    );
+    assert_eq!(told, 0, "a round was given the words that were taken back:\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
