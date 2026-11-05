@@ -495,13 +495,3 @@ CREATE VIEW conversation_shown AS
 DROP TRIGGER IF EXISTS track_works_update;
 UPDATE works SET at = 'Q0', resume_at = NULL, waiting = '[]', recorded = json_remove(recorded, '$.rebuild_for')
   WHERE graph = 'architect' AND ended IS NULL AND at IN ('U1', 'N1');
-
--- The old reading of the project asked for a check of the policy each time, though nothing about the policy happened:
--- those askers go, and a check only they asked for is withdrawn.
-UPDATE architect_matters SET body = json_set(body, '$.asked_by', (
-    SELECT json_group_array(json(value)) FROM json_each(architect_matters.body, '$.asked_by')
-    WHERE json_extract(value, '$.cell') <> 'U1'))
-  WHERE kind = 'check_policy' AND handled_round IS NULL AND withdrawn IS NULL;
-UPDATE architect_matters SET withdrawn = 'Reading the project anew no longer asks for a check of the policy'
-  WHERE kind = 'check_policy' AND handled_round IS NULL AND withdrawn IS NULL
-    AND json_array_length(body, '$.asked_by') = 0;
