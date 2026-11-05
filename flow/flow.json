@@ -19441,7 +19441,7 @@
         "sentBack": {
           "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
           "pauseAfter": 3,
-          "pause": "When 3 returns in a row are sent back, with no return of an agent, a tool or the owner taken in between, the engine pauses the work at the cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted.",
+          "pause": "When 3 returns in a row are sent back, with no return of an agent, a tool or the owner taken in between, the engine pauses the work at the cell and tells the owner, with every problem of the last return, one line each: the check, the field and what is wrong. The owner lets the work go on, and the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted.",
           "counts": "sent_back"
         },
         "failed": {

@@ -89,7 +89,7 @@ pub fn pause(e: &mut Engine, w: &Work, cell: &str, section: &Rounds, sent_back: 
     let rejected = rejected_of(e.db.conn(), last.work, last.n)?;
     let lines = db::sent_back_lines(&rejected);
     let item = match e.subject(w)? {
-        Some(i) if section.sent_back.look && w.graph == crate::ENGINEER => Some(i),
+        Some(i) if section.sent_back.look => Some(i),
         _ => None,
     };
     let list = lines.join("\n");

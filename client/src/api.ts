@@ -2976,7 +2976,8 @@ counts?: string | null,
  * Whether the pause is the project's architect's to look at, which allows `pauseAfter` to be 1: the work pauses at
  * a return sent back, the architect is asked why, by a matter to set straight that lists each problem the return
  * was sent back with, and it may let the work go on itself, as the owner may. Without it the pause is the owner's
- * alone.
+ * alone. Only a graph whose tasks an architect holds a blocker of (`blockers`) may say it; a work on no item is
+ * paused for the owner all the same.
  */
 look?: boolean, };
 
