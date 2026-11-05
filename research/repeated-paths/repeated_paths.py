@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Times the repeated paths of wf-agents on a synthetic database built at the field's scale and at ten times it.
 
-Whom it serves: item #248 (the list of paths that run for every event, round, work or item) and, after it, the items
-that fix those paths and want to run the same program again. It is wired to one caller, the `measure` tool's workflow
-(`.github/workflows/measure.yml`), whose command is
+Whom it serves: item #248 (the list of paths that run for every event, round, work or item), item #315 (the same paths
+after #312 and #313) and, after them, the items that fix those paths and want to run the same program again. It is wired
+to one caller, the `measure` tool's workflow (`.github/workflows/measure.yml`), whose command is
 
     python3 -I research/repeated-paths/repeated_paths.py run --scales 1,1L10,10 | tee -a "$RUNNER_TEMP/rp-all.log"; \
-    python3 -I research/repeated-paths/repeated_paths.py summarize "$RUNNER_TEMP/rp-all.log"
+    python3 -I "$RUNNER_TEMP/candidate/research/repeated-paths/repeated_paths.py" summarize "$RUNNER_TEMP/rp-all.log"
 
-and it is removed when the paths it times have each a scale test of their own in the code that owns them, or when
+Each of the workflow's three checkouts runs its own copy of this file against its own `db/schema.sql`, so the `base`
+side times the code compared with and the `candidate` side the code measured, each on a database built for it. The
+summary is made by the candidate's copy, in whichever checkout runs last, since the base's copy may be older.
+It is removed when the paths it times have each a scale test of their own in the code that owns them, or when
 `research/repeated-paths.md` is deleted.
 
 It fixes no path and changes no file of the repository: it times the SQL the engine and the interface run, on databases
@@ -385,7 +388,10 @@ class Builder:
             else:
                 at = last_cell
             paused = "paused by the engine" if state == "paused" else None
-            ended_text = "item cancelled: synthetic" if state == "ended" else None
+            # Item #313: a work that reached the end of its graph is ended as `done` (`db::ENDED_DONE`) in the write that
+            # completes its last round, and the migration marked those already there; a work stopped before its end holds
+            # the reason. The databases built before that (the `base` side of a comparison) never run this script.
+            ended_text = "item cancelled: synthetic" if state == "ended" else ("done" if state == "done" else None)
             version = 1 + min(versions - 1, int(versions * (wid - 1) / max(1, nwork)))
             works.add((
                 wid, item, version, graph, at, "[]", '{"ci":"passed"}', "m1",
@@ -918,7 +924,7 @@ def build_paths():
                  "AND json_extract(body, '$.commit') = 'none'"))
     # -- engine: once per write ---------------------------------------------------------------------------------------
     add("engine.write.next_tx", "engine", "Db::write: the next transaction number",
-        sql_path("SELECT coalesce(max(tx), 0) + 1 FROM changes"))
+        sql_path("SELECT coalesce((SELECT max(tx) FROM changes), 0) + 1"))
     # -- engine: once per step of a work ------------------------------------------------------------------------------
     add("engine.step.stop_asked", "engine", "stop_asked: the outbox scanned for the work",
         sql_path("SELECT EXISTS (SELECT 1 FROM outbox o WHERE (o.kind = 'start_over' AND o.work = w.id) "
@@ -1272,10 +1278,29 @@ def summarize(args):
             if k[1] not in labels:
                 labels.append(k[1])
     print("processes: %d (%s)" % (len(procs), ", ".join(p["side"] for p in procs)))
-    for hi in labels[1:]:
-        print()
-        table(procs, paths, labels[0], hi)
-    flush_cost(procs, labels)
+    groups = pair_groups(procs)
+    if not groups:
+        # a log of one side, or of processes that are not pairs of the measure workflow: all in one pool
+        for hi in labels[1:]:
+            print()
+            table(procs, paths, labels[0], hi, [])
+        flush_cost(procs, labels)
+    else:
+        # the code compared with (base, and its twin, which is the same code) and the code measured (candidate), each
+        # with its own growth table; then the change from one to the other at each scale
+        old = [p for g in groups for p in (g["base"], g["twin"])]
+        new = [g["candidate"] for g in groups]
+        for title, side in (("BASE (base and twin: the code compared with)", old), ("CANDIDATE", new)):
+            print()
+            print("== %s: %d processes, growth with the data ==" % (title, len(side)))
+            for hi in labels[1:]:
+                print()
+                table(side, paths, labels[0], hi, groups)
+            flush_cost(side, labels)
+        for lab in labels:
+            print()
+            print("== CHANGE at scale %s: candidate over base, %d pairs ==" % (lab, len(groups)))
+            change_table(groups, paths, lab)
     print()
     for pid, plan in sorted(plans.items()):
         print("PLAN %s: %s" % (pid, plan))
@@ -1305,9 +1330,71 @@ def flush_cost(procs, labels):
                                                                               statistics.median(size), len(ms)))
 
 
-def table(procs, paths, lo, hi):
+def pair_groups(procs):
+    """The pairs of a run of the measure workflow: its processes come three by three, one of each side, in a rotating
+    order. Gives a dict of side -> process for each complete pair."""
+    out = []
+    for i in range(0, len(procs) - 2, 3):
+        grp = {q["side"]: q for q in procs[i:i + 3]}
+        if set(grp) == {"base", "twin", "candidate"} and all(q["t"] for q in grp.values()):
+            out.append(grp)
+    return out
+
+
+def change_table(groups, paths, lab):
+    """Per path at one scale: the time of the base and of the candidate, the ratio candidate/base of each pair with its
+    95% interval, and the noise (twin/base) with its interval. A path whose noise interval excludes 1 is unresolved."""
+    print("| path | rows base | rows candidate | ms base | ms candidate | candidate/base (95% interval) | "
+          "noise twin/base | verdict |")
+    print("|---|---|---|---|---|---|---|---|")
+    for pid in paths:
+        key = (pid, lab)
+        ratios, noise, b_ms, c_ms = [], [], [], []
+        rows_b = rows_c = None
+        for g in groups:
+            b, w, c = g["base"]["t"].get(key), g["twin"]["t"].get(key), g["candidate"]["t"].get(key)
+            if b:
+                b_ms.append(b["med"])
+                rows_b = b["rows"] if rows_b is None else rows_b
+            if c:
+                c_ms.append(c["med"])
+                rows_c = c["rows"] if rows_c is None else rows_c
+            if b and c and b["med"] > 0 and c["med"] > 0:
+                ratios.append(math.log(c["med"] / b["med"]))
+            if b and w and b["med"] > 0 and w["med"] > 0:
+                noise.append(math.log(w["med"] / b["med"]))
+        if not b_ms and not c_ms:
+            continue
+        if len(ratios) < 2:
+            print("| %s | %s | %s | %s | %s | no pairs | | not timed on both sides |" % (
+                pid, rows_b, rows_c, "%.3f" % statistics.median(b_ms) if b_ms else "",
+                "%.3f" % statistics.median(c_ms) if c_ms else ""))
+            continue
+        m, h = interval(ratios)
+        lo_r, hi_r = math.exp(m - h), math.exp(m + h)
+        noisy = False
+        nz = "n/a"
+        if len(noise) >= 2:
+            nm, nh = interval(noise)
+            nz = "%.3f to %.3f" % (math.exp(nm - nh), math.exp(nm + nh))
+            noisy = math.exp(nm + nh) < 1 or math.exp(nm - nh) > 1
+        if noisy:
+            verdict = "unresolved (noise)"
+        elif hi_r < 1:
+            verdict = "faster"
+        elif lo_r > 1:
+            verdict = "slower"
+        else:
+            verdict = "no change detected"
+        print("| %s | %s | %s | %.3f | %.3f | %.3f to %.3f (mean %.3f) | %s | %s |" % (
+            pid, rows_b, rows_c, statistics.median(b_ms), statistics.median(c_ms), lo_r, hi_r, math.exp(m), nz,
+            verdict))
+
+
+def table(procs, paths, lo, hi, groups):
     """The table of one scale against the first: per path the rows and bytes it returns at the first, the time at
-    both, and the ratio of the two with its 95% interval over the processes."""
+    both, and the ratio of the two with its 95% interval over the processes. The noise is read from `groups` (the
+    pairs of the run); with none it is read from the processes themselves, taken three by three."""
     factor = parse_scale(hi)[1] if "L" in hi else parse_scale(hi)[0] / parse_scale(lo)[0]
     print("| path | rows %s | bytes %s | ms %s | ms %s | ratio %s/%s (95%% interval) | class | noise of ms %s (twin/base) |"
           % (lo, lo, lo, hi, hi, lo, lo))
@@ -1346,8 +1433,9 @@ def table(procs, paths, lo, hi):
             cls = "flat"
         # the noise: the time at the small scale of the twin over the base of each pair of three processes
         noise = []
-        for i in range(0, len(procs) - 2, 3):
-            grp = {q["side"]: q["t"].get((pid, lo)) for q in procs[i:i + 3]}
+        pairs = [{q["side"]: q["t"].get((pid, lo)) for q in g.values()} for g in groups] if groups else \
+            [{q["side"]: q["t"].get((pid, lo)) for q in procs[i:i + 3]} for i in range(0, len(procs) - 2, 3)]
+        for grp in pairs:
             if grp.get("twin") and grp.get("base") and grp["twin"]["med"] > 0 and grp["base"]["med"] > 0:
                 noise.append(math.log(grp["twin"]["med"] / grp["base"]["med"]))
         if len(noise) >= 2:

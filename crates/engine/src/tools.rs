@@ -1703,8 +1703,9 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
         Err(files) => return Ok(json!({ "result": { "kind": "conflict", "files": files } })),
     };
     let branch = w.branch.clone().unwrap_or_default();
-    let args = json!({ "head": head, "pr": pr });
-    let checked = attempts(e, round, "merge", &args, |e| {
+    // Each try at the full CI says so, one that failed too, which shows by nothing else: the wait for CI counts them.
+    let waited = json!({ "step": health::FULL_CI_STEP, "head": head, "pr": pr });
+    let checked = attempts(e, round, "merge", &waited, |e| {
         if w.pushed_head.as_deref() != Some(head.as_str()) {
             hub::push(&wt, &head, &format!("refs/heads/{branch}"), false)?;
         }
@@ -1719,7 +1720,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     // The very run the last try read red, its engineer having changed nothing: reading it again says nothing new, and
     // only sends the work round to the architect, as a flaky test did to W330. Its red checks run again.
     if !reds(&counted(&checks, &project, &known)).is_empty() && read_red_before(e, w.id, &checks)? {
-        checks = match attempts(e, round, "merge", &args, |e| {
+        checks = match attempts(e, round, "merge", &waited, |e| {
             Ok(checks_json(&rerun_full(e, &project, &head, &checks)?))
         }) {
             Ok(v) => serde_json::from_value(v).unwrap_or_default(),
@@ -1738,7 +1739,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
         return Ok(json!({ "result": { "kind": "stopped" } }));
     }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
-    match attempts(e, round, "merge", &args, |e| {
+    match attempts(e, round, "merge", &json!({ "head": head, "pr": pr }), |e| {
         hub::merge_into(e.github(), &repo(&project), pr, &project.main).map(Value::String)
     }) {
         Ok(Value::String(sha)) => Ok(json!({ "result": { "kind": "merged", "merge_commit": sha } })),
@@ -3771,9 +3772,16 @@ timeout_ms = 1000
                 Ok(())
             })
             .unwrap();
+        let before = last_tool_run(r);
         let again = r.run(merge);
         assert_eq!(again["result"]["kind"], "red", "{again}");
         assert_eq!(r.runs.state().reruns, 1);
+        // The red checks run again are a wait for the full CI as much as the read before them.
+        let waited = (Some(health::FULL_CI_STEP.to_string()), "array".to_string());
+        assert_eq!(
+            merge_rows(r, before),
+            [(None, "null".to_string()), waited.clone(), waited]
+        );
     }
 
     // The head that caught up with main is a new commit: the full run of the head before it says nothing of it, and one
@@ -3833,6 +3841,54 @@ timeout_ms = 1000
         r.runs.rejects(None);
     }
 
+    // The last row of a tool yet.
+    fn last_tool_run(r: &Rig) -> i64 {
+        r.e.db
+            .conn()
+            .query_row("SELECT coalesce(max(id), 0) FROM tool_runs", [], |x| x.get(0))
+            .unwrap()
+    }
+
+    // The merge tool's rows after `after`, each by what marks it, and the kind of its result or that it failed.
+    fn merge_rows(r: &Rig, after: i64) -> Vec<(Option<String>, String)> {
+        let conn = r.e.db.conn();
+        let mut st = conn
+            .prepare(
+                "SELECT json_extract(args, '$.step'),
+                   CASE WHEN json_extract(result, '$.failed') IS NOT NULL THEN 'failed' ELSE json_type(result) END
+                 FROM tool_runs WHERE tool = 'merge' AND id > ?1 ORDER BY id",
+            )
+            .unwrap();
+        st.query_map([after], |x| Ok((x.get(0)?, x.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    // Each try at waiting for the full CI is marked as one, a try that failed too, which nothing else tells from a call
+    // to merge that failed: the wait for CI counts them. Looking the merge up and calling it are not marked.
+    fn the_merge_tool_marks_its_waits_for_the_full_ci(r: &mut Rig) {
+        let looked: (Option<String>, String) = (None, "null".to_string());
+        let waited = |result: &str| (Some(health::FULL_CI_STEP.to_string()), result.to_string());
+        // A wait GitHub refuses, which is asked once and fails.
+        let before = last_tool_run(r);
+        r.runs.clear();
+        r.runs.has_run(&r.head, "fast", &[("lint", "green"), ("fast", "green")]);
+        r.runs.rejects(Some("HTTP 422: Unexpected inputs provided"));
+        assert_eq!(r.run(merge)["result"]["kind"], "not_run");
+        r.runs.rejects(None);
+        assert_eq!(merge_rows(r, before), [looked.clone(), waited("failed")]);
+        // A wait that gives its checks, and the merge they allow.
+        let before = last_tool_run(r);
+        r.runs.clear();
+        r.runs.has_run(&r.head, "ci", &[("lint", "green"), ("check", "green")]);
+        assert_eq!(r.run(merge)["result"]["kind"], "merged");
+        assert_eq!(
+            merge_rows(r, before),
+            [looked, waited("array"), (None, "text".to_string())]
+        );
+    }
+
     // The tools that make and read the runs of the fast and the full CI, each against the GitHub in memory that the
     // case before it left cleared, on one engine: its start (compiling the flow) is most of what each costs, and the
     // cases share nothing else. Each case is a function of its own above, that says what it shows. The case where
@@ -3846,5 +3902,6 @@ timeout_ms = 1000
         the_red_run_the_last_try_read_runs_again(&mut r);
         a_run_of_ci_names_the_tests_the_work_named_before(&mut r);
         a_request_github_refuses_is_asked_once_and_told(&mut r);
+        the_merge_tool_marks_its_waits_for_the_full_ci(&mut r);
     }
 }

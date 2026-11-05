@@ -725,6 +725,41 @@ CREATE TABLE guard_events (
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
 
+CREATE TABLE samples (
+  -- The health numbers that no other record holds, a state at a moment: what the engine samples once a minute, of its
+  -- own (the processor time its process used, the reads the owner's page made and how long serving them took, the
+  -- works holding a slot and those with a step running) and of each project (how long the oldest matter in its
+  -- architect's queue had waited). Every other health number is computed from the records it counts each time it is
+  -- read. Written once; a minute the engine did not run has none. The measures, what each is and its unit, are those of
+  -- the engine's registry of health numbers.
+  -- Read by: the engine's health numbers, which the architect's numbers are made of.
+  -- The measure, by its name in the registry, such as engine.cpu.
+  measure TEXT NOT NULL,
+  -- The project it is of; '' for the engine's own.
+  project TEXT NOT NULL DEFAULT '',
+  -- The start of the minute it is kept under, and its value: for a state, the minute it was taken in; for an amount
+  -- over the time since the sample before, the minute that time began in.
+  at INTEGER NOT NULL,
+  value REAL NOT NULL,
+  -- In this order, so that a measure's samples of a project over a period are read by their time.
+  PRIMARY KEY (measure, project, at)
+) STRICT;
+
+CREATE TABLE reverts (
+  -- Each merge the engine reverted: the project's architect judged that it made main red and asked for its revert
+  -- (the action `revert_merge`), and the engine opened a pull request that reverts it and merged it into main. Written
+  -- once the revert is merged, never changed after.
+  -- Read by: the health numbers, which count the reverts, and count a commit on main that is a revert apart from one
+  -- that came onto it without the flow.
+  -- The architect's work that asked for the revert, which says whose project it is.
+  work INTEGER NOT NULL REFERENCES works(id),
+  -- The merge reverted, and the commit the revert's merge put on main, each by its full id.
+  merge_commit TEXT NOT NULL,
+  revert_commit TEXT NOT NULL UNIQUE,
+  -- When the revert was merged into main.
+  at INTEGER NOT NULL
+) STRICT;
+
 CREATE TABLE interjections (
   -- What the owner or the architect says to a running work. The engine hands each one to the line it is for: during a
   -- round after the agent's next tool use, or at the front of the next round's input. Rulings on design cards arrive
@@ -810,8 +845,8 @@ CREATE TABLE changes (
 
 CREATE TABLE outbox (
   -- Actions the engine still has to carry out, written in the same transaction as the change that calls for them, so
-  -- a crash loses none. A row is deleted once its action is done; what the action did is in rounds or tool_runs. On
-  -- start the engine first carries out what is left here.
+  -- a crash loses none. A row is deleted once its action is done; what the action did is in rounds, tool_runs or, for
+  -- a revert of a merge, reverts. On start the engine first carries out what is left here.
   -- Read by: the engine.
   id INTEGER PRIMARY KEY,
   -- The work the action is for; NULL for one that belongs to no work.
@@ -1235,6 +1270,14 @@ CREATE INDEX cache_misses_by_notice ON cache_misses (notice);
 -- The rounds of a work that counted something, by the counter, held in the index alone: the views of counters read
 -- them for one work without reading the rounds' large inputs and outputs.
 CREATE INDEX rounds_counts ON rounds (work, counts) WHERE counts IS NOT NULL;
+-- The rounds that started, and those that ended, within a time: the health numbers read a period by them.
+CREATE INDEX rounds_by_start ON rounds (started_at);
+CREATE INDEX rounds_by_end ON rounds (ended_at);
+-- The merge by the flow, if any, whose commit is a given one: the health numbers tell a commit on main the flow merged
+-- from one that came onto it without the flow by it. A statement uses it only when it writes the expression as here.
+CREATE INDEX rounds_merge_commit ON rounds (json_extract(output, '$.result.merge_commit')) WHERE transition = 'merged';
+-- The samples of a measure within a time, of every project together.
+CREATE INDEX samples_by_time ON samples (measure, at);
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (work, round);
 -- The rounds a cell's and a graph's lines are computed from.
@@ -1251,16 +1294,25 @@ CREATE INDEX owner_messages_unread ON owner_messages (id) WHERE read_at IS NULL;
 CREATE INDEX interjections_waiting ON interjections (work) WHERE delivered_round IS NULL;
 -- The history of one row.
 CREATE INDEX changes_by_row ON changes (table_name, row_key);
+-- The changes to a table within a time, which the health numbers read a period by.
+CREATE INDEX changes_by_time ON changes (table_name, at);
 -- The next action due.
 CREATE INDEX outbox_by_run_after ON outbox (run_after);
 -- The architect's matters not handled.
 CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE handled_round IS NULL;
+-- The matters of a kind that came within a time, which the health numbers read a period by.
+CREATE INDEX architect_matters_by_kind ON architect_matters (kind, at);
+-- The matters a round handled, which the health numbers read from the rounds that ended within a time.
+CREATE INDEX architect_matters_by_handling ON architect_matters (handled_work, handled_round);
 -- Where each fault of wf-agents was forwarded: to each project's architect once.
 CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, project) WHERE notice IS NOT NULL;
 -- The entries of each talk with the owner.
 CREATE INDEX talk_entries_by_talk ON talk_entries (matter);
 -- The open blocker of each task: one at most.
 CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
+-- The blockers raised within a time, and those that ended after a time, which the health numbers read a period by.
+CREATE INDEX blockers_by_time ON blockers (at);
+CREATE INDEX blockers_by_end ON blockers (ended_at);
 -- The open wait for a free slot of each work: one at most.
 CREATE UNIQUE INDEX slot_waits_open ON slot_waits (work) WHERE until IS NULL;
 -- The item changes of a batch still waiting for its review.

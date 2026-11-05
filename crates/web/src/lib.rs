@@ -51,6 +51,8 @@ pub struct Options {
     pub port: u16,
     pub bus: Arc<Bus>,
     pub control: Arc<Control>,
+    /// Where each read the page makes is counted with how long serving it took, for the engine's samples.
+    pub reads: Arc<health::PageReads>,
 }
 
 #[derive(Clone)]
@@ -95,7 +97,7 @@ pub fn start(o: Options) -> Result<u16, String> {
             format!("http://localhost:{port}"),
         ]),
     };
-    let router = router(app);
+    let router = router(app).layer(middleware::from_fn_with_state(o.reads, timed));
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .thread_name("wf-agents-web")
@@ -248,6 +250,18 @@ async fn guard(State(app): State<App>, req: Request, next: Next) -> Response {
         return Fail::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, "a POST carries JSON").into_response();
     }
     next.run(req).await
+}
+
+/// Counts each read the page makes, a GET answered, refused or not, with how long serving it took: the event stream,
+/// which stays open, is no read.
+async fn timed(State(reads): State<Arc<health::PageReads>>, req: Request, next: Next) -> Response {
+    let read = *req.method() == Method::GET && req.uri().path() != "/api/v1/events";
+    let started = std::time::Instant::now();
+    let response = next.run(req).await;
+    if read {
+        reads.add(started.elapsed());
+    }
+    response
 }
 
 /// Runs a read on a connection of its own, off the threads that serve requests.

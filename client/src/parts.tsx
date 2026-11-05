@@ -221,12 +221,33 @@ export function Section({ title, n, open = false, by, id, children }: {
 /// (`children`: the buttons that show or hide them by state, a pick's clear), so that they take no row of their own. The
 /// name and the controls are two siblings of the row, the controls not in the heading. The name gives way first, cut
 /// with an ellipsis; the controls wrap onto a row of their own, at the right, only when they alone are wider than the
-/// row, the name staying on the first. `id` names the heading, for the list it heads to be labelled by it.
-export function ProjectHead({ id, name, children }: { id?: string; name: ReactNode; children?: ReactNode }) {
+/// row, the name staying on the first. `id` names the heading, for the list it heads to be labelled by it. With `fold`,
+/// the name is the button that unfolds and folds the group (`controls` names what it folds), a chevron before it, the
+/// heading still saying the name alone.
+export function ProjectHead({ id, name, fold, children }: {
+  id?: string;
+  name: ReactNode;
+  fold?: { open: boolean; onToggle: () => void; controls: string; hint: string };
+  children?: ReactNode;
+}) {
   return (
     <div className="project-head">
       <Heading as="h2" variant="small" id={id} className="project-head-name">
-        {name}
+        {fold !== undefined ? (
+          <button
+            type="button"
+            className="project-fold"
+            aria-expanded={fold.open}
+            aria-controls={fold.controls}
+            title={fold.hint}
+            onClick={fold.onToggle}
+          >
+            {fold.open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+            {name}
+          </button>
+        ) : (
+          name
+        )}
       </Heading>
       {children !== undefined && children !== null && children !== false ? (
         <div className="project-head-controls">{children}</div>

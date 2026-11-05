@@ -16,7 +16,7 @@ import { useDockHead } from '../flow/Dock';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
 import { chart, overlays, roundArrows, taken } from '../graph/flowModel';
-import { useActivity, useStatus } from '../live';
+import { useActivity, useShared, useStatus } from '../live';
 import { badged, sessionMarkWords, spent, startedSession, tookWords } from '../round';
 import { centredTop, endsNear, inSight } from '../rounds';
 import { roleClass, useColours } from '../roles';
@@ -48,6 +48,16 @@ function Who({ r, g }: { r: RoundSummary; g: CompiledGraph }) {
       {who.words}
     </Label>
   );
+}
+
+/// Whether a round that has not ended is one the engine has left open: no stage of its work works now, by the same
+/// reading as the halo and the cell's ring (`course`), so that the round does not read as left open in the moments
+/// between two steps of the engine, when the status names no step of the work. With the works not read yet, the status
+/// alone says whether a step of its work is under way.
+export function leftOpen(r: RoundSummary, status: Status | null, works: readonly WorkSummary[] | undefined): boolean {
+  if (r.outcome !== 'running' || status === null) return false;
+  const w = works?.find((x) => x.id === r.work);
+  return w !== undefined ? course(w, status).working === null : !status.running.includes(r.work);
 }
 
 /// The rounds the list shows: all of them, or only those whose return was sent back, or only those whose run failed or
@@ -142,6 +152,8 @@ export function RoundsList(props: {
 }) {
   const { rounds, g, selected, onRound, older = false, newer = false, onMore, loading = null } = props;
   const status = useStatus();
+  // The works as the list of works reads them, for the reading of whether a stage of each works now.
+  const works = useShared<WorkSummary[]>('works', '/api/v1/works');
   const scroller = useRef<HTMLDivElement>(null);
   const newest = useMemo(() => [...rounds].reverse(), [rounds]);
   const live = newest.find((r) => r.outcome === 'running');
@@ -221,7 +233,7 @@ export function RoundsList(props: {
   if (!drawn) return <p className="muted">{t('no_rounds')}</p>;
   const rows: ReactNode[] = [];
   newest.forEach((r, i) => {
-    const stale = r.outcome === 'running' && status !== null && !status.running.includes(r.work);
+    const stale = leftOpen(r, status, works);
     const last = r.outcome === 'running' && !stale ? activity.filter((x) => x.round === r.n && live?.work === r.work).pop() : undefined;
     const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : stale ? t('round_left_open') : (last?.what ?? tookWords(r));
     const name = rowName(r);

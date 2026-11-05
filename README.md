@@ -15,6 +15,9 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `crates/sessions`: the session manager: the session each agent's round runs in, what the session holds and costs,
   the command line it runs in, keeping a waiting session's prompt cache warm, and an architect's base for its forks,
   and telling a round that missed it.
+- `crates/health`: the system's health numbers: the registry of what is measured, each measure defined once, its
+  series over any period at any step, computed from the records or read from the samples the engine takes each minute
+  of what no record holds.
 - `crates/api`: the owner's interface apart from serving it: its types (the page's TypeScript types are generated from
   them), the reads that fill them, the bus its live events go through, and what the owner asks of the running engine.
 - `crates/web`: the interface as `wf-agents run` serves it on the loopback address: HTTP and JSON under `/api/v1`, the

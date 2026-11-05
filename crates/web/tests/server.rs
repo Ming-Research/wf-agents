@@ -66,6 +66,7 @@ fn serve_project(name: &str, project: &str) -> Server {
         port: 0,
         bus: Arc::clone(&bus),
         control: Arc::clone(&control),
+        reads: Arc::default(),
     })
     .unwrap();
     Server {
@@ -374,6 +375,7 @@ fn status() -> api::Status {
         releasing: Vec::new(),
         waiting_for_slot: Vec::new(),
         stopping: Vec::new(),
+        engine_stopping: false,
         architects_started: Vec::new(),
         running: Vec::new(),
         stepping: Vec::new(),

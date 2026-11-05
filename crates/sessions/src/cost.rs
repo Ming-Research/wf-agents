@@ -152,18 +152,25 @@ fn prompt(call: &Value) -> i64 {
     n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")
 }
 
+/// The context a round ended with, from its usage record as the command line reported it (`rounds.usage`): the prompt of
+/// its last call. None when the record holds no call. Every reader of it calls this.
+pub fn context_end(usage: &Value) -> Option<i64> {
+    usage.get("usage")?.get("iterations")?.as_array()?.last().map(prompt)
+}
+
+/// The context a round's first call was sent with, from its usage record: the prompt of that call, which the record
+/// keeps apart from the last ([`FIRST_CALL`]). None for a record that does not keep it.
+pub fn context_first(usage: &Value) -> Option<i64> {
+    usage.get(FIRST_CALL).map(prompt)
+}
+
 /// What each kind of a round's own tokens cost, from its usage record: the totals of the calls the round made on its
 /// model, at the model's prices for its last call's prompt, since the record sums the calls and keeps only the last.
 /// They add up to the round's cost when those calls are all it cost; what a compaction or a subagent spent is in its
 /// cost and not in these tokens. None for a model with no prices here, or a record with no tokens.
 pub fn parts(model: &str, usage: &Value) -> Option<Parts> {
     let u = usage.get("usage")?;
-    let last = u["iterations"]
-        .as_array()
-        .and_then(|xs| xs.last())
-        .map(prompt)
-        .unwrap_or(0);
-    let p = prices(model, last)?;
+    let p = prices(model, context_end(usage).unwrap_or(0))?;
     let [input, read, w5, w1, output] = kinds(u);
     Some(Parts {
         input: input * p.input / 1e6,

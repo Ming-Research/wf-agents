@@ -89,7 +89,7 @@ pub fn query_plan(conn: &Connection, sql: &str) -> rusqlite::Result<String> {
 }
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 14] = [
+const UNTRACKED: [&str; 16] = [
     "migrations",
     "rounds",
     "tool_runs",
@@ -98,6 +98,8 @@ const UNTRACKED: [&str; 14] = [
     "round_calls",
     "round_measures",
     "guard_events",
+    "samples",
+    "reverts",
     "changes",
     "outbox",
     "contents",

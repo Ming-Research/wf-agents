@@ -127,11 +127,10 @@ pub fn line_of(cell: &CompiledCell) -> String {
 /// The context of a session as its rounds recorded it: the prompt of the last call of its latest round that recorded
 /// its calls, which is the input, the cache read and the cache written of that call.
 pub fn context(rounds: &[Round]) -> Option<i64> {
-    rounds.iter().rev().find_map(|r| {
-        let last = r.usage.as_ref()?["usage"]["iterations"].as_array()?.last()?.clone();
-        let n = |k: &str| last[k].as_i64().unwrap_or(0);
-        Some(n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens"))
-    })
+    rounds
+        .iter()
+        .rev()
+        .find_map(|r| crate::cost::context_end(r.usage.as_ref()?))
 }
 
 /// Whether a round at a cell only rewrites the cell's last return, which was sent back: its message says only why,

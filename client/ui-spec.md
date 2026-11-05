@@ -468,7 +468,9 @@ project's name, an `h2` in the small step, at the left, and the controls over th
 or hide its rows by state or pick them, a pick's clear) at the right end of the same row, in a container of their own
 beside the name and not in the heading, so that the heading says the name alone. The name gives way first: it is cut
 with an ellipsis and keeps at least `--base-size-64`; the controls keep their width and wrap onto a row of their own, at
-the right, only where they alone are wider than the row, the name staying on the first. A group with no control, such as
+the right, only where they alone are wider than the row, the name staying on the first. Where the group folds (the
+works), the name is a button inside the heading, a chevron before it, so that the heading is still the name alone. A
+group with no control, such as
 wf-agents' own and the groups of connected projects in the list of conversations, has the name alone or none. Every view
 that groups its rows by project draws its head with this part, which a test checks of the four, instead of a row of
 buttons under the name or a head of its own in each view, because the owner asked for the buttons at the right end of
@@ -753,6 +755,13 @@ after the owner cancelled it reads as a cancel that failed. Its chip says on hov
 has ended, its round's timer is not shown, and it has no Start, Pause, Step or Start over, since none of them would
 change that. It is a state of its own and not a note beside the running chip, because the same word then stands for it
 on the left and in the head, and the list's buttons can show or hide it as any other state.
+
+While the engine itself stops (its status says so once it has seen its stop file), it dispatches nothing more and waits
+for the steps in flight to end, so that a work which goes on by itself reads as running only while a step or a tool of it
+is under way; the others read as the row reads them (ready), because running says a round goes on and none does. The
+round list has the same reading: a round that has not ended reads as left open only where no stage of its work works
+now, never in the moments between two steps of the engine, and the halo and the stage's ring go out at the same moments
+as it.
 
 ### A count
 
@@ -1149,17 +1158,20 @@ and takes every pick back; the buttons wrap among themselves, to the right, wher
 
 The picks are one for every project and kept in the browser. Then a row for each, the open ones first, each newest
 first, one block parted from the next by a `--borderWidth-thin` `--borderColor-muted` line, `--base-size-8` above and
-below its lines: its title, or for one recorded before observations had titles its first words as the markdown part
-draws them, with no link since the row is one, cut to one line in the body's weight (rather than the semibold Primer
-gives a label over a description), and under them, as a block `NavList.Description`, its tags as uncoloured chips, how
+below its lines: its title, as the markdown part draws it, with no link since the row is one, cut to one line in the
+body's weight (rather than the semibold Primer gives a label over a description), and under it its content, the words
+of its blocks one after another, cut to three lines in the muted colour and whole on hovering; one recorded before
+observations had titles leads with its content alone, cut to three lines; and under them, as a block
+`NavList.Description`, its tags as uncoloured chips, how
 it was handled as neutral chips ("taken in by #12", "closed: outdated", why on hovering) and its facts joined by a bar
 (how many times it was reported, when it was recorded, where it came from), cut to one line with an ellipsis and whole
 on hovering, a row handled greyed in place as a work's conversation over is; the one open stays in its list whatever is
 picked.
 
 The split is the items' (`ListSplit`, above): while none is open the list fills the view, and a row opens its
-observation beside the list as a reading page: a `PageHeader`, "Observation 12" with its project, tags and facts after a
-bar, and at its end an invisible small `IconButton` with `XIcon` that leaves the list alone; then what it is, whole, as
+observation beside the list as a reading page: a `PageHeader` titled with the observation's title, the one its row has
+(for one with no title, the words it starts with), and after a bar its number ("O12"), its project, tags and facts, and
+at its end an invisible small `IconButton` with `XIcon` that leaves the list alone; then what it is, whole, as
 the markdown part draws a text an agent wrote, so that an item's number links and a diagram draws; then, each a labelled
 text, where it came from, what it refers to, the item that took it in (an item's link) and why it was closed; and, while
 it is not closed, the owner's close as a `Fold` ("Close it") holding the form that answers or says something
@@ -1177,9 +1189,10 @@ because there will be many and each carries the project's tags. Picked rather th
 observation shown until something is picked, a clear of every pick, and a line between rows, instead of every tag shown
 at first, handled hidden, and rows run together, because the owner found the dense rows hard to tell apart and wanted to
 start from everything and narrow it by a few picks, then go back to everything in one click. A row leads with the
-observation's title rather than the start of its text, which a row cut to one line showed only the first words of, so
-that a list of them reads at a glance; one with no title keeps the start of its text, and none is given a title it was
-not written with.
+observation's title and shows its content under it, rather than the start of its text cut to one line, which showed only
+the first words and left the owner to open each to know what it was; the open observation is titled as its row is, since
+"Observation 12" said nothing the number among its facts does not; one with no title keeps the start of its text, and
+none is given a title it was not written with.
 
 ## Tables, tabs, numbers and menus
 
@@ -1382,32 +1395,55 @@ and a heading repeating the tab, a line across the table or a column beside it s
 
 ### The works table
 
-Every project's group has the same columns at the same widths, which the owner drags at the right edge of each
-column's header and the browser keeps, a double click giving a column its own width again, and every cell stays on one
-line, cut where its column ends and whole on hovering; a work's item opens from its row, and the stage and how the work
-goes on or why it ended are written in words in its row, the state on one line (a round running and how long it has run,
-ticking, or pausing after this round; what holds it back, paused by the owner or by the architect, or halted by the
-engine for a problem, a work held only because every work is paused reading as what it is, ready or what it waits for,
-since the bar already says that nothing runs until Start all and "paused by you" there made the owner take a work for
-paused that was not; what it waits for, linked to where the owner gives it; the decision cards and asks the owner has to
-do as small chips; the engine's reason after them), beside the cell it is at that it is on an older flow version, saying
-on hovering how it moves when it goes on, with the link to its group beside the state, where the owner acts on
-it (below), because the groups are read as one table, a reason prefixed with the state its badge already shows says it
-twice, and a row that wraps makes the table slow to scan. A work's item is not followed by its project, which the group
-it is in says, instead of the project after each title, since it would say it twice.
+Each project's group is its head outside its table (`ProjectHead`, which folds the group by its name) and its table.
+The tables have the same columns at the same widths, which the owner drags at the right edge of each column's header
+and the browser keeps, a double click giving a column its own width again, and every cell stays on one line, cut where
+its column ends and whole on hovering; a work's number leads to its conversation, with the mark of a conversation beside
+it, a work's item opens from its title and the work from the rest of its row, and how the work goes on or why it ended
+is written in words in its row, the state on one line (a round running and how long it has run, ticking, or pausing
+after this round; what holds it back, paused by the owner or by the architect, or halted by the engine for a problem, a
+work held only because every work is paused reading as what it is, ready or what it waits for, since the bar already
+says that nothing runs until Start all and "paused by you" there made the owner take a work for paused that was not;
+what it waits for, linked to where the owner gives it; the decision cards and asks the owner has to do as small chips;
+the engine's reason after them), because the groups are read as one table, a reason prefixed with the state its badge
+already shows says it twice, and a row that wraps makes the table slow to scan. A work's item is not followed by its
+project, which the group it is in says, instead of the project after each title, since it would say it twice.
 
-A project's architect is the first row of its group, in the same columns: its work "Architect", its item "Architect of"
-the project as a link to its page (which the row opens too), its state the chip the head of its one-to-one has and the
-mark in the list of conversations is (one worked-out state, `architectMark`, so that the two never differ), the link to
-its one-to-one, the cell of the work that goes on, or else the newest, its rounds, run time and cost summed over all its
-works and its last activity the latest, with no stage and no pull request. The buttons leave it alone: they count and
-hide works, as they do in the list of conversations, whose architect row they leave alone too. The row's state is read
-from the lean read of every architect that the list of conversations' marks use (`/api/v1/architects`), instead of from
-each architect's whole page, which also reads its notebook, policy, matters handled, item changes and constitution and
-is read again at every event, since the row needs its works, its queue and whether a question of its own waits, no
-more.
+The project's head is outside its table, instead of a row of the table, because it is not part of a table's rows: the
+owner asked for the name and the buttons outside it, and for the name to fold the group, which a project among several
+makes worth having. The name is a button in the heading, a chevron before it, so that the heading still says the name
+alone; the folded groups are kept in the browser, as the columns' widths are.
 
-A work's time in the table is how long its agents and its tools ran, the round running counted to now, its rounds of
+How far a work has come is one column, a row of narrow cells (`StageBar`), one for each stage of the flow version the
+work runs on, except the stage where a cancelled work ends (it is no step a work goes through), each as wide as the one letter in it, the letter the one most of the stage's cells' codes start with, as
+the chart's minimap has it (`stageLetter`), instead of the cell it is at and the stage in words, because the owner reads
+how far a work is at a glance, and a cell wider than its letter adds nothing but takes room. The stages gone through
+are the colour of success and the one the work is at stands out in the accent, in the colour of waiting while the work
+waits for the advisor, the architect, the owner or anything else, with no cell added for the wait; the stages ahead are
+plain; a work that goes back to an earlier stage has the later cells plain again; each cell says its stage on hovering.
+The cells are read from the stage the work is at and the flow version it runs on, which is a column of its own holding
+the version's number alone, with no words in the cell or on hovering, because the owner asked for the number to compare
+by eye.
+
+Where a work's time went is one more column, the track of the usage tab's timeline (`TimeTrack`, charts.tsx), one part
+for both: a block for each stretch a model worked and each stretch the tools ran, one for each stretch no round ran,
+from the work's first round to its last; the row's holds the span cut into equal cells, because a list of every
+project's works would otherwise carry every round of every work, and says on hovering how long models, tools and the
+engine's steps worked and how long no round ran. The time of its last activity and its pull request are not columns,
+because the owner never read them there; its cost is.
+
+A project's architect is the first row of its group, in the same columns: its work "Architect", leading to its
+one-to-one with the mark of a conversation, its item "Architect of" the project as a link to its page (which the row
+opens too), its state the chip the head of its one-to-one has and the mark in the list of conversations is (one
+worked-out state, `architectMark`, so that the two never differ), the cell of the work that goes on, or else the newest,
+in words, its rounds, run time and cost summed over all its works, with no bar, flow version or time track. The buttons
+leave it alone: they count and hide works, as they do in the list of conversations, whose architect row they leave alone
+too. The row's state is read from the lean read of every architect that the list of conversations' marks use
+(`/api/v1/architects`), instead of from each architect's whole page, which also reads its notebook, policy, matters
+handled, item changes and constitution and is read again at every event, since the row needs its works, its queue and
+whether a question of its own waits, no more.
+
+A work's run time in the table is how long its agents and its tools ran, the round running counted to now, its rounds of
 asks and of the engine's left out as waits, instead of when its first round started, because the owner judges from it
 whether a work ran too long, which when it started does not tell.
 
@@ -1468,7 +1504,9 @@ the models whose count grew in the session during a round, since the command lin
 session; where the cost went by kind of token, weighed by the models' prices as each round's cost line is, and by cell;
 each session of each line, with why it started (the line's first, a cell its line starts one at, or the one before past
 the context limit and how large it had grown), its rounds, turns, time, context, compactions and cost, its keep-warm
-pings' cost counted, with a chart of each session's context after each round; the keep-warm pings, each with when, the
+pings' cost counted, with a chart of each session's context through each round, from where its first call stood to
+where its last call ended, a line to each session, so that how far a round grew the context shows and a session that
+opened small does not look like the line before it carried on; the keep-warm pings, each with when, the
 session, where the work waited and for what, and its tokens and cost, which the work's cost counts; and how long each
 tool ran. Every mark says what it is on hovering, the labels are text that keeps its size as the charts shrink with the
 panel, and the colours are the page's, in light and dark, because the owner asked to see what a work spent, on which
@@ -3112,7 +3150,8 @@ nothing muted; over more than one week, what got done shows week by week, and th
 the architects' stacked, to one scale. The view takes the whole width of the window, its tiles and tables spread across
 it. Everything is computed from what the database keeps, on one read connection. The view leaves out the engine's state
 and the slots in use, which the bar beside it shows, and how long slots stood empty while items could have started,
-which nothing kept tells, since neither the engine's pauses nor the slots held over time are kept. A work at the cell
+which nothing kept tells: the engine samples the slots held once a minute, but neither its pauses nor which items could
+start then are kept. A work at the cell
 that asks the architect says it waits for the architect's reply, in the list of works as here. The Spend view's address
 leads to it.
 
