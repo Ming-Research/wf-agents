@@ -90,10 +90,6 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 ///   place that would ask for a signature in a way not listed here finds no program to run.
 /// - `protocol.ext.allow` lets a remote URL of the form `ext::<command>` run the command as its transport; git allows
 ///   it by default for no one, and the configuration can say otherwise, so `never` is set.
-/// - `uploadpack.packObjectsHook` is a shell command that `git upload-pack` runs in place of `git pack-objects`, which
-///   a fetch from a remote that is a path on this machine starts here; git reads it from the system's, the global and
-///   the command-line configuration only, and the command line is the last of them. `env` runs the command it is given,
-///   so the pack is made as it always was.
 /// - `core.attributesFile` is a file of gitattributes outside the repository; see [`ATTRIBUTE_SOURCE`].
 const PINNED: &[(&str, &str)] = &[
     ("core.hooksPath", "/dev/null"),
@@ -109,9 +105,14 @@ const PINNED: &[(&str, &str)] = &[
     ("gpg.x509.program", "false"),
     ("gpg.ssh.program", "false"),
     ("protocol.ext.allow", "never"),
-    ("uploadpack.packObjectsHook", "env"),
     ("core.attributesFile", "/dev/null"),
 ];
+// Not pinned: `uploadpack.packObjectsHook`, a shell command that `git upload-pack` runs in place of `git pack-objects`,
+// which a fetch from a remote that is a path on this machine starts here. Git reads it from the system's and the
+// global configuration only, and a `-c` of ours does not reach it (run: a pin of `env` left the program running; git
+// is believed to clear `GIT_CONFIG_PARAMETERS` for a local remote's process, not checked). Stopping it takes the
+// global and system files out of every command of the engine, which also drops what the owner keeps there (`url.*`,
+// `http.proxy`, `safe.directory`); that is the boundary of what an agent can write outside its worktree, #284's.
 
 /// The environment every git command of the engine is run with, for what `-c` does not pin. Git takes the first
 /// matching value of `core.gitProxy` (the program it starts to reach a `git://` remote), so a value on the command line

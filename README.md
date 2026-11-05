@@ -207,8 +207,11 @@ in the machine's global or system files either. A project that wants the engine 
 - **Repositories.** The engine names the empty tree of a SHA-1 repository for "no attributes"; in a SHA-256 repository
   the commands that read attributes fail with git's message, they do not run a program.
 
-Not covered: `$GIT_DIR/info/attributes`, which git reads whatever the attribute source, and `ssh`'s own configuration
-files; a write to either is a write outside the agent's worktree. Where each setting is pinned and why, and the tests that
+Not covered: `$GIT_DIR/info/attributes`, which git reads whatever the attribute source, `ssh`'s own configuration
+files, and `uploadpack.packObjectsHook` in git's global or system file (it runs when the engine fetches from a remote that
+is a path on the machine, and a `-c` of the engine's does not reach it; stopping it would mean the engine's git reads
+neither file, which also drops what the owner keeps there, such as `url.*` and `http.proxy`); a write to any of them is a
+write outside the agent's worktree. Where each setting is pinned and why, and the tests that
 show a program named by each does not run, are in `crates/config/src/shared_git.rs` and
 `crates/engine/tests/git_programs.rs`.
 
