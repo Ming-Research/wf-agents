@@ -135,7 +135,7 @@ jobs:
           if [[ $GITHUB_REF_NAME != wf-agents-before/* ]]; then
             rust+=("test(/(^|::)every_tracked_file_is_in_english\$/)")
           fi
-          rust_selected=false page_selected=false
+          rust_selected=false page_selected=false browser_selected=false
           if [ ${#rust[@]} -gt 0 ]; then
             mapfile -t rust < <(printf '%s\n' "${rust[@]}" | sort -u)
             filter=""
@@ -149,11 +149,15 @@ jobs:
             printf '%s\n' "${files[@]}" | sort -u > "$names/files"
             echo "Page tests in: $(paste -sd ' ' "$names/files")"
             page_selected=true
+            # The tests that run in a real browser are in the files named *.browser.test.tsx; only a run that selects
+            # one pays for installing and starting Chromium.
+            if grep -q '\.browser\.test\.' "$names/files"; then browser_selected=true; fi
           fi
           # A run that names no test it can run says so, and reports no test.
           if [ $rust_selected = false ] && [ $page_selected = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
           echo "rust=$rust_selected" >> "$GITHUB_OUTPUT"
           echo "page=$page_selected" >> "$GITHUB_OUTPUT"
+          echo "browser=$browser_selected" >> "$GITHUB_OUTPUT"
       # The project's machine has the tools: rustup installs the toolchain rust-toolchain.toml pins when it is missing,
       # and whoever changes a version here installs it there first (its runners share a home, and installing at once
       # they collide).
@@ -284,14 +288,25 @@ jobs:
       # also when the step before is red. They read the flow as the engine stores it, which the first command writes,
       # with the cargo profile and the workspace's features of the step before, so that it compiles nothing that step
       # compiled.
+      #
+      # The page's tests are Vitest projects (client/vite.config.ts): `unit` and `ui` always, and `browser`, which draws
+      # the page in a real Chromium, only when a file named is one of the browser tests, so that a run that names none
+      # neither installs Chromium nor starts it.
+      - name: Chromium for the page's browser tests
+        if: ${{ !cancelled() && steps.names.outputs.browser == 'true' }}
+        uses: ./.github/actions/browser
       - name: Test the page
         if: ${{ !cancelled() && steps.names.outputs.page == 'true' }}
+        env:
+          BROWSER: ${{ steps.names.outputs.browser }}
         run: |
           WF_AGENTS_GENERATE=1 cargo test --workspace --locked --profile ci --test typescript
           mapfile -t files < "$RUNNER_TEMP/names/files"
+          projects=(--project unit --project ui)
+          if [ "$BROWSER" = true ]; then projects+=(--project browser); fi
           cd client
-          npx vitest run "${files[@]}" --testNamePattern="$(cat "$RUNNER_TEMP/names/pattern")" --passWithNoTests \
-            --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/test-results/page.xml"
+          npx vitest run "${files[@]}" "${projects[@]}" --testNamePattern="$(cat "$RUNNER_TEMP/names/pattern")" \
+            --passWithNoTests --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/test-results/page.xml"
       # What became of the tests, for the engine to read, whatever became of the steps before.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}

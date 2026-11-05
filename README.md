@@ -43,8 +43,12 @@ with warnings as errors, and the tests, on the toolchain
 `rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
 build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
-flow as the engine stores it, which the page's tests read and git leaves out). Its job `check` is red whenever another
-of its jobs is. A red format check leaves the files as rustfmt makes them, and a stale `client/src/api.ts` the file as
+flow as the engine stores it, which the page's tests read and git leaves out). The page's tests in files named
+`*.browser.test.tsx` draw the page in a real Chromium (Vitest's browser mode, `.github/actions/browser`), for what
+happy-dom has no real version of: layout, the pointer, focus and the keys; the full CI runs them with the page's other
+tests, which it skips when the page's files are the same as in a run that passed, and the workflow `fast` only when a
+run names one. On the project's own machine the libraries Chromium links against are installed by hand, as a workflow
+has no root there. Its job `check` is red whenever another of its jobs is. A red format check leaves the files as rustfmt makes them, and a stale `client/src/api.ts` the file as
 generated, in the artifact `page-types`, for the engine to put in the work's worktree. The workflow `fast` runs only
 when asked, by hand, and only what it is asked for: it compiles and runs the tests named (its input `tests`), and runs
 the lint only when that is named (its input `checks`), in a few minutes; it has no job `check`, so that a head only
