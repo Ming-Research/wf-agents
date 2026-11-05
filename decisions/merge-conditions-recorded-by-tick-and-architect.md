@@ -15,8 +15,9 @@ owner's that the record does not say. The architect's change is refused when the
 the record, or the record is the architect's own words.
 
 The engineer records nothing: when it hears the owner wanting something done before the merge and the Merge conditions it
-is given do not hold it, it asks the architect to record it, as every cell of its lines can but `A7`, which only says how
-long a question goes on waiting and goes back to the cell that asked it, where it can.
+is given do not hold it, it asks the architect to record it, as every cell of its lines can but two: `A7`, which only says how
+long a question goes on waiting and goes back to the cell that asked it, where it can; and `W2`, which checks the change after
+its merge, when no condition is left to hold it.
 
 **The merge gate holds what is recorded, and nothing else.** Words that set a condition, neither ticked by the owner nor
 recorded by the architect, hold nothing at the gate. So the architect's rules and the description of its change say: when
