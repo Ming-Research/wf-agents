@@ -780,6 +780,11 @@ fn holder_now(
             "architect" => "architect".to_string(),
             _ => "owner".to_string(),
         }
+    } else if h.cell == crate::approval::GATE && waited.is_empty() {
+        match crate::review::waits(tx, ctx.work.id)? {
+            Some("architect") => "architect".to_string(),
+            _ => "owner".to_string(),
+        }
     } else if h.holders.len() == 1 {
         h.holders[0].clone()
     } else if h.holders.iter().any(|x| x == "items") && !waited.is_empty() {
@@ -839,7 +844,10 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
                     "owner" if review => "the architect reviewed its design, and the owner reviews it next",
                     "architect" if review => "its design was written again, and the architect reviews it first",
                     "owner" if h.cell == crate::approval::GATE => {
-                        "every item it depends on is merged, and the change waits for the owner's approval"
+                        "every item it depends on is merged, and it waits for the owner's answers before it merges"
+                    }
+                    "architect" if h.cell == crate::approval::GATE => {
+                        "every item it depends on is merged, and the review of its design waits for the architect"
                     }
                     "architect" if rules => {
                         "the departures of its design left to rule on are all from the architect's own decisions"
@@ -886,7 +894,10 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
              item, by whoever made each"
         ),
         "ruling" if h.cell == crate::approval::GATE => {
-            format!("{about} waits for the owner's approval of the change before it merges")
+            format!("{about} waits for the owner's answers it asked for before it merges")
+        }
+        "question" if h.cell == crate::approval::GATE => {
+            format!("{about} waits for the architect's review of its design before it merges")
         }
         "ruling" if h.cell == crate::review::CELL => format!("{about} waits for the owner's review of its design"),
         "question" if h.cell == crate::review::CELL => {

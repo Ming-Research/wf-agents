@@ -344,9 +344,11 @@ describe('the flow as the engine stores it', () => {
         c.edges.some((e) => e.source === n.id && e.target === m1),
     );
     expect(back).toHaveLength(1);
-    expect(back[0].actions).toEqual(['raise_blocker', 'ask_owner_approval']);
-    expect(back[0].only).toEqual({ ask_owner_approval: ['owner_approves'] });
-    expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe('wait, owner_approves');
+    expect(back[0].actions).toEqual(['raise_blocker', 'hold_for_approvals', 'ask_owner_approval']);
+    expect(back[0].only).toEqual({ hold_for_approvals: ['approvals'], ask_owner_approval: ['owner_approves'] });
+    expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe(
+      'wait, approvals, owner_approves',
+    );
     expect(actionLine('ask_owner_approval', ['owner_approves'])).toBe('ask owner approval (on owner_approves)');
     expect(actionLine('raise_blocker', undefined)).toBe('raise blocker');
   });
