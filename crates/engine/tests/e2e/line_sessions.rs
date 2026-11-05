@@ -215,7 +215,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(warm_now(&mut e, now, None).unwrap(), 3, "{log}");
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 2, "{log}");
     let going_on = json!({ "cell": "T6", "on": "work", "what": "the work goes on" });
     let mut pings = pinged(&e);
     pings.sort_by(|a, b| a.0.cmp(&b.0));
@@ -223,7 +223,6 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
         pings,
         [
             ("engineer".to_string(), going_on.clone()),
-            ("librarian".to_string(), going_on.clone()),
             ("review".to_string(), going_on)
         ]
     );

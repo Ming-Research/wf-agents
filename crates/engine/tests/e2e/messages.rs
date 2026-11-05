@@ -451,7 +451,7 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
             }
         }
     }
-    // The engineer's graph has six lines, the architect's four.
-    assert_eq!(lines, 10);
+    // The engineer's graph has six lines, the architect's three.
+    assert_eq!(lines, 9);
     let _ = std::fs::remove_dir_all(&s.root);
 }

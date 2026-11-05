@@ -116,3 +116,11 @@ CREATE TABLE dispatch_holds (
 
 INSERT INTO dispatch_holds (project, reason, since, why) SELECT project, reason, since, why FROM dispatch_holds_before;
 DROP TABLE dispatch_holds_before;
+
+DROP VIEW observations_open;
+CREATE VIEW observations_open AS
+  -- Each project's open observations, each with its number, its title, what it is, its tags, how many times it was
+  -- reported, where it came from, what it refers to and the item that took it in, if one has. Read by: the agents;
+  -- the engine.
+  SELECT project, id, title, what, tags, times_reported, source, refs, folded_into
+  FROM observations_all WHERE closed IS NULL;

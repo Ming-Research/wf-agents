@@ -201,10 +201,7 @@ fn the_cells_that_read_histories_and_observations_think() {
             .effort
             .clone()
     };
-    for (graph, cell) in [("engineer", "R0"), ("engineer", "X5"), ("architect", "X5")] {
-        assert_eq!(effort(graph, cell).as_deref(), Some("high"), "{graph} {cell}");
-    }
-    assert_eq!(effort("architect", "X2").as_deref(), Some("medium"));
+    assert_eq!(effort("engineer", "R0").as_deref(), Some("high"));
     for g in &c.graphs {
         for cell in &g.cells {
             assert_ne!(cell.effort.as_deref(), Some("low"), "{} {}", g.name, cell.id);
@@ -383,7 +380,7 @@ fn the_base_writes_the_notebook_and_a_matter_adds_to_it() {
             );
         }
     }
-    for cell in ["G2", "X2", "U1", "N1", "H2"] {
+    for cell in ["G2", "U1", "N1", "H2"] {
         assert!(!does(cell, "progress", "log_matter"), "{cell}");
     }
 }
@@ -401,7 +398,6 @@ fn a_matter_s_session_and_the_second_eye_fork_from_the_base() {
         ("G2", Some("architect")),
         ("U1", None),
         ("N1", None),
-        ("X2", None),
     ] {
         assert_eq!(g.cell(cell).unwrap().fork_of.as_deref(), of, "{cell}");
     }
@@ -587,14 +583,9 @@ fn each_matter_ends_with_its_log_line_and_the_second_eye_where_a_change_can_lose
             .iter()
             .any(|a| a.action.as_deref() == Some("return_checked") && a.at == "check[problems].problems")
     );
-    // The second eye runs on the architect's level as the matter's session does, and never asks, searches or looks up
-    // the history.
+    // The second eye runs on the architect's level as the matter's session does, and never asks.
     let g2 = g.cell("G2").unwrap();
-    assert!(
-        g2.rows
-            .iter()
-            .all(|r| !["ask_owner", "search", "history"].contains(&r.name.as_str()))
-    );
+    assert!(g2.rows.iter().all(|r| r.name != "ask_owner"));
 }
 
 // A capability report, an agent saying the system lacks what its work needs, is a defect of the system: the ways read
@@ -1159,16 +1150,13 @@ fn what_every_gatherer_is_told_is_one_rule_with_the_check_of_paths() {
     let opening = "You gather the history an agent needs before it works.";
     assert_eq!(FLOW.matches(opening).count(), 1);
     let c = compiled();
-    for (graph, id) in [("engineer", "R0"), ("engineer", "X5"), ("architect", "X5")] {
-        let g = c.graph(graph).unwrap();
-        let cell = g.cell(id).unwrap();
-        let used = cell.rules.iter().find(|r| r.name == "history").unwrap();
-        assert_eq!(used.shared, graph == "engineer", "{graph} {id}");
-        assert!(!cell.prompt.iter().any(|p| p.starts_with(opening)), "{graph} {id}");
-        let rule = g.rules.iter().find(|r| r.name == "history").unwrap();
-        assert!(rule.text[0].starts_with(opening), "{graph} {id}");
-        assert!(rule.text.iter().any(|t| t.contains("`(gone)`")), "{graph} {id}");
-    }
+    let g = c.graph("engineer").unwrap();
+    let cell = g.cell("R0").unwrap();
+    assert!(cell.rules.iter().find(|r| r.name == "history").unwrap().shared);
+    assert!(!cell.prompt.iter().any(|p| p.starts_with(opening)));
+    let rule = g.rules.iter().find(|r| r.name == "history").unwrap();
+    assert!(rule.text[0].starts_with(opening));
+    assert!(rule.text.iter().any(|t| t.contains("`(gone)`")));
 }
 
 // A field the flow lets a return leave out that the agent wrote as null is taken as left out, and the return fits; a
@@ -1676,9 +1664,7 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
     // No total of the graphs' cells is held here: the engineer's graph has helpers, and the architect's second eye and
     // its searches are among them.
     assert!(helpers.iter().any(|h| h.0 == "engineer"), "{helpers:?}");
-    for id in ["G2", "X2", "X5"] {
-        assert!(helpers.contains(&("architect", id)), "{id} is not among {helpers:?}");
-    }
+    assert!(helpers.contains(&("architect", "G2")), "G2 is not among {helpers:?}");
 }
 
 // The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the
@@ -1767,17 +1753,6 @@ fn a_work_moves_by_its_rows() {
     assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("R0", "research"));
     let p = take(&p, "done");
     assert_eq!(p.at, "R1");
-    // The look-up of the history goes to its reader, and back to the cell that asked.
-    let p = take(&p, "history");
-    assert_eq!(
-        (p.at.as_str(), p.callers.as_slice()),
-        ("X5", ["R1".to_string()].as_slice())
-    );
-    let p = take(&p, "found");
-    assert_eq!(
-        (p.at.as_str(), p.from.as_deref(), p.callers.len()),
-        ("R1", Some("X5"), 0)
-    );
     let p = take(&p, "tools");
     assert_eq!(
         (p.at.as_str(), p.callers.as_slice()),

@@ -219,8 +219,8 @@ pub struct Agents {
     /// alike; the top level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architect: Option<String>,
-    /// The level the search of a project's observations runs at, by its name among the levels; the lowest level when
-    /// none is named.
+    /// Retired: the level the search of a project's observations ran at, before agents searched them with `query`
+    /// (2026-11-05). It is still read, so that an installation that names it still loads; nothing uses it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observer: Option<String>,
     /// The level the reading of a work's history runs at (the line `librarian`), by its name among the levels; the
@@ -389,18 +389,10 @@ fn locks_except() -> Vec<String> {
 /// project's architect, which reads the project in a worktree of its own at main: its base, each matter's session
 /// forked from it, the second eye and the search of observations.
 fn read_only() -> Vec<String> {
-    [
-        "review",
-        "advisor",
-        "librarian",
-        "architect",
-        "matter",
-        "second_eye",
-        "observer",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    ["review", "advisor", "librarian", "architect", "matter", "second_eye"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// The tools that edit files, which a line that only reads is refused.
@@ -1600,11 +1592,6 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.architect names no level: {a}"));
         }
-        if let Some(o) = &self.install.agents.observer
-            && !self.install.agents.levels.contains_key(o)
-        {
-            problems.push(format!("install.toml: agents.observer names no level: {o}"));
-        }
         if let Some(l) = &self.install.agents.librarian
             && !self.install.agents.levels.contains_key(l)
         {
@@ -1858,18 +1845,6 @@ impl Config {
         match &self.install.agents.architect {
             Some(a) => a.clone(),
             None => self.levels_in_order().last().map(|n| n.to_string()).unwrap_or_default(),
-        }
-    }
-
-    /// The level the search of a project's observations runs at: the one the installation names, or else the lowest.
-    pub fn observer_level(&self) -> String {
-        match &self.install.agents.observer {
-            Some(o) => o.clone(),
-            None => self
-                .levels_in_order()
-                .first()
-                .map(|n| n.to_string())
-                .unwrap_or_default(),
         }
     }
 
@@ -2545,15 +2520,7 @@ asks = 9
     #[test]
     fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
         let p = Permissions::default();
-        for line in [
-            "architect",
-            "matter",
-            "second_eye",
-            "observer",
-            "review",
-            "advisor",
-            "librarian",
-        ] {
+        for line in ["architect", "matter", "second_eye", "review", "advisor", "librarian"] {
             let refused = p.refused(line, &cli(&[]));
             for t in EDIT_TOOLS {
                 assert!(refused.iter().any(|r| r == t), "{line}: {t}");
@@ -2794,9 +2761,6 @@ asks = 9
         assert_eq!(c.architect_level(), "10");
         c.install.agents.architect = Some("2".into());
         assert_eq!(c.architect_level(), "2");
-        assert_eq!(c.observer_level(), "1");
-        c.install.agents.observer = Some("2".into());
-        assert_eq!(c.observer_level(), "2");
         // The reader of a work's history runs at the lowest level whatever the item's, unless the installation names
         // another.
         assert_eq!(c.librarian_level(), "1");
@@ -3080,13 +3044,13 @@ asks = 9
         }
     }
 
-    // A project's tags for observations each have a name of their own, and the observer's level is one of the levels.
+    // A project's tags for observations each have a name of their own, and the librarian's level is one of the levels.
     #[test]
-    fn the_observation_tags_and_the_observer_s_level_point_somewhere() {
+    fn the_observation_tags_and_the_librarian_s_level_point_somewhere() {
         let tagged = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nobservation_tags = [\
                       { name = \"perf\", desc = \"How fast it runs\" }, { name = \"docs\", desc = \"What it says\" }]";
         let mut m = files(&[("projects/q.toml", tagged)]);
-        let named = format!("{INSTALL}\n[agents]\nobserver = \"senior\"\n");
+        let named = format!("{INSTALL}\n[agents]\nlibrarian = \"senior\"\n");
         m.0.insert("install.toml", Box::leak(named.into_boxed_str()));
         let c = read(&m).unwrap();
         let names: Vec<&str> = c.projects["q"]
@@ -3095,14 +3059,13 @@ asks = 9
             .map(|t| t.name.as_str())
             .collect();
         assert_eq!(names, ["perf", "docs"]);
-        assert_eq!(c.observer_level(), "senior");
+        assert_eq!(c.librarian_level(), "senior");
         let twice = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nobservation_tags = [\
                      { name = \"perf\", desc = \"a\" }, { name = \"perf\", desc = \"b\" }]";
         let mut m = files(&[("projects/q.toml", twice)]);
-        let unnamed = format!("{INSTALL}\n[agents]\nobserver = \"9\"\nlibrarian = \"8\"\n");
+        let unnamed = format!("{INSTALL}\n[agents]\nlibrarian = \"8\"\n");
         m.0.insert("install.toml", Box::leak(unnamed.into_boxed_str()));
         let e = read(&m).unwrap_err().to_string();
-        assert!(e.contains("agents.observer names no level: 9"), "{e}");
         assert!(e.contains("agents.librarian names no level: 8"), "{e}");
         assert!(
             e.contains("projects/q.toml: observation_tags: a tag with no name"),

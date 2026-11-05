@@ -2766,15 +2766,6 @@ fn names_cell(e: &Engine, text: &str) -> Option<String> {
     None
 }
 
-/// Whether a project's observation is open.
-fn open_observation(conn: &Connection, project: &str, id: i64) -> Result<bool, String> {
-    Ok(count(
-        conn,
-        "SELECT count(*) FROM observations_open WHERE project = ?1 AND id = ?2",
-        &[&project, &id],
-    )? > 0)
-}
-
 /// What is wrong with the effects of an answer, every reason at once: its item changes, as made in order; how the
 /// situation has changed under them since they were drafted; the owner's words they rest on; its changes to
 /// observations; its actions; its messages.
@@ -2903,6 +2894,15 @@ fn version_of(conn: &Connection, item: i64) -> Result<i64, String> {
         |r| r.get(0),
     )
     .map_err(sql)
+}
+
+/// Whether a project's observation is open.
+fn open_observation(conn: &Connection, project: &str, id: i64) -> Result<bool, String> {
+    Ok(count(
+        conn,
+        "SELECT count(*) FROM observations_open WHERE project = ?1 AND id = ?2",
+        &[&project, &id],
+    )? > 0)
 }
 
 /// Whether an item merged: a work on it took the merge queue's row of a merge.
@@ -3233,10 +3233,6 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), P
                 lines[0].trim()
             ))
         }
-        "candidates_known" => {
-            let project = project_of(c.w)?;
-            candidates_problems(&items(v), |id| open_observation(conn, project, id))?.into_result()
-        }
         "holds_needs_policy" => {
             if v.is_none_or(|x| x["verdict"] != "holds") {
                 return Ok(());
@@ -3469,22 +3465,6 @@ fn reply_problems(
                     "hand_over names {to}, which is no project in the configuration"
                 ));
             }
-        }
-    }
-    Ok(problems)
-}
-
-/// What is wrong with the candidates of a pick (`list`): more than ten, and every candidate that is no open observation
-/// of the project (`open` says for a number), each one; the two are independent.
-fn candidates_problems(list: &[Value], open: impl Fn(i64) -> Result<bool, String>) -> Result<Problems, String> {
-    let mut problems = Problems::default();
-    if list.len() > 10 {
-        problems.push(format!("at most ten candidates, and there are {}", list.len()));
-    }
-    for x in list {
-        let id = x["id"].as_i64().unwrap_or_default();
-        if !open(id)? {
-            problems.push(format!("{id} is no open observation of the project"));
         }
     }
     Ok(problems)
@@ -4861,24 +4841,6 @@ mod tests {
         assert_eq!(
             reply_problems(&by_number, &keys, failing, "mine", &related, |_| true).unwrap_err(),
             "no database"
-        );
-    }
-
-    #[test]
-    fn candidates_over_ten_and_closed_ones_are_all_told() {
-        let list: Vec<Value> = (1..=11).map(|id| json!({ "id": id })).collect();
-        let found = candidates_problems(&list, |id| Ok(id % 2 == 0)).unwrap();
-        assert_eq!(found.texts().len(), 7, "{found:?}");
-        assert_eq!(found.texts()[0], "at most ten candidates, and there are 11");
-        assert_eq!(found.texts()[1], "1 is no open observation of the project");
-        assert_eq!(found.texts()[6], "11 is no open observation of the project");
-        assert!(candidates_problems(&list[..10], |_| Ok(true)).unwrap().is_empty());
-        assert_eq!(
-            candidates_problems(&list[..10], |id| Ok(id != 3))
-                .unwrap()
-                .texts()
-                .len(),
-            1
         );
     }
 

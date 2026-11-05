@@ -1808,8 +1808,8 @@ CREATE VIEW observations_all AS
 
 CREATE VIEW observations_open AS
   -- Each project's open observations, each with its number, its title, what it is, its tags, how many times it was
-  -- reported, where it came from, what it refers to and the item that took it in, if one has. Read by: cell `X2`,
-  -- which searches them; the engine.
+  -- reported, where it came from, what it refers to and the item that took it in, if one has. Read by: the agents;
+  -- the engine.
   SELECT project, id, title, what, tags, times_reported, source, refs, folded_into
   FROM observations_all WHERE closed IS NULL;
 

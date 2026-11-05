@@ -1230,20 +1230,6 @@
       "given": {}
     }
   ],
-  "X5": [
-    {
-      "row": "found",
-      "json": {
-        "side_reports": [],
-        "progress": "progress",
-        "flow_feedback": "none",
-        "outcome": {
-          "brief": "outcome.brief"
-        }
-      },
-      "given": {}
-    }
-  ],
   "L2": [
     {
       "row": "done",

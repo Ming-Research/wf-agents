@@ -2936,46 +2936,6 @@
         ]
       ]
     },
-    "search_form": {
-      "name": "search",
-      "title": "Search of observations",
-      "type": "obj",
-      "desc": "Search the project's open observations before you answer: is this recorded, or what could an item take in? A reader of its own hands back candidates, and you carry on",
-      "fields": [
-        {
-          "name": "look_for",
-          "title": "What to look for",
-          "type": "text",
-          "desc": "In a sentence or two: the thing seen, or the item and what it is to do"
-        },
-        {
-          "name": "tags",
-          "title": "Tags to look under",
-          "type": "list",
-          "desc": "The project's tags to look under; empty for all",
-          "item": {
-            "type": "text",
-            "desc": "A tag's name"
-          }
-        },
-        {
-          "name": "purpose",
-          "title": "What the candidates are for",
-          "type": "enum",
-          "desc": "What the candidates are for",
-          "values": [
-            [
-              "same",
-              "Is this recorded already"
-            ],
-            [
-              "related",
-              "What an item doing this could take in"
-            ]
-          ]
-        }
-      ]
-    },
     "straight_fix": {
       "type": "obj",
       "desc": "One place to set straight, with every step you take there",
@@ -3382,12 +3342,6 @@
           "desc": "The option the work goes on by, and why"
         }
       ]
-    },
-    "history_form": {
-      "name": "history",
-      "title": "Look up the history",
-      "type": "text",
-      "desc": "Have the project's history looked up: what the owner decided on a matter, what was tried and dropped there, why the code is as it is. A reader of its own searches the items and git and hands back quotes with their sources, and you carry on. Use it when you have no address to follow, or the question is broad"
     },
     "decision_point": {
       "title": "Decision point",
@@ -4566,7 +4520,7 @@
       "look_at_queue": "Looks at the project's queue and the base, and takes what comes next in a fixed order, without a round, as facts decide and no agent: first a new base, when the project has none, the policy changed since the base, or what came since it reached the installation's amount (`architect.carried_most`); then the owner's words and the matters back with the owner's reply, the one that came first; then main's CI red; then the matter a work stopped at its question waits on, or a report marked as harming now, the one that came first; then the rest of the queue, the one that came first. A matter parked by a question the owner has not answered is not taken; nothing waits for the owner's reply.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. This pause withdraws a resume that still waits for a free slot, as `resume_work` says. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
-      "bring_up": "A work on an older flow version, when it next goes on with no step under way, is brought to the version the engine runs by what it carries now: where it stands, what rows recorded, the returns later cells will read and, in the middle of a cell, the session that cell has open. A new version ends a work when it has no graph for it, and an architect's work that can go on from none of its cells (below). The cell it serves is the one it is doing: where it stopped, else the first of the cells that wait for an answer, else the cell it stands at; it has begun that cell once a round ran there since the work last took a row of a cell that is not one of those every agent's cell shares (the tools, the search, the owner's Start, the answers to who interjected) or of the asking part: a round that asked for tools and got their results, or a return sent back, has begun it, and coming to a cell, or standing at an engine's cell that has not run, has not. The returns later cells will read are the newest own answer of each cell the version reads from where the work stands, and the work's last return, which the cell after it reads by where it came from: the cells the work can still come to by the version's rows, from the cell it stands at and the cells it goes back to; each cell those cells read by its id, through an input's place or a database view that names it; and each cell the engine's own code reads by its id. An answer that no cell the work can still come to reads takes no part. An engineer's work whose merge stands (its merge cell took `merged`, and watching main has not taken `broken_by_merge` since) is judged by the rounds after its merge alone: only their returns count, only the cells they walked are gone back to, and only they are done again; its answers from before the merge take no part, later cells reading them as they are, so that neither the engine nor the owner's Start ever takes it back before its merge. Earlier returns of the cells every agent's cell shares and of the asking part are read only so, and are not counted. Each is compared by what its cell takes now, its outcome alone for an agent's, a field taking too what the flow names as it was earlier (`earlier`): absent, or in its shape then, which no return handed in now may be. It moves where it stands, in the same sessions, its version changed and no round recorded, when the version has the graph, every return counted still fits its cell, the cell it stands at is there, the cell it serves (and the agent's cell of the asking part whose session is open: the one it stands at, or the one whose tools are running) has not changed since it began it its kind, its line or the inputs of its own (their names and sources; those every agent's cell has come with what every return shares), and the cells it goes back to are there as cells of the same kind; a session in the middle of a cell is given what the version changed of its format, task and rows, and a return that does not fit them is sent back. Otherwise it comes here, its version changed, with where it goes back to as where it stopped: the first cell of the work's main way whose return does not fit, or the cell it serves when that changed or a cell it goes back to did not hold, or, when the cell it stands at or serves is gone, the latest cell it walked that the version has. It does that cell again from its start: the round it was in is cut off, the question it had out is withdrawn, as the cell that asked does it again, and what it answered, asked and was told stays. A work never goes back past a round that did what cannot be undone: an engineer's merge, once watching main took it back; and what an architect's round does at once: an action on a work or on new starts (a pause, a resume, a start over, new starts held or let go, an interjection), a word to the owner, a message to another project's architect, a change to observations, a reply that went out to an engineer or to the work that reported, and the item changes made. What has not taken effect is done again: what waits for a second eye is dropped, to be handed in again, its reply with it, the matters closed whose reply has not gone out go back to the queue, and the notebook is written again. An engineer's work that would go back past such a round stays here instead, paused, with the cell as where it stopped, for the owner to decide: the owner's Start takes it there all the same. When the version has none of the cells it walked, it stays here, paused, with nowhere to go back to: once a later flow version that has one is installed, the owner's Start looks again, a paused work not being brought to a new version until it goes on; one whose merge does not stand may be started over, or its item cancelled, meanwhile. An engineer's work that stays here asks its project's architect to set it straight, once for each version. An architect's work that would stay here ends instead, at once (`stop_architect_work`): it has no item to start over or cancel, and waiting here it would hold its project's architect for good. A work whose graph the version lacks ends, as no cell of the version can run it, and the owner is told why: an architect's work, or a policy setting's of a version before, leaves no hold of its project's new starts for setting it straight, and a policy setting's worktree is removed; an engineer's item gets a new work on the version, at once when a slot is free, else at the head of the queue.",
+      "bring_up": "A work on an older flow version, when it next goes on with no step under way, is brought to the version the engine runs by what it carries now: where it stands, what rows recorded, the returns later cells will read and, in the middle of a cell, the session that cell has open. A new version ends a work when it has no graph for it, and an architect's work that can go on from none of its cells (below). The cell it serves is the one it is doing: where it stopped, else the first of the cells that wait for an answer, else the cell it stands at; it has begun that cell once a round ran there since the work last took a row of a cell that is not one of those every agent's cell shares (the tools, the owner's Start, the answers to who interjected) or of the asking part: a round that asked for tools and got their results, or a return sent back, has begun it, and coming to a cell, or standing at an engine's cell that has not run, has not. The returns later cells will read are the newest own answer of each cell the version reads from where the work stands, and the work's last return, which the cell after it reads by where it came from: the cells the work can still come to by the version's rows, from the cell it stands at and the cells it goes back to; each cell those cells read by its id, through an input's place or a database view that names it; and each cell the engine's own code reads by its id. An answer that no cell the work can still come to reads takes no part. An engineer's work whose merge stands (its merge cell took `merged`, and watching main has not taken `broken_by_merge` since) is judged by the rounds after its merge alone: only their returns count, only the cells they walked are gone back to, and only they are done again; its answers from before the merge take no part, later cells reading them as they are, so that neither the engine nor the owner's Start ever takes it back before its merge. Earlier returns of the cells every agent's cell shares and of the asking part are read only so, and are not counted. Each is compared by what its cell takes now, its outcome alone for an agent's, a field taking too what the flow names as it was earlier (`earlier`): absent, or in its shape then, which no return handed in now may be. It moves where it stands, in the same sessions, its version changed and no round recorded, when the version has the graph, every return counted still fits its cell, the cell it stands at is there, the cell it serves (and the agent's cell of the asking part whose session is open: the one it stands at, or the one whose tools are running) has not changed since it began it its kind, its line or the inputs of its own (their names and sources; those every agent's cell has come with what every return shares), and the cells it goes back to are there as cells of the same kind; a session in the middle of a cell is given what the version changed of its format, task and rows, and a return that does not fit them is sent back. Otherwise it comes here, its version changed, with where it goes back to as where it stopped: the first cell of the work's main way whose return does not fit, or the cell it serves when that changed or a cell it goes back to did not hold, or, when the cell it stands at or serves is gone, the latest cell it walked that the version has. It does that cell again from its start: the round it was in is cut off, the question it had out is withdrawn, as the cell that asked does it again, and what it answered, asked and was told stays. A work never goes back past a round that did what cannot be undone: an engineer's merge, once watching main took it back; and what an architect's round does at once: an action on a work or on new starts (a pause, a resume, a start over, new starts held or let go, an interjection), a word to the owner, a message to another project's architect, a change to observations, a reply that went out to an engineer or to the work that reported, and the item changes made. What has not taken effect is done again: what waits for a second eye is dropped, to be handed in again, its reply with it, the matters closed whose reply has not gone out go back to the queue, and the notebook is written again. An engineer's work that would go back past such a round stays here instead, paused, with the cell as where it stopped, for the owner to decide: the owner's Start takes it there all the same. When the version has none of the cells it walked, it stays here, paused, with nowhere to go back to: once a later flow version that has one is installed, the owner's Start looks again, a paused work not being brought to a new version until it goes on; one whose merge does not stand may be started over, or its item cancelled, meanwhile. An engineer's work that stays here asks its project's architect to set it straight, once for each version. An architect's work that would stay here ends instead, at once (`stop_architect_work`): it has no item to start over or cancel, and waiting here it would hold its project's architect for good. A work whose graph the version lacks ends, as no cell of the version can run it, and the owner is told why: an architect's work, or a policy setting's of a version before, leaves no hold of its project's new starts for setting it straight, and a policy setting's worktree is removed; an engineer's item gets a new work on the version, at once when a slot is free, else at the head of the queue.",
       "stop_work": "A work cancelled, or started over by the owner or its project's architect, which a new work on the version the engine runs takes over, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request.",
       "check_main": "Checks main's red CI mechanically, holding the project's merge queue stopped: runs each red check again on the same commit, looks in the table of known red checks, and runs the red checks on main's commit before the merges since main was last green, in that order, and lists those merges. A later commit of main that is green clears it."
     },
@@ -4658,7 +4612,6 @@
       "effects_valid": "Every change and action holds, all its problems told at once. The change is well formed: an item named is there, or made by an earlier change of the round; a key is used once in the round; no item the round creates is cancelled in it; an item created has its title, problem, why, acceptance, level and deliverable; a title is within `items.title_max` and in the owner's language as far as its characters show it (for Chinese, Japanese or Korean, some character of East Asian wide width; for English, none); a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; a dependency removed is one the items have then; after the round's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a work paused, resumed or interjected into is running; a message goes to another project's architect; no text of an item holds a line of a decision it did not hold, and a text that replaces an item's approach keeps every line of the item's decisions, letter for letter, in their order, under their head. The situation has not changed under it: an item it changes has not merged, nor been cancelled; a text it changes is at the version the change was drafted on; an acceptance it changes is not locked by a work's design; an item a work runs on is changed only by an answer to that work's own question, or with why the work must change; an observation it folds in was not folded into another item; a dependency it makes is not on an item merged, cancelled or held.",
       "reply_fits_changes": "The reply names each sub-item and each item to wait for by its number or by the key a change of this round makes it under.",
       "learned_holds_no_decision": "No line of the text starts a decision (`Decision (`): a decision is handed in as a decision, from the records it quotes, and the engine makes its line; what is learned holds facts and approaches dropped.",
-      "candidates_known": "At most ten candidates, each an open observation of the project.",
       "holds_needs_policy": "Once the owner replied to the question whether to research a new policy, the check of the policy hands in that it holds only while a policy is in force; with none, it writes the course the project keeps by the reply, or asks again.",
       "policy_or_kept": "The writing of the policy hands in the whole policy with a draft written, or, with a draft kept, no policy and no new measures.",
       "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
@@ -5504,7 +5457,7 @@
         "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in flow_feedback where it is and what it cost, and if you cannot go on, ask the owner. When an agent did not follow a rule, first ask it why by an interjection while its work runs: which rule or input led it, or whether it never read it. Changing the flow, the rules or the engine is the owner's to decide: an item that changes how they work, rather than fixing a defect, is made only once the owner agreed: put it to the owner where your cell can ask, and otherwise say it in flow_feedback.",
         "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Say it in flow_feedback.",
         "What the owner says is information given in a context: understand what it is for. When it holds beyond the matter in hand, propose it as a rule in fitting words, as short as it can be and merged into one already there where it can: for the constitution when it is a lasting value, which the owner sets; for the project's own documents when it is a standing rule of how work is done, through an item; for the policy when it holds for now. The reason stays in the item or observation concerned, as its requirement or a decision point. An owner having to say a thing again means the system lost it: say so to the owner the same way.",
-        "To learn why the code or a decision is as it is: with an address (#item, R<work>-<n>, a commit), read it yourself with sqlite3 or git. With none, or when the question is broad, hand in `history`: a reader of its own searches the items and git and gives back quotes with their sources, and its reading stays out of your session."
+        "To learn why the code or a decision is as it is, read its address (#item, R<work>-<n>, a commit) with `query` or git; with none, search the items and git yourself the same way."
       ],
       "lines": [
         "architect",
@@ -5608,15 +5561,6 @@
           ],
           "entries": [
             "X1"
-          ]
-        },
-        {
-          "name": "history",
-          "nodes": [
-            "X5"
-          ],
-          "entries": [
-            "X5"
           ]
         },
         {
@@ -5736,7 +5680,7 @@
             "The repository: when new material replaces old, update, merge or delete the old in the same change: search for the old wording, numbers and names in comments, READMEs, documents, `research/`, design nodes and the PR description, and correct each statement the change made false. Do not move paths that specifications, tests, scripts and gates pin.",
             "The repository: keep other people's changes in a dirty worktree, and change only what the task covers. Keep scratch output, personal paths, machine addresses, keys, credentials and machine-local settings out of the repository, its commit messages and its PR descriptions: once a repository is public, its whole history is visible. Machine setup belongs in the system's configuration.",
             "The repository: a document holds only what serves its reader, with no editorial history or process mixed in. One place defines a thing; other places point to it. A reference resolves to its target, and a cited passage supports the claim.",
-            "To learn why the code or a decision is as it is: with an address (#item, R<work>-<n>, a commit), read it yourself with sqlite3 or git. With none, or when the question is broad, hand in `history`: a reader of its own searches the items and git and gives back quotes with their sources, and its reading stays out of your session. Before recording a decision of the owner's, look for the earlier one on the same matter this way."
+            "To learn why the code or a decision is as it is, read its address (#item, R<work>-<n>, a commit) with `query` or git; with none, search the items and git yourself the same way. Before recording a decision of the owner's, look for the earlier one on the same matter this way."
           ]
         }
       ],
@@ -5963,10 +5907,6 @@
             "desc": "The times the engineer chose to wait longer for the architect's reply, past its limit of the architect's time"
           },
           {
-            "name": "history_lookups",
-            "desc": "The times a cell had the history looked up"
-          },
-          {
             "name": "retries",
             "desc": "The times the engine ran a round or one of its own steps again after it failed in passing: a run of the agent's command line that ended without a return and would be given again, and a step before the round that reached the network and failed the way a passing failure does"
           },
@@ -6008,23 +5948,6 @@
                 "A4",
                 "A1",
                 "A7"
-              ]
-            },
-            {
-              "field": "history",
-              "say": "`history`, without `progress`",
-              "without": [
-                "progress"
-              ],
-              "cells": [
-                "R1",
-                "D1",
-                "D2",
-                "I1",
-                "T2",
-                "T3",
-                "T4",
-                "T6"
               ]
             },
             {
@@ -6077,18 +6000,6 @@
             ],
             "to": "X1",
             "counts": "tool_requests",
-            "main": true
-          },
-          {
-            "name": "history",
-            "if": [
-              [
-                "has",
-                "history"
-              ]
-            ],
-            "to": "X5",
-            "counts": "history_lookups",
             "main": true
           },
           {
@@ -6177,26 +6088,11 @@
               }
             ],
             "maybe": true
-          },
-          {
-            "name": "History looked up",
-            "what": "What the reader found, with its sources; none when you did not ask",
-            "from": [
-              [
-                "@from",
-                "brief"
-              ]
-            ],
-            "maybe": true,
-            "with": "history"
           }
         ],
         "out": [
           {
             "$ref": "ask_form"
-          },
-          {
-            "$ref": "history_form"
           },
           {
             "$ref": "tools_form"
@@ -7786,63 +7682,6 @@
               ],
               "note": "The cell that answered carries on in the same session."
             }
-          ]
-        },
-        {
-          "id": "X5",
-          "kind": "agent",
-          "title": "Look up the history",
-          "effort": "high",
-          "line": "librarian",
-          "inputs": [
-            {
-              "name": "What to look up",
-              "what": "What the agent that asked wants to know",
-              "from": [
-                [
-                  "@caller",
-                  "history"
-                ]
-              ]
-            },
-            {
-              "name": "Where the history is",
-              "what": "The database's read-only address, and the directory your git runs in, with the project's main there",
-              "from": [
-                {
-                  "engine": "history_sources"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round answers one request: what the agent that asked wants to know. Look only for that, and hand back what bears on it."
-          ],
-          "out": [
-            {
-              "name": "brief",
-              "title": "The history found",
-              "type": "text",
-              "desc": "At most 600 words; count them, and if over, shorten the related items first, then the facts. Sections, each entry a label, a quote and its source (#item, R<work>-<n> or a commit, which the reader can follow with the query tool or git): the decisions in force, each with who decided; approaches dropped, and why; facts and measurements; related items, a line each. End with one line on what you searched."
-            }
-          ],
-          "shown": [
-            "brief"
-          ],
-          "cases": [
-            {
-              "name": "found",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "@caller",
-              "main": true
-            }
-          ],
-          "without": [
-            "ask"
           ]
         },
         {
@@ -13308,24 +13147,6 @@
           ]
         },
         {
-          "name": "history",
-          "nodes": [
-            "X5"
-          ],
-          "entries": [
-            "X5"
-          ]
-        },
-        {
-          "name": "search",
-          "nodes": [
-            "X2"
-          ],
-          "entries": [
-            "X2"
-          ]
-        },
-        {
           "name": "pause",
           "nodes": [
             "X3"
@@ -13373,18 +13194,13 @@
             "desc": "The second eye on a matter's changes that can lose something: a session forked from the same base, on the same model, given the changes, the matter and what came since; it goes on for the looks after revisions, and ends once the matter is handled",
             "colour": "indigo",
             "forks": "architect"
-          },
-          {
-            "name": "observer",
-            "desc": "The search of the project's observations and the look-up of its history: the first of a work of the architect starts a new session, and later ones continue it",
-            "colour": "brown"
           }
         ],
         "rules": [
           "The base only saves tokens, and no judgment rests on it: a new session reads the project (`U1`) and plans (`N1`), and every matter forks from where it ended, so that none reads the project again. A new base is made in three cases only: the project has none, the policy in force changed, or what came since the base passed the installation's amount (`architect.carried_most`). Neither time nor a cold prompt cache makes one: a cold cache is written once, cheaper than reading the project again.",
           "Each matter is handled in a session forked from the base as it ended, one matter at a time: the fork holds everything the base read, and is given what came since the base and the matter's own material. The session ends once the matter is handled, or when it asks the owner: a matter back with the owner's answer forks anew from the base as it is then. A command line that cannot fork a session starts a new one, given only what its cells read.",
           "What a base read stays as it was; what comes after is appended: each matter's record and the lines it adds to the plan or the understanding, what the owner and the architect said, what merged or was cancelled. The next base's `U1` writes its understanding from nothing, and of all that reads only what the owner and the architect said; its `N1` always hands in the whole plan, taking in all of it.",
-          "The second eye is a line of its own, forked from the same base and run on the same model as the matter's session, so that it sees what that session saw and nothing it reasoned; the search of observations and the look-up of history are a line of their own on a cheap model.",
+          "The second eye is a line of its own, forked from the same base and run on the same model as the matter's session, so that it sees what that session saw and nothing it reasoned.",
           "When the architect hands in pause, the architect's work waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again.",
           "The lines of the architect's work only read, in a worktree of the project's architect's own, detached at the project's main, which the engine brings to the latest main before each round, dropping whatever was changed there; another branch is read there with git, without switching."
         ]
@@ -13546,10 +13362,6 @@
             "desc": "The times the architect asked the engine to run tools, each return once"
           },
           {
-            "name": "searches",
-            "desc": "The times the architect had the project's open observations searched"
-          },
-          {
             "name": "handled",
             "desc": "The matters handled, each in its session forked from the base: back to the look at what comes next, once for each"
           },
@@ -13577,10 +13389,6 @@
           {
             "name": "policies_set",
             "desc": "The times a new policy took effect"
-          },
-          {
-            "name": "history_lookups",
-            "desc": "The times a cell had the history looked up"
           },
           {
             "name": "retries",
@@ -13616,34 +13424,6 @@
                 "architect",
                 "matter",
                 "second_eye"
-              ]
-            },
-            {
-              "field": "history",
-              "say": "`history`, without `progress`",
-              "without": [
-                "progress"
-              ],
-              "cells": [
-                "H1",
-                "H2",
-                "H3",
-                "H8",
-                "L2",
-                "N1",
-                "P2",
-                "H11"
-              ]
-            },
-            {
-              "field": "search",
-              "say": "`search`, without `progress`",
-              "without": [
-                "progress"
-              ],
-              "lines": [
-                "architect",
-                "matter"
               ]
             },
             {
@@ -13690,30 +13470,6 @@
             "main": true
           },
           {
-            "name": "history",
-            "if": [
-              [
-                "has",
-                "history"
-              ]
-            ],
-            "to": "X5",
-            "counts": "history_lookups",
-            "main": true
-          },
-          {
-            "name": "search",
-            "if": [
-              [
-                "has",
-                "search"
-              ]
-            ],
-            "to": "X2",
-            "counts": "searches",
-            "main": true
-          },
-          {
             "name": "pause",
             "if": [
               [
@@ -13751,30 +13507,6 @@
             ],
             "maybe": true,
             "with": "ask"
-          },
-          {
-            "name": "Search results",
-            "what": "The observations the search found, closest first, each with why it matches; none when the search found none",
-            "from": [
-              [
-                "@from",
-                "candidates"
-              ]
-            ],
-            "maybe": true,
-            "with": "search"
-          },
-          {
-            "name": "History looked up",
-            "what": "What the reader found, with its sources; none when you did not ask",
-            "from": [
-              [
-                "@from",
-                "brief"
-              ]
-            ],
-            "maybe": true,
-            "with": "history"
           }
         ],
         "out": [
@@ -13782,13 +13514,7 @@
             "$ref": "question_form"
           },
           {
-            "$ref": "history_form"
-          },
-          {
             "$ref": "tools_form"
-          },
-          {
-            "$ref": "search_form"
           },
           {
             "$ref": "pause_form"
@@ -14465,7 +14191,6 @@
           ],
           "without": [
             "ask",
-            "search",
             "tools",
             "pause"
           ],
@@ -14718,8 +14443,7 @@
             }
           ],
           "without": [
-            "ask",
-            "search"
+            "ask"
           ],
           "shown": [
             "plan",
@@ -14955,8 +14679,7 @@
             }
           ],
           "without": [
-            "ask",
-            "search"
+            "ask"
           ],
           "shown": [
             "crux"
@@ -16310,9 +16033,6 @@
               "note": "The owner wants a new policy, or with none in force replied that none is needed: it is written next, in the same session, by the owner's stance."
             }
           ],
-          "without": [
-            "search"
-          ],
           "checks": [
             {
               "at": "verdict",
@@ -16519,9 +16239,6 @@
           ],
           "rules": [
             "policy_scope"
-          ],
-          "without": [
-            "search"
           ],
           "checks": [
             {
@@ -16847,9 +16564,7 @@
             }
           ],
           "without": [
-            "ask",
-            "search",
-            "history"
+            "ask"
           ],
           "shown": [
             "check"
@@ -16985,91 +16700,6 @@
           ]
         },
         {
-          "id": "X2",
-          "kind": "agent",
-          "title": "Search observations",
-          "effort": "medium",
-          "line": "observer",
-          "inputs": [
-            {
-              "name": "What to look for",
-              "what": "What to look for: the text (look_for), the tags to look under (tags, empty for all) and what the candidates are for (purpose): same, whether this very thing is recorded already, so that the candidates are the observations that record it; related, what an item doing this could take in, so that the candidates are the observations such an item would close",
-              "from": [
-                [
-                  "@caller",
-                  "search"
-                ]
-              ]
-            },
-            {
-              "name": "Open observations",
-              "what": "The project's open observations: each with its number, what it is, its tags, how many times it was reported, and where it came from",
-              "from": [
-                {
-                  "db": "observations_open",
-                  "by": "project"
-                }
-              ]
-            },
-            {
-              "name": "Observation tags",
-              "what": "The project's tags for observations, each with what it covers: only these may be used",
-              "from": [
-                {
-                  "engine": "observation_tags"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "This round answers one thing only: which open observations match what is looked for. For the same one: those that record this very thing. For related ones: those an item doing this could take in. Hand in at most ten, the closest first, each with why it matches in a sentence; an empty list when none does. Your answer goes to the architect: what else it should know, say in the why of the candidate it concerns.",
-            "Write progress in the owner's language, as `format:common` says of a field the owner reads."
-          ],
-          "out": [
-            {
-              "name": "candidates",
-              "title": "Candidates",
-              "type": "list",
-              "desc": "The observations that match, closest first, at most ten",
-              "item": {
-                "type": "obj",
-                "fields": [
-                  {
-                    "name": "id",
-                    "title": "Observation",
-                    "type": "int",
-                    "desc": "The observation's number"
-                  },
-                  {
-                    "name": "why",
-                    "title": "Why it matches",
-                    "type": "text",
-                    "desc": "Why it matches, in a sentence"
-                  }
-                ]
-              }
-            }
-          ],
-          "cases": [
-            {
-              "name": "found",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "@caller",
-              "main": true
-            }
-          ],
-          "checks": [
-            {
-              "at": "candidates",
-              "check": "candidates_known"
-            }
-          ]
-        },
-        {
           "id": "X3",
           "kind": "engine",
           "title": "Wait for the owner's Start",
@@ -17087,63 +16717,6 @@
               "waits": true,
               "main": true,
               "note": "The cell that paused carries on in the same session."
-            }
-          ]
-        },
-        {
-          "id": "X5",
-          "kind": "agent",
-          "title": "Look up the history",
-          "effort": "high",
-          "line": "observer",
-          "inputs": [
-            {
-              "name": "What to look up",
-              "what": "What the agent that asked wants to know",
-              "from": [
-                [
-                  "@caller",
-                  "history"
-                ]
-              ]
-            },
-            {
-              "name": "Where the history is",
-              "what": "The database's read-only address, and the directory your git runs in, with the project's main there",
-              "from": [
-                {
-                  "engine": "history_sources"
-                }
-              ]
-            }
-          ],
-          "rules": [
-            "history"
-          ],
-          "prompt": [
-            "This round answers one request: what the agent that asked wants to know. Look only for that, and hand back what bears on it."
-          ],
-          "out": [
-            {
-              "name": "brief",
-              "title": "The history found",
-              "type": "text",
-              "desc": "At most 600 words; count them, and if over, shorten the related items first, then the facts. Sections, each entry a label, a quote and its source (#item, R<work>-<n> or a commit, which the reader can follow with the query tool or git): the decisions in force, each with who decided; approaches dropped, and why; facts and measurements; related items, a line each. End with one line on what you searched."
-            }
-          ],
-          "shown": [
-            "brief"
-          ],
-          "cases": [
-            {
-              "name": "found",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "@caller",
-              "main": true
             }
           ]
         },

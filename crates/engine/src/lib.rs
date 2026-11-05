@@ -105,9 +105,6 @@ const WATCH: &str = "L1";
 /// worktree let go ([`Engine::take_over`]).
 pub const POLICY: &str = "policy";
 
-/// The line of the search of observations, which runs at the observer's level.
-pub const OBSERVER: &str = "observer";
-
 /// The engine's version: the commit it was built from, which every agent's round records.
 pub const VERSION: &str = env!("WF_AGENTS_COMMIT");
 

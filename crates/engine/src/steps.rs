@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
+use crate::{ARCHITECT, Advance, Engine, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -911,8 +911,7 @@ pub fn cell_request(
 
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
 /// advisor, which is the engineer with a higher model; for the architect's base, each matter's session and the second
-/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks; for
-/// the search of observations, the level it names for the observer.
+/// eye, the level the installation names for the architect, so that a fork runs on the model of the base it forks.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -921,7 +920,6 @@ pub fn level_of(
 ) -> Result<(String, config::Level, config::Cli), String> {
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
-        None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e

@@ -189,7 +189,6 @@ mod tests {
         let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()));
         assert_eq!(of("U1"), of("H1"));
         assert_eq!(of("U1"), of("G2"));
-        assert_ne!(of("U1"), of("X2"));
     }
 
     // Each line's sessions are given only the forms and tools some cell of the line has, the same for every cell of

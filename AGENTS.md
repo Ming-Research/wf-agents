@@ -28,6 +28,9 @@ What an agent needs to know for this repository, beyond the rules every agent is
   early cell's output sends each work that went past it back to do the cell again.
 - A change to a cell's inputs or outputs, in the flow or in the code that fills them, waits for the owner's approval; the
   proposal gives each one's change in characters and why it is needed.
+- Every cell of a session line carries the line's whole schema in every round. A cell may have an ability of its own,
+  but never a second tool, form or output for what another cell has: lookups in the database go through the one tool
+  `query`, and outputs are reused.
 - A test holds no total of a whole graph of the flow (its cells, rows, states, places or samples): every work that
   changes the flow would rewrite it, and works that do so side by side cannot be merged, in git or in meaning. What
   the flow must keep is held by the flow's own source (`each_graph_compiles_to_the_cells_of_its_nodes`) or by a named

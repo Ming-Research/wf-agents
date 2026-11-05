@@ -1784,10 +1784,6 @@ mod tests {
             );
             assert_eq!(arch["required"], json!(["flow_feedback", "outcome"]), "{line}");
         }
-        // The search of observations asks for no tools, so nothing it hands in leaves out `progress`.
-        let h = envelope(a, Some("observer"));
-        assert_eq!(keys(&h), ["progress", "flow_feedback", "outcome"]);
-        assert_eq!(h["required"], json!(["progress", "flow_feedback", "outcome"]));
         // A project that does not ask for flow feedback gives its agents no such field.
         let off = envelope(&g.clone().as_asked(|_| false), Some("engineer"));
         assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
@@ -1853,7 +1849,6 @@ mod tests {
             assert!(together.contains(&line(l)), "{l}: {together:?}");
             assert_eq!(forked_together(a, Some(l)), together, "{l}");
         }
-        assert_eq!(forked_together(a, Some("observer")), [line("observer")]);
         assert_eq!(forked_together(a, None), [None]);
         let g = f.graph("engineer").unwrap();
         assert_eq!(forked_together(g, Some("engineer")), [line("engineer")]);
@@ -2015,17 +2010,6 @@ mod tests {
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
             Some("/outcome: must NOT have additional properties ('tell_owner' is not allowed)")
-        );
-        let observer = envelope(g, Some("observer"));
-        let search = json!({
-            "tell_owner": [],
-            "progress": "Found none",
-            "flow_feedback": "none",
-            "outcome": { "candidates": [] },
-        });
-        assert_eq!(
-            refused(&observer, &search, "").as_deref(),
-            Some("root: must NOT have additional properties ('tell_owner' is not allowed)")
         );
     }
 
