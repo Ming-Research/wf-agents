@@ -162,13 +162,13 @@ fn a_ci_before_in_the_call_of_the_ci_that_pushes_the_change_leaves_nothing_stale
 // run ci_before again.
 #[test]
 fn test_results_that_rest_on_a_stale_result_of_ci_before_are_still_sent_back() {
-    let (s, e, said, item, work) = run("stale-before-sent-back", Rerun::Late);
+    let (s, e, said, _, work) = run("stale-before-sent-back", Rerun::Late);
     let log = said.lock().unwrap().join("\n");
     let why = why_sent_back(&e, work, "I1");
     assert_eq!(why.len(), 1, "{why:?}\n{log}");
     assert!(
         why[0].contains("feature: its result before the change comes from")
-            && why[0].contains(&format!("{TEST_FILE} changed after that"))
+            && why[0].contains(&format!("{TEST_FILE} changed after it"))
             && why[0].contains("run ci_before again"),
         "{why:?}"
     );
