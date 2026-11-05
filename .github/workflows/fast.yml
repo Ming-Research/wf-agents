@@ -166,8 +166,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
-      # Before any cargo step that compiles the crate the page is built into; only when the page's files changed since
-      # this runner built it, and its dependencies only when their lock changed.
+      # Before any cargo step that compiles the crate the page is built into; the build of the page's files as they are
+      # is kept for every runner of the machine, and its dependencies are installed only when their lock changed.
       - name: Build the page
         working-directory: client
         run: |
@@ -177,10 +177,19 @@ jobs:
             npm ci
             echo "$lock" > node_modules/.wf-lock
           fi
-          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" != "$tree" ] || [ ! -f dist/index.html ]; then
+          kept="$HOME/page-builds/$tree"
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+            :
+          elif [ -f "$kept/index.html" ]; then
+            # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
+            rm -rf dist && cp -R "$kept" dist
+          else
             npm run build
-            echo "$tree" > node_modules/.wf-tree
+            mkdir -p "$HOME/page-builds"
+            tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
+            find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
           fi
+          echo "$tree" > node_modules/.wf-tree
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
       # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
       #
