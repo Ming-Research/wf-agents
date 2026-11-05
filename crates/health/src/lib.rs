@@ -5,11 +5,11 @@
 //! why.
 //!
 //! Most measures are computed from the records as they stand, each time they are read (the rounds, the tool runs, the
-//! blockers, the changes, the architect's matters, the reverts), so that a definition put right puts their whole
-//! history right. Two are computed from the records and the commits on a project's main, which the caller reads from
-//! git and gives ([`MainLog`], in [`Scope::main`]). A state of the engine at a moment, which no record holds (its CPU,
-//! the page's reads, the slots, the works running, the architect's queue), the engine samples once a minute into
-//! `samples` ([`sample`]).
+//! blockers, the waits for a free slot, the changes, the architect's matters, the reverts), so that a definition put
+//! right puts their whole history right. Two are computed from the records and the commits on a project's main, which
+//! the caller reads from git and gives ([`MainLog`], in [`Scope::main`]). A state of the engine at a moment, which no
+//! record holds (its CPU, the page's reads, the slots, the works running, the architect's queue), the engine samples
+//! once a minute into `samples` ([`sample`]).
 //!
 //! An event falls in the point that holds the moment it was done: a round when it ended, a merge when it merged, an
 //! item when it was made, a commit on main when it was made by its committer time; the one exception is what a round
@@ -147,20 +147,17 @@ pub struct Measure {
     pub source: Source,
     pub fold: Fold,
     pub by: By,
-    /// The subjects of its kind it does not measure yet, each with why.
-    pub missing: &'static [(&'static str, &'static str)],
     /// Why a point of it has no value, when nothing fell in it.
     pub empty: &'static str,
 }
 
 impl Measure {
-    /// Why it has no values for a subject (all of them when none is given), when nothing records them.
-    pub fn not_measured(&self, subject: Option<&str>) -> Option<&'static str> {
-        if let Source::Missing(why) = self.source {
-            return Some(why);
+    /// Why it has no values at all, when nothing records them.
+    pub fn not_measured(&self) -> Option<&'static str> {
+        match self.source {
+            Source::Missing(why) => Some(why),
+            _ => None,
         }
-        let s = subject?;
-        self.missing.iter().find(|(m, _)| *m == s).map(|(_, why)| *why)
     }
 
     /// Whether a point with nothing in it is a zero, as a count of events the records hold is, and not a value unknown.
@@ -172,13 +169,10 @@ impl Measure {
     fn unmeasured_in(&self, scope: &Scope<'_>) -> Option<&'static str> {
         // One project's main says nothing of another's merges, so reading them for every project measures nothing.
         let read = scope.project.is_some() && scope.main.is_some();
-        self.not_measured(scope.subject)
+        self.not_measured()
             .or_else(|| (matches!(self.source, Source::Main(_)) && !read).then_some(MAIN_UNREAD))
     }
 }
-
-/// Why waiting for a free slot is not among the stops yet.
-const SLOT_UNRECORDED: &str = "a wait for a free slot is recorded in slot_waits, but not counted among the stops yet";
 
 /// Why a measure of the commits on main has no values when the reader named no project or gave no commits.
 const MAIN_UNREAD: &str = "the commits on one project's main were not read";
@@ -194,7 +188,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::broken_merges),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -205,7 +198,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::reverted_merges),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -218,7 +210,6 @@ static MEASURES: [Measure; 24] = [
         ),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -230,7 +221,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::round_context),
         fold: Fold::Median,
         by: By::Cell,
-        missing: &[],
         empty: "no agent's round that reported its usage ended",
     },
     Measure {
@@ -241,7 +231,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::round_context),
         fold: Fold::Max,
         by: By::Cell,
-        missing: &[],
         empty: "no agent's round that reported its usage ended",
     },
     Measure {
@@ -253,7 +242,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::sent_back),
         fold: Fold::Ratio,
         by: By::Nothing,
-        missing: &[],
         empty: "no agent's round ended",
     },
     Measure {
@@ -264,7 +252,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::failed),
         fold: Fold::Ratio,
         by: By::Nothing,
-        missing: &[],
         empty: "no agent's round ended",
     },
     Measure {
@@ -276,19 +263,18 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::owner_reply),
         fold: Fold::Median,
         by: By::Nothing,
-        missing: &[],
         empty: "no round handled the owner's words",
     },
     Measure {
         name: "work.stops",
-        what: "How many times a work stopped to wait for someone, by why: a blocker of each kind (question, \
-               tool_failure, owner_ask, items, ruling), or a pause (paused)",
+        what: "How many times a work stopped to wait, by why: for someone, a blocker of each kind (question, \
+               tool_failure, owner_ask, items, ruling) or a pause (paused); or, its answer come, for a free slot \
+               (slot)",
         layer: Layer::System,
         unit: Unit::Count,
         source: Source::Records(records::stops),
         fold: Fold::Count,
         by: By::Reason,
-        missing: &[("slot", SLOT_UNRECORDED)],
         empty: "",
     },
     Measure {
@@ -299,7 +285,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::stops),
         fold: Fold::Sum,
         by: By::Reason,
-        missing: &[("slot", SLOT_UNRECORDED)],
         empty: "",
     },
     Measure {
@@ -311,7 +296,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Engine,
         fold: Fold::Median,
         by: By::Nothing,
-        missing: &[],
         empty: "the engine took no sample of its CPU: it was not running, or had just started",
     },
     Measure {
@@ -323,7 +307,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::to_merge),
         fold: Fold::Median,
         by: By::Nothing,
-        missing: &[],
         empty: "no item merged",
     },
     Measure {
@@ -336,7 +319,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::ci_wait),
         fold: Fold::Median,
         by: By::Nothing,
-        missing: &[],
         empty: "no item merged",
     },
     Measure {
@@ -347,7 +329,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::items_made),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -359,7 +340,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::items_merged),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -371,7 +351,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Main(records::not_on_main),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -385,7 +364,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Main(records::outside_flow),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -396,7 +374,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::items_cancelled),
         fold: Fold::Count,
         by: By::Nothing,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -407,7 +384,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Records(records::spend),
         fold: Fold::Sum,
         by: By::Graph,
-        missing: &[],
         empty: "",
     },
     Measure {
@@ -418,7 +394,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Engine,
         fold: Fold::Sum,
         by: By::Nothing,
-        missing: &[],
         empty: "the engine took no sample: it was not running",
     },
     Measure {
@@ -429,7 +404,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Engine,
         fold: Fold::Sum,
         by: By::Nothing,
-        missing: &[],
         empty: "the engine took no sample: it was not running",
     },
     Measure {
@@ -440,7 +414,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Engine,
         fold: Fold::Median,
         by: By::Nothing,
-        missing: &[],
         empty: "the engine took no sample: it was not running",
     },
     Measure {
@@ -451,7 +424,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Engine,
         fold: Fold::Median,
         by: By::Nothing,
-        missing: &[],
         empty: "the engine took no sample: it was not running",
     },
     Measure {
@@ -462,7 +434,6 @@ static MEASURES: [Measure; 24] = [
         source: Source::Projects,
         fold: Fold::Max,
         by: By::Nothing,
-        missing: &[],
         empty: "the engine took no sample: it was not running",
     },
 ];
@@ -778,8 +749,9 @@ fn series_read(
     })
 }
 
-/// A measure's series for each of its subjects that has values in the period, as [`series`] gives one, and for each
-/// subject it does not measure yet, saying why; for the scope's project, or all of them, whatever subject it names.
+/// A measure's series for each of its subjects that has values in the period, as [`series`] gives one; for the scope's
+/// project, or all of them, whatever subject it names. A measure nothing records gives one series, of no subject,
+/// saying why.
 pub fn series_by_subject(
     conn: &Connection,
     m: &Measure,
@@ -812,9 +784,6 @@ pub fn series_by_subject(
             (s.to_string(), series)
         })
         .collect();
-    for (s, why) in m.missing {
-        out.push(((*s).to_string(), unmeasured(&bounds, why)));
-    }
     Ok(out)
 }
 

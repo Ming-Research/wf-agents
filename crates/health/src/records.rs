@@ -12,6 +12,9 @@ use sessions::cost::context_end;
 use crate::round::{Outcome, outcome};
 use crate::{FULL_CI_STEP, Fact, MainLog, Reader, args, project_arg};
 
+/// The reason a work stood stopped, waiting for a free slot with its answer come.
+const SLOT: &str = "slot";
+
 /// The graph works on items run.
 const ENGINEER: &str = "engineer";
 
@@ -131,24 +134,36 @@ pub(crate) fn owner_reply(r: &Reader<'_>, project: Option<&str>, from: i64, to: 
     )
 }
 
-/// Each time a work stood stopped, waiting for someone, as a span from when it stopped to when it went on, or now: a
-/// blocker, by its kind, and a pause of a work not ended, as `paused`. The blockers that stood stopped at some time
-/// in the period are read in three parts, none from the start of the history: those raised in it; those raised before
-/// it and still open, few as the works are; and those raised before it that ended after it began.
+/// Each time a work stood stopped, as a span from when it stopped to when it went on, or now: waiting for someone, a
+/// blocker, by its kind, and a pause of a work not ended, as `paused`; or, its wait over, waiting for a free slot, a
+/// row of `slot_waits`, as `slot`. A blocker ends as its answer comes and a wait for a slot begins after it, so the two
+/// do not overlap. The blockers and the waits for a slot that stood stopped at some time in the period are each read in
+/// three parts, none from the start of the history: those raised in it; those raised before it and still open, few as
+/// the works are; and those raised before it that ended after it began.
 pub(crate) fn stops(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
     // Each part by its own index: a term written `+b.at` is one SQLite reads no index by, which would read the
     // blockers raised before the period from the first.
-    let part = |index: &str, within: &str| {
+    let blocked = |index: &str, within: &str| {
         format!(
             "SELECT b.at, b.ended_at, b.kind FROM blockers b INDEXED BY {index} CROSS JOIN works w ON w.id = b.work
                LEFT JOIN items i ON i.id = w.item
              WHERE {within} AND {PROJECT_OF_WORK}"
         )
     };
+    let waited = |index: &str, within: &str| {
+        format!(
+            "SELECT s.since, s.until, '{SLOT}' FROM slot_waits s INDEXED BY {index} CROSS JOIN works w ON w.id = s.work
+               LEFT JOIN items i ON i.id = w.item
+             WHERE {within} AND {PROJECT_OF_WORK}"
+        )
+    };
     let sql = [
-        part("blockers_by_time", "b.at >= ?2 AND b.at < ?3"),
-        part("blockers_open", "b.ended IS NULL AND +b.at < ?2"),
-        part("blockers_by_end", "b.ended_at > ?2 AND +b.at < ?2"),
+        blocked("blockers_by_time", "b.at >= ?2 AND b.at < ?3"),
+        blocked("blockers_open", "b.ended IS NULL AND +b.at < ?2"),
+        blocked("blockers_by_end", "b.ended_at > ?2 AND +b.at < ?2"),
+        waited("slot_waits_by_time", "s.since >= ?2 AND s.since < ?3"),
+        waited("slot_waits_open", "s.until IS NULL AND +s.since < ?2"),
+        waited("slot_waits_by_end", "s.until > ?2 AND +s.since < ?2"),
     ]
     .join(" UNION ALL ");
     let mut out = r.rows(&sql, args(project, from, to), |row| {

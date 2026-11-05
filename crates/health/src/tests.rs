@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use db::rusqlite::{Connection, params_from_iter};
 use db::{Actor, Db};
 
-use crate::{FULL_CI_STEP, MINUTE, MainLog, Reader, Scope, measures, series_read};
+use crate::{FULL_CI_STEP, MINUTE, MainLog, Reader, Scope, measure, measures, series_read};
 
 /// A day, in milliseconds.
 const DAY: i64 = 86_400_000;
@@ -19,8 +19,9 @@ const END: i64 = START + 100 * DAY;
 /// 100,000 in all, spread evenly, half of them an agent's with its usage and cost, one in fifty a merge; a run of CI for
 /// one round in five, a third of them the merge tool's waits for the full CI; 200,000 changes to the works and the items
 /// besides those the items made, one in a hundred pausing a work or letting it go on; a blocker and the owner's words
-/// handled for one work in two; an architect's work with 200 checks of main over the last week, each finding a merge
-/// made it red, and one revert; and the engine's samples of the last week.
+/// handled for one work in two, each blocker followed by a wait for a free slot, and one wait still going on; an
+/// architect's work with 200 checks of main over the last week, each finding a merge made it red, and one revert; and
+/// the engine's samples of the last week.
 fn seeded() -> Db {
     let mut db = Db::in_memory().unwrap();
     db.write(Actor::Engine, |tx| {
@@ -82,7 +83,9 @@ fn seeded() -> Db {
                         UNION ALL SELECT 'works.running', '' UNION ALL SELECT 'queue.oldest', 'p') m;"
         ))
         .unwrap();
-    // Blockers and matters are state, written as the engine writes them; a matter is handled by a round seeded above.
+    // Blockers, waits for a slot and matters are state, written as the engine writes them; a matter is handled by a
+    // round seeded above. A wait for a slot begins as the blocker before it ends, and lasts ten minutes; the one
+    // that lasts still began an hour before the end.
     db.write(Actor::Engine, |tx| {
         tx.execute_batch(&format!(
             "WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 2 FROM n WHERE k < 1999)
@@ -90,6 +93,10 @@ fn seeded() -> Db {
                SELECT k, 'I1', 'question', 'w', 'advisor', {START} + k * 4320000, {START} + k * 4320000,
                  'resolved', '{{}}', {START} + k * 4320000 + 3600000
                FROM n;
+             WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 2 FROM n WHERE k < 1999)
+             INSERT INTO slot_waits (work, since, until, ended)
+               SELECT k, {START} + k * 4320000 + 3600000, {START} + k * 4320000 + 4200000, 'granted' FROM n;
+             INSERT INTO slot_waits (work, since) VALUES (2, {END} - 3600000);
              WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 2 FROM n WHERE k < 1999)
              INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
                SELECT 'p', 'owner_words', 'w', '{{}}', {START} + k * 4320000 - 600000, k, 1 FROM n;"
@@ -174,6 +181,24 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
     ] {
         assert!(folded.iter().any(|(name, n)| *name == m && *n > 0), "{m}: {folded:?}");
     }
+    // The waits for a slot of the week are read through the same statements, not left out: those that began in it, 70
+    // of the seeded blockers' (the odd works from 1861 to 1999) and the one still going on.
+    let slot = Scope {
+        project: Some("p"),
+        subject: Some("slot"),
+        main: None,
+    };
+    let slot_stops = series_read(
+        &Reader::new(conn),
+        measure("work.stops").unwrap(),
+        &slot,
+        from,
+        to,
+        MINUTE,
+    )
+    .unwrap();
+    let began: f64 = slot_stops.points.iter().filter_map(|p| p.value).sum();
+    assert_eq!(began, 71.0, "{slot_stops:?}");
     // A statement that reads the rounds whole is found so; so is one that reads the blockers raised before a time, from
     // the first, and one that reads a measure's samples of every time.
     let whole = plan(conn, "SELECT count(*) FROM rounds r WHERE r.model = 'm'", &[]);
