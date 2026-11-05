@@ -139,7 +139,12 @@ fn a_return_sent_back_queues_a_report_for_the_architect_and_the_work_goes_on() {
         pause: held_but(&[work], &[]),
         ..Go::default()
     };
-    let on = turns_until(&mut e, &held, |e| state(e, item).is_some_and(|w| w.1 != "R1"));
+    // The work starts at the cell before R1 and comes to R1, so that the cell is done once a return of it is taken.
+    let on = turns_until(&mut e, &held, |e| {
+        rows_taken(e, work)
+            .iter()
+            .any(|(cell, row)| cell == "R1" && row.as_deref().is_some_and(|r| r != "sent_back"))
+    });
     let log = said.lock().unwrap().join("\n");
     assert!(on, "{log}");
     // The work was never paused, and the cell ran again: the second return was taken.
@@ -268,8 +273,12 @@ fn three_returns_in_a_row_sent_back_pause_the_work_and_each_has_its_report() {
     assert!(all.iter().all(|l| l.0["work"] == json!(work) && !l.1), "{all:?}");
     // The work is waited for while it is paused for them.
     assert_eq!(waited_for_by(&e), ["agent", "agent", "agent"], "{log}");
-    // Once it goes on, the reports are the architect's to look at when it can, and nothing waits for them.
+    // Once it goes on, the reports are the architect's to look at when it can, and nothing waits for them. The owner's
+    // Start asks for it, and the engine's next turn lifts the pause, as its machine has a slot free.
     api::resume(&mut e.db, work).unwrap();
+    let on = turns_until(&mut e, &held, |e| paused_by(e, work).is_none());
+    let log = said.lock().unwrap().join("\n");
+    assert!(on, "{log}");
     assert_eq!(waited_for_by(&e), ["none", "none", "none"], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
