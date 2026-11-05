@@ -179,6 +179,15 @@ fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     );
 }
 
+// The name of a project's main branch is that project's setting (`main`), so the flow writes it `origin/<main>`: a command
+// the flow gives with `origin/main` written out names no ref in a project whose main branch has another name.
+#[test]
+fn the_flow_writes_a_projects_main_branch_by_no_name_of_its_own() {
+    assert!(FLOW.contains("origin/<main>"));
+    let written: Vec<&str> = FLOW.lines().filter(|l| l.contains("origin/main")).collect();
+    assert!(written.is_empty(), "{written:?}");
+}
+
 // The cells that read the histories and the observations judge what matters in a great many records, so they think:
 // the librarian's two cells and the architect's look-up at high effort, the search of observations at medium, and no
 // cell of any graph at low, which does not think. A line cannot hold low cells beside others.
