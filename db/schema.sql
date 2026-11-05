@@ -1273,6 +1273,30 @@ CREATE INDEX notebook_edits_by_section ON notebook_edits (project, section);
 CREATE UNIQUE INDEX attachments_of_interjection ON attachments (interjection, position) WHERE interjection IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_matter ON attachments (matter, position) WHERE matter IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask IS NOT NULL;
+-- The largest transaction number in the change log: `Db::write` reads it on every write, under the write lock.
+CREATE INDEX changes_by_tx ON changes (tx);
+-- The sessions a CLI session's id names: the rows its rounds are read through.
+CREATE INDEX sessions_by_cli_session ON sessions (cli_session);
+-- The rounds a CLI session ran, found through the session's row.
+CREATE INDEX rounds_by_session ON rounds (session);
+-- The rounds of a cell in any work: an architect's rounds at the cell of a matter.
+CREATE INDEX rounds_by_cell ON rounds (cell);
+-- The interjections a matter holds the owner's words of, said in a work's group.
+CREATE INDEX interjections_by_matter ON interjections (matter);
+-- The interjections of a work delivered after a round: the words given since a merge.
+CREATE INDEX interjections_by_work_delivered ON interjections (work, delivered_round);
+-- The matters of a work of a kind: the questions an engineer asked the architect, the reports of its line.
+CREATE INDEX architect_matters_by_work ON architect_matters (work, kind);
+-- The matter an owner's ask put to the architect.
+CREATE INDEX architect_matters_by_asked ON architect_matters (asked);
+-- The notices about an owner's ask.
+CREATE INDEX engine_notices_by_ask ON engine_notices (ask);
+-- The blockers an owner's ask holds.
+CREATE INDEX blockers_by_ask ON blockers (ask);
+-- The blocker a matter of the architect's queue stands for.
+CREATE INDEX blockers_by_matter ON blockers (matter);
+-- The works on each flow version.
+CREATE INDEX works_by_flow_version ON works (flow_version);
 
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
 -- work or project at hand has a column of that name; the engine filters on it.

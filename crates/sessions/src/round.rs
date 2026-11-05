@@ -107,16 +107,43 @@ pub fn of_cli_session(conn: &Connection, cli_session: &str) -> Result<Vec<Round>
     Ok(out)
 }
 
+/// The statement `own_rounds` runs: the rounds run in a CLI session, found through the session's row.
+pub fn own_rounds_sql() -> String {
+    format!(
+        "SELECT {COLUMNS} FROM rounds r JOIN sessions s ON s.id = r.session
+         WHERE s.cli_session = ?1 ORDER BY r.work, r.n"
+    )
+}
+
 /// The rounds run in a CLI session itself, oldest first.
 fn own_rounds(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String> {
-    let mut st = conn
-        .prepare(&format!(
-            "SELECT {COLUMNS} FROM rounds r JOIN sessions s ON s.id = r.session
-             WHERE s.cli_session = ?1 ORDER BY r.work, r.n"
-        ))
-        .map_err(|e| e.to_string())?;
+    let mut st = conn.prepare(&own_rounds_sql()).map_err(|e| e.to_string())?;
     st.query_map([cli_session], read)
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<_>>()
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn own_rounds_reads_rounds_by_session() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &super::own_rounds_sql()).unwrap();
+        assert!(
+            steps.contains("rounds_by_session"),
+            "the plan does not read by rounds_by_session:\n{steps}"
+        );
+    }
+
+    #[test]
+    fn own_rounds_finds_the_session_by_its_cli_session_and_scans_no_table() {
+        let database = db::Db::in_memory().unwrap();
+        let steps = db::query_plan(database.conn(), &super::own_rounds_sql()).unwrap();
+        assert!(
+            steps.contains("sessions_by_cli_session"),
+            "the plan does not find the session by sessions_by_cli_session:\n{steps}"
+        );
+        assert!(!steps.contains("SCAN"), "the plan scans a table:\n{steps}");
+    }
 }
