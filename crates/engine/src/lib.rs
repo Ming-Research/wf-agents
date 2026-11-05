@@ -58,6 +58,7 @@ mod test_tables;
 mod tools;
 mod unparsed;
 mod values;
+mod verification;
 mod versions;
 mod warm;
 mod watch;
@@ -220,6 +221,9 @@ struct Shared {
     /// When the watch of main last looked at each project's main ([`main_watch::look`]), so that GitHub is asked at most
     /// once a minute for each.
     main_looked: Mutex<BTreeMap<String, i64>>,
+    /// The fetches of main made for an installed build the project's checkout lacks ([`verification`]), so that a value
+    /// worked out at every step of a wait does not reach the network at each.
+    build_fetches: Mutex<verification::Fetches>,
 }
 
 impl Shared {
@@ -246,6 +250,7 @@ impl Shared {
             github,
             hooks,
             main_looked: Mutex::default(),
+            build_fetches: Mutex::default(),
         }
     }
 
@@ -303,6 +308,21 @@ pub struct Engine {
     /// What taking main in brought before the round the step is about to run, for the engine's input
     /// `main_changes`: the work, and what it brought ([`catch_up`]); none when the step took nothing in.
     pub(crate) caught_up: Option<(i64, Option<Value>)>,
+    /// The commit the installed program was built from, which says whether a change it carries is in effect
+    /// ([`verification`]): [`VERSION`], which a test sets to a commit of its own repository.
+    pub built_from: String,
+}
+
+impl Engine {
+    /// Whether main is to be fetched now for this merge and build, which marks the attempt ([`verification::Fetches`]).
+    pub(crate) fn build_fetch_due(&self, key: &verification::FetchKey, now: i64) -> bool {
+        lock(&self.shared.build_fetches).due(key, now)
+    }
+
+    /// Main was fetched for this merge and build, so no other fetch is needed for them.
+    pub(crate) fn build_fetched(&self, key: &verification::FetchKey) {
+        lock(&self.shared.build_fetches).done(key);
+    }
 }
 
 // A thread that takes a step owns its context, and every thread shares one `Shared`: a field added to either that may
@@ -372,6 +392,7 @@ impl Engine {
             retry_wait: Duration::from_secs(10),
             backoff_unit: Duration::from_secs(1),
             caught_up: None,
+            built_from: VERSION.to_string(),
         }
     }
 
@@ -392,6 +413,7 @@ impl Engine {
             retry_wait: self.retry_wait,
             backoff_unit: self.backoff_unit,
             caught_up: None,
+            built_from: self.built_from.clone(),
         })
     }
 
@@ -571,7 +593,7 @@ impl Engine {
         };
         let new = self.graph_of(&now)?;
         let rounds = work::rounds(self.db.conn(), w.id)?;
-        Ok(versions::plan(&old, &new, &w.pos, &rounds, |r| in_effect(&old, r)))
+        Ok(versions::plan(&old, &new, &w.pos, &rounds, |r| took_hold(&old, r)))
     }
 
     /// The cell of a work's graph in the version the engine runs that a work on an older version comes to when that
@@ -1710,14 +1732,14 @@ pub fn row<'g>(cell: &'g CompiledCell, name: &str) -> Option<&'g flow::CompiledR
 /// What a round of a work did that took hold as it ended and cannot be undone, in words, by the graph `g` it ran on;
 /// none when doing it again undoes or repeats nothing that went out. A work never goes back past such a round when a
 /// new flow version comes ([`versions::plan`]): the engineer's merge, and what the architect's rounds do at once
-/// ([`architect::in_effect`]).
-pub(crate) fn in_effect(g: &CompiledGraph, r: &Round) -> Option<String> {
+/// ([`architect::took_hold`]).
+pub(crate) fn took_hold(g: &CompiledGraph, r: &Round) -> Option<String> {
     let cell = r.cell.as_deref()?;
     match g.name.as_str() {
         ENGINEER if r.transition.as_deref() == Some("merged") && db::is_cell(ENGINEER, MERGE, cell) => {
             Some("merged the pull request".into())
         }
-        ARCHITECT => architect::in_effect(g, r),
+        ARCHITECT => architect::took_hold(g, r),
         _ => None,
     }
 }

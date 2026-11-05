@@ -39,6 +39,10 @@ What an agent needs to know for this repository, beyond the rules every agent is
   its implementation's return (`checks_changed`), or a fix's when the fix changes one more. What only those checks
   find in its returns is then set aside, not sent back ([`crates/engine/src/set_aside.rs`](crates/engine/src/set_aside.rs)),
   and the review checks the declaration against the diff and judges each finding set aside.
+- An acceptance condition that only shows in real runs once the change is in effect, which no test, check of the CI or
+  measurement on the branch can show, is written `in_effect`: with what carries the change (`when`), the `tool`, the
+  `command`, what result `holds` and what evidence is `enough`. The work checks it after its merge
+  ([decisions/verify-after-taking-effect.md](decisions/verify-after-taking-effect.md)); no other condition is written so.
 - A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
   a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
   returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a

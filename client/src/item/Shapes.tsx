@@ -230,7 +230,8 @@ export function OptionBoxes(props: {
 }
 
 /// How an acceptance condition was met, as the work said at its end: by which tests, by which measurement, by which
-/// jobs and commands of the CI, by reading which part of the change, or where the report answers it.
+/// jobs and commands of the CI, by reading which part of the change, or where the report answers it; or that it is
+/// checked after the merge, once the change is in effect.
 export type Met = Obj;
 
 /// The strings a list of the row holds, as the row says them.
@@ -255,6 +256,7 @@ function MetLine({ m }: { m: Met }) {
   }
   if (how === 'read_diff') return <span className="good">{t('met_diff', { where: str(m.where), what: str(m.what) })}</span>;
   if (how === 'report_answer') return <span className="good">{t('met_report', { where: str(m.where) })}</span>;
+  if (how === 'in_effect') return <span className="muted">{t('met_in_effect')}</span>;
   return <Labelled value={m} />;
 }
 
@@ -290,7 +292,9 @@ export function Acceptance({ value, met }: { value: JsonValue; met: Map<string, 
                         ? t('acc_by_diff')
                         : by === 'report_answer'
                           ? t('acc_by_report')
-                          : words(by)}
+                          : by === 'in_effect'
+                            ? t('acc_by_in_effect', { holds: str(r.holds) })
+                            : words(by)}
               </td>
             </tr>
           );
