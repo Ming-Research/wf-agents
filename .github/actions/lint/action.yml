@@ -22,10 +22,11 @@ runs:
         node-version: 24.21.0
         cache: npm
         cache-dependency-path: client/package-lock.json
-    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+    - run: |
+        echo /opt/node/bin >> "$GITHUB_PATH"
+        [ "$(/opt/node/bin/node --version)" = v24.21.0 ]
       if: runner.environment != 'github-hosted'
-      with:
-        node-version: 24.21.0
+      shell: bash
     # Formatting first: it needs no build, so a misformatted push fails in seconds.
     - name: Format
       id: format

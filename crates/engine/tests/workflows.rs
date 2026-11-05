@@ -69,7 +69,7 @@ fn group(text: &str) -> String {
 }
 
 // The fast workflow is run by hand and by nothing else (a push of a work's branch must start nothing), takes the tests
-// and the checks to run as the inputs the configuration names, and holds the lint, the tests and the summary, never a
+// and the checks to run as the inputs the configuration names, and holds the lint and the tests, never a
 // job named `check`: a head that only this workflow has run must not look like one the full CI passed.
 #[test]
 fn the_fast_workflow_runs_only_by_hand_and_has_no_job_a_merge_waits_for() {
@@ -86,11 +86,8 @@ fn the_fast_workflow_runs_only_by_hand_and_has_no_job_a_merge_waits_for() {
     assert!(on.contains("default: '[]'"), "{on}");
     let jobs = block(&text, "jobs");
     let names = children(&jobs);
-    assert_eq!(names, ["lint", "test", "fast"], "the jobs of fast.yml");
-    // The summary is what the engine reads as the run's verdict, and it waits for the other two whatever they came to.
-    let summary = job(&jobs, "fast").join("\n");
-    assert!(summary.contains("needs: [lint, test]"), "{summary}");
-    assert!(summary.contains("if: always()"), "{summary}");
+    // The engine reads every job of the run, so no job sums the others up.
+    assert_eq!(names, ["lint", "test"], "the jobs of fast.yml");
 }
 
 // The full workflow keeps the job a merge waits for, and runs on a push to main and by hand only: a push of a work's
