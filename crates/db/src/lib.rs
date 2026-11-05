@@ -69,8 +69,9 @@ pub const MIGRATIONS: &[Migration] = include!(concat!(env!("OUT_DIR"), "/migrati
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// The statement that gives the next transaction number, one more than the largest in the change log. `Db::write` runs
-/// it under the write lock on every write, so the largest must be found through an index on `tx`, not by a scan.
-pub const NEXT_TX: &str = "SELECT coalesce(max(tx), 0) + 1 FROM changes";
+/// it under the write lock on every write, so the largest is found through the index `changes_by_tx`, not by a scan.
+/// The aggregate is a scalar subquery: the plan test in `tests/query_plans.rs` holds that SQLite answers it from the index.
+pub const NEXT_TX: &str = "SELECT coalesce((SELECT max(tx) FROM changes), 0) + 1";
 
 /// The steps SQLite plans for `sql`, one per line, as `EXPLAIN QUERY PLAN` gives them: each names the table a step reads
 /// and the index it reads it by, when it has one. Parameters are bound to zero, since the plan does not depend on them.
