@@ -1809,8 +1809,9 @@ asked: number | null, resume_cell: string | null,
  */
 answered: boolean,
 /**
- * For a matter in the queue: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
- * `none`), and how long since it came, in milliseconds.
+ * For a matter in the queue: who waits for it (`agent`: an engineer stopped for its question, or, for the
+ * report of a return sent back, the engineer's work the engine paused for returns sent back in a row; `owner`;
+ * or `none`), and how long since it came, in milliseconds.
  */
 waits: string | null, waited_ms: number | null,
 /**
