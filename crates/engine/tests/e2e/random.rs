@@ -303,7 +303,7 @@ fn random_events(seed: u64, events: usize) {
                     for project in ["p", "q"] {
                         tx.execute(
                             "INSERT INTO works (item, flow_version, graph, at, ended, project)
-                             VALUES (NULL, ?1, 'architect', 'E2', 'over before', ?2)",
+                             VALUES (NULL, ?1, 'architect', 'R1', 'over before', ?2)",
                             params![v, project],
                         )?;
                         let arch = tx.last_insert_rowid();

@@ -1463,7 +1463,7 @@ pub struct ConversationDetail {
     /// conversation. Each is an entry too, where it was asked.
     pub questions: Vec<OwnerAsk>,
     /// In the one-to-one with an architect: the question it waits for the owner's reply to now at its look at the queue
-    /// (`Q0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
+    /// (`N0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
     /// the owner's reply ago, with nothing said by the owner since; none otherwise.
     pub waits_on: Option<i64>,
     /// The time of the latest entry the owner read; none before the first.
@@ -1582,7 +1582,7 @@ pub struct ArchitectWork {
     /// when it handles none, or is over.
     pub handling: Option<i64>,
     /// Whether it waits at its look at the queue for the owner's next words, having answered the owner's words with the
-    /// talk left open (`Q0`'s row `listens`): the owner's next words are taken at once.
+    /// talk left open (`N0`'s row `listens`): the owner's next words are taken at once.
     pub listens: bool,
 }
 

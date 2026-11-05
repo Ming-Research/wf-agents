@@ -26,7 +26,7 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
     let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
     assert!(steps_until(&mut e, 40, stopped), "{}", said.lock().unwrap().join("\n"));
@@ -98,7 +98,7 @@ fn the_architect_starts_a_work_over() {
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
     let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     let over = |e: &mut Engine| works_of(e, item).len() == 2;
     assert!(steps_until(&mut e, 40, over), "{}", said.lock().unwrap().join("\n"));
@@ -146,7 +146,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     let (mut e, said) = engine(&s, scripts());
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     let body: String =
         e.db.conn()
@@ -162,7 +162,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
         "{}",
         said.lock().unwrap().join("\n")
     );
-    assert!(path_of(&e, arch).contains(&"N1".to_string()));
+    assert!(path_of(&e, arch).contains(&"B2".to_string()));
     assert_eq!(e.step(None).unwrap().work, None);
     let count = |e: &Engine| -> i64 {
         e.db.conn()
@@ -197,7 +197,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     .unwrap();
     let again = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(again.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(again.cell.as_deref(), Some("N0"), "{log}");
     assert_eq!(count(&e), 2);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -316,7 +316,7 @@ fn no_matter_of_free_slots_is_queued_while_every_work_is_paused() {
     assert_eq!(slots_free_matters(&e), 0);
     // With every work going on again, it is queued as before and starts a work of the architect.
     let again = e.step(None).unwrap();
-    assert_eq!(again.cell.as_deref(), Some("Q0"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(again.cell.as_deref(), Some("N0"), "{}", said.lock().unwrap().join("\n"));
     assert_eq!(slots_free_matters(&e), 1);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -344,7 +344,7 @@ fn no_matter_of_free_slots_is_queued_while_the_owner_holds_the_project() {
     // Released, it is queued as before and starts a work of the architect.
     api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
     let again = e.step(None).unwrap();
-    assert_eq!(again.cell.as_deref(), Some("Q0"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(again.cell.as_deref(), Some("N0"), "{}", said.lock().unwrap().join("\n"));
     assert_eq!(slots_free_matters(&e), 1);
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -444,7 +444,7 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
     say(&mut e, "Hold and release.");
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -530,7 +530,7 @@ fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight(
     let s = setup("takeover-holds");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
-    let work = architect_work_at(&mut e, "N1");
+    let work = architect_work_at(&mut e, "B2");
     // The work ran on a flow version where it was a setting of a policy, a graph the version the engine runs lacks.
     let now = e.flow_now;
     let mut f = flow::Compiled::clone(&e.flow(now).unwrap());

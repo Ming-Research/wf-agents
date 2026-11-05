@@ -66,7 +66,7 @@ mod tools;
 /// owner lets go on, each step on a thread of its own, and waits for every job to end, as `wf-agents run --once` does.
 trait Passes {
     /// One pass while every work goes on: what its first step that moved came to. A work it leaves gathering the
-    /// history (`G1`, `G2`, `G3`) has that round taken too, in passes of their own: these tests are about the cells
+    /// history (`C1`, `C2`, `G3`) has that round taken too, in passes of their own: these tests are about the cells
     /// either side of it, and those about gathering look at its rounds.
     fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
     /// One pass while every work goes on, a gathering of the history taken with it as [`Passes::step`] takes it:
@@ -131,7 +131,7 @@ impl Passes for Engine {
                 .db
                 .conn()
                 .query_row(
-                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2', 'G3') AND ended IS NULL AND paused IS NULL",
+                    "SELECT count(*) FROM works WHERE at IN ('C1', 'C2', 'G3') AND ended IS NULL AND paused IS NULL",
                     [],
                     |r| r.get(0),
                 )
@@ -363,11 +363,11 @@ impl Agents for Scripted {
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         // The understanding and the plan are handed in by their round, unless the script says otherwise.
         match r.cell.as_str() {
-            "U1" => {
+            "B1" => {
                 set.entry("outcome.understanding".into())
                     .or_insert(json!(format!("The understanding at round {n}.")));
             }
-            "N1" => {
+            "B2" => {
                 set.entry("outcome.notes".into())
                     .or_insert(json!(format!("The plan at round {n}.")));
             }
@@ -1220,7 +1220,7 @@ fn quiet(e: &mut Engine) {
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended, project)
-             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
+             VALUES (NULL, ?1, 'architect', 'R1', 'over before the test', 'p')",
             [v],
         )?;
         let arch = tx.last_insert_rowid();
@@ -1565,12 +1565,12 @@ fn session_of(e: &Engine, work: i64, cell: &str) -> i64 {
         .unwrap()
 }
 
-/// The rounds of a work at the cell that brings a work on an older flow version to the one the engine runs, `V1`, each
+/// The rounds of a work at the cell that brings a work on an older flow version to the one the engine runs, `Y1`, each
 /// with the row it took and its output.
 fn brought(e: &Engine, work: i64) -> Vec<(String, Value)> {
     let mut st =
         e.db.conn()
-            .prepare("SELECT transition, output FROM rounds WHERE work = ?1 AND cell = 'V1' ORDER BY n")
+            .prepare("SELECT transition, output FROM rounds WHERE work = ?1 AND cell = 'Y1' ORDER BY n")
             .unwrap();
     st.query_map([work], |r| {
         Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?))
@@ -1732,7 +1732,7 @@ fn sent_back(e: &Engine) -> i64 {
 fn rounds_count(e: &Engine) -> i64 {
     e.db.conn()
         .query_row(
-            "SELECT count(*) FROM rounds WHERE cell NOT IN ('G1', 'G2', 'G3')",
+            "SELECT count(*) FROM rounds WHERE cell NOT IN ('C1', 'C2', 'G3')",
             [],
             |r| r.get(0),
         )
@@ -2781,13 +2781,13 @@ fn a_new_policy_takes_effect(e: &mut Engine) {
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended, project)
-             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
+             VALUES (NULL, ?1, 'architect', 'R1', 'over before the test', 'p')",
             [v],
         )?;
         let arch = tx.last_insert_rowid();
         let policy = json!({ "outcome": { "policy": { "direction": "Small steps first." } } });
         record_round(tx, arch, 1, "P2", &policy, "written")?;
-        record_round(tx, arch, 2, "P12", &json!({}), "next")?;
+        record_round(tx, arch, 2, "P3", &json!({}), "next")?;
         Ok(())
     })
     .unwrap();

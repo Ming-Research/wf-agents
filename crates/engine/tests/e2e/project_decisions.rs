@@ -178,12 +178,12 @@ fn an_architect_s_cell_is_given_the_decisions_main_has() {
     decided(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
-    with_decisions(&mut e, &[("architect", "U1")]);
-    let arch = architect_work_at(&mut e, "U1");
+    with_decisions(&mut e, &[("architect", "B1")]);
+    let arch = architect_work_at(&mut e, "B1");
     let ran = |e: &Engine| -> bool {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'U1'",
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'B1'",
                 [arch],
                 |r| r.get::<_, i64>(0),
             )
@@ -198,7 +198,7 @@ fn an_architect_s_cell_is_given_the_decisions_main_has() {
     }
     let log = said.lock().unwrap().join("\n");
     assert!(ran(&e), "{log}");
-    let message = message_at(&e, arch, "U1", false);
+    let message = message_at(&e, arch, "B1", false);
     assert_eq!(
         given_value(&message, "·engine·decisions"),
         Some(json!({ "decisions/one-flow.md": NOW })),

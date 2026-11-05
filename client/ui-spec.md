@@ -931,9 +931,9 @@ rest is checked only now and then.
 
 A round at a cell, wherever the page names the two together (a round panel's title, the round beside the row it came in
 by and the row it left by, who wrote something, a decision card's head, a tip of the usage chart), is one part, ours,
-written one way: the round's name first, then the cell's code and title in parentheses, "R10-55 (Q0 What can be
+written one way: the round's name first, then the cell's code and title in parentheses, "R10-55 (N0 What can be
 picked)", the round alone where its cell is not known and the cell alone where no round has run there yet, each a link
-where it opens something, instead of "R10-55 Q0 What can be picked" on one line and "Q2 Route the matter, R10-57" on the
+where it opens something, instead of "R10-55 N0 What can be picked" on one line and "N2 Route the matter, R10-57" on the
 next, because the owner found the two lines of one panel written two ways and asked for one.
 
 ### A round's name
@@ -2157,7 +2157,7 @@ box, pinned on the bar of what waits (above) while it waits; under it Reply, whi
 to it, a strip over the box naming it ("Reply to:" and the question), the owner's words then the reply to that question,
 which the interface's say to the architect takes with `reply_to`, its matter coming back to the cell that asked with the
 reply; with the strip taken off, the words are the owner's words to the architect, which H8 answers. The strip names at
-first the question the architect waits on, as its look at the queue (`Q0`'s row `waits`) works it out from the same
+first the question the architect waits on, as its look at the queue (`N0`'s row `waits`) works it out from the same
 reading of the database (the newest question pending that does not pin an open question of an engineer's design, put
 less than the installation's wait for the owner's reply ago, with nothing said by the owner since), which the interface
 gives the page with the questions; a question that pins an open question is never the one the strip names, because the
@@ -2714,9 +2714,9 @@ card's flow, has no such section: what it would cost to install is asked of a fl
 ### The policy's stage on the architect's chart
 
 The architect's chart draws the check of the policy in force, the writing of a new one and its taking effect as a stage
-of its graph, the policy's box (`P1`, `P2`, `P12`), each entered from the router (`Q2`) and going back to the batch
+of its graph, the policy's box (`P1`, `P2`, `P3`), each entered from the router (`N2`) and going back to the batch
 (`B1`), as every other stage, and no circle to or from another graph, instead of a circle beside the actions that
-started the setting leading to `P2` of a graph of its own and one above `N1` from each cell of that graph that queued
+started the setting leading to `P2` of a graph of its own and one above `B2` from each cell of that graph that queued
 the matter of its end, because the setting is the architect's own work, which the owner reads on its one chart and in
 its one conversation, and a work of the policy's graph is drawn on the chart of the version it ran on.
 

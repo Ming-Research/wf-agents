@@ -16,7 +16,7 @@ use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now, withdraw_resume
 /// The rounds that leave a project's architect's base built, of the rounds table named `r`: a plan handed in. A plan of
 /// a flow version before this one went into a notebook section of its return, and is no base now: the understanding a
 /// fork stands on and the plan it adds to are what this flow's base holds.
-pub const BASE_BUILT: &str = "(r.cell = 'N1' AND r.transition IS NOT NULL
+pub const BASE_BUILT: &str = "(r.cell IN ('B2', 'N1') AND r.transition IS NOT NULL
       AND (json_type(r.output, '$.outcome.steps') = 'array' OR json_type(r.output, '$.outcome.plan') = 'text'))";
 
 /// When a project's architect's latest base was built; none before the first.

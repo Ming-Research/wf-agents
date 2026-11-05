@@ -83,7 +83,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let asked = path.iter().position(|c| c == "A3").expect(&log);
     assert_eq!(
         &path[asked - 1..asked + 6],
-        ["H1", "A3", "Q0", "Q2", "H1", "G1", "Q0"],
+        ["H1", "A3", "N0", "N2", "H1", "C1", "N0"],
         "{log}"
     );
     assert_eq!(cells_of(&e, arch)[asked].1.as_deref(), Some("held"));
@@ -135,8 +135,8 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     );
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, again);
-    let at = path.iter().position(|c| c == "Q2").expect(&log);
-    assert_eq!(&path[at..at + 3], ["Q2", "H1", "G1"], "{log}");
+    let at = path.iter().position(|c| c == "N2").expect(&log);
+    assert_eq!(&path[at..at + 3], ["N2", "H1", "C1"], "{log}");
     assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_handle"));
     let answered = message_at(&e, again, "H1", false);
     assert!(answered.contains("Yes, hold it."), "{answered}");
@@ -218,11 +218,11 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     );
     let log = said.lock().unwrap().join("\n");
     let cells = cells_of(&e, again);
-    let at = cells.iter().position(|c| c.0 == "Q0").expect(&log);
+    let at = cells.iter().position(|c| c.0 == "N0").expect(&log);
     assert_eq!(cells[at].1.as_deref(), Some("owner"), "{cells:?}\n{log}");
     assert_eq!(
         cells[at + 1..at + 3].iter().map(|c| c.0.as_str()).collect::<Vec<_>>(),
-        ["Q2", "H1"],
+        ["N2", "H1"],
         "{cells:?}\n{log}"
     );
     assert!(message_at(&e, again, "H1", false).contains("Yes, hold it."), "{log}");
@@ -278,7 +278,7 @@ fn a_question_parks_its_matter_and_a_reply_to_a_closed_question_is_the_owner_s_w
         cells.contains(&("A3".to_string(), Some("held".to_string()))),
         "{cells:?}\n{log}"
     );
-    assert_eq!(cells.last().map(|c| c.0.as_str()), Some("E2"), "{log}");
+    assert_eq!(cells.last().map(|c| c.0.as_str()), Some("R1"), "{log}");
     // The question still waits, its matter parked.
     let ask = parked_by(&e, held);
     let pending = |e: &Engine| -> i64 {
@@ -421,7 +421,7 @@ fn a_check_of_the_policy_asked_for_twice_is_queued_once_with_both_whys() {
     assert_eq!(
         path_of(&e, arch),
         [
-            "Q0", "U1", "N1", "Q0", "Q2", "H1", "G1", "Q0", "Q2", "H1", "G1", "Q0", "Q2", "P1", "G1", "Q0", "E2"
+            "N0", "B1", "B2", "N0", "N2", "H1", "C1", "N0", "N2", "H1", "C1", "N0", "N2", "P1", "C1", "N0", "R1"
         ],
         "{log}"
     );
@@ -484,7 +484,7 @@ fn the_owner_s_words_come_first_while_new_starts_are_held_to_set_things_straight
             .position(|c| c == cell)
             .unwrap_or_else(|| panic!("{cell}: {path:?}\n{log}"))
     };
-    assert!(at("U1") < at("H1"), "{path:?}");
-    assert_eq!(rows_at(&e, arch, "Q0")[1], "owner", "{log}");
+    assert!(at("B1") < at("H1"), "{path:?}");
+    assert_eq!(rows_at(&e, arch, "N0")[1], "owner", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

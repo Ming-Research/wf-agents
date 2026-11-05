@@ -33,11 +33,11 @@ fn first_understanding_after(name: &str, texts: &[String]) -> String {
     .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "B1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let u1 = input_at(&e, arch, "U1", false);
+    let u1 = input_at(&e, arch, "B1", false);
     assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
     let m = u1["message"].as_str().unwrap().to_string();
     let _ = std::fs::remove_dir_all(&s.root);
@@ -145,7 +145,7 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE rounds SET started_at = ?1 - 30000,
-                    ended_at = ?1 - CASE WHEN cell = 'U1' THEN 20000 ELSE 0 END WHERE work = ?2",
+                    ended_at = ?1 - CASE WHEN cell = 'B1' THEN 20000 ELSE 0 END WHERE work = ?2",
             params![t, one],
         )?;
         tx.execute("UPDATE architect_matters SET at = ?1 - 100000", [t])?;
@@ -194,14 +194,14 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
     say_with_an_image(&mut e, "Beta talk. BETAEND");
     let two = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "B1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
     let log = said.lock().unwrap().join("\n");
     let sessions = architect_sessions(&e, one, two);
     assert_eq!(sessions.len(), 2, "{sessions:?}\n{log}");
-    let u1 = input_at(&e, two, "U1", false);
+    let u1 = input_at(&e, two, "B1", false);
     assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
     let m = u1["message"].as_str().unwrap();
     for gone in ["ALPHAEND", "QOLD", "AOLD"] {
@@ -241,7 +241,7 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
 #[test]
 fn the_first_understanding_is_told_the_talk_with_no_lower_bound() {
     let (s, e, _, works) = architect_works_in("owner-talk-first", scripts(), &[(0, "Alpha talk. ALPHAEND")], false);
-    let m = message_at(&e, works[0], "U1", false);
+    let m = message_at(&e, works[0], "B1", false);
     assert!(m.contains("ALPHAEND"), "said before the session began, and told: {m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -274,7 +274,7 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
     let cut: i64 =
         e.db.conn()
             .query_row(
-                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'U1'",
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND cell = 'B1'",
                 [one],
                 |r| r.get(0),
             )
@@ -307,11 +307,11 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
     say(&mut e, "Beta talk. BETAEND");
     let two = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "B1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let u1 = input_at(&e, two, "U1", false);
+    let u1 = input_at(&e, two, "B1", false);
     assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
     let m = u1["message"].as_str().unwrap();
     assert!(!m.contains("TALKOLD"), "said before the session before began: {m}");

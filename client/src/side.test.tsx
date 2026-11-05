@@ -107,7 +107,7 @@ const panel: ArchitectPanel = {
   policy: {
     work: 3,
     round: 4,
-    cell: 'P12',
+    cell: 'P3',
     at: 40,
     policy: { direction: 'Keep it small.', why: 'Small is quick.', principles: [], signals: [] },
   },
@@ -115,10 +115,10 @@ const panel: ArchitectPanel = {
   notebook: [
     {
       section: 'project_now',
-      now: version('Two parsers.', 5, 'U1'),
-      versions: [version('Two parsers.', 5, 'U1'), version('One parser.', 2, 'U1')],
+      now: version('Two parsers.', 5, 'B1'),
+      versions: [version('Two parsers.', 5, 'B1'), version('One parser.', 2, 'B1')],
     },
-    { section: 'plan', now: version('Merge them.', 6, 'N1'), versions: [version('Merge them.', 6, 'N1')] },
+    { section: 'plan', now: version('Merge them.', 6, 'B2'), versions: [version('Merge them.', 6, 'B2')] },
   ],
   constitution: {
     name: 'CONSTITUTION.md',

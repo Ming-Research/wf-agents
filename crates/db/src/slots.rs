@@ -87,7 +87,7 @@ mod tests {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             for _ in 0..2 {
                 tx.execute(
-                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'Q0', 'p')",
+                    "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'N0', 'p')",
                     [],
                 )?;
             }

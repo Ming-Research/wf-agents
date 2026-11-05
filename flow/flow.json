@@ -200,7 +200,7 @@
           "name": "decision",
           "title": "Decision",
           "type": "text",
-          "desc": "The decision's number as you were given it, such as L1"
+          "desc": "The decision's number as you were given it, such as M1"
         }
       ],
       "branches": [
@@ -320,7 +320,7 @@
           "name": "decision",
           "title": "Decision",
           "type": "text",
-          "desc": "The decision's number as you were given it, such as L1"
+          "desc": "The decision's number as you were given it, such as M1"
         }
       ],
       "branches": [
@@ -1521,7 +1521,7 @@
             "name": "fid",
             "title": "Finding number",
             "type": "text",
-            "desc": "The finding's number, such as U1 in the first pass and D1 in the second"
+            "desc": "The finding's number, such as B1 in the first pass and D1 in the second"
           },
           {
             "name": "where",
@@ -4367,8 +4367,8 @@
       "new_tests": "The engineer's tests of new behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind new_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "guard_tests": "The engineer's tests of old behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind old_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for.",
-      "history_sources": "The database's read-only address with the command that reads it, for the gatherer's `sqlite3`; and for its git the directory its own round runs in, a worktree of the project's repository, with the project's main as git has it there (`origin/<main>`).",
-      "effect": "How the work's change took effect: its merge commit, when it merged and its pull request; for each acceptance condition written in_effect, what carries the change and that carrier's commit; whether all of them hold the merge now; and the time the change took effect (`at`, in milliseconds since the epoch): when cell `W1` first found them all holding it, or the merge's time before it has, which a command takes as `:in_effect_at`.",
+      "history_sources": "For the gatherer's git, the directory its own round runs in, a worktree of the project's repository, with the project's main as git has it there (`origin/<main>`).",
+      "effect": "How the work's change took effect: its merge commit, when it merged and its pull request; for each acceptance condition written in_effect, what carries the change and that carrier's commit; whether all of them hold the merge now; and the time the change took effect (`at`, in milliseconds since the epoch): when cell `V1` first found them all holding it, or the merge's time before it has, which a command takes as `:in_effect_at`.",
       "main_changes": "Before the first round of cells `R1`, `D1` and `I1` each time the work comes to them, the engine merges the latest main into the work's branch when its worktree is clean: the files main changed since the branch last took it, or the files in conflict when it could not merge cleanly, the merge then undone; none when main changed nothing since.",
       "decisions": "The project's decisions in force, as its main has them at the commit the round is pinned to: every file of the directory its configuration names as decisions (decisions unless set) but a README.md, each by its path with its text; none when there are none. A decision a work writes or changes on its own branch is not here until it merges; it is in the work's diff.",
       "owner_approval": "The files of the work's change against main that match a path of the project's `owner_approves`, with the pull request and, for the flow, the flow page that compares it with main; whether the owner approved the work's design at its review, or replied exactly approved to the ask of this change since its last fix; none when the change touches none.",
@@ -4400,8 +4400,8 @@
       "verifies": "Whether the item's acceptance holds a condition written in_effect, which a real run checks once the change takes effect.",
       "in_effect": "Whether what carries the change holds the work's merge commit, for every condition written in_effect: main holds it as it merges; the installed program holds it when its build's commit has the merge commit among its ancestors in the project's checkout, and whether it does cannot be told when that commit is unknown or not there.",
       "install_wait": "Whether the time since the merge is past the project's limit of the wait for the change to take effect (72 hours unless the project's `install_wait_hours` sets it).",
-      "look_due": "Whether cell `W2` is to look now: it has not looked yet, or the time it said to wait after its last look has passed.",
-      "looks": "Whether cell `W2` has sent the work back to wait as many times as the project's limit (8 unless the project's `verification_looks` sets it)."
+      "look_due": "Whether cell `V2` is to look now: it has not looked yet, or the time it said to wait after its last look has passed.",
+      "looks": "Whether cell `V2` has sent the work back to wait as many times as the project's limit (8 unless the project's `verification_looks` sets it)."
     },
     "needs": {
       "flow_feedback": "The project's configuration asks its agents what was wrong with each round's cell (`flow_feedback`, on unless set to false)."
@@ -5077,13 +5077,13 @@
         "stores": [
           "verifications"
         ],
-        "says": "when cell `W2` last looked, and how long it said to wait"
+        "says": "when cell `V2` last looked, and how long it said to wait"
       },
       "looks": {
         "stores": [
           "counters"
         ],
-        "says": "the times cell `W2` sent the work back to wait"
+        "says": "the times cell `V2` sent the work back to wait"
       },
       "research_rounds": {
         "stores": [
@@ -5125,7 +5125,7 @@
         "Keep nothing in the command line's own memory: what must last goes into this round's return.",
         "Describe work in plain engineering wording, as in ordinary technical documentation: what was done and why. No adversarial metaphors or phrasing; a model's safety check may misread them and stop the work.",
         "When your own permission check refuses an action, do not have another agent do it, and do not reach it by another route: if you need it, ask for the owner's permission; if not, say why in this round's return.",
-        "Builds, tests, checks and measurements run in CI, through the tools ci and measure. Never run heavy work on this machine (compiling, type checking, building, test suites, benchmarks, measurements), even when it looks quicker; commands that finish in seconds without loading the processors are fine. sqlite3 runs only as `sqlite3 -safe -readonly <database> ...`, and python3 does not run at all.",
+        "Builds, tests, checks and measurements run in CI, through the tools ci and measure. Never run heavy work on this machine (compiling, type checking, building, test suites, benchmarks, measurements), even when it looks quicker; commands that finish in seconds without loading the processors are fine. The database is read with the tool `query`, and python3 does not run at all.",
         "Stop only processes you started, by the process id you kept when you started them; never by name or pattern: other sessions and the system's own services run the same commands.",
         "Do not wait within a round: no sleep, no polling, no watching a run, nothing left in the background waiting for something outside. What must be waited for goes to the engine in your return, as tools or an ask.",
         "Subagents only do chores within this round, such as reading documents or searching code: at most `agents.subagents.most` of them, each on a model no larger than your own. They never stand in for an engineer, a reviewer or another cell's agent.",
@@ -5178,7 +5178,7 @@
       "desc": "How an agent that gathers history from the items and git works, whatever it gathers it for",
       "text": [
         "You gather the history an agent needs before it works. You only select and quote: no summary in your own words beyond a short label per entry, no reasoning, no advice. Every entry carries its source.",
-        "The history is in the database and the repository's git history, and only there: read no document of the repository and no chat log. In the database, read with `sqlite3` at the address you are given: `items` (`problem` says what was wrong, `why` why it mattered, `approach` what was done and why, under the heads `Approach:`, `Decisions:` and `Learned:`, then marked lines: `Decision (` the decisions, each with its date, who decided (owner; `owner relayed by the delegate, not checked`, the owner's own words as a delegate passed them on, which no one checked against what the owner said, though a decision rests on them as the owner's; delegate; unrecorded; or architect), situation, reason, what it replaces and the words it rests on with the record they are in, a quotation of a source other than the line's own saying its source after its date; `Fact (` facts found; `Dropped (` approaches dropped, with why; `Commits:` commits); `item_links`, which item built on which; `observations_all`, findings not made into items yet; `architect_matters`, the owner's own words to the architect (kind `owner_words`), where a decision no marked line records may still stand; `works` and `rounds`, what each work did round by round. In git: `git log --follow -- <file>`, `git log -L :<function>:<file>`, `git show <hash>`. A commit in an item's `Commits:` line leads to its item.",
+        "The history is in the database and the repository's git history, and only there: read no document of the repository and no chat log. In the database, read with the tool `query`: `items` (`problem` says what was wrong, `why` why it mattered, `approach` what was done and why, under the heads `Approach:`, `Decisions:` and `Learned:`, then marked lines: `Decision (` the decisions, each with its date, who decided (owner; `owner relayed by the delegate, not checked`, the owner's own words as a delegate passed them on, which no one checked against what the owner said, though a decision rests on them as the owner's; delegate; unrecorded; or architect), situation, reason, what it replaces and the words it rests on with the record they are in, a quotation of a source other than the line's own saying its source after its date; `Fact (` facts found; `Dropped (` approaches dropped, with why; `Commits:` commits); `item_links`, which item built on which; `observations_all`, findings not made into items yet; `architect_matters`, the owner's own words to the architect (kind `owner_words`), where a decision no marked line records may still stand; `works` and `rounds`, what each work did round by round. In git: `git log --follow -- <file>`, `git log -L :<function>:<file>`, `git show <hash>`. A commit in an item's `Commits:` line leads to its item.",
         "Search without printing whole texts: select `id`, `title` and a snippet around each match, with several words, English and Chinese, and synonyms. Follow `item_links` from what you find. Choose the items that bear most on the request, at most eight, and read each whole; from each take every passage on the request, the plain text as much as the marked lines. Keep the search small: about twenty-five commands at most.",
         "The owner's decisions come first. For each matter keep only the latest in force: follow `Replaces:`, and look as well for a later decision on the same matter that says `Replaces: none`, since the marks are not always filled. Say its date, the situation it was made in and its reason; a decision is the latest known as of its date, never true forever.",
         "A path in the history is the path of the day it was written. Before you hand a brief in, check every file or directory path it names, in a quote or in your own label, against the project's files as the work has them: the directory you run in, with `git ls-files` or `ls`. Keep the quote as it is and put `(gone)` after a path the files do not have; when git shows where it went (`git log --follow --name-status`), say so, as `(gone: moved to <path> in <commit>)`. Leave a path that is there unmarked. Do not drop an entry for its gone path: it is true as history."
@@ -5250,11 +5250,11 @@
         {
           "name": "verify",
           "nodes": [
-            "W1",
-            "W2"
+            "V1",
+            "V2"
           ],
           "entries": [
-            "W1"
+            "V1"
           ]
         },
         {
@@ -5302,10 +5302,10 @@
         {
           "name": "version",
           "nodes": [
-            "V1"
+            "Y1"
           ],
           "entries": [
-            "V1"
+            "Y1"
           ]
         }
       ],
@@ -5313,7 +5313,7 @@
         "lines": [
           {
             "name": "engineer",
-            "desc": "The engineer doing this work: cell `R1` starts a new session, and so does cell `I1` when the work comes from the review of a design, and cell `W2` each time the work comes to it from waiting; every other round, the implementation that comes straight from the research and every fix included, continues the latest",
+            "desc": "The engineer doing this work: cell `R1` starts a new session, and so does cell `I1` when the work comes from the review of a design, and cell `V2` each time the work comes to it from waiting; every other round, the implementation that comes straight from the research and every fix included, continues the latest",
             "colour": "blue"
           },
           {
@@ -5397,7 +5397,7 @@
           "The owner's interface shows two things for each work: its stage, and what it is doing or waiting for right now, such as \"running the full CI\" or \"waiting for an answer to an open question\".",
           "The stage is not stored: it follows from the cell the work is at. The engine records that cell anyway, and the table below gives its stage.",
           "While a question waits (at the advisor, the architect or the owner it was handed to), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
-          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or started over and taken over by a new work, at any cell: it ends at cell `C1`, and keeps the cell it stopped at. A work on an older flow version that the new one cannot take on where it stands comes to cell `V1`, at no stage of its own: it shows at the stage of the cell it goes back to, or of the last cell it had a round at."
+          "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or started over and taken over by a new work, at any cell: it ends at cell `C1`, and keeps the cell it stopped at. A work on an older flow version that the new one cannot take on where it stands comes to cell `Y1`, at no stage of its own: it shows at the stage of the cell it goes back to, or of the last cell it had a round at."
         ],
         "list": [
           {
@@ -5462,8 +5462,8 @@
             "name": "verify",
             "desc": "A work whose acceptance holds a condition only a real run can show waits, holding no slot, for its change to take effect, and checks it",
             "nodes": [
-              "W1",
-              "W2"
+              "V1",
+              "V2"
             ]
           },
           {
@@ -5583,7 +5583,7 @@
           },
           {
             "name": "verification_looks",
-            "desc": "The times cell `W2`, checking a condition after the change took effect, found its evidence not there yet and sent the work back to wait"
+            "desc": "The times cell `V2`, checking a condition after the change took effect, found its evidence not there yet and sent the work back to wait"
           },
           {
             "name": "redesigns",
@@ -5642,6 +5642,7 @@
                 "progress"
               ],
               "cells": [
+                "R0",
                 "R1",
                 "D1",
                 "D2",
@@ -5652,7 +5653,7 @@
                 "T6",
                 "T4",
                 "L2",
-                "W2",
+                "V2",
                 "A4",
                 "A1",
                 "A7"
@@ -6286,6 +6287,9 @@
           ],
           "without": [
             "ask"
+          ],
+          "tools": [
+            "query"
           ]
         },
         {
@@ -9406,7 +9410,7 @@
                             "name": "fid",
                             "title": "Finding number",
                             "type": "text",
-                            "desc": "The finding's number, such as U1 in the first pass and D1 in the second"
+                            "desc": "The finding's number, such as B1 in the first pass and D1 in the second"
                           },
                           {
                             "name": "where",
@@ -10312,7 +10316,7 @@
                   ]
                 ]
               ],
-              "to": "W1",
+              "to": "V1",
               "do": [
                 "write_learned"
               ],
@@ -10333,7 +10337,7 @@
           }
         },
         {
-          "id": "W1",
+          "id": "V1",
           "kind": "engine",
           "title": "Wait for the change to take effect",
           "inputs": [
@@ -10381,11 +10385,11 @@
                   ]
                 ]
               ],
-              "to": "W2",
+              "to": "V2",
               "do": [
                 "fresh_session"
               ],
-              "note": "Something was said to the work while it waited: cell `W2` is given it, for one look. A merged work cannot be cancelled or started over, so this, with the owner's Pause, is what the owner has over a work that waits here: it can be told to look now, or that a condition is not to be checked, which holds for every look after. The change counts as in effect only by what carries it; the look's own wait is not read until then."
+              "note": "Something was said to the work while it waited: cell `V2` is given it, for one look. A merged work cannot be cancelled or started over, so this, with the owner's Pause, is what the owner has over a work that waits here: it can be told to look now, or that a condition is not to be checked, which holds for every look after. The change counts as in effect only by what carries it; the look's own wait is not read until then."
             },
             {
               "name": "not_carried",
@@ -10412,7 +10416,7 @@
                   ]
                 ]
               ],
-              "to": "W1",
+              "to": "V1",
               "waits": true,
               "note": "Until what carries the change holds the merge commit, holding no slot and keeping no session warm. Saying something to the work or the owner's Pause are what stops the wait short of its limit."
             },
@@ -10441,7 +10445,7 @@
                   ]
                 ]
               ],
-              "to": "W1",
+              "to": "V1",
               "waits": true,
               "do": [
                 "tell_wait"
@@ -10505,9 +10509,9 @@
                   ]
                 ]
               ],
-              "to": "W1",
+              "to": "V1",
               "waits": true,
-              "note": "The change is in effect, and the evidence cell `W2` looked for was not there yet: the work waits as long as it said, holding no slot and keeping no session warm."
+              "note": "The change is in effect, and the evidence cell `V2` looked for was not there yet: the work waits as long as it said, holding no slot and keeping no session warm."
             },
             {
               "name": "look",
@@ -10534,7 +10538,7 @@
                   ]
                 ]
               ],
-              "to": "W2",
+              "to": "V2",
               "main": true,
               "do": [
                 "fresh_session"
@@ -10570,7 +10574,7 @@
             "look_due": [
               [
                 "yes",
-                "Cell `W2` has not looked yet, or the time it said to wait has passed"
+                "Cell `V2` has not looked yet, or the time it said to wait has passed"
               ],
               [
                 "no",
@@ -10580,7 +10584,7 @@
           }
         },
         {
-          "id": "W2",
+          "id": "V2",
           "kind": "agent",
           "title": "Check with real runs",
           "effort": "medium",
@@ -10650,7 +10654,7 @@
               "what": "The verdicts of this cell's last look; none before its first",
               "from": [
                 [
-                  "W2",
+                  "V2",
                   "verdicts"
                 ]
               ],
@@ -10843,7 +10847,7 @@
                   ]
                 ]
               ],
-              "to": "W1",
+              "to": "V1",
               "counts": "verification_looks",
               "note": "Some evidence is not there yet, and nothing was found not to hold: the work waits as long as this round said, then looks again in a new session."
             },
@@ -12470,7 +12474,7 @@
           "inputs": []
         },
         {
-          "id": "V1",
+          "id": "Y1",
           "kind": "engine",
           "title": "Bring the work to the new version",
           "step": "bring_up",
@@ -12745,14 +12749,14 @@
         ]
       },
       "cancel": "C1",
-      "version": "V1"
+      "version": "Y1"
     },
     {
       "name": "architect",
       "start": "S0",
-      "end": "E2",
-      "cancel": "C2",
-      "version": "V1",
+      "end": "R1",
+      "cancel": "E1",
+      "version": "Y1",
       "blocks": [
         {
           "name": "start",
@@ -12766,22 +12770,22 @@
         {
           "name": "next",
           "nodes": [
-            "Q0",
-            "Q2"
+            "N0",
+            "N2"
           ],
           "entries": [
-            "Q0",
-            "Q2"
+            "N0",
+            "N2"
           ]
         },
         {
           "name": "base",
           "nodes": [
-            "U1",
-            "N1"
+            "B1",
+            "B2"
           ],
           "entries": [
-            "U1"
+            "B1"
           ]
         },
         {
@@ -12796,12 +12800,12 @@
         {
           "name": "main",
           "nodes": [
-            "L1",
-            "L2"
+            "M1",
+            "M2"
           ],
           "entries": [
-            "L1",
-            "L2"
+            "M1",
+            "M2"
           ]
         },
         {
@@ -12809,22 +12813,22 @@
           "nodes": [
             "P1",
             "P2",
-            "P12"
+            "P3"
           ],
           "entries": [
             "P1",
             "P2",
-            "P12"
+            "P3"
           ]
         },
         {
           "name": "check",
           "nodes": [
-            "G1",
-            "G2"
+            "C1",
+            "C2"
           ],
           "entries": [
-            "G1"
+            "C1"
           ]
         },
         {
@@ -12852,21 +12856,21 @@
         {
           "name": "end",
           "nodes": [
-            "E2",
-            "C2"
+            "R1",
+            "E1"
           ],
           "entries": [
-            "E2",
-            "C2"
+            "R1",
+            "E1"
           ]
         },
         {
           "name": "version",
           "nodes": [
-            "V1"
+            "Y1"
           ],
           "entries": [
-            "V1"
+            "Y1"
           ]
         }
       ],
@@ -12874,7 +12878,7 @@
         "lines": [
           {
             "name": "architect",
-            "desc": "The project's base: a new session reads the project at `U1` and plans at `N1`; every matter forks from where that session ends, until the next base. It is carried from one work of the architect to the next",
+            "desc": "The project's base: a new session reads the project at `B1` and plans at `B2`; every matter forks from where that session ends, until the next base. It is carried from one work of the architect to the next",
             "colour": "purple"
           },
           {
@@ -12891,9 +12895,9 @@
           }
         ],
         "rules": [
-          "The base only saves tokens, and no judgment rests on it: a new session reads the project (`U1`) and plans (`N1`), and every matter forks from where it ended, so that none reads the project again. A new base is made in three cases only: the project has none, the policy in force changed, or what came since the base passed the installation's amount (`architect.carried_most`). Neither time nor a cold prompt cache makes one: a cold cache is written once, cheaper than reading the project again.",
+          "The base only saves tokens, and no judgment rests on it: a new session reads the project (`B1`) and plans (`B2`), and every matter forks from where it ended, so that none reads the project again. A new base is made in three cases only: the project has none, the policy in force changed, or what came since the base passed the installation's amount (`architect.carried_most`). Neither time nor a cold prompt cache makes one: a cold cache is written once, cheaper than reading the project again.",
           "Each matter is handled in a session forked from the base as it ended, one matter at a time: the fork holds everything the base read, and is given what came since the base and the matter's own material. The session ends once the matter is handled, or when it asks the owner: a matter back with the owner's answer forks anew from the base as it is then. A command line that cannot fork a session starts a new one, given only what its cells read.",
-          "What a base read stays as it was; what comes after is appended: each matter's record and the lines it adds to the plan or the understanding, what the owner and the architect said, what merged or was cancelled. The next base's `U1` writes its understanding from nothing, and of all that reads only what the owner and the architect said; its `N1` always hands in the whole plan, taking in all of it.",
+          "What a base read stays as it was; what comes after is appended: each matter's record and the lines it adds to the plan or the understanding, what the owner and the architect said, what merged or was cancelled. The next base's `B1` writes its understanding from nothing, and of all that reads only what the owner and the architect said; its `B2` always hands in the whole plan, taking in all of it.",
           "The second eye is a line of its own, forked from the same base and run on the same model as the matter's session, so that it sees what that session saw and nothing it reasoned.",
           "When the architect hands in pause, the architect's work waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again.",
           "The lines of the architect's work only read, in a worktree of the project's architect's own, detached at the project's main, which the engine brings to the latest main before each round, dropping whatever was changed there; another branch is read there with git, without switching."
@@ -12953,16 +12957,16 @@
             "name": "next",
             "desc": "What comes next, in the engine's fixed order, and where the matter taken goes",
             "nodes": [
-              "Q0",
-              "Q2"
+              "N0",
+              "N2"
             ]
           },
           {
             "name": "base",
             "desc": "The project read and planned anew in a new session: that session is the base every matter forks from",
             "nodes": [
-              "U1",
-              "N1"
+              "B1",
+              "B2"
             ]
           },
           {
@@ -12976,8 +12980,8 @@
             "name": "main",
             "desc": "Main's CI red: the engine's checks, then which merge made it red, and a fix or a revert",
             "nodes": [
-              "L1",
-              "L2"
+              "M1",
+              "M2"
             ]
           },
           {
@@ -12986,29 +12990,29 @@
             "nodes": [
               "P1",
               "P2",
-              "P12"
+              "P3"
             ]
           },
           {
             "name": "check",
             "desc": "The second eye on changes that can lose something, before they take effect",
             "nodes": [
-              "G1",
-              "G2"
+              "C1",
+              "C2"
             ]
           },
           {
             "name": "record",
             "desc": "The architect's work ends",
             "nodes": [
-              "E2"
+              "R1"
             ]
           },
           {
             "name": "ended",
             "desc": "The flow moved to a version this work cannot go on in: it ended before its end, the matters it had not finished back in the queue, and the architect's next work starts afresh",
             "nodes": [
-              "C2"
+              "E1"
             ]
           }
         ]
@@ -13294,7 +13298,7 @@
                   ]
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "main": true
             }
           ],
@@ -13315,7 +13319,7 @@
           ]
         },
         {
-          "id": "Q0",
+          "id": "N0",
           "kind": "engine",
           "title": "What comes next",
           "step": "look_at_queue",
@@ -13428,7 +13432,7 @@
                   ]
                 ]
               ],
-              "to": "U1",
+              "to": "B1",
               "main": true,
               "do": [
                 "fresh_session"
@@ -13446,7 +13450,7 @@
                   ]
                 ]
               ],
-              "to": "Q2",
+              "to": "N2",
               "main": true
             },
             {
@@ -13460,7 +13464,7 @@
                   ]
                 ]
               ],
-              "to": "Q2",
+              "to": "N2",
               "main": true
             },
             {
@@ -13474,7 +13478,7 @@
                   ]
                 ]
               ],
-              "to": "Q2",
+              "to": "N2",
               "main": true
             },
             {
@@ -13488,7 +13492,7 @@
                   ]
                 ]
               ],
-              "to": "Q2",
+              "to": "N2",
               "main": true
             },
             {
@@ -13502,7 +13506,7 @@
                   ]
                 ]
               ],
-              "to": "E2",
+              "to": "R1",
               "main": true
             }
           ],
@@ -13511,7 +13515,7 @@
           ]
         },
         {
-          "id": "Q2",
+          "id": "N2",
           "kind": "engine",
           "title": "Route the matter",
           "inputs": [
@@ -13520,19 +13524,19 @@
               "what": "The matter the look at the queue took: the owner's words or a matter back with the owner's reply, main's CI red, a matter a work waits on, or the first of the rest of the queue",
               "from": [
                 [
-                  "Q0",
+                  "N0",
                   "next[owner].matter"
                 ],
                 [
-                  "Q0",
+                  "N0",
                   "next[main_red].matter"
                 ],
                 [
-                  "Q0",
+                  "N0",
                   "next[waiting].matter"
                 ],
                 [
-                  "Q0",
+                  "N0",
                   "next[queued].matter"
                 ]
               ]
@@ -13572,11 +13576,11 @@
                   "inp",
                   "route",
                   [
-                    "L1"
+                    "M1"
                   ]
                 ]
               ],
-              "to": "L1",
+              "to": "M1",
               "main": true
             },
             {
@@ -13586,11 +13590,11 @@
                   "inp",
                   "route",
                   [
-                    "L2"
+                    "M2"
                   ]
                 ]
               ],
-              "to": "L2"
+              "to": "M2"
             },
             {
               "name": "to_policy_check",
@@ -13627,11 +13631,11 @@
                   "inp",
                   "route",
                   [
-                    "P12"
+                    "P3"
                   ]
                 ]
               ],
-              "to": "P12"
+              "to": "P3"
             }
           ],
           "inenums": {
@@ -13641,11 +13645,11 @@
                 "A matter for the architect to handle: a place to set straight, an engineer's question, a report, a failure, the owner's words, another architect's message or slots free, new or back with the owner's answer or what the second eye found"
               ],
               [
-                "L1",
+                "M1",
                 "Main's CI red: the engine checks it first"
               ],
               [
-                "L2",
+                "M2",
                 "Main's CI red, back with the owner's answer or what the second eye found"
               ],
               [
@@ -13657,14 +13661,14 @@
                 "A check of the policy back with the owner's reply to its draft, or to what the writing of it asked, other than approved: the draft is written again by it"
               ],
               [
-                "P12",
+                "P3",
                 "A check of the policy back with the owner's reply to its draft, exactly approved once trimmed: the draft takes effect"
               ]
             ]
           }
         },
         {
-          "id": "U1",
+          "id": "B1",
           "kind": "agent",
           "title": "Read the project",
           "effort": "high",
@@ -13745,14 +13749,13 @@
                   "own"
                 ]
               ],
-              "to": "N1",
+              "to": "B2",
               "main": true,
               "note": "What to do next is planned in this session."
             }
           ],
           "without": [
             "ask",
-            "tools",
             "pause"
           ],
           "always": [
@@ -13762,10 +13765,14 @@
             }
           ],
           "checks": null,
-          "noInputList": true
+          "noInputList": true,
+          "tools": [
+            "gh",
+            "query"
+          ]
         },
         {
-          "id": "N1",
+          "id": "B2",
           "kind": "agent",
           "title": "The plan",
           "effort": "high",
@@ -13870,7 +13877,7 @@
                   "own"
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "main": true,
               "do": [
                 "queue_steps",
@@ -13934,7 +13941,7 @@
               "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it has not sent them back",
               "from": [
                 [
-                  "G2",
+                  "C2",
                   "check[problems].problems"
                 ]
               ],
@@ -13999,7 +14006,7 @@
                   "own"
                 ]
               ],
-              "to": "G1",
+              "to": "C1",
               "main": true,
               "note": "Whether a second eye looks at what it handed in comes next."
             }
@@ -14056,7 +14063,7 @@
           ]
         },
         {
-          "id": "L1",
+          "id": "M1",
           "kind": "tool",
           "title": "Tool: check main",
           "step": "check_main",
@@ -14163,7 +14170,7 @@
                   ]
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "main": true,
               "do": [
                 "close_matter"
@@ -14183,7 +14190,7 @@
                   ]
                 ]
               ],
-              "to": "L2",
+              "to": "M2",
               "main": true
             },
             {
@@ -14197,7 +14204,7 @@
                   ]
                 ]
               ],
-              "to": "L2",
+              "to": "M2",
               "counts": "tool_failures",
               "note": "The checks could not run: the architect judges main as it stands, with why they did not."
             }
@@ -14207,7 +14214,7 @@
           ]
         },
         {
-          "id": "L2",
+          "id": "M2",
           "kind": "agent",
           "title": "Main is red",
           "effort": "high",
@@ -14241,7 +14248,7 @@
               "what": "What the second eye found in the changes you handed in, when it sent them back: every problem, each with the change, what it loses, whose decision it goes against or what it makes a work redo, the fact that shows it and how to fix it. Revise them and hand in again whole; none when it has not sent them back",
               "from": [
                 [
-                  "G2",
+                  "C2",
                   "check[problems].problems"
                 ]
               ],
@@ -14252,7 +14259,7 @@
               "what": "What the engine's mechanical checks found: the red checks run again, the known red checks, and main's commit before the merges; none when the matter came back to you without them, which this session holds",
               "from": [
                 [
-                  "L1",
+                  "M1",
                   "main"
                 ]
               ],
@@ -14298,7 +14305,7 @@
                   "own"
                 ]
               ],
-              "to": "G1",
+              "to": "C1",
               "main": true
             }
           ],
@@ -14489,7 +14496,7 @@
                   ]
                 ]
               ],
-              "to": "G1",
+              "to": "C1",
               "main": true,
               "note": "The policy still holds, by the check or by the owner's reply keeping it: the check is closed with no draft, and the architect goes on with its queue."
             },
@@ -14689,7 +14696,7 @@
                   ]
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "main": true,
               "do": [
                 "ask_approval"
@@ -14708,7 +14715,7 @@
                   ]
                 ]
               ],
-              "to": "G1",
+              "to": "C1",
               "note": "The owner's reply to the draft keeps the policy in force: the draft is dropped, the check closed, and the architect goes on with its queue."
             }
           ],
@@ -14740,7 +14747,7 @@
           ]
         },
         {
-          "id": "P12",
+          "id": "P3",
           "kind": "engine",
           "title": "The new policy takes effect",
           "inputs": [
@@ -14764,7 +14771,7 @@
                   "all"
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "counts": "policies_set",
               "main": true,
               "do": [
@@ -14776,7 +14783,7 @@
           ]
         },
         {
-          "id": "G1",
+          "id": "C1",
           "kind": "engine",
           "title": "Whether a second eye checks",
           "inputs": [
@@ -14804,7 +14811,7 @@
                   ]
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "main": true,
               "do": [
                 "close_matter"
@@ -14823,7 +14830,7 @@
                   ]
                 ]
               ],
-              "to": "G2",
+              "to": "C2",
               "main": true,
               "note": "What the session handed in waits, its reply too, until a second eye finds it sound."
             }
@@ -14842,7 +14849,7 @@
           }
         },
         {
-          "id": "G2",
+          "id": "C2",
           "kind": "agent",
           "title": "Second eye",
           "effort": "high",
@@ -14905,7 +14912,7 @@
               "what": "What you found at your last look at this matter's changes, when this is a look after a revision; none at the first",
               "from": [
                 [
-                  "G2",
+                  "C2",
                   "check[problems].problems"
                 ]
               ],
@@ -15013,7 +15020,7 @@
                   ]
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "main": true,
               "do": [
                 "apply_checked",
@@ -15033,7 +15040,7 @@
                   ]
                 ]
               ],
-              "to": "Q2",
+              "to": "N2",
               "counts": "sent_to_revise",
               "note": "The changes go back to the matter's session, at the cell that handed them in, with every problem found: it revises them there, with all it holds, and the second eye looks again at what changed."
             }
@@ -15092,7 +15099,7 @@
                   "all"
                 ]
               ],
-              "to": "Q0",
+              "to": "N0",
               "drops": true,
               "main": true,
               "note": "The question is pinned at the bottom of the owner's one-to-one, and parks only the matter that asked, whose session ends: the architect's work goes on with the next matter at once, and the matter comes back with the owner's reply, taken first, to the cell that asked, in a new fork of the base."
@@ -15196,7 +15203,7 @@
           ]
         },
         {
-          "id": "E2",
+          "id": "R1",
           "kind": "engine",
           "title": "End the work",
           "step": "end_architect_work",
@@ -15204,7 +15211,7 @@
           "out": []
         },
         {
-          "id": "C2",
+          "id": "E1",
           "kind": "engine",
           "title": "Ended: the flow moved on",
           "step": "stop_architect_work",
@@ -15215,7 +15222,7 @@
           "inputs": []
         },
         {
-          "id": "V1",
+          "id": "Y1",
           "kind": "engine",
           "title": "Bring the work to the new version",
           "step": "bring_up",
@@ -15262,7 +15269,7 @@
                   ]
                 ]
               ],
-              "to": "C2",
+              "to": "E1",
               "note": "The work ends at once, saying why: an architect's work has no item to start over or cancel, and one left waiting here would hold its project's architect for good, every matter in the queue waiting with it. It loses nothing by ending: the base, the notebook, the decision log and the matters are in the records, and the next look starts a new work of the architect when a matter is due."
             }
           ],

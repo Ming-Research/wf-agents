@@ -18,7 +18,7 @@ fn session_db() -> db::Db {
     db.write(db::Actor::Engine, |tx| {
         tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
         tx.execute(
-            "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'N1', 'p')",
+            "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B2', 'p')",
             [],
         )?;
         tx.execute(
@@ -37,7 +37,7 @@ fn session_round(db: &mut db::Db, n: i64, ended: i64) {
     db.write(db::Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at, ended_at, usage)
-             VALUES (1, ?1, 'N1', 1, ?2, 'c', ?3, ?4, ?5)",
+             VALUES (1, ?1, 'B2', 1, ?2, 'c', ?3, ?4, ?5)",
             params![n, input.to_string(), ended - 1_000, ended, RAN],
         )?;
         Ok(())
@@ -57,14 +57,14 @@ fn session_ping(db: &mut db::Db, ended: i64) {
     .unwrap();
 }
 
-/// The architect's cell N1 of the flow as it is, as on a line that expires with the cache: the base does not, since a
+/// The architect's cell B2 of the flow as it is, as on a line that expires with the cache: the base does not, since a
 /// cold cache is written once, cheaper than reading the project again, and the expiry is the chooser's for any line
 /// that says so.
 fn architect_cell() -> CompiledCell {
     let relations = db::relations(db::SCHEMA).unwrap();
     let tables = db::index_of(db::SCHEMA).unwrap();
     let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
-    let mut cell = f.graph("architect").unwrap().cell("N1").unwrap().clone();
+    let mut cell = f.graph("architect").unwrap().cell("B2").unwrap().clone();
     assert!(
         !cell.cache_expiry,
         "the architect's base does not expire with the cache"

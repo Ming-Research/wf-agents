@@ -29,7 +29,7 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
         }),
     );
     agents.insert(
-        "G2",
+        "C2",
         Box::new(|_: &Request, n: usize| {
             if n > 1 {
                 return (Vec::new(), Vec::new());
@@ -42,7 +42,7 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
             )
         }),
     );
-    let seen = keep_requests(&mut agents, &["G2"]);
+    let seen = keep_requests(&mut agents, &["C2"]);
     let (s, e, said, works) = architect_works_in(
         "second-eye",
         agents,
@@ -53,10 +53,10 @@ fn a_cancel_waits_for_the_second_eye_and_goes_back_to_its_session_with_what_it_f
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["Q0", "Q2", "H1", "G1", "G2", "Q2", "H1", "G1", "G2", "Q0", "E2"],
+        ["N0", "N2", "H1", "C1", "C2", "N2", "H1", "C1", "C2", "N0", "R1"],
         "{log}"
     );
-    assert_eq!(rows_at(&e, second, "G2"), ["problems", "sound"], "{log}");
+    assert_eq!(rows_at(&e, second, "C2"), ["problems", "sound"], "{log}");
     let cancelled: Option<String> =
         e.db.conn()
             .query_row("SELECT cancelled FROM items WHERE id = 1", [], |r| r.get(0))
@@ -119,7 +119,7 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let item = a_ready_item(&mut e, "Lex it");
-    let arch = architect_work_at(&mut e, "Q0");
+    let arch = architect_work_at(&mut e, "N0");
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET paused = 'later', paused_by = 'owner' WHERE id = ?1",
@@ -225,14 +225,14 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// `N1` hands in its steps, most first, and the engine queues each as one matter, in that order, ahead of a report; they
+// `B2` hands in its steps, most first, and the engine queues each as one matter, in that order, ahead of a report; they
 // take the place of the steps of the plan before no session took, while a measure the policy needs stays.
 #[test]
 fn the_plan_s_steps_are_queued_in_its_order_and_replace_those_of_the_plan_before() {
     let s = setup("steps");
     let mut agents = scripts();
     agents.insert(
-        "N1",
+        "B2",
         Box::new(|_: &Request, _: usize| {
             let steps = json!([
                 { "what": "Make the item lex", "why": "The direction needs it." },
@@ -243,7 +243,7 @@ fn the_plan_s_steps_are_queued_in_its_order_and_replace_those_of_the_plan_before
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     e.db.write(Actor::Engine, |tx| {
         for (what, body) in [
             (
@@ -718,7 +718,7 @@ fn an_answer_that_cancels_an_item_it_creates_is_sent_back_and_never_makes_it() {
     let back = why_sent_back(&e, arch, "H1");
     assert_eq!(back.len(), 1, "{log}");
     assert!(back[0].contains("cancels spend, which this answer creates"), "{back:?}");
-    assert!(!path_of(&e, arch).contains(&"G2".to_string()), "{log}");
+    assert!(!path_of(&e, arch).contains(&"C2".to_string()), "{log}");
     let made: i64 =
         e.db.conn()
             .query_row(
@@ -739,7 +739,7 @@ fn the_slots_say_whether_works_run() {
     let s = setup("engine-state");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "N1");
+    let arch = architect_work_at(&mut e, "B2");
     e.set_global_pause(Some(engine::GlobalPause {
         warm: true,
         runs: [7].into(),

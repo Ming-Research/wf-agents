@@ -76,7 +76,7 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
                                 acceptance_work, acceptance_round, cancelled, imported_from, imported_branch,
                                 imported_pr, wanted, held, rank, decision_points, route)
              VALUES (1, 'p', 'one', 'pro', 'why', 'how', 'change', 'l1', '[{\"id\":\"A1\"}]', 1, 1, NULL, NULL, NULL,
-                     NULL, '[{\"id\":\"W1\"}]', 'held for now', 4, '[{\"id\":\"P1\"}]', 'bugfix'),
+                     NULL, '[{\"id\":\"V1\"}]', 'held for now', 4, '[{\"id\":\"P1\"}]', 'bugfix'),
                     (2, 'p', 'two', 'pro2', 'why2', NULL, 'report', 'l2', NULL, NULL, NULL, 'dup', 'old board', 'br',
                      9, NULL, NULL, NULL, NULL, 'normal')",
             [],
@@ -130,7 +130,7 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
     assert_eq!(
         items,
         [
-            r#"[1,"p","one","pro","why","how","change","l1","[{\"id\":\"A1\"}]",1,1,null,null,null,null,"[{\"id\":\"W1\"}]","held for now",4,"[{\"id\":\"P1\"}]"]"#,
+            r#"[1,"p","one","pro","why","how","change","l1","[{\"id\":\"A1\"}]",1,1,null,null,null,null,"[{\"id\":\"V1\"}]","held for now",4,"[{\"id\":\"P1\"}]"]"#,
             r#"[2,"p","two","pro2","why2",null,"report","l2",null,null,null,"dup","old board","br",9,null,null,null,null]"#,
         ]
     );

@@ -1019,13 +1019,13 @@ describe('the marks of the list of conversations', () => {
     };
     // Never run, or idle at its start: ready, saying whether matters wait for it.
     expect(marked(architect([]), status())).toMatchObject({ state: 'ready', icon: 'circle', says: 'idle: nothing in its queue' });
-    const idle = architect([work(9, { state: 'done', at: 'E2' })], { queue: [matter(1)] });
+    const idle = architect([work(9, { state: 'done', at: 'R1' })], { queue: [matter(1)] });
     expect(architectMark(idle, status())).toEqual({ state: 'ready', words: 'takes up the matters waiting' });
     // Every work paused while matters wait for it, and the owner has not started it: paused; started, ready again.
     expect(marked(idle, status({ paused: true }))).toMatchObject({ state: 'paused', icon: 'pause', says: 'held back: every work is paused' });
     expect(architectMark(idle, status({ paused: true, architects_started: ['p'] })).state).toBe('ready');
     // A round of it running: the halo.
-    const going = architect([work(10, { state: 'running' }), work(9, { state: 'done', at: 'E2' })]);
+    const going = architect([work(10, { state: 'running' }), work(9, { state: 'done', at: 'R1' })]);
     expect(marked(going, status({ running: [10] }))).toMatchObject({ state: 'running', icon: 'halo', says: 'working' });
     // Held back while it works, by the owner's pause or every work paused: paused, as its head says why.
     const stopped = architect([work(10, { state: 'paused', paused: 'the owner paused it', paused_by: 'owner' })]);
@@ -1042,8 +1042,8 @@ describe('the marks of the list of conversations', () => {
     // Waiting for the owner's next words, its answer having left the talk open: waiting, whether the engine steps it
     // to look for the owner's words or not.
     const waiting = architect([
-      work(10, { state: 'waiting', at: 'Q0', waits: { kind: 'row', cell: 'Q0', row: 'listens' } }),
-      work(9, { state: 'done', at: 'E2' }),
+      work(10, { state: 'waiting', at: 'N0', waits: { kind: 'row', cell: 'N0', row: 'listens' } }),
+      work(9, { state: 'done', at: 'R1' }),
     ]);
     const listening = { ...waiting, works: waiting.works.map((w, i) => (i === 0 ? { ...w, listens: true } : w)) };
     for (const running of [[], [10], [3, 10], []]) {

@@ -1,5 +1,5 @@
 //! A project's architect's base and the fixed order it takes its matters in. The base is the session that read the
-//! project and planned (cells `U1` and `N1`), which only saves tokens: every matter after it is handled one at a time in
+//! project and planned (cells `B1` and `B2`), which only saves tokens: every matter after it is handled one at a time in
 //! a session forked from where it ended, given what came since. The engine takes the matters by fact, never by an
 //! agent's pick: a new base when one is due, then what something stopped waits on (the owner's words and replies, then
 //! main's CI red, then the matter a work stopped at its question waits on), then the rest of the queue. Here too are the
@@ -66,7 +66,7 @@ pub fn previous_start(conn: &Connection, project: &str) -> Result<Option<i64>, S
     let session: Option<String> = conn
         .query_row(
             "SELECT s.cli_session FROM rounds r JOIN works w ON w.id = r.work JOIN sessions s ON s.id = r.session
-             WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell = 'N1' AND r.ended_at IS NOT NULL
+             WHERE w.graph = 'architect' AND w.project = ?1 AND r.cell IN ('B2', 'N1') AND r.ended_at IS NOT NULL
              ORDER BY r.ended_at DESC LIMIT 1",
             [project],
             |r| r.get(0),
@@ -176,7 +176,7 @@ pub fn queue(conn: &Connection, project: &str) -> Result<Vec<(Value, Class)>, St
         .collect())
 }
 
-/// What comes next for a project's architect, as the look at the queue (`Q0`) hands it in.
+/// What comes next for a project's architect, as the look at the queue (`N0`) hands it in.
 pub fn next(e: &Engine, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let due = due(e, project)?;

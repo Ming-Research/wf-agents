@@ -1988,7 +1988,7 @@ fn architect_works(conn: &Connection, flows: &Flows, project: &str) -> Result<(V
     for (_, s) in architect_works {
         let handling = if over(&s) { None } else { handling(conn, s.id)? };
         // It waits by the row of the look at the queue that waits for the owner's next words.
-        let listens = matches!(&s.waits, Some(Waits::Row { cell, row }) if cell == "Q0" && row == "listens");
+        let listens = matches!(&s.waits, Some(Waits::Row { cell, row }) if cell == "N0" && row == "listens");
         works.push(ArchitectWork {
             handling,
             listens,
@@ -2203,7 +2203,7 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
                  FROM rounds WHERE work = ?1 AND transition IS NOT NULL
                    AND (cell IN {} OR (cell IN {} AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL))
                  ORDER BY n DESC LIMIT 1",
-                db::cells_sql("architect", &["Q0"]),
+                db::cells_sql("architect", &["N0"]),
                 db::cells_sql("architect", &["Q1"])
             ),
             [work],
@@ -2223,7 +2223,7 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
 /// The cells on a matter's path, whose rounds do what becomes of a matter: its own session's, main's checks and the
 /// second eye's; `H6` looked at decision cards and `H10` at free slots, for the matters of before.
 const PATH: [&str; 15] = [
-    "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "L1", "L2", "G1", "G2", "A3",
+    "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "M1", "M2", "C1", "C2", "A3",
 ];
 
 /// The first `why` a return says, looking through it in order: why a cell closed a matter with nothing else done.
@@ -2283,7 +2283,7 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let picks = db::cells_sql("architect", &["Q1", "Q0"]);
+    let picks = db::cells_sql("architect", &["Q1", "N0"]);
     let path = db::cells_sql("architect", &PATH);
     let mut out = Vec::new();
     for (mut h, closing) in rows {
@@ -3479,7 +3479,7 @@ mod tests {
         let architect_work = [
             ("S1", queued.to_string(), Some("{}".to_string()), Some("not_understood")),
             (
-                "U1",
+                "B1",
                 "{}".into(),
                 Some(out(
                     json!({ "state": [{ "line": "l", "where": "w", "stuck": "no", "recent": "r", "grounds": "g" }],
@@ -3497,18 +3497,18 @@ mod tests {
                 Some("set_again"),
             ),
             (
-                "N1",
+                "B2",
                 "{}".into(),
                 Some(out(json!({ "fit": { "verdict": "fits", "why": "w" } }))),
                 Some("fits"),
             ),
             (
-                "Q0",
+                "N0",
                 "{}".into(),
                 Some(json!({ "queue": { "verdict": "one", "matter": 1 } }).to_string()),
                 Some("one"),
             ),
-            ("Q2", "{}".into(), Some("{}".into()), Some("to_crux")),
+            ("N2", "{}".into(), Some("{}".into()), Some("to_crux")),
             (
                 "H2",
                 "{}".into(),
@@ -3531,7 +3531,7 @@ mod tests {
                 Some("go_on"),
             ),
             (
-                "Q0",
+                "N0",
                 "{}".into(),
                 Some(json!({ "queue": { "verdict": "none" } }).to_string()),
                 Some("none"),
@@ -3542,7 +3542,7 @@ mod tests {
                 Some(out(json!({ "learned": "L", "notes": [{ "text": "N" }] }))),
                 Some("wrapped_up"),
             ),
-            ("E2", "{}".into(), Some("{}".into()), None),
+            ("R1", "{}".into(), Some("{}".into()), None),
         ];
         let setting = [(
             "P2",
@@ -3551,13 +3551,13 @@ mod tests {
             Some("studied"),
         )];
         // Work 3 is a setting of the policy as a flow version before ran it, a work of its own of the graph policy,
-        // whose P3 asked the owner to read the study: the architect's graph stands in for that version's, with its
-        // owner's cell standing in for P3.
+        // whose P4 asked the owner to read the study: the architect's graph stands in for that version's, with its
+        // owner's cell standing in for P4.
         let mut older = s.compiled.clone();
         let mut policy = older.graph("architect").unwrap().clone();
         policy.name = "policy".into();
         let mut reads = policy.cell("A3").unwrap().clone();
-        reads.id = "P3".into();
+        reads.id = "P4".into();
         policy.cells.push(reads);
         older.graphs.push(policy);
         let older = older.json();
@@ -3565,8 +3565,8 @@ mod tests {
             let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
             run("INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)", &[&older])?;
             run(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'E2', 'p'),
-                 (NULL, 2, 'policy', 'P3', 'p'), (NULL, 1, 'architect', 'E2', 'q')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'R1', 'p'),
+                 (NULL, 2, 'policy', 'P4', 'p'), (NULL, 1, 'architect', 'R1', 'q')",
                 &[],
             )?;
             for (work, rounds) in [(2_i64, &architect_work[..]), (3, &setting[..])] {
@@ -3859,7 +3859,7 @@ mod tests {
                 )?;
             }
             let found_two = json!({ "progress": "Two findings.", "outcome": {
-                "findings": [{ "fid": "U1" }, { "fid": "U2" }] } });
+                "findings": [{ "fid": "B1" }, { "fid": "U2" }] } });
             let found_one = json!({ "progress": "A detail is wrong.", "outcome": {
                 "findings": [{ "fid": "D1" }],
                 "must_fix": { "verdict": "yes", "why": "w" }, "silent": { "verdict": "no", "why": "w" } } });
@@ -4207,7 +4207,7 @@ mod tests {
             let rounds = [
                 (1_i64, "Q1", picked(6), 600),
                 (2, "H1", "{}".to_string(), 610),
-                (3, "Q0", json!({ "queue": { "verdict": "one", "matter": 5 } }).to_string(), 620),
+                (3, "N0", json!({ "queue": { "verdict": "one", "matter": 5 } }).to_string(), 620),
             ];
             for (n, cell, output, at) in &rounds {
                 run(
@@ -4339,7 +4339,7 @@ mod tests {
             let picked = json!({ "outcome": { "pick": { "matter": 10 } } }).to_string();
             run(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (5, 1, 'Q1', '{}', ?1, 'next', 'c', 600, 600), (5, 2, 'Q2', '{}', '{}', 'to_owner_words', 'c',
+                 VALUES (5, 1, 'Q1', '{}', ?1, 'next', 'c', 600, 600), (5, 2, 'N2', '{}', '{}', 'to_owner_words', 'c',
                  610, 610)",
                 &[&picked],
             )?;
@@ -4417,8 +4417,8 @@ mod tests {
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (5, 4, 'Q0', '{}', ?1, 'owner_words', 'c', 710, 710),
-                 (5, 5, 'Q2', '{}', '{}', 'to_owner_words', 'c', 720, 720)",
+                 VALUES (5, 4, 'N0', '{}', ?1, 'owner_words', 'c', 710, 710),
+                 (5, 5, 'N2', '{}', '{}', 'to_owner_words', 'c', 720, 720)",
                 [&picked],
             )?;
             tx.execute("UPDATE works SET at = 'H8' WHERE id = 5", [])?;
@@ -4533,7 +4533,7 @@ mod tests {
     }
 
     // The one-to-one with an architect pins the questions it put that wait for the owner's reply, each parking a matter
-    // still open, newest first, and says which one the architect waits on now, as its look at the queue (Q0) works it
+    // still open, newest first, and says which one the architect waits on now, as its look at the queue (N0) works it
     // out: the newest, while it was put less than the installation's wait for the reply ago and the owner said nothing
     // since. Once the owner says something, or the wait runs out, it waits on none; a question replied to, or whose
     // matter is gone, is pinned no longer.
@@ -4950,7 +4950,7 @@ mod tests {
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, ended, project)
-                 VALUES (NULL, 1, 'architect', 'E2', 'over', 'p'), (NULL, 1, 'architect', 'B1', NULL, 'p')",
+                 VALUES (NULL, 1, 'architect', 'R1', 'over', 'p'), (NULL, 1, 'architect', 'B4', NULL, 'p')",
                 [],
             )?;
             Ok(())
@@ -4976,7 +4976,7 @@ mod tests {
         );
         let d = read(&s).draft.unwrap();
         assert_eq!((d.work, d.round, d.policy), (5, 2, first.clone()));
-        round(&mut s, 6, 1, "P12", "{}".into(), "next");
+        round(&mut s, 6, 1, "P3", "{}".into(), "next");
         assert_eq!(read(&s).draft, None);
         assert_eq!(in_force(&s).map(|p| (p.work, p.round, p.policy)), Some((6, 1, first)));
         round(
@@ -5018,11 +5018,11 @@ mod tests {
         };
         let sections: Vec<&str> = a.notebook.iter().map(|x| x.section.as_str()).collect();
         assert_eq!(sections, ["project_now", "plan"]);
-        assert_eq!(a.notebook[0].now, Some(version("Now.", 2, "U1")));
+        assert_eq!(a.notebook[0].now, Some(version("Now.", 2, "B1")));
         assert_eq!(a.notebook[1].now, Some(version("Plan two.", 10, "B4")));
         assert_eq!(
             a.notebook[1].versions,
-            [version("Plan two.", 10, "B4"), version("Plan one.", 4, "N1")]
+            [version("Plan two.", 10, "B4"), version("Plan one.", 4, "B2")]
         );
     }
 }

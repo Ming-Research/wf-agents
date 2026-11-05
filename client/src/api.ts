@@ -853,7 +853,7 @@ design_cards: Array<DesignCard>,
 questions: Array<OwnerAsk>,
 /**
  * In the one-to-one with an architect: the question it waits for the owner's reply to now at its look at the queue
- * (`Q0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
+ * (`N0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
  * the owner's reply ago, with nothing said by the owner since; none otherwise.
  */
 waits_on: number | null,
@@ -1732,7 +1732,7 @@ export type ArchitectWork = { work: WorkSummary,
 handling: number | null,
 /**
  * Whether it waits at its look at the queue for the owner's next words, having answered the owner's words with the
- * talk left open (`Q0`'s row `listens`): the owner's next words are taken at once.
+ * talk left open (`N0`'s row `listens`): the owner's next words are taken at once.
  */
 listens: boolean, };
 

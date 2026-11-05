@@ -187,8 +187,8 @@ mod tests {
         let compiled = compiled();
         let g = compiled.graph("architect").unwrap();
         let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()));
-        assert_eq!(of("U1"), of("H1"));
-        assert_eq!(of("U1"), of("G2"));
+        assert_eq!(of("B1"), of("H1"));
+        assert_eq!(of("B1"), of("C2"));
     }
 
     // Each line's sessions are given only the forms and tools some cell of the line has, the same for every cell of

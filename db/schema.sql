@@ -1341,13 +1341,13 @@ CREATE VIEW item_problem AS
 
 CREATE VIEW item_acceptance AS
   -- The item's acceptance, and the round that gave it, by its work and its number in the work; NULL until the work
-  -- goes on to implement. locked says only whether there is one. Read by: cells `I1`, `T2`, `T3`, `T1`, `T6`, `W1` and
-  -- `W2`.
+  -- goes on to implement. locked says only whether there is one. Read by: cells `I1`, `T2`, `T3`, `T1`, `T6`, `V1` and
+  -- `V2`.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_work, acceptance_round FROM items;
 
 CREATE VIEW item_verifications AS
   -- What each acceptance condition written in_effect came to, at each look of the cell that checks it once the work's
-  -- change took effect (`W2`): the item, the work and the round, the condition's number (`id`), its verdict, and for a
+  -- change took effect (`V2`): the item, the work and the round, the condition's number (`id`), its verdict, and for a
   -- verdict that rests on a run the run and what it showed there. A condition stands as its latest round has it. Read
   -- by: the agents and the architect, by query.
   SELECT w.item, r.work, r.n AS round, json_extract(v.value, '$.id') AS id,
@@ -1355,7 +1355,7 @@ CREATE VIEW item_verifications AS
     json_extract(v.value, '$.run') AS run,
     json_extract(v.value, '$.seen') AS seen
   FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.verdicts') v
-  WHERE r.cell = 'W2' AND r.transition IS NOT NULL;
+  WHERE r.cell = 'V2' AND r.transition IS NOT NULL;
 
 CREATE VIEW item_design_cards AS
   -- Every decision card of the item's works, by key, with its rulings, and why one withdrawn was. Read by: cells `R1`,
@@ -1687,7 +1687,7 @@ CREATE VIEW architect_queue AS
   -- for the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
   -- answer and to which cell, the second cell a flow version before had a matter of two cells go on at, and whether
   -- its reporter marked it as harming now (urgent).
-  -- Read by: cells `S0` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
+  -- Read by: cells `S0` and `N0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no
   -- work, and takes the next matter by it in its fixed order; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
@@ -1720,7 +1720,7 @@ CREATE VIEW work_handled AS
 
 CREATE VIEW policy_current AS
   -- Each project's policy in force: the draft the architect wrote last (cell `P2`) before the round in which the
-  -- owner's approval took effect (cell `P12`), in whichever of its works, with the round of that approval; none before
+  -- owner's approval took effect (cell `P3`), in whichever of its works, with the round of that approval; none before
   -- the first policy takes effect. A flow version before set a policy in a setting of its own, whose text was written,
   -- or put together from a correction, last before the owner's latest approval in it, in whichever of the architect's
   -- works the setting went on in since its matter was raised; a setting a flow version before that held in a work of
@@ -1757,15 +1757,15 @@ CREATE VIEW policy_current AS
          ORDER BY t.n DESC LIMIT 1)) AS policy,
       row_number() OVER (PARTITION BY w.project ORDER BY a.work DESC, a.n DESC) AS k
     FROM rounds a JOIN works w ON w.id = a.work
-    WHERE w.graph IN ('architect', 'policy') AND a.cell IN ('P12', 'takes_effect', 'policy.takes_effect')
+    WHERE w.graph IN ('architect', 'policy') AND a.cell IN ('P3', 'P12', 'takes_effect', 'policy.takes_effect')
       AND a.transition IS NOT NULL)
   WHERE k = 1;
 
 CREATE VIEW policy_draft AS
   -- Each project's draft of a new policy that waits for the owner's approval: the latest the architect wrote (cell
-  -- `P2`), in whichever of its works, when no new policy took effect after it (cell `P12`) and no later round of `P2`
+  -- `P2`), in whichever of its works, when no new policy took effect after it (cell `P3`) and no later round of `P2`
   -- dropped it, the owner's reply keeping the policy in force (`kept`, with no policy); none otherwise. Read by: cell
-  -- `P2`, which writes it again by the owner's reply, and cell `P12`, which makes it the policy in force; the owner's
+  -- `P2`, which writes it again by the owner's reply, and cell `P3`, which makes it the policy in force; the owner's
   -- interface.
   SELECT project, work, round, policy FROM (
     SELECT w.project, r.work, r.n AS round, json_extract(r.output, '$.outcome.policy') AS policy,
@@ -1774,7 +1774,7 @@ CREATE VIEW policy_draft AS
     WHERE w.graph = 'architect' AND r.cell = 'P2' AND r.transition IS NOT NULL) d
   WHERE k = 1 AND policy IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM rounds a JOIN works x ON x.id = a.work
-    WHERE x.graph = 'architect' AND x.project = d.project AND a.cell = 'P12' AND a.transition IS NOT NULL
+    WHERE x.graph = 'architect' AND x.project = d.project AND a.cell IN ('P3', 'P12') AND a.transition IS NOT NULL
       AND (a.work > d.work OR (a.work = d.work AND a.n > d.round)));
 
 CREATE VIEW notebook AS
@@ -1909,11 +1909,11 @@ CREATE VIEW conversation_entries AS
              (SELECT min(x.started_at) FROM rounds x WHERE x.work = j.work), 0),
     j.work, j.delivered_round, NULL, j.design_card, j.matter, NULL, 0,
     j.speaker = 'owner' AND ((j.informs = 0 AND j.delivered_round IS NULL AND w.ended IS NULL
-        AND w.at NOT IN (CASE WHEN w.graph = 'architect' THEN 'E2' ELSE 'E1' END, '20', 'end'))
+        AND w.at NOT IN (CASE WHEN w.graph = 'architect' THEN 'R1' ELSE 'E1' END, 'E2', '20', 'end'))
       OR EXISTS (SELECT 1 FROM architect_matters x
                  WHERE x.id = j.matter AND x.handled_round IS NULL AND x.withdrawn IS NULL)),
     j.speaker = 'owner' AND j.informs = 0 AND j.delivered_round IS NULL
-      AND (w.ended IS NOT NULL OR w.at IN (CASE WHEN w.graph = 'architect' THEN 'E2' ELSE 'E1' END, '20', 'end')),
+      AND (w.ended IS NOT NULL OR w.at IN (CASE WHEN w.graph = 'architect' THEN 'R1' ELSE 'E1' END, 'E2', '20', 'end')),
     0, NULL
   FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
   WHERE j.text NOT LIKE 'Ruling on design card %'

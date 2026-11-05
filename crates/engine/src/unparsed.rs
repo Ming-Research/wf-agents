@@ -546,7 +546,7 @@ mod tests {
         assert_eq!(json_text("Here:\n```json\n{\"a\": 1}\n```"), "{\"a\": 1}");
     }
 
-    // A return of the architect's U1 lacked `tell_owner` six times since W300, each a round sent back for nothing: a list
+    // A return of the architect's B1 lacked `tell_owner` six times since W300, each a round sent back for nothing: a list
     // left out is taken as empty. A text left out is not made up.
     #[test]
     fn a_list_the_schema_requires_left_out_is_taken_as_empty() {

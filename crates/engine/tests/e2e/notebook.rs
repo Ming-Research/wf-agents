@@ -10,7 +10,7 @@ fn a_round_of_the_plan_that_asks_for_tools_changes_nothing_in_the_notebook() {
     let s = setup("plan-tools");
     let mut agents = scripts();
     agents.insert(
-        "N1",
+        "B2",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
@@ -28,7 +28,7 @@ fn a_round_of_the_plan_that_asks_for_tools_changes_nothing_in_the_notebook() {
         move |e: &mut Engine| {
             cells_of(e, arch)
                 .iter()
-                .any(|c| c.0 == "N1" && c.1.as_deref() == Some(row))
+                .any(|c| c.0 == "B2" && c.1.as_deref() == Some(row))
         }
     };
     assert!(
@@ -39,7 +39,7 @@ fn a_round_of_the_plan_that_asks_for_tools_changes_nothing_in_the_notebook() {
     let understanding = (
         "project_now".to_string(),
         "The understanding at round 1.".to_string(),
-        "U1".to_string(),
+        "B1".to_string(),
     );
     assert_eq!(
         notebook(&e),
@@ -55,15 +55,15 @@ fn a_round_of_the_plan_that_asks_for_tools_changes_nothing_in_the_notebook() {
     assert_eq!(
         notebook(&e),
         [
-            ("plan".to_string(), "The plan at round 2.".to_string(), "N1".to_string()),
+            ("plan".to_string(), "The plan at round 2.".to_string(), "B2".to_string()),
             understanding
         ]
     );
-    let (first, second) = (message_at(&e, arch, "N1", false), message_at(&e, arch, "N1", true));
+    let (first, second) = (message_at(&e, arch, "B2", false), message_at(&e, arch, "B2", true));
     let w = e.work(arch).unwrap();
     let g = e.graph_of(&w).unwrap();
     let numbered: Vec<&flow::CompiledInput> = g
-        .cell("N1")
+        .cell("B2")
         .unwrap()
         .inputs
         .iter()
@@ -114,11 +114,11 @@ fn what_a_matter_adds_is_read_by_the_next_matter_and_the_parts_stay() {
     assert_eq!(
         notebook(&e),
         [
-            ("plan".to_string(), "The plan at round 1.".to_string(), "N1".to_string()),
+            ("plan".to_string(), "The plan at round 1.".to_string(), "B2".to_string()),
             (
                 "project_now".to_string(),
                 "The understanding at round 1.".to_string(),
-                "U1".to_string()
+                "B1".to_string()
             ),
         ],
         "{log}"
@@ -230,10 +230,10 @@ fn a_new_base_writes_its_understanding_from_nothing_and_its_plan_takes_in_what_c
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["Q0", "U1", "N1", "Q0", "Q2", "H1", "G1", "Q0", "E2"],
+        ["N0", "B1", "B2", "N0", "N2", "H1", "C1", "N0", "R1"],
         "{log}"
     );
-    let understanding = message_at(&e, second, "U1", false);
+    let understanding = message_at(&e, second, "B1", false);
     assert!(
         !understanding.contains("The understanding at round 1."),
         "{understanding}"
@@ -241,7 +241,7 @@ fn a_new_base_writes_its_understanding_from_nothing_and_its_plan_takes_in_what_c
     assert!(!understanding.contains("The plan at round 1."), "{understanding}");
     assert!(!understanding.contains("The parser moved."), "{understanding}");
     assert!(understanding.contains("SECONDWORDS"), "{understanding}");
-    let plan = message_at(&e, second, "N1", false);
+    let plan = message_at(&e, second, "B2", false);
     assert!(plan.contains("The plan at round 1."), "{plan}");
     assert!(plan.contains("It adds to the plan: The parser comes first."), "{plan}");
     assert!(
@@ -251,11 +251,11 @@ fn a_new_base_writes_its_understanding_from_nothing_and_its_plan_takes_in_what_c
     assert_eq!(
         notebook(&e),
         [
-            ("plan".to_string(), "The plan at round 2.".to_string(), "N1".to_string()),
+            ("plan".to_string(), "The plan at round 2.".to_string(), "B2".to_string()),
             (
                 "project_now".to_string(),
                 "The understanding at round 2.".to_string(),
-                "U1".to_string()
+                "B1".to_string()
             ),
         ],
         "{log}"

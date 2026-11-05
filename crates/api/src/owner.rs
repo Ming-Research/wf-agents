@@ -1403,7 +1403,7 @@ mod tests {
         );
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'U1', 'p')",
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'B1', 'p')",
                 [],
             )?;
             Ok(())

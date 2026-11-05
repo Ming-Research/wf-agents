@@ -726,9 +726,9 @@ case!(
 );
 case!(
     a_row_from_the_cell_for_an_older_version_to_another_cell,
-    "keep it there or end it at the end for a work stopped before its end: V1",
+    "keep it there or end it at the end for a work stopped before its end: Y1",
     |v| {
-        row(v, "V1", "went_back")["to"] = json!("T1");
+        row(v, "Y1", "went_back")["to"] = json!("T1");
     }
 );
 case!(
@@ -742,7 +742,7 @@ case!(
     a_row_into_the_cell_for_an_older_version,
     "no row leads to the cell for a work on an older flow version",
     |v| {
-        row(v, "T6", "done")["to"] = json!("V1");
+        row(v, "T6", "done")["to"] = json!("Y1");
     }
 );
 case!(

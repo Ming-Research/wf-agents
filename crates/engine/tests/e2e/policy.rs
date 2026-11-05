@@ -131,8 +131,8 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         message_at(&e, works[2], "P2", true).contains("Make the why shorter."),
         "{log}"
     );
-    assert!(rows("Q2").contains(&"back_to_set_policy".to_string()), "{log}");
-    assert_eq!(rows("P12"), ["next"], "{log}");
+    assert!(rows("N2").contains(&"back_to_set_policy".to_string()), "{log}");
+    assert_eq!(rows("P3"), ["next"], "{log}");
     let direction: String =
         e.db.conn()
             .query_row(
@@ -149,10 +149,10 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     assert_eq!(drafts, 0);
     // The new policy called for a planning, made once, after it took effect.
     let last = path_of(&e, works[3]);
-    let took_effect = last.iter().position(|c| c == "P12").expect(&log);
-    assert_eq!(rows_at(&e, works[3], "N1").len(), 1, "{last:?}\n{log}");
+    let took_effect = last.iter().position(|c| c == "P3").expect(&log);
+    assert_eq!(rows_at(&e, works[3], "B2").len(), 1, "{last:?}\n{log}");
     assert!(
-        last.iter().position(|c| c == "N1").expect(&log) > took_effect,
+        last.iter().position(|c| c == "B2").expect(&log) > took_effect,
         "{last:?}"
     );
     assert_eq!(at_head(&e), [("check_policy".to_string(), true, Vec::new())], "{log}");
@@ -309,7 +309,7 @@ fn check_at(e: &mut Engine, cell: &str) -> (i64, i64) {
             tx,
             work,
             1,
-            "Q0",
+            "N0",
             &json!({ "queue": { "verdict": "head", "matter": matter } }),
             "head",
         )?;
@@ -343,12 +343,12 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, ended, project)
-                 VALUES (NULL, ?1, 'architect', 'E2', 'over', 'p')",
+                 VALUES (NULL, ?1, 'architect', 'R1', 'over', 'p')",
                 [v],
             )?;
             let set = tx.last_insert_rowid();
             record_round(tx, set, 1, "P2", &written, "written")?;
-            record_round(tx, set, 2, "P12", &json!({}), "next")
+            record_round(tx, set, 2, "P3", &json!({}), "next")
         })
         .unwrap();
     };

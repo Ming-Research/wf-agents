@@ -34,14 +34,14 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
             )
         }),
     );
-    let seen = keep_requests(&mut agents, &["H1", "U1", "N1"]);
+    let seen = keep_requests(&mut agents, &["H1", "B1", "B2"]);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
     say(&mut e, "Make the parser's item clearer.");
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -51,7 +51,7 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
-        ["Q0", "U1", "N1", "Q0", "Q2", "H1", "G1", "Q0", "E2"],
+        ["N0", "B1", "B2", "N0", "N2", "H1", "C1", "N0", "R1"],
         "{log}"
     );
     let rows: Vec<Option<String>> = cells_of(&e, arch).into_iter().map(|c| c.1).collect();
@@ -136,9 +136,9 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
             .find(|r| r.cell == cell)
             .unwrap_or_else(|| panic!("{cell}\n{log}"))
     };
-    assert!(!by("U1").fork && by("U1").resume.is_none());
+    assert!(!by("B1").fork && by("B1").resume.is_none());
     assert_eq!(
-        (by("N1").fork, by("N1").resume.as_deref()),
+        (by("B2").fork, by("B2").resume.as_deref()),
         (false, Some(base.as_str()))
     );
     assert_eq!((by("H1").fork, by("H1").resume.as_deref()), (true, Some(base.as_str())));
@@ -155,11 +155,11 @@ fn an_architect_work_handles_the_owner_s_words_then_builds_its_base_and_forks_fr
         ))
     };
     assert!(
-        before("N1").iter().any(|(part, _)| part == "--append-system-prompt"),
+        before("B2").iter().any(|(part, _)| part == "--append-system-prompt"),
         "{:?}",
-        before("N1")
+        before("B2")
     );
-    assert_eq!(before("H1"), before("N1"));
+    assert_eq!(before("H1"), before("B2"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -172,7 +172,7 @@ type WarmBase = (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, Arc<Mutex<Vec<Requ
 fn warm_base_work(name: &str, fork_read: i64) -> WarmBase {
     let s = setup_priced(name);
     let mut agents = scripts();
-    for cell in ["U1", "N1"] {
+    for cell in ["B1", "B2"] {
         agents.insert(cell, adding(cell, |_| vec![("@usage", used(1.0, 90_000))]));
     }
     let first = json!({ "session_cost_usd": 2.0,
@@ -195,7 +195,7 @@ fn warm_base_work(name: &str, fork_read: i64) -> WarmBase {
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
-        ["Q0", "U1", "N1", "Q0", "Q2", "H1", "G1", "Q0", "E2"],
+        ["N0", "B1", "B2", "N0", "N2", "H1", "C1", "N0", "R1"],
         "{log}"
     );
     (s, e, said, arch, seen)
@@ -309,7 +309,7 @@ fn the_next_work_forks_its_matter_from_the_base_however_long_after() {
     );
     let (first, second) = (works[0], works[1]);
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(path_of(&e, second), ["Q0", "Q2", "H1", "G1", "Q0", "E2"], "{log}");
+    assert_eq!(path_of(&e, second), ["N0", "N2", "H1", "C1", "N0", "R1"], "{log}");
     let base = base_session(&e, first);
     assert_eq!(
         sessions_of(&e, second),
@@ -344,11 +344,11 @@ fn the_first_understanding_is_given_the_latest_whole_entries_of_the_talk() {
     say(&mut e, "Epsilon talk. EPSILONEND");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "B1")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let u1 = input_at(&e, arch, "U1", false);
+    let u1 = input_at(&e, arch, "B1", false);
     assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
     let m = u1["message"].as_str().unwrap();
     assert!(
@@ -393,7 +393,7 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
                     },
                     left: wt.join("left.txt").exists(),
                 });
-                if r.cell == "N1" && n == 1 {
+                if r.cell == "B2" && n == 1 {
                     let tools = json!([{ "tool": "gh", "command": "pr view 1" }]);
                     return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
                 }
@@ -411,10 +411,10 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
 fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
     let s = setup("architect-worktrees");
     let mut agents = scripts();
-    let seen = keep_what_they_saw(&mut agents, &["U1", "N1"]);
+    let seen = keep_what_they_saw(&mut agents, &["B1", "B2"]);
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "Q0");
+    let arch = architect_work_at(&mut e, "N0");
     let worktrees = s.data.join("worktrees");
     let architect = worktrees.join("architect").join("p");
     main_moves_on(&s.root, &[("src/lib.txt", "one\n")], "One");
@@ -430,7 +430,7 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
         let log = said.lock().unwrap().join("\n");
         assert_eq!(seen.len(), 2, "{log}");
         let (u1, n1) = (&seen[0], &seen[1]);
-        assert_eq!((u1.r.cell.as_str(), n1.r.cell.as_str()), ("U1", "N1"), "{log}");
+        assert_eq!((u1.r.cell.as_str(), n1.r.cell.as_str()), ("B1", "B2"), "{log}");
         for saw in [u1, n1] {
             assert_eq!(saw.r.worktree, architect);
             assert_eq!((saw.lib.as_str(), saw.head.as_str()), ("one\n", main.as_str()));
@@ -649,11 +649,11 @@ fn the_architect_runs_at_the_level_the_installation_names() {
     say(&mut e, "Look at the queue.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 10, |e| ran(e, arch, "U1").is_some()),
+        steps_until(&mut e, 10, |e| ran(e, arch, "B1").is_some()),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let (model, call) = ran(&e, arch, "U1").unwrap();
+    let (model, call) = ran(&e, arch, "B1").unwrap();
     let want = (
         "m-two".to_string(),
         json!("2"),
@@ -862,11 +862,11 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
     say(&mut e, "Look at the numbers.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
-        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "B2")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let plan = message_at(&e, arch, "N1", false);
+    let plan = message_at(&e, arch, "B2", false);
     let numbers = given_value(&plan, "·engine·numbers").expect(&plan);
     assert_eq!(
         numbers["weeks"][0]["spent_usd"],
@@ -903,13 +903,13 @@ fn main_red_is_checked_by_the_engine_and_then_judged_by_the_architect() {
     );
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
-    assert_eq!(&path[3..8], ["Q0", "Q2", "L1", "L2", "G1"], "{log}");
-    assert_eq!(rows_at(&e, arch, "Q0")[1], "main_red", "{log}");
-    assert_eq!(rows_at(&e, arch, "L1"), ["red"], "{log}");
+    assert_eq!(&path[3..8], ["N0", "N2", "M1", "M2", "C1"], "{log}");
+    assert_eq!(rows_at(&e, arch, "N0")[1], "main_red", "{log}");
+    assert_eq!(rows_at(&e, arch, "M1"), ["red"], "{log}");
     let checked: Value =
         e.db.conn()
             .query_row(
-                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'L1' AND transition IS NOT NULL",
+                "SELECT output FROM rounds WHERE work = ?1 AND cell = 'M1' AND transition IS NOT NULL",
                 [arch],
                 |r| r.get::<_, String>(0),
             )

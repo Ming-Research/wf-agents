@@ -1,7 +1,7 @@
 //! Checking what only real runs can show, once a work's change took effect: an acceptance condition written `in_effect`
 //! says what carries the change (`when`), the tool that checks it, what to run, what result means it holds and what
 //! evidence it waits for. A merged work with such a condition does not end after what it learned: it waits, holding no
-//! slot (cell `W1`), until every carrier holds its merge commit, then a round in a new session (cell `W2`) runs each
+//! slot (cell `V1`), until every carrier holds its merge commit, then a round in a new session (cell `V2`) runs each
 //! condition's command. Where the evidence is not there yet the round says how long to wait and the work waits again,
 //! as many times as the project's limit; the wait for the change to take effect has a limit too. What does not hold,
 //! cannot be judged or stands unverified at a limit goes to the project's architect as a report.
@@ -36,8 +36,8 @@ const KIND: &str = "in_effect";
 const INSTALLED: &str = "installed";
 
 /// The cell that waits for the change to take effect, and the one that checks each condition with a real run.
-const WAIT: &str = "W1";
-const CHECK: &str = "W2";
+const WAIT: &str = "V1";
+const CHECK: &str = "V2";
 
 /// The row of the cell that checks by which the work goes back to wait, which the limit of looks counts.
 const AGAIN: &str = "again";

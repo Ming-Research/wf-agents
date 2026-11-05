@@ -85,7 +85,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
 });
 
 const architectWork = (id: number, project: string, extra: Partial<WorkSummary> = {}, listens = false): ArchitectWork => ({
-  work: work(id, { item: null, title: null, graph: 'architect', project, at: 'Q0', at_title: 'Look at the queue', ...extra }),
+  work: work(id, { item: null, title: null, graph: 'architect', project, at: 'N0', at_title: 'Look at the queue', ...extra }),
   handling: null,
   listens,
 });
@@ -113,7 +113,7 @@ const works = [
 
 // The architect of p has two works, one waiting for the owner's next words and an older, done one.
 const listening = architectWork(20, 'p', { state: 'waiting', rounds: 4, ran_ms: 2000, cost_usd: 1.5, last_at: 2050 }, true);
-const older = architectWork(18, 'p', { state: 'done', at: 'E2', rounds: 6, ran_ms: 1000, cost_usd: 0.25, last_at: 1850 });
+const older = architectWork(18, 'p', { state: 'done', at: 'R1', rounds: 6, ran_ms: 1000, cost_usd: 0.25, last_at: 1850 });
 
 /// The text of each state's hidden choice this browser keeps, as the page reads it: the states hidden.
 const kept = (hidden: readonly WorkState[]) =>
@@ -311,7 +311,7 @@ describe("a project's architect in the works table", () => {
     expect(cells[3]).toBe('Conversation');
     // At the cell of the work that goes on; no stage; the sums of its works' rounds, run time and cost, and the latest
     // of their last activity; no pull request.
-    expect(cells[4]).toContain('Q0');
+    expect(cells[4]).toContain('N0');
     expect(cells.slice(5)).toEqual(['', '10', duration(3000), time(2050), cost(1.75), '']);
     // It leads to its page and to its one-to-one.
     expect(row).toContain('href="/works/architect?project=p"');

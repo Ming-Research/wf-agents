@@ -32,17 +32,17 @@ const WORKS: WorkCost[] = [
   {
     work: 1,
     stands: stands(),
-    effect: { kind: 'goes_back', through: 'V1', to: 'R1', why: 'cell Z1 is gone', from: 1, redone: 1 },
+    effect: { kind: 'goes_back', through: 'Y1', to: 'R1', why: 'cell Z1 is gone', from: 1, redone: 1 },
   },
   {
     work: 9,
     stands: stands({ item: 6, title: 'Later', at: 'R3' }),
-    effect: { kind: 'goes_back', through: 'V1', to: 'R2', why: 'the return no longer fits', from: 4, redone: 3 },
+    effect: { kind: 'goes_back', through: 'Y1', to: 'R2', why: 'the return no longer fits', from: 4, redone: 3 },
   },
   {
     work: 2,
     stands: stands({ item: 2, title: 'Stuck', paused: 'owner' }),
-    effect: { kind: 'stuck', at: 'V1', pause: 'Start it over, or cancel its item' },
+    effect: { kind: 'stuck', at: 'Y1', pause: 'Start it over, or cancel its item' },
   },
   {
     work: 4,
@@ -52,14 +52,14 @@ const WORKS: WorkCost[] = [
   { work: 3, stands: stands({ item: 3, title: 'Moves', at: 'R0' }), effect: { kind: 'moves' } },
   {
     work: 5,
-    stands: stands({ item: null, title: null, project: 'p', graph: 'architect', version: 3, at: 'Q0' }),
+    stands: stands({ item: null, title: null, project: 'p', graph: 'architect', version: 3, at: 'N0' }),
     effect: { kind: 'stays' },
   },
 ];
 
 const COST: FlowCost = { version: 3, stored: false, works: WORKS };
 
-const TITLES: Record<string, string> = { 'engineer:R1': 'Whether it stands', 'engineer:V1': 'Version check' };
+const TITLES: Record<string, string> = { 'engineer:R1': 'Whether it stands', 'engineer:Y1': 'Version check' };
 const titleOf = (graph: string, cell: string) => TITLES[`${graph}:${cell}`];
 
 const drawn = (cost: FlowCost) =>
@@ -95,9 +95,9 @@ describe('the cost of installing a flow, on the comparison panel', () => {
     expect(said).toContain('W1');
     expect(said).toContain('#1 Back');
     expect(said).toContain('on v1 at Z1');
-    expect(said).toContain('through V1 Version check back to R1 Whether it stands, doing round R1-1 again: cell Z1 is gone');
-    expect(said).toContain('through V1 Version check back to R2, doing round R9-4 and the 2 after it again: the return no longer fits');
-    expect(said).toContain('stays at V1 Version check, paused: Start it over, or cancel its item');
+    expect(said).toContain('through Y1 Version check back to R1 Whether it stands, doing round R1-1 again: cell Z1 is gone');
+    expect(said).toContain('through Y1 Version check back to R2, doing round R9-4 and the 2 after it again: the return no longer fits');
+    expect(said).toContain('stays at Y1 Version check, paused: Start it over, or cancel its item');
     expect(said).toContain('paused by the owner');
     expect(said).toContain('the version has no graph policy');
     expect(said).toContain('flow version 3: does not read');

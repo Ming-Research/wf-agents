@@ -135,7 +135,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
     let started = pass.jobs.iter().find(|s| s.work != work).expect(&log);
-    assert_eq!(started.cell.as_deref(), Some("Q0"), "{log}");
+    assert_eq!(started.cell.as_deref(), Some("N0"), "{log}");
     let arch = started.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -275,7 +275,7 @@ fn the_side_reports_handed_in_before_are_given_once_by_work_and_cell() {
             tx,
             arch,
             1,
-            "Q0",
+            "N0",
             &json!({ "queue": { "verdict": "one", "matter": m } }),
             "one",
         )

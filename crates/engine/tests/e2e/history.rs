@@ -82,12 +82,10 @@ fn the_history_is_gathered_by_the_reader_of_the_line_librarian() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The gatherer reads the live database by the address it is given: the database is in WAL mode, with the engine's
-// connection open, and what was committed to its log and not yet to the file is read too. It is given for git the
-// directory its own round runs in, where the permission check lets git run, and the project's main as git has it there,
-// not the project's checkout (#250).
+// The gatherer is given for git the directory its own round runs in, where the permission check lets git run, and the
+// project's main as git has it there, not the project's checkout (#250).
 #[test]
-fn the_history_s_address_reads_the_live_database_in_wal_mode() {
+fn the_gatherer_s_git_runs_in_its_round_s_directory() {
     let s = setup("history-wal");
     let ran_in: Arc<Mutex<Option<PathBuf>>> = Arc::default();
     let mut agents = scripts();
@@ -104,15 +102,6 @@ fn the_history_s_address_reads_the_live_database_in_wal_mode() {
     let (work, _, _) = state(&e, item).unwrap();
     let log = said.lock().unwrap().join("\n");
     let sources = given_value(&message_at(&e, work, "R0", false), "·engine·history_sources").expect(&log);
-    let database = sources["database"].as_str().unwrap().to_string();
-    assert_eq!(database, config::database(&s.data).display().to_string());
-    assert!(
-        sources["read"]
-            .as_str()
-            .unwrap()
-            .starts_with("sqlite3 -safe -readonly '"),
-        "{sources}"
-    );
     let ran_in = ran_in.lock().unwrap().clone().expect(&log);
     assert_eq!(sources["git"]["directory"].as_str(), ran_in.to_str(), "{sources}");
     assert!(sources.get("checkout").is_none(), "{sources}");
@@ -124,23 +113,5 @@ fn the_history_s_address_reads_the_live_database_in_wal_mode() {
         git(&s.origin, &["rev-parse", "main"]),
         "{sources}"
     );
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute("UPDATE items SET title = 'Only in the log' WHERE id = ?1", [item])?;
-        Ok(())
-    })
-    .unwrap();
-    let wal = std::fs::metadata(format!("{database}-wal")).unwrap();
-    assert!(wal.len() > 0);
-    let out = Command::new("sqlite3")
-        .args([
-            "-safe",
-            "-readonly",
-            &database,
-            &format!("SELECT title FROM items WHERE id = {item}"),
-        ])
-        .output()
-        .expect("sqlite3 runs");
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Only in the log");
     let _ = std::fs::remove_dir_all(&s.root);
 }

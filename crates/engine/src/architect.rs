@@ -9,8 +9,8 @@
 //! sound. The base, the order the matters are taken in and the facts that call for a new base are in [`crate::base`].
 //!
 //! The engine knows a few cells of the architect's graph by their names, as the views over its rounds do: the look at
-//! the queue (`Q0`), which says the matter taken; the writing of a new policy (`P2`) and where it takes effect (`P12`),
-//! which the router tells apart by the owner's reply; the second eye (`G2`); and the first cell of each kind's path
+//! the queue (`N0`), which says the matter taken; the writing of a new policy (`P2`) and where it takes effect (`P3`),
+//! which the router tells apart by the owner's reply; the second eye (`C2`); and the first cell of each kind's path
 //! ([`KINDS`]).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -88,7 +88,7 @@ pub const KINDS: [(&str, &str); 10] = [
     ("failure", HANDLE),
     ("owner_words", HANDLE),
     ("other_architect", HANDLE),
-    (crate::main_watch::MAIN_RED, "L1"),
+    (crate::main_watch::MAIN_RED, "M1"),
     (CHECK, "P1"),
 ];
 
@@ -96,10 +96,10 @@ pub const KINDS: [(&str, &str); 10] = [
 pub const VERIFICATION: &str = "verification";
 
 /// The cells of a matter's session that hand in what a second eye may check, and that the second eye sends it back to.
-const HANDING_IN: [&str; 4] = [HANDLE, "L2", "P1", "P2"];
+const HANDING_IN: [&str; 4] = [HANDLE, "M2", "P1", "P2"];
 
 /// The second eye's cell, whose problems send the matter back to the cell that handed its changes in.
-const SECOND_EYE: &str = "G2";
+const SECOND_EYE: &str = "C2";
 
 /// The check of whether the policy in force still holds, taken with what the plan queued. One is open at a time: one
 /// asked for again takes the newer asker's why.
@@ -108,7 +108,7 @@ const CHECK: &str = "check_policy";
 /// The cell that writes a new policy, whose draft waits for the owner's approval, and the cell where it takes effect once
 /// the owner replied to the question of its approval with exactly this word.
 const SET_POLICY: &str = "P2";
-const TAKES_EFFECT: &str = "P12";
+const TAKES_EFFECT: &str = "P3";
 const APPROVED: &str = "approved";
 
 /// The engine's short question to the owner whether the draft of a new policy is approved.
@@ -116,7 +116,7 @@ const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 
 /// The cells the engine knows by their names: the look at the queue, the pick, the understanding, the rethink after a
 /// batch, and the review of the batch.
-const LOOK: &str = "Q0";
+const LOOK: &str = "N0";
 
 /// The most characters of a matter's record that what came since the base carries.
 const RECORD_MOST: usize = 300;
@@ -412,7 +412,7 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
 }
 
 /// The matter the latest look at the queue in a work of the architect took before round `before`, or before none (cell
-/// `Q0`, its `next.matter`); a pick of a flow version before (`Q1`, its `pick.matter`, or `Q0`'s `queue.matter`) is
+/// `N0`, its `next.matter`); a pick of a flow version before (`Q1`, its `pick.matter`, or `N0`'s `queue.matter`) is
 /// read as it was. None when the latest look took no matter: a planning, a rebuild of the base, or nothing.
 pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Result<Option<i64>, String> {
     let row: Option<(String, Option<String>)> = conn
@@ -525,7 +525,7 @@ fn questions(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     Ok((!rows.is_empty()).then_some(Value::Array(rows)))
 }
 
-/// Cell `Q0`: what comes next for the project's architect, in the engine's fixed order ([`crate::base::next`]), with
+/// Cell `N0`: what comes next for the project's architect, in the engine's fixed order ([`crate::base::next`]), with
 /// the facts that call for a new base as it found them.
 pub fn look_at_queue(e: &mut Engine, w: &Work, _cell: &CompiledCell) -> Result<Value, String> {
     crate::base::next(e, project_of(w)?)
@@ -2643,7 +2643,7 @@ pub fn took_hold(g: &CompiledGraph, r: &Round) -> Option<String> {
     let does = |name: &str| cell.always.iter().any(|a| a.action.as_deref() == Some(name));
     let effects = &outcome["effects"];
     // What can lose something waited for the second eye, and took no effect as the round ended.
-    let checked = cell.rows.iter().any(|x| x.to == "G1");
+    let checked = cell.rows.iter().any(|x| x.to == "C1");
     let held = checked
         && items(effects.get("item_changes"))
             .iter()
@@ -3477,7 +3477,7 @@ fn policy_text_problems(policy: &Value, said: &[String], cell: Option<String>) -
     }
     if let Some(item) = names_item(policy) {
         problems.push(format!(
-            "the policy names the item {item}: what to do next under it is thought out at cell N1, never written \
+            "the policy names the item {item}: what to do next under it is thought out at cell B2, never written \
              into it"
         ));
     }
@@ -4723,7 +4723,7 @@ mod tests {
                 "the policy quotes the owner's words: \"The owner wants the course kept steady for all the projects\"",
                 "the policy names the cell Q1 of the flow",
                 "the policy names a date",
-                "the policy names the item #12: what to do next under it is thought out at cell N1, never written into it",
+                "the policy names the item #12: what to do next under it is thought out at cell B2, never written into it",
             ]
         );
         let clean = json!({ "text": "Keep the course steady." });

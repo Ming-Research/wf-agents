@@ -10,7 +10,7 @@ fn a_work_with_no_condition_in_effect_ends_after_what_it_learned() {
     let (mut e, _, item) = start(&s, scripts());
     step_to(&mut e, item, "E1");
     assert_eq!(transitions(&e, item, "L2"), ["done"]);
-    assert!(transitions(&e, item, "W1").is_empty());
+    assert!(transitions(&e, item, "V1").is_empty());
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

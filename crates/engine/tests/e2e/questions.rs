@@ -67,7 +67,7 @@ fn an_engineer_s_question_is_answered_in_one_round() {
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "H1").expect(&log);
     // The question is handled in one round, which replies.
-    assert_eq!(&path[at - 1..at + 2], ["Q2", "H1", "G1"], "{log}");
+    assert_eq!(&path[at - 1..at + 2], ["N2", "H1", "C1"], "{log}");
     let (output, _) = question(&e).unwrap();
     let output: Value = serde_json::from_str(&output.unwrap()).unwrap();
     assert_eq!(output, json!({ "reply": reply }));

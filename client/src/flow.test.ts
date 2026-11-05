@@ -129,7 +129,7 @@ function limitsOf(m: Measures): Limits {
 /// the owner through its queue (CI run 41030724258), the look at the queue taking the owner's words before a matter back
 /// with the owner's reply and waiting by a row of its own on a question just put, which measured far 97; and for the
 /// architect graph's level runs, on the flow where a matter of two cells goes back to the queue between them and the
-/// look at the queue waits for the owner's next words, rows from `H2`, `H4`, `P1` and `B1` back up to `Q0` that spread
+/// look at the queue waits for the owner's next words, rows from `H2`, `H4`, `P1` and `B1` back up to `N0` that spread
 /// the matters' paths apart, which measured run 6650; and for the engineer graph's beside each, on the flow where the
 /// history is gathered, with cells of a new line beside the research and the design, which measured 83.1; and for the
 /// architect graph's length of a row, on the flow where the ways (`H3`) may ask the owner about an open question (CI run

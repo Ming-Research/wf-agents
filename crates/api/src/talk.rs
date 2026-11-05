@@ -1175,7 +1175,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
            FROM architect_matters m LEFT JOIN taken t ON t.matter = m.id
            WHERE m.project = ?1 AND m.kind <> 'owner_words')
          WHERE shown IS NOT NULL ORDER BY id DESC LIMIT 200",
-        db::cells_sql("architect", &["Q0", "Q1"])
+        db::cells_sql("architect", &["N0", "Q1"])
     ))?;
     let rows = st.query_map([project], |r| {
         Ok((

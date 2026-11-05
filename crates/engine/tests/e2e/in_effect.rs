@@ -62,7 +62,7 @@ type Return = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
 
 /// The rows the looks took by their own answers, in order: not those that only asked for a tool.
 fn looks(e: &Engine, item: i64) -> Vec<String> {
-    transitions(e, item, "W2")
+    transitions(e, item, "V2")
         .into_iter()
         .filter(|t| t != "tools")
         .collect()
@@ -140,7 +140,7 @@ fn looks_counted(e: &Engine, work: i64) -> i64 {
 fn the_wait_passes(e: &mut Engine, work: i64) {
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
-            "UPDATE rounds SET ended_at = ended_at - 120000 WHERE work = ?1 AND cell = 'W2' AND transition = 'again'",
+            "UPDATE rounds SET ended_at = ended_at - 120000 WHERE work = ?1 AND cell = 'V2' AND transition = 'again'",
             [work],
         )?;
         Ok(())
@@ -199,7 +199,7 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     the_engine_s_own(&s);
     let mut agents = verifying(condition("installed"));
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|r: &Request, n: usize| match n {
             // Each look's first round, in a new session, is given how the change took effect.
             1 | 3 => {
@@ -212,12 +212,12 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     );
     let (mut e, said, item) = start(&s, agents);
     e.built_from = main_head(&s);
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
 
     // It waits by the one row, recorded once, and holds no slot.
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried"]);
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried"]);
     let w = e.work(work).unwrap();
     assert!(e.waiting(&w).unwrap());
     let rounds = rounds_of(&e, work);
@@ -228,18 +228,18 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     let other = another_item(&mut e);
     step_to(&mut e, other, "E1");
     assert_eq!(rounds_of(&e, work), rounds);
-    assert_eq!(state(&e, item).unwrap().1, "W1");
+    assert_eq!(state(&e, item).unwrap().1, "V1");
 
     // The build installed now holds the merge, and the first look finds the evidence not there yet.
     e.built_from = main_head(&s);
     step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
     assert_eq!(looks(&e, item).last().unwrap(), "again");
     assert_eq!(looks_counted(&e, work), 1);
-    assert_eq!(state(&e, item).unwrap().1, "W1");
+    assert_eq!(state(&e, item).unwrap().1, "V1");
 
     // Waiting as long as it said, it writes nothing after the row that says so.
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1").last().unwrap(), "not_due");
+    assert_eq!(transitions(&e, item, "V1").last().unwrap(), "not_due");
     let rounds = rounds_of(&e, work);
     e.step(None).unwrap();
     assert_eq!(rounds_of(&e, work), rounds);
@@ -261,7 +261,7 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
                 |r| r.get(0),
             )
             .unwrap();
-    assert_eq!(latest, "W2");
+    assert_eq!(latest, "V2");
 
     // Each look began a session of its own, and not the one the work learned in.
     let session_at = |cell: &str, row: &str| -> i64 {
@@ -275,8 +275,8 @@ fn a_merged_work_waits_for_the_installed_program_holding_no_slot_and_checks_with
     };
     let (learned, first, second) = (
         session_at("L2", "verify"),
-        session_at("W2", "again"),
-        session_at("W2", "verified"),
+        session_at("V2", "again"),
+        session_at("V2", "verified"),
     );
     assert!(learned != first && first != second && learned != second);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -292,10 +292,10 @@ fn a_work_waiting_for_its_change_to_take_effect_keeps_no_session_warm() {
     agents.insert("L2", adding("L2", |_| vec![("@usage", used(1.5, 9_500))]));
     let (mut e, _, item) = start(&s, agents);
     e.built_from = main_head(&s);
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried"]);
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried"]);
     let from = last_call(&e, work);
     assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -307,7 +307,7 @@ fn failing(name: &str, harm_now: bool) -> (Setup, Engine, i64, i64) {
     let s = setup(name);
     let mut agents = verifying(condition("merged"));
     agents.insert(
-        "W2",
+        "V2",
         Box::new(move |_: &Request, n: usize| {
             if n == 1 {
                 return asks(SEVEN);
@@ -374,12 +374,12 @@ fn a_look_past_the_projects_limit_reports_the_condition_and_ends() {
     );
     git(&s.data, &["commit", "-q", "-am", "one look back"]);
     let mut agents = verifying(condition("merged"));
-    agents.insert("W2", Box::new(|_: &Request, _: usize| waits_a_minute()));
+    agents.insert("V2", Box::new(|_: &Request, _: usize| waits_a_minute()));
     let (mut e, said, item) = start(&s, agents);
     step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
     let (work, _, _) = state(&e, item).unwrap();
     assert_eq!(looks(&e, item), ["again"]);
-    assert_eq!(state(&e, item).unwrap().1, "W1");
+    assert_eq!(state(&e, item).unwrap().1, "V1");
     assert!(report_of(&e, item).is_none());
 
     the_wait_passes(&mut e, work);
@@ -414,7 +414,7 @@ fn only_the_engine_s_own_project_can_say_the_installed_program_carries_its_chang
         }),
     );
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return asks(SEVEN);
@@ -431,7 +431,7 @@ fn only_the_engine_s_own_project_can_say_the_installed_program_carries_its_chang
         "{sent_back}"
     );
     assert_eq!(research[1].0.as_deref(), Some("start"));
-    assert_eq!(transitions(&e, item, "W1"), ["look"]);
+    assert_eq!(transitions(&e, item, "V1"), ["look"]);
     assert_eq!(looks(&e, item).last().unwrap(), "verified");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -468,7 +468,7 @@ fn a_tool_refused_for_want_of_configuration_does_not_hold_and_the_report_says_wh
     let not_yet = "No call of the tool yet.";
     let why = "The project's configuration lists no lock file: two [[dependency_sources]] tables are missing.";
     agents.insert(
-        "W2",
+        "V2",
         Box::new(move |_: &Request, n: usize| match n {
             1 | 3 => asks(sql),
             2 => {
@@ -484,7 +484,7 @@ fn a_tool_refused_for_want_of_configuration_does_not_hold_and_the_report_says_wh
     );
     let (mut e, said, item) = start(&s, agents);
     e.built_from = main_head(&s);
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
     // A later build holds the merge: the first look finds no call of the tool at all.
@@ -496,7 +496,7 @@ fn a_tool_refused_for_want_of_configuration_does_not_hold_and_the_report_says_wh
 
     the_wait_passes(&mut e, work);
     step_to(&mut e, item, "E1");
-    let rounds = ended_at(&e, item, "W2");
+    let rounds = ended_at(&e, item, "V2");
     let sent_back = rounds
         .iter()
         .find_map(|(_, rejected)| rejected.as_deref())
@@ -524,20 +524,20 @@ fn a_change_never_installed_within_the_limit_is_reported_unverified_and_the_work
     the_engine_s_own(&s);
     let (mut e, _, item) = start(&s, verifying(condition("installed")));
     e.built_from = main_head(&s);
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried"]);
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried"]);
 
     merged_hours_ago(&mut e, work, 71);
     e.step(None).unwrap();
-    assert_eq!(state(&e, item).unwrap().1, "W1");
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried"]);
+    assert_eq!(state(&e, item).unwrap().1, "V1");
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried"]);
     assert!(report_of(&e, item).is_none());
 
     merged_hours_ago(&mut e, work, 73);
     step_to(&mut e, item, "E1");
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried", "never_in_effect"]);
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried", "never_in_effect"]);
     assert!(looks(&e, item).is_empty());
     let (_, what, body) = report_of(&e, item).unwrap();
     assert!(what.contains("never took effect within the limit"), "{what}");
@@ -554,7 +554,7 @@ fn a_build_that_cannot_be_told_tells_the_owner_once_and_words_take_the_work_on()
     the_engine_s_own(&s);
     let mut agents = verifying(condition("installed"));
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|r: &Request, _: usize| {
             assert!(r.prompt.contains("It was reverted."), "{}", r.prompt);
             answers(json!([{ "verdict": "skipped", "id": "A2", "words": "The owner: it was reverted." }]))
@@ -562,11 +562,11 @@ fn a_build_that_cannot_be_told_tells_the_owner_once_and_words_take_the_work_on()
     );
     let (mut e, _, item) = start(&s, agents);
     e.built_from = "unknown".into();
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell"]);
+    assert_eq!(transitions(&e, item, "V1"), ["cannot_tell"]);
     let told: Vec<String> = notices_of(&e, work)
         .into_iter()
         .filter(|t| t.contains("cannot tell whether the installed program holds merge"))
@@ -575,7 +575,7 @@ fn a_build_that_cannot_be_told_tells_the_owner_once_and_words_take_the_work_on()
 
     owner_says(&mut e, work, "It was reverted.");
     step_to(&mut e, item, "E1");
-    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell", "words"]);
+    assert_eq!(transitions(&e, item, "V1"), ["cannot_tell", "words"]);
     assert_eq!(looks(&e, item), ["verified"]);
     assert!(report_of(&e, item).is_none());
     let _ = std::fs::remove_dir_all(&s.root);
@@ -589,7 +589,7 @@ fn a_condition_that_fails_is_reported_at_once_though_another_is_not_yet() {
     let s = setup("in-effect-fails-at-once");
     let mut agents = verifying_all(vec![on_main("A2", "query", SEVEN), on_main("A3", "query", SEVEN)]);
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return asks(SEVEN);
@@ -600,7 +600,7 @@ fn a_condition_that_fails_is_reported_at_once_though_another_is_not_yet() {
     let (mut e, said, item) = start(&s, agents);
     step_until(&mut e, item, &said, "the look", |e| !looks(e, item).is_empty());
     let (work, _, _) = state(&e, item).unwrap();
-    assert!(why_sent_back(&e, work, "W2").is_empty());
+    assert!(why_sent_back(&e, work, "V2").is_empty());
     assert_eq!(looks(&e, item), ["failed"]);
     assert_eq!(looks_counted(&e, work), 0);
     let (matter, what, body) = report_of(&e, item).unwrap();
@@ -626,7 +626,7 @@ fn a_condition_that_cannot_be_judged_is_reported_once_nothing_is_awaited() {
     let s = setup("in-effect-unjudged");
     let mut agents = verifying_all(vec![on_main("A2", "query", SEVEN), on_main("A3", "query", SEVEN)]);
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return asks(SEVEN);
@@ -654,7 +654,7 @@ fn words_not_to_check_a_condition_hold_for_each_look_after() {
     let mut agents = verifying_all(vec![condition("installed"), second]);
     let skip = || json!({ "verdict": "skipped", "id": "A2", "words": "The owner: it was reverted." });
     agents.insert(
-        "W2",
+        "V2",
         Box::new(move |_: &Request, n: usize| match n {
             1 => again_after(json!([skip(), not_yet("A3")]), 1),
             2 => asks(SEVEN),
@@ -663,15 +663,15 @@ fn words_not_to_check_a_condition_hold_for_each_look_after() {
     );
     let (mut e, said, item) = start(&s, agents);
     e.built_from = "unknown".into();
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell"]);
+    assert_eq!(transitions(&e, item, "V1"), ["cannot_tell"]);
     owner_says(&mut e, work, "It was reverted, so do not check A2.");
     step_until(&mut e, item, &said, "the look on words", |e| !looks(e, item).is_empty());
     assert_eq!(looks(&e, item), ["again"]);
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell", "words", "cannot_tell"]);
+    assert_eq!(transitions(&e, item, "V1"), ["cannot_tell", "words", "cannot_tell"]);
     let told = notices_of(&e, work)
         .iter()
         .filter(|t| t.contains("cannot tell whether the installed program holds merge"))
@@ -690,9 +690,9 @@ fn words_not_to_check_a_condition_hold_for_each_look_after() {
     the_wait_passes(&mut e, work);
     step_to(&mut e, item, "E1");
     assert!(
-        why_sent_back(&e, work, "W2").is_empty(),
+        why_sent_back(&e, work, "V2").is_empty(),
         "{:?}",
-        why_sent_back(&e, work, "W2")
+        why_sent_back(&e, work, "V2")
     );
     assert_eq!(looks(&e, item), ["again", "verified"]);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -730,7 +730,7 @@ fn a_return_that_changes_the_acceptance_answers_for_the_list_it_hands_in() {
         }),
     );
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return asks(SEVEN);
@@ -739,7 +739,7 @@ fn a_return_that_changes_the_acceptance_answers_for_the_list_it_hands_in() {
         }),
     );
     let (mut e, _, item) = start(&s, agents);
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     let sent_back = why_sent_back(&e, work, "I1");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}");
@@ -757,7 +757,7 @@ fn a_look_finds_what_it_saw_in_the_file_a_long_result_was_saved_to() {
     let s = setup("in-effect-long");
     let mut agents = verifying(on_main("A2", "query", LONG));
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| match n {
             1 => asks(LONG),
             2 => answers(json!([holds("A2", LONG, "8")])),
@@ -767,7 +767,7 @@ fn a_look_finds_what_it_saw_in_the_file_a_long_result_was_saved_to() {
     let (mut e, said, item) = start(&s, agents);
     step_until(&mut e, item, &said, "the look", |e| !looks(e, item).is_empty());
     let (work, _, _) = state(&e, item).unwrap();
-    let sent_back = why_sent_back(&e, work, "W2");
+    let sent_back = why_sent_back(&e, work, "V2");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}");
     assert!(
         sent_back[0].contains("is not in the result of that run"),
@@ -863,7 +863,7 @@ fn a_verdict_rests_only_on_a_value_its_own_command_gave() {
         on_main("A8", "gh", ALLOWED),
     ]);
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| match n {
             1 => asks_all(
                 &[NO_ROW, REFUSED, LARGER, BROKEN, OWN, ANOTHER],
@@ -892,7 +892,7 @@ fn a_verdict_rests_only_on_a_value_its_own_command_gave() {
     let (mut e, said, item) = start(&s, agents);
     step_until(&mut e, item, &said, "the look", |e| !looks(e, item).is_empty());
     let (work, _, _) = state(&e, item).unwrap();
-    let sent_back = why_sent_back(&e, work, "W2").join("\n");
+    let sent_back = why_sent_back(&e, work, "V2").join("\n");
     let taken: Vec<&str> = ["A2", "A3", "A4", "A5", "A6", "A7"]
         .into_iter()
         .filter(|id| !sent_back.contains(id))
@@ -922,7 +922,7 @@ fn a_look_takes_no_run_from_before_the_change_took_effect() {
     let effects: Arc<Mutex<Vec<Value>>> = Arc::default();
     let given = effects.clone();
     agents.insert(
-        "W2",
+        "V2",
         Box::new(move |r: &Request, n: usize| {
             let mut given = given.lock().unwrap();
             if n == 1 || n == 4 {
@@ -941,7 +941,7 @@ fn a_look_takes_no_run_from_before_the_change_took_effect() {
     );
     let (mut e, said, item) = start(&s, agents);
     e.built_from = main_head(&s);
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
     owner_says(&mut e, work, "Look now.");
@@ -953,7 +953,7 @@ fn a_look_takes_no_run_from_before_the_change_took_effect() {
     the_wait_passes(&mut e, work);
     step_to(&mut e, item, "E1");
     assert_eq!(
-        transitions(&e, item, "W1"),
+        transitions(&e, item, "V1"),
         ["not_carried", "words", "not_carried", "look"]
     );
     assert_eq!(looks(&e, item), ["again", "verified"]);
@@ -961,9 +961,9 @@ fn a_look_takes_no_run_from_before_the_change_took_effect() {
     assert_eq!(effects[0]["in_effect"], "no");
     assert_eq!(effects[0]["at"], time_of(&e, work, "M2", "merged", "ended_at"));
     assert_eq!(effects[1]["in_effect"], "yes");
-    assert_eq!(effects[1]["at"], time_of(&e, work, "W1", "look", "started_at"));
-    assert!(time_of(&e, work, "W1", "look", "started_at") > time_of(&e, work, "M2", "merged", "ended_at"));
-    let sent_back = why_sent_back(&e, work, "W2");
+    assert_eq!(effects[1]["at"], time_of(&e, work, "V1", "look", "started_at"));
+    assert!(time_of(&e, work, "V1", "look", "started_at") > time_of(&e, work, "M2", "merged", "ended_at"));
+    let sent_back = why_sent_back(&e, work, "V2");
     assert_eq!(sent_back.len(), 2, "{sent_back:?}");
     assert!(sent_back[0].contains("again_after_minutes"), "{sent_back:?}");
     assert!(
@@ -988,7 +988,7 @@ fn looks_over_several_conditions_wait_as_the_latest_says_and_report_what_each_ca
         on_main("A4", "query", SEVEN),
     ]);
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| match n {
             1 | 3 | 5 => asks(SEVEN),
             2 => again_after(json!([cannot_judge("A2"), not_yet("A3"), holds("A4", SEVEN, "7")]), 1),
@@ -1004,7 +1004,7 @@ fn looks_over_several_conditions_wait_as_the_latest_says_and_report_what_each_ca
     step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
     let (work, _, _) = state(&e, item).unwrap();
     assert_eq!(looks(&e, item), ["again"]);
-    let at = given_value(&message_at(&e, work, "W2", false), "effect").unwrap();
+    let at = given_value(&message_at(&e, work, "V2", false), "effect").unwrap();
     assert_eq!(at["at"], time_of(&e, work, "M2", "merged", "ended_at"));
 
     the_wait_passes(&mut e, work);
@@ -1016,12 +1016,12 @@ fn looks_over_several_conditions_wait_as_the_latest_says_and_report_what_each_ca
     e.step(None).unwrap();
     e.step(None).unwrap();
     assert_eq!(looks(&e, item).len(), 2);
-    assert_eq!(state(&e, item).unwrap().1, "W1");
-    assert_eq!(transitions(&e, item, "W1").last().unwrap(), "not_due");
+    assert_eq!(state(&e, item).unwrap().1, "V1");
+    assert_eq!(transitions(&e, item, "V1").last().unwrap(), "not_due");
 
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
-            "UPDATE rounds SET ended_at = ended_at - 2880 * 60000 WHERE work = ?1 AND cell = 'W2' AND transition = 'again'",
+            "UPDATE rounds SET ended_at = ended_at - 2880 * 60000 WHERE work = ?1 AND cell = 'V2' AND transition = 'again'",
             [work],
         )?;
         Ok(())
@@ -1070,7 +1070,7 @@ fn the_wait_follows_the_build_through_not_carried_and_cannot_tell_to_a_look() {
     the_engine_s_own(&s);
     let mut agents = verifying(condition("installed"));
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return asks(SEVEN);
@@ -1080,14 +1080,14 @@ fn the_wait_follows_the_build_through_not_carried_and_cannot_tell_to_a_look() {
     );
     let (mut e, _, item) = start(&s, agents);
     e.built_from = main_head(&s);
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried"]);
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried"]);
 
     e.built_from = "unknown".into();
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried", "cannot_tell"]);
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried", "cannot_tell"]);
     let told = |e: &Engine| {
         notices_of(e, work)
             .iter()
@@ -1097,7 +1097,7 @@ fn the_wait_follows_the_build_through_not_carried_and_cannot_tell_to_a_look() {
     assert_eq!(told(&e), 1);
 
     older(&mut e, &[work], |g| {
-        let w1 = g.cells.iter_mut().find(|c| c.id == "W1").unwrap();
+        let w1 = g.cells.iter_mut().find(|c| c.id == "V1").unwrap();
         w1.rows.retain(|r| r.name != "never_in_effect");
     });
     e.step(None).unwrap();
@@ -1108,7 +1108,7 @@ fn the_wait_follows_the_build_through_not_carried_and_cannot_tell_to_a_look() {
     e.built_from = main_head(&s);
     merged_hours_ago(&mut e, work, 73);
     step_to(&mut e, item, "E1");
-    assert_eq!(transitions(&e, item, "W1"), ["not_carried", "cannot_tell", "look"]);
+    assert_eq!(transitions(&e, item, "V1"), ["not_carried", "cannot_tell", "look"]);
     assert_eq!(looks(&e, item), ["verified"]);
     assert!(report_of(&e, item).is_none());
     let _ = std::fs::remove_dir_all(&s.root);
@@ -1130,21 +1130,21 @@ fn past_the_projects_limit_a_build_not_told_ends_the_wait_after_what_was_said() 
     );
     git(&s.data, &["commit", "-q", "-am", "two hours of waiting"]);
     let mut agents = verifying(condition("installed"));
-    agents.insert("W2", Box::new(|_: &Request, _: usize| waits_a_minute()));
+    agents.insert("V2", Box::new(|_: &Request, _: usize| waits_a_minute()));
     let (mut e, _, item) = start(&s, agents);
     e.built_from = "unknown".into();
-    step_to(&mut e, item, "W1");
+    step_to(&mut e, item, "V1");
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
     merged_hours_ago(&mut e, work, 1);
     e.step(None).unwrap();
-    assert_eq!(state(&e, item).unwrap().1, "W1");
-    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell"]);
+    assert_eq!(state(&e, item).unwrap().1, "V1");
+    assert_eq!(transitions(&e, item, "V1"), ["cannot_tell"]);
 
     merged_hours_ago(&mut e, work, 3);
     owner_says(&mut e, work, "Is it in?");
     step_to(&mut e, item, "E1");
-    assert_eq!(transitions(&e, item, "W1"), ["cannot_tell", "words", "never_in_effect"]);
+    assert_eq!(transitions(&e, item, "V1"), ["cannot_tell", "words", "never_in_effect"]);
     assert_eq!(looks(&e, item), ["again"]);
     let (_, what, body) = report_of(&e, item).unwrap();
     assert_eq!(body["conditions"], json!(["A2"]));
@@ -1161,7 +1161,7 @@ fn a_new_flow_version_leaves_a_work_waiting_between_looks_where_it_stands() {
     let s = setup("in-effect-version");
     let mut agents = verifying(condition("merged"));
     agents.insert(
-        "W2",
+        "V2",
         Box::new(|_: &Request, n: usize| match n {
             1 => waits_a_minute(),
             2 => asks(SEVEN),
@@ -1172,18 +1172,18 @@ fn a_new_flow_version_leaves_a_work_waiting_between_looks_where_it_stands() {
     step_until(&mut e, item, &said, "the first look", |e| !looks(e, item).is_empty());
     let (work, _, _) = state(&e, item).unwrap();
     e.step(None).unwrap();
-    assert_eq!(transitions(&e, item, "W1").last().unwrap(), "not_due");
+    assert_eq!(transitions(&e, item, "V1").last().unwrap(), "not_due");
     let rounds = rounds_of(&e, work);
 
     older(&mut e, &[work], |g| {
-        let w1 = g.cells.iter_mut().find(|c| c.id == "W1").unwrap();
+        let w1 = g.cells.iter_mut().find(|c| c.id == "V1").unwrap();
         w1.rows.retain(|r| r.name != "never_in_effect");
-        let w2 = g.cells.iter_mut().find(|c| c.id == "W2").unwrap();
+        let w2 = g.cells.iter_mut().find(|c| c.id == "V2").unwrap();
         w2.inputs.pop();
     });
     e.step(None).unwrap();
     assert_eq!(versions_of(&e, work).0, e.flow_now);
-    assert_eq!(state(&e, item).unwrap().1, "W1");
+    assert_eq!(state(&e, item).unwrap().1, "V1");
     assert_eq!(rounds_of(&e, work), rounds);
 
     the_wait_passes(&mut e, work);
@@ -1193,7 +1193,7 @@ fn a_new_flow_version_leaves_a_work_waiting_between_looks_where_it_stands() {
     let session_of_look = |row: &str| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT session FROM rounds WHERE work = ?1 AND cell = 'W2' AND transition = ?2",
+                "SELECT session FROM rounds WHERE work = ?1 AND cell = 'V2' AND transition = ?2",
                 params![work, row],
                 |r| r.get(0),
             )

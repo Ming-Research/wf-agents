@@ -4,7 +4,7 @@
 //! `queue_main_red` of the cell the architect waits at to start): once the latest commit's run has finished red, it
 //! queues a matter of main red, which stops the project's merge queue while it is open, so that no work merges onto a
 //! red main. The architect's work takes it after the owner's words and before anything else: the engine first checks it
-//! mechanically (cell `L1`), and only what that does not clear goes to the architect (`L2`), which judges which merge
+//! mechanically (cell `M1`), and only what that does not clear goes to the architect (`M2`), which judges which merge
 //! made main red and whether to have it fixed or to revert that merge first.
 
 use db::rusqlite::params;
@@ -105,7 +105,7 @@ pub fn look(e: &mut Engine) -> Result<(), String> {
     Ok(())
 }
 
-/// Cell `L1`: checks main's red CI mechanically, as the matter in hand gives it, the merge queue stopped meanwhile: runs
+/// Cell `M1`: checks main's red CI mechanically, as the matter in hand gives it, the merge queue stopped meanwhile: runs
 /// each red check again on the same commit, looks in the table of known red checks, and runs the red checks on main's
 /// commit before it, in that order, and lists the merges up to it, each with the work and item it came of.
 pub fn check(e: &mut Engine, w: &Work, round: RoundId) -> Result<Value, String> {

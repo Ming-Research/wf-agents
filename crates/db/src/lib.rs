@@ -2237,7 +2237,7 @@ mod tests {
             )?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
-                 VALUES (1, 1, 'U1', 1, '{}', 'c', 1)",
+                 VALUES (1, 1, 'B1', 1, '{}', 'c', 1)",
                 [],
             )?;
             Ok(())

@@ -1073,7 +1073,7 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// ([`told_apart`]), so that a return of a cell's own answer without a field the answer requires is refused naming it,
 /// as `why` of the engineer's `D2`, which no other form has and which the shape of every form taken together cannot
 /// require. A form all of whose fields other forms have too, such as the engineer's `I1`, whose fields `T6`'s form has
-/// as well, `T5`, whose `columns` `T4`'s has, or the architect's `U1`, whose `notebook` most of its forms have, is told
+/// as well, `T5`, whose `columns` `T4`'s has, or the architect's `B1`, whose `notebook` most of its forms have, is told
 /// apart by no field of its own and is checked by the shape of every form taken together alone: which form a return of
 /// it is cannot be told from its fields, and a rule read from the fields it lacks would be a guess. The command line
 /// refuses such a return saying where and why, and the model hands it in again within the run, one more call that
@@ -1752,12 +1752,9 @@ mod tests {
             json!(["tell_owner", "side_reports", "flow_feedback", "outcome"])
         );
         assert_eq!(s["properties"][&g.within]["additionalProperties"], false);
-        // The reader of the history asks for no tools, so nothing it hands in leaves out `progress`.
+        // The reader of the history asks for tools too, and so leaves out `progress` with them.
         let reader = envelope(g, Some("librarian"));
-        assert_eq!(
-            reader["required"],
-            json!(["progress", "side_reports", "flow_feedback", "outcome"])
-        );
+        assert_eq!(reader["required"], json!(["side_reports", "flow_feedback", "outcome"]));
         for line in ["review", "adversarial", "advisor"] {
             let h = envelope(g, Some(line));
             assert_eq!(
@@ -1864,7 +1861,7 @@ mod tests {
         let f = compiled();
         let g = f.graph("architect").unwrap();
         let s = envelope(g, Some("second_eye"));
-        let schema = g.cell("G2").unwrap().schema.clone().unwrap();
+        let schema = g.cell("C2").unwrap().schema.clone().unwrap();
         let mut check = json!({
             "progress": "Looking at what the change loses",
             "flow_feedback": "none",
@@ -1982,7 +1979,7 @@ mod tests {
         None
     }
 
-    // In a trial, a round of the architect's cell U1 handed in no `tell_owner`, which every return of the architect's
+    // In a trial, a round of the architect's cell B1 handed in no `tell_owner`, which every return of the architect's
     // line holds, and the engine sent the return back, which cost a whole round. The command line now refuses it, saying
     // what is missing, as the installed one did when tried (2.1.312), and the agent hands it in again within its run.
     // The search of observations, a line that tells the owner nothing, has it refused.
@@ -1990,7 +1987,7 @@ mod tests {
     fn a_return_without_a_field_every_return_holds_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let schema = g.cell("U1").unwrap().schema.clone().unwrap();
+        let schema = g.cell("B1").unwrap().schema.clone().unwrap();
         let s = envelope(g, Some("architect"));
         let mut ret = json!({
             "progress": "Reading where each line stands",

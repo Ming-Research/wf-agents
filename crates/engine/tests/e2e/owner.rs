@@ -13,7 +13,7 @@ fn a_single_step_runs_exactly_one_round() {
         e.db.conn()
             .query_row(
                 "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.graph = 'engineer' AND r.cell NOT IN ('G1', 'G2', 'G3')",
+                 WHERE w.graph = 'engineer' AND r.cell NOT IN ('C1', 'C2', 'G3')",
                 [],
                 |r| r.get(0),
             )
@@ -485,7 +485,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     let arch: i64 =
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO works (flow_version, graph, at, project) VALUES (?1, 'architect', 'Q0', 'p')",
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (?1, 'architect', 'N0', 'p')",
                 [v],
             )?;
             Ok(tx.last_insert_rowid())
@@ -544,18 +544,18 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     say(&mut e, "Look at the queue.");
     let first = e.step_architect("p").unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("Q0"), 1), "{log}");
+    assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("N0"), 1), "{log}");
     let arch = first.work.unwrap();
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
     assert_eq!(e.step(None).unwrap().work, None);
     let second = e.step_work(arch).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("U1"), 1), "{log}");
+    assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("B1"), 1), "{log}");
     let third = e.step_architect("p").unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         (third.work, third.cell.as_deref(), third.rounds.len()),
-        (Some(arch), Some("N1"), 1),
+        (Some(arch), Some("B2"), 1),
         "{log}"
     );
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
@@ -860,11 +860,11 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     }
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
-    assert_eq!(path[..3], ["Q0", "U1", "N1"], "{log}");
+    assert_eq!(path[..3], ["N0", "B1", "B2"], "{log}");
     let lines = line_sessions(&e, arch, "architect");
     assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
     assert_eq!((lines[0].0.as_str(), lines[0].1), ("owner", false), "{lines:?}");
-    assert!(lines[0].2.starts_with("U1"), "{lines:?}\n{log}");
+    assert!(lines[0].2.starts_with("B1"), "{lines:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

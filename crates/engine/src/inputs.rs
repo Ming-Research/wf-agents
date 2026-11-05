@@ -1149,14 +1149,11 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
 /// The input that says where the history a gatherer reads is.
 const HISTORY_SOURCES: &str = "history_sources";
 
-/// Where the history is, for the agents that gather it: the database's address, with the command that reads it, and
-/// where git runs, the directory the round itself runs in ([`crate::steps::round_directory`]), with the project's main
-/// as that directory's git has it. That directory is a worktree of the project's repository, which shares the
-/// checkout's objects and refs, so it holds all the history the checkout does; the checkout itself is no place for an
-/// agent to run git: the permission check lets git run in the round's own directory and refuses a `cd` out of it, and
-/// the checkout's own `main` branch is not updated. The database is live, in WAL mode, and the engine holds it open
-/// while a round runs: a plain read-only open sees what its write-ahead log holds, where an immutable open would miss
-/// it, and needs the log's files that the engine's connection keeps there.
+/// Where git runs for the agents that gather the history: the directory the round itself runs in
+/// ([`crate::steps::round_directory`]), with the project's main as that directory's git has it. That directory is a
+/// worktree of the project's repository, which shares the checkout's objects and refs, so it holds all the history the
+/// checkout does; the checkout itself is not for the agent to run git: the permission check lets git run in the round's own
+/// directory and refuses a `cd` out, and the checkout's own `main` branch is not updated.
 fn history_sources(
     e: &Engine,
     w: &Work,
@@ -1172,10 +1169,7 @@ fn history_sources(
         )
     })?;
     let directory = crate::steps::round_directory(e, w, g, cell, item.map(|_| project))?;
-    let database = config::database(&e.data);
     Ok(json!({
-        "database": database.display().to_string(),
-        "read": format!("sqlite3 -safe -readonly '{}' \"<query>\"", database.display()),
         "git": { "directory": directory.display().to_string(), "main": project.main_ref() },
     }))
 }

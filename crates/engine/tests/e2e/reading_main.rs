@@ -172,9 +172,9 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     );
     let (first, checkout) = (git(&s.origin, &["rev-parse", "main"]), s.root.join("checkout"));
     let (root, (to_three, to_four), mut agents) = (s.root.clone(), (three.clone(), four.clone()), scripts());
-    let seen = keeps_prompts(&mut agents, &["U1", "P1"], move |r: &Request, _: usize| {
+    let seen = keeps_prompts(&mut agents, &["B1", "P1"], move |r: &Request, _: usize| {
         // Main moves on while the round runs, and another work's fetch brings it into the checkout.
-        let articles = if r.cell == "U1" { &to_three } else { &to_four };
+        let articles = if r.cell == "B1" { &to_three } else { &to_four };
         main_moves_on(
             &root,
             &[
@@ -189,7 +189,7 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     a_check_of_the_policy_is_queued(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     for _ in 0..8 {
         if seen.lock().unwrap().len() >= 2 {
             break;
@@ -201,7 +201,7 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     let seen = seen.lock().unwrap();
     assert_eq!(
         seen.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(),
-        ["U1", "P1"],
+        ["B1", "P1"],
         "{log}"
     );
     // The constitution and the guide it was given are those of the commit it was pinned to, not of the later ones.
@@ -213,7 +213,7 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
     assert!(!u1.contains("Keep it plain.") && !u1.contains("third way"), "{u1}");
     // The check of the policy, forked from the base, is not given the constitution main moved on to while it ran.
     assert!(!p1.contains("Keep it warm."), "{p1}");
-    assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
+    assert_eq!(pinned_main(&e, arch, "B1").as_deref(), Some(first.as_str()), "{log}");
     assert_eq!(pinned_main(&e, arch, "P1").as_deref(), Some(second.as_str()), "{log}");
     assert_eq!(rows_at(&e, arch, "P1"), ["holds"], "{log}");
     let sent_back: i64 =
@@ -245,10 +245,10 @@ fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_a
     // The second way is committed now and reaches main right after the round's first fetch is answered.
     commit_on_main(&s.root, &[("AGENTS.md", "Work the second way.\n")], "The second way");
     let mut agents = scripts();
-    let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let seen = keeps_prompts(&mut agents, &["B1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     let before = fetches.so_far();
     fetches.push_after_the_next();
     e.advance(arch).unwrap();
@@ -264,7 +264,7 @@ fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_a
         std::fs::read_to_string(worktree.join("AGENTS.md")).unwrap(),
         "Work the first way.\n"
     );
-    assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
+    assert_eq!(pinned_main(&e, arch, "B1").as_deref(), Some(first.as_str()), "{log}");
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 1, "{log}");
     assert!(seen[0].1.contains("Work the first way."), "{}", seen[0].1);
@@ -331,10 +331,10 @@ fn an_architect_whose_worktree_cannot_be_brought_to_main_is_paused_or_waits_and_
             ..Hooks::default()
         };
         let mut agents = scripts();
-        let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+        let seen = keeps_prompts(&mut agents, &["B1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
         let (mut e, said) = engine_with(&s, agents, hooks);
         quiet(&mut e);
-        let arch = architect_work_at(&mut e, "U1");
+        let arch = architect_work_at(&mut e, "B1");
         let away = s.root.join("origin-away");
         std::fs::rename(&s.origin, &away).unwrap();
         e.advance(arch).unwrap();
@@ -347,7 +347,7 @@ fn an_architect_whose_worktree_cannot_be_brought_to_main_is_paused_or_waits_and_
         if up {
             let why = paused.unwrap_or_else(|| panic!("not paused\n{log}"));
             assert!(
-                why.starts_with("cell U1: the architect's worktree ") && why.contains("could not be brought to main"),
+                why.starts_with("cell B1: the architect's worktree ") && why.contains("could not be brought to main"),
                 "{why}"
             );
             // Put right, the owner presses Start: the round starts, at the commit main has.
@@ -376,11 +376,11 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
     names_a_constitution(&s);
     let main = git(&s.origin, &["rev-parse", "main"]);
     let mut agents = scripts();
-    let seen = keeps_prompts(&mut agents, &["R0", "U1"], |_: &Request, _: usize| {
+    let seen = keeps_prompts(&mut agents, &["R0", "B1"], |_: &Request, _: usize| {
         (Vec::new(), Vec::new())
     });
     let (mut e, said, item) = start(&s, agents);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     for _ in 0..4 {
         e.tick().unwrap();
     }
@@ -391,7 +391,7 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
             .query_row("SELECT paused FROM works WHERE id = ?1", [work], |r| r.get(0))
             .unwrap()
     };
-    for (work, cell) in [(state(&e, item).unwrap().0, "R0"), (arch, "U1")] {
+    for (work, cell) in [(state(&e, item).unwrap().0, "R0"), (arch, "B1")] {
         let why = paused(work).unwrap_or_else(|| panic!("work {work} is not paused\n{log}"));
         assert!(
             why.starts_with(&format!("cell {cell}: project p: constitution: ")),
@@ -407,7 +407,7 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
     // The rounds did not start: none of the cells has one.
     let started: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM rounds WHERE cell IN ('R0', 'U1')", [], |r| {
+            .query_row("SELECT count(*) FROM rounds WHERE cell IN ('R0', 'B1')", [], |r| {
                 r.get(0)
             })
             .unwrap();
@@ -431,7 +431,7 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
     let seen = seen.lock().unwrap();
     let mut cells: Vec<&str> = seen.iter().map(|x| x.0.as_str()).collect();
     cells.sort_unstable();
-    assert_eq!(cells, ["R0", "U1"], "{log}");
+    assert_eq!(cells, ["B1", "R0"], "{log}");
     assert!(seen.iter().all(|x| x.1.contains("Keep it small.")), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -602,10 +602,10 @@ fn the_preview_of_a_message_fetches_nothing_and_the_round_does() {
         "A stricter constitution",
     );
     let mut agents = scripts();
-    let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let seen = keeps_prompts(&mut agents, &["B1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
     let (mut e, _) = engine(&s, agents);
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     let preview = engine::next_message(&mut e, arch).unwrap().text;
     assert!(preview.contains("Keep it small."), "{preview}");
     assert!(!preview.contains("Keep it smaller, always."), "{preview}");
@@ -631,7 +631,7 @@ fn a_checkout_without_the_remote_s_main_gives_no_text_from_its_own_branch() {
     assert!(checkout.join("AGENTS.md").exists());
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let arch = architect_work_at(&mut e, "U1");
+    let arch = architect_work_at(&mut e, "B1");
     let err = match engine::next_message(&mut e, arch) {
         Ok(m) => panic!("a message was built from the checkout's own files: {}", m.text),
         Err(err) => err,
