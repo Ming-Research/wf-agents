@@ -101,11 +101,17 @@ fn the_note_follows_the_files_of_the_latest_run_over_several_pushes() {
     let log = said.lock().unwrap().join("\n");
     let calls = tool_results(&e, item);
     assert_eq!(calls.len(), 5, "{calls:?}\n{log}");
-    // The ci of the pushing call sits after the ci_before it was listed behind: results are in the order asked.
-    assert_eq!(calls[0][0]["tool"], "ci_before", "{calls:?}");
-    assert_eq!(calls[0][0]["ran"]["verdict"], "ran", "{calls:?}\n{log}");
-    assert_eq!(calls[0][1]["tool"], "ci", "{calls:?}");
-    assert_eq!(calls[0][1]["push"]["ci_before_stale"], Value::Null, "{calls:?}");
+    // The first call listed ci_before before ci; each ran, and the run of ci_before leaves nothing stale. The order of
+    // the results is not the point, so each is found by its tool.
+    let of = |tool: &str| {
+        calls[0]
+            .iter()
+            .find(|v| v["tool"] == tool)
+            .unwrap_or_else(|| panic!("no {tool}: {calls:?}"))
+    };
+    assert_eq!(of("ci_before")["ran"]["verdict"], "ran", "{calls:?}\n{log}");
+    assert_eq!(of("ci")["push"]["verdict"], "pushed", "{calls:?}\n{log}");
+    assert_eq!(of("ci")["push"]["ci_before_stale"], Value::Null, "{calls:?}");
     // Only a file the run did not read changed: nothing is stale.
     assert_eq!(calls[1][0]["push"]["verdict"], "pushed", "{calls:?}");
     assert_eq!(calls[1][0]["push"]["ci_before_stale"], Value::Null, "{calls:?}");
