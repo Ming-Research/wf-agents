@@ -7,7 +7,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 use config::toml_edit::Value;
@@ -173,9 +172,7 @@ fn view(c: &config::Config, commit: &str, compiled: &flow::Compiled) -> Settings
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
+    let out = config::shared_git::command(dir)
         .args(args)
         .output()
         .map_err(|e| format!("git: {e}"))?;
@@ -692,6 +689,8 @@ pub fn set_level(db: &mut Db, data: &Path, item: i64, level: &str) -> Result<Str
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+
     use super::*;
 
     fn run(dir: &Path, args: &[&str]) {

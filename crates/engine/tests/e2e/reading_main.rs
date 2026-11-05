@@ -2,51 +2,126 @@
 
 use super::*;
 
-/// Notes each fetch that reaches project p's remote from its checkout. A fetch runs `git upload-pack` at the remote,
-/// which the checkout's remote is set here to run as a script that notes the run and then does it; so every fetch is
-/// noted once, whoever makes it. The script can also push the commit that [`commit_on_main`] made right after the next
-/// fetch is answered, as another work's push reaching main while a fetch is under way.
+/// Notes each fetch that reaches project p's remote from its checkout. The checkout's remote is set here to a server
+/// of this test, which gives the origin's files over plain HTTP (git's "dumb" protocol) and is asked for the remote's
+/// `info/refs` once by each fetch, whoever makes it. A program named by the checkout's configuration cannot be the
+/// instrument: the engine's git runs none that the configuration names. The server can also push the commit that
+/// [`commit_on_main`] made right after the next fetch is answered, as another work's push reaching main while a fetch
+/// is under way.
 struct Fetches {
-    root: PathBuf,
+    count: Arc<AtomicUsize>,
+    push_after: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Fetches {
     fn watching(s: &Setup) -> Fetches {
+        use std::io::{Read, Write};
         let root = s.root.clone();
-        let script = root.join("upload-pack.sh");
-        let r = root.display();
-        write(
-            &root,
-            "upload-pack.sh",
-            &format!(
-                "#!/bin/sh\n\
-                 echo fetch >> '{r}/fetches'\n\
-                 git upload-pack \"$@\"\n\
-                 status=$?\n\
-                 if [ -f '{r}/push-after' ]; then\n\
-                 \x20 rm '{r}/push-after'\n\
-                 \x20 (unset GIT_DIR; git -C '{r}/elsewhere' push -q origin HEAD:main)\n\
-                 fi\n\
-                 exit $status\n"
-            ),
-        );
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let origin = root.join("origin.git");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let count = Arc::new(AtomicUsize::new(0));
+        let push_after = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (counted, pushing, stopped) = (Arc::clone(&count), Arc::clone(&push_after), Arc::clone(&stop));
+        let thread = std::thread::spawn(move || {
+            while !stopped.load(Ordering::Relaxed) {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut head = Vec::new();
+                let mut chunk = [0u8; 4096];
+                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => head.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                // The request line is `GET /<path>?<query> HTTP/1.1`.
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let target = head.split_whitespace().nth(1).unwrap_or("/");
+                let path = target
+                    .split('?')
+                    .next()
+                    .unwrap_or("/")
+                    .trim_start_matches('/')
+                    .to_string();
+                let refs = path == "info/refs";
+                if refs {
+                    counted.fetch_add(1, Ordering::Relaxed);
+                    // The files that list the refs and the packs are made as the origin is at this moment.
+                    let _ = Command::new("git")
+                        .arg("-C")
+                        .arg(&origin)
+                        .arg("update-server-info")
+                        .env_remove("GIT_DIR")
+                        .status();
+                }
+                let body = if path.split('/').any(|p| p == "..") {
+                    None
+                } else {
+                    std::fs::read(origin.join(&path)).ok()
+                };
+                let _ = match &body {
+                    Some(b) => stream
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                b.len()
+                            )
+                            .as_bytes(),
+                        )
+                        .and_then(|()| stream.write_all(b)),
+                    None => stream.write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    ),
+                };
+                drop(stream);
+                if refs && pushing.swap(false, Ordering::Relaxed) {
+                    let _ = Command::new("git")
+                        .arg("-C")
+                        .arg(root.join("elsewhere"))
+                        .args(["push", "-q", "origin", "HEAD:main"])
+                        .env_remove("GIT_DIR")
+                        .status();
+                }
+            }
+        });
         git(
-            &root.join("checkout"),
-            &["config", "remote.origin.uploadpack", &script.to_string_lossy()],
+            &s.root.join("checkout"),
+            &["config", "remote.origin.url", &format!("http://127.0.0.1:{port}")],
         );
-        Fetches { root }
+        Fetches {
+            count,
+            push_after,
+            stop,
+            thread: Some(thread),
+        }
     }
 
     /// How many fetches there have been since the watching began.
     fn so_far(&self) -> usize {
-        std::fs::read_to_string(self.root.join("fetches")).map_or(0, |t| t.lines().count())
+        self.count.load(Ordering::Relaxed)
     }
 
     /// Has the commit made with [`commit_on_main`] pushed to main right after the next fetch is answered.
     fn push_after_the_next(&self) {
-        write(&self.root, "push-after", "");
+        self.push_after.store(true, Ordering::Relaxed);
+    }
+}
+
+impl Drop for Fetches {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
