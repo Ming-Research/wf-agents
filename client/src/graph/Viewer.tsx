@@ -227,7 +227,7 @@ export function Viewer(props: {
           return;
         }
         const s = saved.current && saved.current > t.s * 1.05 ? saved.current : 1;
-        const m = centre();
+        const m = pointed() ?? centre();
         const [cx, cy] = centre();
         const px = (m[0] - v.x) / v.s;
         const py = (m[1] - v.y) / v.s;
