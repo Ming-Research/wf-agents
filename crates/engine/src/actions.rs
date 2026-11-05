@@ -797,6 +797,16 @@ pub(crate) enum Carried {
     NotYet,
 }
 
+/// Closes a pull request, unless GitHub says it merged. The engine's record of a merge may lack one that GitHub made
+/// (the answer of its merge call was lost), and gh refuses to close a merged pull request, so the state is read from
+/// GitHub when the close is carried out. A merged pull request is done with: it is neither closed nor commented on.
+fn close_unless_merged(github: &dyn crate::hub::GitHub, repo: &str, pr: i64, comment: &str) -> Result<(), String> {
+    if github.merge_commit(repo, pr).map_err(|f| f.what)?.is_some() {
+        return Ok(());
+    }
+    github.close(repo, pr, comment).map_err(|f| f.what)
+}
+
 /// Carries out what is due in the outbox, as only the engine's loop does; an action that fails is tried again later,
 /// waiting longer each time. An action on a work with a job in flight (its start over, its item's cancel, lifting its
 /// pause, the removal of its worktree, closing its pull request, reverting its merge) waits until the job has ended,
@@ -835,11 +845,12 @@ pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
                 let checkout = PathBuf::from(text("checkout"));
                 done(git::remove_worktree(&checkout, Path::new(text("dir"))))
             }
-            "close_pr" => done(
-                e.github()
-                    .close(text("repo"), args["pr"].as_i64().unwrap_or_default(), text("comment"))
-                    .map_err(|f| f.what),
-            ),
+            "close_pr" => done(close_unless_merged(
+                e.github(),
+                text("repo"),
+                args["pr"].as_i64().unwrap_or_default(),
+                text("comment"),
+            )),
             "revert_merge" => done(revert(e, args)),
             other => Err(format!("no such outbox action: {other}")),
         };

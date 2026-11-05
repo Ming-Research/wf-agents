@@ -315,6 +315,34 @@ fn a_cancel_during_the_merge_s_full_ci_stops_the_merge() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// GitHub merges a pull request while the merge step waits for the full CI, outside the engine's merge call, as when the
+// answer of that call was lost, so the engine's record has no merge. A cancel that comes then ends the work and queues
+// the close of its pull request. GitHub refuses to close a merged pull request, so the close must find the merge on
+// GitHub and close nothing: no close is called, and no row is left in the outbox to be tried again.
+// What the item records of that cancel (cancelled, or merged) is the record that makes it agree with GitHub, which is
+// not this test's; it asserts the close alone.
+#[test]
+fn a_cancel_after_github_merged_the_pull_request_closes_nothing() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-after-github-merge");
+    held_at_full_ci(&mut e, &s, &said);
+    let pr = *s.prs.lock().unwrap().keys().next().unwrap();
+    FakeHub::squash_merge(&s.origin, &s.root, &s.prs, "o/p", pr).unwrap();
+    cancel(&mut e, item, "owner");
+    s.ci.open();
+    // Settled once the work has ended, and either a close was asked of GitHub, which the assertions refuse, or the
+    // outbox holds no close. A close asked here fails the test at once, not at the time limit.
+    let settled = turns_until(&mut e, &Go::default(), |e| {
+        ended_why(e, work).is_some()
+            && (s.closing.came() > 0 || number(e, "SELECT count(*) FROM outbox WHERE kind = 'close_pr'") == 0)
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(settled, "{log}");
+    assert_eq!(s.closing.came(), 0, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// A cancel asked by `by` while the merge call is under way: the merge came first, and stands.
 fn a_cancel_during_the_merge_call(name: &str, by: &str) -> (Setup, Engine, i64) {
     let (s, mut e, said, item, work) = at_the_merge(name);
@@ -983,6 +1011,17 @@ fn a_resume_that_met_the_lifting_of_its_pause_does_not_lift_the_owner_s_next_pau
 #[test]
 fn a_resume_withdrawn_during_the_loop_s_turn_lifts_nothing() {
     let s = setup("resume-withdrawn-in-turn");
+    // The close row below names pull request 1. The fake GitHub holds it, as GitHub would, so that the close is
+    // asked of an open pull request and reaches the gate; a pull request it does not hold is refused before the gate.
+    s.prs.lock().unwrap().insert(
+        1,
+        Pr {
+            branch: "unrelated/pr-1".into(),
+            base: "main".into(),
+            state: PrState::Open,
+            merged_as: None,
+        },
+    );
     let (mut e, said, _) = start(&s, scripts());
     let work = e.step(None).unwrap().work.unwrap();
     api::pause(&mut e.db, work, None).unwrap();
