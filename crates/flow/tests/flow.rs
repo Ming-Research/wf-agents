@@ -238,9 +238,15 @@ fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
             "Cancel an item; its work ends",
             "whose merge comes first, is not cancelled",
         ),
-        ("Let a work you paused go on", "once its machine has a slot free"),
-        ("Let a work you paused go on", "later Pause or Step"),
-        ("Let a work you paused go on", "the engine's pause for a problem"),
+        ("Let a work go on, once its machine has a slot free", "one you paused"),
+        (
+            "Let a work go on, once its machine has a slot free",
+            "later Pause or Step",
+        ),
+        (
+            "Let a work go on, once its machine has a slot free",
+            "the engine's pause for a problem",
+        ),
     ] {
         let line = FLOW.lines().find(|l| l.contains(said)).unwrap();
         assert!(line.contains(want), "{line}");
