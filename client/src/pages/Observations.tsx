@@ -18,7 +18,7 @@ import { time } from '../format';
 import { postJson } from '../http';
 import { words } from '../labelled';
 import { reread, useResource, useShared } from '../live';
-import { firstWords, Markdown, MarkdownInline, MarkdownLine } from '../markdown';
+import { excerptWords, firstWords, Markdown, MarkdownExcerpt, MarkdownInline, MarkdownLine } from '../markdown';
 import {
   filters,
   handled,
@@ -92,9 +92,21 @@ function Row({ o, project, open }: { o: Observation; project: string | null; ope
         navigate(to);
       }}
     >
-      <span className="obs-what" title={firstWords(line)}>
-        <MarkdownLine text={line} />
-      </span>
+      {o.title !== null ? (
+        <>
+          <span className="obs-what" title={firstWords(line)}>
+            <MarkdownLine text={line} />
+          </span>
+          <span className="obs-content" title={excerptWords(o.what)}>
+            <MarkdownExcerpt text={o.what} />
+          </span>
+        </>
+      ) : (
+        // One recorded before observations had titles has no title to lead with: its content leads.
+        <span className="obs-what obs-body" title={excerptWords(o.what)}>
+          <MarkdownExcerpt text={o.what} />
+        </span>
+      )}
       <NavList.Description variant="block" className="obs-facts">
         <span className="obs-facts-line" title={whole}>
           {o.tags.map((x) => (
@@ -250,6 +262,7 @@ function Open({ o, project, route }: { o: Observation; project: string; route: O
   const items = useShared<ItemsData>('items', '/api/v1/items');
   const item = o.folded_into !== null ? items?.items.find((i) => i.id === o.folded_into) : undefined;
   const head = factsAfter([
+    t('observation_number', { id: o.id }),
     project,
     o.tags.length > 0 ? (
       <span className="obs-head-tags">
@@ -266,7 +279,10 @@ function Open({ o, project, route }: { o: Observation; project: string; route: O
       <HeadingLevel.Provider value={2}>
         <PageHeader as="header" className="item-head">
           <PageHeader.TitleArea className="item-head-title">
-            <PageHeader.Title as="h1">{t('observation_head', { id: o.id })}</PageHeader.Title>
+            {/* The title the list shows for it, or for one with none the words it starts with. */}
+            <PageHeader.Title as="h1">
+              <MarkdownLine text={rowLine(o)} />
+            </PageHeader.Title>
             <span className="item-head-facts muted">
               {head.map((x, k) => (
                 <Fragment key={k}>{x}</Fragment>

@@ -55,6 +55,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   started_at: id * 100,
   last_at: id * 100 + 50,
   ran_ms: 0,
+  time: { from: 0, until: 0, model_ms: 0, tool_ms: 0, engine_ms: 0, bar: '' },
   rounds: 10,
   sent_back: 0,
   failed: 0,

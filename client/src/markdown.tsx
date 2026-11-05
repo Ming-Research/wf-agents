@@ -5,7 +5,7 @@
 // markup the page did not mean: nothing in the text is taken as HTML, and a diagram is drawn by its library and
 // sanitised before it is shown.
 
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 
 import type { Items as ItemsData } from './api';
 import { Diagram, diagramKind, type DiagramKind } from './diagram';
@@ -403,4 +403,35 @@ export const firstWords = (text: string): string => said(inline(lead(parse(text)
 /// paragraph, heading or list item as its inline parts, with no link, since the row is one.
 export function MarkdownLine({ text }: { text: string }) {
   return <Inlines parts={inline(lead(parse(text)[0]))} plain />;
+}
+
+/// The words of a text an agent wrote, block after block: a paragraph or heading whole, each item of a list, a code
+/// block's first line, a diagram left out.
+function excerptOf(blocks: Block[]): string[] {
+  return blocks
+    .flatMap((b): string[] => {
+      if (b.kind === 'list') return b.items.flatMap(excerptOf);
+      if (b.kind === 'diagram') return [];
+      return [lead(b)];
+    })
+    .filter((x) => x !== '');
+}
+
+/// What a text an agent wrote says, with no markup, the blocks one after another on one run: what a row that shows its
+/// content says on hovering when it cuts it.
+export const excerptWords = (text: string): string => excerptOf(parse(text)).map((p) => said(inline(p))).join(' ');
+
+/// A text an agent wrote as a row shows its content: the words of its blocks one after another in one run, with no link,
+/// since the row is one, for the row to cut to a few lines.
+export function MarkdownExcerpt({ text }: { text: string }) {
+  return (
+    <>
+      {excerptOf(parse(text)).map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 ? ' ' : null}
+          <Inlines parts={inline(p)} plain />
+        </Fragment>
+      ))}
+    </>
+  );
 }

@@ -10,6 +10,7 @@
 //! Each project's architect's works are taken the same way.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -81,6 +82,8 @@ pub struct Control {
     fresh: Mutex<Vec<Fresh>>,
     /// The works the engine is taking a step of now.
     running: Mutex<BTreeSet<i64>>,
+    /// Whether the engine has seen its stop file and waits for the steps in flight to end.
+    engine_stopping: AtomicBool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -108,6 +111,7 @@ impl Default for Control {
             changed: Condvar::new(),
             fresh: Mutex::new(Vec::new()),
             running: Mutex::new(BTreeSet::new()),
+            engine_stopping: AtomicBool::new(false),
         }
     }
 }
@@ -263,10 +267,16 @@ impl Control {
         *lock(&self.running) = works.iter().copied().collect();
     }
 
-    /// The engine's status as the loop last built it, with what the owner asked and the works whose rounds run, as
-    /// they are now.
+    /// Says that the engine has seen its stop file: from now on its status says it is stopping.
+    pub fn set_engine_stopping(&self) {
+        self.engine_stopping.store(true, Ordering::SeqCst);
+    }
+
+    /// The engine's status as the loop last built it, with what the owner asked, whether the engine is stopping and the
+    /// works whose rounds run, as they are now.
     pub fn status(&self, mut s: Status) -> Status {
         let a = self.asked();
+        s.engine_stopping = self.engine_stopping.load(Ordering::SeqCst);
         s.paused = a.paused;
         s.keep_warm = a.keep_warm;
         s.started = a.started.iter().copied().collect();
@@ -414,6 +424,7 @@ mod tests {
             releasing: Vec::new(),
             waiting_for_slot: Vec::new(),
             stopping: Vec::new(),
+            engine_stopping: false,
             architects_started: Vec::new(),
             running: Vec::new(),
             stepping: Vec::new(),
@@ -446,6 +457,36 @@ mod tests {
         assert!(!s.paused && !s.keep_warm);
         assert_eq!((s.running, s.stepping), (vec![5, 7], vec![6, 2]));
         assert_eq!(s.flow_version, 3);
+    }
+
+    #[test]
+    fn the_status_says_the_engine_is_stopping_once_it_has_seen_its_stop_file() {
+        let c = Control::default();
+        let base = Status {
+            paused: false,
+            keep_warm: false,
+            started: Vec::new(),
+            releasing: Vec::new(),
+            waiting_for_slot: Vec::new(),
+            stopping: Vec::new(),
+            engine_stopping: false,
+            architects_started: Vec::new(),
+            running: Vec::new(),
+            stepping: Vec::new(),
+            last_step: None,
+            slots: 2,
+            slots_used: 1,
+            flow_version: 3,
+            config_commit: "c".into(),
+            repos: std::collections::BTreeMap::new(),
+            started_at: 1,
+            version: "v".into(),
+            halt: None,
+        };
+        assert!(!c.status(base.clone()).engine_stopping);
+        c.set_engine_stopping();
+        // What the loop built before it saw the file says the same once the control has been told.
+        assert!(c.status(base).engine_stopping);
     }
 
     #[test]
