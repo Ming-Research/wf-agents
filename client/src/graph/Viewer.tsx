@@ -227,7 +227,7 @@ export function Viewer(props: {
           return;
         }
         const s = saved.current && saved.current > t.s * 1.05 ? saved.current : 1;
-        const m = pointed() ?? centre();
+        const m = centre();
         const [cx, cy] = centre();
         const px = (m[0] - v.x) / v.s;
         const py = (m[1] - v.y) / v.s;
@@ -351,9 +351,8 @@ export function Viewer(props: {
       }
     };
     const key = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || a.pointed() === null) return;
+      if (e.code !== 'Space') return;
       const t = e.target as HTMLElement | null;
-      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       e.preventDefault();
       // A button keeps focus after a click, and Space would press it again.
       if (t && t.tagName === 'BUTTON') t.blur();
