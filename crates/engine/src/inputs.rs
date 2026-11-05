@@ -381,7 +381,7 @@ pub fn answered(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<V
         .collect())
 }
 
-/// Whether a cell has an input that reads the project's files on its main ([`crate::architect::MAIN_INPUTS`]).
+/// Whether a cell has an input that reads the project's main ([`crate::architect::MAIN_INPUTS`]).
 pub fn reads_main(cell: &CompiledCell) -> bool {
     cell.inputs
         .iter()
@@ -411,7 +411,7 @@ impl Pin {
 }
 
 /// The commit of the project's main that a round of a cell reads the project at, which every input of the cell that
-/// reads the project's files on its main is read at ([`crate::architect::MAIN_INPUTS`]), so that the round is given
+/// reads the project's main is read at ([`crate::architect::MAIN_INPUTS`]), so that the round is given
 /// one version of the project, and which the round's record keeps ([`Pin::record`]): with `fetch`, after bringing
 /// `origin/<main>` in the project's checkout to the remote's main now, and else as the checkout has it. A fetch that
 /// fails does not stop the round while `origin/<main>` still has a commit from an earlier fetch: the round goes on at

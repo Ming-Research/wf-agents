@@ -143,10 +143,39 @@ impl Seed {
 
     /// A run of a tool in a round, queued at a time and ended at another, or not yet.
     fn tool(&mut self, work: i64, round: i64, tool: &str, queued: i64, ended: Option<i64>) {
+        self.tool_run((work, round), tool, &json!({}), None, queued, ended);
+    }
+
+    /// A run of a tool in a round, by its work and its number, with what it was given and what it gave.
+    fn tool_run(
+        &mut self,
+        (work, round): (i64, i64),
+        tool: &str,
+        args: &Value,
+        result: Option<&Value>,
+        queued: i64,
+        ended: Option<i64>,
+    ) {
         self.sql(
-            "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at, started_at, ended_at)
-             VALUES (?1, ?2, ?3, '{}', 1, ?4, ?4, ?5)",
-            params![work, round, tool, queued, ended],
+            "INSERT INTO tool_runs (work, round, tool, args, result, attempt, queued_at, started_at, ended_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6, ?7)",
+            params![
+                work,
+                round,
+                tool,
+                args.to_string(),
+                result.map(Value::to_string),
+                queued,
+                ended
+            ],
+        );
+    }
+
+    /// A merge the engine reverted at a time, as the architect's work asked; `revert` is the commit on main.
+    fn revert(&mut self, work: i64, merge: &str, revert: &str, at: i64) {
+        self.sql(
+            "INSERT INTO reverts (work, merge_commit, revert_commit, at) VALUES (?1, ?2, ?3, ?4)",
+            params![work, merge, revert, at],
         );
     }
 
@@ -241,14 +270,18 @@ fn usage(calls: &[(i64, i64, i64)]) -> Value {
     json!({ "usage": { "iterations": calls }, "cost_usd": 0.01 })
 }
 
-// A check of main after a merge that found main broken by the merge counts in the minute it ended, the first
-// millisecond of a minute being that minute's; a check that found something else, a round of another cell and another
-// project's check do not count for the project.
+// The architect's check of main's red CI that found a merge made main red counts in the minute it ended, the first
+// millisecond of a minute being that minute's; a check that found something else, a round of another cell, another
+// project's check, and the old watch of main on an engineer's graph do not count for the project.
 #[test]
 fn a_merge_that_broke_main_counts_where_its_check_ended() {
     let mut s = Seed::new();
-    let (i, j) = (s.item("p", false, T0 - 60 * M), s.item("q", false, T0 - 60 * M));
-    let (w, v) = (s.work(Some(i), "engineer", None), s.work(Some(j), "engineer", None));
+    let i = s.item("p", false, T0 - 60 * M);
+    let (w, v, old) = (
+        s.work(None, "architect", Some("p")),
+        s.work(None, "architect", Some("q")),
+        s.work(Some(i), "engineer", None),
+    );
     let broken = || Some(json!({ "main": { "kind": "broken_by_merge" } }));
     let check = |work: i64, cell: &'static str, ended: i64, output: Option<Value>| R {
         work,
@@ -267,8 +300,9 @@ fn a_merge_that_broke_main_counts_where_its_check_ended() {
         T0 + 4 * M + 10,
         Some(json!({ "main": { "kind": "environment_changed" } })),
     ));
-    s.round(check(w, "T2", T0 + 6 * M, broken()));
+    s.round(check(w, "L2", T0 + 6 * M, broken()));
     s.round(check(v, "L1", T0 + 5 * M, broken()));
+    s.round(check(old, "L1", T0 + 7 * M, broken()));
     assert_eq!(s.minutes("merge.broken", p()), ten(&[(2, 1.0), (3, 1.0)], Some(0.0)));
     assert_eq!(
         s.minutes("merge.broken", all()),
@@ -276,6 +310,28 @@ fn a_merge_that_broke_main_counts_where_its_check_ended() {
     );
     assert_eq!(s.whole("merge.broken", p()), Some(2.0));
     assert_eq!(s.whole("merge.broken", all()), Some(3.0));
+}
+
+// A merge the engine reverted counts in the minute the revert merged, for the project of the architect's work that
+// asked for it.
+#[test]
+fn a_merge_reverted_counts_where_its_revert_merged() {
+    let mut s = Seed::new();
+    let (a, b) = (
+        s.work(None, "architect", Some("p")),
+        s.work(None, "architect", Some("q")),
+    );
+    s.revert(a, "m1", "r1", T0 + 2 * M);
+    s.revert(a, "m2", "r2", T0 + 3 * M - 1);
+    s.revert(a, "m3", "r3", T0 - 1);
+    s.revert(b, "m4", "r4", T0 + 3 * M);
+    assert_eq!(s.minutes("merge.reverted", p()), ten(&[(2, 2.0)], Some(0.0)));
+    assert_eq!(
+        s.minutes("merge.reverted", all()),
+        ten(&[(2, 2.0), (3, 1.0)], Some(0.0))
+    );
+    assert_eq!(s.whole("merge.reverted", p()), Some(2.0));
+    assert_eq!(s.whole("merge.reverted", all()), Some(3.0));
 }
 
 // A measure nothing records yet has no values, and says why; so does a subject of a measure not recorded yet.
@@ -502,11 +558,80 @@ fn the_engine_s_samples_fold_by_their_measure() {
     assert_eq!(s.minutes("queue.oldest", all()), ten(&[(1, 9_000.0)], None));
 }
 
-// An item's time to merge runs from the first round of any of its works, a work taken over included, to the merge; its
-// wait for CI adds up its works' runs of ci, ci_before and full_ci from queued to ended, before the merge. Each is the
+// An item's wait for CI is the time its CI runs cover before its merge. The first item's work has a ci and a ci_before
+// that overlap, whose overlap counts once; a full_ci; a wait of the merge tool for the full CI that gave its checks and
+// one that failed, both counted; and what is no wait for CI: the merge tool's call to merge, one that gave the commit
+// and one that failed, a tool of another name, a ci still going on, and a ci that ended after the merge. The time
+// covered is 170 s, where the runs of ci, ci_before and full_ci added up are 105 s. The second item's runs lie in two of
+// its works, and overlap, so they are one span of 120 s. The third has none, which is a wait of 0.
+#[test]
+fn the_wait_for_ci_is_the_time_the_runs_of_an_item_cover_before_its_merge() {
+    let mut s = Seed::new();
+    let [i, j, k] = [(); 3].map(|_| s.item("p", false, T0 - 60 * M));
+    let merged = |work: i64, ended: i64| R {
+        work,
+        cell: "M2",
+        started: ended - 1_000,
+        ended: Some(ended),
+        transition: Some("merged"),
+        ..R::default()
+    };
+    let w = s.work(Some(i), "engineer", None);
+    let r = s.round(R {
+        work: w,
+        cell: "I1",
+        started: T0,
+        ended: Some(T0 + 1),
+        transition: Some("tools"),
+        ..R::default()
+    });
+    s.tool(w, r, "ci", T0 - 2 * M, Some(T0 - 2 * M + 30_000));
+    s.tool(w, r, "ci_before", T0 - 2 * M + 10_000, Some(T0 - 2 * M + 40_000));
+    s.tool(w, r, "full_ci", T0, Some(T0 + 45_000));
+    let (waited, called) = (
+        json!({ "step": health::FULL_CI_STEP, "head": "h", "pr": 1 }),
+        json!({ "head": "h", "pr": 1 }),
+    );
+    let failed = json!({ "failed": { "kind": "other", "what": "no" } });
+    let checks = json!([{ "name": "check", "result": "green" }]);
+    let run = (w, r);
+    s.tool_run(run, "merge", &waited, Some(&failed), T0 + M, Some(T0 + M + 5_000));
+    s.tool_run(run, "merge", &waited, Some(&checks), T0 + 2 * M, Some(T0 + 2 * M + 80_000));
+    s.tool_run(run, "merge", &called, Some(&failed), T0 + 4 * M, Some(T0 + 4 * M + 7_000));
+    s.tool_run(run, "merge", &called, Some(&json!("abc")), T0 + 8 * M, Some(T0 + 8 * M + 9_000));
+    s.tool(w, r, "gh", T0, Some(T0 + 100_000));
+    s.tool(w, r, "ci", T0 + 6 * M, None);
+    s.tool(w, r, "ci", T0 + 9 * M - 500, Some(T0 + 9 * M + 5_000));
+    s.round(merged(w, T0 + 9 * M));
+    // Two works of the second item: the first's ci, and after it was taken over the second's ci_before, which overlaps.
+    let (a, b) = (s.work(Some(j), "engineer", None), s.work(Some(j), "engineer", None));
+    let round_of = |work: i64| R {
+        work,
+        cell: "I1",
+        started: T0 - 10 * M,
+        ended: Some(T0 - 10 * M + 1),
+        transition: Some("tools"),
+        ..R::default()
+    };
+    let (ra, rb) = (s.round(round_of(a)), s.round(round_of(b)));
+    s.tool(a, ra, "ci", T0 - 5 * M, Some(T0 - 4 * M));
+    s.tool(b, rb, "ci_before", T0 - 4 * M - 30_000, Some(T0 - 3 * M));
+    s.round(merged(b, T0 + 7 * M));
+    let c = s.work(Some(k), "engineer", None);
+    s.round(merged(c, T0 + 5 * M));
+    assert_eq!(
+        s.minutes("ci.wait", p()),
+        ten(&[(5, 0.0), (7, 120_000.0), (9, 170_000.0)], None)
+    );
+    // Over the whole ten minutes, the middle of the three; from 90 s up to 450 s, the merges at 300 s and 420 s.
+    assert_eq!(s.values("ci.wait", p(), T0, T0 + 10 * M, 10 * M), [Some(120_000.0)]);
+    assert_eq!(s.whole("ci.wait", p()), Some(60_000.0));
+}
+
+// An item's time to merge runs from the first round of any of its works, a work taken over included, to the merge: the
 // median of the items merged in the minute.
 #[test]
-fn time_to_merge_and_the_wait_for_ci_are_medians_of_the_items_merged() {
+fn time_to_merge_is_the_median_of_the_items_merged() {
     let mut s = Seed::new();
     let (i, k, j) = (
         s.item("p", false, T0 - 60 * M),
@@ -523,15 +648,9 @@ fn time_to_merge_and_the_wait_for_ci_are_medians_of_the_items_merged() {
     };
     // Item i: an earlier work, taken over, and the work that merged it.
     let b = s.work(Some(i), "engineer", None);
-    let b1 = s.round(step(b, "S1", T0 - 20 * M, T0 - 20 * M + 1, "next"));
-    s.tool(b, b1, "ci", T0 - 19 * M, Some(T0 - 18 * M));
+    s.round(step(b, "S1", T0 - 20 * M, T0 - 20 * M + 1, "next"));
     let a = s.work(Some(i), "engineer", None);
-    let a1 = s.round(step(a, "I1", T0, T0 + 1, "tools"));
-    s.tool(a, a1, "ci_before", T0, Some(T0 + 30_000));
-    s.tool(a, a1, "full_ci", T0 + 8 * M, Some(T0 + 8 * M + 45_000));
-    s.tool(a, a1, "gh", T0, Some(T0 + 100_000));
-    s.tool(a, a1, "ci", T0 + 8 * M, None);
-    s.tool(a, a1, "ci", T0 + 9 * M - 500, Some(T0 + 9 * M + 5_000));
+    s.round(step(a, "I1", T0, T0 + 1, "tools"));
     s.round(step(a, "M2", T0 + 9 * M - 1_000, T0 + 9 * M, "merged"));
     // Item k: one work, no CI; a merge that did not go through first.
     let f = s.work(Some(k), "engineer", None);
@@ -546,13 +665,10 @@ fn time_to_merge_and_the_wait_for_ci_are_medians_of_the_items_merged() {
         s.minutes("work.to_merge", p()),
         ten(&[(9, (29.0 * 60_000.0 + 30_000.0) / 2.0)], None)
     );
-    assert_eq!(s.minutes("ci.wait", p()), ten(&[(9, 135_000.0 / 2.0)], None));
     assert_eq!(s.minutes("items.merged", p()), ten(&[(9, 2.0)], Some(0.0)));
     assert_eq!(s.minutes("work.to_merge", all()), ten(&[(9, 60_001.0)], None));
-    assert_eq!(s.minutes("ci.wait", all()), ten(&[(9, 0.0)], None));
     assert_eq!(s.minutes("items.merged", all()), ten(&[(9, 3.0)], Some(0.0)));
     assert_eq!(s.whole("work.to_merge", p()), None);
-    assert_eq!(s.whole("ci.wait", p()), None);
     assert_eq!(s.whole("items.merged", p()), Some(0.0));
 }
 
@@ -644,13 +760,13 @@ fn git(dir: &Path, args: &[&str], at: i64) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-// Item 231, A7: main's first-parent line holds two merges by the flow, a merge of a side line made by hand, which is the
-// one commit that came onto main without the flow (the commit on the side under it is not on main's first-parent line),
-// and the engine's revert of a merge that broke main, which its record names; the flow recorded a third merge whose
-// commit main does not hold, ended before main's newest commit was made. The flow's merges count every one it
-// recorded; the commits without the flow count the merge by hand alone, by when it was made; the merge main does not
-// hold counts where its round ended. One that ended after main's newest commit was made is not judged: main as read
-// could not hold it. Without main's commits read, those two say why they have no values.
+// Item 231, A7: main holds two merges by the flow, the second only as the second parent of a merge made by hand; a commit
+// pushed straight to it; that merge by hand with the two commits it brought, one made in the period before; and the
+// engine's revert of a merge, which its record names. The flow also recorded two merges main does not hold, one ended
+// before main's tip was made and one after. The flow's merges count all four it recorded. The commits without the flow
+// count the one pushed, the two brought and the merge itself, each when it was made, and neither the flow's merges nor
+// the revert. The merge main does not hold counts where its round ended; the one that ended after main's tip was made
+// is not judged, as main as read could not hold it. Without main's commits read, those two say why they have no values.
 #[test]
 fn commits_come_onto_main_by_the_flow_by_hand_or_by_the_engine_s_revert() {
     let mut s = Seed::new();
@@ -664,17 +780,30 @@ fn commits_come_onto_main_by_the_flow_by_hand_or_by_the_engine_s_revert() {
     };
     commit("start", T0 - 60 * M);
     let a = commit("Merge PR 1", T0 + M + 5_000);
+    let pushed = commit("Pushed straight to main", T0 + 2 * M + 5_000);
     let trunk = git(&dir, &["rev-parse", "--abbrev-ref", "HEAD"], T0);
     git(&dir, &["checkout", "-q", "-b", "side"], T0);
-    let side = commit("On the side", T0 + 2 * M - 10_000);
+    let older = commit("On the side, made earlier", T0 - 5 * M);
+    let later = commit("On the side", T0 + 3 * M + 5_000);
     git(&dir, &["checkout", "-q", &trunk], T0);
-    git(&dir, &["merge", "-q", "--no-ff", "-m", "By hand", "side"], T0 + 2 * M);
-    let b = commit("Merge PR 2", T0 + 3 * M + 5_000);
-    let revert = commit("Revert PR 2", T0 + 4 * M + 5_000);
+    let b = commit("Merge PR 2", T0 + 3 * M + 30_000);
+    git(&dir, &["checkout", "-q", "side"], T0);
+    // A merge by hand made from the side line: what the flow merged is its second parent.
+    git(
+        &dir,
+        &["merge", "-q", "--no-ff", "-m", "By hand", &trunk],
+        T0 + 4 * M + 5_000,
+    );
+    let by_hand = git(&dir, &["rev-parse", "HEAD"], T0);
+    let revert = commit("Revert PR 2", T0 + 5 * M + 5_000);
+    let first_parents = git(&dir, &["log", "--first-parent", "--format=%H", "HEAD"], T0);
+    assert!(!first_parents.contains(&b), "{first_parents}");
     let mut log = MainLog::GIT_LOG.to_vec();
     log.push("HEAD");
     let main = MainLog::parse(&git(&dir, &log, T0)).unwrap();
-    assert!(main.holds(&a) && main.holds(&b) && main.holds(&revert) && !main.holds(&side));
+    for held in [&a, &pushed, &older, &later, &b, &by_hand, &revert] {
+        assert!(main.holds(held), "{held}");
+    }
 
     let i = s.item("p", false, T0 - 60 * M);
     let w = s.work(Some(i), "engineer", None);
@@ -688,44 +817,38 @@ fn commits_come_onto_main_by_the_flow_by_hand_or_by_the_engine_s_revert() {
         ..R::default()
     };
     s.round(merged(&a, T0 + M + 10_000));
-    s.round(merged(&b, T0 + 3 * M + 10_000));
+    s.round(merged(&b, T0 + 3 * M + 40_000));
     s.round(merged(&"f".repeat(40), T0 + 4 * M));
-    let check = s.round(R {
-        work: w,
-        cell: "L1",
-        started: T0 + 4 * M,
-        ended: Some(T0 + 4 * M + 1),
-        transition: Some("revert_merge"),
-        ..R::default()
-    });
-    s.sql(
-        "INSERT INTO reverts (work, round, merge_commit, pr, revert_commit, at) VALUES (?1, ?2, ?3, 9, ?4, ?5)",
-        params![w, check, b, revert, T0 + 4 * M + 5_000],
-    );
+    s.round(merged(&"e".repeat(40), T0 + 6 * M));
+    let architect = s.work(None, "architect", Some("p"));
+    s.revert(architect, &b, &revert, T0 + 5 * M + 5_000);
     let read = Scope {
         main: Some(&main),
         ..p()
     };
-    assert_eq!(s.minutes("main.direct_pushes", read), ten(&[(2, 1.0)], Some(0.0)));
-    assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(4, 1.0)], Some(0.0)));
     assert_eq!(
         s.minutes("items.merged", p()),
-        ten(&[(1, 1.0), (3, 1.0), (4, 1.0)], Some(0.0))
+        ten(&[(1, 1.0), (3, 1.0), (4, 1.0), (6, 1.0)], Some(0.0))
     );
-    // From 90 s up to 450 s: the merge by hand at 120 s, not the commit on the side under it at 110 s.
-    assert_eq!(s.whole("main.direct_pushes", read), Some(1.0));
-    for name in ["main.direct_pushes", "merge.not_on_main"] {
+    assert_eq!(s.values("items.merged", p(), T0, T0 + 10 * M, 10 * M), [Some(4.0)]);
+    assert_eq!(
+        s.minutes("main.outside_flow", read),
+        ten(&[(2, 1.0), (3, 1.0), (4, 1.0)], Some(0.0))
+    );
+    // The commit brought that was made earlier falls in the period before; the first commit, an hour before, in neither.
+    assert_eq!(s.values("main.outside_flow", read, T0 - 10 * M, T0, 10 * M), [Some(1.0)]);
+    assert_eq!(
+        s.values("main.outside_flow", read, T0 - 10 * M, T0 + 10 * M, 20 * M),
+        [Some(4.0)]
+    );
+    assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(4, 1.0)], Some(0.0)));
+    assert_eq!(s.values("merge.not_on_main", read, T0, T0 + 10 * M, 10 * M), [Some(1.0)]);
+    assert_eq!(s.minutes("merge.reverted", p()), ten(&[(5, 1.0)], Some(0.0)));
+    for name in ["main.outside_flow", "merge.not_on_main"] {
         let unread = series(s.conn(), measure(name).unwrap(), &p(), T0, T0 + 10 * M, M).unwrap();
         assert!(unread.not_measured.is_some(), "{name}: {unread:?}");
         assert!(unread.points.iter().all(|x| x.value.is_none()), "{name}");
     }
-    s.round(merged(&"e".repeat(40), T0 + 6 * M));
-    let read = Scope {
-        main: Some(&main),
-        ..p()
-    };
-    assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(4, 1.0)], Some(0.0)));
-    assert_eq!(s.whole("items.merged", p()), Some(3.0));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -770,11 +893,11 @@ fn a_commit_on_main_counts_by_its_committer_time_whatever_its_order_on_main() {
         ..p()
     };
     assert_eq!(
-        s.minutes("main.direct_pushes", read),
+        s.minutes("main.outside_flow", read),
         ten(&[(2, 1.0), (7, 1.0)], Some(0.0))
     );
     // From 90 s up to 450 s: the commits at 125 s and 420 s.
-    assert_eq!(s.whole("main.direct_pushes", read), Some(2.0));
+    assert_eq!(s.whole("main.outside_flow", read), Some(2.0));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -809,7 +932,7 @@ fn a_merge_ending_as_main_s_newest_commit_was_made_is_judged() {
     assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(5, 1.0)], Some(0.0)));
     assert_eq!(s.whole("merge.not_on_main", read), Some(1.0));
     // The newest commit came without the flow; the other is the merge the flow recorded.
-    assert_eq!(s.minutes("main.direct_pushes", read), ten(&[(5, 1.0)], Some(0.0)));
+    assert_eq!(s.minutes("main.outside_flow", read), ten(&[(5, 1.0)], Some(0.0)));
     assert_eq!(s.minutes("items.merged", p()), ten(&[(2, 1.0), (5, 2.0)], Some(0.0)));
 }
 

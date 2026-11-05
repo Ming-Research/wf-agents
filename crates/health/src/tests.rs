@@ -1,12 +1,13 @@
 //! What reading the health numbers costs as the history grows: over a history of 100,000 rounds and 200,000 changes,
-//! every measure reads the last week at a step of a minute, and SQLite reads none of the large tables whole.
+//! every measure reads the last week at a step of a minute, and SQLite reads none of the large tables whole. No more
+//! than the reverts are read whole, which are few.
 
 use std::time::{Duration, Instant};
 
 use db::rusqlite::{Connection, params_from_iter};
 use db::{Actor, Db};
 
-use crate::{MINUTE, MainLog, Reader, Scope, measures, series_read};
+use crate::{FULL_CI_STEP, MINUTE, MainLog, Reader, Scope, measures, series_read};
 
 /// A day, in milliseconds.
 const DAY: i64 = 86_400_000;
@@ -15,10 +16,11 @@ const START: i64 = 1_700_000_040_000;
 const END: i64 = START + 100 * DAY;
 
 /// A history of a hundred days: 2,000 items of project p, each with a work and its session; 50 rounds of each work,
-/// 100,000 in all, spread evenly, half of them an agent's with its usage and cost, one in fifty a merge and one in fifty
-/// a check of main; a run of CI for one round in five; 200,000 changes to the works and the items besides those the
-/// items made, one in a hundred pausing a work or letting it go on; a blocker and the owner's words handled for one
-/// work in two; and the engine's samples of the last week.
+/// 100,000 in all, spread evenly, half of them an agent's with its usage and cost, one in fifty a merge; a run of CI for
+/// one round in five, a third of them the merge tool's waits for the full CI; 200,000 changes to the works and the items
+/// besides those the items made, one in a hundred pausing a work or letting it go on; a blocker and the owner's words
+/// handled for one work in two; an architect's work with 200 checks of main over the last week, each finding a merge
+/// made it red, and one revert; and the engine's samples of the last week.
 fn seeded() -> Db {
     let mut db = Db::in_memory().unwrap();
     db.write(Actor::Engine, |tx| {
@@ -30,6 +32,7 @@ fn seeded() -> Db {
              UPDATE changes SET at = {START} + json_extract(row_key, '$.id') * 4320000;
              WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 1 FROM n WHERE k < 2000)
              INSERT INTO works (id, item, flow_version, graph, at) SELECT k, k, 1, 'engineer', 'I1' FROM n;
+             INSERT INTO works (id, flow_version, graph, at, project) VALUES (2001, 1, 'architect', 'L1', 'p');
              WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 1 FROM n WHERE k < 2000)
              INSERT INTO sessions (id, work, line, cli, cli_session) SELECT k, k, 'engineer', 'claude', 's' FROM n;"
         ))?;
@@ -43,18 +46,25 @@ fn seeded() -> Db {
              INSERT INTO rounds (work, n, cell, session, input, output, transition, rejected, config_commit, usage,
                                  started_at, ended_at)
                SELECT k % 2000 + 1, k / 2000 + 1,
-                 CASE WHEN k % 50 = 7 THEN 'M2' WHEN k % 50 = 8 THEN 'L1' WHEN k % 2 = 0 THEN 'I1' ELSE 'X1' END,
-                 CASE WHEN k % 2 = 0 THEN k % 2000 + 1 END, '{{}}',
-                 CASE WHEN k % 50 = 8 THEN '{{\"main\":{{\"kind\":\"broken_by_merge\"}}}}' END,
+                 CASE WHEN k % 50 = 7 THEN 'M2' WHEN k % 2 = 0 THEN 'I1' ELSE 'X1' END,
+                 CASE WHEN k % 2 = 0 THEN k % 2000 + 1 END, '{{}}', NULL,
                  CASE WHEN k % 50 = 7 THEN 'merged' WHEN k % 10 = 4 THEN NULL ELSE 'next' END,
                  CASE WHEN k % 10 = 4 THEN '{{\"check\":\"wrong\"}}' END, 'c',
                  CASE WHEN k % 2 = 0 THEN '{{\"cost_usd\":0.1,\"usage\":{{\"iterations\":[{{\"input_tokens\":' || k
                    || ',\"cache_read_input_tokens\":1000,\"cache_creation_input_tokens\":10}}]}}}}' END,
                  {START} + k * 86400, {START} + k * 86400 + 60000
                FROM n;
+             WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 1 FROM n WHERE k < 200)
+             INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+               SELECT 2001, k, 'L1', '{{}}', '{{\"main\":{{\"kind\":\"broken_by_merge\"}}}}', 'red', 'c',
+                 {END} - k * 3000000, {END} - k * 3000000 + 1000
+               FROM n;
+             INSERT INTO reverts (work, merge_commit, revert_commit, at) VALUES (2001, 'a', 'b', {END} - 3600000);
              WITH RECURSIVE n(k) AS (SELECT 0 UNION ALL SELECT k + 5 FROM n WHERE k < 99995)
              INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at, started_at, ended_at)
-               SELECT k % 2000 + 1, k / 2000 + 1, CASE WHEN k % 3 = 0 THEN 'ci' ELSE 'full_ci' END, '{{}}', 1,
+               SELECT k % 2000 + 1, k / 2000 + 1,
+                 CASE k % 3 WHEN 0 THEN 'ci' WHEN 1 THEN 'merge' ELSE 'full_ci' END,
+                 CASE k % 3 WHEN 1 THEN '{{\"step\":\"{FULL_CI_STEP}\"}}' ELSE '{{}}' END, 1,
                  {START} + k * 86400, {START} + k * 86400, {START} + k * 86400 + 300000
                FROM n;
              WITH RECURSIVE n(k) AS (SELECT 0 UNION ALL SELECT k + 1 FROM n WHERE k < 199999)
@@ -148,6 +158,7 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
     // does not pass.
     for m in [
         "merge.broken",
+        "merge.reverted",
         "round.context",
         "round.sent_back",
         "work.stops",
@@ -159,7 +170,7 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
         "spend.usd",
         "queue.oldest",
         "merge.not_on_main",
-        "main.direct_pushes",
+        "main.outside_flow",
     ] {
         assert!(folded.iter().any(|(name, n)| *name == m && *n > 0), "{m}: {folded:?}");
     }

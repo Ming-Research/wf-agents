@@ -3624,6 +3624,54 @@ timeout_ms = 1000
         r.runs.rejects(None);
     }
 
+    // The last row of a tool yet.
+    fn last_tool_run(r: &Rig) -> i64 {
+        r.e.db
+            .conn()
+            .query_row("SELECT coalesce(max(id), 0) FROM tool_runs", [], |x| x.get(0))
+            .unwrap()
+    }
+
+    // The merge tool's rows after `after`, each by what marks it, and the kind of its result or that it failed.
+    fn merge_rows(r: &Rig, after: i64) -> Vec<(Option<String>, String)> {
+        let conn = r.e.db.conn();
+        let mut st = conn
+            .prepare(
+                "SELECT json_extract(args, '$.step'),
+                   CASE WHEN json_extract(result, '$.failed') IS NOT NULL THEN 'failed' ELSE json_type(result) END
+                 FROM tool_runs WHERE tool = 'merge' AND id > ?1 ORDER BY id",
+            )
+            .unwrap();
+        st.query_map([after], |x| Ok((x.get(0)?, x.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    // Each try at waiting for the full CI is marked as one, a try that failed too, which nothing else tells from a call
+    // to merge that failed: the wait for CI counts them. Looking the merge up and calling it are not marked.
+    fn the_merge_tool_marks_its_waits_for_the_full_ci(r: &mut Rig) {
+        let looked: (Option<String>, String) = (None, "null".to_string());
+        let waited = |result: &str| (Some(health::FULL_CI_STEP.to_string()), result.to_string());
+        // A wait GitHub refuses, which is asked once and fails.
+        let before = last_tool_run(r);
+        r.runs.clear();
+        r.runs.has_run(&r.head, "fast", &[("lint", "green"), ("fast", "green")]);
+        r.runs.rejects(Some("HTTP 422: Unexpected inputs provided"));
+        assert_eq!(r.run(merge)["result"]["kind"], "not_run");
+        r.runs.rejects(None);
+        assert_eq!(merge_rows(r, before), [looked.clone(), waited("failed")]);
+        // A wait that gives its checks, and the merge they allow.
+        let before = last_tool_run(r);
+        r.runs.clear();
+        r.runs.has_run(&r.head, "ci", &[("lint", "green"), ("check", "green")]);
+        assert_eq!(r.run(merge)["result"]["kind"], "merged");
+        assert_eq!(
+            merge_rows(r, before),
+            [looked, waited("array"), (None, "text".to_string())]
+        );
+    }
+
     // The tools that make and read the runs of the fast and the full CI, each against the GitHub in memory that the
     // case before it left cleared, on one engine: its start (compiling the flow) is most of what each costs, and the
     // cases share nothing else. Each case is a function of its own above, that says what it shows. The case where
@@ -3635,5 +3683,6 @@ timeout_ms = 1000
         a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
         a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
         a_request_github_refuses_is_asked_once_and_told(&mut r);
+        the_merge_tool_marks_its_waits_for_the_full_ci(&mut r);
     }
 }
