@@ -1,6 +1,8 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 
 mod owner;
+#[cfg(test)]
+mod tests;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -17,8 +19,9 @@ struct Cli {
     /// The data directory: the configuration, the rules and the database.
     #[arg(long, global = true, env = "WF_AGENTS_DATA")]
     data: Option<PathBuf>,
+    // Required: with none, clap fails with the usage and the names of the subcommands.
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Command,
 }
 
 #[derive(Subcommand)]
@@ -35,6 +38,9 @@ enum Command {
     /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
     /// appears in the data directory. The owner's page is served beside it, on the loopback address. Every work starts
     /// paused: nothing runs until the owner starts all works, starts one, or asks for a work's round, on the page.
+    ///
+    /// One engine runs on a data directory: it holds a lock on `db/engine.lock` for as long as it runs, so a second
+    /// `run`, or `run --once`, fails saying which process holds it. The lock goes with the process, however it ends.
     Run {
         /// Takes one pass only, without the page: carries out the outbox, starts what can start, and takes each work
         /// one step.
@@ -57,9 +63,13 @@ enum Command {
         all: bool,
     },
     /// One ask of the owner in full, with its answer.
-    Ask { id: i64 },
+    Ask {
+        /// The ask's number, as `asks` lists it.
+        id: i64,
+    },
     /// Answers an ask of the owner.
     Answer {
+        /// The ask's number, as `asks` lists it.
         ask: i64,
         /// The answer.
         #[arg(long)]
@@ -85,10 +95,14 @@ enum Command {
         all: bool,
     },
     /// One decision card in full, with the records it revises and its rulings.
-    DesignCard { id: i64 },
+    DesignCard {
+        /// The decision card's number, as `design-cards` lists it.
+        id: i64,
+    },
     /// Rules on a decision card: confirms the option it recommends, chooses another of its options, or disagrees
     /// saying why.
     Rule {
+        /// The decision card's number, as `design-cards` lists it.
         design_card: i64,
         /// Confirm the option the card recommends.
         #[arg(long)]
@@ -106,7 +120,9 @@ enum Command {
     /// Says something in a running work's group, as the page does: to its engineer, which gets it in its next round;
     /// to its project's architect, which gets it as the owner's words, the engineer told of it; or to both.
     Say {
+        /// The work's number, as `status` lists it.
         work: i64,
+        /// What to say.
         text: String,
         /// Who speaks: `owner`, or `delegate` for a session that speaks for the owner.
         #[arg(long)]
@@ -125,7 +141,9 @@ enum Command {
     /// Pauses a work, as the owner: a round of it under way ends first, and it stays paused, whatever the global state,
     /// until the owner starts it again with `resume` or its Start on the page; the page's Start all does not lift it.
     Pause {
+        /// The work's number, as `status` lists it.
         work: i64,
+        /// Why it is paused, in your words.
         #[arg(long)]
         why: String,
     },
@@ -133,7 +151,10 @@ enum Command {
     /// work's machine has a slot free, and one the architect stopped is the owner's release of it, which the architect
     /// is told. It then goes on as every work does, which while every work is paused on the page is only once the
     /// owner starts it there or lets every work go on.
-    Resume { work: i64 },
+    Resume {
+        /// The work's number, as `status` lists it.
+        work: i64,
+    },
     /// Holds a project's new starts, as the owner: the running engine starts no new work on the project from its next
     /// look (within its idle interval), and works already running go on to their merge, those waiting for a result
     /// after it. It is kept in the database, so it stands across a restart of the engine, and Pause all, which stops
@@ -161,6 +182,7 @@ enum Command {
     Status,
     /// A work's rounds.
     History {
+        /// The work's number, as `status` lists it.
         work: i64,
         /// Every round in full: what it was given and what it returned.
         #[arg(long)]
@@ -169,19 +191,25 @@ enum Command {
     /// The message the work's next agent round would be sent, built as the engine builds it, with nothing run or
     /// recorded.
     Message {
+        /// The work's number, as `status` lists it.
         work: i64,
         /// As JSON: the message, and each conditional input it gives or refers to, as a round records them.
         #[arg(long)]
         json: bool,
     },
     /// How many times a work took the rows that count each counter.
-    Counters { work: i64 },
+    Counters {
+        /// The work's number, as `status` lists it.
+        work: i64,
+    },
     /// Hands in the interjections waiting for a running round's line, as the round's command line runs it after each
     /// tool use: what it prints, the command line adds to the session.
     #[command(hide = true)]
     Deliver {
+        /// The work the round belongs to.
         #[arg(long)]
         work: i64,
+        /// The round's number in the work.
         #[arg(long)]
         round: i64,
         /// The round's line; none for a cell that takes no interjections, which is handed none.
@@ -191,14 +219,19 @@ enum Command {
     /// Returns sent back, compactions, counters past their limits, and works paused.
     Anomalies,
     /// The time and cost of each work with a total row last, or of one work's rounds by cell.
-    Cost { work: Option<i64> },
+    Cost {
+        /// The work's number, as `status` lists it; without it, every work.
+        work: Option<i64>,
+    },
 }
 
 /// What a new item is.
 #[derive(clap::Args)]
 struct AddItem {
+    /// The project the item is for, as the configuration names it.
     #[arg(long)]
     project: String,
+    /// A short title, within the length the configuration sets.
     #[arg(long)]
     title: String,
     /// What cannot be done or is wrong.
@@ -242,8 +275,11 @@ enum ItemCommand {
     List,
     /// Makes an item depend on another.
     Depend {
+        /// The item that depends.
         item: i64,
+        /// The item it depends on.
         on: i64,
+        /// What it needs of the other item.
         #[arg(long)]
         needs: String,
         /// blocking: the item does not start until the other is merged; parallel: it may start before.
@@ -254,7 +290,9 @@ enum ItemCommand {
     /// engine does not run the cancel waits for its next start; an item whose merge stands on main, or whose merge comes
     /// first, is not cancelled.
     Cancel {
+        /// The item's number.
         item: i64,
+        /// Why it is cancelled, in your words.
         #[arg(long)]
         why: String,
     },
@@ -265,6 +303,7 @@ enum ArchitectCommand {
     /// Says something to a project's architect: it comes to its queue as the owner's words, and starts a work of it
     /// when none runs and works go on.
     Say {
+        /// What to say.
         text: String,
         /// Who speaks: `owner`, or `delegate` for a session that speaks for the owner. The architect's record of a
         /// decision says which was declared.
@@ -290,11 +329,15 @@ enum QueueCommand {
     List,
     /// Puts an item in the queue: last, or first, or before or after another.
     Put {
+        /// The item's number.
         item: i64,
+        /// Puts it first in the queue.
         #[arg(long)]
         first: bool,
+        /// Puts it just before this item of the queue.
         #[arg(long)]
         before: Option<i64>,
+        /// Puts it just after this item of the queue.
         #[arg(long)]
         after: Option<i64>,
     },
@@ -343,13 +386,12 @@ enum ConfigCommand {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
-        None => Ok(()),
-        Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
-        Some(Command::Flow(FlowCommand::Cost { flow })) => {
+        Command::Flow(FlowCommand::Check { flow, schema }) => flow_check(&flow, schema.as_deref()),
+        Command::Flow(FlowCommand::Cost { flow }) => {
             data(cli.data.as_deref()).and_then(|d| flow_cost(d, flow.as_deref()))
         }
-        Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
-        Some(c) => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
+        Command::Config(ConfigCommand::Check) => data(cli.data.as_deref()).and_then(config_check),
+        c => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -890,6 +932,11 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
 /// ([`engine::Engine::record_start`]).
 fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
+    // The lock comes before anything of the directory is changed or the database opened: a second engine is refused
+    // here, before it migrates, writes or removes the stop file. The engine keeps the lock until it is dropped. Without
+    // a database the command fails as the others do, and the lock file is not made.
+    engine::database::require(d)?;
+    let lock = engine::Lock::acquire(d).map_err(|e| e.to_string())?;
     let github = Box::new(engine::hub::Gh::new(d.join("logs")));
     let agents = Box::new(engine::agent::Claude);
     let said = engine::Hooks {
@@ -897,7 +944,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
         ..engine::Hooks::default()
     };
     if once {
-        let mut e = engine::Engine::new(d, committed, agents, github, said)?;
+        let mut e = engine::Engine::new(lock, committed, agents, github, said)?;
         e.pass(&engine::Go::default())?;
         return Ok(());
     }
@@ -952,7 +999,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
         network: Some(Arc::new(engine::network_reachable)),
         ..said
     };
-    let mut e = engine::Engine::new(d, committed, agents, github, hooks)?;
+    let mut e = engine::Engine::new(lock, committed, agents, github, hooks)?;
     // The run is recorded from here to its stop, whatever ends it.
     let run = e.record_start()?;
     let served = serve(&mut e, d, port, started_at, bus, control);

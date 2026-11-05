@@ -1996,6 +1996,12 @@ pub fn database(dir: &Path) -> PathBuf {
     dir.join("db").join("wf-agents.sqlite")
 }
 
+/// The file whose operating-system lock keeps a second engine off a data directory: beside the database, in the `db/`
+/// directory the data directory's git leaves out.
+pub fn engine_lock(dir: &Path) -> PathBuf {
+    dir.join("db").join("engine.lock")
+}
+
 /// The directory each work's worktree is made in: `worktrees/` in the data directory, which the data directory's git
 /// leaves out.
 pub fn worktrees(dir: &Path) -> PathBuf {

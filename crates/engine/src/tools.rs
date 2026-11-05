@@ -2982,7 +2982,8 @@ timeout_ms = 1000
         crate::database::create(&data).unwrap();
         let runs = Runs::new(Some(origin.clone()));
         let committed = config::committed(&data).unwrap();
-        let mut e = Engine::new(&data, committed, Box::new(NoAgents), Box::new(runs.clone()), hooks).unwrap();
+        let lock = crate::Lock::acquire(&data).unwrap();
+        let mut e = Engine::new(lock, committed, Box::new(NoAgents), Box::new(runs.clone()), hooks).unwrap();
         e.retry_wait = Duration::ZERO;
         let flow_now = e.flow_now;
         let worktree = path(&wt);
