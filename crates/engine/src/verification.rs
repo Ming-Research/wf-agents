@@ -465,19 +465,30 @@ fn cell_text(v: &Value) -> String {
     v.as_str().map_or_else(|| v.to_string(), str::to_string)
 }
 
-/// Whether `seen` is a value of a row, or part of the row that holds a value: not a column's name alone.
+/// The values `v` holds, however deep: a query gives a column of JSON text as an object or an array, and what is in it is
+/// as much a value of the row as a column of its own. An object or an array with nothing in it is a value itself.
+fn leaves(v: &Value) -> Vec<&Value> {
+    match v {
+        Value::Object(o) if !o.is_empty() => o.values().flat_map(leaves).collect(),
+        Value::Array(a) if !a.is_empty() => a.iter().flat_map(leaves).collect(),
+        leaf => vec![leaf],
+    }
+}
+
+/// Whether `seen` is a value of a row, or part of the row that holds a value: not a field's name alone.
 fn in_row(row: &Value, seen: &str) -> bool {
-    let values: Vec<String> = row
-        .as_object()
-        .into_iter()
-        .flat_map(|o| o.values())
-        .map(cell_text)
-        .collect();
-    let in_a_value = row.as_object().into_iter().flat_map(|o| o.values()).any(|v| match v {
+    let values = leaves(row);
+    let in_a_value = values.iter().any(|v| match v {
         Value::String(s) => whole_in(s, seen),
         other => cell_text(other) == seen,
     });
-    in_a_value || (whole_in(&row.to_string(), seen) && values.iter().any(|v| !v.is_empty() && whole_in(seen, v)))
+    in_a_value
+        || (whole_in(&row.to_string(), seen)
+            && values
+                .iter()
+                .copied()
+                .map(cell_text)
+                .any(|v| !v.is_empty() && whole_in(seen, &v)))
 }
 
 /// Whether a run that ran well showed `seen`: in a gh command's output, or among a query's rows, or in the file where those
@@ -895,6 +906,36 @@ mod tests {
         for (id, run, seen) in [("A1", "Q", "8"), ("A1", "Q", "saved to"), ("A2", "pr list", "CLOSED")] {
             assert_eq!(problems(holds(id, run, seen)).texts().len(), 1, "{seen}");
         }
+    }
+
+    // A command that selects a column of JSON text is given it as the query gives it, parsed: a value inside it, or part
+    // of the row that holds one, is what the run showed, and a field's name alone, at any depth, is not.
+    #[test]
+    fn a_value_inside_a_column_of_json_is_shown_and_a_field_s_name_is_not() {
+        let column = |text: &str| crate::work::cell_json(db::rusqlite::types::ValueRef::Text(text.as_bytes()));
+        let fetched = column(r#"{"sources":{"verdict":"fetched","took":[217,{"ok":true}],"none":[]}}"#);
+        let refused = column(r#"{"sources":{"fetched":"refused"}}"#);
+        let run = |result: Value| {
+            ran(
+                "query",
+                "Q",
+                json!({ "ran": { "verdict": "ran", "rows": [{ "result": result }] } }),
+            )
+        };
+        let conditions = [checked_by("A1", "query", "Q")];
+        let problems = |runs: &[Run], seen: &str| basis_problems(&[holds("A1", "Q", seen)], &conditions, 0, runs);
+
+        let holding = [run(fetched)];
+        for good in ["fetched", r#""verdict":"fetched""#, "217", "true", "[]"] {
+            assert!(problems(&holding, good).is_empty(), "{good}");
+        }
+        for bad in ["verdict", "sources", "took", "ok", "7", "fetch"] {
+            assert_eq!(problems(&holding, bad).texts().len(), 1, "{bad}");
+        }
+
+        let not_holding = [run(refused)];
+        assert_eq!(problems(&not_holding, "fetched").texts().len(), 1);
+        assert!(problems(&not_holding, "refused").is_empty());
     }
 
     // A fetch for a build the checkout lacks is made at most once when it works, however many steps the wait takes, and
