@@ -108,8 +108,22 @@ fn points(body: &Value) -> &str {
         .unwrap_or_default()
 }
 
-/// Steps the engine until the item's work stands at the gate with an ask other than `not` open; gives the work, the ask
-/// and what it holds.
+/// The ask the work's open blocker waits on, while it has no answer, and what it holds. The approval of a change may be
+/// open as well, put as soon as the branch touched its path: only the one the blocker stands for is the gate's.
+fn blocker_ask(e: &Engine, work: i64) -> Option<(i64, Value)> {
+    e.db.conn()
+        .query_row(
+            "SELECT a.id, a.body FROM blockers b JOIN owner_asks a ON a.id = b.ask
+             WHERE b.work = ?1 AND b.ended IS NULL AND a.answer IS NULL",
+            [work],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+        )
+        .ok()
+        .map(|(id, body)| (id, serde_json::from_str(&body).unwrap()))
+}
+
+/// Steps the engine until the item's work waits at the gate on an ask other than `not`; gives the work, the ask and what
+/// it holds.
 fn at_the_gate_asking(
     e: &mut Engine,
     item: i64,
@@ -117,10 +131,10 @@ fn at_the_gate_asking(
     not: Option<i64>,
 ) -> (i64, i64, Value) {
     step_until(e, item, said, "the gate's ask", |e| {
-        state(e, item).is_some_and(|(w, at, _)| at == "M1" && open_ask(e, w).is_some_and(|(a, _)| Some(a) != not))
+        state(e, item).is_some_and(|(w, at, _)| at == "M1" && blocker_ask(e, w).is_some_and(|(a, _)| Some(a) != not))
     });
     let (work, _, _) = state(e, item).unwrap();
-    let (ask, body) = open_ask(e, work).unwrap();
+    let (ask, body) = blocker_ask(e, work).unwrap();
     (work, ask, body)
 }
 

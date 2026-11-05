@@ -136,10 +136,11 @@ fn a_condition_on_an_item_merged_into_another_goes_to_the_item_kept() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A change the owner approves on an item with a condition: the condition is asked first. Words at the gate close its ask,
-// the engine's note goes to no one as the owner's reply, and the ask is put again, the closed one taking no answer. The
-// option chosen is not read as a reply to the approval, nor "approved" as a judgment: the approval is asked next with the
-// blocker saying so, and a condition ticked on that answer is asked with the blocker saying so again, and only then does
+// A change the owner approves on an item with a condition: the approval's ask is put as soon as the branch touches its
+// path, but the gate waits on the condition first. Words at the gate close the condition's ask, the engine's note goes to
+// no one as the owner's reply, and the ask is put again, the closed one taking no answer. The option chosen is not read as
+// a reply to the approval, nor "approved" as a judgment: the gate waits on the approval next with the blocker saying so,
+// and a condition ticked on that answer is asked with the blocker saying so again, and only then does
 // the work merge, with its blocker ended.
 #[test]
 fn a_condition_is_asked_before_the_approval_and_neither_ask_reads_the_other_s_answer() {
@@ -207,8 +208,9 @@ fn a_condition_is_asked_before_the_approval_and_neither_ask_reads_the_other_s_an
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A condition comes while the gate waits for the owner's approval: the gate asks of it at once, one ask however many times
-// it reads them, and the blocker waits on it. The approval's ask stays open, and its answer lets nothing through while the
+// A condition comes while the gate waits for the owner's approval, whose ask was put as soon as the branch touched its path:
+// the gate asks of the condition at once, one ask however many times it reads them, and the blocker waits on it. The
+// approval's ask stays open, and its answer lets nothing through while the
 // condition is open; the owner's judgment then does, with neither ask put again.
 #[test]
 fn a_condition_set_while_the_approval_waits_is_asked_once_and_holds_the_work_when_the_approval_comes_first() {
