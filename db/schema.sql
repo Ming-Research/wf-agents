@@ -1576,8 +1576,9 @@ CREATE VIEW work_owner_words AS
   WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
   UNION ALL
   SELECT j.work, 'interjection', j.id, j.declared, j.text,
-    coalesce((SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0), j.relayed
+    coalesce((SELECT max(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
+                AND c.old_row IS NULL), 0), j.relayed
   FROM interjections j
   WHERE j.speaker = 'owner' AND j.matter IS NULL AND j.cancelled_item IS NULL
   UNION ALL
@@ -1933,8 +1934,9 @@ CREATE VIEW conversation_entries AS
     coalesce(w.project, i.project), 'interjection', j.id, j.speaker,
     CASE WHEN j.matter IS NULL THEN j.line WHEN j.informs = 1 THEN 'architect' ELSE 'both' END,
     coalesce((SELECT json_extract(x.body, '$.text') FROM architect_matters x WHERE x.id = j.matter), j.text),
-    coalesce((SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),
+    coalesce((SELECT max(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
+                AND c.old_row IS NULL),
              (SELECT min(x.started_at) FROM rounds x WHERE x.work = j.work), 0),
     j.work, j.delivered_round, NULL, j.design_card, j.matter, NULL, 0,
     j.speaker = 'owner' AND ((j.informs = 0 AND j.delivered_round IS NULL AND w.ended IS NULL

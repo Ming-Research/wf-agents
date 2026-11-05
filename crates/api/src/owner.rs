@@ -652,7 +652,7 @@ fn relayed_words(conn: &Connection, ask: i64, body: &Value, text: &str) -> Resul
     }
     Ok(Some((
         work,
-        format!("Asked about {what}, the owner answered (ask {ask}): {}", text.trim()),
+        format!("{}{what}{}{ask}): {}", db::RELAY_ABOUT, db::RELAY_ANSWERED, text.trim()),
     )))
 }
 
