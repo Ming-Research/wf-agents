@@ -970,6 +970,250 @@ fn a_merge_ending_as_main_s_newest_commit_was_made_is_judged() {
     assert_eq!(s.minutes("items.merged", p()), ten(&[(2, 1.0), (5, 2.0)], Some(0.0)));
 }
 
+// Whether a commit is the flow's is told by a merge recorded at the merge cell with the row `merged`: the same commit in
+// a merge cell's round that took another row, or in another cell's round, leaves it outside the flow. A revert's own
+// commit is the engine's, while the commit it reverted stays what it was. A commit at the first millisecond of a period
+// is in it, and one at its end is not. A merge recorded with no commit is not on main. Worked out by hand from the
+// definitions in the design's section 3; main's commits are given as git gives them, the first line its tip.
+#[test]
+fn a_commit_is_the_flow_s_only_by_a_merge_recorded_at_the_merge_cell() {
+    let mut s = Seed::new();
+    let id = |c: char| c.to_string().repeat(40);
+    let log: String = [
+        ('x', 9 * M),
+        ('a', 0),
+        ('g', 0),
+        ('c', M),
+        ('d', 2 * M),
+        ('e', 3 * M),
+        ('f', 4 * M),
+        ('h', 5 * M),
+        ('b', 10 * M),
+    ]
+    .iter()
+    .map(|(c, at)| format!("{} {}\n", id(*c), (T0 + at) / 1000))
+    .collect();
+    let main = MainLog::parse(&log).unwrap();
+    let (i, j) = (s.item("p", false, T0 - 60 * M), s.item("q", false, T0 - 60 * M));
+    let (w, v) = (s.work(Some(i), "engineer", None), s.work(Some(j), "engineer", None));
+    let arch = s.work(None, "architect", Some("p"));
+    let at_cell = |work: i64, cell: &'static str, row: &'static str, commit: Option<String>, ended: i64| R {
+        work,
+        cell,
+        started: ended - 1_000,
+        ended: Some(ended),
+        transition: Some(row),
+        output: commit.map(|c| json!({ "result": { "kind": "merged", "merge_commit": c } })),
+        ..R::default()
+    };
+    s.round(at_cell(w, "M2", "merged", Some(id('a')), T0 + 10_000));
+    s.round(at_cell(w, "M2", "conflict", Some(id('c')), T0 + M + 10_000));
+    s.round(at_cell(w, "I1", "merged", Some(id('d')), T0 + 2 * M + 10_000));
+    s.round(at_cell(v, "M2", "merged", Some(id('h')), T0 + 5 * M + 10_000));
+    s.round(at_cell(w, "M2", "merged", None, T0 + 7 * M));
+    s.revert(arch, &id('e'), &id('f'), T0 + 4 * M);
+    let read = Scope {
+        main: Some(&main),
+        ..p()
+    };
+    assert_eq!(
+        s.minutes("main.outside_flow", read),
+        ten(&[(0, 1.0), (1, 1.0), (2, 1.0), (3, 1.0), (9, 1.0)], Some(0.0))
+    );
+    assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(7, 1.0)], Some(0.0)));
+    assert_eq!(s.minutes("items.merged", p()), ten(&[(0, 1.0), (7, 1.0)], Some(0.0)));
+    for bad in ["", "abc", "abc def"] {
+        assert!(MainLog::parse(bad).is_err(), "{bad:?}");
+    }
+}
+
+// A stop on the edges of a period and of its points. From 60 s up to 180 s at a step of a minute: no time and no count
+// from a blocker that ended at its first millisecond, one raised at its end, a pause that ended at its first
+// millisecond, one that began at its end, or a pause over before it, its work having ended. A blocker raised at its first
+// millisecond counts there; one raised before it and ended at 120 s lasts up to there and counts nowhere. A pause whose
+// reason changes is one pause. A pause that begins and ends in the same millisecond, like such a blocker, counts and
+// lasts no time. A work made paused counts from when it was made, a work of the architect belongs to its project, and
+// clearing the pause of a work that has ended turns nothing. Worked out by hand: see the sum under each assertion.
+#[test]
+fn a_stop_on_the_edge_of_a_period_or_a_point_falls_on_one_side() {
+    let mut s = Seed::new();
+    let (i, j) = (s.item("p", false, T0 - 60 * M), s.item("q", false, T0 - 60 * M));
+    let [w1, w2, w3, w4, w5] = [(); 5].map(|_| s.work(Some(i), "engineer", None));
+    s.blocker(w1, "question", T0, Some(T0 + M));
+    s.blocker(w2, "owner_ask", T0 + 3 * M, None);
+    s.blocker(w3, "ruling", T0 + M, Some(T0 + 2 * M));
+    s.blocker(w4, "items", T0 - M, Some(T0 + 2 * M));
+    s.blocker(w5, "tool_failure", T0 + 125_000, Some(T0 + 125_000));
+    let [u1, u2, u3, u4, u6, u7] = [(); 6].map(|_| s.work(Some(i), "engineer", None));
+    s.pause(u1, true, T0 - M);
+    s.pause(u1, false, T0 + M);
+    s.pause(u2, true, T0 + 3 * M);
+    s.pause(u3, true, T0 + 70_000);
+    s.sql("UPDATE works SET paused = 'held longer' WHERE id = ?1", [u3]);
+    s.restamp("works", u3, T0 + 80_000);
+    s.pause(u3, false, T0 + 130_000);
+    s.pause(u4, true, T0 + 150_000);
+    s.pause(u4, false, T0 + 150_000);
+    s.pause(u4, true, T0 + 160_000);
+    let u5 = s.sql(
+        "INSERT INTO works (item, flow_version, graph, at, paused, paused_by)
+         VALUES (?1, 1, 'engineer', 'I1', 'held', 'owner')",
+        [i],
+    );
+    s.restamp("works", u5, T0 + 65_000);
+    s.pause(u6, true, T0 - 3 * M);
+    s.sql("UPDATE works SET ended = 'done' WHERE id = ?1", [u6]);
+    s.restamp("works", u6, T0 + 2 * M);
+    s.sql("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [u6]);
+    s.restamp("works", u6, T0 + 2 * M + 30_000);
+    s.pause(u7, true, T0 - 5 * M);
+    s.sql("UPDATE works SET ended = 'done' WHERE id = ?1", [u7]);
+    s.restamp("works", u7, T0 - M);
+    let a = s.work(None, "architect", Some("p"));
+    s.pause(a, true, T0 + 2 * M);
+    // Another project's stop, within the period.
+    let other = s.work(Some(j), "engineer", None);
+    s.pause(other, true, T0 + 90_000);
+    let (from, to) = (T0 + M, T0 + 3 * M);
+    let at = |s: &Seed, name: &str, scope: Scope<'_>| s.values(name, scope, from, to, M);
+    // Raised in the first point: w3, u3 at 70 s, u5 at 65 s. In the second: w5, u4 twice, the architect's.
+    assert_eq!(at(&s, "work.stops", p()), [Some(3.0), Some(4.0)]);
+    // First: w3 60 s, w4 60 s, u3 50 s, u5 55 s, u6 60 s. Second: u3 10 s, u4 20 s, u5 60 s, the architect's 60 s.
+    assert_eq!(at(&s, "work.stopped", p()), [Some(285_000.0), Some(150_000.0)]);
+    assert_eq!(at(&s, "work.stops", of("paused")), [Some(2.0), Some(3.0)]);
+    assert_eq!(at(&s, "work.stopped", of("paused")), [Some(165_000.0), Some(150_000.0)]);
+    assert_eq!(at(&s, "work.stops", of("question")), [Some(0.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stopped", of("question")), [Some(0.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stops", of("owner_ask")), [Some(0.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stopped", of("owner_ask")), [Some(0.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stops", of("ruling")), [Some(1.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stopped", of("ruling")), [Some(60_000.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stops", of("items")), [Some(0.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stopped", of("items")), [Some(60_000.0), Some(0.0)]);
+    assert_eq!(at(&s, "work.stops", of("tool_failure")), [Some(0.0), Some(1.0)]);
+    assert_eq!(at(&s, "work.stopped", of("tool_failure")), [Some(0.0), Some(0.0)]);
+    // As one point the same stops add up.
+    assert_eq!(s.values("work.stops", p(), from, to, to - from), [Some(7.0)]);
+    assert_eq!(s.values("work.stopped", p(), from, to, to - from), [Some(435_000.0)]);
+}
+
+// An item merged twice, as one reverted and merged again is: each merge waits for what ended by its own end, a run that
+// ended at that very millisecond included and one that ended a millisecond later not; a run inside another adds nothing;
+// two that touch are one span with no gap. The first merge at 300 s covers 0-60 s and 240-300 s: 120 s. The second at
+// 540 s covers those and 300.001-360 s, with the run from 270 s to 300.001 s joining them: 0-60 s and 240-360 s, 180 s.
+// A merge cell's round that did not merge counts for nothing. The migration marks the old rows by the mark the wait for
+// CI reads.
+#[test]
+fn each_merge_of_an_item_waits_for_what_ended_by_its_own_end() {
+    let mut s = Seed::new();
+    let i = s.item("p", false, T0 - 60 * M);
+    let w = s.work(Some(i), "engineer", None);
+    let at = |cell: &'static str, row: &'static str, started: i64, ended: i64| R {
+        work: w,
+        cell,
+        started,
+        ended: Some(ended),
+        transition: Some(row),
+        ..R::default()
+    };
+    let r = s.round(at("I1", "tools", T0, T0 + 1));
+    s.tool(w, r, "ci", T0, Some(T0 + M));
+    s.tool(w, r, "ci", T0 + 4 * M, Some(T0 + 5 * M));
+    s.tool(w, r, "ci_before", T0 + 250_000, Some(T0 + 260_000));
+    s.tool(w, r, "ci", T0 + 270_000, Some(T0 + 5 * M + 1));
+    s.tool(w, r, "full_ci", T0 + 5 * M + 1, Some(T0 + 6 * M));
+    s.round(at("M2", "conflict", T0 + 3 * M, T0 + 3 * M + 1));
+    s.round(at("M2", "merged", T0 + 5 * M - 1_000, T0 + 5 * M));
+    s.round(at("M2", "merged", T0 + 9 * M - 1_000, T0 + 9 * M));
+    assert_eq!(s.minutes("ci.wait", p()), ten(&[(5, 120_000.0), (9, 180_000.0)], None));
+    assert_eq!(
+        s.minutes("work.to_merge", p()),
+        ten(&[(5, 300_000.0), (9, 540_000.0)], None)
+    );
+    assert_eq!(s.minutes("items.merged", p()), ten(&[(5, 1.0), (9, 1.0)], Some(0.0)));
+    assert_eq!(s.values("ci.wait", p(), T0, T0 + 10 * M, 10 * M), [Some(150_000.0)]);
+    let mark = format!("'$.step', '{}'", health::FULL_CI_STEP);
+    assert!(db::MIGRATIONS.iter().any(|m| m.sql.contains(&mark)), "{mark}");
+}
+
+// One sample as it is written. The states fall under its own minute. The amounts over the time since the sample before
+// fall under the minute that time began in, whatever minutes lie between. A sample with no processor time writes none.
+// The queue's oldest wait is of what still waits, a matter handled or withdrawn left out: 0 for a project given with
+// nothing waiting, a project not given when a matter waits for it, and 0 for a matter dated after the sample. A second
+// sample of the same minute changes nothing. Worked out by hand from the design's section 4 and acceptance A3.
+#[test]
+fn a_sample_keeps_each_value_under_its_own_minute() {
+    let mut s = Seed::new();
+    let at = T0 + 3 * M + 5_000;
+    let a = s.work(None, "architect", Some("p"));
+    let handled = s.round(R {
+        work: a,
+        cell: "H12",
+        started: T0 - 2 * M,
+        ended: Some(T0 - M),
+        transition: Some("next"),
+        ..R::default()
+    });
+    s.matter("p", "report", T0 - 60 * M, Some((a, handled)));
+    s.matter("p", "report", T0 - 50 * M, None);
+    s.sql(
+        "UPDATE architect_matters SET withdrawn = 'not needed' WHERE at = ?1",
+        [T0 - 50 * M],
+    );
+    s.matter("p", "report", at - 90_000, None);
+    s.matter("p", "owner_words", at - 30_000, None);
+    s.matter("r", "report", at - 10_000, None);
+    s.matter("t", "report", at + 1_000, None);
+    let projects = ["p".to_string(), "q".to_string()];
+    let beat = health::Beat {
+        at,
+        since: Some(T0 + M + 50_000),
+        cpu: None,
+        reads: 7,
+        read_ms: 12.5,
+        slots_used: 2,
+        works_running: 1,
+    };
+    health::sample(s.conn(), &beat, &projects).unwrap();
+    let rows = |s: &Seed| -> Vec<(String, String, i64, f64)> {
+        let mut st = s
+            .conn()
+            .prepare("SELECT measure, project, at, value FROM samples ORDER BY measure, project")
+            .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let row = |measure: &str, project: &str, at: i64, value: f64| (measure.to_string(), project.to_string(), at, value);
+    let want = vec![
+        row("page.read_ms", "", T0 + M, 12.5),
+        row("page.reads", "", T0 + M, 7.0),
+        row("queue.oldest", "p", T0 + 3 * M, 90_000.0),
+        row("queue.oldest", "q", T0 + 3 * M, 0.0),
+        row("queue.oldest", "r", T0 + 3 * M, 10_000.0),
+        row("queue.oldest", "t", T0 + 3 * M, 0.0),
+        row("slots.used", "", T0 + 3 * M, 2.0),
+        row("works.running", "", T0 + 3 * M, 1.0),
+    ];
+    assert_eq!(rows(&s), want);
+    let again = health::Beat {
+        at: at + 20_000,
+        since: Some(T0 + M + 55_000),
+        cpu: None,
+        reads: 99,
+        read_ms: 99.0,
+        slots_used: 9,
+        works_running: 9,
+    };
+    health::sample(s.conn(), &again, &projects).unwrap();
+    assert_eq!(rows(&s), want);
+    let read = |s: &Seed, name: &str| s.values(name, p(), T0 + M, T0 + 4 * M, M);
+    assert_eq!(read(&s, "page.reads"), [Some(7.0), None, None]);
+    assert_eq!(read(&s, "queue.oldest"), [None, None, Some(90_000.0)]);
+    assert_eq!(read(&s, "engine.cpu"), [None, None, None]);
+}
+
 // Every measure of the registry gives a series over seeded records, of its unit and with a point at each step.
 #[test]
 fn every_measure_gives_a_series() {
