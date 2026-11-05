@@ -490,7 +490,9 @@ CREATE VIEW conversation_shown AS
       AND sender NOT IN ('engineer', 'architect', 'policy'));
 
 -- A work of the architect at the old base goes back to the look at the queue, which finds no base of this flow and reads
--- the project anew in a new session.
+-- the project anew in a new session. The tracking triggers come back after every migration; a migration changes rows
+-- outside the engine's own writes.
+DROP TRIGGER IF EXISTS track_works_update;
 UPDATE works SET at = 'Q0', resume_at = NULL, waiting = '[]', recorded = json_remove(recorded, '$.rebuild_for')
   WHERE graph = 'architect' AND ended IS NULL AND at IN ('U1', 'N1');
 
