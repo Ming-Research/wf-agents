@@ -352,15 +352,18 @@ fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again()
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A repair handed in again runs the command line twice, and the second run's reply replaces the first in the round's
-// record: the round's model time is both runs' together, so the first run's time is not lost.
+// A repair that is refused and handed in again makes three runs in the round: the first run, the repair's own run, and
+// the hand-in again, which replaces the first run's reply in the record. The round's model time is all three together.
 #[test]
-fn a_repair_handed_in_again_records_the_model_time_of_both_runs() {
+fn a_repair_handed_in_again_records_the_model_time_of_every_run() {
     let rewords: Script = Box::new(|r: &Request, _: usize| {
         let text = r.prompt.split("The text:\n").nth(1).unwrap_or_default().trim();
         (
             Vec::new(),
-            vec![("@result", json!(text.replacen(" \"at\" ", " in ", 1)))],
+            vec![
+                ("@result", json!(text.replacen(" \"at\" ", " in ", 1))),
+                ("@usage", json!({ "session_cost_usd": 0.002, "duration_api_ms": 2_000 })),
+            ],
         )
     });
     let s = setup("unparsed-model-time");
@@ -388,7 +391,48 @@ fn a_repair_handed_in_again_records_the_model_time_of_both_runs() {
     assert_eq!(at, "R1");
     let (record, usage) = repair_record(&e, work);
     assert_eq!(record["again"]["handed_in"], true, "{record}");
-    assert_eq!(usage["duration_api_ms"], 50_000, "{usage}");
+    assert_eq!(usage["duration_api_ms"], 52_000, "{usage}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A repair taken within the round is one run more than the first: its model time is added to the first run's.
+#[test]
+fn a_repair_taken_within_the_round_records_the_model_time_of_its_run() {
+    let escapes: Script = Box::new(|r: &Request, _: usize| {
+        let text = r.prompt.split("The text:\n").nth(1).unwrap_or_default().trim();
+        let fixed = text.replacen(" \"at\" ", " \\\"at\\\" ", 1);
+        (
+            Vec::new(),
+            vec![
+                ("@result", json!(fixed)),
+                ("@usage", json!({ "session_cost_usd": 0.002, "duration_api_ms": 2_000 })),
+            ],
+        )
+    });
+    let s = setup("unparsed-repair-model-time");
+    let mut agents = scripts();
+    agents.insert(
+        "R0",
+        Box::new(|_: &Request, n: usize| match n {
+            1 => (
+                Vec::new(),
+                vec![
+                    ("@unparsed", json!("unescaped_quote")),
+                    ("@usage", json!({ "session_cost_usd": 0.01, "duration_api_ms": 41_000 })),
+                ],
+            ),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    agents.insert("@repair", escapes);
+    let (mut e, _said, item) = start(&s, agents);
+    past_r0(&mut e, item);
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "R1");
+    let (record, usage) = repair_record(&e, work);
+    assert_eq!(record["repair"]["taken"], true, "{record}");
+    assert!(record.get("again").is_none(), "{record}");
+    assert_eq!(usage["duration_api_ms"], 43_000, "{usage}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

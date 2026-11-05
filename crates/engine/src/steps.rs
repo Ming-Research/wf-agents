@@ -625,6 +625,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         };
         let r = crate::unparsed::recover(e, &req, &reply, round, cell, &accepts);
         let mut record = r.record;
+        // The round's model time is that of every run it made: the first run's, the repair's and the hand-in again's.
+        let mut api_ms = sessions::cli::api_ms_sum(&[reply.usage[sessions::cli::API_MS].clone(), r.repair_api_ms]);
         if let Some(again) = r.again {
             // The hand-in again resumed the round's session: it cost what the session grew by since the first run.
             let was = reply.usage["session_cost_usd"].as_f64();
@@ -635,20 +637,19 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             };
             record["again"]["cost_usd"] = json!(cost);
             let compactions = reply.compactions + again.compactions;
-            // The round's model time is both runs' together: the first run's is read here, before the second replaces it.
-            let api_ms = sessions::cli::api_ms_of_two_runs(
-                &reply.usage[sessions::cli::API_MS],
-                &again.usage[sessions::cli::API_MS],
-            );
             reply = again;
             reply.compactions = compactions;
-            if let (Some(ms), Some(usage)) = (api_ms, reply.usage.as_object_mut()) {
-                usage.insert(sessions::cli::API_MS.to_string(), ms);
-            }
+            api_ms = sessions::cli::api_ms_sum(&[
+                api_ms.unwrap_or(Value::Null),
+                reply.usage[sessions::cli::API_MS].clone(),
+            ]);
         }
         let mut usage = sessions::cost::own_cost(reply.usage.clone(), before);
         if let Some(c) = usage["cost_usd"].as_f64() {
             usage["cost_usd"] = json!(c + r.repair_cost);
+        }
+        if let Some(ms) = api_ms {
+            usage[sessions::cli::API_MS] = ms;
         }
         ended = Ended {
             usage: Some(usage).filter(|u| !u.is_null()),
