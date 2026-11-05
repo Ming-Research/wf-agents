@@ -484,7 +484,7 @@ class Builder:
                 break
             w, n = agent_eng[r.randrange(len(agent_eng))]
             interj.add((w, "engineer", r.choice(["owner", "architect"]), "owner", self.txt(self.sz(464)),
-                        n if r.random() < 0.98 else None, 0))
+                        n if r.random() < 0.89 else None, 0))
         interj.flush()
         asks = self.sink("owner_asks", "work,round,body,answer")
         for i in range(self.n(RECIPE["owner_asks"])):
@@ -506,24 +506,35 @@ class Builder:
             notices.add((r.randint(1, nwork), self.txt(self.sz(280)), T0 + i * 10000, T0, None,
                          None if r.random() < 0.9 else "fault", 1 if i % 25 == 0 else 0))
         notices.flush()
-        kinds = [("slots_free", 30), ("owner_words", 22), ("engineer_question", 14), ("report", 10), ("failure", 4),
-                 ("open_question", 5), ("other_architect", 3), ("main_red", 4), ("flow_feedback", 8)]
+        # kind, matters, handled, on a work, with a reply, asked, withdrawn, mean body bytes: the field's, by kind
+        kinds = [("report", 271, 268, 220, 0, 3, 1, 1594), ("set_straight", 180, 148, 169, 0, 10, 30, 621),
+                 ("owner_words", 131, 131, 0, 0, 0, 0, 402), ("open_question", 127, 123, 127, 0, 28, 4, 850),
+                 ("make_plan", 57, 57, 57, 0, 0, 0, 239), ("engineer_question", 37, 35, 37, 35, 0, 2, 7817),
+                 ("slots_free", 30, 30, 0, 0, 0, 0, 21), ("group_talk", 27, 27, 0, 0, 0, 0, 10),
+                 ("failure", 16, 14, 16, 14, 0, 2, 4750), ("design_card", 15, 11, 15, 0, 0, 6, 17),
+                 ("check_policy", 13, 12, 13, 0, 9, 0, 239)]
+        kind_weights = [k[1] for k in kinds]
         matters = self.sink(
             "architect_matters",
-            "project,kind,detail,what,body,item,work,round,at,handled_work,handled_round,reply",
+            "project,kind,detail,what,body,item,work,round,at,handled_work,handled_round,reply,asked,resume_cell,"
+            "withdrawn",
         )
         n_matters = self.n(RECIPE["architect_matters"])
+        n_asks = self.n(RECIPE["owner_asks"])
         for i in range(n_matters):
-            kind = r.choices([k for k, _ in kinds], weights=[w for _, w in kinds])[0]
-            on_work = kind in ("engineer_question", "report", "failure", "open_question") and agent_eng
-            w, n = agent_eng[r.randrange(len(agent_eng))] if on_work else (None, None)
-            hw, hn = arch_rounds[r.randrange(n_arch_rounds)] if (arch_rounds and r.random() < 0.85) else (None, None)
-            body = self.blob(self.sz(1205, 1.2, 132000),
-                             '"text":"%s","where":"work","work":%d,"kind":"%s"' % (self.txt(100), w or 0, kind))
+            kind, total, handled, on_work, replied, asked, withdrawn, body_mean = r.choices(kinds, weights=kind_weights)[0]
+            has_work = bool(agent_eng) and r.random() < on_work / total
+            w, n = agent_eng[r.randrange(len(agent_eng))] if has_work else (None, None)
+            hw, hn = arch_rounds[r.randrange(n_arch_rounds)] if (arch_rounds and r.random() < handled / total) \
+                else (None, None)
+            body = self.blob(self.sz(body_mean, 1.2, 132000),
+                             '"text":"%s","where":"work","work":%d,"kind":"%s"' % (self.txt(min(100, body_mean)),
+                                                                                  w or 0, kind))
             reply = '{"text":"%s","by":"architect","at":%d}' % (self.txt(self.sz(400)), T0) \
-                if on_work and r.random() < 0.3 else None
-            matters.add(("wf-agents", kind, "flow_feedback" if kind == "flow_feedback" else None, self.txt(100), body,
-                         None, w, n, T0 + i * 20000, hw, hn, reply))
+                if has_work and r.random() < replied / total else None
+            ask = r.randint(1, n_asks) if r.random() < asked / total else None
+            matters.add(("wf-agents", kind, None, self.txt(100), body, None, w, n, T0 + i * 20000, hw, hn, reply, ask,
+                         "A3" if ask else None, "withdrawn" if r.random() < withdrawn / total else None))
         matters.flush()
         info["matter"] = 1 if n_matters else None
         cards = self.sink("design_cards", "work,round,key,body,status")
@@ -761,15 +772,32 @@ def done(conn, w):
     return any(r[10] is not None and r[7] is None for r in rows)
 
 
-def active_pass(conn, P):
-    """`Engine::active`: every work not ended and not paused, loaded, with `done` asked of each."""
+def active_ids(conn):
+    """`Engine::active`: every work not ended and not paused, loaded, with `done` asked of each. Gives the works not
+    done, as (id, graph), and how many it loaded."""
     ids = [r[0] for r in conn.execute("SELECT id FROM works WHERE ended IS NULL AND paused IS NULL ORDER BY id")]
-    live = 0
+    live = []
     for i in ids:
         w = wk(conn, i)
         if not done(conn, w):
-            live += 1
-    return len(ids), live
+            live.append((i, w[3]))
+    return live, len(ids)
+
+
+def active_pass(conn, P):
+    live, loaded = active_ids(conn)
+    return loaded, len(live)
+
+
+def slots_pass(conn, P):
+    """`Engine::slots_by_machine` (free_slots, room_for): `active` again, then each active engineer work loaded and asked
+    whether it waits (its last round)."""
+    live, loaded = active_ids(conn)
+    for i, graph in live:
+        if graph == "engineer":
+            wk(conn, i)
+            conn.execute("SELECT cell, transition FROM rounds WHERE work = ? ORDER BY n DESC LIMIT 1", (i,)).fetchone()
+    return loaded, len(live)
 
 
 def unended_pass(conn, P):
@@ -851,6 +879,12 @@ def build_paths():
     # -- engine: once per turn of the loop (a turn is a job's end, or 10 seconds) -------------------------------------
     add("engine.turn.active_pass", "engine", "Engine::active: Work::load and done for each work not ended and not paused",
         active_pass)
+    add("engine.turn.slots_pass", "engine", "Engine::slots_by_machine: active again, then the waiting of each active "
+        "engineer work (called by free_slots in queue_due, start_ready and status)", slots_pass)
+    add("engine.turn.stopping", "engine", "db::stopping (the page's status): the works with a stop asked",
+        sql_path("SELECT w.id FROM works w WHERE w.ended IS NULL AND w.at NOT IN ('E1') AND EXISTS (SELECT 1 FROM "
+                 "outbox o WHERE (o.kind = 'start_over' AND o.work = w.id) OR (o.kind = 'cancel_item' AND "
+                 "json_extract(o.args, '$.item') = w.item)) ORDER BY w.id"))
     add("engine.turn.keep_warm_scan", "engine", "keep_warm::due: the same for each work not ended, paused ones too",
         unended_pass)
     add("engine.turn.reload_config", "engine", "config::committed: git rev-parse, ls-tree and show for each file",
