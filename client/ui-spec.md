@@ -208,7 +208,9 @@ slower to read.
 
 Text an agent or the owner wrote reads as one document in the page's font, as GitHub's markdown reads (ours, after
 Primer's markdown style): body medium with line height 1.5, paragraphs and list items `--base-size-8` apart, lists
-indented `--base-size-24`, a heading the agent wrote drawn as a sub-heading whatever its level, inline code and code
+indented `--base-size-24`, a heading the agent wrote drawn as a sub-heading whatever its level, lines quoted with `>`
+as the strip over the box that replies quotes a question (`--fgColor-muted` words, a `--borderWidth-thick`
+`--borderColor-accent-emphasis` edge at the left, `--base-size-8` between the edge and the words), inline code and code
 blocks as Primer's markdown draws them (`--bgColor-neutral-muted`, `--borderRadius-medium`), with no background or
 indent of its own, an agent's text inside the box of what an agent handed back (below) where it stands among the page's
 own words, and a document that fills a section by itself as that section's body text (below), because the agent's
@@ -216,7 +218,7 @@ headings must not outrank the page's own.
 
 ### The page's own markdown
 
-The markdown agents write in that text (paragraphs, lists, headings, fenced and inline code, bold, links) is drawn by a
+The markdown agents write in that text (paragraphs, lists, headings, quoted lines, fenced and inline code, bold, links) is drawn by a
 small renderer of the page's own, and a paragraph that is plainly code, such as a command, is kept as code, instead of
 the text shown raw or a markdown library, because raw markdown is hard to read, the page needs only these few forms, and
 nothing an agent writes may become markup the page did not mean.
@@ -885,7 +887,8 @@ when the box goes away, and instead of keeping every page shown, which is what t
   where the commit is the same; where the files changed since, they are dropped and the form says so, because writing
   them back would put old values over the new ones.
 - **Words put in from outside** (a quote, words taken back) go through `putDraft(key, words, 'append' | 'replace')`,
-  which works whether the box is shown or not.
+  which works whether the box is shown or not. A bubble quoted into the box at the bottom of a conversation is such
+  words ("Quoting a bubble", below), so that it is kept as the owner's own words are.
 - **A new box takes a draft, and the lint holds it to that.** `SayBox`, `SendForm`, `DraftArea` and `DraftInput` (all in
   `src/parts.tsx`) take a `Draft`, and `FieldInput` is for the fields of a form kept as one draft; Primer's `Textarea`
   and `TextInput`, and the HTML `input` and `textarea`, are drawn nowhere else, and the page's lint refuses them.
@@ -2241,6 +2244,26 @@ agent handed back.
 Instead of the engine's sentence for agents cut to one line with the whole in a tooltip, and the queue's words in a look
 of their own, because the owner reads a matter alike in the queue and in the conversation, its kind already says what is
 to be done, and a sentence cut short told the owner nothing.
+
+### Quoting a bubble
+
+A message of the owner's or of an agent's in a conversation has, at the end of its head, a small invisible `IconButton`
+with a `QuoteIcon` ("Quote in the box at the bottom"), which shows while the pointer is on the
+bubble or the keyboard is on the button, and always where there is no pointer; its height takes none from the head's
+line. It puts the bubble's words into the draft of the box at the bottom (`putDraft` with `append`, after the words
+already there) and puts the keyboard in the box: the words the owner selected inside that bubble, or, with none
+selected, all of what the bubble says. The words come as markdown: a line of its own with who said them in bold
+(`owner`, or the line of the agent), then the words, each line after a `> `, then a blank line, so that what the owner
+writes next is not part of the quote. They are the box's words: the owner trims them or adds to them in the box, they are kept with
+the draft, and Send sends them with what the owner wrote, as words, to whoever the box is for; an agent reads the lines
+as they are, and the page draws them as a quote (above) in the bubble the owner's words become. The button is on a
+bubble only while the box can take words: not on a work's group once the work is at its end, and not on a line of
+the engine's, a fault, a bubble of what a stage or an architect's matter came to, or the words of a ruling.
+
+Instead of a strip over the box naming the bubble, kept apart from the words as the reply to an architect's question is,
+because a quote is words the owner may cut or answer in between, it must stay when the owner goes to another
+conversation as the words do, and the box at the bottom answers no bubble: a quote is no reply, and sends no more than
+words. A mouse going down on the button does not end the selection it quotes.
 
 ### Where the owner's words stand
 
