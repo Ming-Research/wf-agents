@@ -3559,6 +3559,48 @@
                       "desc": "What to do with them, or what could not be fetched or written"
                     }
                   ]
+                },
+                {
+                  "name": "ci_before_stale",
+                  "title": "Results of ci_before gone stale",
+                  "type": "list",
+                  "desc": "Only when test files a run of ci_before put on the code before the change changed in this head after it, so that the results it gave are not taken in your return and it is sent back: run ci_before again on this head, with the files and the tests of each entry",
+                  "optional": true,
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "tests",
+                        "title": "Tests",
+                        "type": "list",
+                        "desc": "The tests that run was the latest to report",
+                        "item": {
+                          "type": "text",
+                          "desc": "The test's name, as you named it"
+                        }
+                      },
+                      {
+                        "name": "changed",
+                        "title": "Files changed",
+                        "type": "list",
+                        "desc": "The files that run put on the code before the change that changed after it",
+                        "item": {
+                          "type": "text",
+                          "desc": "The file's path in the repository"
+                        }
+                      },
+                      {
+                        "name": "files",
+                        "title": "Files to hand in",
+                        "type": "list",
+                        "desc": "All the files that run put on the code before the change: the files of the new request",
+                        "item": {
+                          "type": "text",
+                          "desc": "The file's path in the repository"
+                        }
+                      }
+                    ]
+                  }
                 }
               ]
             },

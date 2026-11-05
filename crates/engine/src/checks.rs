@@ -602,14 +602,7 @@ impl Ctx<'_> {
     /// the code before the change, as they are now. A run whose commit cannot be compared with the head, because the
     /// worktree no longer has it, counts all its files as changed: it is run again. A run with no files has none.
     fn changed_since(&self, run: &BeforeRun) -> Vec<String> {
-        if run.files.is_empty() {
-            return Vec::new();
-        }
-        let compared = match (&run.head, self.wt()) {
-            (Some(head), Ok(wt)) => git::changed_among(wt, head, "HEAD", &run.files),
-            _ => Err("the commit of the run is not in the worktree".to_string()),
-        };
-        compared.unwrap_or_else(|_| run.files.clone())
+        files_changed_since(run, self.wt().ok(), "HEAD")
     }
 
     /// Whether a gh command or a query, as an agent writes it, is one this work handed in.
@@ -2388,9 +2381,90 @@ struct BeforeRun {
 /// none of them reported (a run of an engine before the results were read from JUnit, or a name the request left out)
 /// is judged by the latest run's checks alone, as it was when there was one run to look at.
 fn run_for<'a>(runs: &'a [BeforeRun], name: &str, seps: &[String]) -> Option<&'a BeforeRun> {
+    run_index_for(runs, name, seps).map(|i| &runs[i])
+}
+
+/// The place in `runs` of the run [`run_for`] gives.
+fn run_index_for(runs: &[BeforeRun], name: &str, seps: &[String]) -> Option<usize> {
     runs.iter()
-        .find(|r| reported_before(&r.ran, name, seps).is_some())
-        .or_else(|| runs.first())
+        .position(|r| reported_before(&r.ran, name, seps).is_some())
+        .or_else(|| (!runs.is_empty()).then_some(0))
+}
+
+/// The files of a run of ci_before that differ between its commit and `to`, in the worktree `wt`: the test files it put
+/// on the code before the change, as they are at `to`. A run whose commit cannot be compared with `to`, because the
+/// worktree no longer has it or there is none, counts all its files as changed: it is run again. A run with no files
+/// has none.
+fn files_changed_since(run: &BeforeRun, wt: Option<&Path>, to: &str) -> Vec<String> {
+    if run.files.is_empty() {
+        return Vec::new();
+    }
+    let compared = match (&run.head, wt) {
+        (Some(head), Some(wt)) => git::changed_among(wt, head, to, &run.files),
+        _ => Err("the commit of the run is not in the worktree".to_string()),
+    };
+    compared.unwrap_or_else(|_| run.files.clone())
+}
+
+/// Tests whose result before the change, as the latest run of ci_before that reported them gives it, would not count in
+/// a return that names them: the test files that run put on the code before the change changed after it. One entry for
+/// each such run.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct StaleBefore {
+    /// The tests the run is the latest to report, which are to be asked again.
+    pub tests: Vec<String>,
+    /// The files the run put on the code before the change that changed after it.
+    pub changed: Vec<String>,
+    /// All the files the run put on the code before the change: what to hand in again.
+    pub files: Vec<String>,
+}
+
+/// The tests asked of the runs of ci_before (`runs`, the latest first) whose latest run, the one [`run_for`] picks as
+/// the check of a return does, is stale by `changed`; grouped by run, the latest run first, the tests in the order they
+/// were first asked.
+fn stale_runs(runs: &[BeforeRun], seps: &[String], changed: impl Fn(&BeforeRun) -> Vec<String>) -> Vec<StaleBefore> {
+    let mut names: Vec<&str> = Vec::new();
+    for run in runs {
+        for row in run.ran.get("tests").and_then(Value::as_array).into_iter().flatten() {
+            if let Some(name) = row["test"].as_str().filter(|n| !names.contains(n)) {
+                names.push(name);
+            }
+        }
+    }
+    let mut stale: Vec<Option<StaleBefore>> = runs.iter().map(|_| None).collect();
+    let mut checked: Vec<Option<Vec<String>>> = runs.iter().map(|_| None).collect();
+    for name in names {
+        let Some(i) = run_index_for(runs, name, seps) else {
+            continue;
+        };
+        let files = checked[i].get_or_insert_with(|| changed(&runs[i]));
+        if files.is_empty() {
+            continue;
+        }
+        stale[i]
+            .get_or_insert_with(|| StaleBefore {
+                tests: Vec::new(),
+                changed: files.clone(),
+                files: runs[i].files.clone(),
+            })
+            .tests
+            .push(name.to_string());
+    }
+    stale.into_iter().flatten().collect()
+}
+
+/// The results of ci_before of the work that a return would be sent back for at the commit `to`, which a run of ci has
+/// just pushed: the test, the run and the files that [`results_vs_runs`] judges, told before the return is handed in.
+/// `seps` are the project's separators.
+pub(crate) fn stale_before_results(
+    e: &Engine,
+    w: &Work,
+    seps: &[String],
+    to: &str,
+) -> Result<Vec<StaleBefore>, String> {
+    let runs = before_runs_of(e, w)?;
+    let wt = w.worktree.as_deref();
+    Ok(stale_runs(&runs, seps, |run| files_changed_since(run, wt, to)))
 }
 
 /// The tests of a table (`rows`) whose results do not match the runs of ci on the pushed head (`on_head`, the push of
@@ -3917,6 +3991,74 @@ mod tests {
         );
         // With no run of ci_before, nothing is said of before the change.
         assert!(results_vs_runs(&rows, &head, &[], &seps(), |_| Vec::new()).is_empty());
+    }
+
+    // Item #311: what ci tells of the results of ci_before gone stale is what the check of a return would send back, by
+    // the same rule: a test is judged by the latest run that reported it, so a later run of ci_before that asked it
+    // again takes it from an earlier stale run; a run whose files did not change leaves its tests out; a run with no
+    // commit in the worktree is stale in all its files; and a run that put no files on the code is never stale. The
+    // reference is the check's own rule, which the same cases run through `results_vs_runs` show.
+    #[test]
+    fn the_results_of_ci_before_told_stale_are_those_the_check_of_a_return_sends_back() {
+        let both = json!({ "tests": [
+            row("one", "passed", &[("t", "one", "passed")]),
+            row("two", "passed", &[("t", "two", "passed")]),
+        ] });
+        let again = json!({ "tests": [row("two", "passed", &[("t", "two", "passed")])] });
+        let head = [json!({ "tests": [row("one two", "passed", &[("t", "one", "passed"), ("t", "two", "passed")])] })];
+        let rows = vec![
+            json!({ "name": "one", "on_base": "green" }),
+            json!({ "name": "two", "on_base": "green" }),
+        ];
+        // The earlier run put `t/a.rs` and `t/b.rs` on the code before the change; the later one asked `two` again with
+        // `t/b.rs` alone.
+        let runs = vec![
+            before_run(again, "bbbbbbbbbbbb", &["t/b.rs"]),
+            before_run(both, "aaaaaaaaaaaa", &["t/a.rs", "t/b.rs"]),
+        ];
+        // `t/a.rs` changed after the earlier run: `one` is stale, and `two` is not, since the later run has its result.
+        let a_changed =
+            |run: &BeforeRun| -> Vec<String> { run.files.iter().filter(|f| f.as_str() == "t/a.rs").cloned().collect() };
+        assert_eq!(
+            stale_runs(&runs, &seps(), a_changed),
+            [StaleBefore {
+                tests: ids(&["one"]),
+                changed: ids(&["t/a.rs"]),
+                files: ids(&["t/a.rs", "t/b.rs"]),
+            }]
+        );
+        let sent_back = said(results_vs_runs(&rows, &head, &runs, &seps(), a_changed));
+        assert_eq!(sent_back.len(), 1, "{sent_back:?}");
+        assert!(
+            sent_back[0].starts_with("one: ") && sent_back[0].contains(RUN_AGAIN),
+            "{sent_back:?}"
+        );
+        // Nothing changed: nothing is stale, and nothing is sent back for it.
+        assert!(stale_runs(&runs, &seps(), |_| Vec::new()).is_empty());
+        assert!(said(results_vs_runs(&rows, &head, &runs, &seps(), |_| Vec::new())).is_empty());
+        // `t/b.rs` changed: it is in both runs, each stale for the tests it is the latest to report, the later run first.
+        let b_changed =
+            |run: &BeforeRun| -> Vec<String> { run.files.iter().filter(|f| f.as_str() == "t/b.rs").cloned().collect() };
+        let stale = stale_runs(&runs, &seps(), b_changed);
+        assert_eq!(
+            stale.iter().map(|s| s.tests.clone()).collect::<Vec<_>>(),
+            [ids(&["two"]), ids(&["one"])]
+        );
+        assert_eq!(said(results_vs_runs(&rows, &head, &runs, &seps(), b_changed)).len(), 2);
+        // A run whose commit the worktree lacks counts all its files changed; one that put no file there, none.
+        let lost = BeforeRun {
+            head: None,
+            ..runs[1].clone()
+        };
+        let no_files = BeforeRun {
+            files: Vec::new(),
+            ..runs[1].clone()
+        };
+        let by_files = |run: &BeforeRun| files_changed_since(run, None, "HEAD");
+        let stale = stale_runs(&[lost], &seps(), by_files);
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].changed, stale[0].files);
+        assert!(stale_runs(&[no_files], &seps(), by_files).is_empty());
     }
 
     // Item #11: each test's result on the head is that of the latest run of ci on the pushed head that reported it, by
