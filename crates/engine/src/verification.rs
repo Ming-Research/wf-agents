@@ -974,7 +974,7 @@ mod tests {
         assert!(!whole_in("fetched", "fetch"));
         assert!(whole_in("{\"a\":1}", "\"a\":"));
         assert!(whole_in("x fetch x fetched", "fetch"));
-        assert!(whole_in("中文 ok", "ok"));
+        assert!(whole_in("\u{4e2d}\u{6587} ok", "ok"));
     }
 
     fn known(report: bool, engine_s_own: bool) -> Project<'static> {
