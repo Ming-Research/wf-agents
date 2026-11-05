@@ -28,6 +28,22 @@ export function seenOf(box: { width: number; height: number }, cover: number): A
 /// How far, in pixels, a pointer may move between press and release for the press to still be a click, not a drag.
 export const DRAG_LIMIT = 6;
 
+/// Where the pointer was last seen, in the window's pixels; none when it is not known or it has left the window. It is
+/// kept outside any viewer: a viewer is mounted again when its chart is laid out again, and a pointer that stays where it
+/// is sends nothing to the new one, which so cannot learn from its own events whether the pointer is on it.
+let pointer: { x: number; y: number } | null = null;
+if (typeof document !== 'undefined') {
+  const note = (e: MouseEvent) => {
+    pointer = { x: e.clientX, y: e.clientY };
+  };
+  // In the capture phase, so that nothing on the page that stops an event keeps the pointer from being seen.
+  document.addEventListener('pointermove', note, true);
+  document.addEventListener('pointerdown', note, true);
+  document.documentElement.addEventListener('pointerleave', () => {
+    pointer = null;
+  });
+}
+
 /// The view that shows the whole of a drawing of `drawing`'s size in the middle of `w`, with a margin round it and no
 /// more than 1.6 times its size.
 export function fitView(w: Area, drawing: { width: number; height: number }): View {
@@ -97,13 +113,14 @@ export function Viewer(props: {
   size.current = { w: width, h: height };
   const anim = useRef({ id: 0, goal: null as View | null });
   const saved = useRef<number | null>(null);
-  const mouse = useRef<[number, number] | null>(null);
   const pick = useRef(onPick);
   pick.current = onPick;
   const dims = useRef<Seen>({ width: 0, height: 0 });
   const watchers = useRef(new Set<(v: View, seen: Seen) => void>());
 
-  const api = useRef<(ViewerHandle & { whole: () => View; apply: () => void; measure: () => void }) | null>(null);
+  const api = useRef<
+    (ViewerHandle & { whole: () => View; apply: () => void; measure: () => void; pointed: () => [number, number] | null }) | null
+  >(null);
   if (api.current === null) {
     const apply = () => {
       const v = view.current;
@@ -119,6 +136,16 @@ export function Viewer(props: {
       if (!el) return;
       const w = seenOf({ width: el.clientWidth, height: el.clientHeight }, cover.current?.() ?? 0);
       dims.current = { width: w.x1 - w.x0, height: w.y1 - w.y0 };
+    };
+    // Where the pointer is on the viewer, in the viewer's own pixels; none when it is not on it: outside the viewer, out of
+    // the window, or under something that floats over the page, such as a dialog.
+    const pointed = (): [number, number] | null => {
+      const el = box.current;
+      if (!el || pointer === null) return null;
+      const under = document.elementFromPoint(pointer.x, pointer.y);
+      if (!under || !el.contains(under)) return null;
+      const r = el.getBoundingClientRect();
+      return [pointer.x - r.left, pointer.y - r.top];
     };
     const centre = (): [number, number] => {
       const w = seen();
@@ -160,6 +187,7 @@ export function Viewer(props: {
       whole,
       measure,
       apply,
+      pointed,
       start: (least, around) => {
         const w = whole();
         if (w.s >= least) {
@@ -199,7 +227,7 @@ export function Viewer(props: {
           return;
         }
         const s = saved.current && saved.current > t.s * 1.05 ? saved.current : 1;
-        const m = mouse.current ?? centre();
+        const m = pointed() ?? centre();
         const [cx, cy] = centre();
         const px = (m[0] - v.x) / v.s;
         const py = (m[1] - v.y) / v.s;
@@ -288,7 +316,6 @@ export function Viewer(props: {
       }
     };
     const pointerMove = (e: PointerEvent) => {
-      mouse.current = local(e);
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, [e.clientX, e.clientY]);
       if (down && (pts.size > 1 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > DRAG_LIMIT)) down = null;
@@ -323,15 +350,8 @@ export function Viewer(props: {
         el.classList.remove('dragging');
       }
     };
-    let hovered = false;
-    const enter = () => {
-      hovered = true;
-    };
-    const leave = () => {
-      hovered = false;
-    };
     const key = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || !hovered) return;
+      if (e.code !== 'Space' || a.pointed() === null) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       e.preventDefault();
@@ -359,8 +379,6 @@ export function Viewer(props: {
     el.addEventListener('pointermove', pointerMove);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
-    el.addEventListener('pointerenter', enter);
-    el.addEventListener('pointerleave', leave);
     document.addEventListener('keydown', key);
     return () => {
       resized.disconnect();
@@ -369,8 +387,6 @@ export function Viewer(props: {
       el.removeEventListener('pointermove', pointerMove);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
-      el.removeEventListener('pointerenter', enter);
-      el.removeEventListener('pointerleave', leave);
       document.removeEventListener('keydown', key);
     };
   }, []);
