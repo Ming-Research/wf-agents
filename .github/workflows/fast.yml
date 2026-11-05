@@ -18,7 +18,8 @@ name: fast
 # with no testcase and an error, and the tests of the other units still run.
 #
 # It runs on the project's own machine, whose runners keep each what the last run built: the repository's checkout, the
-# compiled target and the page's dependencies stay between runs, and only what changed is built again. So a checkout
+# compiled target and the page's dependencies stay between runs, and only what changed is built again. Each step a run
+# need not take is left out because the agents wait for this workflow on every change; the engine reads each job. So a checkout
 # leaves those in place (`clean: false`), and the step after it clears the rest of what the last run left.
 #
 # GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one made before this file
@@ -153,21 +154,17 @@ jobs:
           if [ $rust_selected = false ] && [ $page_selected = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
           echo "rust=$rust_selected" >> "$GITHUB_OUTPUT"
           echo "page=$page_selected" >> "$GITHUB_OUTPUT"
-      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - run: rustup toolchain install
-      # The project's machine has it from an earlier run: its runners share a home, and installing at once they collide.
-      - id: nextest
-        run: if cargo nextest --version 2>/dev/null | grep -q '0.9.146'; then echo "have=true" >> "$GITHUB_OUTPUT"; fi
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
-        if: steps.nextest.outputs.have != 'true'
-        with:
-          tool: cargo-nextest@0.9.146
+      # The project's machine has the tools: rustup installs the toolchain rust-toolchain.toml pins when it is missing,
+      # and whoever changes a version here installs it there first (its runners share a home, and installing at once
+      # they collide).
+      - run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - run: |
+          rustc --version
+          cargo nextest --version | grep -q '0.9.146'
+          [ "$(node --version)" = v24.21.0 ]
       - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.21.0
-      # Before any cargo step that compiles the crate the page is built into; only when the page's files changed since
-      # this runner built it, and its dependencies only when their lock changed.
+      # Before any cargo step that compiles the crate the page is built into; the build of the page's files as they are
+      # is kept for every runner of the machine, and its dependencies are installed only when their lock changed.
       - name: Build the page
         working-directory: client
         run: |
@@ -177,10 +174,19 @@ jobs:
             npm ci
             echo "$lock" > node_modules/.wf-lock
           fi
-          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" != "$tree" ] || [ ! -f dist/index.html ]; then
+          kept="$HOME/page-builds/$tree"
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+            :
+          elif [ -f "$kept/index.html" ]; then
+            # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
+            rm -rf dist && cp -R "$kept" dist
+          else
             npm run build
-            echo "$tree" > node_modules/.wf-tree
+            mkdir -p "$HOME/page-builds"
+            tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
+            find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
           fi
+          echo "$tree" > node_modules/.wf-tree
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
       # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
       #
@@ -292,18 +298,3 @@ jobs:
         with:
           name: test-results
           path: ${{ runner.temp }}/test-results
-
-  # The one check the engine reads, red whenever a job that ran is. A job that did not run is skipped: the lint when it
-  # is not named, the tests when none are named.
-  fast:
-    needs: [lint, test]
-    if: always()
-    runs-on: [self-hosted, 14900k]
-    timeout-minutes: 5
-    steps:
-      - name: Every job that ran passed
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "lint and test: $RESULTS"
-          for r in $RESULTS; do [ "$r" = success ] || [ "$r" = skipped ] || exit 1; done

@@ -126,6 +126,13 @@ fn kind_words(media_type: &str) -> String {
     }
 }
 
+/// Whether the value of a setting says nothing: the project sets none (null, which `Project::setting` gives for a
+/// setting whose empty list means the same), or the text is blank. An empty list that a setting gives as it is, such as
+/// `test_paths = []`, says that no path holds tests, and is given.
+fn setting_empty(v: &Value) -> bool {
+    v.is_null() || v.as_str().is_some_and(|s| s.trim().is_empty())
+}
+
 /// Whether a value is the project's own context, which a message gives before anything else: the project's guide (its
 /// AGENTS.md and records) and a setting of its configuration, such as its design goal.
 fn project_own(o: &Origin) -> bool {
@@ -190,7 +197,12 @@ pub fn line_parts(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, named: &st
     let cells = sessions::format_cells(g, cell);
     let mut out: Vec<(String, Value)> = vec![("format:common".to_string(), common_part(e, g, cell, named))];
     let mut add = |address: String, content: Value| {
-        if !empty(&content) && !out.iter().any(|(a, _)| *a == address) {
+        let nothing = if address.starts_with("config:") {
+            setting_empty(&content)
+        } else {
+            empty(&content)
+        };
+        if !nothing && !out.iter().any(|(a, _)| *a == address) {
             out.push((address, content));
         }
     };
@@ -219,10 +231,7 @@ pub fn line_parts(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, named: &st
                 .iter()
                 .any(|x| x.from.iter().any(|s| matches!(s, Src::Config(m) if m == n)))
         });
-        if let Some(v) = project
-            .and_then(|p| p.setting(n))
-            .filter(|v| everywhere && !v.is_null())
-        {
+        if let Some(v) = project.and_then(|p| p.setting(n)).filter(|_| everywhere) {
             add(format!("config:{n}"), v);
         }
     }
@@ -694,7 +703,11 @@ impl Context<'_> {
             let mut addrs: Vec<String> = Vec::new();
             for p in &x.parts {
                 for (address, content) in self.conditional_of(&m, p) {
-                    if empty(&content) {
+                    let nothing = match p.origin {
+                        Origin::Config(_) => setting_empty(&content),
+                        _ => empty(&content),
+                    };
+                    if nothing {
                         continue;
                     }
                     let a = m.give(address, content);
@@ -1190,10 +1203,9 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
         let acceptance = item.acceptance.clone().unwrap_or(Value::Null);
         cols.extend(acceptance_columns(&acceptance, item.deliver == "report"));
         if item.deliver != "report" {
-            // The columns of what ran: the judgment that the work stands when it was judged (cell `R2`), and on the
-            // light route a plan its review found sound (cell `F2`), with the plan's tests in place of adversarial
-            // testing. A work redesigned from the light route has the plan and no judgment; one turned before its plan
-            // was found sound has the judgment and no plan.
+            // The columns of what ran, for a work of a flow version that had these cells: the judgment that the work
+            // stands when it was judged (cell `R2`), and a plan its review found sound (cell `F2`), with the plan's
+            // tests in place of adversarial testing. The flow now has neither cell, so a work of today adds none.
             let ran = |c: &str| crate::inputs::answered(e, w, g, c).unwrap_or_default();
             if !ran("R2").is_empty() {
                 cols.push("The research's judgment that the work stands: does its reason hold?".into());

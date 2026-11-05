@@ -102,8 +102,10 @@ fn gone(pid: &str) -> bool {
 fn a_run_that_takes_the_polite_signal_ends_by_it_and_at_once() {
     let dir = scratch("term");
     let asked = dir.join("asked");
+    // The child first: forked with the trap set, it could take the signal before its exec and live on as the sleep,
+    // holding the stream open for the whole wait. Under load that failed 29 of 600 runs, and none once reordered.
     let script = format!(
-        "#!/bin/sh\ntrap 'echo asked > {}; exit 0' TERM\nsleep 120 &\nprintf '%s\\n' '{}'\nwait\n",
+        "#!/bin/sh\nsleep 120 &\ntrap 'echo asked > {}; exit 0' TERM\nprintf '%s\\n' '{}'\nwait\n",
         asked.display(),
         a_call_line()
     );
