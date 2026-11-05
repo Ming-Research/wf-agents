@@ -5,10 +5,14 @@ Whom it serves: item #248 (the list of paths that run for every event, round, wo
 that fix those paths and want to run the same program again. It is wired to one caller, the `measure` tool's workflow
 (`.github/workflows/measure.yml`), whose command is
 
-    python3 -I research/repeated-paths/repeated_paths.py run --scales 1,10
+    python3 -I research/repeated-paths/repeated_paths.py run --scales 1,1L10,10 | tee -a "$RUNNER_TEMP/rp-all.log"; \
+    python3 -I research/repeated-paths/repeated_paths.py summarize "$RUNNER_TEMP/rp-all.log"
 
 and it is removed when the paths it times have each a scale test of their own in the code that owns them, or when
 `research/repeated-paths.md` is deleted.
+
+It fixes no path and changes no file of the repository: it times the SQL the engine and the interface run, on databases
+it builds for itself, and prints.
 
 What it does, by mode:
 
@@ -18,7 +22,9 @@ What it does, by mode:
 
 Scale 1 is the engine's own database as it stood on 2026-11-05 (365 works, 14843 rounds, 55886 changes: RECIPE below
 holds each figure with where it was measured). Scale 10 is ten times as many works, items, rounds, tool runs, changes
-and flow versions, each work and each row as large as at scale 1: the same engine run ten times as long. Rows of the
+and flow versions, each work and each row as large as at scale 1: the same engine run ten times as long. Scale 1L10 is
+scale 1 with the architect's longest work stretched to ten times its rounds (a work that grows with age whatever the
+number of works). Rows of the
 tables the research environment's `query` tool hides (pings, round_calls, round_measures, cache_misses) are not built, so
 the paths that read them are timed as reading empty tables; the report says which.
 

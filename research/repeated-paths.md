@@ -1,7 +1,8 @@
 # Paths that run again and again, and what they cost as the data grows, measured on 2026-11-05
 
-Item #248. The engine's database was read as it stood on 2026-11-05 (28.4 days of work: 365 works, about 14,850 rounds,
-55,915 changes); the paths were timed on a synthetic database built to that size and to ten times it, in one run on
+Item #248. The engine's database was read as it stood on 2026-11-05 (28.4 days of work: 365 works, 14,843 rounds,
+55,886 changes: the figures the synthetic databases were built to; a later read the same day found about 14,850 rounds
+and 55,915 changes); the paths were timed on a synthetic database built to that size and to ten times it, in one run on
 GitHub's `ubuntu-24.04` runner. This report measures and lists; it changes no engine, interface, page or database file.
 Whom it serves: the architect, who opens the fix items from it and orders them, and the owner, who wants to know how many
 works the system can carry before it is slow. It is kept until its fixes are in and the program below is run again.
@@ -32,7 +33,7 @@ those, not tried.
 | Question | Answer |
 |---|---|
 | What is the biggest cause | Finished works are never marked `ended`: 252 of the 316 works with `ended IS NULL` are done (at their graph's last cell), and every pass of the loop that lists "the works that go on" loads each of them (read: `crates/engine/src/ending.rs:88-102` sets `ended` only for a work stopped before its end; measured by `query`). One pass that loads the 304 unpaused unended works takes 26.0 ms now and 262 ms at ten times the works (measured); a turn of the loop makes at least 4 such passes (section 3, E1). |
-| Next | Every write of the engine first scans the whole change log for its next transaction number: 33.1 ms per write now (55,915 change rows), 334 ms at ten times, inside the write lock (E2, measured, read). At least 18,845 writes that changed a tracked table have been made (measured: the transactions in `changes`). |
+| Next | Every write of the engine first scans the whole change log for its next transaction number: 33.1 ms per write now (55,886 change rows), 334 ms at ten times, inside the write lock (E2, measured, read). At least 18,845 writes that changed a tracked table have been made (measured: the transactions in `changes`). |
 | What the loop costs a turn | Adding the measured parts by the number of times the source calls each: 167 to 220 ms per turn now, 1.1 to 1.7 s at ten times (E1; the sum is inferred from measured parts). A turn runs when a job ends and at least every 10 s (read: `crates/wf-agents/src/main.rs:1046`). |
 | What the owner's page costs the interface | The two reads every page holds (`/works` and `/conversations`, section 3 I2) cost 77 ms of database time per flush now and 2.6 s at ten times; the page flushes at most once in 3 s while events keep coming (read: `client/src/live.ts`). One flush of everything an event batch can name costs 438 ms and 2.8 MB of result now, 6.2 s and 19 MB at ten times (measured; the bytes are the rows' text, not the JSON the interface sends). |
 | What grows by itself | The architect's longest work (3,330 rounds, 22% of all rounds) never ends and is read whole by every step that composes a round of it: 27 ms and 29 MB per read now, 294 ms at ten times its rounds (measured at scale 1L10: 10.7 to 11.0 times; about 290 MB is ten times the bytes, inferred). Its page, `GET /works/{id}`, is 29.8 MB (R1, I4, measured). |
@@ -47,7 +48,8 @@ those, not tried.
   each round's cell, size and whether it ran an agent, each work's rounds and state, the change log by table, the
   matters by kind, the compiled flow at 1.7 MB. Row texts are random words, so the sizes are the field's and the contents
   are not. At scale 1 the program checks every table against the number it built and the main tables against the field
-  within 5%; it ended `DONE ok` in all nine processes. Scale 10 has ten times the works, items, rounds, tool runs,
+  within 5%; it ended `DONE ok` in all nine processes. The views are not listed in the program: it reads their names from
+  `sqlite_master`, and the results file has a row for each of the 46 views of `db/schema.sql` in each comparison. Scale 10 has ten times the works, items, rounds, tool runs,
   changes and flow versions, each work and row as large as at scale 1: the same engine run ten times as long. Scale 1L10
   is scale 1 with the longest architect work at 33,300 rounds, since that work grows with age whatever the number of
   works. The scale-10 database is 7.9 GB, scale 1 is 0.8 GB.
@@ -74,8 +76,10 @@ those, not tried.
   noise is the twin's time over the base's at scale 1 in each pair, its interval over the three pairs. For three paths
   the interval lies wholly below 1 (`api.architect.matters` 0.953 to 0.979, `api.items_extra` 0.927 to 0.969,
   `view.architect_queue` 0.874 to 0.953): their scale-1 time differs by up to 13% between processes of the same commit,
-  so it is not read finer than that; their growth at ten times (5.5 to 5.7, 13.3 to 13.8 and 28 to 31 times) is far above
-  it, and the class stands. Every other path's interval contains 1, or has no spread (1.000 to 1.000); the widest are
+  so it is not read finer than that. By the criterion written before the run (a path whose twin-to-base interval excludes
+  1 is noisier than a measured path may be) these three are **unresolved**: this report draws no class and no
+  conclusion for them, and the class the results file prints for them is withdrawn. Their growth at ten times (5.5 to
+  5.7, 13.3 to 13.8 and 28 to 31 times) is shown only as it was observed; a rerun would settle them. Every other path's interval contains 1, or has no spread (1.000 to 1.000); the widest are
   paths under 0.1 ms (`engine.round.item_merged` 0.68 to 1.74, `engine.step.take_if_past` 0.70 to 1.29), where the
   clock is the limit (checked by a search of the results file for intervals wholly on one side of 1).
   Page cache: the machine had the files in memory after the build; the engine's connections use SQLite's default 2 MiB
@@ -131,7 +135,7 @@ ratio's interval. "Item" names an item that already covers the path.
 | I2 | `/works` (58.5; 7,727 rows, 479 kB: every round of every work, the `waiting` and `recorded` columns that the summary does not use) and `/conversations` (18.6) are held by the top bar of every page | works, rounds, messages | 77.1 | 2,592 (`/works` 10.5 to 10.6 times; `/conversations` 105 to 109 times) | measured; the top bar read (`TopBar.tsx`, inventory) |
 | I3 | `conversation_entries` is a UNION of 12 selects built whole for any read of one conversation (the plan is `CO-ROUTINE conversation_entries / COMPOUND QUERY`); some arms scan unindexed columns (`interjections.matter`, `engine_notices.ask`, `architect_matters.asked`, `blockers.ask`) | messages x matters x interjections | `/conversation` of one work 5.7; of the architect 5.8; view 6.6 | 1,014.7 (175 to 183); 1,018.4 (171 to 175); 1,040.7 (155 to 160) | measured; the unindexed arms inferred from the SQL shape |
 | I4 | `/works/{id}` of the architect's longest work: 3,330 rounds with their whole input and output (29.8 MB); the correlated `min(n)` per round makes it quadratic in the work | the work's rounds | 73.8 | flat at 10; 767.5 at 1L10 | measured |
-| I5 | `/items` (9.3 over `/works`), `/observations` 17.1, `/architect` notebook 3.0 (every version's full text, no limit), `/flows` 1.0 (a scan of `works` for each flow version: works x versions), `/architect/rounds` 22.8 (sorts all architect rounds), item level changes 7.1 (scans every `items` change) | items, observations, notebook versions, works x versions | as listed | 124.3, 180.7, 52.3 (17 to 18), 92.0 (93 to 96), 231.6, 65.6 | measured |
+| I5 | `/items` (9.3 over `/works`; unresolved, noise: section 2), `/observations` 17.1, `/architect` notebook 3.0 (every version's full text, no limit), `/flows` 1.0 (a scan of `works` for each flow version: works x versions), `/architect/rounds` 22.8 (sorts all architect rounds), item level changes 7.1 (scans every `items` change) | items, observations, notebook versions, works x versions | as listed | 124.3, 180.7, 52.3 (17 to 18), 92.0 (93 to 96), 231.6, 65.6 | measured |
 | I6 | `api::events` after each write: two point lookups per changed row (`events.rs:39`) | rows a write changes | 4.1 for 200 rows | 4.2 (flat) | measured |
 
 ### Page (`client/src`): not timed
@@ -173,8 +177,17 @@ work or by one row, and are the contrast that shows the program separates them.
 
 ## 6. What this report does not show
 
-- The page's time and redraws, and the Rust code's own time (section 2).
-- The count of calls per turn of the `keep_warm` session reads (E6) and of the `round_measures` read (R10).
+- The page's time and redraws (P1 to P3), and the Rust code's own time (section 2). The page was not measured because the
+  fast CI has no browser unless a file named `*.browser.test.tsx` is run, and this work may add no file outside
+  `research/`. It can be measured by a browser test that draws the page against the interface's answers on the synthetic
+  databases and counts the reads, the bytes and the redraws of a batch of events. The Rust code's time can be measured by
+  the same statements called from a test of the crate that owns each path, at both scales.
+- The count of calls per turn of the `keep_warm` session reads (E6): nothing in the engine's records counts them. It
+  can be measured once the engine records each turn's passes and calls (section 7, item 7), or by a counter in a debug
+  build run on a copy of the field's database.
+- The `round_measures` read of R10 and the tables the research environment's `query` cannot read: the row counts are
+  not known, so the program builds them empty. It can be measured once the owner reads the counts of those tables on the
+  engine's machine and puts them in `RECIPE`.
 - Whether the engine at the owner's machine uses a full core because of E1 to E6: the sum of the measured parts is
   167 to 220 ms per 10 s of an idle engine, about 2% of a core now and 11 to 17% at ten times; more when jobs end often.
   The owner's observation of a full core is not explained by the measured parts alone, which is what E6 may hold.
