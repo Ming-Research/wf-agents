@@ -29,28 +29,46 @@
   display: flex;
   max-width: 85%;
   background: var(--bgColor-default);
-  border-left: var(--borderWidth-thin) solid var(--borderColor-default);
   box-shadow: var(--shadow-floating-small);
   transform: translateX(100%);
   transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* The window's left edge: a narrow line in the tab's blue from top to bottom, which the tab grows out of. */
+.cw::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 3px;
+  background: #6a82fd;
+  pointer-events: none;
+}
+
+.cw:has(.cw-tab:hover)::before {
+  background: #5a71ec;
+}
+
 /* The tab: a narrow trapezoid in blue, its long side on the window's edge, so that it is seen at the screen's edge. */
 .cw .cw-tab {
   position: absolute;
-  top: var(--base-size-80);
+  top: calc(var(--base-size-80) - 8px);
   left: -24px;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 24px;
-  height: 72px;
+  height: 88px;
   padding: 0;
   border: none;
   background: #6a82fd;
   color: #ffffff;
-  /* The trapezoid's two outer corners rounded; the side on the window's edge is straight. */
-  clip-path: path('M24 0 L5 7 Q0 8.6 0 14 L0 58 Q0 63.4 5 65 L24 72 Z');
+  /* The trapezoid, 72 high from 8 down, its two outer corners rounded, and above and below it the edge's line, which
+     its slanted sides leave in a curve. */
+  clip-path: path(
+    'M24 0 L21 0 L21 1.1 Q21 9.1 13.5 11.9 L5 15 Q0 16.6 0 22 L0 66 Q0 71.4 5 73 L13.5 76.1 Q21 78.9 21 86.9 L21 88 L24 88 Z'
+  );
   cursor: pointer;
 }
 
@@ -86,7 +104,7 @@
 
 .cw-item {
   position: relative;
-  padding: var(--base-size-16) var(--base-size-20) var(--base-size-32);
+  padding: var(--base-size-16) var(--base-size-16) var(--base-size-32);
 }
 
 .cw-head {
@@ -163,7 +181,7 @@
   border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
 }
 
-.cw-tabs button {
+.cw-tabs button[role='tab'] {
   padding: var(--base-size-4) 0;
   border: none;
   border-bottom: 2px solid transparent;
@@ -173,7 +191,7 @@
   cursor: pointer;
 }
 
-.cw-tabs button.on {
+.cw-tabs button[role='tab'].on {
   color: var(--fgColor-default);
   border-bottom-color: #8b5cf6;
 }
@@ -191,8 +209,10 @@
 }
 
 /* A passage changed since the owner read the item is marked at its left, as a card new to the owner is. */
+/* A passage stands in line with its heading; the mark of a changed one is in the margin to its left. */
 .cw-part {
-  padding-left: var(--base-size-12);
+  margin-left: calc(-1 * var(--base-size-8));
+  padding-left: 5px;
   border-left: 3px solid transparent;
 }
 
@@ -231,9 +251,14 @@
   cursor: pointer;
 }
 
+/* The option picked is filled; the one under the pointer is ringed. */
 .cw-option.on {
+  border-color: #e6ddfd;
+  background: #e6ddfd;
+}
+
+.cw-option:hover:not(:disabled) {
   border-color: #8b5cf6;
-  box-shadow: 0 0 0 2px #8b5cf633;
 }
 
 .cw-option-label {

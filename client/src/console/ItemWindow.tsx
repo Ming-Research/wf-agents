@@ -3,14 +3,16 @@
 // item stands and a line of what its work does, with the work's stages and where its time went as its row in the list
 // of works has them; and two tabs, beside them a button to mark the item read while something in it is new to the
 // owner. The first holds the body (where the item came from, the problem it solves, the plan, with each choice that
-// waits for the owner where it stands in the plan and, once the plan has no choice open, a button to confirm it), each
+// waits for the owner where it stands in the plan, picked by a press on an option, and at the plan's end a button to
+// confirm it, which waits until each choice has its pick; once confirmed, the picks stand), each
 // passage changed since the owner read it marked at its left, and under the body the notes: the owner's and the
 // replies, and a box to write one, which a passage selected in the body can be quoted into and which names whom it goes
-// to. The second holds what of the work the lines do not say. With no item selected it says how to select one.
+// to. The second holds what of the work the lines do not say. With no item selected it says how to select one. While the
+// window is out, R marks the item read, as its button does, unless a box has the keys.
 
 import { QuoteIcon, XIcon } from '@primer/octicons-react';
 import { Button, IconButton } from '@primer/react';
-import { type MouseEvent, type ReactNode, type RefObject, useRef, useState } from 'react';
+import { type MouseEvent, type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 
 import type { WorkState } from '../api';
 import { useDraft } from '../drafts';
@@ -41,12 +43,27 @@ function mood(state: WorkState): { words: Key; tone: string } {
   return { words: 'console_work_waiting', tone: 'waiting' };
 }
 
-export function ItemWindow({ item, demo, onTitle }: { item: WindowItem | null; demo: boolean; onTitle: () => void }) {
-  if (item === null) return <p className="cw-empty">{t('console_window_empty')}</p>;
-  return <ItemView key={item.id} start={item} demo={demo} onTitle={onTitle} />;
+/// A button's words with the letter of its key underlined: the first that begins a word.
+function keyed(words: string, key: string): ReactNode {
+  const at = [...words].findIndex((c, i) => c.toLowerCase() === key && (i === 0 || words[i - 1] === ' '));
+  if (at < 0) return words;
+  return (
+    <>
+      {words.slice(0, at)}
+      <u>{words[at]}</u>
+      {words.slice(at + 1)}
+    </>
+  );
 }
 
-function ItemView({ start, demo, onTitle }: { start: WindowItem; demo: boolean; onTitle: () => void }) {
+type Props = { open: boolean; demo: boolean; onTitle: () => void };
+
+export function ItemWindow({ item, ...props }: { item: WindowItem | null } & Props) {
+  if (item === null) return <p className="cw-empty">{t('console_window_empty')}</p>;
+  return <ItemView key={item.id} start={item} {...props} />;
+}
+
+function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props) {
   const [w, setW] = useState(start);
   const [tab, setTab] = useState<'item' | 'work'>('item');
   const [quote, setQuote] = useState<string | null>(null);
@@ -54,16 +71,29 @@ function ItemView({ start, demo, onTitle }: { start: WindowItem; demo: boolean; 
   const [confirmed, setConfirmed] = useState(false);
   const inner = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
-  const read = () => {
+  const read = useCallback(() => {
     const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
-    setW({
-      ...w,
-      item: { ...w.item, unseen: false },
-      background: clear(w.background),
-      problem: clear(w.problem),
-      plan: clear(w.plan),
-    });
-  };
+    setW((was) => ({
+      ...was,
+      item: { ...was.item, unseen: false },
+      background: clear(was.background),
+      problem: clear(was.problem),
+      plan: clear(was.plan),
+    }));
+  }, []);
+  const fresh = w.item.unseen || changedIn(w);
+  useEffect(() => {
+    if (!open || !fresh) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'r' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const to = e.target as HTMLElement | null;
+      if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
+      e.preventDefault();
+      read();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [open, fresh, read]);
   const choose = (at: number, option: number) =>
     setW({ ...w, plan: w.plan.map((p, i) => (i === at && p.kind === 'choice' ? { ...p, chosen: option } : p)) });
   // A passage selected in the body offers to be quoted, by a button just above it.
@@ -124,9 +154,9 @@ function ItemView({ start, demo, onTitle }: { start: WindowItem; demo: boolean; 
             {t(k === 'item' ? 'console_tab_item' : 'console_tab_work')}
           </button>
         ))}
-        {w.item.unseen || changedIn(w) ? (
-          <Button size="small" className="cw-read" onClick={read}>
-            {t('console_read')}
+        {fresh ? (
+          <Button size="small" className="cw-read" aria-keyshortcuts="r" onClick={read}>
+            {keyed(t('console_read'), 'r')}
           </Button>
         ) : null}
       </div>
@@ -137,11 +167,20 @@ function ItemView({ start, demo, onTitle }: { start: WindowItem; demo: boolean; 
           <div className="cw-body" onMouseUp={selected}>
             <Section title="console_background" parts={w.background} />
             <Section title="console_problem" parts={w.problem} />
-            <Section title="console_plan" parts={w.plan} choose={choose} />
-            {w.planWaits && !confirmed && openChoices(w) === 0 ? (
+            <Section title="console_plan" parts={w.plan} choose={w.planWaits ? choose : undefined} />
+            {w.planWaits ? (
               <div className="cw-confirm">
-                <p>{t('console_plan_waits')}</p>
-                <Button variant="primary" onClick={() => setConfirmed(true)}>
+                <p>
+                  {openChoices(w) > 0 ? t('console_plan_choices_open', { n: openChoices(w) }) : t('console_plan_waits')}
+                </p>
+                <Button
+                  variant="primary"
+                  disabled={openChoices(w) > 0}
+                  onClick={() => {
+                    setW((was) => ({ ...was, planWaits: false }));
+                    setConfirmed(true);
+                  }}
+                >
                   {t('console_confirm_plan')}
                 </Button>
               </div>
@@ -227,6 +266,7 @@ function Section({
 }: {
   title: Key;
   parts: Part[];
+  /// Picks an option of a choice, while the plan waits to be confirmed.
   choose?: (at: number, option: number) => void;
 }) {
   if (parts.length === 0) return null;
@@ -235,40 +275,38 @@ function Section({
       <h3>{t(title)}</h3>
       {parts.map((p, i) => (
         <div key={i} className={p.changed === true ? 'cw-part cw-changed' : 'cw-part'}>
-          {p.kind === 'text' ? <Markdown text={p.text} /> : <Choice p={p} pick={(o) => choose?.(i, o)} />}
+          {p.kind === 'text' ? (
+            <Markdown text={p.text} />
+          ) : (
+            <Choice p={p} pick={choose === undefined ? undefined : (o) => choose(i, o)} />
+          )}
         </div>
       ))}
     </section>
   );
 }
 
-function Choice({ p, pick }: { p: Extract<Part, { kind: 'choice' }>; pick: (option: number) => void }) {
-  const [mark, setMark] = useState<number | null>(p.recommended);
-  const done = p.chosen !== null;
+/// A choice of the plan: a press on an option picks it, and another changes the pick, until the plan is confirmed.
+function Choice({ p, pick }: { p: Extract<Part, { kind: 'choice' }>; pick?: (option: number) => void }) {
   return (
-    <div className={done ? 'cw-choice cw-choice-done' : 'cw-choice'}>
+    <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
       <p className="cw-choice-q">{p.question}</p>
       {p.options.map((o, i) => (
         <button
           key={o.label}
           type="button"
-          disabled={done}
-          className={(done ? p.chosen === i : mark === i) ? 'cw-option on' : 'cw-option'}
-          onClick={() => setMark(i)}
+          disabled={pick === undefined}
+          aria-pressed={p.chosen === i}
+          className={p.chosen === i ? 'cw-option on' : 'cw-option'}
+          onClick={() => pick?.(i)}
         >
           <span className="cw-option-label">
             {o.label}
             {p.recommended === i ? <span className="cw-tag">{t('console_recommended')}</span> : null}
-            {done && p.chosen === i ? <span className="cw-tag">{t('console_chosen')}</span> : null}
           </span>
           <span className="cw-option-detail">{o.detail}</span>
         </button>
       ))}
-      {done ? null : (
-        <Button size="small" variant="primary" disabled={mark === null} onClick={() => mark !== null && pick(mark)}>
-          {t('console_choose')}
-        </Button>
-      )}
     </div>
   );
 }

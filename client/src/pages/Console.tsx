@@ -87,6 +87,7 @@ export function Console({ demo }: { demo: boolean }) {
       <Drawer open={open} onToggle={() => setOpen(!open)} panel={panel}>
         <ItemWindow
           item={selected === null ? null : windowMock(selected)}
+          open={open}
           demo={demo}
           onTitle={() => {
             // The room the window leaves the tree: from the tree's left to the window's.
