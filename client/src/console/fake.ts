@@ -13,9 +13,11 @@ export type FakeItem = {
 
 /// Words the titles are made of, of the length real titles have.
 const WORDS = [
-  '把工程师流程做得对快省', '减少返工', '让长轮不再失控', '合并同类退回', '不退回迟答的插话', '长轮交接给新会话',
-  '记下合并后才发现的错', '看住编译和测试的代价', '装新版本不打断工作', '让越线的健康数字有人管', '收项目自己的量',
-  '监测异常并定结局', '把等名额算进停住统计', '让页面打开快', '修新索引带来的变慢', '让系统页只读显示的时段',
+  'Make the engineer flow right, fast and lean', 'Cut rework', 'Keep long rounds in hand', 'Merge returns of a kind',
+  'Keep late interjections', 'Hand long rounds to a new session', 'Record faults found after the merge',
+  'Watch what builds and tests cost', 'Install without stopping works', 'Give health numbers past their line an owner',
+  "Gather a project's own measures", 'Watch anomalies and settle them', 'Count slot waits in the stops',
+  'Open pages fast', 'Undo the slowdown of the new index', 'Show the system page read-only',
   'Add prices, timezone', 'Review each ended work', 'Trial a candidate flow', 'Fix guard line',
 ];
 

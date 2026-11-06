@@ -154,6 +154,10 @@ Items and what starts next:
   own, which no work runs on: it is done once every item it depends on is done.
 - `wf-agents item list`: every item.
 - `wf-agents item depend ITEM ON --needs WHAT --kind blocking`: makes an item depend on another.
+- `wf-agents item edit ITEM --title T`: rewrites what was written of an item, here its title; `--problem`, `--why`,
+  `--approach` and `--acceptance` rewrite the rest.
+- `wf-agents item main ITEM ON`: makes an item's dependency on another the other's main one, which puts the other
+  under it in the tree of items.
 - `wf-agents item cancel ITEM --why WHY`: cancels an item.
 - `wf-agents ready`: the items waiting to start, in the order they start: one whose work was taken over first, then
   each project's items in its architect's start order, which the architect keeps.
@@ -173,6 +177,7 @@ Saying something, and pausing:
 - `wf-agents say WORK TEXT --speaker owner --to both`: says something in a work's group, to its engineer, its architect
   or both.
 - `wf-agents architect say TEXT --speaker owner`: says something to a project's architect.
+- `wf-agents architect withdraw MATTER --why WHY`: takes a matter out of the architect's queue before it is handled.
 - `wf-agents pause WORK --why WHY`: pauses a work; `wf-agents resume WORK` asks to lift the pause.
 - `wf-agents hold --why WORDS`: holds a project's new starts; `wf-agents release` lifts the hold.
 
