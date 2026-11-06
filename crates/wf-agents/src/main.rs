@@ -290,6 +290,13 @@ enum ItemCommand {
         #[arg(long, value_parser = ["blocking", "parallel"])]
         kind: String,
     },
+    /// Makes an item's dependency on another the other's main one: the other stands under it in the tree of items.
+    Main {
+        /// The item that depends.
+        item: i64,
+        /// The item it depends on.
+        on: i64,
+    },
     /// Cancels an item. A work that goes on ends once the running engine has finished the step it is in, so while the
     /// engine does not run the cancel waits for its next start; an item whose merge stands on main, or whose merge comes
     /// first, is not cancelled.
@@ -696,6 +703,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Item(ItemCommand::Depend { item, on, needs, kind }) => {
             owner::depend(d, item, &owner::Dependency { on, kind, needs })
         }
+        Command::Item(ItemCommand::Main { item, on }) => owner::main_dependency(d, item, on),
         Command::Item(ItemCommand::Cancel { item, why }) => print(owner::cancel(d, item, &why)),
         Command::Queue(QueueCommand::List) => print(owner::queue_list(d)),
         Command::Queue(QueueCommand::Put {

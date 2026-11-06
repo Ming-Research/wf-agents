@@ -129,6 +129,12 @@ CREATE TABLE item_links (
   -- reply has it stop. Read by: item_blocked_by; cells `R1`, `D8`, `A4`,
   -- `A6` and `M1`; the architect; the owner's interface.
   kind TEXT NOT NULL CHECK (kind IN ('blocking', 'parallel')),
+  -- 1 for depends_on's main dependency, the one it stands under in the tree of items, below each other item that
+  -- depends on it shown as a line pointing there; 0 for the others. An item that others depend on has exactly one at
+  -- all times, which the triggers item_links_main_* keep: the first made is it; one made or set main takes the place
+  -- of the one before; when it goes, the earliest made of those left takes its place; it cannot be unset, only moved.
+  -- Read by: the owner's interface; the architect.
+  main INTEGER NOT NULL DEFAULT 0 CHECK (main IN (0, 1)),
   PRIMARY KEY (item, depends_on),
   CHECK (item <> depends_on)
 ) STRICT;
@@ -1353,6 +1359,34 @@ CREATE INDEX blockers_by_ask ON blockers (ask);
 CREATE INDEX blockers_by_matter ON blockers (matter);
 -- The works on each flow version.
 CREATE INDEX works_by_flow_version ON works (flow_version);
+
+-- Triggers that keep a rule the tables cannot say by themselves.
+
+-- A dependency made main, or the first made on an item, is the item's main one, and no other is.
+CREATE TRIGGER item_links_main_made AFTER INSERT ON item_links
+WHEN NEW.main = 1 OR NOT EXISTS (
+  SELECT 1 FROM item_links WHERE depends_on = NEW.depends_on AND main = 1 AND item <> NEW.item) BEGIN
+  UPDATE item_links SET main = (item = NEW.item) WHERE depends_on = NEW.depends_on;
+END;
+
+-- A dependency set main takes the place of the item's main one before it.
+CREATE TRIGGER item_links_main_moved AFTER UPDATE OF main ON item_links
+WHEN OLD.main = 0 AND NEW.main = 1 BEGIN
+  UPDATE item_links SET main = 0 WHERE depends_on = NEW.depends_on AND item <> NEW.item AND main = 1;
+END;
+
+-- An item's main dependency is not unset while it stands: another is set main in its place.
+CREATE TRIGGER item_links_main_kept AFTER UPDATE OF main ON item_links
+WHEN OLD.main = 1 AND NEW.main = 0
+  AND NOT EXISTS (SELECT 1 FROM item_links WHERE depends_on = OLD.depends_on AND main = 1) BEGIN
+  SELECT RAISE(ABORT, 'an item others depend on keeps one main dependency: set another main in its place');
+END;
+
+-- When an item's main dependency goes, the earliest made of those left is its main one.
+CREATE TRIGGER item_links_main_gone AFTER DELETE ON item_links WHEN OLD.main = 1 BEGIN
+  UPDATE item_links SET main = 1
+  WHERE rowid = (SELECT min(rowid) FROM item_links WHERE depends_on = OLD.depends_on);
+END;
 
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
 -- work or project at hand has a column of that name; the engine filters on it.

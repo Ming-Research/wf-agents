@@ -1,6 +1,7 @@
 // The items of a project as a tree of what depends on what: at the top the items nothing waits for, and under each,
 // indented, the items it depends on, each with the kind of the dependency. An item several items depend on is shown in
-// full under the first and as a line that leads to it under the others. Pure, so that it is tested on its own.
+// full under the one whose dependency on it is its main one, and as a line that leads to it under the others; under the
+// first that shows it when that one is not shown. Pure, so that it is tested on its own.
 
 import type { ItemLink, ItemState, ItemSummary } from '../api';
 
@@ -26,29 +27,35 @@ export function tree(items: ItemSummary[], links: ItemLink[]): TreeRow[] {
   const byId = new Map(items.map((i) => [i.id, i]));
   const needs = new Map<number, { dep: ItemSummary; kind: string }[]>();
   const awaited = new Set<number>();
+  // Where each item stands: the item whose dependency on it is its main one, when that one is shown.
+  const home = new Map<number, number>();
   for (const l of links) {
     const item = byId.get(l.item);
     const dep = byId.get(l.depends_on);
     if (item === undefined || dep === undefined) continue;
     needs.set(item.id, [...(needs.get(item.id) ?? []), { dep, kind: l.kind }]);
     awaited.add(dep.id);
+    if (l.main) home.set(dep.id, item.id);
   }
   const shown = new Set<number>();
-  const row = (item: ItemSummary, path: Set<number>, kind: string | null): TreeRow => {
-    if (shown.has(item.id)) return { item, full: false, kind, children: [] };
+  const row = (item: ItemSummary, path: Set<number>, kind: string | null, above: number | null): TreeRow => {
+    const elsewhere = home.has(item.id) && home.get(item.id) !== above;
+    if (shown.has(item.id) || elsewhere) return { item, full: false, kind, children: [] };
     shown.add(item.id);
     const under = new Set(path).add(item.id);
     const children = [...(needs.get(item.id) ?? [])]
       .sort((a, b) => byOrder(a.dep, b.dep))
       // The dependencies form no cycle; one that did would end here rather than go round.
       .filter((d) => !under.has(d.dep.id))
-      .map((d) => row(d.dep, under, d.kind));
+      .map((d) => row(d.dep, under, d.kind, item.id));
     return { item, full: true, kind, children };
   };
   const roots = items.filter((i) => !awaited.has(i.id)).sort(byOrder);
-  const out = roots.map((r) => row(r, new Set(), null));
-  // Items left over can only be on a cycle, which the database refuses; they are still listed.
-  for (const i of [...items].sort(byOrder)) if (!shown.has(i.id)) out.push(row(i, new Set(), null));
+  const out = roots.map((r) => row(r, new Set(), null, null));
+  // Items left over can only be on a cycle, which the database refuses; they are still listed, in full.
+  for (const i of [...items].sort(byOrder)) {
+    if (!shown.has(i.id)) out.push(row(i, new Set(), null, home.get(i.id) ?? null));
+  }
   return out;
 }
 

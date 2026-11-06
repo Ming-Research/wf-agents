@@ -1426,7 +1426,11 @@ needs: string,
 /**
  * blocking: `item` does not start until `depends_on` is merged; parallel: it may start before.
  */
-kind: string, };
+kind: string,
+/**
+ * Whether it is `depends_on`'s main dependency, the one it stands under in the tree of items.
+ */
+main: boolean, };
 
 /**
  * Every item, and the dependencies between them.

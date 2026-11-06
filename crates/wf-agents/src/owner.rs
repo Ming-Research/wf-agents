@@ -121,6 +121,28 @@ pub fn depend(data: &Path, item: i64, d: &Dependency) -> Result<(), String> {
         .map_err(sql)
 }
 
+/// Makes the dependency of `item` on `on` the main one of `on`, which then stands under `item` in the tree of items.
+pub fn main_dependency(data: &Path, item: i64, on: i64) -> Result<(), String> {
+    open(data)?
+        .write(Actor::Owner, |tx| {
+            let there: bool = tx.query_row(
+                "SELECT count(*) > 0 FROM item_links WHERE item = ?1 AND depends_on = ?2",
+                params![item, on],
+                |r| r.get(0),
+            )?;
+            if !there {
+                return Err(db::Error::Abort(format!("item {item} does not depend on item {on}")));
+            }
+            // The database unsets the main one before as this one is set.
+            tx.execute(
+                "UPDATE item_links SET main = 1 WHERE item = ?1 AND depends_on = ?2",
+                params![item, on],
+            )?;
+            Ok(())
+        })
+        .map_err(sql)
+}
+
 /// Cancels an item, as the architect's cancellation does, and says what came of it: its works end as every work ends,
 /// and the items that depended on it are told. A work that goes on ends once the running engine has finished the step
 /// it is in, so while the engine does not run the cancel waits for its next start. An item whose merge stands on main,

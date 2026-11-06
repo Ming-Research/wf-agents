@@ -35,11 +35,12 @@ function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummar
   };
 }
 
-const link = (from: number, to: number, kind = 'parallel'): ItemLink => ({
+const link = (from: number, to: number, kind = 'parallel', main = true): ItemLink => ({
   item: from,
   depends_on: to,
   needs: '',
   kind,
+  main,
 });
 
 /// A tree as lines: the item's number, indented by depth, a link to where it is shown in full marked `->`.
@@ -60,7 +61,7 @@ describe('the tree of items', () => {
     item(5, 'new'),
     item(6, 'queued', { queued: 1 }),
   ];
-  const links = [link(1, 2), link(1, 3, 'blocking'), link(4, 3), link(3, 5)];
+  const links = [link(1, 2), link(1, 3, 'blocking'), link(4, 3, 'parallel', false), link(3, 5)];
 
   it('puts what nothing waits for at the top, and what an item depends on under it', () => {
     expect(lines(tree(items, links))).toEqual(['1', '  3', '    5', '  2', '6', '4', '  ->3']);
@@ -76,10 +77,12 @@ describe('the tree of items', () => {
     ]);
   });
 
-  it('shows an item several depend on in full under the first only', () => {
+  it('shows an item several depend on in full under its main dependency only', () => {
     const rows = tree(items, links);
     const shared = rows.find((r) => r.item.id === 4)?.children[0];
     expect(shared).toMatchObject({ full: false, children: [] });
+    const moved = [link(1, 2), link(1, 3, 'blocking', false), link(4, 3), link(3, 5)];
+    expect(lines(tree(items, moved))).toEqual(['1', '  ->3', '  2', '6', '4', '  3', '    5']);
   });
 
   it('opens the first item the tree shows while none is picked', () => {

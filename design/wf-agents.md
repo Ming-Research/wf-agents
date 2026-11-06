@@ -40,9 +40,12 @@
   below A. Reading down from an item then shows all it needs, and how far it has come is how far what is below it has
   come. A tree drawn by anything else beside the dependencies would be a second relation to keep in step with them.
 
-- An item stands in one place, under the most fitting of the items that depend on it; below every other item that
-  depends on it, it is a line pointing to that place. Shown in full in several places, it would be counted, read and
-  answered more than once, and each thing has one place.
+- An item stands in one place, under the item whose dependency on it is its main one; below every other item that
+  depends on it, it is a line pointing to that place. Of the dependencies on an item, exactly one is main at all
+  times: the most fitting, the first made until another is chosen, and the earliest made of those left when it goes.
+  Shown in full in several places, an item would be counted, read and answered more than once, and each thing has one
+  place. The place is a mark on a dependency rather than on the item, so that an item never stands under one that does
+  not need it.
 
 - Items side by side under one item do not depend on one another and can be started at the same time. Where one must
   be done before another can be, that is a dependency, which puts the one below the other; which of two free items

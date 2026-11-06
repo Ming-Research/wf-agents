@@ -947,6 +947,8 @@ pub struct ItemLink {
     pub needs: String,
     /// blocking: `item` does not start until `depends_on` is merged; parallel: it may start before.
     pub kind: String,
+    /// Whether it is `depends_on`'s main dependency, the one it stands under in the tree of items.
+    pub main: bool,
 }
 
 /// Every item, and the dependencies between them.

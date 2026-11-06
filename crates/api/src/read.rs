@@ -1845,7 +1845,8 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut st = conn.prepare("SELECT item, depends_on, needs, kind FROM item_links ORDER BY item, depends_on")?;
+    let mut st =
+        conn.prepare("SELECT item, depends_on, needs, kind, main FROM item_links ORDER BY item, depends_on")?;
     let links = st
         .query_map([], |r| {
             Ok(ItemLink {
@@ -1853,6 +1854,7 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 depends_on: r.get(1)?,
                 needs: r.get(2)?,
                 kind: r.get(3)?,
+                main: r.get(4)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
