@@ -1,14 +1,14 @@
 // What the window beside the console shows of the item selected: its number, its title, which brings the item into view
 // in the tree, and its project; a line of where the item stands and a line of what its work does, with the work's
-// stages and where its time went as its row in the list of works has them; and two tabs, beside them a button to mark
-// the item read while something in it is new to the owner. The first holds the body (where the item came from, the
-// problem it solves, the plan, with each choice that waits for the owner where it stands in the plan, picked by a press
-// on an option and let go by another, and at the plan's end a button as wide as the body to confirm it, which counts
-// the picks and waits until each choice has one; once confirmed, the picks stand), each passage changed since the owner
-// read it marked at its left, and under the body the notes: the owner's and the replies, and a box to write one, which
-// a passage selected in the body can be quoted into and which names whom it goes to. The second holds what of the work
-// the lines do not say. With no item selected it says how to select one. While the window is out, R marks the item
-// read, as its button does, unless a box has the keys.
+// stages and where its time went as its row in the list of works has them; two tabs; and under them, while something in
+// the item is new to the owner, a strip that says what changed, with a link to mark the item read. The first holds the
+// body (where the item came from, the problem it solves, the plan, with each choice that waits for the owner where it
+// stands in the plan, picked by a press on an option and let go by another, and at the plan's end a button as wide as
+// the body to confirm it, which counts the picks and waits until each choice has one; once confirmed, the picks stand),
+// each passage changed since the owner read it marked at its left, and under the body the notes: the owner's and the
+// replies, and a box to write one, which a passage selected in the body can be quoted into and which names whom it goes
+// to. The second holds what of the work the lines do not say. With no item selected it says how to select one. While
+// the window is out, R marks the item read, as its link does, unless a box has the keys.
 
 import { QuoteIcon, XIcon } from '@primer/octicons-react';
 import { Button, IconButton } from '@primer/react';
@@ -81,7 +81,8 @@ function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props)
       plan: clear(was.plan),
     }));
   }, []);
-  const fresh = w.item.unseen || changedIn(w);
+  const changes = changedIn(w);
+  const fresh = w.item.unseen || changes > 0;
   useEffect(() => {
     if (!open || !fresh) return;
     const key = (e: KeyboardEvent) => {
@@ -160,12 +161,21 @@ function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props)
             {t(k === 'item' ? 'console_tab_item' : 'console_tab_work')}
           </button>
         ))}
-        {fresh ? (
-          <Button size="small" className="cw-read" aria-keyshortcuts="r" onClick={read}>
-            {keyed(t('console_read'), 'r')}
-          </Button>
-        ) : null}
       </div>
+      {fresh ? (
+        <div className="cw-fresh">
+          <span>
+            {changes === 0
+              ? t('console_new_to_you')
+              : changes === 1
+                ? t('console_changed_one')
+                : t('console_changed', { n: changes })}
+          </span>
+          <button type="button" className="cw-fresh-read" aria-keyshortcuts="r" onClick={read}>
+            {keyed(t('console_read'), 'r')}
+          </button>
+        </div>
+      ) : null}
       {tab === 'work' ? (
         <WorkFacts w={w} />
       ) : (

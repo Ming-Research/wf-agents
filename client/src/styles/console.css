@@ -448,9 +448,32 @@
   font-size: var(--text-body-size-small);
 }
 
-.cw-tabs .cw-read {
-  margin-left: auto;
-  align-self: center;
+/* While something in the item is new to the owner: a strip over the body, its mark in line with the changed passages'
+   and its words with the body's, saying what changed, and a link that marks the item read. */
+.cw-fresh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8);
+  margin: 0 0 var(--base-size-12) calc(-1 * var(--base-size-8));
+  padding: var(--base-size-6) var(--base-size-12) var(--base-size-6) 5px;
+  border-left: 3px solid #6a82fd;
+  background: #f0f2ff;
+  font-size: var(--text-body-size-small);
+}
+
+.cw-item .cw-fresh-read {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #5a71ec;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cw-item .cw-fresh-read:hover {
+  text-decoration: underline;
 }
 
 .cw-progress {

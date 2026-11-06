@@ -61,9 +61,9 @@ export type WindowItem = {
   notes: Note[];
 };
 
-/// Whether any part of the body changed since the owner last read the item.
-export const changedIn = (w: WindowItem): boolean =>
-  [...w.background, ...w.problem, ...w.plan].some((p) => p.changed === true);
+/// How many parts of the body changed since the owner last read the item.
+export const changedIn = (w: WindowItem): number =>
+  [...w.background, ...w.problem, ...w.plan].filter((p) => p.changed === true).length;
 
 /// How many choices the plan has, and how many of them have their pick.
 export function picks(w: WindowItem): { picked: number; all: number } {

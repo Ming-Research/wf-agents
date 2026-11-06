@@ -1,7 +1,10 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`console/snap.ts`), as they stand,
 // drawn again as they change; at `/console/demo`, made-up items that show every state the drawing has. Beside the tree,
-// a window slid out by the tab stuck to its left edge shows the item selected (`console/ItemWindow.tsx`), so far with
-// made-up contents. Escape lets the item go while the tree has the keys, and slides the window in while it has them.
+// a window shows the item selected (`console/ItemWindow.tsx`), so far with made-up contents. Selecting an item slides
+// the window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which
+// case it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item
+// selected brings it out again. Escape lets the item go while the tree has the keys, and slides the window in while it
+// has them.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -25,7 +28,9 @@ export function Console({ demo }: { demo: boolean }) {
   const workList = works.data;
   const status = useStatus();
   const [selected, setSelected] = useState<Shown | null>(null);
-  const [open, setOpen] = useState(false);
+  // The window: whether it is out, and whether its tab brought it out, which keeps it out once the item is let go.
+  const [win, setWin] = useState({ open: false, byHand: false });
+  const open = win.open;
   const panel = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -36,7 +41,18 @@ export function Console({ demo }: { demo: boolean }) {
     void s.mount(el).then(() => {
       if (!alive) return;
       scene.current = s;
-      s.onSelect = setSelected;
+      let was: number | null = null;
+      s.onSelect = (item) => {
+        setSelected(item);
+        // The scene tells the item again each time it draws new data; only another item moves the window.
+        const id = item?.id ?? null;
+        if (id === was) return;
+        was = id;
+        setWin((w) => {
+          if (id !== null) return w.open ? w : { open: true, byHand: false };
+          return w.byHand ? w : { open: false, byHand: false };
+        });
+      };
       if (demo) s.show(demoShown());
       else if (latest.current !== undefined)
         s.show(shownTree(latest.current, latestWorks.current, latestStatus.current, latestConversations.current));
@@ -69,7 +85,7 @@ export function Console({ demo }: { demo: boolean }) {
       const inside = panel.current?.contains(document.activeElement) === true;
       if (open && inside) {
         (document.activeElement as HTMLElement | null)?.blur();
-        setOpen(false);
+        setWin({ open: false, byHand: false });
       } else scene.current?.select(null);
     };
     window.addEventListener('keydown', key);
@@ -84,7 +100,11 @@ export function Console({ demo }: { demo: boolean }) {
         ref={host}
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       />
-      <Drawer open={open} onToggle={() => setOpen(!open)} panel={panel}>
+      <Drawer
+        open={open}
+        onToggle={() => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true }))}
+        panel={panel}
+      >
         <ItemWindow
           item={selected === null ? null : windowMock(selected)}
           open={open}
