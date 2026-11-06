@@ -3,11 +3,11 @@
 
 import { useEffect, useRef } from 'react';
 
-import type { Items, WorkSummary } from '../api';
+import type { Items, Status, WorkSummary } from '../api';
 import { fakeShown } from '../console/fake';
 import { shownTree } from '../console/items';
 import { SnapScene } from '../console/snap';
-import { useResource } from '../live';
+import { useResource, useStatus } from '../live';
 
 export function Console() {
   const host = useRef<HTMLDivElement>(null);
@@ -16,6 +16,7 @@ export function Console() {
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
   const data = items.data;
   const workList = works.data;
+  const status = useStatus();
 
   useEffect(() => {
     const el = host.current;
@@ -25,7 +26,7 @@ export function Console() {
     void s.mount(el).then(() => {
       if (!alive) return;
       scene.current = s;
-      if (latest.current !== undefined) s.show(shownTree(latest.current, latestWorks.current));
+      if (latest.current !== undefined) s.show(shownTree(latest.current, latestWorks.current, latestStatus.current));
       // For trying the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
       Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
     });
@@ -36,14 +37,16 @@ export function Console() {
     };
   }, []);
 
-  // The items and works as last read, for a scene that is made after they came.
+  // The items, the works and the engine's status as last read, for a scene that is made after they came.
   const latest = useRef<Items | undefined>(undefined);
   const latestWorks = useRef<WorkSummary[]>([]);
+  const latestStatus = useRef<Status | null>(null);
   useEffect(() => {
     latest.current = data;
     latestWorks.current = workList ?? [];
-    if (data !== undefined) scene.current?.show(shownTree(data, workList ?? []));
-  }, [data, workList]);
+    latestStatus.current = status;
+    if (data !== undefined) scene.current?.show(shownTree(data, workList ?? [], status));
+  }, [data, workList, status]);
 
   return (
     <div className="console">

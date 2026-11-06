@@ -3,7 +3,8 @@
 // under them is still open. Each item carries its own state, the work going on on it, if any, and how many of its
 // questions wait for the owner. Pure, so that it is tested on its own.
 
-import type { Items, Waits, WorkState, WorkSummary } from '../api';
+import type { Items, Status, Waits, WorkState, WorkSummary } from '../api';
+import { liveState } from '../components';
 
 /// What the item is to deliver: not yet, delivered, or given up.
 export type ItemStanding = 'open' | 'done' | 'cancelled';
@@ -11,6 +12,7 @@ export type ItemStanding = 'open' | 'done' | 'cancelled';
 /// The work going on on an item, as its node shows it: what it does now, the stage it is at among its graph's stages,
 /// where its time went, when it started and its span's end, and how many of its returns were sent back.
 export type ShownWork = {
+  /// What it does as the page shows a work's state wherever it shows one: the engine's pause of every work included.
   state: WorkState;
   waits: Waits | null;
   stage: string | null;
@@ -34,7 +36,7 @@ export type Shown = {
 /// Whether a work still goes on: not done and not ended.
 const live = (w: WorkSummary) => w.state !== 'done' && w.state !== 'ended';
 
-export function shownTree(data: Items, works: WorkSummary[] = []): Shown[] {
+export function shownTree(data: Items, works: WorkSummary[] = [], status: Status | null = null): Shown[] {
   const byId = new Map(data.items.map((i) => [i.id, i]));
   const workById = new Map(works.map((w) => [w.id, w]));
   const standing = (id: number): ItemStanding => {
@@ -69,7 +71,7 @@ export function shownTree(data: Items, works: WorkSummary[] = []): Shown[] {
       work:
         w !== undefined && live(w)
           ? {
-              state: w.state,
+              state: liveState(w, status),
               waits: w.waits,
               stage: i?.stage ?? null,
               stages: i?.stages ?? [],
