@@ -7,13 +7,12 @@
 // item of another parent holds that parent in the column to the left.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such an
-// item has an edge of the light accent; one new to the owner has a short line in the accent inside its left edge. A filled funnel joins each item's top and bottom to
-// the first item under it and the last, light accent from a held item and grey from the others; a ribbon of the same
-// light accent joins each item to each of its items a work goes on on or under, so that the way from a root to every
-// item in work reads as one. Each held item is ringed in the accent, and the stage a running work is at pulses. Every
+// item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge. A
+// filled funnel joins each item's top and bottom to the first item under it and the last, light accent from a held item
+// and grey from the others. Each held item is ringed in the accent, and the stage a running work is at pulses. Every
 // column fades out into the page near the top and the bottom of the screen; at those two edges the column under the
-// pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in
-// `stats`.
+// pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and
+// how fast is kept in `stats`.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -67,14 +66,16 @@ const PALETTE = {
   edge: '#e5e7eb',
   card: '#ffffff',
   accent: '#3b5bfd',
-  /// A card's edge on the way to a work, and the funnel from a held card and the ribbon to a work.
+  /// A card's edge above a work, and the funnel from a held card.
   branch: '#c7cdfd',
+  /// The line inside the left edge of a card new to the owner.
+  unseen: '#9aaafd',
   funnel: '#e8ebff',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#aab6fd',
-  /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting for the owner a vivid
-  /// orange, the one that asks for them; waiting for something else a pale yellow, which asks nothing of them; paused
-  /// grey; halted red.
+  /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting
+  /// for the owner a vivid orange, the one that asks for them; waiting for something else a pale yellow, which asks
+  /// nothing of them; paused grey; halted red.
   running: '#1a9fff',
   asked: '#f5840c',
   paused: '#8b93a1',
@@ -189,8 +190,9 @@ const STAGE: Record<Mood, string> = {
   waiting: PALETTE.muted,
 };
 
-/// How much of its work's colour a card in work takes, the rest white.
+/// How much of its work's colour a card in work takes, the rest white, and its edge, a deeper shade of it.
 const TINT = 0.09;
+const EDGE_TINT = 0.45;
 
 /// The colour of an item's number by its state: open, done or cancelled.
 const NUMBER = {
@@ -252,8 +254,7 @@ export class SnapScene {
   private app = new Application();
   private world = new Container();
   private back = new Graphics();
-  /// The funnels from each item to the items under it, with the ribbons to the items in work over them; and the rings
-  /// of the held items.
+  /// The funnels from each item to the items under it; and the rings of the held items.
   private links = new Graphics();
   private marks = new Graphics();
   private layer = new Container();
@@ -275,8 +276,7 @@ export class SnapScene {
   /// Each item's height in rows; for each column, where each of its items starts, its rows counted from the top.
   private rows: Float64Array = new Float64Array(0);
   private pre: Float64Array[] = [];
-  /// For each item, whether a work goes on on it or under it: the ribbons and the edges of the cards on the way to it
-  /// are lit.
+  /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
   /// The parts of a node that change while it is shown: the stage a running work is at, which pulses, and the label of
   /// how long its work has gone on, with when the work started.
@@ -418,12 +418,12 @@ export class SnapScene {
     this.stats.items = items.length;
   }
 
-  /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does;
-  /// its edge the accent's tint above a work; and while the item is new to the owner, a short line in the accent inside
-  /// its left edge. On its first row its number in its state's colour, its title, and at the right its questions waiting for the owner, white on red, and its returns sent back,
-  /// grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one it is
-  /// at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how long
-  /// it has gone on.
+  /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
+  /// with an edge of a deeper shade of it; its edge the accent's tint above a work; and while the item is new to the owner, a short line of a light accent
+  /// inside its left edge. On its first row its number in its state's colour, its title, and at the right its questions
+  /// waiting for the owner, white on red, and its returns sent back, grey; on the second row, for an item whose work
+  /// goes on, the work's stages, those gone through grey, the one it is at in its state's colour and those ahead faint,
+  /// the letter of the one it is at, where its time went, and how long it has gone on.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -433,13 +433,15 @@ export class SnapScene {
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
     view.addChild(
-      card
-        .fill(mood !== null ? mix(PALETTE.card, WORK[mood], TINT) : PALETTE.card)
-        .stroke({ color: this.lit[k] === 1 && mood === null ? PALETTE.branch : PALETTE.edge, width: 1 }),
+      card.fill(mood !== null ? mix(PALETTE.card, WORK[mood], TINT) : PALETTE.card).stroke({
+        color:
+          mood !== null ? mix(PALETTE.card, WORK[mood], EDGE_TINT) : this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge,
+        width: 1,
+      }),
     );
     // While the item is new to the owner, a line inside the card's left edge, a little in from it and short of its top
     // and bottom; the room for it kept on every card, so that the numbers and titles stand in line.
-    if (item.unseen) view.addChild(new Graphics().roundRect(4, top + 5, 3, h - 10, 1.5).fill(PALETTE.accent));
+    if (item.unseen) view.addChild(new Graphics().roundRect(4, top + 5, 3, h - 10, 1.5).fill(PALETTE.unseen));
     const x = 14;
     const number = new BitmapText({
       text: String(item.id),
@@ -799,7 +801,7 @@ export class SnapScene {
     this.back.stroke({ color: PALETTE.line, width: 1 });
     this.links.clear();
     this.marks.clear();
-    const lit: [number, number, number, number, number, number][] = [];
+    const held: [number, number, number, number, number, number][] = [];
     const nowShown = new Set<Container>();
     const rows = Math.ceil(height / ROW / 2) + 2;
     for (let d = 0; d < t.columns.length; d += 1) {
@@ -822,8 +824,7 @@ export class SnapScene {
       }
       if (d === 0) continue;
       // The funnel from each item of the column to the left to the items under it: from its top to the top of the
-      // first and from its bottom to the bottom of the last, filled; those from held items, and the ribbons from an
-      // item to each of its items in work, drawn last, over the rest.
+      // first and from its bottom to the bottom of the last, filled; those from held items drawn last, over the rest.
       const px = x(d - 1) + NODE_W;
       const prev = t.columns[d - 1];
       const heldAbove = this.columns[d - 1].held;
@@ -837,20 +838,12 @@ export class SnapScene {
         const top = y(d, f) - half(d, f);
         const bottom = y(d, l) + half(d, l);
         if (Math.max(py + ph, bottom) < 0 || Math.min(py - ph, top) > height) continue;
-        if (r === heldAbove) lit.push([px, py - ph, py + ph, cx, top, bottom]);
+        if (r === heldAbove) held.push([px, py - ph, py + ph, cx, top, bottom]);
         else this.funnel(px, py - ph, py + ph, cx, top, bottom);
-        if (this.lit[prev[r]] === 0) continue;
-        for (const kid of kids) {
-          if (this.lit[kid] === 0) continue;
-          const ky = y(d, t.rank[kid]);
-          const kh = half(d, t.rank[kid]);
-          if (Math.max(py + ph, ky + kh) < 0 || Math.min(py - ph, ky - kh) > height) continue;
-          lit.push([px, py - ph, py + ph, cx, ky - kh, ky + kh]);
-        }
       }
     }
     this.links.fill({ color: this.colours.other, alpha: this.colours.otherAlpha });
-    for (const [px, top, bottom, cx, f, l] of lit) this.funnel(px, top, bottom, cx, f, l);
+    for (const [px, top, bottom, cx, f, l] of held) this.funnel(px, top, bottom, cx, f, l);
     this.links.fill(PALETTE.funnel);
     // Each held item ringed, in the accent.
     for (let d = 0; d < t.columns.length; d += 1) {
@@ -866,8 +859,8 @@ export class SnapScene {
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
         .stroke({ color: PALETTE.accent, width: 1 });
     }
-    // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line of
-    // orange.
+    // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
+    // of orange.
     this.edges.clear();
     this.edges.rect(0, 0, width, EDGE).fill(this.fades.top);
     this.edges.rect(0, height - EDGE, width, EDGE).fill(this.fades.bottom);
