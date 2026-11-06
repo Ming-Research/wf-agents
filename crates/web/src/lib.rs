@@ -162,6 +162,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/settings", get(settings).post(save_settings))
         .route("/api/v1/settings/accounts", get(accounts).post(switch_account))
         .route("/api/v1/items/{id}/level", post(set_level))
+        .route("/api/v1/items/{id}/seen", post(mark_item_seen))
         .route("/api/v1/items/{id}/depends-on/{on}/remove", post(remove_dependency))
         .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/faults/{id}/forward", post(forward_fault))
@@ -754,6 +755,11 @@ async fn set_level(
 ) -> Result<Json<api::Done>, Fail> {
     let data = Arc::clone(&app.data);
     decide(&app, move |db| api::set_level(db, &data, id, &l.level)).await
+}
+
+/// Marks an item seen, as the owner: it is new to the owner no more until its content changes.
+async fn mark_item_seen(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::mark_item_seen(db, id)).await
 }
 
 /// Removes a dependency, as the owner: the item no longer depends on the other.

@@ -30,6 +30,7 @@ const item = (id: number, project: string, state: ItemState): ItemSummary => ({
   open_design_cards: 0,
   pr: null,
   blocked_by: [],
+  unseen: false,
 });
 
 const items = {
