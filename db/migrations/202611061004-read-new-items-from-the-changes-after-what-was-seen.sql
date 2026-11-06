@@ -32,5 +32,9 @@ CREATE VIEW item_content_version AS
     SELECT max(v.id) FROM item_content_changes v WHERE v.row_key = json_object('id', i.id)), 0) AS change
   FROM items i;
 
+-- The rows are rewritten outside wf-agents' own writes, so the trigger that records each change of owner_seen goes
+-- first; the engine makes every such trigger afresh once the migrations are taken.
+DROP TRIGGER IF EXISTS track_owner_seen_update;
+
 UPDATE owner_seen SET change = coalesce((
   SELECT max(c.id) FROM changes c WHERE c.table_name = 'items' AND c.row_key = json_object('id', owner_seen.item)), 0);
