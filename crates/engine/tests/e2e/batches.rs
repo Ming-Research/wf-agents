@@ -593,6 +593,84 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A move under another item changes only where the item stands: the batch moves the lexer under the checker, whose
+// dependency on it is made and becomes the main one, and the parser and the docs still depend on the lexer, so a later
+// change of the batch can remove the docs' dependency: the check of the changes finds it there, and so does the write.
+#[test]
+fn a_move_under_another_item_keeps_the_items_that_depend_on_it() {
+    let s = setup("move-under");
+    let mut agents = scripts();
+    // The items are made below, numbered 1 to 4 in order: the parser, the lexer, the docs and the checker. The parser
+    // and the docs depend on the lexer, the parser's dependency made first and so the main one.
+    agents.insert(
+        "H1",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let changes = json!([
+                { "kind": "move", "item": "2", "to": { "place": "under", "item": "4", "dependency": "parallel" },
+                  "reason": "The checker reads the lexer's tokens first." },
+                { "kind": "remove_dependency", "item": "3", "on": "2",
+                  "reason": "The docs need nothing the lexer hands in." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let docs = a_ready_item(&mut e, "Write the docs");
+    let checker = a_ready_item(&mut e, "Check it");
+    assert_eq!((parser, lexer, docs, checker), (1, 2, 3, 4));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, docs, lexer, "the names of its tokens", "parallel")?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Put the lexer under the checker; the docs need nothing of it.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(why_sent_back(&e, arch, "H1"), Vec::<String>::new(), "{log}");
+    let links: Vec<(i64, i64, String, i64)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT item, depends_on, kind, main FROM item_links ORDER BY item, depends_on")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(
+        links,
+        [
+            (parser, lexer, "blocking".to_string(), 0),
+            (checker, lexer, "parallel".to_string(), 1)
+        ],
+        "{log}"
+    );
+    let states: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT state FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(states, ["made", "made"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
 // nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
 // its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes

@@ -358,13 +358,14 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                                 ));
                             }
                         }
+                        // The other item's dependency on it, made by the kind given when there is none, becomes its main
+                        // one; every other dependency on it stays, for a later change to remove.
                         "under" => match other {
                             Some(b) => {
                                 dependency(&to["dependency"], &mut bad);
-                                if s.done_over_unfinished(b, a) {
+                                if !s.links.contains(&(b, a)) && s.done_over_unfinished(b, a) {
                                     bad(done_over(b, a));
                                 }
-                                s.links.retain(|(_, d)| *d != a);
                                 s.links.insert((b, a));
                             }
                             None => bad(format!(
@@ -659,11 +660,17 @@ fn write_one(
             let item = item_of(&c["item"], keys)?;
             let to = &c["to"];
             match text(to, "place") {
+                // The item stands under the other one: that one's dependency on it, made now by the kind given when
+                // there is none, becomes its main one, the database unsetting the one before. The items that depend on
+                // it still do; a move changes only where it stands.
                 "under" => {
                     let under = item_of(&to["item"], keys)?;
-                    tx.execute("DELETE FROM item_links WHERE depends_on = ?1", [item])
-                        .map_err(sql)?;
                     depend(tx, under, item, reason, text(to, "dependency"))?;
+                    tx.execute(
+                        "UPDATE item_links SET main = 1 WHERE item = ?1 AND depends_on = ?2 AND main = 0",
+                        [under, item],
+                    )
+                    .map_err(sql)?;
                 }
                 place => {
                     let other = match place {
@@ -950,6 +957,80 @@ mod tests {
         assert_eq!(links, 1);
     }
 
+    // A move under another item changes only where the item stands: the other item's dependency on it becomes its main
+    // one, the one before no longer main, and every other dependency on it stays. One the other item has already only
+    // becomes main, of the kind it was; one it has not is made, of the kind the move gives. A move under an item the
+    // moved one depends on, which would close a cycle, is refused, and leaves the dependencies as they were.
+    #[test]
+    fn a_move_under_another_item_makes_that_ones_dependency_main_and_keeps_the_others() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "lexer", "docs", "tokens"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            // The parser depends on the lexer, first and so by its main dependency, and the docs on it after; the
+            // lexer depends on the tokens.
+            db::add_dependency(tx, 1, 2, "its lexer", "blocking")?;
+            db::add_dependency(tx, 3, 2, "its tokens' names", "parallel")?;
+            db::add_dependency(tx, 2, 4, "its tokens", "blocking")?;
+            Ok(())
+        })
+        .unwrap();
+        let moved = |db: &mut Db, item: &str, under: &str| -> Vec<(usize, String)> {
+            let change = json!({ "kind": "move", "item": item,
+                                 "to": { "place": "under", "item": under, "dependency": "blocking" }, "reason": "r" });
+            db.write(Actor::Architect, |tx| {
+                write_all(tx, &[change], &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap()
+            .refused
+        };
+        let links = |db: &Db| -> Vec<(i64, i64, String, i64)> {
+            let mut st = db
+                .conn()
+                .prepare("SELECT item, depends_on, kind, main FROM item_links ORDER BY item, depends_on")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        let link = |item: i64, on: i64, kind: &str, main: i64| (item, on, kind.to_string(), main);
+        // The lexer goes under the docs, which depend on it already: their dependency, parallel still, is its main one.
+        let refused = moved(&mut db, "2", "3");
+        assert!(refused.is_empty(), "{refused:?}");
+        assert_eq!(
+            links(&db),
+            [
+                link(1, 2, "blocking", 0),
+                link(2, 4, "blocking", 1),
+                link(3, 2, "parallel", 1)
+            ]
+        );
+        // The tokens go under the parser, which does not depend on them: it does from now, by their main dependency,
+        // and the lexer still depends on them.
+        let refused = moved(&mut db, "4", "1");
+        assert!(refused.is_empty(), "{refused:?}");
+        let after = [
+            link(1, 2, "blocking", 0),
+            link(1, 4, "blocking", 1),
+            link(2, 4, "blocking", 0),
+            link(3, 2, "parallel", 1),
+        ];
+        assert_eq!(links(&db), after);
+        // The lexer under the tokens, which it depends on, would close a cycle: refused, and nothing changes.
+        let refused = moved(&mut db, "2", "4");
+        assert!(
+            matches!(refused.as_slice(), [(0, why)] if why.contains("cannot depend on")),
+            "{refused:?}"
+        );
+        assert_eq!(links(&db), after);
+    }
+
     // A change that removes a dependency deletes that row and no other. One whose row is gone already, removed from the
     // owner's page after the review found it, leaves the dependencies as they are and is no fault.
     #[test]
@@ -993,8 +1074,8 @@ mod tests {
     }
 
     // A change that cannot be made in the state the earlier changes leave, as when the review dropped the removal that
-    // made room for a reversing dependency, is refused alone, with why: nothing of it stays, not what it did before it
-    // found the fault (a move under another item takes the links to the item first), and the changes after it are made.
+    // made room for a reversing dependency, is refused alone, with why: nothing of it stays, and the changes after it
+    // are made.
     #[test]
     fn a_dependency_that_closes_a_cycle_is_refused_alone_and_leaves_nothing() {
         let mut db = Db::in_memory().unwrap();
@@ -1015,8 +1096,7 @@ mod tests {
         let changes = [
             // The tokens depend on the parser: a cycle, the parser reaching the tokens.
             json!({ "kind": "add_dependency", "item": "3", "on": "1", "dependency": "blocking", "reason": "r" }),
-            // The lexer goes under the tokens: the links to the lexer go first, then the tokens depend on the lexer,
-            // which depends on the tokens.
+            // The lexer goes under the tokens: the tokens would depend on the lexer, which depends on the tokens.
             json!({ "kind": "move", "item": "2", "to": { "place": "under", "item": "3", "dependency": "blocking" },
                     "reason": "r" }),
             json!({ "kind": "hold", "item": "3", "reason": "Held." }),

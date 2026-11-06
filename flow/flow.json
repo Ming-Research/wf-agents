@@ -2159,7 +2159,7 @@
         },
         {
           "value": "move",
-          "desc": "Place an item elsewhere: in its project's start order; or, one others depend on, under another item, which then depends on it instead of them",
+          "desc": "Place an item elsewhere: in its project's start order; or, one others depend on, under another item, whose dependency on it becomes the one it stands under in the tree of items",
           "fields": [
             {
               "name": "item",
@@ -2210,7 +2210,7 @@
                 },
                 {
                   "value": "under",
-                  "desc": "Under another item, which then depends on it instead of those that do now",
+                  "desc": "Under another item, which depends on it or does from now by the kind given; every other item that depends on it still does, shown there as a line to it. To drop one, remove its dependency",
                   "fields": [
                     {
                       "name": "item",
