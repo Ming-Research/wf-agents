@@ -3,9 +3,10 @@
 use super::*;
 
 // A new work that takes over from one the owner started over takes a slot only when one is free; until then its item
-// waits at the head of the queue, ahead of the items queued before, and starts first once a slot frees.
+// waits ahead of every item that waits to start, the one first in the start order too, and starts first once a slot
+// frees.
 #[test]
-fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
+fn a_takeover_waits_for_a_free_slot_ahead_of_the_items_that_wait() {
     let s = setup("takeover-slots");
     let (mut e, said, queued) = start(&s, scripts());
     // Two items have works running, as many as the machine's one slot and one past it.
@@ -35,14 +36,14 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     };
     let first = works_of(&e, items[0])[0].0;
     api::start_over(&mut e.db, first).unwrap();
-    // The first stops; the second still holds the slot, so its item waits ahead of the item queued before.
+    // The first stops; the second still holds the slot, so its item waits ahead of the item placed first.
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, items[0]);
     assert!(works.len() == 1 && works[0].5.is_some(), "{works:?}\n{log}");
     assert_eq!(ready(&e), vec![items[0], queued], "{log}");
     assert_eq!(e.free_slots().unwrap(), 0);
-    // Once the slot is free, the first starts, before the item queued before.
+    // Once the slot is free, the first starts, before the item placed first.
     e.db.write(Actor::Owner, |tx| {
         tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE item = ?1", [items[1]])?;
         Ok(())
@@ -51,8 +52,8 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     let stepped = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(stepped.started_item, Some(items[0]), "{log}");
-    // The second, whose work was stopped, waits again in the architect's order, after the item the owner queued.
-    assert_eq!(ready(&e), vec![queued, items[1]], "{log}");
+    // The second, whose work stopped before its end, waits to start again ahead of the others, as one taken over does.
+    assert_eq!(ready(&e), vec![items[1], queued], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

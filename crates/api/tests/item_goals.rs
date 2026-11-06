@@ -46,10 +46,10 @@ fn summary(db: &Db, id: i64) -> ItemSummary {
 }
 
 #[test]
-fn a_goal_is_new_until_what_it_depends_on_is_done_and_has_no_deliver_tier_or_blockers() {
+fn a_goal_is_open_until_what_it_depends_on_is_done_and_has_no_deliver_tier_or_blockers() {
     let mut db = world();
     let goal = summary(&db, 1);
-    assert_eq!(goal.state, ItemState::New);
+    assert_eq!(goal.state, ItemState::Open);
     assert_eq!((goal.deliver, goal.level), (None, None));
     assert_eq!(goal.blocked_by, Vec::<i64>::new());
     assert_eq!(summary(&db, 4).state, ItemState::Cancelled);

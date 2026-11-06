@@ -202,7 +202,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A hold of a project's new starts stops new works of it from starting from the queue, and the works running go on;
+// A hold of a project's new starts stops new works of it from starting, and the works running go on;
 // once it is released, new works start again.
 #[test]
 fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
@@ -240,7 +240,7 @@ fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
                 [],
             )?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", [id])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 2)", [id])?;
             Ok(id)
         })
         .unwrap();
@@ -369,7 +369,7 @@ fn an_owner_hold_lets_the_running_work_merge_and_starts_the_next_item_only_once_
                 [],
             )?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", [id])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 2)", [id])?;
             Ok(id)
         })
         .unwrap();

@@ -1732,17 +1732,15 @@ pub fn version_of(conn: &Connection, digest: &str) -> Result<Option<i64>> {
         .optional()?)
 }
 
-fn item_state(cancelled: bool, queued: bool, work: Option<&WorkSummary>) -> ItemState {
-    match work {
-        _ if cancelled => ItemState::Cancelled,
-        Some(w) if w.state == WorkState::Done => ItemState::Done,
-        // An item whose work stopped and that waits in the queue for a new work, such as one taking over after a new
-        // flow version, is queued.
-        Some(w) if w.state == WorkState::Ended && queued => ItemState::Queued,
-        Some(w) if w.state == WorkState::Ended => ItemState::Stopped,
-        Some(_) => ItemState::Working,
-        None if queued => ItemState::Queued,
-        None => ItemState::New,
+/// An item with a work of its own: cancelled, done once a work of it reached the end of its graph, and open otherwise,
+/// also while its last work stopped before its end, as one taken over is until the new work starts.
+fn item_state(cancelled: bool, done: bool) -> ItemState {
+    if cancelled {
+        ItemState::Cancelled
+    } else if done {
+        ItemState::Done
+    } else {
+        ItemState::Open
     }
 }
 
@@ -1796,30 +1794,38 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
         let (item, on) = row?;
         blocked.entry(item).or_default().push(on);
     }
-    let mut st = conn.prepare(
-        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr,
+    // An item is done once a work of it reached the end of the engineer's graph, as the views of the items read it:
+    // ended as done or, while its round there is not completed, not ended.
+    let mut st = conn.prepare(&format!(
+        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, i.imported_pr,
                 (SELECT r.route FROM work_routes r WHERE r.item = i.id ORDER BY r.work DESC LIMIT 1),
-                i.id IN (SELECT item FROM goals_open)
-         FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id ORDER BY i.id",
-    )?;
+                i.id IN (SELECT item FROM goals_open),
+                EXISTS (SELECT 1 FROM works w WHERE w.item = i.id AND w.graph = 'engineer'
+                          AND (w.ended IS NULL OR w.ended = '{done}') AND w.at IN {end})
+         FROM items i ORDER BY i.id",
+        done = db::ENDED_DONE,
+        end = db::cells_sql("engineer", &["E1"]),
+    ))?;
     let items = st
         .query_map([], |r| {
             let id: i64 = r.get(0)?;
             let deliver: Option<String> = r.get(3)?;
             let cancelled: Option<String> = r.get(5)?;
-            let queued: Option<f64> = r.get(6)?;
-            let imported_pr: Option<i64> = r.get(7)?;
-            let goal_open: bool = r.get(9)?;
+            let imported_pr: Option<i64> = r.get(6)?;
+            let goal_open: bool = r.get(8)?;
+            let done: bool = r.get(9)?;
             let w = latest.get(&id).copied();
-            // A goal has no work: it is done once everything it depends on is, and new until then.
+            // A goal has no work: it is done once everything it depends on is, and open until then.
             let state = match deliver {
                 None if cancelled.is_some() => ItemState::Cancelled,
-                None if goal_open => ItemState::New,
+                None if goal_open => ItemState::Open,
                 None => ItemState::Done,
-                Some(_) => item_state(cancelled.is_some(), queued.is_some(), w),
+                Some(_) => item_state(cancelled.is_some(), done),
             };
-            // Only an item that would start but for them is held back by them; a goal never starts.
-            let waiting = deliver.is_some() && matches!(state, ItemState::New | ItemState::Queued | ItemState::Stopped);
+            // Only an item that would start but for them is held back by them: one open with no work going on; a goal
+            // never starts.
+            let going_on = w.is_some_and(|w| !matches!(w.state, WorkState::Done | WorkState::Ended));
+            let waiting = deliver.is_some() && state == ItemState::Open && !going_on;
             let blocked_by = blocked.get(&id).filter(|_| waiting).cloned().unwrap_or_default();
             Ok(ItemSummary {
                 id,
@@ -1827,10 +1833,9 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 title: r.get(2)?,
                 deliver,
                 level: r.get(4)?,
-                route_taken: r.get(8)?,
+                route_taken: r.get(7)?,
                 state,
                 cancelled,
-                queued,
                 work: w.map(|w| w.id),
                 at: w.map(|w| w.at.clone()),
                 stage: w.and_then(|w| w.stage.clone()),
@@ -2795,7 +2800,7 @@ mod tests {
                 "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (1, 2, 'its schema', 'blocking')",
                 &[],
             )?;
-            run("INSERT INTO dispatch_queue (item, position) VALUES (2, 1.0)", &[])?;
+            run("INSERT INTO start_order (item, place) VALUES (2, 1)", &[])?;
             run("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", &[])?;
             run("INSERT INTO sessions (work, line, cli, cli_session) VALUES (1, 'engineer', 'claude', 's1')", &[])?;
             run(
@@ -3479,7 +3484,7 @@ mod tests {
         let cache = Flows::default();
         let all = items(s.db.conn(), &cache).unwrap();
         let states: Vec<ItemState> = all.items.iter().map(|i| i.state).collect();
-        assert_eq!(states, [ItemState::Working, ItemState::Queued]);
+        assert_eq!(states, [ItemState::Open, ItemState::Open]);
         assert_eq!(all.items[0].at.as_deref(), Some("R1"));
         assert_eq!(all.links.len(), 1);
         assert_eq!(all.links[0].kind, "blocking");
@@ -3513,8 +3518,28 @@ mod tests {
         })
         .unwrap();
         let all = items(s.db.conn(), &cache).unwrap();
-        assert_eq!(all.items[2].state, ItemState::New);
+        assert_eq!(all.items[2].state, ItemState::Open);
         assert_eq!(all.items[2].blocked_by, [2]);
+        // An item whose work stopped before its end, as one taken over is until its new work starts, stays open, and
+        // waits again for what it depends on; one whose work reached the end is done.
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET ended = 'stopped: started over' WHERE id = 1", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (3, 1, 'engineer', 'E1', 'done')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, config_commit, started_at, ended_at)
+                 VALUES (2, 1, 'E1', '{}', '{}', 'c', 30, 40)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let all = items(s.db.conn(), &cache).unwrap();
+        let states: Vec<ItemState> = all.items.iter().map(|i| i.state).collect();
+        assert_eq!(states, [ItemState::Open, ItemState::Open, ItemState::Done]);
+        assert_eq!(all.items[0].blocked_by, [2]);
     }
 
     // A replaced decision card names the one that replaced it, with the round that handed that one in, its cell and

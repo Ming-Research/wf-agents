@@ -727,8 +727,8 @@ impl Engine {
     /// design cards and answers its asks, and the new work is given them. The new work is paused as the owner had paused
     /// the old one, so that a work the owner steps stays in the owner's hands, and goes on under the owner's Start of the
     /// old one ([`Engine::replaced`]). It starts once the old one is stopped, so that the slot that one held is free, and
-    /// only when a slot is free: else its item goes to the head of the queue, ahead of the items queued before, to start
-    /// as a slot frees.
+    /// only when a slot is free: else its item waits for one, its latest work taken over, which puts it ahead of every
+    /// other item that waits to start (`ready_items`).
     fn take_over(&mut self, w: &Work, why: &str) -> Result<(), String> {
         let projects = self.config.config.projects.clone();
         let id = w.id;
@@ -773,20 +773,8 @@ impl Engine {
             lock(&self.shared.replaced).push((id, new));
             return Ok(());
         }
-        self.db
-            .write(Actor::Engine, |tx| {
-                let first: f64 = tx.query_row("SELECT coalesce(min(position), 1.0) FROM dispatch_queue", [], |r| {
-                    r.get(0)
-                })?;
-                tx.execute(
-                    "INSERT OR REPLACE INTO dispatch_queue (item, position) VALUES (?1, ?2)",
-                    params![item, first - 1.0],
-                )?;
-                Ok(())
-            })
-            .map_err(|e| e.to_string())?;
         self.say(&format!(
-            "item {item} waits for a free slot at the head of the queue, to take over from work {id}"
+            "item {item} waits for a free slot, ahead of the items that wait to start, to take over from work {id}"
         ));
         Ok(())
     }
@@ -1406,9 +1394,7 @@ impl Engine {
                      VALUES (?1, ?2, ?3, ?4, ?5, CASE WHEN ?5 IS NULL THEN NULL ELSE 'owner' END)",
                     params![item, v, ENGINEER, start, paused],
                 )?;
-                let id = tx.last_insert_rowid();
-                tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])?;
-                Ok(id)
+                Ok(tx.last_insert_rowid())
             })
             .map_err(|e| e.to_string())
     }
@@ -1576,9 +1562,9 @@ impl Engine {
     }
 
     /// What holds an item back from starting, by the name of the row of the cell an item waits at to start (`S0`)
-    /// that says it, `ready` when nothing does: held by the owner or the architect; an item it depends on by a blocking
-    /// dependency not merged; its project's new starts held; a change the architect's open batch collected naming it
-    /// (`changing`); no slot free (`free`).
+    /// that says it, `ready` when nothing does: held by the architect's plan (`start_order`); an item it depends on by
+    /// a blocking dependency not merged; its project's new starts held; a change the architect's open batch collected
+    /// naming it (`changing`); no slot free (`free`).
     pub(crate) fn waits_to_start(
         &self,
         item: i64,
@@ -1590,7 +1576,7 @@ impl Engine {
         let one = |e: db::rusqlite::Error| e.to_string();
         let held: i64 = conn
             .query_row(
-                "SELECT count(*) FROM items WHERE id = ?1 AND held IS NOT NULL",
+                "SELECT count(*) FROM start_order WHERE item = ?1 AND held = 1",
                 [item],
                 |r| r.get(0),
             )
@@ -1623,18 +1609,18 @@ impl Engine {
     }
 
     /// The next item to start a work on, of the items waiting to start that cell `S0`'s rows let start (those
-    /// [`Engine::waits_to_start`] finds nothing holding back): the first the owner queued, or else the first of the
-    /// next project in turn after the project of the work started last, so that projects with items ready take the
-    /// slots in turn, each in its architect's order. An item held or blocked is not among those waiting (the view
-    /// `ready_items`).
+    /// [`Engine::waits_to_start`] finds nothing holding back): the first whose latest work was taken over, which waits
+    /// only for a slot, or else the first of the next project in turn after the project of the work started last, so
+    /// that projects with items ready take the slots in turn, each in its architect's start order. An item held or
+    /// blocked is not among those waiting (the view `ready_items`).
     fn next_ready(&mut self) -> Option<i64> {
         let changing = architect::held_by_checks(self.db.conn()).ok()?;
         let free = self.free_slots().ok()?;
-        let waiting: Vec<(i64, String, Option<f64>)> = {
+        let waiting: Vec<(i64, String, bool)> = {
             let mut st = self
                 .db
                 .conn()
-                .prepare("SELECT item, project, position FROM ready_items")
+                .prepare("SELECT item, project, taken_over FROM ready_items")
                 .ok()?;
             let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
             rows.filter_map(Result::ok).collect()
@@ -1656,13 +1642,13 @@ impl Engine {
                 _ => reason == "ready",
             }
         };
-        let ready: Vec<(i64, String, Option<f64>)> = waiting
+        let ready: Vec<(i64, String, bool)> = waiting
             .into_iter()
             .zip(why)
             .filter(|(_, reason)| leads_on(reason))
             .map(|(x, _)| x)
             .collect();
-        if let Some((item, _, _)) = ready.iter().find(|r| r.2.is_some()) {
+        if let Some((item, _, _)) = ready.iter().find(|r| r.2) {
             return Some(*item);
         }
         let last: Option<String> = self

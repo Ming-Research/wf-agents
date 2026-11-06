@@ -995,15 +995,15 @@ fn a_cause_told_once_is_not_told_again_after_another_cause_between() {
     git(&s.data, &["commit", "-q", "-am", "three slots"]);
     let (mut e, said, _) = start_with(&s, agents, Hooks::default());
     e.db.write(Actor::Owner, |tx| {
-        for (title, position) in [("Add another", 2.0), ("Add a third", 3.0)] {
+        for (title, place) in [("Add another", 2), ("Add a third", 3)] {
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
                 params![title],
             )?;
             let id = tx.last_insert_rowid();
             tx.execute(
-                "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
-                params![id, position],
+                "INSERT INTO start_order (item, place) VALUES (?1, ?2)",
+                params![id, place],
             )?;
         }
         Ok(())

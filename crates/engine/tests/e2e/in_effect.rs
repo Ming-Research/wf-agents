@@ -100,7 +100,7 @@ fn main_head(s: &Setup) -> String {
     git(&s.origin, &["rev-parse", "main"])
 }
 
-/// A second item in the queue, with no condition of the kind.
+/// A second item in the start order, with no condition of the kind.
 fn another_item(e: &mut Engine) -> i64 {
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
@@ -109,10 +109,7 @@ fn another_item(e: &mut Engine) -> i64 {
             [],
         )?;
         let id = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)",
-            params![id],
-        )?;
+        tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 2)", params![id])?;
         Ok(id)
     })
     .unwrap()

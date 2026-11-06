@@ -26,20 +26,20 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
         );
     }
     let (mut e, said, first) = start(&s, agents);
-    let queue = |e: &mut Engine, title: &str, position: f64| -> i64 {
+    let queue = |e: &mut Engine, title: &str, place: i64| -> i64 {
         e.db.write(Actor::Owner, |tx| {
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
                 [title],
             )?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)", params![id, position])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, ?2)", params![id, place])?;
             Ok(id)
         })
         .unwrap()
     };
-    let second = queue(&mut e, "Add another", 2.0);
-    let third = queue(&mut e, "Add a third", 3.0);
+    let second = queue(&mut e, "Add another", 2);
+    let third = queue(&mut e, "Add a third", 3);
     // The question a work's item put to the architect, taken off the queue as if a work of the architect had it in hand.
     let held = |e: &mut Engine, item: i64| -> Option<i64> {
         let m: Option<i64> =
@@ -176,7 +176,7 @@ fn one_waits_for_a_slot(name: &str) -> OneWaits {
                 [],
             )?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 3.0)", params![id])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 3)", params![id])?;
             Ok(id)
         })
         .unwrap();
@@ -268,7 +268,7 @@ fn of_two_works_back_from_waiting_one_takes_the_one_free_slot() {
 
 // After the engine starts again, a work that waited for a free slot as it stopped still does, and takes the first slot
 // that frees, before any new work starts on a ready item: here the owner pauses the work that holds the other slot,
-// and the first pass of the new engine grants it to the waiting work, while the item queued meanwhile waits.
+// and the first pass of the new engine grants it to the waiting work, while the item placed meanwhile waits.
 #[test]
 fn a_work_that_waits_for_a_slot_as_the_engine_stops_takes_the_first_free_one_after() {
     let one = one_waits_for_a_slot("slot-after-restart");
@@ -278,7 +278,7 @@ fn a_work_that_waits_for_a_slot_as_the_engine_stops_takes_the_first_free_one_aft
     let (mut e, said) = engine(&s, scripts());
     let fourth = a_ready_item(&mut e, "Add a fourth");
     e.db.write(Actor::Owner, |tx| {
-        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 4.0)", [fourth])?;
+        tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 4)", [fourth])?;
         Ok(())
     })
     .unwrap();
@@ -410,7 +410,7 @@ fn a_work_back_from_waiting_takes_the_free_slot_before_one_still_waiting_with_a_
                 [],
             )?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 2)", params![id])?;
             Ok(id)
         })
         .unwrap();

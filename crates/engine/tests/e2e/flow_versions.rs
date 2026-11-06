@@ -1400,10 +1400,9 @@ fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes
             })
             .unwrap();
     assert_eq!(withdrawn, None, "{log}");
-    // Once its works ended, the item can be queued again.
+    // Once its works ended before their end, the item waits to start again, first, as one taken over does.
     e.db.write(Actor::Owner, |tx| {
         tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [old])?;
-        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [item])?;
         Ok(())
     })
     .unwrap();

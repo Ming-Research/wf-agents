@@ -364,9 +364,9 @@ pub(crate) fn merge_came_first(tx: &Transaction<'_>, item: i64, not: &str, asker
     Ok(())
 }
 
-/// Cancels an item now, with no work on it left to wait for: it is not to be done, it leaves the owner's
-/// queue, every work on it that has not ended ends, saying why, what a work taken over left that no new work took up
-/// is let go of, and it no longer depends on any item or holds any back.
+/// Cancels an item now, with no work on it left to wait for: it is not to be done, every work on it that has not ended
+/// ends, saying why, what a work taken over left that no new work took up is let go of, and it no longer depends on any
+/// item or holds any back.
 /// Each item that depended on it is told, by where it stands: a work running on it, by an interjection from `by`, which
 /// a work standing where it waits, for the items it depends on (`A6`), to enter the merge queue (`M1`) or for the
 /// architect's reply (`A2`), takes at once to choose the way on (`A4`) by a row of its own; an item with no work running, by a
@@ -380,8 +380,6 @@ fn cancel_now(
 ) -> Result<(), String> {
     let_go_of_what_no_one_took_up(tx, item, projects)?;
     tx.execute("UPDATE items SET cancelled = ?2 WHERE id = ?1", params![item, why])
-        .map_err(sql)?;
-    tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])
         .map_err(sql)?;
     let ended = format!("item cancelled: {why}");
     for w in not_ended(tx, item)? {

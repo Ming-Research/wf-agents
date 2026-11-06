@@ -226,7 +226,7 @@ fn read_line(root: &Command, words: &[&str]) -> (String, Vec<String>) {
 /// What is wrong with a text against the commands: a command it never writes, a subcommand or a long option that one
 /// of its command lines names and the command does not have, and a place where the program starts a command in a form
 /// the check does not read. A command is written when a command line begins with the whole words that run it, such
-/// as `wf-agents queue put`. In code, the program's name followed by any word starts a command; in text, only when
+/// as `wf-agents item depend`. In code, the program's name followed by any word starts a command; in text, only when
 /// that word names a subcommand or begins with a dash, so that prose such as "wf-agents runs agents" is not reported.
 fn problems(text: &str, root: &Command) -> Vec<String> {
     let mut names = BTreeSet::new();
@@ -352,15 +352,15 @@ fn a_wrong_readme_is_reported_as_what_is_wrong_with_it() {
         lines.extend(extra.iter().map(|line| line.to_string()));
         as_text(&lines, false, false)
     };
-    let missing = text(&["wf-agents queue put"], &[]);
-    assert_eq!(problems(&missing, &root), ["wf-agents queue put: never written"]);
+    let missing = text(&["wf-agents item depend"], &[]);
+    assert_eq!(problems(&missing, &root), ["wf-agents item depend: never written"]);
     // `wf-agents asks` stays in the text, and is not `wf-agents ask`.
     let confused = text(&["wf-agents ask"], &[]);
     assert_eq!(problems(&confused, &root), ["wf-agents ask: never written"]);
-    let no_such_subcommand = text(&[], &["wf-agents queue add"]);
+    let no_such_subcommand = text(&[], &["wf-agents item move"]);
     assert_eq!(
         problems(&no_such_subcommand, &root),
-        ["wf-agents queue add: no subcommand add"]
+        ["wf-agents item move: no subcommand move"]
     );
     let no_such_option = text(&[], &["wf-agents run --twice"]);
     assert_eq!(
@@ -377,14 +377,14 @@ fn a_command_outside_the_convention_is_reported() {
     let base = as_text(&written_commands(&root), false, false);
     let reported = [
         "`nohup wf-agents run --twice`",
-        "`wf-agents status && wf-agents queue add`",
-        "Run it:\n\n    wf-agents queue add",
-        "> wf-agents queue add",
-        "<code>wf-agents queue add</code>",
-        "see `wf-agents queue\nadd` now",
+        "`wf-agents status && wf-agents item move`",
+        "Run it:\n\n    wf-agents item move",
+        "> wf-agents item move",
+        "<code>wf-agents item move</code>",
+        "see `wf-agents item\nmove` now",
         // The line breaks right after the program's name, where the first line has nothing after it.
-        "see `wf-agents\nqueue put` now",
-        "see `wf-agents\nqueu put` now",
+        "see `wf-agents\nitem depend` now",
+        "see `wf-agents\nitme depend` now",
         "see `wf-agents run\n--once` now",
     ];
     for extra in reported {

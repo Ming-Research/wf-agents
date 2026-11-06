@@ -155,8 +155,8 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// An item that depends on another by a blocking dependency does not start, though the owner queued it first, while the
-// other is not merged: the other starts instead.
+// An item that depends on another by a blocking dependency does not start, though it is first in the start order,
+// while the other is not merged: the other starts instead.
 #[test]
 fn an_item_waits_to_start_for_what_it_depends_on_by_a_blocking_dependency() {
     let s = setup("blocking");
@@ -166,7 +166,7 @@ fn an_item_waits_to_start_for_what_it_depends_on_by_a_blocking_dependency() {
     let parser = a_ready_item(&mut e, "Parse with it");
     e.db.write(Actor::Owner, |tx| {
         db::add_dependency(tx, parser, library, "its lexer", "blocking")?;
-        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [parser])?;
+        tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 1)", [parser])?;
         Ok(())
     })
     .unwrap();
@@ -336,7 +336,8 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
     );
     let order: Vec<(i64, String)> = engine::query_json(
         e.db.conn(),
-        "SELECT id, title FROM items WHERE project = 'p' ORDER BY rank NULLS LAST, id",
+        "SELECT i.id, i.title FROM items i LEFT JOIN start_order s ON s.item = i.id WHERE i.project = 'p'
+         ORDER BY s.place NULLS LAST, i.id",
         &[],
         10,
     )
@@ -762,8 +763,8 @@ fn the_slots_say_whether_works_run() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// `open_items` says a paused work asked to go on waits to resume, and a work asked to start over is stopping, so that a
-// cell reading it does not ask for either again.
+// `open_items` says a paused work asked to go on waits for a free slot, and a work asked to start over is stopping, so
+// that a cell reading it does not ask for either again.
 #[test]
 fn open_items_says_a_resume_waits_and_a_work_is_stopping() {
     let s = setup("material-requests");
@@ -794,10 +795,12 @@ fn open_items_says_a_resume_waits_and_a_work_is_stopping() {
     api::start_over(&mut e.db, works[1]).unwrap();
     let state = |item: i64| -> String {
         e.db.conn()
-            .query_row("SELECT state FROM open_items WHERE item = ?1", [item], |r| r.get(0))
+            .query_row("SELECT work_state FROM open_items WHERE item = ?1", [item], |r| {
+                r.get(0)
+            })
             .unwrap()
     };
-    assert_eq!(state(resuming), "resuming");
+    assert_eq!(state(resuming), "waiting_for_slot");
     assert_eq!(state(stopped), "stopping");
     assert_eq!(state(left), "paused");
     let _ = std::fs::remove_dir_all(&s.root);

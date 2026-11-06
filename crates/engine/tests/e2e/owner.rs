@@ -666,7 +666,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
             [],
         )?;
         let id = tx.last_insert_rowid();
-        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+        tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 2)", params![id])?;
         Ok(())
     })
     .unwrap();

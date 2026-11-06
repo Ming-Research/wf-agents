@@ -223,8 +223,8 @@ fn random_events(seed: u64, events: usize) {
                 )?;
                 let id = tx.last_insert_rowid();
                 tx.execute(
-                    "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
-                    params![id, i as f64],
+                    "INSERT INTO start_order (item, place) VALUES (?1, ?2)",
+                    params![id, i + 1],
                 )?;
                 Ok(id)
             })

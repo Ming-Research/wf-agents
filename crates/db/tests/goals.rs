@@ -93,7 +93,7 @@ fn a_goal_is_done_once_everything_it_depends_on_is_and_no_work_starts_on_it() {
     assert_eq!(ids(&db, "SELECT item FROM ready_items ORDER BY item"), [3, 8]);
     assert_eq!(ids(&db, "SELECT item FROM goals_open ORDER BY item"), [1, 5, 10]);
     assert_eq!(
-        ids(&db, "SELECT item FROM open_items WHERE state = 'goal' ORDER BY item"),
+        ids(&db, "SELECT item FROM open_items WHERE goal ORDER BY item"),
         [1, 5, 10]
     );
     // Goal 10 waits for goal 1 by a blocking dependency too, though it never starts either way.
@@ -104,9 +104,9 @@ fn a_goal_is_done_once_everything_it_depends_on_is_and_no_work_starts_on_it() {
         ),
         [9, 10]
     );
-    // Queued by hand, a goal that nothing holds back still does not start.
-    db.write(Actor::Owner, |tx| {
-        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (5, 1.0)", [])?;
+    // Placed first in the start order, a goal that nothing holds back still does not start.
+    db.write(Actor::Architect, |tx| {
+        tx.execute("INSERT INTO start_order (item, place) VALUES (5, 1)", [])?;
         Ok(())
     })
     .unwrap();
@@ -173,10 +173,11 @@ fn database_before_goals(path: &std::path::Path) -> Connection {
 
 /// Every column of the items table, in the order the rows below give them.
 const COLUMNS: &str = "id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work, \
-                       acceptance_round, cancelled, imported_from, imported_branch, imported_pr, wanted, held, rank, \
+                       acceptance_round, cancelled, imported_from, imported_branch, imported_pr, wanted, \
                        decision_points";
 
-// The items come out of the migration as they went in, with their dependencies and their place in the queue; a goal
+// The items come out of the migrations as they went in, with their dependencies, and their place in the owner's queue,
+// their rank and their hold taken into the start order by the migrations after this one; a goal
 // can be made after it, and a change to an item is recorded in `changes`, which the migration must not have lost with
 // the table it made afresh. Before it, an item without a deliver is refused.
 #[test]
@@ -221,8 +222,8 @@ fn every_item_survives_the_migration_that_lets_an_item_be_a_goal() {
     assert_eq!(
         rows,
         [
-            r#"[1,"p","one","pro","why","how","change","l1",null,null,null,null,null,null,null,"[{\"id\":\"V1\"}]","held for now",4,"[{\"id\":\"P1\"}]"]"#,
-            r#"[2,"p","two","pro2","why2",null,"report","l2",null,null,null,"dup","old board","br",9,null,null,null,null]"#,
+            r#"[1,"p","one","pro","why","how","change","l1",null,null,null,null,null,null,null,"[{\"id\":\"V1\"}]","[{\"id\":\"P1\"}]"]"#,
+            r#"[2,"p","two","pro2","why2",null,"report","l2",null,null,null,"dup","old board","br",9,null,null]"#,
         ]
     );
     assert_eq!(
@@ -236,9 +237,9 @@ fn every_item_survives_the_migration_that_lets_an_item_be_a_goal() {
     assert_eq!(
         count(
             &db,
-            "SELECT count(*) FROM dispatch_queue WHERE item = 2 AND position = 1.5"
+            "SELECT count(*) FROM start_order WHERE (item, place, held) IN (VALUES (2, 1, 0), (1, 2, 1))"
         ),
-        1
+        2
     );
     assert_eq!(count(&db, "SELECT count(*) FROM changes WHERE table_name = 'items'"), 0);
     db.write(Actor::Owner, |tx| {

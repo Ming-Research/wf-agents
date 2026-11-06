@@ -1251,7 +1251,8 @@ fn quiet(e: &mut Engine) {
     .unwrap();
 }
 
-/// The engine over a setup, with what it says kept, and one item in the queue; no advance starts an architect work.
+/// The engine over a setup, with what it says kept, and one item in the start order; no advance starts an architect
+/// work.
 fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
     start_with(s, scripts, Hooks::default())
 }
@@ -1272,7 +1273,7 @@ fn start_with(
                 [],
             )?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", params![id])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 1)", params![id])?;
             Ok(id)
         })
         .unwrap();
@@ -2465,7 +2466,7 @@ fn turns(e: &mut Engine, c: &api::Control, n: usize) -> Vec<i64> {
 }
 
 /// A setup whose one machine has two slots, and an engine over it as [`start_with`] makes it, with two items in the
-/// queue: the first and the second item.
+/// start order: the first and the second item.
 fn two_works_with(
     name: &str,
     scripts: BTreeMap<&'static str, Script>,
@@ -2483,7 +2484,7 @@ fn two_works_with(
                 [],
             )?;
             let id = tx.last_insert_rowid();
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 2)", params![id])?;
             Ok(id)
         })
         .unwrap();

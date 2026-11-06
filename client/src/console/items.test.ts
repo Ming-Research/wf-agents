@@ -14,7 +14,6 @@ function item(id: number, state: ItemState): ItemSummary {
     route_taken: null,
     cancelled: state === 'cancelled' ? 'not wanted' : null,
     state,
-    queued: null,
     work: null,
     at: null,
     stage: null,
@@ -44,15 +43,15 @@ describe('the tree the console shows', () => {
   // are a tree of their own; 8 is done and stands under 4, and 9, still open, under 8; 10 is done and stands under 2.
   const data: Items = {
     items: [
-      item(1, 'working'),
-      item(2, 'new'),
-      item(3, 'new'),
-      item(4, 'new'),
+      item(1, 'open'),
+      item(2, 'open'),
+      item(3, 'open'),
+      item(4, 'open'),
       item(5, 'cancelled'),
       item(6, 'done'),
       item(7, 'done'),
       item(8, 'done'),
-      item(9, 'new'),
+      item(9, 'open'),
       item(10, 'done'),
     ],
     links: [

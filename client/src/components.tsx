@@ -8,10 +8,8 @@ import {
   HourglassIcon,
   type Icon,
   IssueOpenedIcon,
-  ListOrderedIcon,
   NoEntryIcon,
   PauseIcon,
-  PlayIcon,
   QuestionIcon,
   SkipIcon,
   StopIcon,
@@ -304,16 +302,12 @@ export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
 };
 
 /// The Octicon of each state of an item, the one map for every place that shows an item's state as an icon, as the UI
-/// spec names it, none of them a work's mark of another meaning: new GitHub's mark of an issue open, filed and not taken
-/// up yet; queued a numbered list, the item's place in the queue; working a play, under way; done the tick in a ring of
-/// a work done, and stopped the stop of a work ended, since an item is done or stopped as its latest work is; cancelled
-/// GitHub's mark of an issue closed as not planned.
+/// spec names it, none of them a work's mark of another meaning: open GitHub's mark of an issue open; done the tick in a
+/// ring of a work done, since an item is done once a work of it reached its end; cancelled GitHub's mark of an issue
+/// closed as not planned. What its work does has the work's own marks.
 export const ITEM_MARK: Record<ItemState, Icon> = {
-  new: IssueOpenedIcon,
-  queued: ListOrderedIcon,
-  working: PlayIcon,
+  open: IssueOpenedIcon,
   done: CheckCircleIcon,
-  stopped: StopIcon,
   cancelled: SkipIcon,
 };
 
@@ -357,11 +351,8 @@ export function ToneMark({ mark: Mark, tone, words }: { mark: ElementType; tone:
 
 /// An item's state's tone, which the items' tree gives the button that shows or hides the items in that state too.
 export const ITEM_TONE: Record<ItemState, Tone> = {
-  new: 'neutral',
-  queued: 'attention',
-  working: 'accent',
+  open: 'accent',
   done: 'success',
-  stopped: 'danger',
   cancelled: 'danger',
 };
 

@@ -77,8 +77,7 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                     },
                 )
                 .ok(),
-            // The queue's key is the item.
-            "items" | "dispatch_queue" => Some(Event::Item { item: Some(id) }),
+            "items" => Some(Event::Item { item: Some(id) }),
             "item_links" => Some(Event::Item {
                 item: one(conn, "SELECT item FROM item_links WHERE rowid = ?1", id),
             }),
@@ -145,7 +144,6 @@ mod tests {
             touched("works", 1),
             touched("owner_asks", 1),
             touched("items", 1),
-            touched("dispatch_queue", 1),
             touched("flow_versions", 1),
             touched("outbox", 1),
         ];

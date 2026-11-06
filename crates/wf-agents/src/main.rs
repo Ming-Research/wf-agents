@@ -35,9 +35,10 @@ enum Command {
     /// Makes the database in the data directory, once. It is the only command that makes one: every command that
     /// works on the database, the engine included, opens the one that is there, and fails when there is none.
     Init,
-    /// Runs the engine: starts works on the queue's items and takes each through the flow, until a file named stop
-    /// appears in the data directory. The owner's page is served beside it, on the loopback address. Every work starts
-    /// paused: nothing runs until the owner starts all works, starts one, or asks for a work's round, on the page.
+    /// Runs the engine: starts works on the items that wait to start and takes each through the flow, until a file
+    /// named stop appears in the data directory. The owner's page is served beside it, on the loopback address. Every
+    /// work starts paused: nothing runs until the owner starts all works, starts one, or asks for a work's round, on the
+    /// page.
     ///
     /// One engine runs on a data directory: it holds a lock on `db/engine.lock` for as long as it runs, so a second
     /// `run`, or `run --once`, fails saying which process holds it. The lock goes with the process, however it ends.
@@ -53,9 +54,9 @@ enum Command {
     /// Items: what to do.
     #[command(subcommand)]
     Item(ItemCommand),
-    /// The dispatch queue: which items start next.
-    #[command(subcommand)]
-    Queue(QueueCommand),
+    /// The items waiting to start, in the order they start: one whose work was taken over first, then each project's
+    /// items in its architect's start order.
+    Ready,
     /// The asks of the owner waiting for an answer.
     Asks {
         /// Every ask of the owner, those answered too.
@@ -251,15 +252,12 @@ struct AddItem {
     level: Option<String>,
     /// Makes a goal: an item with no work of its own, done once every item it depends on is done; it takes no level
     /// and no deliver.
-    #[arg(long, conflicts_with_all = ["level", "deliver", "queue"])]
+    #[arg(long, conflicts_with_all = ["level", "deliver"])]
     goal: bool,
     /// An item it depends on, the dependency's kind and what it needs of it, as N:blocking:what (it does not start until
     /// N is merged) or N:parallel:what (it may start before).
     #[arg(long = "depends-on")]
     depends_on: Vec<String>,
-    /// Puts it last in the dispatch queue.
-    #[arg(long)]
-    queue: bool,
     /// For an item imported from outside this flow: where it came from, such as an item of another board.
     #[arg(long = "imported-from")]
     imported_from: Option<String>,
@@ -359,26 +357,6 @@ enum ArchitectCommand {
         /// Why it is taken out, in the owner's language.
         #[arg(long)]
         why: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum QueueCommand {
-    /// The items waiting to start, in order.
-    List,
-    /// Puts an item in the queue: last, or first, or before or after another.
-    Put {
-        /// The item's number.
-        item: i64,
-        /// Puts it first in the queue.
-        #[arg(long)]
-        first: bool,
-        /// Puts it just before this item of the queue.
-        #[arg(long)]
-        before: Option<i64>,
-        /// Puts it just after this item of the queue.
-        #[arg(long)]
-        after: Option<i64>,
     },
 }
 
@@ -681,7 +659,6 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                 level,
                 goal,
                 depends_on,
-                queue,
                 imported_from,
                 branch,
                 pr,
@@ -716,7 +693,6 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                         _ => None,
                     },
                     depends_on: deps,
-                    queue,
                     imported: owner::Imported {
                         from: imported_from,
                         branch,
@@ -751,22 +727,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         ),
         Command::Item(ItemCommand::Main { item, on }) => owner::main_dependency(d, item, on),
         Command::Item(ItemCommand::Cancel { item, why }) => print(owner::cancel(d, item, &why)),
-        Command::Queue(QueueCommand::List) => print(owner::queue_list(d)),
-        Command::Queue(QueueCommand::Put {
-            item,
-            first,
-            before,
-            after,
-        }) => {
-            let place = match (first, before, after) {
-                (true, None, None) => owner::Place::First,
-                (false, Some(b), None) => owner::Place::Before(b),
-                (false, None, Some(a)) => owner::Place::After(a),
-                (false, None, None) => owner::Place::Last,
-                _ => return Err("give at most one of --first, --before and --after".into()),
-            };
-            owner::queue(d, item, place)
-        }
+        Command::Ready => print(owner::ready(d)),
         Command::Asks { all } => print(owner::asks(d, all)),
         Command::Ask { id } => print(owner::ask(d, id)),
         Command::Answer {
