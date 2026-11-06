@@ -215,6 +215,20 @@ export function demoShown(): Shown[] {
       ]),
       item('Beside it, nothing at work'),
     ]),
+    item('Many marks at once', [
+      work('Questions, messages unread and returns sent back, all at once', 'asking', {
+        waits: { kind: 'answer', ask: 1 },
+        asks: 2,
+        unread: 12,
+        sentBack: 3,
+        age: 3 * 60,
+      }),
+      {
+        ...item('Not started, held by two items, with questions and messages', [], 'open', true, 2),
+        asks: 1,
+        unread: 3,
+      },
+    ]),
     item('Nothing at work under it', [
       item('Open, not started'),
       item('Waiting for an item it depends on to merge', [], 'open', false, 1),
