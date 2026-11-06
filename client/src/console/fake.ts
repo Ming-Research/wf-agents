@@ -103,6 +103,7 @@ export function fakeShown(count: number): Shown[] {
     standing: i.state === 'done' ? 'done' : 'open',
     asks: i.state === 'waiting' ? 1 : 0,
     unseen: i.id % 7 === 0,
+    shadow: false,
     work: work(i),
     children: i.children.map(shown),
   });
@@ -110,8 +111,9 @@ export function fakeShown(count: number): Shown[] {
 }
 
 /// Made-up items that show everything the console draws, each titled by what it shows: a work in each of its states,
-/// of each age and with questions and returns sent back; items open, done and cancelled; and branches with work at
-/// their ends and without. The console draws them at `/console/demo`.
+/// of each age and with questions and returns sent back; items open, done and cancelled; branches with work at their
+/// ends and without; and the shadow of an item under another item that depends on it. The console draws them at
+/// `/console/demo`.
 export function demoShown(): Shown[] {
   const now = Date.now();
   const minutes = 60000;
@@ -128,9 +130,12 @@ export function demoShown(): Shown[] {
     standing,
     asks: 0,
     unseen,
+    shadow: false,
     work: null,
     children,
   });
+  // A shadow of an item, under another item that depends on it besides its main one.
+  const shadow = (of: Shown): Shown => ({ ...of, asks: 0, unseen: false, shadow: true, work: null, children: [] });
   const work = (
     title: string,
     state: WorkState,
@@ -149,9 +154,10 @@ export function demoShown(): Shown[] {
       sentBack: o.sentBack ?? 0,
     },
   });
+  const running = work('Running for 12 minutes', 'running');
   return [
     item('What a work does', [
-      work('Running for 12 minutes', 'running'),
+      running,
       work('Sent back twice', 'running', { age: 45, sentBack: 2, stage: 3 }),
       work('Its next step due', 'ready', { stage: 1 }),
       work('New, and waiting for your answer', 'asking', {
@@ -185,6 +191,6 @@ export function demoShown(): Shown[] {
       ]),
       item('Beside it, nothing at work'),
     ]),
-    item('Nothing at work under it', [item('Open, not started'), item('Open, not started either')]),
+    item('Nothing at work under it', [item('Open, not started'), item('Open, not started either'), shadow(running)]),
   ];
 }

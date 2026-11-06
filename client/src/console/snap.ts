@@ -7,13 +7,14 @@
 // item of another parent holds that parent in the column to the left.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such an
-// item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge. A
-// filled funnel joins each item's top and bottom to the first item under it and the last, light accent from a held item
-// and grey from the others. Each held item is ringed in a soft blue; the item under the pointer, and each above it up
-// to its root, in orange, each joined to the one above by a ribbon of light orange. The stage a running work is at
-// pulses. Every column fades out into the page near the top and the bottom of the screen; at those two edges the column
-// under the pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it
-// draws and how fast is kept in `stats`.
+// item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge.
+// Under each item that depends on an item besides its main dependent, a shadow of it stands: a white card with a dashed
+// edge and grey words, pointing to where the item stands. A filled funnel joins each item's top and bottom to the first
+// item under it and the last, light accent from a held item and grey from the others. Each held item is ringed in a
+// soft blue; the item under the pointer, and each above it up to its root, in orange, each joined to the one above by a
+// ribbon of light orange. The stage a running work is at pulses. Every column fades out into the page near the top and
+// the bottom of the screen; at those two edges the column under the pointer has a line of orange, faded in as the
+// pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -430,8 +431,9 @@ export class SnapScene {
       this.stats.items = 0;
       return;
     }
-    // The deepest item held before that is still in the tree, held again; else the middle root.
-    const index = new Map(this.ids.map((id, i) => [id, i]));
+    // The deepest item held before that is still in the tree, held again, in its own place rather than a shadow's; else
+    // the middle root.
+    const index = new Map(items.flatMap((it, i) => (it.shadow ? [] : [[it.id, i] as const])));
     const kept = [...before].reverse().find(([, id]) => index.has(id));
     if (kept === undefined) this.hold(0, Math.floor((tree.columns[0].length - 1) / 2));
     else {
@@ -456,6 +458,7 @@ export class SnapScene {
     const h = high(this.rows[k]);
     const top = -h / 2;
     const row1 = top + NODE_H / 2;
+    if (item.shadow) return this.shadow(item, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
     view.addChild(
@@ -546,6 +549,44 @@ export class SnapScene {
     view.addChild(track, label);
     this.ages.set(k, { from: w.from, label, shown: '', row: row2 });
     this.age(k);
+    return view;
+  }
+
+  /// The shadow of an item under another item that depends on it besides its main one: a white card, its edge dashed,
+  /// its number and title grey, and at the right an arrow pointing away, to where the item stands.
+  private shadow(item: Shown, view: Container, top: number, h: number, row1: number): Container {
+    const s = this.styles as Styles;
+    const ground = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(PALETTE.card);
+    const edge = new Graphics();
+    const [dash, gap, r] = [4, 3, 6];
+    // Dashes along each straight side, the rounded corners left open.
+    const along = (x0: number, y0: number, x1: number, y1: number) => {
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      for (let at = 0; at < len; at += dash + gap) {
+        const b = Math.min(len, at + dash);
+        edge.moveTo(x0 + ((x1 - x0) * at) / len, y0 + ((y1 - y0) * at) / len);
+        edge.lineTo(x0 + ((x1 - x0) * b) / len, y0 + ((y1 - y0) * b) / len);
+      }
+    };
+    along(r, top, NODE_W - r, top);
+    along(r, top + h, NODE_W - r, top + h);
+    along(0, top + r, 0, top + h - r);
+    along(NODE_W, top + r, NODE_W, top + h - r);
+    edge.stroke({ color: PALETTE.pale, width: 1 });
+    const number = new BitmapText({ text: String(item.id), style: s.mono(PALETTE.pale) });
+    number.position.set(14, row1 - number.height / 2);
+    const title = new BitmapText({ text: item.title, style: s.title(PALETTE.faint) });
+    title.position.set(14 + Math.max(26, number.width + 8), row1 - title.height / 2);
+    // The arrow, drawn: the font may have no such sign.
+    const ax = NODE_W - 16;
+    const arrow = new Graphics()
+      .moveTo(ax, row1 + 4)
+      .lineTo(ax + 8, row1 - 4)
+      .moveTo(ax + 3, row1 - 4)
+      .lineTo(ax + 8, row1 - 4)
+      .lineTo(ax + 8, row1 + 1)
+      .stroke({ color: PALETTE.faint, width: 1.3 });
+    view.addChild(ground, edge, number, title, arrow);
     return view;
   }
 

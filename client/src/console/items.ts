@@ -1,5 +1,6 @@
 // The items as the console shows them: a tree by their main dependencies, each item under the item whose dependency on
-// it is its main one, at the top the items nothing depends on. Done and cancelled items are left out, unless something
+// it is its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
+// standing there, a shadow of it that points to its place. Done and cancelled items are left out, unless something
 // under them is still open. Each item carries its own state, the work going on on it, if any, and how many of its
 // questions wait for the owner. Pure, so that it is tested on its own.
 
@@ -31,6 +32,9 @@ export type Shown = {
   asks: number;
   /// New to the owner: made, or what it says changed, since they last opened it.
   unseen: boolean;
+  /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
+  /// item's place, and carries none of its work, its questions or the items under it.
+  shadow: boolean;
   work: ShownWork | null;
   children: Shown[];
 };
@@ -46,9 +50,14 @@ export function shownTree(data: Items, works: WorkSummary[] = [], status: Status
     return s === 'cancelled' ? 'cancelled' : s === 'done' ? 'done' : 'open';
   };
   const under = new Map<number, number[]>();
+  const besides = new Map<number, number[]>();
   const above = new Set<number>();
   for (const l of data.links) {
-    if (!l.main || !byId.has(l.item) || !byId.has(l.depends_on)) continue;
+    if (!byId.has(l.item) || !byId.has(l.depends_on)) continue;
+    if (!l.main) {
+      besides.set(l.item, [...(besides.get(l.item) ?? []), l.depends_on]);
+      continue;
+    }
     under.set(l.item, [...(under.get(l.item) ?? []), l.depends_on]);
     above.add(l.depends_on);
   }
@@ -71,6 +80,7 @@ export function shownTree(data: Items, works: WorkSummary[] = [], status: Status
       standing: standing(id),
       asks: (i?.open_asks ?? 0) + (i?.open_design_cards ?? 0),
       unseen: i?.unseen === true,
+      shadow: false,
       work:
         w !== undefined && live(w)
           ? {
@@ -84,12 +94,28 @@ export function shownTree(data: Items, works: WorkSummary[] = [], status: Status
               sentBack: w.sent_back,
             }
           : null,
-      children: [...(under.get(id) ?? [])]
-        .filter(keep)
-        .sort((a, b) => a - b)
-        .map(make),
+      children: [
+        ...[...(under.get(id) ?? [])]
+          .filter(keep)
+          .sort((a, b) => a - b)
+          .map(make),
+        ...[...(besides.get(id) ?? [])]
+          .filter(keep)
+          .sort((a, b) => a - b)
+          .map(shadow),
+      ],
     };
   };
+  const shadow = (id: number): Shown => ({
+    id,
+    title: byId.get(id)?.title ?? '',
+    standing: standing(id),
+    asks: 0,
+    unseen: false,
+    shadow: true,
+    work: null,
+    children: [],
+  });
   return data.items
     .filter((i) => !above.has(i.id) && keep(i.id))
     .sort((a, b) => a.id - b.id)
