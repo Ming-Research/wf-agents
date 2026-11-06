@@ -50,6 +50,13 @@ function mix(a: string, b: string, k: number): number {
   return out;
 }
 
+/// A length of the page's theme in pixels: Primer gives sizes in `rem`, the root's font size each.
+function pixels(length: string): number {
+  const n = Number.parseFloat(length);
+  if (!length.trim().endsWith('rem')) return n;
+  return n * Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+}
+
 /// A value of the page's theme, a colour or a font, from its CSS custom property.
 function colour(name: string, fallback: string): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -165,7 +172,7 @@ export class SnapScene {
     // Primer's text, as the rest of the page has it.
     const style = new TextStyle({
       fontFamily: colour('--fontStack-sansSerif', 'sans-serif'),
-      fontSize: Number.parseFloat(colour('--text-body-size-medium', '14px')),
+      fontSize: pixels(colour('--text-body-size-medium', '14px')),
       fill: colour('--fgColor-default', '#1f2328'),
     });
     const fill = colour('--bgColor-muted', '#f6f8fa');
