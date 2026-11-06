@@ -69,18 +69,22 @@ const SNAP = 0.32;
 /// How much of the way to where the scroll has taken it the column scrolled goes each frame.
 const GLIDE = 0.35;
 /// How far from the middle of the screen, in rows, an item's want of the column beside it still weighs: its weight
-/// falls off as a bell of this width. A want not met pulls the column by its weight times how far it is from being met,
-/// but never by more than `SAT` rows' worth, so that a want far from met weighs no more than a near one; and the column
-/// stays while the wants pull it by no more than `DEAD`, so that items far from the middle, weighing little, do not
-/// swing it a long way between two places that each meets some of them.
+/// falls off as a bell of this width. A want is met within `SLACK` rows times the inverse of its weight less one, none
+/// for an item in the middle and the more the further out it is, so that an item coming in towards the middle asks for
+/// a little more at a time, and the column moves at its pace rather than at once. What an item wants seen stands at
+/// least `MARGIN` rows in from the top and the bottom of the screen, clear of their fade.
 const REACH = 3;
-const SAT = 2;
-const DEAD = 0.3;
+const MARGIN = 2;
+const SLACK = 1;
 /// How many rows of the column scrolled stay on the screen at least, at its top or its bottom.
 const KEEP = 3;
 /// How much of the way to where it stands a column beside the one scrolled goes each frame: one that was the one
 /// scrolled rests where its own scroll left it, not where its links would put it, and glides there once another is.
+/// It goes no faster than `PACE` times the column it follows moved in that frame, so that a small scroll never moves
+/// another column far, however far its links would put it, and every column stops when the scroll does; what is left it
+/// makes up as the scroll goes on.
 const LINK_EASE = 0.2;
+const PACE = 1.5;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs; amber for what
 /// waits for the owner; red for what has gone wrong or on long; violet for what has gone on for days.
@@ -486,26 +490,29 @@ export class SnapScene {
       return;
     }
     const index = new Map(items.flatMap((it, i) => (it.shadow ? [] : [[it.id, i] as const])));
-    const fresh = new Set<number>();
+    const placeless = new Set<number>();
     this.columns.forEach((c, d) => {
       const b = before[d];
       const i = b === null || b === undefined ? undefined : index.get(b.id);
       if (b !== null && b !== undefined && i !== undefined && tree.depth[i] === d)
         c.at = this.middle(d, tree.rank[i]) + b.off;
       else if (was[d] !== undefined) c.at = was[d];
-      else fresh.add(d);
+      else placeless.add(d);
     });
     if (old === null) {
       this.driver = 0;
       this.columns[0].at = this.middle(0, Math.floor((tree.columns[0].length - 1) / 2));
-      fresh.delete(0);
+      placeless.delete(0);
     }
     this.driver = Math.min(this.driver, tree.columns.length - 1);
     this.columns[this.driver].aim = this.columns[this.driver].at;
-    // The new columns where their links put them, at once.
-    for (let k = 0; k < 100 && fresh.size > 0; k += 1) {
-      for (let d = this.driver + 1; d < this.columns.length; d += 1) if (fresh.has(d)) this.link(d, d - 1);
-      for (let d = this.driver - 1; d >= 0; d -= 1) if (fresh.has(d)) this.link(d, d + 1);
+    // The new columns, out from the one followed: each with what joins it to the item nearest the middle of the column
+    // beside it level with that item, then where its links put it, at once.
+    for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.level(d, d - 1);
+    for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.level(d, d + 1);
+    for (let k = 0; k < 100 && placeless.size > 0; k += 1) {
+      for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.link(d, d - 1);
+      for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.link(d, d + 1);
     }
     this.buildMap(tree);
     this.stats.items = items.length;
@@ -706,18 +713,47 @@ export class SnapScene {
     return this.slot(d, rank) + this.rowsAt(d, rank) / 2;
   }
 
+  /// Places column `c` with what joins it to the item of `from` nearest the middle of the screen, of those joined to
+  /// it, level with that item: the middle of the block of the items under it, or the item above it.
+  private level(c: number, from: number): void {
+    const t = this.tree as Tree;
+    const col = t.columns[from];
+    const line = this.columns[from].at;
+    let best = -1;
+    for (let r = 0; r < col.length; r += 1) {
+      const joined = c > from ? t.children[col[r]].length > 0 : t.parent[col[r]] >= 0;
+      if (joined && (best < 0 || Math.abs(this.middle(from, r) - line) < Math.abs(this.middle(from, best) - line)))
+        best = r;
+    }
+    if (best < 0) return;
+    const item = col[best];
+    let to: number;
+    if (c > from) {
+      const kids = t.children[item];
+      to = (this.middle(c, t.rank[kids[0]]) + this.middle(c, t.rank[kids[kids.length - 1]])) / 2;
+    } else to = this.middle(c, t.rank[t.parent[item]]);
+    this.columns[c].at = to - (this.middle(from, best) - line);
+  }
+
   /// Moves column `c` towards where it stands by its links with the column `from` beside it, which it follows. Each
-  /// item of `from` near the middle of the screen wants what it is joined to in `c` beside it: the block of the items
-  /// under it, or the item above it, any part of which level with it will do; it weighs the more the nearer the middle
-  /// it is. The column stays where it is while the wants not met pull it no harder than `DEAD`, and else goes until
-  /// they pull it just that hard. With nothing joining them near the middle, it stays.
-  private link(c: number, from: number): void {
+  /// item of `from` near the middle of the screen wants what it is joined to in `c` on the screen: the item above it,
+  /// or the block of the items under it, or as much of the block as the screen holds; it weighs the more the nearer the
+  /// middle it is. Seen is enough: two items whose links in `c` stand further apart than in `from` would else pull the
+  /// column between them a long way at a small scroll. The column stays where it is while every want is met, and else
+  /// goes to the nearest place where the wants not met, each pulling by its weight times how far it is from being met,
+  /// pull it no further either way, but no more than `most` rows in one frame. With nothing joining them near the
+  /// middle, it stays.
+  private link(c: number, from: number, most = Infinity): void {
     const t = this.tree as Tree;
     const src = this.columns[from];
     const me = this.columns[c];
     const col = t.columns[from];
     const line = src.at;
-    // Where each want is met, as the places of the column `c` at the line, from `lows` to `highs`, and its weight.
+    // Where each want is met, as the places of the column `c` at the middle of the screen, from `lows` to `highs`, and
+    // its weight. What stands from `top` to `bottom` of the column is seen while its place at the middle is between
+    // `bottom - seen` and `top + seen`; a block taller than the screen fills it while its place is between
+    // `top + seen` and `bottom - seen`.
+    const seen = Math.max(1, this.app.screen.height / 2 / ROW - MARGIN);
     const lows: number[] = [];
     const highs: number[] = [];
     const weights: number[] = [];
@@ -740,9 +776,12 @@ export class SnapScene {
         top = this.slot(c, t.rank[above]);
         bottom = top + this.rowsAt(c, t.rank[above]);
       }
-      lows.push(top - s);
-      highs.push(bottom - s);
-      weights.push(Math.exp(-(s * s) / (2 * REACH * REACH)));
+      const fits = bottom - top <= 2 * seen;
+      const weight = Math.exp(-(s * s) / (2 * REACH * REACH));
+      const slack = SLACK * (1 / weight - 1);
+      lows.push((fits ? bottom - seen : top + seen) - slack);
+      highs.push((fits ? top + seen : bottom - seen) + slack);
+      weights.push(weight);
     }
     if (weights.length === 0) return;
     const now = me.at;
@@ -750,22 +789,23 @@ export class SnapScene {
     const pull = (x: number) => {
       let g = 0;
       for (let i = 0; i < weights.length; i += 1) {
-        const off = x < lows[i] ? x - lows[i] : x > highs[i] ? x - highs[i] : 0;
-        g += weights[i] * Math.max(-SAT, Math.min(SAT, off));
+        if (x < lows[i]) g += weights[i] * (x - lows[i]);
+        else if (x > highs[i]) g += weights[i] * (x - highs[i]);
       }
       return g;
     };
     const g = pull(now);
-    if (Math.abs(g) <= DEAD) return;
-    const want = Math.sign(g) * DEAD;
-    let lo = g > 0 ? Math.min(...lows) - SAT : now;
-    let hi = g > 0 ? now : Math.max(...highs) + SAT;
+    if (g === 0) return;
+    // The nearest place where the pull is spent: the last below where it still pulls down, or the first above where it
+    // still pulls up.
+    let lo = g > 0 ? Math.min(...lows) : now;
+    let hi = g > 0 ? now : Math.max(...highs);
     for (let i = 0; i < 40; i += 1) {
       const mid = (lo + hi) / 2;
-      if (pull(mid) < want) lo = mid;
+      if (g > 0 ? pull(mid) <= 0 : pull(mid) < 0) lo = mid;
       else hi = mid;
     }
-    me.at += ((lo + hi) / 2 - me.at) * LINK_EASE;
+    me.at += Math.max(-most, Math.min(most, ((g > 0 ? lo : hi) - me.at) * LINK_EASE));
   }
 
   /// Adds to the funnels the one from an item ending at `px`, its box from `top` to `bottom`, to items starting at `cx`,
@@ -1008,14 +1048,16 @@ export class SnapScene {
     // The column followed goes a part of the way to where it is taken; the others after it, out from it each way.
     const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
     this.lastDraw = now;
+    const was = this.columns.map((c) => c.at);
     this.columns.forEach((c, d) => {
       // The blue lines at the column's edges fade in while the pointer is over it, and out once it leaves, in about
       // half a second.
       c.warm += ((d === this.hovered ? 1 : 0) - c.warm) * (1 - Math.exp(-step / TURN));
       if (d === this.driver) c.at += (c.aim - c.at) * GLIDE;
     });
-    for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1);
-    for (let d = this.driver - 1; d >= 0; d -= 1) this.link(d, d + 1);
+    const moved = (d: number) => PACE * Math.abs(this.columns[d].at - was[d]);
+    for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1, moved(d - 1));
+    for (let d = this.driver - 1; d >= 0; d -= 1) this.link(d, d + 1, moved(d + 1));
     const y = (d: number, rank: number) => {
       const c = this.columns[d];
       return line + (this.middle(d, rank) - c.at) * ROW;
