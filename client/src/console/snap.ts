@@ -10,11 +10,12 @@
 // left, and one above such an item has an edge of the light accent. A filled funnel joins each item's top and bottom to
 // the first item under it and the last, light accent from a held item and grey from the others; a ribbon of the same
 // light accent joins each item to each of its items a work goes on on or under, so that the way from a root to every
-// item in work reads as one. Each held item is ringed in the accent, or orange while the pointer is over its column, and
-// the stage a running work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in
+// item in work reads as one. Each held item is ringed in the accent, and the stage a running work is at pulses. Every
+// column fades out into the page near the top and the bottom of the screen; there, the column under the pointer glows
+// orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in
 // `stats`.
 
-import { Application, BitmapText, Container, Graphics, TextStyle } from 'pixi.js';
+import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
 import type { Shown, ShownWork } from './items';
 import { indexTree, type Tree } from './tree';
@@ -39,9 +40,13 @@ const MAP_APART = 5;
 const MAP_HIGH = 72;
 const MAP_INSET = 12;
 const MAP_PAD = 8;
-/// How quickly a held item's frame turns between the accent and orange: the milliseconds in which it goes about two
-/// thirds of the way.
+/// How quickly the orange glow at a column's edges comes and goes as the pointer comes over it and leaves: the
+/// milliseconds in which it goes about two thirds of the way.
 const TURN = 35;
+/// How far in from the top and the bottom of the screen the columns fade out into the page, in pixels; and how strong
+/// the orange is at the very edge of the column under the pointer.
+const EDGE = 96;
+const EDGE_GLOW = 0.55;
 /// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the stage goes at its faintest.
 const PULSE_MS = 750;
@@ -102,6 +107,23 @@ function mix(a: string, b: string, k: number): number {
   const f = Math.min(1, Math.max(0, k));
   for (let i = 0; i < 3; i += 1) out = out * 256 + Math.round(at(a, i) + (at(b, i) - at(a, i)) * f);
   return out;
+}
+
+/// A gradient from top to bottom in the measure of the shape it fills, from `colour` at opacity `from` to `to`.
+function vertical(colour: string, from: number, to: number): FillGradient {
+  const rgba = (a: number) => {
+    const n = Number.parseInt(colour.slice(1), 16);
+    return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+  };
+  return new FillGradient({
+    start: { x: 0, y: 0 },
+    end: { x: 0, y: 1 },
+    textureSpace: 'local',
+    colorStops: [
+      { offset: 0, color: rgba(from) },
+      { offset: 1, color: rgba(to) },
+    ],
+  });
 }
 
 /// A length of the page's theme in pixels: Primer gives sizes in `rem`, the root's font size each.
@@ -221,8 +243,7 @@ type Column = {
   at: number;
   pull: number;
   lastScroll: number;
-  /// How far its held item's frame has turned from the accent to orange, moving to 1 while the pointer is over the
-  /// column.
+  /// How far the orange glow at its edges has come, moving to 1 while the pointer is over the column.
   warm: number;
 };
 
@@ -236,6 +257,15 @@ export class SnapScene {
   private links = new Graphics();
   private marks = new Graphics();
   private layer = new Container();
+  /// The fade of every column into the page at the top and the bottom of the screen, and the orange glow there of the
+  /// column under the pointer; each a gradient in the shape's own measure, from its top (0) to its bottom (1).
+  private edges = new Graphics();
+  private fades = {
+    top: vertical('#ffffff', 1, 0),
+    bottom: vertical('#ffffff', 0, 1),
+    glowTop: vertical(PALETTE.over, EDGE_GLOW, 0),
+    glowBottom: vertical(PALETTE.over, 0, EDGE_GLOW),
+  };
   /// The map at the top left: its frame, and a bar for each column, drawn each frame, cut to the room inside the frame.
   private map = new Container();
   private mapFrame = new Graphics();
@@ -296,7 +326,7 @@ export class SnapScene {
     }
     host.appendChild(this.app.canvas);
     this.world.addChild(this.back, this.links, this.layer, this.marks);
-    this.app.stage.addChild(this.world, this.map);
+    this.app.stage.addChild(this.world, this.edges, this.map);
     this.map.position.set(MAP_INSET, MAP_INSET);
     this.map.addChild(this.mapFrame);
     const canvas = this.app.canvas;
@@ -833,7 +863,7 @@ export class SnapScene {
     this.links.fill({ color: this.colours.other, alpha: this.colours.otherAlpha });
     for (const [px, top, bottom, cx, f, l] of lit) this.funnel(px, top, bottom, cx, f, l);
     this.links.fill(PALETTE.funnel);
-    // Each held item ringed, in the accent or orange.
+    // Each held item ringed, in the accent.
     for (let d = 0; d < t.columns.length; d += 1) {
       const c = this.columns[d];
       if (c.held < 0) continue;
@@ -841,13 +871,23 @@ export class SnapScene {
       const gy = y(d, c.held);
       const gh = half(d, c.held);
       if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
-      const tone = mix(PALETTE.accent, PALETTE.over, c.warm);
       this.marks
         .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
-        .stroke({ color: tone, width: 3, alpha: 0.18 })
+        .stroke({ color: PALETTE.accent, width: 3, alpha: 0.18 })
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: tone, width: 1 });
+        .stroke({ color: PALETTE.accent, width: 1 });
     }
+    // The columns fade into the page at the top and the bottom; there the column under the pointer glows orange.
+    this.edges.clear();
+    this.edges.rect(0, 0, width, EDGE).fill(this.fades.top);
+    this.edges.rect(0, height - EDGE, width, EDGE).fill(this.fades.bottom);
+    this.columns.forEach((c, d) => {
+      if (c.warm < 0.01) return;
+      const gx = x(d) - (PITCH - NODE_W) / 4;
+      const gw = NODE_W + (PITCH - NODE_W) / 2;
+      this.edges.rect(gx, 0, gw, EDGE).fill({ fill: this.fades.glowTop, alpha: c.warm });
+      this.edges.rect(gx, height - EDGE, gw, EDGE).fill({ fill: this.fades.glowBottom, alpha: c.warm });
+    });
     this.drawMap(t);
     for (const v of this.shown) if (!nowShown.has(v)) this.layer.removeChild(v);
     this.shown = nowShown;
