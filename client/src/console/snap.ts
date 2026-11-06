@@ -20,10 +20,11 @@ import type { Shown, ShownWork } from './items';
 import { indexTree, type Tree } from './tree';
 
 const NODE_W = 300;
-/// A row's height, and the height of a node of one row: an item with a work going on takes two rows, the second the
-/// work's.
+/// A row's height, and the height of a node of one row: an item with a work going on has a second row, the work's, this
+/// part of a row high, so that the work sits close under the title.
 const NODE_H = 26;
 const ROW = 32;
+const WORK_ROW = 0.55;
 const PITCH = 370;
 /// How far, in rows, a scroll must pull a column before the next item comes to the line; and how much of the pull
 /// shows while it is short of that.
@@ -41,8 +42,10 @@ const MAP_PAD = 8;
 /// How quickly a held item's frame turns between the accent and orange: the milliseconds in which it goes about two
 /// thirds of the way.
 const TURN = 35;
-/// How long the stage a running work is at takes to pulse once, in milliseconds.
-const PULSE_MS = 1600;
+/// How long the stage a running work is at takes to pulse once, in milliseconds, and how much taller than the other
+/// stages its bar is.
+const PULSE_MS = 1200;
+const HERE_GROWS = 3;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
 
@@ -241,7 +244,7 @@ export class SnapScene {
   private ids: number[] = [];
   private views: Container[] = [];
   /// Each item's height in rows; for each column, where each of its items starts, its rows counted from the top.
-  private rows: Int32Array = new Int32Array(0);
+  private rows: Float64Array = new Float64Array(0);
   private pre: Float64Array[] = [];
   /// For each item, whether a work goes on on it or under it: the ribbons and the edges of the cards on the way to it
   /// are lit.
@@ -332,7 +335,7 @@ export class SnapScene {
     const { tree, items } = indexTree(roots, (i) => i.children);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
-    this.rows = Int32Array.from(items, (i) => (i.work !== null ? 2 : 1));
+    this.rows = Float64Array.from(items, (i) => (i.work !== null ? 1 + WORK_ROW : 1));
     this.pre = tree.columns.map((col) => {
       const p = new Float64Array(col.length + 1);
       for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
@@ -451,7 +454,7 @@ export class SnapScene {
     if (item.work === null || mood === null) return view;
     // The second row: the work's stages, each a short bar.
     const w = item.work;
-    const row2 = top + ROW + NODE_H / 2;
+    const row2 = top + h - (WORK_ROW * ROW) / 2 - 3;
     const here = w.stage !== null ? w.stages.indexOf(w.stage) : -1;
     const [cell, thick, gap] = [12, 4, 3];
     const stages = new Graphics();
@@ -461,7 +464,8 @@ export class SnapScene {
     });
     view.addChild(stages);
     if (here >= 0) {
-      const at = new Graphics().rect(x + here * (cell + gap), row2 - thick / 2, cell, thick).fill(STAGE[mood]);
+      const tall = thick + HERE_GROWS;
+      const at = new Graphics().rect(x + here * (cell + gap), row2 - tall / 2, cell, tall).fill(STAGE[mood]);
       if (mood === 'running') this.pulses.set(k, at);
       const letter = new BitmapText({
         text: w.stages[here].charAt(0).toUpperCase(),
@@ -747,8 +751,8 @@ export class SnapScene {
       return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
     };
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
-    // The stage a running work is at, between faint and full, every running node at once.
-    const pulse = 0.3 + 0.35 * (1 + Math.cos(((now % PULSE_MS) / PULSE_MS) * 2 * Math.PI));
+    // The stage a running work is at, between almost gone and full, every running node at once.
+    const pulse = 0.1 + 0.45 * (1 + Math.cos(((now % PULSE_MS) / PULSE_MS) * 2 * Math.PI));
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
     // The line across the middle, dashed.
