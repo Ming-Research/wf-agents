@@ -368,7 +368,7 @@ export class SnapScene {
   private gone = false;
   private colours = {
     other: '#8d9bb3',
-    otherAlpha: 0.072,
+    otherAlpha: 0.1,
     ground: '#ffffff',
     mapLine: '#59636e',
   };
@@ -425,13 +425,13 @@ export class SnapScene {
     this.layer.removeChildren();
     for (const v of this.views) v.destroy({ children: true });
     this.shown = new Set();
-    // A colour with its opacity as `#rrggbbaa`, split for Pixi; the funnels not held take it at a little more than half,
-    // so that the held one stands apart from them.
+    // A colour with its opacity as `#rrggbbaa`, split for Pixi; the funnels not held take it a little lighter, so that the
+    // held one stands apart from them.
     const neutral = colour('--bgColor-neutral-muted', '#8d9bb31f');
     const ground = PALETTE.page;
     this.colours = {
       other: neutral.slice(0, 7),
-      otherAlpha: 0.6 * (neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12),
+      otherAlpha: 0.85 * (neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12),
       ground,
       mapLine: colour('--fgColor-muted', '#59636e'),
     };
