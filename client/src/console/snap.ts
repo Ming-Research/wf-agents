@@ -69,7 +69,7 @@ const PALETTE = {
   /// A card's edge above a work, and the funnel from a held card.
   branch: '#c7cdfd',
   /// The line inside the left edge of a card new to the owner.
-  unseen: '#9aaafd',
+  unseen: '#6a80fc',
   funnel: '#e8ebff',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#aab6fd',
