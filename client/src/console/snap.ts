@@ -12,9 +12,11 @@
 // edge and grey words, pointing to where the item stands. A filled funnel joins each item's top and bottom to the first
 // item under it and the last, light accent from a held item and grey from the others. Each held item is ringed in a
 // soft blue; the item under the pointer, and each above it up to its root, in orange, each joined to the one above by a
-// ribbon of light orange. The stage a running work is at pulses. Every column fades out into the page near the top and
-// the bottom of the screen; at those two edges the column under the pointer has a line of orange, faded in as the
-// pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`.
+// ribbon of light orange. Over a shadow, the item it points to lights so too, and a click on the shadow holds that
+// item; over an item, so do its shadows and the items they stand under. The stage a running work is at pulses. Every
+// column fades out into the page near the top and the bottom of the screen; at those two edges the column under the
+// pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and
+// how fast is kept in `stats`.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -321,6 +323,15 @@ export class SnapScene {
   private lastDraw = 0;
   private last = 0;
   private dragging: { x: number } | null = null;
+  /// Where the pointer went down, so that a press let go where it began is a click, not a drag.
+  private down: { x: number; y: number } | null = null;
+  /// The item under the pointer at the last frame, by its index in the tree, or none.
+  private under = -1;
+  /// Each item's place in the tree, a shadow's left out; and for each item, its shadows: what a shadow points to and
+  /// what points to an item.
+  private real = new Map<number, number>();
+  private shadowsOf = new Map<number, number[]>();
+  private shadows: Uint8Array = new Uint8Array(0);
   private ready = false;
   private gone = false;
   private colours = {
@@ -354,7 +365,10 @@ export class SnapScene {
       this.hovered = -1;
       this.pointer = null;
     });
-    canvas.addEventListener('pointerdown', (e) => (this.dragging = { x: e.clientX }));
+    canvas.addEventListener('pointerdown', (e) => {
+      this.dragging = { x: e.clientX };
+      this.down = { x: e.clientX, y: e.clientY };
+    });
     window.addEventListener('pointermove', this.drag);
     window.addEventListener('pointerup', this.up);
     this.app.ticker.add(this.tick);
@@ -392,6 +406,14 @@ export class SnapScene {
     const { tree, items } = indexTree(roots, (i) => i.children);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
+    this.shadows = Uint8Array.from(items, (i) => (i.shadow ? 1 : 0));
+    this.real = new Map();
+    this.shadowsOf = new Map();
+    items.forEach((it, k) => {
+      if (!it.shadow) this.real.set(it.id, k);
+      else this.shadowsOf.set(it.id, [...(this.shadowsOf.get(it.id) ?? []), k]);
+    });
+    this.under = -1;
     this.rows = Float64Array.from(items, (i) => (i.work !== null ? 1 + WORK_ROW : 1));
     this.pre = tree.columns.map((col) => {
       const p = new Float64Array(col.length + 1);
@@ -830,8 +852,16 @@ export class SnapScene {
     this.dragging = { x: e.clientX };
   };
 
-  private up = () => {
+  private up = (e: PointerEvent) => {
     this.dragging = null;
+    const d = this.down;
+    this.down = null;
+    // A click on a shadow holds the item it points to, so that the columns come to where it stands.
+    if (d === null || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4 || this.tree === null) return;
+    const i = this.under;
+    if (i < 0 || this.shadows[i] !== 1) return;
+    const to = this.real.get(this.ids[i]);
+    if (to !== undefined) this.hold(this.tree.depth[to], this.tree.rank[to]);
   };
 
   private tick = () => {
@@ -933,8 +963,25 @@ export class SnapScene {
     this.links.fill(PALETTE.funnel);
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
     // orange and ringed in orange, over everything else; each comes in quickly, and fades out once the pointer has left.
+    // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and the item
+    // each stands under, which depend on it too.
     const chain = new Set<number>();
-    for (let i = this.pointed(t, x, y); i >= 0; i = t.parent[i]) chain.add(i);
+    const light = (from: number) => {
+      for (let i = from; i >= 0 && !chain.has(i); i = t.parent[i]) chain.add(i);
+    };
+    this.under = this.pointed(t, x, y);
+    if (this.under >= 0) {
+      light(this.under);
+      const id = this.ids[this.under];
+      const to = this.real.get(id);
+      if (this.shadows[this.under] === 1 && to !== undefined) light(to);
+      if (this.shadows[this.under] === 0) {
+        for (const sh of this.shadowsOf.get(id) ?? []) {
+          chain.add(sh);
+          if (t.parent[sh] >= 0) chain.add(t.parent[sh]);
+        }
+      }
+    }
     for (const i of chain) if (!this.glowing.has(i)) this.glowing.set(i, 0);
     for (const [i, a] of this.glowing) {
       const on = chain.has(i);
