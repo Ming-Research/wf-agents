@@ -45,8 +45,8 @@ const MAP_PAD = 8;
 const TURN = 140;
 /// How far in from the top and the bottom of the screen the columns fade out into the page, in pixels; and how thick the
 /// orange line is at each edge of the column under the pointer.
-const EDGE = 96;
-const EDGE_LINE = 3;
+const EDGE = 48;
+const EDGE_LINE = 6;
 /// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the stage goes at its faintest.
 const PULSE_MS = 750;
