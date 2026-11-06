@@ -6,8 +6,8 @@
 // detents: a pull short of the threshold springs back to the line; past it, the next item comes to the line. Holding an
 // item of another parent holds that parent in the column to the left.
 //
-// Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, a bar of it down its
-// left, and one above such an item has an edge of the light accent. A filled funnel joins each item's top and bottom to
+// Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such an
+// item has an edge of the light accent; one new to the owner has a short line in the accent inside its left edge. A filled funnel joins each item's top and bottom to
 // the first item under it and the last, light accent from a held item and grey from the others; a ribbon of the same
 // light accent joins each item to each of its items a work goes on on or under, so that the way from a root to every
 // item in work reads as one. Each held item is ringed in the accent, and the stage a running work is at pulses. Every
@@ -72,7 +72,7 @@ const PALETTE = {
   funnel: '#e8ebff',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#aab6fd',
-  /// The bars of works: running a vivid sky blue, green being kept for what is done; waiting for the owner a vivid
+  /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting for the owner a vivid
   /// orange, the one that asks for them; waiting for something else a pale yellow, which asks nothing of them; paused
   /// grey; halted red.
   running: '#1a9fff',
@@ -173,8 +173,8 @@ export function moodOf(w: ShownWork): Mood {
   return 'waiting';
 }
 
-/// The colour of the bar down the left of an item's card by what its work does; and of the stage it is at.
-const BAR: Record<Mood, string> = {
+/// The colour of what an item's work does, which tints its card; and of the stage it is at.
+const WORK: Record<Mood, string> = {
   running: PALETTE.running,
   owner: PALETTE.asked,
   paused: PALETTE.paused,
@@ -418,9 +418,9 @@ export class SnapScene {
     this.stats.items = items.length;
   }
 
-  /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does,
-  /// with a bar of that colour down its left; its edge the accent's tint above a work. On its first row its number in its state's
-  /// colour, its title, and at the right its questions waiting for the owner, white on red, and its returns sent back,
+  /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does;
+  /// its edge the accent's tint above a work; and while the item is new to the owner, a short line in the accent inside
+  /// its left edge. On its first row its number in its state's colour, its title, and at the right its questions waiting for the owner, white on red, and its returns sent back,
   /// grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one it is
   /// at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how long
   /// it has gone on.
@@ -434,20 +434,13 @@ export class SnapScene {
     const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
     view.addChild(
       card
-        .fill(mood !== null ? mix(PALETTE.card, BAR[mood], TINT) : PALETTE.card)
+        .fill(mood !== null ? mix(PALETTE.card, WORK[mood], TINT) : PALETTE.card)
         .stroke({ color: this.lit[k] === 1 && mood === null ? PALETTE.branch : PALETTE.edge, width: 1 }),
     );
-    if (mood !== null) {
-      // The bar, cut to the card's rounded corners.
-      const shape = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(0xffffff);
-      const bar = new Graphics().rect(0, top, 5, h).fill(BAR[mood]);
-      bar.mask = shape;
-      view.addChild(shape, bar);
-    }
-    // A dot before the number while the item is new to the owner, as an unread letter has; the room for it kept on every
-    // card, so that the numbers and titles stand in line.
-    if (item.unseen) view.addChild(new Graphics().circle(11, row1, 4).fill(PALETTE.accent));
-    const x = 18;
+    // While the item is new to the owner, a line inside the card's left edge, a little in from it and short of its top
+    // and bottom; the room for it kept on every card, so that the numbers and titles stand in line.
+    if (item.unseen) view.addChild(new Graphics().roundRect(4, top + 5, 3, h - 10, 1.5).fill(PALETTE.accent));
+    const x = 14;
     const number = new BitmapText({
       text: String(item.id),
       style: s.mono(NUMBER[item.standing]),
