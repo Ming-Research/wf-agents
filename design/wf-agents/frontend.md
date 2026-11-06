@@ -1,5 +1,10 @@
 - Everything the owner uses is on the web, not the command line, which the owner does not like to use.
 
+- The page's places and the strength of its marks are scarce and graded: the strongest marks, such as a whole
+  background, colour and motion, and the first places go to what matters most; weaker marks and later places to lesser
+  things. A strong mark spent on something minor leaves the important nothing to stand out with, and where everything
+  is loud nothing is.
+
 - The page follows GitHub's Primer design system: colours, type sizes, spacing and the like are its tokens, a few
   colours keeping the token's name with another value, and controls and recurring parts are its React components. A look
   the page made up view by view had no rule to hold the next change to, and small grey bold labels came to head a page.
