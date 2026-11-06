@@ -49,7 +49,8 @@
   border: none;
   background: #6a82fd;
   color: #ffffff;
-  clip-path: polygon(0 12%, 100% 0, 100% 100%, 0 88%);
+  /* The trapezoid's two outer corners rounded; the side on the window's edge is straight. */
+  clip-path: path('M24 0 L5 7 Q0 8.6 0 14 L0 58 Q0 63.4 5 65 L24 72 Z');
   cursor: pointer;
 }
 
