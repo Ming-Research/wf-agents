@@ -70,8 +70,7 @@ export function shownTree(data: Items, works: WorkSummary[] = [], status: Status
       title: i?.title ?? '',
       standing: standing(id),
       asks: (i?.open_asks ?? 0) + (i?.open_design_cards ?? 0),
-      // The engine does not say yet which items the owner has seen.
-      unseen: false,
+      unseen: i?.unseen === true,
       work:
         w !== undefined && live(w)
           ? {
