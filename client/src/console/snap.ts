@@ -1,18 +1,19 @@
 // The console's tree in snapping columns, drawn in WebGL by PixiJS. One column for each level, from the roots at the
-// left; in each, the level's items one under another, those under one item standing apart from those under the next.
-// A faint line across the middle of the screen holds one item of each column: the next column is moved so that the
-// items under the held one sit around the line, the middle one of them held; an item with none under it leaves the
-// next column's place on the line empty. Scrolling over a column moves its held item one at a time, like a wheel with
+// left; in each, the level's items one under another, those under one item standing apart from those under the next. A
+// faint line across the middle of the screen holds one item of each column: the next column is moved so that the items
+// under the held one sit around the line, the middle one of them held; an item with none under it leaves the next
+// column's place on the line empty. Scrolling over a column moves its held item one at a time, like a wheel with
 // detents: a pull short of the threshold springs back to the line; past it, the next item comes to the line. Holding an
-// item of another parent holds that parent in the column to the left. The columns to the right of the one scrolled either
-// spring each to where its held item belongs, or, gradually, follow it: the column scrolled then moves with the scroll
-// itself, the item nearest the line held, and once the scroll stops comes to rest with that item on the line; each column
-// to its right stands between where it stands under the two items of the column to its left that the line is between,
-// as far from the one as the line is, so that the columns glide at their own speeds, and stand as the springs would once
-// the one scrolled rests. Or, by links, the column scrolled moves with the scroll and rests where it stops, and each
-// column beside it stands where the most of what joins the two near the line is level: each item of the one beside it,
-// weighed the more the nearer the line it is, wants the block of items under it, or the item above it, beside it; the
-// column stays where it is while they all have it, and else goes only as far as the weighed wants call for.
+// item of another parent holds that parent in the column to the left. The columns to the right of the one scrolled
+// either spring each to where its held item belongs, or, gradually, follow it: the column scrolled then moves with the
+// scroll itself, the item nearest the line held, and once the scroll stops comes to rest with that item on the line;
+// each column to its right stands between where it stands under the two items of the column to its left that the line
+// is between, as far from the one as the line is, so that the columns glide at their own speeds, and stand as the
+// springs would once the one scrolled rests. Or, by links, with no line drawn and no funnel deeper than the rest, the
+// column scrolled moves with the scroll and rests where it stops, and each column beside it stands where the most of
+// what joins the two near the line is level: each item of the one beside it, weighed the more the nearer the line it
+// is, wants the block of items under it, or the item above it, beside it; the column stays where it is while they all
+// have it, and else goes only as far as the weighed wants call for.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such an
 // item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge.
@@ -1039,6 +1040,8 @@ export class SnapScene {
       const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at - c.pull * GIVE) * this.mapRow;
       this.mapBars.rect(MAP_PAD + d * (MAP_STRIP + MAP_APART) - 2, at - 1.5, MAP_STRIP + 4, 3).fill(PALETTE.chosen);
     }
+    // The line, in the map as on the screen.
+    if (this.mode === 'links') return;
     const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
     this.mapBars
       .moveTo(MAP_PAD / 2, mid)
@@ -1251,9 +1254,12 @@ export class SnapScene {
     this.left = bound(this.left);
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
-    // The line across the middle, dashed.
-    for (let dx = 0; dx < width; dx += 12) this.back.moveTo(dx, line).lineTo(dx + 6, line);
-    this.back.stroke({ color: PALETTE.line, width: 1 });
+    // The line across the middle, dashed; by links nothing is held to it, and it is not drawn.
+    const lined = this.mode !== 'links';
+    if (lined) {
+      for (let dx = 0; dx < width; dx += 12) this.back.moveTo(dx, line).lineTo(dx + 6, line);
+      this.back.stroke({ color: PALETTE.line, width: 1 });
+    }
     this.links.clear();
     this.marks.clear();
     const held: [number, number, number, number, number, number][] = [];
@@ -1279,10 +1285,11 @@ export class SnapScene {
       }
       if (d === 0) continue;
       // The funnel from each item of the column to the left to the items under it: from its top to the top of the
-      // first and from its bottom to the bottom of the last, filled; those from held items drawn last, over the rest.
+      // first and from its bottom to the bottom of the last, filled; those from held items drawn last, over the rest,
+      // but by links, where none is held.
       const px = x(d - 1) + NODE_W;
       const prev = t.columns[d - 1];
-      const heldAbove = this.columns[d - 1].held;
+      const heldAbove = lined ? this.columns[d - 1].held : -1;
       for (let r = 0; r < prev.length; r += 1) {
         const kids = t.children[prev[r]];
         if (kids.length === 0) continue;
