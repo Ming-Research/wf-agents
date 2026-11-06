@@ -1,5 +1,6 @@
 /* The console: a canvas that fills the view. */
 .console {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -10,4 +11,11 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The switch between the console's two looks, over the canvas at its top right. */
+.console-look {
+  position: absolute;
+  top: var(--base-size-12);
+  right: var(--base-size-16);
 }

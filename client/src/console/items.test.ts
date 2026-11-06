@@ -41,7 +41,7 @@ const lines = (roots: Shown[], depth = 0): string[] =>
 
 describe('the tree the console shows', () => {
   // 1 needs 2 and 3, and 4 needs 3 too, its main dependency 1's; 3 needs 5, which is cancelled; 6 and 7, both done,
-  // are a tree of their own; 8 is done and stands under 4.
+  // are a tree of their own; 8 is done and stands under 4, and 9, still open, under 8; 10 is done and stands under 2.
   const data: Items = {
     items: [
       item(1, 'working'),
@@ -52,6 +52,8 @@ describe('the tree the console shows', () => {
       item(6, 'done'),
       item(7, 'done'),
       item(8, 'done'),
+      item(9, 'new'),
+      item(10, 'done'),
     ],
     links: [
       link(1, 2, true),
@@ -60,20 +62,19 @@ describe('the tree the console shows', () => {
       link(3, 5, true),
       link(6, 7, true),
       link(4, 8, true),
+      link(8, 9, true),
+      link(2, 10, true),
     ],
   };
 
-  it('puts each item under its main dependency only, and leaves out what is cancelled and trees all done', () => {
-    expect(lines(shownTree(data))).toEqual(['1', '  2', '  3', '4', '  8']);
+  it('puts each item under its main dependency only, and leaves out what is done or cancelled with nothing open under it', () => {
+    expect(lines(shownTree(data))).toEqual(['1', '  2', '  3', '4', '  8', '    9']);
   });
 
   it('indexes the tree by level, each item with its place among its level and the items under it', () => {
     const { tree, items } = indexTree(shownTree(data), (s) => s.children);
-    expect(items.map((s) => s.id)).toEqual([1, 2, 3, 4, 8]);
-    expect(tree.columns.map((c) => c.map((i) => items[i].id))).toEqual([
-      [1, 4],
-      [2, 3, 8],
-    ]);
-    expect(Array.from(tree.childStart)).toEqual([0, 0, 0, 2, 0]);
+    expect(items.map((s) => s.id)).toEqual([1, 2, 3, 4, 8, 9]);
+    expect(tree.columns.map((c) => c.map((i) => items[i].id))).toEqual([[1, 4], [2, 3, 8], [9]]);
+    expect(Array.from(tree.childStart)).toEqual([0, 0, 0, 2, 0, 0]);
   });
 });

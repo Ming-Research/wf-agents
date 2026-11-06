@@ -4,12 +4,16 @@
 // items under the held one sit around the line, the middle one of them held; an item with none under it leaves the
 // next column's place on the line empty. Scrolling over a column moves its held item one at a time, like a wheel with
 // detents: a pull short of the threshold springs back to the line; past it, the next item comes to the line. Holding an
-// item of another parent holds that parent in the column to the left. A funnel, filled, joins each item's top and
-// bottom to the top of the first item under it and the bottom of the last, light blue from a held item and light grey
-// from the others. Every held item glows blue, the one of the column under the pointer orange. Only what is on the
-// screen is drawn. What it draws and how fast is kept in `stats`.
+// item of another parent holds that parent in the column to the left.
+//
+// It is drawn in one of two looks, to be tried side by side. The schematic: on a dotted paper, each item a small square
+// and its words, joined to the items under it by lines at right angles, the way to each work that runs in the accent;
+// each held item framed by four corners. The cards: each item a white card, a filled funnel joining its top and bottom
+// to the first item under it and the last, light accent from a held item and grey from the others; each held item
+// ringed. In both a held item's frame or ring is in the accent, or orange while the pointer is over its column, and the
+// stage a running work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`.
 
-import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
+import { Application, BitmapText, Container, Graphics, Rectangle, TextStyle, TilingSprite } from 'pixi.js';
 
 import type { Shown, ShownWork } from './items';
 import { indexTree, type Tree } from './tree';
@@ -26,8 +30,6 @@ const DETENT = 0.85;
 const GIVE = 0.28;
 /// The room between the items of one item and those of the next in a column, in rows.
 const APART = 0.7;
-/// How far the glow round a held item reaches out from its edge: within half the room between two items.
-const GLOW = (ROW - NODE_H) / 2;
 /// The map at the top left: each column a bar of this width, this far apart, the map this high, set this far in from
 /// the corner and padded this much inside.
 const MAP_STRIP = 12;
@@ -35,37 +37,54 @@ const MAP_APART = 5;
 const MAP_HIGH = 72;
 const MAP_INSET = 12;
 const MAP_PAD = 8;
-/// How quickly a held item's glow turns between blue and orange: the milliseconds in which it goes about two thirds of
-/// the way.
+/// How quickly a held item's frame turns between the accent and orange: the milliseconds in which it goes about two
+/// thirds of the way.
 const TURN = 35;
-/// How long the light takes to cross a node whose work runs, in milliseconds, and how wide it is.
-const SWEEP_MS = 2600;
-const SWEEP_W = 90;
+/// How long the stage a running work is at takes to pulse once, in milliseconds.
+const PULSE_MS = 1600;
+/// How far apart the dots of the schematic's paper are.
+const GRID = 12;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
-/// The console's own colours, softer than the page's: the marks lettered white on fills of middling lightness and
-/// little saturation, and the nodes' grounds tints light enough for the words on them and strong enough to be seen.
+
+/// The console's colours: words, marks and lines in greys; one accent for what runs and what is held; amber for what
+/// waits for the owner; red for what has gone wrong or on long; violet for what has gone on for days.
 const PALETTE = {
-  blue: '#5b8bd6',
-  green: '#43a27a',
-  grey: '#8f9aad',
-  red: '#d9706b',
-  orange: '#d98b3f',
-  purple: '#8f76cc',
-  /// The tint of a node by its work's state, of one above a work that runs, and of one with none.
-  running: '#d6e4fa',
-  branch: '#eaf1fc',
-  owner: '#fbe3c6',
-  paused: '#e5e8ed',
-  halted: '#f8d7d4',
-  plain: '#ffffff',
+  ink: '#1f2937',
+  muted: '#6b7280',
+  faint: '#9aa1ad',
+  pale: '#c3c8cf',
+  line: '#cdd2d9',
+  hair: '#e3e6ea',
+  edge: '#e5e7eb',
+  paper: '#fbfbfa',
+  dots: '#d3d8de',
+  card: '#ffffff',
+  accent: '#3b5bfd',
+  /// A card's edge when a work runs under it, and the funnel from a held card.
+  branch: '#c7cdfd',
+  funnel: '#e8ebff',
+  amber: '#d97706',
+  red: '#e5484d',
+  violet: '#8b5cf6',
+  green: '#2f9e6e',
+  /// A held item's frame while the pointer is over its column.
+  over: '#f29a1f',
   /// Where a work's time went: a model's, the tools', idle.
-  model: '#7fa6e3',
-  tools: '#e6a868',
-  idle: '#e3e7ed',
+  model: '#4b5563',
+  tools: '#9ca3af',
+  idle: '#e5e7eb',
 };
 
-export type Stats = { items: number; drawn: number; fps: number; meanMs: number; p95Ms: number };
+export type Look = 'schematic' | 'cards';
+
+export type Stats = {
+  items: number;
+  drawn: number;
+  fps: number;
+  meanMs: number;
+  p95Ms: number;
+};
 
 /// The colour a part `k` of the way from `a` to `b`, both `#rrggbb`.
 function mix(a: string, b: string, k: number): number {
@@ -86,18 +105,33 @@ function pixels(length: string): number {
 /// A node's height in pixels, of `rows` rows.
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
 
-/// How long a work has gone on, as a short label and the tone of its age: under half an hour green, under an hour
-/// orange, under a day red, longer purple.
-export function age(ms: number): { label: string; tone: 'success' | 'attention' | 'danger' | 'done' } {
+/// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, under a
+/// day, or longer.
+export function age(ms: number): {
+  label: string;
+  tone: 'success' | 'attention' | 'danger' | 'done';
+} {
   const minutes = ms / 60000;
-  if (minutes < 60) return { label: `${Math.max(1, Math.round(minutes))}m`, tone: minutes < 30 ? 'success' : 'attention' };
+  if (minutes < 60)
+    return {
+      label: `${Math.max(1, Math.round(minutes))}m`,
+      tone: minutes < 30 ? 'success' : 'attention',
+    };
   const hours = minutes / 60;
   if (hours < 24) return { label: `${Math.round(hours * 10) / 10}h`, tone: 'danger' };
   return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'done' };
 }
 
-/// The colour a work's state gives its whole node: running, waiting for the owner, paused, stopped by the engine for a
-/// problem, or waiting for something else.
+/// The colour of a work's age: grey under half an hour, amber under an hour, red under a day, violet longer.
+const TONE = {
+  success: PALETTE.muted,
+  attention: PALETTE.amber,
+  danger: PALETTE.red,
+  done: PALETTE.violet,
+};
+
+/// What a work's state is to its node: running, waiting for the owner, paused, stopped by the engine for a problem, or
+/// waiting for something else.
 export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
 
 export function moodOf(w: ShownWork): Mood {
@@ -108,22 +142,61 @@ export function moodOf(w: ShownWork): Mood {
   return 'waiting';
 }
 
-/// The styles of a node's words, all of one size: its title, the white words on its marks, and its stages' letters in
-/// their colours.
-type Styles = { title: TextStyle; white: TextStyle; letter: (fill: string) => TextStyle };
+/// The colour of an item's mark by its work's state, none for a work waiting for something else; and of the stage it is
+/// at.
+const MARK: Record<Mood, string | null> = {
+  running: PALETTE.accent,
+  owner: PALETTE.amber,
+  paused: PALETTE.faint,
+  halted: PALETTE.red,
+  waiting: null,
+};
+const STAGE: Record<Mood, string> = {
+  running: PALETTE.accent,
+  owner: PALETTE.amber,
+  paused: PALETTE.muted,
+  halted: PALETTE.red,
+  waiting: PALETTE.muted,
+};
 
-/// A colour of the theme as it shows on the page's ground: one given with its opacity (`#rrggbbaa`) laid over the ground.
-function solid(name: string): number {
-  const v = colour(name, '#f6f8fa');
-  const ground = colour('--bgColor-default', '#ffffff');
-  const own = v.length === 9 ? Number.parseInt(v.slice(7), 16) / 255 : 1;
-  return mix(ground, v.slice(0, 7), own);
-}
+/// The colour of an item's number by its state: open, done or cancelled.
+const NUMBER = {
+  open: PALETTE.faint,
+  done: PALETTE.green,
+  cancelled: PALETTE.pale,
+};
 
 /// A value of the page's theme, a colour or a font, from its CSS custom property.
 function colour(name: string, fallback: string): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return v === '' ? fallback : v;
+}
+
+/// The styles of a node's words, by their colour: its title in Primer's text, and its numbers and letters in Primer's
+/// monospace, smaller. Each is made from plain values once: one made by spreading another keeps the other's fill.
+type Styles = {
+  title: (fill: string) => TextStyle;
+  mono: (fill: string) => TextStyle;
+};
+
+function makeStyles(): Styles {
+  const sans = colour('--fontStack-sansSerif', 'sans-serif');
+  const mono = colour('--fontStack-monospace', 'monospace');
+  const size = pixels(colour('--text-body-size-medium', '14px'));
+  const made = new Map<string, TextStyle>();
+  const style = (fontFamily: string, fontSize: number, fill: string) => {
+    const key = `${fontFamily}|${fontSize}|${fill}`;
+    let s = made.get(key);
+    if (s === undefined) {
+      s = new TextStyle({ fontFamily, fontSize, fill });
+      made.set(key, s);
+    }
+    return s;
+  };
+  return {
+    title: (fill) => style(sans, size, fill),
+    mono: (fill) => style(mono, Math.round(size * 0.8), fill),
+  };
 }
 
 /// One column: the item held on the line, by its rank in the column, or none when the place is empty; where the empty
@@ -137,18 +210,25 @@ type Column = {
   at: number;
   pull: number;
   lastScroll: number;
-  /// How far its held item's glow has turned from blue to orange, moving to 1 while the pointer is over the column.
+  /// How far its held item's frame has turned from the accent to orange, moving to 1 while the pointer is over the
+  /// column.
   warm: number;
 };
 
 export class SnapScene {
   stats: Stats = { items: 0, drawn: 0, fps: 0, meanMs: 0, p95Ms: 0 };
+  /// The look it is drawn in.
+  look: Look = 'schematic';
   private app = new Application();
   private world = new Container();
+  /// The schematic's dotted paper, fixed to the screen and moved sideways with the columns.
+  private paper: TilingSprite | null = null;
   private back = new Graphics();
-  /// The funnels from each item to the items under it, and the glow round the held items.
-  private funnels = new Graphics();
-  private glow = new Graphics();
+  /// The funnels or lines from each item to the items under it; the lines leading to the works that run; and the
+  /// frames or rings of the held items.
+  private links = new Graphics();
+  private trace = new Graphics();
+  private marks = new Graphics();
   private layer = new Container();
   /// The map at the top left: its frame, and a bar for each column, drawn each frame, cut to the room inside the frame.
   private map = new Container();
@@ -157,6 +237,7 @@ export class SnapScene {
   private mapMask = new Graphics();
   /// The map's height of a row: the longest column fits it twice, as a column is held by its middle.
   private mapRow = 1;
+  private roots: Shown[] = [];
   private tree: Tree | null = null;
   /// Each item's number, in the tree's order.
   private ids: number[] = [];
@@ -164,10 +245,15 @@ export class SnapScene {
   /// Each item's height in rows; for each column, where each of its items starts, its rows counted from the top.
   private rows: Int32Array = new Int32Array(0);
   private pre: Float64Array[] = [];
-  /// The parts of a node that change while it is shown: the light crossing a node whose work runs, and the label of
+  /// For each item, whether a work runs on it or under it, which the schematic's lines to it show; and where the words
+  /// of its first row end, from where the schematic's lines go to the items under it.
+  private lit: Uint8Array = new Uint8Array(0);
+  private reach: Float64Array = new Float64Array(0);
+  /// The parts of a node that change while it is shown: the stage a running work is at, which pulses, and the label of
   /// how long its work has gone on, with when the work started.
-  private sweeps = new Map<number, Graphics>();
-  private ages = new Map<number, { from: number; label: BitmapText; chip: Graphics; shown: string; row: number }>();
+  private pulses = new Map<number, Graphics>();
+  private ages = new Map<number, { from: number; label: BitmapText; shown: string; row: number }>();
+  private styles: Styles | null = null;
   /// For each column, the ranks of its items whose questions wait for the owner, which the map marks.
   private asking: number[][] = [];
   private columns: Column[] = [];
@@ -184,15 +270,10 @@ export class SnapScene {
   private ready = false;
   private gone = false;
   private colours = {
-    centre: '#d1d9e0',
-    mapLine: '#59636e',
-    frame: '#ffffff',
-    held: '#e4eeff',
     other: '#8d9bb3',
     otherAlpha: 0.12,
-    glow: '#3b87ff',
-    glowOver: '#f29a1f',
-    asking: '#cf222e',
+    ground: '#ffffff',
+    mapLine: '#59636e',
   };
 
   async mount(host: HTMLElement): Promise<void> {
@@ -208,9 +289,16 @@ export class SnapScene {
       return;
     }
     host.appendChild(this.app.canvas);
-    this.glow.filters = [new BlurFilter({ strength: 2, quality: 4 })];
-    this.world.addChild(this.back, this.funnels, this.glow, this.layer);
-    this.app.stage.addChild(this.world, this.map);
+    const dot = new Graphics().circle(1, 1, 0.7).fill(PALETTE.dots);
+    const texture = this.app.renderer.generateTexture({
+      target: dot,
+      frame: new Rectangle(0, 0, GRID, GRID),
+      resolution: window.devicePixelRatio,
+      antialias: true,
+    });
+    this.paper = new TilingSprite({ texture, width: 1, height: 1 });
+    this.world.addChild(this.back, this.links, this.trace, this.layer, this.marks);
+    this.app.stage.addChild(this.paper, this.world, this.map);
     this.map.position.set(MAP_INSET, MAP_INSET);
     this.map.addChild(this.mapFrame);
     const canvas = this.app.canvas;
@@ -231,9 +319,18 @@ export class SnapScene {
     if (this.ready) this.app.destroy(true, { children: true, texture: true });
   }
 
+  /// Draws the tree again in `look`, the same items held.
+  setLook(look: Look): void {
+    if (look === this.look) return;
+    this.look = look;
+    if (this.ready && this.tree !== null) this.show(this.roots);
+  }
+
   /// Draws the tree of `roots` in place of the one before. The items held before stay held where they still are, the
   /// deepest that is first, and the columns move from where they were; with none, the middle root is held.
   show(roots: Shown[]): void {
+    this.roots = roots;
+    const schematic = this.look === 'schematic';
     const before = new Map<number, number>();
     this.columns.forEach((c, d) => {
       if (c.held >= 0 && this.tree !== null) before.set(d, this.ids[this.tree.columns[d][c.held]]);
@@ -242,36 +339,17 @@ export class SnapScene {
     this.layer.removeChildren();
     for (const v of this.views) v.destroy({ children: true });
     this.shown = new Set();
-    // Primer's text, as the rest of the page has it. Each style is made from plain values: one made by spreading
-    // another keeps the other's fill.
-    const fontFamily = colour('--fontStack-sansSerif', 'sans-serif');
-    const fontSize = pixels(colour('--text-body-size-medium', '14px'));
-    const letters = new Map<string, TextStyle>();
-    const styles: Styles = {
-      title: new TextStyle({ fontFamily, fontSize, fill: colour('--fgColor-default', '#1f2328') }),
-      white: new TextStyle({ fontFamily, fontSize, fill: '#ffffff' }),
-      letter: (fill) => {
-        const known = letters.get(fill);
-        if (known !== undefined) return known;
-        const made = new TextStyle({ fontFamily, fontSize, fill });
-        letters.set(fill, made);
-        return made;
-      },
-    };
-    const border = colour('--borderColor-default', '#d1d9e0');
     // A colour with its opacity as `#rrggbbaa`, split for Pixi.
     const neutral = colour('--bgColor-neutral-muted', '#8d9bb31f');
+    const ground = schematic ? PALETTE.paper : colour('--bgColor-default', '#ffffff');
     this.colours = {
-      centre: colour('--borderColor-default', '#d1d9e0'),
-      mapLine: colour('--fgColor-muted', '#59636e'),
-      frame: colour('--bgColor-default', '#ffffff'),
-      held: colour('--bgColor-accent-muted', '#e4eeff'),
       other: neutral.slice(0, 7),
       otherAlpha: neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12,
-      glow: colour('--bgColor-accent-emphasis', '#3b87ff'),
-      glowOver: colour('--bgColor-attention-emphasis', '#f29a1f'),
-      asking: PALETTE.red,
+      ground,
+      mapLine: colour('--fgColor-muted', '#59636e'),
     };
+    if (this.ready) this.app.renderer.background.color = ground;
+    this.styles = makeStyles();
     const { tree, items } = indexTree(roots, (i) => i.children);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
@@ -282,19 +360,35 @@ export class SnapScene {
       return p;
     });
     this.asking = tree.columns.map((col) => col.flatMap((i, r) => (items[i].asks > 0 ? [r] : [])));
-    // The items above one whose work runs, up to its root, tinted: from the roots one sees which branch has work on.
-    const tinted = new Set<number>();
+    // The items a work runs on, and those above them up to their roots: from the roots one sees which branch has work
+    // on.
+    const above = new Uint8Array(items.length);
+    this.lit = new Uint8Array(items.length);
     items.forEach((i, k) => {
       if (i.work === null || moodOf(i.work) !== 'running') return;
-      for (let p = tree.parent[k]; p >= 0; p = tree.parent[p]) tinted.add(p);
+      this.lit[k] = 1;
+      for (let p = tree.parent[k]; p >= 0; p = tree.parent[p]) {
+        above[p] = 1;
+        this.lit[p] = 1;
+      }
     });
-    this.sweeps = new Map();
+    this.reach = new Float64Array(items.length);
+    this.pulses = new Map();
     this.ages = new Map();
-    this.views = items.map((item, k) => this.node(item, k, styles, border, tinted.has(k)));
-    this.columns = tree.columns.map(() => ({ held: -1, gapAt: 0, gap: 0, at: 0, pull: 0, lastScroll: 0, warm: 0 }));
+    this.views = items.map((item, k) => this.node(item, k, above[k] === 1));
+    this.columns = tree.columns.map(() => ({
+      held: -1,
+      gapAt: 0,
+      gap: 0,
+      at: 0,
+      pull: 0,
+      lastScroll: 0,
+      warm: 0,
+    }));
     this.group = tree.columns.map((col) => {
       const g = new Int32Array(col.length);
-      for (let r = 1; r < col.length; r += 1) g[r] = g[r - 1] + (tree.parent[col[r]] === tree.parent[col[r - 1]] ? 0 : 1);
+      for (let r = 1; r < col.length; r += 1)
+        g[r] = g[r - 1] + (tree.parent[col[r]] === tree.parent[col[r - 1]] ? 0 : 1);
       return g;
     });
     if (tree.columns.length === 0) {
@@ -316,128 +410,129 @@ export class SnapScene {
     this.stats.items = items.length;
   }
 
-  /// The node of an item: its whole ground in the colour of its work's state, tinted when a work runs under it, or plain;
-  /// on its first row its number on a badge in the colour of the item's state, its title, and at the right its badges,
-  /// red for its questions waiting for the owner and grey for its returns sent back; on the second row, for an item
-  /// whose work goes on, the work's stages, where its time went, and how long it has gone on.
-  private node(item: Shown, k: number, styles: Styles, border: string, tinted: boolean): Container {
+  /// The node of an item. In the schematic its mark is a small square, filled in its work's state's colour, else
+  /// hollow, its edge in the accent when a work runs under it; on a card, the card's edge is the accent's tint when a
+  /// work runs under it, and a dot in its work's state's colour is its mark. Then, in both, on its first row its number
+  /// in its state's colour, its title, and at the right its questions waiting for the owner, red, and its returns sent
+  /// back, grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one
+  /// it is at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how
+  /// long it has gone on.
+  private node(item: Shown, k: number, above: boolean): Container {
+    const s = this.styles as Styles;
     const view = new Container();
     const h = high(this.rows[k]);
     const top = -h / 2;
-    const mood = item.work !== null ? moodOf(item.work) : null;
-    const ground: Record<Mood, string> = {
-      running: PALETTE.running,
-      owner: PALETTE.owner,
-      paused: PALETTE.paused,
-      halted: PALETTE.halted,
-      waiting: PALETTE.plain,
-    };
-    const fill = mood !== null ? ground[mood] : tinted ? PALETTE.branch : PALETTE.plain;
-    const box = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(fill).stroke({ color: border, width: 1 });
-    view.addChild(box);
-    if (mood === 'running') {
-      // A light crossing the node, cut to its box; the gradient's ends given in the shape's own measure, from its
-      // left edge (0) to its right (1).
-      const mask = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(0xffffff);
-      const light = new FillGradient({
-        start: { x: 0, y: 0 },
-        end: { x: 1, y: 0 },
-        textureSpace: 'local',
-        colorStops: [
-          { offset: 0, color: 'rgba(255,255,255,0)' },
-          { offset: 0.5, color: 'rgba(255,255,255,0.85)' },
-          { offset: 1, color: 'rgba(255,255,255,0)' },
-        ],
-      });
-      const sweep = new Graphics().rect(0, top, SWEEP_W, h).fill(light);
-      sweep.mask = mask;
-      view.addChild(mask, sweep);
-      this.sweeps.set(k, sweep);
-    }
-    const white = styles.white;
     const row1 = top + NODE_H / 2;
-    // The number, on a badge in the item's state's colour.
-    const standing = { open: PALETTE.blue, done: PALETTE.green, cancelled: PALETTE.grey };
-    const number = new BitmapText({ text: String(item.id), style: white });
-    const badge = new Graphics().roundRect(6, row1 - 9, number.width + 10, 18, 5).fill(standing[item.standing]);
-    number.position.set(11, row1 - number.height / 2);
-    const title = new BitmapText({ text: item.title, style: styles.title });
-    title.position.set(number.width + 24, row1 - title.height / 2);
-    view.addChild(badge, number, title);
-    // The badges at the right of the first row: questions waiting for the owner, red; returns sent back, grey.
-    let right = NODE_W - 6;
-    const pill = (text: string, fill: string, back: boolean) => {
-      const t = new BitmapText({ text, style: white });
+    const mood = item.work !== null ? moodOf(item.work) : null;
+    const mark = mood !== null ? MARK[mood] : null;
+    const schematic = this.look === 'schematic';
+    let x = 8;
+    if (schematic) {
+      const square = new Graphics().rect(0, row1 - 3.5, 7, 7);
+      if (mark !== null) square.fill(mark);
+      else square.fill(PALETTE.paper).stroke({ color: above ? PALETTE.accent : PALETTE.faint, width: 1 });
+      view.addChild(square);
+      x = 14;
+    } else {
+      const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
+      view.addChild(card.fill(PALETTE.card).stroke({ color: above ? PALETTE.branch : PALETTE.edge, width: 1 }));
+      if (mark !== null) {
+        view.addChild(new Graphics().circle(x + 3, row1, 3).fill(mark));
+        x += 12;
+      }
+    }
+    const number = new BitmapText({
+      text: String(item.id),
+      style: s.mono(NUMBER[item.standing]),
+    });
+    number.position.set(x, row1 - number.height / 2);
+    const title = new BitmapText({
+      text: item.title,
+      style: s.title(item.standing === 'open' ? PALETTE.ink : PALETTE.faint),
+    });
+    title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
+    view.addChild(number, title);
+    this.reach[k] = title.x + title.width;
+    // At the right of the first row: its questions waiting for the owner, and its returns sent back, framed on a card.
+    let right = NODE_W - 8;
+    const tag = (text: string, fill: string, back: boolean) => {
+      const t = new BitmapText({ text, style: s.mono(fill) });
+      const pad = schematic ? 0 : 4;
       const icon = back ? 10 : 0;
-      const w = Math.max(18, t.width + 10 + icon);
+      const w = t.width + icon + 2 * pad;
       right -= w;
-      const g = new Graphics().roundRect(right, row1 - 9, w, 18, 9).fill(fill);
+      const g = new Graphics();
+      if (!schematic)
+        g.roundRect(right, row1 - 8, w, 16, 3).stroke({
+          color: fill,
+          width: 1,
+        });
       if (back) {
         // A small arrow turning back, drawn: the font may have no such sign.
-        const ax = right + 5;
-        const on = '#ffffff';
+        const ax = right + pad;
         g.moveTo(ax + 7, row1 - 4)
           .lineTo(ax + 7, row1 + 1)
           .lineTo(ax + 1, row1 + 1)
           .moveTo(ax + 3, row1 - 1)
           .lineTo(ax + 1, row1 + 1)
           .lineTo(ax + 3, row1 + 3)
-          .stroke({ color: on, width: 1.4 });
+          .stroke({ color: fill, width: 1.2 });
       }
-      t.position.set(right + icon + (w - icon - t.width) / 2, row1 - t.height / 2);
+      t.position.set(right + pad + icon, row1 - t.height / 2);
       view.addChild(g, t);
-      right -= 4;
+      this.reach[k] = NODE_W;
+      right -= 6;
     };
-    if (item.asks > 0) pill(String(item.asks), PALETTE.red, false);
-    if (item.work !== null && item.work.sentBack > 0) pill(String(item.work.sentBack), PALETTE.grey, true);
-    if (item.work === null) return view;
-    // The second row: the work's stages, each a letter, those gone through, the one it is at, and those ahead.
+    if (item.asks > 0) tag(schematic ? `?${item.asks}` : String(item.asks), PALETTE.red, false);
+    if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, true);
+    if (item.work === null || mood === null) return view;
+    // The second row: the work's stages, each a short bar.
     const w = item.work;
     const row2 = top + ROW + NODE_H / 2;
     const here = w.stage !== null ? w.stages.indexOf(w.stage) : -1;
-    const waiting = mood !== 'running';
-    let x = 8;
-    w.stages.forEach((stage, i) => {
-      const look = i < here ? 'done' : i > here || here < 0 ? 'ahead' : waiting ? 'wait' : 'now';
-      const bg = { done: solid('--bgColor-success-muted'), now: PALETTE.blue, wait: PALETTE.orange, ahead: solid('--bgColor-neutral-muted') }[look];
-      const fg = { done: colour('--fgColor-success', '#217952'), now: '#ffffff', wait: '#ffffff', ahead: colour('--fgColor-muted', '#59636e') }[look];
-      const cell = new Graphics().roundRect(x, row2 - 8, 15, 16, 3).fill(bg);
-      const l = new BitmapText({ text: stage.charAt(0).toUpperCase(), style: styles.letter(fg) });
-      l.position.set(x + (15 - l.width) / 2, row2 - l.height / 2);
-      view.addChild(cell, l);
-      x += 17;
+    const [cell, thick, gap] = schematic ? [7, 3, 2] : [12, 4, 3];
+    const stages = new Graphics();
+    w.stages.forEach((_, i) => {
+      if (i !== here)
+        stages.rect(x + i * (cell + gap), row2 - thick / 2, cell, thick).fill(i < here ? PALETTE.faint : PALETTE.hair);
     });
-    // Where its time went: the span cut into cells, a model's, the tools', or idle.
-    x += 8;
-    const barW = 96;
+    view.addChild(stages);
+    if (here >= 0) {
+      const at = new Graphics().rect(x + here * (cell + gap), row2 - thick / 2, cell, thick).fill(STAGE[mood]);
+      if (mood === 'running') this.pulses.set(k, at);
+      const letter = new BitmapText({
+        text: w.stages[here].charAt(0).toUpperCase(),
+        style: s.mono(PALETTE.muted),
+      });
+      letter.position.set(x + w.stages.length * (cell + gap) + 4, row2 - letter.height / 2);
+      view.addChild(at, letter);
+    }
+    // Where its time went, on a thin line: a model's, the tools', or idle.
+    const barW = 70;
+    const barX = NODE_W - 8 - 36 - barW;
     const cells = [...w.bar];
     const kind = { m: PALETTE.model, t: PALETTE.tools, '.': PALETTE.idle };
+    const cw = barW / Math.max(1, cells.length);
     const track = new Graphics();
-    cells.forEach((c, i) => {
-      const cw = barW / Math.max(1, cells.length);
-      track.rect(x + i * cw, row2 - 3, cw, 6).fill(kind[c as 'm' | 't' | '.'] ?? kind['.']);
-    });
-    view.addChild(track);
-    // How long it has gone on, on a chip at the right, its colour by its age; the label is kept up as time passes.
-    const chip = new Graphics();
-    const label = new BitmapText({ text: '', style: white });
-    view.addChild(chip, label);
-    this.ages.set(k, { from: w.from, label, chip, shown: '', row: row2 });
+    cells.forEach((c, i) => track.rect(barX + i * cw, row2 - 1, cw, 2).fill(kind[c as 'm' | 't' | '.'] ?? kind['.']));
+    // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
+    const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
+    view.addChild(track, label);
+    this.ages.set(k, { from: w.from, label, shown: '', row: row2 });
     this.age(k);
     return view;
   }
 
-  /// Puts on an item's chip how long its work has gone on, when the label has changed.
+  /// Puts at the right of an item's second row how long its work has gone on, when the label has changed.
   private age(k: number) {
     const a = this.ages.get(k);
-    if (a === undefined) return;
+    if (a === undefined || this.styles === null) return;
     const { label, tone } = age(Date.now() - a.from);
     if (label === a.shown) return;
     a.shown = label;
     a.label.text = label;
-    const w = a.label.width + 12;
-    a.chip.clear().roundRect(NODE_W - 6 - w, a.row - 9, w, 18, 9).fill({ success: PALETTE.green, attention: PALETTE.orange, danger: PALETTE.red, done: PALETTE.purple }[tone]);
-    a.label.position.set(NODE_W - w, a.row - a.label.height / 2);
+    a.label.style = this.styles.mono(TONE[tone]);
+    a.label.position.set(NODE_W - 8 - a.label.width, a.row - a.label.height / 2);
   }
 
   /// Holds the item of rank `rank` in column `d` on the line, the items above it in the columns to its left, and the
@@ -501,12 +596,54 @@ export class SnapScene {
   /// the first's box starting at `first` and the last's ending at `last`.
   private funnel(px: number, top: number, bottom: number, cx: number, first: number, last: number) {
     const bend = (cx - px) / 2;
-    this.funnels
+    this.links
       .moveTo(px, top)
       .bezierCurveTo(px + bend, top, cx - bend, first, cx, first)
       .lineTo(cx, last)
       .bezierCurveTo(cx - bend, last, px + bend, bottom, px, bottom)
       .closePath();
+  }
+
+  /// Adds the schematic's lines from the items of column `d - 1`, at `left`, to theirs in column `d`, at `cx`: from
+  /// the end of an item's first row across to the middle of the room between the columns, up or down to the nearest of
+  /// its items, across to a line down the left of its items, and from that line to each of their marks; the way to each
+  /// item a work runs on or under again, in the accent. `first` gives the middle of an item's first row.
+  private wire(
+    t: Tree,
+    d: number,
+    left: number,
+    cx: number,
+    first: (d: number, rank: number) => number,
+    height: number,
+  ) {
+    const prev = t.columns[d - 1];
+    const sx = cx - 10;
+    const jx = (left + NODE_W + 4 + sx) / 2;
+    for (let r = 0; r < prev.length; r += 1) {
+      const kids = t.children[prev[r]];
+      if (kids.length === 0) continue;
+      const py = first(d - 1, r);
+      const fy = first(d, t.rank[kids[0]]);
+      const ly = first(d, t.rank[kids[kids.length - 1]]);
+      if (Math.max(py, ly) < 0 || Math.min(py, fy) > height) continue;
+      const px = left + this.reach[prev[r]] + 6;
+      const ty = Math.min(ly, Math.max(fy, py));
+      this.links.moveTo(px, py).lineTo(jx, py).lineTo(jx, ty).lineTo(sx, ty).moveTo(sx, fy).lineTo(sx, ly);
+      for (const kid of kids) {
+        const ky = first(d, t.rank[kid]);
+        if (ky < -ROW || ky > height + ROW) continue;
+        this.links.moveTo(sx, ky).lineTo(cx - 3, ky);
+        if (this.lit[kid] === 1) {
+          this.trace
+            .moveTo(px, py)
+            .lineTo(jx, py)
+            .lineTo(jx, ty)
+            .lineTo(sx, ty)
+            .lineTo(sx, ky)
+            .lineTo(cx - 3, ky);
+        }
+      }
+    }
   }
 
   /// The rank of the item of column `d` at `place` rows from its top, the first whose place is not above it.
@@ -532,7 +669,12 @@ export class SnapScene {
 
   /// Draws `frames` frames, each with a scroll of one detent over a column, waiting for the GPU each; gives the time of
   /// each frame in milliseconds.
-  bench(frames: number): { meanMs: number; p95Ms: number; maxMs: number; drawn: number } {
+  bench(frames: number): {
+    meanMs: number;
+    p95Ms: number;
+    maxMs: number;
+    drawn: number;
+  } {
     const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     const times: number[] = [];
     for (let k = 0; k < frames; k += 1) {
@@ -567,16 +709,19 @@ export class SnapScene {
     this.mapFrame
       .clear()
       .roundRect(0, 0, wide, MAP_HIGH, 6)
-      .fill(this.colours.frame)
-      .stroke({ color: this.colours.centre, width: 1 });
-    this.mapMask.clear().rect(MAP_PAD / 2, MAP_PAD / 2, wide - MAP_PAD, MAP_HIGH - MAP_PAD).fill(0xffffff);
+      .fill(this.colours.ground)
+      .stroke({ color: PALETTE.line, width: 1 });
+    this.mapMask
+      .clear()
+      .rect(MAP_PAD / 2, MAP_PAD / 2, wide - MAP_PAD, MAP_HIGH - MAP_PAD)
+      .fill(0xffffff);
     this.mapBars.mask = this.mapMask;
     this.map.addChild(this.mapFrame, this.mapMask, this.mapBars);
   }
 
-  /// Draws each column on the map as one bar from its first item to its last, moved as the column is: blue, or orange
-  /// as its held item's glow turns while the pointer is over it, marked red where questions wait for the owner; and the
-  /// middle line over them, dark grey.
+  /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in the accent,
+  /// or orange as its held item's frame turns while the pointer is over it, marked red where questions wait for the
+  /// owner; and the middle line over them, dark grey.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
     this.mapBars.clear();
@@ -585,15 +730,18 @@ export class SnapScene {
       const n = t.columns[d].length;
       const to = mid + (this.slot(d, n - 1) + this.rowsAt(d, n - 1) - c.at - c.pull * GIVE) * this.mapRow;
       const left = MAP_PAD + d * (MAP_STRIP + MAP_APART);
-      this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(this.colours.glow, this.colours.glowOver, c.warm));
+      this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(PALETTE.accent, PALETTE.over, c.warm));
       // Where questions wait for the owner, red across the bar.
       for (const r of this.asking[d] ?? []) {
         const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at - c.pull * GIVE) * this.mapRow;
-        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(this.colours.asking);
+        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);
       }
     });
     const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
-    this.mapBars.moveTo(MAP_PAD / 2, mid).lineTo(wide - MAP_PAD / 2, mid).stroke({ color: this.colours.mapLine, width: 1 });
+    this.mapBars
+      .moveTo(MAP_PAD / 2, mid)
+      .lineTo(wide - MAP_PAD / 2, mid)
+      .stroke({ color: this.colours.mapLine, width: 1 });
   }
 
   /// A scroll of `dy` pixels over column `d`: it pulls the column, and each time the pull passes the threshold the
@@ -661,11 +809,12 @@ export class SnapScene {
   private draw(t: Tree, now: number) {
     const { width, height } = this.app.screen;
     const line = height / 2;
+    const schematic = this.look === 'schematic';
     // Each column a part of the way to where it belongs; a pull no scroll has added to for a moment springs back.
     const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
     this.lastDraw = now;
     this.columns.forEach((c, d) => {
-      // The glow turns to orange while the pointer is over the column, and back, in about a tenth of a second.
+      // The frame turns to orange while the pointer is over the column, and back, in about a tenth of a second.
       c.warm += ((d === this.hovered ? 1 : 0) - c.warm) * (1 - Math.exp(-step / TURN));
       c.gap += ((c.held >= 0 ? 0 : 1) - c.gap) * SPRING;
       // A pull short of the threshold goes back quickly once the scrolling stops: the column is held to the line.
@@ -678,14 +827,23 @@ export class SnapScene {
       return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
     };
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
-    const phase = (now % SWEEP_MS) / SWEEP_MS;
+    const first = (d: number, rank: number) => y(d, rank) - half(d, rank) + NODE_H / 2;
+    // The stage a running work is at, between faint and full, every running node at once.
+    const pulse = 0.3 + 0.35 * (1 + Math.cos(((now % PULSE_MS) / PULSE_MS) * 2 * Math.PI));
     const x = (d: number) => this.left + d * PITCH;
+    if (this.paper !== null) {
+      this.paper.visible = schematic;
+      this.paper.width = width;
+      this.paper.height = height;
+      this.paper.tilePosition.x = this.left;
+    }
     this.back.clear();
     // The line across the middle, dashed.
     for (let dx = 0; dx < width; dx += 12) this.back.moveTo(dx, line).lineTo(dx + 6, line);
-    this.back.stroke({ color: this.colours.centre, width: 1 });
-    this.funnels.clear();
-    this.glow.clear();
+    this.back.stroke({ color: PALETTE.line, width: 1 });
+    this.links.clear();
+    this.trace.clear();
+    this.marks.clear();
     const heldFunnels: [number, number, number, number, number, number][] = [];
     const nowShown = new Set<Container>();
     const rows = Math.ceil(height / ROW / 2) + 2;
@@ -701,16 +859,19 @@ export class SnapScene {
         const item = col[rank];
         const view = this.views[item];
         view.position.set(cx, yy);
-        // The light crosses every running node at once, so that the screen does not flicker; the age is kept up.
-        const sweep = this.sweeps.get(item);
-        if (sweep !== undefined) sweep.x = phase * (NODE_W + SWEEP_W) - SWEEP_W;
+        const p = this.pulses.get(item);
+        if (p !== undefined) p.alpha = pulse;
         this.age(item);
         nowShown.add(view);
         if (!this.shown.has(view)) this.layer.addChild(view);
       }
+      if (d === 0) continue;
+      if (schematic) {
+        this.wire(t, d, x(d - 1), cx, first, height);
+        continue;
+      }
       // The funnel from each item of the column to the left to the items under it: from its top to the top of the
       // first and from its bottom to the bottom of the last, filled; those from held items drawn last, over the rest.
-      if (d === 0) continue;
       const px = x(d - 1) + NODE_W;
       const prev = t.columns[d - 1];
       const heldAbove = this.columns[d - 1].held;
@@ -721,18 +882,25 @@ export class SnapScene {
         const ph = half(d - 1, r);
         const f = t.rank[kids[0]];
         const l = t.rank[kids[kids.length - 1]];
-        const first = y(d, f) - half(d, f);
-        const lastY = y(d, l) + half(d, l);
-        if (Math.max(py + ph, lastY) < 0 || Math.min(py - ph, first) > height) continue;
-        if (r === heldAbove) heldFunnels.push([px, py - ph, py + ph, cx, first, lastY]);
-        else this.funnel(px, py - ph, py + ph, cx, first, lastY);
+        const top = y(d, f) - half(d, f);
+        const bottom = y(d, l) + half(d, l);
+        if (Math.max(py + ph, bottom) < 0 || Math.min(py - ph, top) > height) continue;
+        if (r === heldAbove) heldFunnels.push([px, py - ph, py + ph, cx, top, bottom]);
+        else this.funnel(px, py - ph, py + ph, cx, top, bottom);
       }
     }
-    this.funnels.fill({ color: this.colours.other, alpha: this.colours.otherAlpha });
-    for (const [px, top, bottom, cx, first, lastY] of heldFunnels) this.funnel(px, top, bottom, cx, first, lastY);
-    this.funnels.fill(this.colours.held);
-    // A glow round each held item: a box a little larger than it, blurred a little, so that it fades out evenly from
-    // the edge within the room between it and the items above and below it, where they would hide it.
+    if (schematic) {
+      this.links.stroke({ color: PALETTE.line, width: 1 });
+      this.trace.stroke({ color: PALETTE.accent, width: 1.2 });
+    } else {
+      this.links.fill({
+        color: this.colours.other,
+        alpha: this.colours.otherAlpha,
+      });
+      for (const [px, top, bottom, cx, f, l] of heldFunnels) this.funnel(px, top, bottom, cx, f, l);
+      this.links.fill(PALETTE.funnel);
+    }
+    // Each held item framed by four corners, or ringed, in the accent or orange.
     for (let d = 0; d < t.columns.length; d += 1) {
       const c = this.columns[d];
       if (c.held < 0) continue;
@@ -740,8 +908,30 @@ export class SnapScene {
       const gy = y(d, c.held);
       const gh = half(d, c.held);
       if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
-      const fill = mix(this.colours.glow, this.colours.glowOver, c.warm);
-      this.glow.roundRect(gx - GLOW, gy - gh - GLOW, NODE_W + 2 * GLOW, 2 * gh + 2 * GLOW, 6 + GLOW).fill(fill);
+      const tone = mix(PALETTE.accent, PALETTE.over, c.warm);
+      if (schematic) {
+        const [x1, y1, x2, y2, k] = [gx - 6, gy - gh - 2, gx + NODE_W + 2, gy + gh + 2, 6];
+        this.marks
+          .moveTo(x1, y1 + k)
+          .lineTo(x1, y1)
+          .lineTo(x1 + k, y1)
+          .moveTo(x2 - k, y1)
+          .lineTo(x2, y1)
+          .lineTo(x2, y1 + k)
+          .moveTo(x2, y2 - k)
+          .lineTo(x2, y2)
+          .lineTo(x2 - k, y2)
+          .moveTo(x1 + k, y2)
+          .lineTo(x1, y2)
+          .lineTo(x1, y2 - k)
+          .stroke({ color: tone, width: 1.3 });
+      } else {
+        this.marks
+          .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
+          .stroke({ color: tone, width: 3, alpha: 0.18 })
+          .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
+          .stroke({ color: tone, width: 1 });
+      }
     }
     this.drawMap(t);
     for (const v of this.shown) if (!nowShown.has(v)) this.layer.removeChild(v);
