@@ -390,7 +390,7 @@ export class SnapScene {
 
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does,
   /// with a bar of that colour down its left; its edge the accent's tint above a work. On its first row its number in its state's
-  /// colour, its title, and at the right, framed, its questions waiting for the owner, red, and its returns sent back,
+  /// colour, its title, and at the right its questions waiting for the owner, white on red, and its returns sent back,
   /// grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one it is
   /// at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how long
   /// it has gone on.
@@ -426,16 +426,18 @@ export class SnapScene {
     });
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
-    // At the right of the first row, framed: its questions waiting for the owner, and its returns sent back.
+    // At the right of the first row: its questions waiting for the owner, white on red, the strongest mark a card has,
+    // as what the owner looks for first; and its returns sent back, framed in grey.
     let right = NODE_W - 8;
-    const tag = (text: string, fill: string, back: boolean) => {
-      const t = new BitmapText({ text, style: s.mono(fill) });
+    const tag = (text: string, fill: string, back: boolean, solid: boolean) => {
+      const t = new BitmapText({ text, style: s.mono(solid ? '#ffffff' : fill) });
       const pad = 4;
       const icon = back ? 10 : 0;
       const w = t.width + icon + 2 * pad;
       right -= w;
       const g = new Graphics();
-      g.roundRect(right, row1 - 8, w, 16, 3).stroke({ color: fill, width: 1 });
+      if (solid) g.roundRect(right, row1 - 8, w, 16, 3).fill(fill);
+      else g.roundRect(right, row1 - 8, w, 16, 3).stroke({ color: fill, width: 1 });
       if (back) {
         // A small arrow turning back, drawn: the font may have no such sign.
         const ax = right + pad;
@@ -451,8 +453,8 @@ export class SnapScene {
       view.addChild(g, t);
       right -= 6;
     };
-    if (item.asks > 0) tag(String(item.asks), PALETTE.red, false);
-    if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, true);
+    if (item.asks > 0) tag(String(item.asks), PALETTE.red, false, true);
+    if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, true, false);
     if (item.work === null || mood === null) return view;
     // The second row: the work's stages, each a short bar.
     const w = item.work;
