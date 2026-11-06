@@ -51,6 +51,10 @@
   be done before another can be, that is a dependency, which puts the one below the other; which of two free items
   starts first when slots are few is only the order the architect's plan gives them.
 
+- An item that is done never depends on one that is not: a dependency added to it is refused, and what is left goes to
+  a new item. A dependency is what must be done before the item can be, so a done item standing over an unfinished one
+  would say both. A goal, done only while all it depends on is, takes the dependency and is open again.
+
 - Nothing is designed for the machine's lid closing or its sleeping: the machine that runs the engine stays on.
 
 - A technology is chosen as mature, mainstream and fit for the project's scale, with no item-by-item comparison of its
