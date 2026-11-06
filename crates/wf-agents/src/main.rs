@@ -290,6 +290,26 @@ enum ItemCommand {
         #[arg(long, value_parser = ["blocking", "parallel"])]
         kind: String,
     },
+    /// Rewrites what an item says, as its creator wrote it: each part given takes the place of the one before.
+    Edit {
+        /// The item.
+        item: i64,
+        /// A short title, within the length the configuration sets.
+        #[arg(long)]
+        title: Option<String>,
+        /// What cannot be done or is wrong.
+        #[arg(long)]
+        problem: Option<String>,
+        /// Why it is worth doing.
+        #[arg(long)]
+        why: Option<String>,
+        /// How to do it.
+        #[arg(long)]
+        approach: Option<String>,
+        /// One condition of its acceptance, a checkable result; given once for each, they take the place of all before.
+        #[arg(long)]
+        acceptance: Vec<String>,
+    },
     /// Makes an item's dependency on another the other's main one: the other stands under it in the tree of items.
     Main {
         /// The item that depends.
@@ -703,6 +723,24 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Item(ItemCommand::Depend { item, on, needs, kind }) => {
             owner::depend(d, item, &owner::Dependency { on, kind, needs })
         }
+        Command::Item(ItemCommand::Edit {
+            item,
+            title,
+            problem,
+            why,
+            approach,
+            acceptance,
+        }) => owner::edit_item(
+            d,
+            item,
+            &owner::ItemText {
+                title,
+                problem,
+                why,
+                approach,
+                acceptance,
+            },
+        ),
         Command::Item(ItemCommand::Main { item, on }) => owner::main_dependency(d, item, on),
         Command::Item(ItemCommand::Cancel { item, why }) => print(owner::cancel(d, item, &why)),
         Command::Queue(QueueCommand::List) => print(owner::queue_list(d)),

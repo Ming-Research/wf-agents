@@ -121,6 +121,42 @@ pub fn depend(data: &Path, item: i64, d: &Dependency) -> Result<(), String> {
         .map_err(sql)
 }
 
+/// What an item says, as its creator wrote it: each part given takes the place of the one before, and an acceptance
+/// given, one condition each, takes the place of all the conditions before.
+pub struct ItemText {
+    pub title: Option<String>,
+    pub problem: Option<String>,
+    pub why: Option<String>,
+    pub approach: Option<String>,
+    pub acceptance: Vec<String>,
+}
+
+/// Rewrites what an item says, as the owner. A title is held to the configuration's width.
+pub fn edit_item(data: &Path, item: i64, x: &ItemText) -> Result<(), String> {
+    let c = config::committed(data).map_err(sql)?.config;
+    if let Some(t) = &x.title {
+        config::title_fits(t, c.install.items.title_max as usize)?;
+    }
+    let wanted = (!x.acceptance.is_empty())
+        .then(|| serde_json::to_string(&x.acceptance))
+        .transpose()
+        .map_err(sql)?;
+    open(data)?
+        .write(Actor::Owner, |tx| {
+            let n = tx.execute(
+                "UPDATE items SET title = coalesce(?2, title), problem = coalesce(?3, problem),
+                        why = coalesce(?4, why), approach = coalesce(?5, approach), wanted = coalesce(?6, wanted)
+                 WHERE id = ?1",
+                params![item, x.title, x.problem, x.why, x.approach, wanted],
+            )?;
+            if n == 0 {
+                return Err(db::Error::Abort(format!("no item {item}")));
+            }
+            Ok(())
+        })
+        .map_err(sql)
+}
+
 /// Makes the dependency of `item` on `on` the main one of `on`, which then stands under `item` in the tree of items.
 pub fn main_dependency(data: &Path, item: i64, on: i64) -> Result<(), String> {
     open(data)?
