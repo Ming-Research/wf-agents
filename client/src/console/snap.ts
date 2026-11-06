@@ -11,7 +11,7 @@
 // the first item under it and the last, light accent from a held item and grey from the others; a ribbon of the same
 // light accent joins each item to each of its items a work goes on on or under, so that the way from a root to every
 // item in work reads as one. Each held item is ringed in the accent, or orange while the pointer is over its column, and
-// the stage a running work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in
+// the stage a running work is at blinks. Only what is on the screen is drawn. What it draws and how fast is kept in
 // `stats`.
 
 import { Application, BitmapText, Container, Graphics, TextStyle } from 'pixi.js';
@@ -42,10 +42,8 @@ const MAP_PAD = 8;
 /// How quickly a held item's frame turns between the accent and orange: the milliseconds in which it goes about two
 /// thirds of the way.
 const TURN = 35;
-/// How long the stage a running work is at takes to pulse once, in milliseconds, and how much taller than the other
-/// stages its bar is.
+/// How long the stage a running work is at takes to blink once, on then off, in milliseconds.
 const PULSE_MS = 1200;
-const HERE_GROWS = 3;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
 
@@ -249,7 +247,7 @@ export class SnapScene {
   /// For each item, whether a work goes on on it or under it: the ribbons and the edges of the cards on the way to it
   /// are lit.
   private lit: Uint8Array = new Uint8Array(0);
-  /// The parts of a node that change while it is shown: the stage a running work is at, which pulses, and the label of
+  /// The parts of a node that change while it is shown: the stage a running work is at, which blinks, and the label of
   /// how long its work has gone on, with when the work started.
   private pulses = new Map<number, Graphics>();
   private ages = new Map<number, { from: number; label: BitmapText; shown: string; row: number }>();
@@ -464,8 +462,7 @@ export class SnapScene {
     });
     view.addChild(stages);
     if (here >= 0) {
-      const tall = thick + HERE_GROWS;
-      const at = new Graphics().rect(x + here * (cell + gap), row2 - tall / 2, cell, tall).fill(STAGE[mood]);
+      const at = new Graphics().rect(x + here * (cell + gap), row2 - thick / 2, cell, thick).fill(STAGE[mood]);
       if (mood === 'running') this.pulses.set(k, at);
       const letter = new BitmapText({
         text: w.stages[here].charAt(0).toUpperCase(),
@@ -751,8 +748,8 @@ export class SnapScene {
       return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
     };
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
-    // The stage a running work is at, between almost gone and full, every running node at once.
-    const pulse = 0.1 + 0.45 * (1 + Math.cos(((now % PULSE_MS) / PULSE_MS) * 2 * Math.PI));
+    // The stage a running work is at blinks, full then almost gone with no fade between, every running node at once.
+    const pulse = now % PULSE_MS < PULSE_MS / 2 ? 1 : 0.15;
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
     // The line across the middle, dashed.
