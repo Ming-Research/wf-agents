@@ -6,7 +6,7 @@
 // selected brings it out again. The window coming out over the item selected, or an item selected half under it or
 // half off the screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item
 // go while the tree has the keys, and slides the window in while it has them. A small switch at the bottom left chooses
-// how the columns follow the one scrolled, by steps or gradually, for trying the two.
+// how the columns follow the one scrolled, by steps, gradually or by links, for trying them.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -15,12 +15,18 @@ import { Drawer } from '../console/Drawer';
 import { demoShown, fakeShown } from '../console/fake';
 import { type Shown, shownTree } from '../console/items';
 import { ItemWindow } from '../console/ItemWindow';
-import { SnapScene } from '../console/snap';
+import { type Follow, SnapScene } from '../console/snap';
 import { windowMock } from '../console/window-mock';
 import { useResource, useStatus } from '../live';
 import { t } from '../text';
 
 const SNAP_KEY = 'console-snap';
+const FOLLOWS: Follow[] = ['steps', 'gradual', 'links'];
+const FOLLOW_WORDS = {
+  steps: 'console_snap_steps',
+  gradual: 'console_snap_gradual',
+  links: 'console_snap_links',
+} as const;
 
 export function Console({ demo }: { demo: boolean }) {
   const host = useRef<HTMLDivElement>(null);
@@ -37,25 +43,24 @@ export function Console({ demo }: { demo: boolean }) {
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
   const panel = useRef<HTMLElement>(null);
-  // Whether the columns follow the one scrolled gradually or each spring to its place, for trying the two; the browser
-  // keeps the choice.
-  const [gradual, setGradual] = useState(() => {
+  // How the columns follow the one scrolled, for trying the ways; the browser keeps the choice.
+  const [mode, setMode] = useState<Follow>(() => {
     try {
-      return localStorage.getItem(SNAP_KEY) !== 'steps';
+      return FOLLOWS.find((f) => f === localStorage.getItem(SNAP_KEY)) ?? 'gradual';
     } catch {
-      return true;
+      return 'gradual';
     }
   });
-  const latestGradual = useRef(gradual);
+  const latestMode = useRef(mode);
   useEffect(() => {
-    latestGradual.current = gradual;
-    if (scene.current !== null) scene.current.gradual = gradual;
+    latestMode.current = mode;
+    if (scene.current !== null) scene.current.mode = mode;
     try {
-      localStorage.setItem(SNAP_KEY, gradual ? 'gradual' : 'steps');
+      localStorage.setItem(SNAP_KEY, mode);
     } catch {
       // Kept for this page only.
     }
-  }, [gradual]);
+  }, [mode]);
 
   useEffect(() => {
     const el = host.current;
@@ -65,7 +70,7 @@ export function Console({ demo }: { demo: boolean }) {
     void s.mount(el).then(() => {
       if (!alive) return;
       scene.current = s;
-      s.gradual = latestGradual.current;
+      s.mode = latestMode.current;
       let was: number | null = null;
       s.onSelect = (item) => {
         setSelected(item);
@@ -136,9 +141,9 @@ export function Console({ demo }: { demo: boolean }) {
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       />
       <div className="console-snap" role="group" aria-label={t('console_snap')}>
-        {([false, true] as const).map((g) => (
-          <button key={String(g)} type="button" aria-pressed={gradual === g} onClick={() => setGradual(g)}>
-            {t(g ? 'console_snap_gradual' : 'console_snap_steps')}
+        {FOLLOWS.map((f) => (
+          <button key={f} type="button" aria-pressed={mode === f} onClick={() => setMode(f)}>
+            {t(FOLLOW_WORDS[f])}
           </button>
         ))}
       </div>

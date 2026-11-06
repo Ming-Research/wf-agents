@@ -9,7 +9,10 @@
 // itself, the item nearest the line held, and once the scroll stops comes to rest with that item on the line; each column
 // to its right stands between where it stands under the two items of the column to its left that the line is between,
 // as far from the one as the line is, so that the columns glide at their own speeds, and stand as the springs would once
-// the one scrolled rests.
+// the one scrolled rests. Or, by links, the column scrolled moves with the scroll and rests where it stops, and each
+// column beside it stands where the most of what joins the two near the line is level: each item of the one beside it,
+// weighed the more the nearer the line it is, wants the block of items under it, or the item above it, beside it; the
+// column stays where it is while they all have it, and else goes only as far as the weighed wants call for.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such an
 // item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge.
@@ -83,6 +86,18 @@ const FOLLOW = 0.6;
 /// gradually; and how long after the last scroll it comes to rest on the item nearest the line, in milliseconds.
 const GLIDE = 0.35;
 const SETTLE = 150;
+/// By links, how far from the line, in rows, an item's want of its column's neighbour still weighs: its weight falls
+/// off as a bell of this width; and how much a column holds to where it is, against the wants, so that wants that
+/// weigh little move it little at a frame, and it never leaps between two places that meet the heavy ones alike.
+const REACH = 3;
+const STAY = 0.2;
+/// By links, how much of the way to where it stands a column goes each frame: a column that was the one scrolled has
+/// rested where its own scroll left it, not where its links would put it, and glides there once another is scrolled.
+const LINK_EASE = 0.2;
+
+/// How the columns beside the one scrolled follow it: each springing to where its held item belongs, gliding between
+/// those places, or standing where the most of the links near the line are level.
+export type Follow = 'steps' | 'gradual' | 'links';
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs and what is held; amber for what
 /// waits for the owner; red for what has gone wrong or on long; violet for what has gone on for days.
@@ -356,10 +371,9 @@ export class SnapScene {
   private glowing = new Map<number, number>();
   /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
   private haloed = new Map<number, number>();
-  /// Whether the columns right of the one last scrolled or held follow it gradually, rather than each springing to where
-  /// its held item belongs.
-  gradual = true;
-  /// The column last scrolled or held, which those to its right follow while `gradual`.
+  /// How the columns beside the one last scrolled or held follow it.
+  mode: Follow = 'gradual';
+  /// The column last scrolled or held, which the others follow but by steps.
   private driver = 0;
   /// For each column, under each item of the column to its left that was let go, the rank of the item it held under
   /// it then, by that item's place in the tree: the column glides from there, not from the middle of its items.
@@ -715,6 +729,7 @@ export class SnapScene {
     const was = this.columns.map((c) => c.held);
     this.driver = d;
     this.setHeld(d, r);
+    this.columns[d].aim = this.target(d);
     // Leftwards: each column holds the item above the one held to its right.
     for (let c = d - 1; c >= 0; c -= 1) {
       const below = t.columns[c + 1][this.columns[c + 1].held];
@@ -842,6 +857,72 @@ export class SnapScene {
     me.at += (to - me.pull * GIVE - me.at) * FOLLOW;
   }
 
+  /// Moves column `c` towards where it stands by its links with the column `from` beside it, which it follows. Each
+  /// item of `from` near the line wants what it is joined to in `c` beside it: the block of the items under it, or the
+  /// item above it, any part of which level with it will do; it weighs the more the nearer the line it is. The column
+  /// stays where it is while every want is met, and else goes where the wants not met, weighed, pull it no further
+  /// either way against its hold to where it is, which it takes again each frame. With nothing joining them near the
+  /// line, it stays.
+  private link(c: number, from: number): void {
+    const t = this.tree as Tree;
+    const src = this.columns[from];
+    const me = this.columns[c];
+    const col = t.columns[from];
+    const line = src.at + src.pull * GIVE;
+    // Where each want is met, as the places of the column `c` at the line, from `lows` to `highs`, and its weight.
+    const lows: number[] = [];
+    const highs: number[] = [];
+    const weights: number[] = [];
+    const last = Math.min(col.length - 1, this.rankAt(from, line + 3 * REACH));
+    for (let r = this.rankAt(from, line - 3 * REACH); r <= last; r += 1) {
+      const s = this.middle(from, r) - line;
+      const item = col[r];
+      let top: number;
+      let bottom: number;
+      if (c > from) {
+        const kids = t.children[item];
+        if (kids.length === 0) continue;
+        const first = t.rank[kids[0]];
+        const end = t.rank[kids[kids.length - 1]];
+        top = this.slot(c, first);
+        bottom = this.slot(c, end) + this.rowsAt(c, end);
+      } else {
+        const above = t.parent[item];
+        if (above < 0) continue;
+        top = this.slot(c, t.rank[above]);
+        bottom = top + this.rowsAt(c, t.rank[above]);
+      }
+      lows.push(top - s);
+      highs.push(bottom - s);
+      weights.push(Math.exp(-(s * s) / (2 * REACH * REACH)));
+    }
+    if (weights.length === 0) return;
+    const now = me.at + me.pull * GIVE;
+    // How hard the wants not met, and its hold to where it is, pull the column below `x`, those above it counted
+    // against: it grows with `x`.
+    const pull = (x: number) => {
+      let g = STAY * (x - now);
+      for (let i = 0; i < weights.length; i += 1) {
+        if (x < lows[i]) g += weights[i] * (x - lows[i]);
+        else if (x > highs[i]) g += weights[i] * (x - highs[i]);
+      }
+      return g;
+    };
+    const g = pull(now);
+    let to = now;
+    if (Math.abs(g) > 1e-9) {
+      let lo = g > 0 ? Math.min(now, ...lows) : now;
+      let hi = g > 0 ? now : Math.max(now, ...highs);
+      for (let i = 0; i < 40; i += 1) {
+        const mid = (lo + hi) / 2;
+        if (pull(mid) < 0) lo = mid;
+        else hi = mid;
+      }
+      to = (lo + hi) / 2;
+    }
+    me.at += (to - me.pull * GIVE - me.at) * LINK_EASE;
+  }
+
   /// Adds to the funnels the one from an item ending at `px`, its box from `top` to `bottom`, to items starting at `cx`,
   /// the first's box starting at `first` and the last's ending at `last`.
   private funnel(px: number, top: number, bottom: number, cx: number, first: number, last: number) {
@@ -966,14 +1047,14 @@ export class SnapScene {
   }
 
   /// A scroll of `dy` pixels over column `d`: it pulls the column, and each time the pull passes the threshold the
-  /// next item up or down comes to the line; gradually, it moves the column itself, and the item nearest the line is
-  /// held.
+  /// next item up or down comes to the line; gradually or by links, it moves the column itself, and the item nearest the
+  /// line is held.
   scroll(d: number, dy: number): void {
     const t = this.tree;
     if (t === null || d < 0 || d >= this.columns.length) return;
     const c = this.columns[d];
     const now = performance.now();
-    if (this.gradual) {
+    if (this.mode !== 'steps') {
       // The scroll moves the column itself, from where it is shown, within its first and last items; the item nearest
       // where it is going is held.
       if (now - c.lastScroll > SETTLE || d !== this.driver) {
@@ -992,8 +1073,10 @@ export class SnapScene {
         else hi = m;
       }
       const near = lo > 0 && c.aim - this.middle(d, lo - 1) < this.middle(d, lo) - c.aim ? lo - 1 : lo;
+      const aim = c.aim;
       if (near !== c.held) this.hold(d, near);
       else this.driver = d;
+      c.aim = aim;
       return;
     }
     c.pull += dy / ROW;
@@ -1129,8 +1212,12 @@ export class SnapScene {
       // A pull short of the threshold goes back quickly once the scrolling stops: the column is held to the line.
       if (now - c.lastScroll > 70) c.pull *= 0.7;
       if (Math.abs(c.pull) < 0.001) c.pull = 0;
-      if (this.gradual && d > this.driver) this.follow(d);
-      else if (this.gradual && d === this.driver && now - c.lastScroll < SETTLE) {
+      if (this.mode === 'links') {
+        // No place is left empty; the column scrolled goes where the scroll takes it, the others after it below.
+        c.gap += (0 - c.gap) * SPRING;
+        if (d === this.driver) c.at += (c.aim - c.at) * GLIDE;
+      } else if (this.mode === 'gradual' && d > this.driver) this.follow(d);
+      else if (this.mode === 'gradual' && d === this.driver && now - c.lastScroll < SETTLE) {
         c.gap += ((c.held >= 0 ? 0 : 1) - c.gap) * SPRING;
         c.at += (c.aim - c.at) * GLIDE;
       } else {
@@ -1138,6 +1225,10 @@ export class SnapScene {
         c.at += (this.target(d) - c.at) * SNAP;
       }
     });
+    if (this.mode === 'links') {
+      for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1);
+      for (let d = this.driver - 1; d >= 0; d -= 1) this.link(d, d + 1);
+    }
     const y = (d: number, rank: number) => {
       const c = this.columns[d];
       return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;

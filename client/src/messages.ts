@@ -13,6 +13,7 @@ const messages = {
   console_snap: 'How the columns follow the one scrolled',
   console_snap_steps: 'Steps',
   console_snap_gradual: 'Gradual',
+  console_snap_links: 'Links',
   console_window_hide: 'Put the item away',
   console_window_empty: 'Click an item on the left to see it here.',
   console_read: 'Mark as read',
