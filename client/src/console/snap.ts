@@ -6,14 +6,14 @@
 // detents: a pull short of the threshold springs back to the line; past it, the next item comes to the line. Holding an
 // item of another parent holds that parent in the column to the left.
 //
-// It is drawn in one of two looks, to be tried side by side. The schematic: on a dotted paper, each item a small square
-// and its words, joined to the items under it by faint lines at right angles, the way to each work that runs in a light
-// accent; each held item framed by four corners over a faint wash. The cards: each item a white card, a filled funnel joining its top and bottom
-// to the first item under it and the last, light accent from a held item and grey from the others; each held item
-// ringed. In both a held item's frame or ring is in the accent, or orange while the pointer is over its column, and the
-// stage a running work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`.
+// Each item is a white card; one a work goes on on has a bar down its left in the colour of what the work does. A
+// filled funnel joins each item's top and bottom to the first item under it and the last, light accent from a held item
+// and grey from the others; a ribbon of the same light accent joins each item to each of its items a work goes on on or
+// under, so that the way from a root to every item in work reads as one. Each held item is ringed in the accent, or
+// orange while the pointer is over its column, and the stage a running work is at pulses. Only what is on the screen is
+// drawn. What it draws and how fast is kept in `stats`.
 
-import { Application, BitmapText, Container, Graphics, Rectangle, TextStyle, TilingSprite } from 'pixi.js';
+import { Application, BitmapText, Container, Graphics, TextStyle } from 'pixi.js';
 
 import type { Shown, ShownWork } from './items';
 import { indexTree, type Tree } from './tree';
@@ -42,8 +42,6 @@ const MAP_PAD = 8;
 const TURN = 35;
 /// How long the stage a running work is at takes to pulse once, in milliseconds.
 const PULSE_MS = 1600;
-/// How far apart the dots of the schematic's paper are.
-const GRID = 12;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
 
@@ -55,18 +53,15 @@ const PALETTE = {
   faint: '#9aa1ad',
   pale: '#c3c8cf',
   line: '#cdd2d9',
-  /// The schematic's lines between items, and those of them leading to a work that runs.
-  wire: '#e1e4e9',
-  traced: '#b3bdfd',
   hair: '#e3e6ea',
   edge: '#e5e7eb',
-  paper: '#fbfbfa',
-  dots: '#d3d8de',
   card: '#ffffff',
   accent: '#3b5bfd',
-  /// A card's edge when a work runs under it, and the funnel from a held card.
+  /// A card's edge on the way to a work, and the funnel from a held card and the ribbon to a work.
   branch: '#c7cdfd',
   funnel: '#e8ebff',
+  /// A work's bar while it waits for something other than the owner.
+  waiting: '#a5b4fc',
   amber: '#d97706',
   red: '#e5484d',
   violet: '#8b5cf6',
@@ -78,8 +73,6 @@ const PALETTE = {
   tools: '#9ca3af',
   idle: '#e5e7eb',
 };
-
-export type Look = 'schematic' | 'cards';
 
 export type Stats = {
   items: number;
@@ -145,14 +138,13 @@ export function moodOf(w: ShownWork): Mood {
   return 'waiting';
 }
 
-/// The colour of an item's mark by its work's state, none for a work waiting for something else; and of the stage it is
-/// at.
-const MARK: Record<Mood, string | null> = {
+/// The colour of the bar down the left of an item's card by what its work does; and of the stage it is at.
+const BAR: Record<Mood, string> = {
   running: PALETTE.accent,
   owner: PALETTE.amber,
   paused: PALETTE.faint,
   halted: PALETTE.red,
-  waiting: null,
+  waiting: PALETTE.waiting,
 };
 const STAGE: Record<Mood, string> = {
   running: PALETTE.accent,
@@ -220,17 +212,12 @@ type Column = {
 
 export class SnapScene {
   stats: Stats = { items: 0, drawn: 0, fps: 0, meanMs: 0, p95Ms: 0 };
-  /// The look it is drawn in.
-  look: Look = 'schematic';
   private app = new Application();
   private world = new Container();
-  /// The schematic's dotted paper, fixed to the screen and moved sideways with the columns.
-  private paper: TilingSprite | null = null;
   private back = new Graphics();
-  /// The funnels or lines from each item to the items under it; the lines leading to the works that run; and the
-  /// frames or rings of the held items.
+  /// The funnels from each item to the items under it, with the ribbons to the items in work over them; and the rings
+  /// of the held items.
   private links = new Graphics();
-  private trace = new Graphics();
   private marks = new Graphics();
   private layer = new Container();
   /// The map at the top left: its frame, and a bar for each column, drawn each frame, cut to the room inside the frame.
@@ -240,7 +227,6 @@ export class SnapScene {
   private mapMask = new Graphics();
   /// The map's height of a row: the longest column fits it twice, as a column is held by its middle.
   private mapRow = 1;
-  private roots: Shown[] = [];
   private tree: Tree | null = null;
   /// Each item's number, in the tree's order.
   private ids: number[] = [];
@@ -248,10 +234,9 @@ export class SnapScene {
   /// Each item's height in rows; for each column, where each of its items starts, its rows counted from the top.
   private rows: Int32Array = new Int32Array(0);
   private pre: Float64Array[] = [];
-  /// For each item, whether a work runs on it or under it, which the schematic's lines to it show; and where the words
-  /// of its first row end, from where the schematic's lines go to the items under it.
+  /// For each item, whether a work goes on on it or under it: the ribbons and the edges of the cards on the way to it
+  /// are lit.
   private lit: Uint8Array = new Uint8Array(0);
-  private reach: Float64Array = new Float64Array(0);
   /// The parts of a node that change while it is shown: the stage a running work is at, which pulses, and the label of
   /// how long its work has gone on, with when the work started.
   private pulses = new Map<number, Graphics>();
@@ -292,16 +277,8 @@ export class SnapScene {
       return;
     }
     host.appendChild(this.app.canvas);
-    const dot = new Graphics().circle(1, 1, 0.7).fill(PALETTE.dots);
-    const texture = this.app.renderer.generateTexture({
-      target: dot,
-      frame: new Rectangle(0, 0, GRID, GRID),
-      resolution: window.devicePixelRatio,
-      antialias: true,
-    });
-    this.paper = new TilingSprite({ texture, width: 1, height: 1 });
-    this.world.addChild(this.back, this.links, this.trace, this.layer, this.marks);
-    this.app.stage.addChild(this.paper, this.world, this.map);
+    this.world.addChild(this.back, this.links, this.layer, this.marks);
+    this.app.stage.addChild(this.world, this.map);
     this.map.position.set(MAP_INSET, MAP_INSET);
     this.map.addChild(this.mapFrame);
     const canvas = this.app.canvas;
@@ -322,18 +299,9 @@ export class SnapScene {
     if (this.ready) this.app.destroy(true, { children: true, texture: true });
   }
 
-  /// Draws the tree again in `look`, the same items held.
-  setLook(look: Look): void {
-    if (look === this.look) return;
-    this.look = look;
-    if (this.ready && this.tree !== null) this.show(this.roots);
-  }
-
   /// Draws the tree of `roots` in place of the one before. The items held before stay held where they still are, the
   /// deepest that is first, and the columns move from where they were; with none, the middle root is held.
   show(roots: Shown[]): void {
-    this.roots = roots;
-    const schematic = this.look === 'schematic';
     const before = new Map<number, number>();
     this.columns.forEach((c, d) => {
       if (c.held >= 0 && this.tree !== null) before.set(d, this.ids[this.tree.columns[d][c.held]]);
@@ -344,14 +312,13 @@ export class SnapScene {
     this.shown = new Set();
     // A colour with its opacity as `#rrggbbaa`, split for Pixi.
     const neutral = colour('--bgColor-neutral-muted', '#8d9bb31f');
-    const ground = schematic ? PALETTE.paper : colour('--bgColor-default', '#ffffff');
+    const ground = colour('--bgColor-default', '#ffffff');
     this.colours = {
       other: neutral.slice(0, 7),
       otherAlpha: neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12,
       ground,
       mapLine: colour('--fgColor-muted', '#59636e'),
     };
-    if (this.ready) this.app.renderer.background.color = ground;
     this.styles = makeStyles();
     const { tree, items } = indexTree(roots, (i) => i.children);
     this.tree = tree;
@@ -363,22 +330,16 @@ export class SnapScene {
       return p;
     });
     this.asking = tree.columns.map((col) => col.flatMap((i, r) => (items[i].asks > 0 ? [r] : [])));
-    // The items a work runs on, and those above them up to their roots: from the roots one sees which branch has work
-    // on.
-    const above = new Uint8Array(items.length);
+    // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
+    // have work on.
     this.lit = new Uint8Array(items.length);
     items.forEach((i, k) => {
-      if (i.work === null || moodOf(i.work) !== 'running') return;
-      this.lit[k] = 1;
-      for (let p = tree.parent[k]; p >= 0; p = tree.parent[p]) {
-        above[p] = 1;
-        this.lit[p] = 1;
-      }
+      if (i.work === null) return;
+      for (let p = k; p >= 0 && this.lit[p] === 0; p = tree.parent[p]) this.lit[p] = 1;
     });
-    this.reach = new Float64Array(items.length);
     this.pulses = new Map();
     this.ages = new Map();
-    this.views = items.map((item, k) => this.node(item, k, above[k] === 1));
+    this.views = items.map((item, k) => this.node(item, k));
     this.columns = tree.columns.map(() => ({
       held: -1,
       gapAt: 0,
@@ -413,37 +374,31 @@ export class SnapScene {
     this.stats.items = items.length;
   }
 
-  /// The node of an item. In the schematic its mark is a small square, filled in its work's state's colour, else
-  /// hollow, its edge in the accent when a work runs under it; on a card, the card's edge is the accent's tint when a
-  /// work runs under it, and a dot in its work's state's colour is its mark. Then, in both, on its first row its number
-  /// in its state's colour, its title, and at the right its questions waiting for the owner, red, and its returns sent
-  /// back, grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one
-  /// it is at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how
-  /// long it has gone on.
-  private node(item: Shown, k: number, above: boolean): Container {
+  /// The node of an item: a white card, its edge the accent's tint on the way to a work, and down its left, while a
+  /// work goes on on it, a bar in the colour of what the work does. On its first row its number in its state's
+  /// colour, its title, and at the right, framed, its questions waiting for the owner, red, and its returns sent back,
+  /// grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one it is
+  /// at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how long
+  /// it has gone on.
+  private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
     const h = high(this.rows[k]);
     const top = -h / 2;
     const row1 = top + NODE_H / 2;
     const mood = item.work !== null ? moodOf(item.work) : null;
-    const mark = mood !== null ? MARK[mood] : null;
-    const schematic = this.look === 'schematic';
-    let x = 8;
-    if (schematic) {
-      const square = new Graphics().rect(0, row1 - 3.5, 7, 7);
-      if (mark !== null) square.fill(mark);
-      else square.fill(PALETTE.paper).stroke({ color: above ? PALETTE.accent : PALETTE.faint, width: 1 });
-      view.addChild(square);
-      x = 14;
-    } else {
-      const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
-      view.addChild(card.fill(PALETTE.card).stroke({ color: above ? PALETTE.branch : PALETTE.edge, width: 1 }));
-      if (mark !== null) {
-        view.addChild(new Graphics().circle(x + 3, row1, 3).fill(mark));
-        x += 12;
-      }
+    const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
+    view.addChild(
+      card.fill(PALETTE.card).stroke({ color: this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge, width: 1 }),
+    );
+    if (mood !== null) {
+      // The bar, cut to the card's rounded corners.
+      const shape = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(0xffffff);
+      const bar = new Graphics().rect(0, top, 3, h).fill(BAR[mood]);
+      bar.mask = shape;
+      view.addChild(shape, bar);
     }
+    const x = 10;
     const number = new BitmapText({
       text: String(item.id),
       style: s.mono(NUMBER[item.standing]),
@@ -455,21 +410,16 @@ export class SnapScene {
     });
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
-    this.reach[k] = title.x + title.width;
-    // At the right of the first row: its questions waiting for the owner, and its returns sent back, framed on a card.
+    // At the right of the first row, framed: its questions waiting for the owner, and its returns sent back.
     let right = NODE_W - 8;
     const tag = (text: string, fill: string, back: boolean) => {
       const t = new BitmapText({ text, style: s.mono(fill) });
-      const pad = schematic ? 0 : 4;
+      const pad = 4;
       const icon = back ? 10 : 0;
       const w = t.width + icon + 2 * pad;
       right -= w;
       const g = new Graphics();
-      if (!schematic)
-        g.roundRect(right, row1 - 8, w, 16, 3).stroke({
-          color: fill,
-          width: 1,
-        });
+      g.roundRect(right, row1 - 8, w, 16, 3).stroke({ color: fill, width: 1 });
       if (back) {
         // A small arrow turning back, drawn: the font may have no such sign.
         const ax = right + pad;
@@ -483,17 +433,16 @@ export class SnapScene {
       }
       t.position.set(right + pad + icon, row1 - t.height / 2);
       view.addChild(g, t);
-      this.reach[k] = NODE_W;
       right -= 6;
     };
-    if (item.asks > 0) tag(schematic ? `?${item.asks}` : String(item.asks), PALETTE.red, false);
+    if (item.asks > 0) tag(String(item.asks), PALETTE.red, false);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, true);
     if (item.work === null || mood === null) return view;
     // The second row: the work's stages, each a short bar.
     const w = item.work;
     const row2 = top + ROW + NODE_H / 2;
     const here = w.stage !== null ? w.stages.indexOf(w.stage) : -1;
-    const [cell, thick, gap] = schematic ? [7, 3, 2] : [12, 4, 3];
+    const [cell, thick, gap] = [12, 4, 3];
     const stages = new Graphics();
     w.stages.forEach((_, i) => {
       if (i !== here)
@@ -605,48 +554,6 @@ export class SnapScene {
       .lineTo(cx, last)
       .bezierCurveTo(cx - bend, last, px + bend, bottom, px, bottom)
       .closePath();
-  }
-
-  /// Adds the schematic's lines from the items of column `d - 1`, at `left`, to theirs in column `d`, at `cx`: from
-  /// the end of an item's first row across to the middle of the room between the columns, up or down to the nearest of
-  /// its items, across to a line down the left of its items, and from that line to each of their marks; the way to each
-  /// item a work runs on or under again, in the accent. `first` gives the middle of an item's first row.
-  private wire(
-    t: Tree,
-    d: number,
-    left: number,
-    cx: number,
-    first: (d: number, rank: number) => number,
-    height: number,
-  ) {
-    const prev = t.columns[d - 1];
-    const sx = cx - 10;
-    const jx = (left + NODE_W + 4 + sx) / 2;
-    for (let r = 0; r < prev.length; r += 1) {
-      const kids = t.children[prev[r]];
-      if (kids.length === 0) continue;
-      const py = first(d - 1, r);
-      const fy = first(d, t.rank[kids[0]]);
-      const ly = first(d, t.rank[kids[kids.length - 1]]);
-      if (Math.max(py, ly) < 0 || Math.min(py, fy) > height) continue;
-      const px = left + this.reach[prev[r]] + 6;
-      const ty = Math.min(ly, Math.max(fy, py));
-      this.links.moveTo(px, py).lineTo(jx, py).lineTo(jx, ty).lineTo(sx, ty).moveTo(sx, fy).lineTo(sx, ly);
-      for (const kid of kids) {
-        const ky = first(d, t.rank[kid]);
-        if (ky < -ROW || ky > height + ROW) continue;
-        this.links.moveTo(sx, ky).lineTo(cx - 3, ky);
-        if (this.lit[kid] === 1) {
-          this.trace
-            .moveTo(px, py)
-            .lineTo(jx, py)
-            .lineTo(jx, ty)
-            .lineTo(sx, ty)
-            .lineTo(sx, ky)
-            .lineTo(cx - 3, ky);
-        }
-      }
-    }
   }
 
   /// The rank of the item of column `d` at `place` rows from its top, the first whose place is not above it.
@@ -812,12 +719,11 @@ export class SnapScene {
   private draw(t: Tree, now: number) {
     const { width, height } = this.app.screen;
     const line = height / 2;
-    const schematic = this.look === 'schematic';
     // Each column a part of the way to where it belongs; a pull no scroll has added to for a moment springs back.
     const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
     this.lastDraw = now;
     this.columns.forEach((c, d) => {
-      // The frame turns to orange while the pointer is over the column, and back, in about a tenth of a second.
+      // The ring turns to orange while the pointer is over the column, and back, in about a tenth of a second.
       c.warm += ((d === this.hovered ? 1 : 0) - c.warm) * (1 - Math.exp(-step / TURN));
       c.gap += ((c.held >= 0 ? 0 : 1) - c.gap) * SPRING;
       // A pull short of the threshold goes back quickly once the scrolling stops: the column is held to the line.
@@ -830,24 +736,16 @@ export class SnapScene {
       return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
     };
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
-    const first = (d: number, rank: number) => y(d, rank) - half(d, rank) + NODE_H / 2;
     // The stage a running work is at, between faint and full, every running node at once.
     const pulse = 0.3 + 0.35 * (1 + Math.cos(((now % PULSE_MS) / PULSE_MS) * 2 * Math.PI));
     const x = (d: number) => this.left + d * PITCH;
-    if (this.paper !== null) {
-      this.paper.visible = schematic;
-      this.paper.width = width;
-      this.paper.height = height;
-      this.paper.tilePosition.x = this.left;
-    }
     this.back.clear();
     // The line across the middle, dashed.
     for (let dx = 0; dx < width; dx += 12) this.back.moveTo(dx, line).lineTo(dx + 6, line);
     this.back.stroke({ color: PALETTE.line, width: 1 });
     this.links.clear();
-    this.trace.clear();
     this.marks.clear();
-    const heldFunnels: [number, number, number, number, number, number][] = [];
+    const lit: [number, number, number, number, number, number][] = [];
     const nowShown = new Set<Container>();
     const rows = Math.ceil(height / ROW / 2) + 2;
     for (let d = 0; d < t.columns.length; d += 1) {
@@ -869,12 +767,9 @@ export class SnapScene {
         if (!this.shown.has(view)) this.layer.addChild(view);
       }
       if (d === 0) continue;
-      if (schematic) {
-        this.wire(t, d, x(d - 1), cx, first, height);
-        continue;
-      }
       // The funnel from each item of the column to the left to the items under it: from its top to the top of the
-      // first and from its bottom to the bottom of the last, filled; those from held items drawn last, over the rest.
+      // first and from its bottom to the bottom of the last, filled; those from held items, and the ribbons from an
+      // item to each of its items in work, drawn last, over the rest.
       const px = x(d - 1) + NODE_W;
       const prev = t.columns[d - 1];
       const heldAbove = this.columns[d - 1].held;
@@ -888,22 +783,22 @@ export class SnapScene {
         const top = y(d, f) - half(d, f);
         const bottom = y(d, l) + half(d, l);
         if (Math.max(py + ph, bottom) < 0 || Math.min(py - ph, top) > height) continue;
-        if (r === heldAbove) heldFunnels.push([px, py - ph, py + ph, cx, top, bottom]);
+        if (r === heldAbove) lit.push([px, py - ph, py + ph, cx, top, bottom]);
         else this.funnel(px, py - ph, py + ph, cx, top, bottom);
+        if (this.lit[prev[r]] === 0) continue;
+        for (const kid of kids) {
+          if (this.lit[kid] === 0) continue;
+          const ky = y(d, t.rank[kid]);
+          const kh = half(d, t.rank[kid]);
+          if (Math.max(py + ph, ky + kh) < 0 || Math.min(py - ph, ky - kh) > height) continue;
+          lit.push([px, py - ph, py + ph, cx, ky - kh, ky + kh]);
+        }
       }
     }
-    if (schematic) {
-      this.links.stroke({ color: PALETTE.wire, width: 1 });
-      this.trace.stroke({ color: PALETTE.traced, width: 1 });
-    } else {
-      this.links.fill({
-        color: this.colours.other,
-        alpha: this.colours.otherAlpha,
-      });
-      for (const [px, top, bottom, cx, f, l] of heldFunnels) this.funnel(px, top, bottom, cx, f, l);
-      this.links.fill(PALETTE.funnel);
-    }
-    // Each held item framed by four corners over a faint wash, or ringed, in the accent or orange.
+    this.links.fill({ color: this.colours.other, alpha: this.colours.otherAlpha });
+    for (const [px, top, bottom, cx, f, l] of lit) this.funnel(px, top, bottom, cx, f, l);
+    this.links.fill(PALETTE.funnel);
+    // Each held item ringed, in the accent or orange.
     for (let d = 0; d < t.columns.length; d += 1) {
       const c = this.columns[d];
       if (c.held < 0) continue;
@@ -912,31 +807,11 @@ export class SnapScene {
       const gh = half(d, c.held);
       if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
       const tone = mix(PALETTE.accent, PALETTE.over, c.warm);
-      if (schematic) {
-        const [x1, y1, x2, y2, k] = [gx - 6, gy - gh - 2, gx + NODE_W + 2, gy + gh + 2, 10];
-        this.marks
-          .rect(x1, y1, x2 - x1, y2 - y1)
-          .fill({ color: tone, alpha: 0.06 })
-          .moveTo(x1, y1 + k)
-          .lineTo(x1, y1)
-          .lineTo(x1 + k, y1)
-          .moveTo(x2 - k, y1)
-          .lineTo(x2, y1)
-          .lineTo(x2, y1 + k)
-          .moveTo(x2, y2 - k)
-          .lineTo(x2, y2)
-          .lineTo(x2 - k, y2)
-          .moveTo(x1 + k, y2)
-          .lineTo(x1, y2)
-          .lineTo(x1, y2 - k)
-          .stroke({ color: tone, width: 2 });
-      } else {
-        this.marks
-          .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
-          .stroke({ color: tone, width: 3, alpha: 0.18 })
-          .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-          .stroke({ color: tone, width: 1 });
-      }
+      this.marks
+        .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
+        .stroke({ color: tone, width: 3, alpha: 0.18 })
+        .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
+        .stroke({ color: tone, width: 1 });
     }
     this.drawMap(t);
     for (const v of this.shown) if (!nowShown.has(v)) this.layer.removeChild(v);
