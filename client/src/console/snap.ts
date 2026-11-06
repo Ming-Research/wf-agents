@@ -87,7 +87,7 @@ const PALETTE = {
   unseen: '#6a82fd',
   funnel: '#e8ebff',
   /// The ribbons from the item under the pointer up to its root.
-  hoverRibbon: '#fde6c6',
+  hoverRibbon: '#fbcf93',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#aab6fd',
   /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting
