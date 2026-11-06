@@ -91,6 +91,9 @@ const PALETTE = {
   funnel: '#e8ebff',
   /// The ribbons from the item under the pointer up to its root.
   hoverRibbon: '#fbcf93',
+  /// The ring round the item selected and those on its way to its root, and the ribbons between them.
+  chosen: '#8b5cf6',
+  chosenRibbon: '#e2d7fd',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#aab6fd',
   /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting
@@ -330,6 +333,9 @@ export class SnapScene {
   /// Each item's place in the tree, a shadow's left out; and for each item, its shadows: what a shadow points to and
   /// what points to an item.
   private real = new Map<number, number>();
+  /// The item selected, by its number, or none: it and the way from it to its root, and from each of its shadows to
+  /// theirs, stay lit in purple until it is let go.
+  private selected: number | null = null;
   private shadowsOf = new Map<number, number[]>();
   private shadows: Uint8Array = new Uint8Array(0);
   private ready = false;
@@ -767,8 +773,8 @@ export class SnapScene {
   }
 
   /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in a light accent,
-  /// or orange as its held item's frame turns while the pointer is over it, marked in the accent where items are new to
-  /// the owner and red where questions wait for them; and the middle line over them, dark grey.
+  /// or orange while the pointer is over it, marked in the accent where items are new to the owner, red where questions
+  /// wait for them, and purple where the item selected stands; and the middle line over them, dark grey.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
     this.mapBars.clear();
@@ -788,6 +794,15 @@ export class SnapScene {
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);
       }
     });
+    // Where the item selected stands, purple across its column's bar, over every other mark, a little wider, so that
+    // it is found again from anywhere.
+    const chosen = this.selected === null ? undefined : this.real.get(this.selected);
+    if (chosen !== undefined) {
+      const [d, r] = [t.depth[chosen], t.rank[chosen]];
+      const c = this.columns[d];
+      const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at - c.pull * GIVE) * this.mapRow;
+      this.mapBars.rect(MAP_PAD + d * (MAP_STRIP + MAP_APART) - 2, at - 1.5, MAP_STRIP + 4, 3).fill(PALETTE.chosen);
+    }
     const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
     this.mapBars
       .moveTo(MAP_PAD / 2, mid)
@@ -856,12 +871,17 @@ export class SnapScene {
     this.dragging = null;
     const d = this.down;
     this.down = null;
-    // A click on a shadow holds the item it points to, so that the columns come to where it stands.
     if (d === null || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4 || this.tree === null) return;
+    // A click on an item selects it, and on it again, or on no item, lets it go. A click on a shadow selects the item
+    // it points to and holds it, so that the columns come to where it stands.
     const i = this.under;
-    if (i < 0 || this.shadows[i] !== 1) return;
-    const to = this.real.get(this.ids[i]);
-    if (to !== undefined) this.hold(this.tree.depth[to], this.tree.rank[to]);
+    if (i < 0) this.selected = null;
+    else if (this.shadows[i] === 1) {
+      const to = this.real.get(this.ids[i]);
+      if (to === undefined) return;
+      this.selected = this.ids[to];
+      this.hold(this.tree.depth[to], this.tree.rank[to]);
+    } else this.selected = this.selected === this.ids[i] ? null : this.ids[i];
   };
 
   private tick = () => {
@@ -965,20 +985,31 @@ export class SnapScene {
     // orange and ringed in orange, over everything else; each comes in quickly, and fades out once the pointer has left.
     // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and those
     // above each, up to its root, which depend on it too.
-    const chain = new Set<number>();
-    const light = (from: number) => {
-      for (let i = from; i >= 0 && !chain.has(i); i = t.parent[i]) chain.add(i);
+    const lit = (from: number) => {
+      const set = new Set<number>();
+      const light = (start: number) => {
+        for (let i = start; i >= 0 && !set.has(i); i = t.parent[i]) set.add(i);
+      };
+      if (from < 0) return set;
+      light(from);
+      const id = this.ids[from];
+      const to = this.real.get(id);
+      if (this.shadows[from] === 1 && to !== undefined) light(to);
+      if (this.shadows[from] === 0) for (const sh of this.shadowsOf.get(id) ?? []) light(sh);
+      return set;
     };
     this.under = this.pointed(t, x, y);
-    if (this.under >= 0) {
-      light(this.under);
-      const id = this.ids[this.under];
-      const to = this.real.get(id);
-      if (this.shadows[this.under] === 1 && to !== undefined) light(to);
-      if (this.shadows[this.under] === 0) {
-        for (const sh of this.shadowsOf.get(id) ?? []) light(sh);
-      }
+    const chain = lit(this.under);
+    // The item selected, the same way, in purple, under the orange.
+    const chosen = lit(this.selected === null ? -1 : (this.real.get(this.selected) ?? -1));
+    for (const i of chosen) {
+      const p = t.parent[i];
+      if (p < 0) continue;
+      const d = t.depth[i];
+      const [py, ph, iy, ih] = [y(d - 1, t.rank[p]), half(d - 1, t.rank[p]), y(d, t.rank[i]), half(d, t.rank[i])];
+      this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
     }
+    if (chosen.size > 1) this.links.fill(PALETTE.chosenRibbon);
     for (const i of chain) if (!this.glowing.has(i)) this.glowing.set(i, 0);
     for (const [i, a] of this.glowing) {
       const on = chain.has(i);
@@ -1007,6 +1038,15 @@ export class SnapScene {
         .stroke({ color: PALETTE.held, width: HALO, alpha: HALO_ALPHA })
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
         .stroke({ color: PALETTE.held, width: RING });
+    }
+    for (const i of chosen) {
+      const d = t.depth[i];
+      const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
+      this.marks
+        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
+        .stroke({ color: PALETTE.chosen, width: HALO, alpha: HALO_ALPHA })
+        .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
+        .stroke({ color: PALETTE.chosen, width: RING });
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
