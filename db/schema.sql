@@ -42,9 +42,11 @@ CREATE TABLE migrations (
 CREATE TABLE items (
   -- A piece of work to do, as its creator wrote it. Text that a work's rounds produce later (the problem as the
   -- engineer understood it, the study, the design, progress) is not stored here: views read it from rounds. Items own
-  -- nothing; how they depend on each other is in item_links. Only cancellation is stored as a status; every other
-  -- status is derived. A goal is an item with no work of its own, which no work ever runs on: it is reached through
-  -- the items it depends on, and is done once each of them is (goals_open).
+  -- nothing; how they depend on each other is in item_links. An item is open, done or cancelled: only cancellation is
+  -- stored; it is done once a work of it reached the end of its graph. What the architect's plan does with it, which
+  -- comes first and which is held back, is the plan's (start_order), not the item's. A goal is an item with no work of
+  -- its own, which no work ever runs on: it is reached through the items it depends on, and is done once each of them
+  -- is (goals_open).
   -- Read by: every cell that reads the item or the items around it; the engine when it starts and stops works.
 
   -- Item number, one sequence across all projects.
@@ -90,14 +92,6 @@ CREATE TABLE items (
   -- The acceptance as the creator wrote it, JSON list of conditions; NULL when the creator wrote none. The acceptance
   -- the work goes by is acceptance. Read by: cell `R1`, through item_body.
   wanted TEXT CHECK (wanted IS NULL OR json_valid(wanted)),
-  -- Why the architect holds the item, with the owner's approval: no work starts on it while it is held; NULL while it
-  -- is not. Read by: ready_items; the architect.
-  held TEXT,
-  -- Its place among its project's items in the architect's order, which works start in, lower first: the architect
-  -- sets it with its approved changes, moving an item first, last, or before or after another item of the project,
-  -- which ranks the project's items afresh. NULL for an item placed nowhere yet, as one just made is, which comes after
-  -- those placed, in the order made. Read by: the dispatch order in ready_items; the architect.
-  rank INTEGER,
   -- The decision points the item carries, JSON list in the flow's decision point shape, each with the option the owner
   -- chose and why: what a discussion settled that goes into the project's decisions/ once deep research confirms it.
   -- NULL when it carries none. An item that carries one goes to deep research, whatever its research finds. The
@@ -139,15 +133,22 @@ CREATE TABLE item_links (
   CHECK (item <> depends_on)
 ) STRICT;
 
-CREATE TABLE dispatch_queue (
-  -- Items waiting for a work to start, in the order the owner sets by hand, ahead of the architect's order. When a
-  -- slot is free the engine starts a work on the first one. This table goes away once the architect's order alone
-  -- decides what starts.
-  -- Read by: the engine at cell `S0`; the architect, which is given it with the items and asks the owner where its
-  -- order differs.
+CREATE TABLE start_order (
+  -- The architect's plan of starts: where an item stands in its project's start order, the order works start in, and
+  -- whether the plan holds it back from starting for now. It is the architect's plan, not the item's: the architect
+  -- writes it with its changes (a move first, last, or before or after another item of its project, which ranks the
+  -- project's items afresh; a hold; a release), and keeps why in its notebook, the change that made it giving its
+  -- reason too (architect_item_changes). An item with no row, as one just made, is placed nowhere and not held: it
+  -- starts after those placed, in the order made. Kept apart from items, a reordering writes these small rows only;
+  -- kept on the items, each one rewrote every item of the project.
+  -- Read by: ready_items, which cell `S0` starts from; open_items; the engine's checks of the architect's item changes;
+  -- the architect.
   item INTEGER PRIMARY KEY REFERENCES items(id),
-  -- Lower starts first. A real number, so an item can be put between two others without renumbering.
-  position REAL NOT NULL UNIQUE
+  -- Its place among its project's items, lower first, 1 the first; NULL for an item held and placed nowhere.
+  place INTEGER,
+  -- 1 while the plan holds it back, so that no work starts on it; 0 when it may start.
+  held INTEGER NOT NULL DEFAULT 0 CHECK (held IN (0, 1)),
+  CHECK (place IS NOT NULL OR held = 1)
 ) STRICT;
 
 CREATE TABLE design_cards (
@@ -1430,15 +1431,15 @@ CREATE VIEW item_blocked_by AS
   END;
 
 CREATE VIEW ready_items AS
-  -- Items waiting to start, in the order they start: first those the owner queued, in the owner's order; then the
-  -- others in the architect's order, each by its rank among its project's items, lower first, those placed nowhere yet
-  -- after, in the order made. An item is ready when it is no goal, not cancelled, not held, has no work running and no
-  -- item it depends on by a blocking dependency unmerged (item_blocked_by), and, unless the owner queued it, is not
-  -- done. An
-  -- item leaves the owner's queue when a work starts on it, and may be queued again once its works ended. A work runs
-  -- until it ends or its last round, at the cell it is at, completed without taking a row, which only the end of its
-  -- graph does; it is done at the end of the engineer's graph, ended as `done` or, while its round there is not
-  -- completed, not ended. While dispatch_holds has a row, the engine starts none.
+  -- Items waiting to start, in the order they start: first each item whose latest work was taken over (started over by
+  -- the owner or its architect, or one its flow version could not carry on), which waits only for a free slot, the one
+  -- taken over first first; then the others in the architect's start order (start_order), each by its place among its
+  -- project's items, lower first, those placed nowhere after, in the order made. An item is ready when it is no goal,
+  -- not cancelled, not done, not held by the plan, has no work running and no item it depends on by a blocking
+  -- dependency unmerged (item_blocked_by). On an item not cancelled, a work ends before its end only when it is taken
+  -- over. A work runs until it ends or its last round, at the cell it is at, completed without taking a row, which only
+  -- the end of its graph does; it is done at the end of the engineer's graph, ended as `done` or, while its round there
+  -- is not completed, not ended. While dispatch_holds has a row for its project, the engine starts none.
   -- Read by: cell `S0`; the architect, through what runs and starts next.
   WITH
   running(item) AS (
@@ -1450,22 +1451,32 @@ CREATE VIEW ready_items AS
   done(item) AS (
     SELECT w.item FROM works w
     WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
-      AND w.at IN ('E1', '20', 'end'))
-  SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
-  FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
-  WHERE i.deliver IS NOT NULL AND i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
-    AND i.id NOT IN (SELECT item FROM item_blocked_by)
-    AND (q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done))
-  ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
+      AND w.at IN ('E1', '20', 'end')),
+  taken_over(item, work) AS (
+    SELECT w.item, w.id FROM works w
+    WHERE w.item IS NOT NULL AND w.ended IS NOT NULL AND w.ended <> 'done'
+      AND w.id = (SELECT max(x.id) FROM works x WHERE x.item = w.item))
+  SELECT i.id AS item, i.project, i.title, i.level, s.place, t.work IS NOT NULL AS taken_over
+  FROM items i LEFT JOIN start_order s ON s.item = i.id LEFT JOIN taken_over t ON t.item = i.id
+  WHERE i.deliver IS NOT NULL AND i.cancelled IS NULL AND coalesce(s.held, 0) = 0
+    AND i.id NOT IN (SELECT item FROM running) AND i.id NOT IN (SELECT item FROM item_blocked_by)
+    AND i.id NOT IN (SELECT item FROM done)
+  ORDER BY t.work IS NULL, t.work, s.place NULLS LAST, i.id;
 
 CREATE VIEW open_items AS
-  -- The items not done or cancelled, a short row each, in the order they start. An item's state: `running`, a work is
-  -- on it, whose number and cell are in work and at; `paused`, that work is paused; `resuming`, it is paused and asked
-  -- to go on, which waits for a free slot; `stopping`, a cancel or a start over was asked, and it reads as it stands
-  -- until the work's step has ended; `held`, the architect holds it (items.held says why); `blocked`, an item it waits
-  -- for is not merged (item_blocked_by); `ready`, it starts when a slot is free (ready_items); `goal`, it has no work
-  -- of its own and is not done yet (goals_open). version is what a change to the item is written on. Read by: the
-  -- agents, to see what is on hand.
+  -- The items not done and not cancelled, a short row each, in the architect's start order. An item is open, done or
+  -- cancelled, and these are the open ones: what its work does, what the architect's plan does with it and what it
+  -- waits for are columns of their own. goal: 1 for a goal, which has no work of its own and is done once each item it
+  -- depends on is (goals_open). work and at: the work going on on it and the cell it is at; NULL while none is.
+  -- work_state, what that work does now: `stopping`, a cancel or a start over was asked, and it stands as it is until
+  -- the step it is in has ended; `paused`, by the owner, its architect or the engine (works.paused says why);
+  -- `waiting_for_slot`, its pause was asked to be lifted, or what it waited for came, and it waits for a free slot;
+  -- `waiting`, it waits for the holder of its blocker (blockers: the owner, an architect, its advisor, or items to
+  -- deliver); `running` otherwise: a round of it runs, its next step is due, or it waits at its cell for its turn or to
+  -- run a failed round again. held: 1 while the architect's plan holds it back (start_order). blocked: 1 while an item
+  -- it depends on by a blocking dependency is not merged (item_blocked_by), which keeps it from starting; a work going
+  -- on goes on either way. place: its place in its project's start order, NULL for one placed nowhere. version is what
+  -- a change to the item is written on. Read by: the agents, to see what is on hand.
   WITH
   running(item, work, at, paused) AS (
     SELECT w.item, w.id, w.at, w.paused FROM works w
@@ -1477,31 +1488,32 @@ CREATE VIEW open_items AS
     SELECT w.item FROM works w
     WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
       AND w.at IN ('E1', '20', 'end'))
-  SELECT i.id AS item, i.project, i.title,
+  SELECT i.id AS item, i.project, i.title, i.deliver IS NULL AS goal,
     CASE
+      WHEN r.work IS NULL THEN NULL
       WHEN EXISTS (
         SELECT 1 FROM outbox o
         WHERE (o.kind = 'start_over' AND o.work = r.work)
           OR (o.kind = 'cancel_item' AND json_extract(o.args, '$.item') = i.id)) THEN 'stopping'
       WHEN r.paused IS NOT NULL AND EXISTS (
-        SELECT 1 FROM outbox o WHERE o.kind = 'resume_work' AND o.work = r.work) THEN 'resuming'
+        SELECT 1 FROM outbox o WHERE o.kind = 'resume_work' AND o.work = r.work) THEN 'waiting_for_slot'
       WHEN r.paused IS NOT NULL THEN 'paused'
-      WHEN r.item IS NOT NULL THEN 'running'
-      WHEN i.deliver IS NULL THEN 'goal'
-      WHEN i.held IS NOT NULL THEN 'held'
-      WHEN i.id IN (SELECT item FROM item_blocked_by) THEN 'blocked'
-      ELSE 'ready'
-    END AS state,
-    i.rank,
+      WHEN EXISTS (SELECT 1 FROM slot_waits w WHERE w.work = r.work AND w.until IS NULL) THEN 'waiting_for_slot'
+      WHEN EXISTS (SELECT 1 FROM blockers b WHERE b.work = r.work AND b.ended IS NULL) THEN 'waiting'
+      ELSE 'running'
+    END AS work_state,
+    coalesce(s.held, 0) AS held,
+    i.id IN (SELECT item FROM item_blocked_by) AS blocked,
+    s.place,
     (SELECT coalesce(max(c.id), 0) FROM changes c WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id))
       AS version,
     r.work, r.at
-  FROM items i LEFT JOIN running r ON r.item = i.id LEFT JOIN dispatch_queue q ON q.item = i.id
+  FROM items i LEFT JOIN running r ON r.item = i.id LEFT JOIN start_order s ON s.item = i.id
   WHERE i.cancelled IS NULL AND CASE
     WHEN i.deliver IS NULL THEN i.id IN (SELECT item FROM goals_open)
-    ELSE r.item IS NOT NULL OR q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done)
+    ELSE i.id NOT IN (SELECT item FROM done)
   END
-  ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
+  ORDER BY s.place NULLS LAST, i.id;
 
 CREATE VIEW item_body AS
   -- The item as its creator wrote it, the acceptance it wanted and the decision points it carries included. Read by:

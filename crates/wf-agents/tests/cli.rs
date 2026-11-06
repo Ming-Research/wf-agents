@@ -41,12 +41,11 @@ fixes = 5
 "#;
 
 /// The commands that open the database with nothing checked before, each as the owner types it.
-const UNCHECKED: [&str; 18] = [
+const UNCHECKED: [&str; 17] = [
     "item list",
     "item depend 2 1 --needs x --kind blocking",
     "item cancel 1 --why x",
-    "queue list",
-    "queue put 1",
+    "ready",
     "asks",
     "ask 1",
     "answer 1 --text x --speaker owner",
@@ -742,7 +741,7 @@ type ItemRow = fn(u32) -> String;
 
 // A table with more rows than the limit ends with a last line that says how many it leaves out, which is no row of
 // it; a table that fits, at the limit too, is exactly its rows as it was. The tables are worked out by hand from the
-// items' columns, and `item list` and `queue list` print through the one function. The items are added to the one
+// items' columns, and `item list` and `ready` print through the one function. The items are added to the one
 // database in steps, so the tens of thousands of rows are written once.
 #[test]
 fn a_table_over_the_row_limit_says_how_many_rows_it_leaves_out() {
@@ -750,11 +749,11 @@ fn a_table_over_the_row_limit_says_how_many_rows_it_leaves_out() {
     let tables: [(&str, &str, ItemRow); 2] = [
         (
             "item list",
-            "id\tproject\ttitle\tdeliver\tlevel\tcancelled\tqueued\tdepends_on\twork\n",
-            |i| format!("{i}\tp\titem {i}\tchange\tl\t\t\t\t\n"),
+            "id\tproject\ttitle\tdeliver\tlevel\tcancelled\tdepends_on\twork\n",
+            |i| format!("{i}\tp\titem {i}\tchange\tl\t\t\t\n"),
         ),
-        ("queue list", "item\tproject\ttitle\tlevel\tposition\n", |i| {
-            format!("{i}\tp\titem {i}\tl\t\n")
+        ("ready", "item\tproject\ttitle\tlevel\tplace\ttaken_over\n", |i| {
+            format!("{i}\tp\titem {i}\tl\t\t0\n")
         }),
     ];
     let mut have = 0;

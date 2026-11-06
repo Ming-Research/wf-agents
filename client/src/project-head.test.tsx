@@ -22,7 +22,6 @@ const item = (id: number, project: string, state: ItemState): ItemSummary => ({
   route_taken: null,
   cancelled: null,
   state,
-  queued: null,
   work: null,
   at: null,
   stage: null,
@@ -34,7 +33,7 @@ const item = (id: number, project: string, state: ItemState): ItemSummary => ({
 });
 
 const items = {
-  items: [item(1, 'p', 'working'), item(2, 'p', 'done'), item(3, 'q', 'new')],
+  items: [item(1, 'p', 'open'), item(2, 'p', 'done'), item(3, 'q', 'open')],
   links: [],
 };
 

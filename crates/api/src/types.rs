@@ -127,7 +127,7 @@ pub enum Event {
     Ask { ask: i64, work: Option<i64> },
     /// An agent told the owner something, or the owner marked it read.
     OwnerMessage { message: i64, work: Option<i64> },
-    /// An item, its dependencies or its place in the queue changed; no item when which one is no longer known.
+    /// An item or its dependencies changed; no item when which one is no longer known.
     Item { item: Option<i64> },
     /// A flow version was stored.
     Flow { version: i64 },
@@ -886,20 +886,17 @@ pub struct FlowVersion {
     pub works: i64,
 }
 
-/// Where an item stands.
+/// Where an item stands: whether what it is to deliver has been delivered. What its works do is theirs (`WorkState`),
+/// what the architect's plan does with it is the plan's, and what it waits for is its dependencies'.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemState {
-    /// Never worked on, and not in the queue.
-    New,
-    /// In the dispatch queue, waiting for a work to start.
-    Queued,
-    /// Its latest work runs, waits or is paused.
-    Working,
-    /// Its latest work reached its end.
+    /// Not delivered yet: no work of it reached the end of its graph, its last work stopped before its end included;
+    /// for a goal, not everything it depends on is done.
+    Open,
+    /// A work of it reached the end of its graph; for a goal, everything it depends on is done.
     Done,
-    /// Its latest work was stopped before its end.
-    Stopped,
+    /// It is not to be done.
     Cancelled,
 }
 
@@ -918,8 +915,6 @@ pub struct ItemSummary {
     pub route_taken: Option<String>,
     pub cancelled: Option<String>,
     pub state: ItemState,
-    /// Its place in the dispatch queue, lower first; none when it is not queued.
-    pub queued: Option<f64>,
     /// Its latest work and the cell that work is at.
     pub work: Option<i64>,
     pub at: Option<String>,

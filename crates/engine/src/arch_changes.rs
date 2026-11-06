@@ -671,19 +671,24 @@ fn write_one(
             }
         }
         "cancel" => cancel(item_of(&c["item"], keys)?, text(c, "goes"))?,
+        // A hold and a release are the architect's plan's, not the item's: why is in the change's reason and the
+        // architect's notebook.
         "hold" => {
             tx.execute(
-                "UPDATE items SET held = ?2 WHERE id = ?1",
-                params![item_of(&c["item"], keys)?, reason],
+                "INSERT INTO start_order (item, held) VALUES (?1, 1) ON CONFLICT (item) DO UPDATE SET held = 1",
+                [item_of(&c["item"], keys)?],
             )
             .map_err(sql)?;
         }
         "release" => {
+            let item = item_of(&c["item"], keys)?;
             tx.execute(
-                "UPDATE items SET held = NULL WHERE id = ?1",
-                [item_of(&c["item"], keys)?],
+                "UPDATE start_order SET held = 0 WHERE item = ?1 AND place IS NOT NULL",
+                [item],
             )
             .map_err(sql)?;
+            tx.execute("DELETE FROM start_order WHERE item = ?1 AND place IS NULL", [item])
+                .map_err(sql)?;
         }
         "edit_item" => {
             let column = match text(c, "part") {
@@ -748,13 +753,14 @@ fn write_one(
     Ok(())
 }
 
-/// Puts an item at its place among its project's items in the architect's order and ranks every item of the project
-/// afresh by that order, 1 the first; the order it starts from is the items' ranks, those with none after, in the order
-/// they were made.
+/// Puts an item at its place among its project's items in the architect's start order (`start_order`) and ranks every
+/// item of the project afresh by that order, 1 the first, writing only the places that change; the order it starts
+/// from is the items' places, those with none after, in the order they were made. A hold stays as it was.
 fn rank(tx: &Transaction<'_>, item: i64, place: &str, other: Option<i64>) -> Result<(), String> {
     let order: Vec<i64> = query_json(
         tx,
-        "SELECT id FROM items WHERE project = (SELECT project FROM items WHERE id = ?1) ORDER BY rank NULLS LAST, id",
+        "SELECT i.id FROM items i LEFT JOIN start_order s ON s.item = i.id
+         WHERE i.project = (SELECT project FROM items WHERE id = ?1) ORDER BY s.place NULLS LAST, i.id",
         &[&item],
         1_000_000,
     )?
@@ -763,7 +769,8 @@ fn rank(tx: &Transaction<'_>, item: i64, place: &str, other: Option<i64>) -> Res
     .collect();
     for (i, id) in placed(&order, item, place, other)?.into_iter().enumerate() {
         tx.execute(
-            "UPDATE items SET rank = ?2 WHERE id = ?1 AND rank IS NOT ?2",
+            "INSERT INTO start_order (item, place) VALUES (?1, ?2)
+             ON CONFLICT (item) DO UPDATE SET place = excluded.place WHERE place IS NOT excluded.place",
             params![id, i as i64 + 1],
         )
         .map_err(sql)?;
@@ -817,26 +824,36 @@ mod tests {
         assert!(placed(&order, 1, "between", None).is_err());
     }
 
-    // Moving an item ranks every item of its project afresh, those not ranked yet after the others in the order they
-    // were made, and leaves the items of another project as they were.
+    // Moving an item ranks every item of its project afresh in the start order, those placed nowhere yet after the
+    // others in the order they were made, and leaves the items of another project and a hold as they were.
     #[test]
     fn a_move_ranks_the_items_of_the_project_afresh() {
         let mut db = Db::in_memory().unwrap();
         let ranks = |db: &Db| -> Vec<(i64, Option<i64>)> {
-            let mut st = db.conn().prepare("SELECT id, rank FROM items ORDER BY id").unwrap();
+            let mut st = db
+                .conn()
+                .prepare("SELECT i.id, s.place FROM items i LEFT JOIN start_order s ON s.item = i.id ORDER BY i.id")
+                .unwrap();
             st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
                 .unwrap()
                 .map(|x| x.unwrap())
                 .collect()
         };
         db.write(Actor::Owner, |tx| {
-            for (project, rank) in [("p", Some(2)), ("q", Some(1)), ("p", Some(1)), ("p", None), ("p", None)] {
+            for (project, place) in [("p", Some(2)), ("q", Some(1)), ("p", Some(1)), ("p", None), ("p", None)] {
                 tx.execute(
-                    "INSERT INTO items (project, title, problem, why, deliver, level, rank)
-                     VALUES (?1, 't', 'x', 'y', 'change', 'l', ?2)",
-                    params![project, rank],
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES (?1, 't', 'x', 'y', 'change', 'l')",
+                    [project],
                 )?;
+                if let Some(place) = place {
+                    tx.execute(
+                        "INSERT INTO start_order (item, place) VALUES (?1, ?2)",
+                        params![tx.last_insert_rowid(), place],
+                    )?;
+                }
             }
+            tx.execute("UPDATE start_order SET held = 1 WHERE item = 3", [])?;
             Ok(())
         })
         .unwrap();
@@ -857,6 +874,11 @@ mod tests {
             ranks(&db),
             [(1, Some(3)), (2, Some(1)), (3, Some(2)), (4, Some(4)), (5, Some(1))]
         );
+        let held: i64 = db
+            .conn()
+            .query_row("SELECT held FROM start_order WHERE item = 3", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(held, 1);
         moved(
             &mut db,
             json!({ "place": "under", "item": 1, "dependency": "blocking" }),
@@ -964,11 +986,51 @@ mod tests {
             .map(|x| x.unwrap())
             .collect();
         assert_eq!(links, [(1, 2), (2, 3)]);
-        let held: Option<String> = db
+        let held: i64 = db
             .conn()
-            .query_row("SELECT held FROM items WHERE id = 3", [], |r| r.get(0))
+            .query_row("SELECT held FROM start_order WHERE item = 3", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(held.as_deref(), Some("Held."));
+        assert_eq!(held, 1);
+    }
+
+    // A hold puts an item in the plan held, where it stood or placed nowhere, and a release lets it start again, where
+    // it stood; an item placed nowhere has no row left.
+    #[test]
+    fn a_hold_and_a_release_are_the_plans() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for _ in 0..2 {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', 't', 'x', 'y', 'change', 'l')",
+                    [],
+                )?;
+            }
+            tx.execute("INSERT INTO start_order (item, place) VALUES (1, 1)", [])?;
+            Ok(())
+        })
+        .unwrap();
+        let change = |db: &mut Db, kind: &str| {
+            let changes = [1, 2].map(|i| json!({ "kind": kind, "item": i.to_string(), "reason": "r" }));
+            db.write(Actor::Architect, |tx| {
+                write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        let plan = |db: &Db| -> Vec<(i64, Option<i64>, i64)> {
+            let mut st = db
+                .conn()
+                .prepare("SELECT item, place, held FROM start_order ORDER BY item")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        change(&mut db, "hold");
+        assert_eq!(plan(&db), [(1, Some(1), 1), (2, None, 1)]);
+        change(&mut db, "release");
+        assert_eq!(plan(&db), [(1, Some(1), 0)]);
     }
 
     // The architect's cancellation of an item, and its merge of one item into another, ask the engine's loop to cancel

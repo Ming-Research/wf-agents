@@ -5,21 +5,31 @@
 // the owner drags, its width kept in this browser. Each project's tree is ours, after the v1 board's: each item a card whose left edge is in its state's
 // colour, the items it depends on in a list under it, set in, with a rule down their left. A row has its toggle, which
 // folds the rows under it; the item's number, of a fixed width, tinted in its state's colour and saying its state on
-// hovering; its title; what it needs from the owner and the items it waits for before it starts; and at its end, as
-// muted words joined by a bar, the kind of the dependency by which the item above depends on it, how many of what it
-// depends on are done, its place in the queue and its work's stage in words where the row has room, how far through
-// the stages on hovering. A click on a row opens its item; a double click on a row with rows under it folds or
+// hovering; while the item is open, what its latest work does, as that work's mark wherever a work's state shows; its
+// title; what it needs from the owner and the items it waits for before it starts; and at its end, as muted words
+// joined by a bar, the kind of the dependency by which the item above depends on it, how many of what it depends on are
+// done and its work's stage in words where the row has room, how far through the stages on hovering. A click on a row opens its item; a double click on a row with rows under it folds or
 // unfolds them, as its toggle does.
 
 import { ChevronDownIcon, ChevronRightIcon, LinkIcon } from '@primer/octicons-react';
 import { Fragment, type MouseEvent, type ReactNode, useState } from 'react';
 
-import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
-import { DependencyKind, ITEM_MARK, ITEM_TONE, Loaded, StateChip, StateFilter, useShownStates } from '../components';
+import type { ItemLink, Items as ItemsData, ItemState, ItemSummary, Status, WorkSummary } from '../api';
+import {
+  DependencyKind,
+  ITEM_MARK,
+  ITEM_TONE,
+  liveState,
+  Loaded,
+  StateChip,
+  StateFilter,
+  StateMark,
+  useShownStates,
+} from '../components';
 import { sortedProjects } from '../conversation';
 import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
-import { useResource } from '../live';
+import { useResource, useStatus } from '../live';
 import { ListSplit, ProjectHead } from '../parts';
 import { href, navigate } from '../route';
 import { t, tn } from '../text';
@@ -28,14 +38,27 @@ import { useNarrow } from '../width';
 import { Item } from './Item';
 
 /// The states shown until their button says otherwise: what is settled is hidden.
-const SHOWN: ItemState[] = ['working', 'queued', 'new', 'stopped'];
+const SHOWN: ItemState[] = ['open'];
+
+/// The works, by their number, and the engine's status, which a row reads what its item's latest work does from, as
+/// every place that shows a work's state does.
+type Works = { byId: ReadonlyMap<number, WorkSummary>; status: Status | null };
+
+/// The items a work goes on on: whose latest work is neither done nor ended.
+function moving(items: ItemSummary[], works: Works): Set<number> {
+  const goes = (i: ItemSummary) => {
+    const w = i.work === null ? undefined : works.byId.get(i.work);
+    return w !== undefined && w.state !== 'done' && w.state !== 'ended';
+  };
+  return new Set(items.filter(goes).map((i) => i.id));
+}
 
 type RowProps = {
   row: TreeRow;
   /// The row's place in its tree, which names it among the rows: an item shown in several places is several rows.
   path: string;
   data: ItemsData;
-  place: Map<number, number>;
+  works: Works;
   selected: number | null;
   folded: Set<string>;
   onFold: (path: string, open: boolean) => void;
@@ -84,8 +107,9 @@ function onRow(e: MouseEvent<HTMLElement>): boolean {
   return e.target instanceof Element && e.target.closest('.tree-toggle') === null;
 }
 
-function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
+function Row({ row, path, data, works, selected, folded, onFold }: RowProps) {
   const i = row.item;
+  const w = i.state === 'open' && i.work !== null ? works.byId.get(i.work) : undefined;
   const parent = row.full && row.children.length > 0;
   const open = parent && !folded.has(path);
   const deps = depsDone(i.id, data.items, data.links);
@@ -128,6 +152,7 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
           </span>
           {row.full ? (
             <>
+              <StateMark state={w === undefined ? null : liveState(w, works.status)} />
               <span className="tree-title" title={i.title}>
                 {i.title}
               </span>
@@ -139,9 +164,6 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
                     <span title={tn('items_deps_title', deps.of, { done: deps.done })}>
                       {deps.done}/{deps.of}
                     </span>
-                  ) : null,
-                  place.has(i.id) ? (
-                    <span title={t('items_queue_title')}>{t('items_queue', { n: place.get(i.id) ?? 0 })}</span>
                   ) : null,
                 ]}
                 stage={
@@ -172,7 +194,7 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
                 row={c}
                 path={at}
                 data={data}
-                place={place}
+                works={works}
                 selected={selected}
                 folded={folded}
                 onFold={onFold}
@@ -193,7 +215,8 @@ function Project(props: {
   items: ItemSummary[];
   links: ItemLink[];
   data: ItemsData;
-  place: Map<number, number>;
+  works: Works;
+  moving: ReadonlySet<number>;
   shown: ItemState[];
   onShown: (s: ItemState) => void;
   selected: number | null;
@@ -201,7 +224,7 @@ function Project(props: {
   onFold: (path: string, open: boolean) => void;
 }) {
   const visible = props.items.filter((i) => props.shown.includes(i.state));
-  const rows = tree(visible, props.links);
+  const rows = tree(visible, props.links, props.moving);
   const heading = `items-project-${props.name}`;
   return (
     <section className="tree-project">
@@ -227,7 +250,7 @@ function Project(props: {
                 row={r}
                 path={at}
                 data={props.data}
-                place={props.place}
+                works={props.works}
                 selected={props.selected}
                 folded={props.folded}
                 onFold={props.onFold}
@@ -240,8 +263,9 @@ function Project(props: {
   );
 }
 
-function Tree({ data, selected, shown, onShown }: {
+function Tree({ data, works, selected, shown, onShown }: {
   data: ItemsData;
+  works: Works;
   selected: number | null;
   shown: ItemState[];
   onShown: (s: ItemState) => void;
@@ -250,13 +274,7 @@ function Tree({ data, selected, shown, onShown }: {
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
   if (data.items.length === 0) return <p className="muted tree-none">{t('no_items')}</p>;
   const projects = sortedProjects(data.items.map((i) => i.project));
-  // The queue is one for every project: an item's place in it counts from 1.
-  const place = new Map(
-    data.items
-      .filter((i) => i.queued !== null)
-      .sort((a, b) => (a.queued ?? 0) - (b.queued ?? 0))
-      .map((i, n) => [i.id, n + 1]),
-  );
+  const going = moving(data.items, works);
   const fold = (path: string, open: boolean) =>
     setFolded((f) => {
       const next = new Set(f);
@@ -273,7 +291,8 @@ function Tree({ data, selected, shown, onShown }: {
           items={data.items.filter((i) => i.project === p)}
           links={data.links}
           data={data}
-          place={place}
+          works={works}
+          moving={going}
           shown={shown}
           onShown={onShown}
           selected={selected}
@@ -287,13 +306,18 @@ function Tree({ data, selected, shown, onShown }: {
 
 export function Items({ selected }: { selected: number | null }) {
   const items = useResource<ItemsData>('items', '/api/v1/items');
+  const all = useResource<WorkSummary[]>('works', '/api/v1/works').data;
+  const status = useStatus();
+  const works: Works = { byId: new Map((all ?? []).map((w) => [w.id, w])), status };
   const [shown, toggle] = useShownStates('items-states', STATES, SHOWN);
   // While no item is picked, the first the tree shows is open; below the narrow breakpoint, where it would take the
   // tree's place, none is, until the owner picks one.
   const narrow = useNarrow();
   const open =
     selected ??
-    (items.data !== undefined && !narrow ? firstShown(items.data.items, items.data.links, shown) : null);
+    (items.data !== undefined && !narrow
+      ? firstShown(items.data.items, items.data.links, shown, moving(items.data.items, works))
+      : null);
   return (
     <ListSplit
       label={t('nav_items')}
@@ -301,7 +325,9 @@ export function Items({ selected }: { selected: number | null }) {
       back={href({ page: 'items' })}
       list={
         <div className="items-trees">
-          <Loaded r={items}>{(data) => <Tree data={data} selected={open} shown={shown} onShown={toggle} />}</Loaded>
+          <Loaded r={items}>
+            {(data) => <Tree data={data} works={works} selected={open} shown={shown} onShown={toggle} />}
+          </Loaded>
         </div>
       }
       open={open !== null ? <Item id={open} /> : null}

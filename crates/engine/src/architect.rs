@@ -2904,8 +2904,9 @@ fn merged(conn: &Connection, item: i64) -> Result<bool, String> {
     )? > 0)
 }
 
-/// An item as an item change finds it: its title, why it was cancelled, why it is held and its acceptance.
-type ItemState = (String, Option<String>, Option<String>, Option<String>);
+/// An item as an item change finds it: its title, why it was cancelled, whether the architect's plan holds it back and
+/// its acceptance.
+type ItemState = (String, Option<String>, bool, Option<String>);
 
 /// How the situation has changed under an item change since it was drafted, every way at once: an item it changes
 /// merged or was cancelled; a text it changes is at another version than the one it was drafted on, the item as it is
@@ -2925,7 +2926,8 @@ fn changed_under(c: &checks::Ctx<'_>, matter: Option<i64>, ch: &Value) -> Result
     };
     let state = |id: i64| -> Result<Option<ItemState>, String> {
         conn.query_row(
-            "SELECT title, cancelled, held, acceptance FROM items WHERE id = ?1",
+            "SELECT i.title, i.cancelled, coalesce(s.held, 0), i.acceptance
+             FROM items i LEFT JOIN start_order s ON s.item = i.id WHERE i.id = ?1",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
@@ -2995,7 +2997,7 @@ fn changed_under(c: &checks::Ctx<'_>, matter: Option<i64>, ch: &Value) -> Result
         if cancelled.is_some() {
             problems.push(format!("item {on} \"{title}\" is cancelled: it will never deliver"));
         }
-        if held.is_some() {
+        if held {
             problems.push(format!(
                 "item {on} \"{title}\" is held: an item waiting for it waits as long as the hold"
             ));
@@ -4419,7 +4421,8 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         ),
         (
             "state",
-            "SELECT i.rank, i.held, i.cancelled, i.level, w.id AS work, w.at, w.paused, w.pr FROM items i
+            "SELECT s.place, coalesce(s.held, 0) AS held, i.cancelled, i.level, w.id AS work, w.at, w.paused, w.pr
+             FROM items i LEFT JOIN start_order s ON s.item = i.id
              LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id) WHERE i.id = ?1",
         ),
     ] {

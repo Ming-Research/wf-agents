@@ -539,7 +539,7 @@ fn a_cancel_and_a_resume_asked_with_no_engine_running_are_carried_out_at_its_nex
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// Puts a second item in the queue of a setup.
+/// Puts a second item in the start order of a setup.
 fn another_item(e: &mut Engine) -> i64 {
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
@@ -548,10 +548,7 @@ fn another_item(e: &mut Engine) -> i64 {
             [],
         )?;
         let id = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)",
-            params![id],
-        )?;
+        tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 2)", params![id])?;
         Ok(id)
     })
     .unwrap()

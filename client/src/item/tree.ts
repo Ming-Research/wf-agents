@@ -14,16 +14,18 @@ export type TreeRow = {
   children: TreeRow[];
 };
 
-/// The order states are listed in: what moves first, what is settled last.
-export const STATES: ItemState[] = ['working', 'queued', 'new', 'stopped', 'done', 'cancelled'];
+/// The order states are listed in: what is open first, what is settled last.
+export const STATES: ItemState[] = ['open', 'done', 'cancelled'];
 
-/// What moves first comes first: by state, then by place in the queue, then by number.
-export function byOrder(a: ItemSummary, b: ItemSummary): number {
-  return STATES.indexOf(a.state) - STATES.indexOf(b.state) || (a.queued ?? 0) - (b.queued ?? 0) || a.id - b.id;
+/// What moves first comes first: by state, then an item a work goes on on (`moving`, by item), then by number.
+export function byOrder(a: ItemSummary, b: ItemSummary, moving: ReadonlySet<number> = new Set()): number {
+  const goes = (i: ItemSummary) => (moving.has(i.id) ? 0 : 1);
+  return STATES.indexOf(a.state) - STATES.indexOf(b.state) || goes(a) - goes(b) || a.id - b.id;
 }
 
-/// The tree of `items`, by the dependencies among them; a link to an item not among them is left out.
-export function tree(items: ItemSummary[], links: ItemLink[]): TreeRow[] {
+/// The tree of `items`, by the dependencies among them, those a work goes on on (`moving`) first among their state's; a
+/// link to an item not among them is left out.
+export function tree(items: ItemSummary[], links: ItemLink[], moving: ReadonlySet<number> = new Set()): TreeRow[] {
   const byId = new Map(items.map((i) => [i.id, i]));
   const needs = new Map<number, { dep: ItemSummary; kind: string }[]>();
   const awaited = new Set<number>();
@@ -44,16 +46,17 @@ export function tree(items: ItemSummary[], links: ItemLink[]): TreeRow[] {
     shown.add(item.id);
     const under = new Set(path).add(item.id);
     const children = [...(needs.get(item.id) ?? [])]
-      .sort((a, b) => byOrder(a.dep, b.dep))
+      .sort((a, b) => byOrder(a.dep, b.dep, moving))
       // The dependencies form no cycle; one that did would end here rather than go round.
       .filter((d) => !under.has(d.dep.id))
       .map((d) => row(d.dep, under, d.kind, item.id));
     return { item, full: true, kind, children };
   };
-  const roots = items.filter((i) => !awaited.has(i.id)).sort(byOrder);
+  const order = (a: ItemSummary, b: ItemSummary) => byOrder(a, b, moving);
+  const roots = items.filter((i) => !awaited.has(i.id)).sort(order);
   const out = roots.map((r) => row(r, new Set(), null, null));
   // Items left over can only be on a cycle, which the database refuses; they are still listed, in full.
-  for (const i of [...items].sort(byOrder)) {
+  for (const i of [...items].sort(order)) {
     if (!shown.has(i.id)) out.push(row(i, new Set(), null, home.get(i.id) ?? null));
   }
   return out;
@@ -68,12 +71,18 @@ export function depsDone(id: number, items: ItemSummary[], links: ItemLink[]): {
 
 /// The item the items view opens while none is picked: the first the tree shows, the first project's by name first;
 /// none while it shows none.
-export function firstShown(items: ItemSummary[], links: ItemLink[], shown: ItemState[]): number | null {
+export function firstShown(
+  items: ItemSummary[],
+  links: ItemLink[],
+  shown: ItemState[],
+  moving: ReadonlySet<number> = new Set(),
+): number | null {
   const projects = [...new Set(items.map((i) => i.project))].sort();
   for (const p of projects) {
     const rows = tree(
       items.filter((i) => i.project === p && shown.includes(i.state)),
       links,
+      moving,
     );
     if (rows.length > 0) return rows[0].item.id;
   }

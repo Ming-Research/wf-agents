@@ -2273,7 +2273,7 @@
         },
         {
           "value": "hold",
-          "desc": "No work starts on it for now; on an item already held, the reason of this change takes the place of the one it had",
+          "desc": "Your plan holds it back: no work starts on it until you release it",
           "fields": [
             {
               "name": "item",
@@ -4049,7 +4049,7 @@
     },
     {
       "name": "query",
-      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden. Rows too long to give here come as the first of them, how many there are and the file that holds them: narrow the query, or read the file. What is on hand is in `open_items`: count it by state before you read it all; an item in full is in `item_body`, `item_acceptance`, `item_dependencies` and `item_design_cards`",
+      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden. Rows too long to give here come as the first of them, how many there are and the file that holds them: narrow the query, or read the file. What is on hand is in `open_items`: count it before you read it all; an item in full is in `item_body`, `item_acceptance`, `item_dependencies` and `item_design_cards`",
       "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long gives its first rows and is saved locally, its path given; a result past the row limit is counted. The description of the tables given to agents is generated from the database's own definition. A query that names a column or a table there is not is told, after the error, the columns of each table and view it names, and for a table there is not, every table's and view's name",
       "tables": "The tables and views it reads, with their columns and the start of what each holds; for one in full, each column explained, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
@@ -4139,7 +4139,7 @@
       "end_architect_work": "Ends the architect's work.",
       "stop_architect_work": "An architect's work that the flow version the engine runs cannot take on ends here, at once, as the row of the cell for a work on an older version brings it: the work records why it ended (the version it cannot go on in, and why), and a project's architect runs one work at a time, so that the next look starts a new one when a matter is due. Its asks of the owner stay the owner's to answer, the matters they hold coming back with the answer, and its project's hold of new starts for setting it straight stays while a place to set straight is left open.",
       "look_at_queue": "Looks at the project's queue and the base, and takes what comes next in a fixed order, without a round, as facts decide and no agent: first a new base, when the project has none, the policy changed since the base, or what came since it reached the installation's amount (`architect.carried_most`); then the owner's words and the matters back with the owner's reply, the one that came first; then main's CI red; then the matter a work stopped at its question waits on, the reports of the returns sent back of a work the engine paused for returns sent back in a row, or a report marked as harming now, the one that came first; then the rest of the queue, the one that came first. A matter parked by a question the owner has not answered is not taken; nothing waits for the owner's reply.",
-      "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
+      "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, one whose work was taken over starts first, since it waits only for a slot; then the projects with items ready take the free slots in turn, each in its architect's start order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. This pause withdraws a resume that still waits for a free slot, as `resume_work` says. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
       "bring_up": "A work on an older flow version, when it next goes on with no step under way, is brought to the version the engine runs by what it carries now: where it stands, what rows recorded, the returns later cells will read and, in the middle of a cell, the session that cell has open. A new version ends a work when it has no graph for it, and an architect's work that can go on from none of its cells (below). The cell it serves is the one it is doing: where it stopped, else the first of the cells that wait for an answer, else the cell it stands at; it has begun that cell once a round ran there since the work last took a row of a cell that is not one of those every agent's cell shares (the tools, the owner's Start, the answers to who interjected) or of the asking part: a round that asked for tools and got their results, or a return sent back, has begun it, and coming to a cell, or standing at an engine's cell that has not run, has not. The returns later cells will read are the newest own answer of each cell the version reads from where the work stands, and the work's last return, which the cell after it reads by where it came from: the cells the work can still come to by the version's rows, from the cell it stands at and the cells it goes back to; each cell those cells read by its id, through an input's place or a database view that names it; and each cell the engine's own code reads by its id. An answer that no cell the work can still come to reads takes no part. An engineer's work whose merge stands (its merge cell took `merged`, and watching main has not taken `broken_by_merge` since) is judged by the rounds after its merge alone: only their returns count, only the cells they walked are gone back to, and only they are done again; its answers from before the merge take no part, later cells reading them as they are, so that neither the engine nor the owner's Start ever takes it back before its merge. Earlier returns of the cells every agent's cell shares and of the asking part are read only so, and are not counted. Each is compared by what its cell takes now, its outcome alone for an agent's, a field taking too what the flow names as it was earlier (`earlier`): absent, or in its shape then, which no return handed in now may be. It moves where it stands, in the same sessions, its version changed and no round recorded, when the version has the graph, every return counted still fits its cell, the cell it stands at is there, the cell it serves (and the agent's cell of the asking part whose session is open: the one it stands at, or the one whose tools are running) has not changed since it began it its kind, its line or the inputs of its own (their names and sources; those every agent's cell has come with what every return shares), and the cells it goes back to are there as cells of the same kind; a session in the middle of a cell is given what the version changed of its format, task and rows, and a return that does not fit them is sent back. Otherwise it comes here, its version changed, with where it goes back to as where it stopped: the first cell of the work's main way whose return does not fit, or the cell it serves when that changed or a cell it goes back to did not hold, or, when the cell it stands at or serves is gone, the latest cell it walked that the version has. It does that cell again from its start: the round it was in is cut off, the question it had out is withdrawn, as the cell that asked does it again, and what it answered, asked and was told stays. A work never goes back past a round that did what cannot be undone: an engineer's merge, once watching main took it back; and what an architect's round does at once: an action on a work or on new starts (a pause, a resume, a start over, new starts held or let go, an interjection), a word to the owner, a message to another project's architect, a change to observations, a reply that went out to an engineer or to the work that reported, and the item changes made. What has not taken effect is done again: what waits for a second eye is dropped, to be handed in again, its reply with it, the matters closed whose reply has not gone out go back to the queue, and the notebook is written again. An engineer's work that would go back past such a round stays here instead, paused, with the cell as where it stopped, for the owner to decide: the owner's Start takes it there all the same. When the version has none of the cells it walked, it stays here, paused, with nowhere to go back to: once a later flow version that has one is installed, the owner's Start looks again, a paused work not being brought to a new version until it goes on; one whose merge does not stand may be started over, or its item cancelled, meanwhile. An engineer's work that stays here asks its project's architect to set it straight, once for each version. An architect's work that would stay here ends instead, at once (`stop_architect_work`): it has no item to start over or cancel, and waiting here it would hold its project's architect for good. A work whose graph the version lacks ends, as no cell of the version can run it, and the owner is told why: an architect's work, or a policy setting's of a version before, leaves no hold of its project's new starts for setting it straight, and a policy setting's worktree is removed; an engineer's item gets a new work on the version, at once when a slot is free, else at the head of the queue.",
       "stop_work": "A work cancelled, or started over by the owner or its project's architect, which a new work on the version the engine runs takes over, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request.",
@@ -4360,6 +4360,15 @@
         "inputs": [],
         "owner": "holds a project's new starts, saying why, and releases any hold, the architect's too"
       },
+      "start_order": {
+        "title": "Start order",
+        "layer": "project",
+        "desc": "The architect's plan of starts: each project's items in the order their works start, and those it holds back for now",
+        "relations": [
+          "start_order"
+        ],
+        "inputs": []
+      },
       "known_red_checks": {
         "title": "Known red checks",
         "layer": "project",
@@ -4395,26 +4404,6 @@
           "waited_items"
         ],
         "owner": "adds or removes a dependency",
-        "inputs": []
-      },
-      "item_state": {
-        "title": "Rank, held, cancelled",
-        "layer": "item",
-        "desc": "Where the item stands among its project's items: its rank, whether it is held back or cancelled",
-        "relations": [
-          "ready_items"
-        ],
-        "owner": "holds, cancels or moves an item",
-        "inputs": []
-      },
-      "owner_queue": {
-        "title": "The owner's queue",
-        "layer": "item",
-        "desc": "The items the owner put first to start, in the owner's order",
-        "relations": [
-          "dispatch_queue"
-        ],
-        "owner": "queues an item",
         "inputs": []
       },
       "merge_record": {
@@ -4620,7 +4609,7 @@
       ],
       "apply_effects": [
         "items",
-        "item_state",
+        "start_order",
         "dependencies",
         "batch",
         "observations",
@@ -4780,7 +4769,7 @@
       ],
       "apply_checked": [
         "items",
-        "item_state",
+        "start_order",
         "dependencies",
         "batch",
         "observations",
@@ -4919,9 +4908,9 @@
         "says": "the reply: sub-items split off, and what this work keeps"
       },
       "start": {
-        "says": "held; blocked by an item not merged; project held; in an open batch; slots",
+        "says": "held by the plan; blocked by an item not merged; project held; in an open batch; slots",
         "stores": [
-          "item_state",
+          "start_order",
           "dependencies",
           "merge_record",
           "holds",
@@ -5058,8 +5047,8 @@
         "A report, a fault, an engineer's answer or what to do next: first what it really is, on what grounds; read the code or reproduce it when the report alone does not settle it. Then, in this order: an existing item that covers or needs it takes it, moved up or split when urgent; else, if it is urgent (it blocks a running work, harms main, touches security or data) or the plan reaches it soon, a new item; else an observation, merged into the same one when it is recorded already, with tags from the set. When nothing is recorded, say why in reply: it goes to the work that reported. A report's what to do next: read the report itself, and take in a gap under test it names. An engineer's answer: read it against what you said to its work. A fault of wf-agents the owner forwarded: find its cause in wf-agents' code or flow, and take it in; one the evidence shows has stopped needs nothing more than saying so. What became of a work's check once its change took effect: work out whether the change is wrong and needs an item, an item there is takes it, something only the owner can do is missing, or the condition itself is wrong and nothing is to be done.",
         "A failure of a work's tool or check: how it gets fixed; you do not fix it yourself. What needs the code changed becomes an item; a check main fails for a reason outside the work is added to the known red checks, with the item that fixes it; what only the owner can do, as above. One that passed and will not come back needs nothing: say why. Reply to the work what was done, and whether it goes on now (the engine runs the failed step again) or waits for an item, listed in the reply's waits.",
         "The owner's words: find out what the owner asks and what for, say what you see that the owner may not, and answer in reply, which goes where the words were said. When they touch the direction itself, hand in policy_check_why: whether the policy still holds is checked. Words that change what comes first or how you work add a line to your notebook's plan, in fitting words with why. You change neither the constitution nor the policy yourself. When the words leave open what the owner wants, ask the owner. Words clearly meant as the answer to a question pending: say in your reply that the owner ticks that question and replies there; never take them as its answer. Words about a decision card: answer them; the card stays the owner's, and when you find it wrong, have its engineer change it by an interjection.",
-        "Another project's architect: what it asks of your items is yours to decide by your constitution and your policy; reply when it needs to know what you did or decided. Slots free with nothing of the project to start: see why each queued item is not ready and what the plan says comes next; release or reorder what may start, or make the items the plan's next steps need; when under the policy nothing should start, say why in your progress.",
-        "Works start in the order you give: first the items the owner queued, then each project's items by rank. A new item goes last, and moving one puts it first, last, or just before or after another. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them."
+        "Another project's architect: what it asks of your items is yours to decide by your constitution and your policy; reply when it needs to know what you did or decided. Slots free with nothing of the project to start: see why each item waiting to start is not ready and what the plan says comes next; release or reorder what may start, or make the items the plan's next steps need; when under the policy nothing should start, say why in your progress.",
+        "Works start in the order you give, each project's items in your start order; only an item whose work was taken over goes first. A new item goes last, and moving one puts it first, last, or just before or after another. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them."
       ],
       "lines": [
         "architect",
@@ -5868,11 +5857,12 @@
           ],
           "inputs": [
             {
-              "name": "Whether the item is held",
-              "what": "Whether the item is held, and its place among the items that wait to start",
+              "name": "The architect's plan for it",
+              "what": "Whether the architect's plan holds it back, and its place in its project's start order",
               "from": [
                 {
-                  "db": "ready_items"
+                  "db": "start_order",
+                  "by": "item"
                 }
               ]
             },
@@ -5920,7 +5910,7 @@
               ],
               "to": "S0",
               "waits": true,
-              "note": "Until the owner or the architect lets it go."
+              "note": "Until the architect's plan lets it start."
             },
             {
               "name": "blocked",
@@ -6001,7 +5991,7 @@
             "start": [
               [
                 "held",
-                "The owner or the architect holds the item back"
+                "The architect's plan holds it back"
               ],
               [
                 "blocked",
@@ -6034,7 +6024,7 @@
           "inputs": [
             {
               "name": "Next work to start",
-              "what": "The next work in the dispatch queue that can start, or a sub-item split off from a parent whose turn has come. The item's data is all there and its level is set: creating items and ordering the queue are not done here",
+              "what": "The next item that can start: first one whose work was taken over, then each project's items in the start order, or a sub-item split off from a parent whose turn has come. The item's data is all there and its level is set: creating items and ordering them are not done here",
               "from": [
                 {
                   "db": "ready_items"
@@ -13702,8 +13692,8 @@
           "prompt": [
             "This round writes the plan: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet, what matters most now and why, and where what runs or waits does not fit. An earlier decision of yours stands only if it is still reasonable with today's facts; an owner's ruling stands until the owner changes it. This thinking is yours: it never goes into the policy.",
             "Start from the plan before and take in what came since: a line a matter added stands unless you say why it no longer does; what the owner wants done stays until it is done or the owner withdrew it.",
-            "Then go through the items not done and why each held one is held, and the open observations. Merge what is one thing, not to save work; release or cancel what is held for a reason that no longer holds, where the hold is yours; a hold the owner asked for stays, and a step asks the owner when its reason no longer holds. An observation the policy would have done now becomes an item; one no longer so is closed, saying why. Where your order differs from the items' ranks, a step moves them. Each of these is a step.",
-            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, in a session forked from this one, and they replace the steps of the plan before not yet done. So write each whole, with what it needs from those it replaces, and check the facts it rests on: its session has nothing else to go by. A step is what effects or a look-up can do. What waits for someone, and what for, goes in notes, not in a step. The questions waiting for the owner are the rows of `owner_asks` whose answer is empty: look them up. What the direction needs but the plan does not reach soon is recorded as an observation by a step, to be looked at in a later planning. When slots are free and fewer items are ready than slots, see why each is not ready: release or reorder what may start, or say in notes why nothing should start now. A running work going the wrong way, every round of it wasted, is paused by the first step. When starting new works now would start the wrong ones, the first step holds new starts. Where your order differs from the owner's start queue, a step asks the owner; never change it yourself."
+            "Then go through the items not done and why each held one is held, and the open observations. Merge what is one thing, not to save work; release or cancel what is held for a reason that no longer holds, where the hold is yours; a hold the owner asked for stays, and a step asks the owner when its reason no longer holds. An observation the policy would have done now becomes an item; one no longer so is closed, saying why. Where your order differs from the start order, a step moves them. Each of these is a step.",
+            "Hand in the steps, most first: each one thing to do now, written as it will be carried out and not judged again, with why by the policy's principles. They are done in this order, in a session forked from this one, and they replace the steps of the plan before not yet done. So write each whole, with what it needs from those it replaces, and check the facts it rests on: its session has nothing else to go by. A step is what effects or a look-up can do. What waits for someone, and what for, goes in notes, not in a step. The questions waiting for the owner are the rows of `owner_asks` whose answer is empty: look them up. What the direction needs but the plan does not reach soon is recorded as an observation by a step, to be looked at in a later planning. When slots are free and fewer items are ready than slots, see why each is not ready: release or reorder what may start, or say in notes why nothing should start now. A running work going the wrong way, every round of it wasted, is paused by the first step. When starting new works now would start the wrong ones, the first step holds new starts."
           ],
           "out": [
             {

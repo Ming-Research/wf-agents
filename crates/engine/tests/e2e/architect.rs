@@ -835,9 +835,9 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// `open_items` holds every item not done, in the order they start: one whose last work stopped, queued again by the
-// owner, first, since the owner's start queue starts ahead of the ranks; one whose work asks the owner, at the cell it
-// stopped at; and one whose work runs tools, at the tool cell. One at the end of the graph is not there.
+// `open_items` holds every item not done, in the start order: one whose last work stopped, open with no work going on,
+// which starts first again as one taken over; one whose work asks the owner, at the cell it stopped at; and one whose
+// work runs tools, at the tool cell. One at the end of the graph is not there.
 #[test]
 fn open_items_holds_every_item_not_done_in_the_order_they_start() {
     let s = setup("first-work");
@@ -879,15 +879,13 @@ fn open_items_holds_every_item_not_done_in_the_order_they_start() {
                  VALUES (?1, 1, 'M2', '{}', '{\"result\":{\"merge_commit\":\"abc\"}}', 'merged', 'c', ?2, ?2)",
                 params![tx.last_insert_rowid(), ago],
             )?;
-            // The owner put the stopped item first to start, by hand.
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [stopped])?;
             Ok((stopped, asking, tools))
         })
         .unwrap();
-    let rows: Vec<(i64, String, Option<String>)> = {
+    let rows: Vec<(i64, Option<String>, Option<String>)> = {
         let mut st =
             e.db.conn()
-                .prepare("SELECT item, state, at FROM open_items WHERE project = 'p'")
+                .prepare("SELECT item, work_state, at FROM open_items WHERE project = 'p'")
                 .unwrap();
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .unwrap()
@@ -897,14 +895,21 @@ fn open_items_holds_every_item_not_done_in_the_order_they_start() {
     assert_eq!(
         rows,
         [
-            (stopped, "ready".to_string(), None),
-            (asking, "paused".to_string(), Some("A2".to_string())),
-            (tools, "paused".to_string(), Some("X1".to_string())),
+            (stopped, None, None),
+            (asking, Some("paused".to_string()), Some("A2".to_string())),
+            (tools, Some("paused".to_string()), Some("X1".to_string())),
         ],
         "{}",
         said.lock().unwrap().join("\n")
     );
     assert!(!rows.iter().any(|r| r.0 == merged));
+    let first: (i64, bool) =
+        e.db.conn()
+            .query_row("SELECT item, taken_over FROM ready_items", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(first, (stopped, true));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

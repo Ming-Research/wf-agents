@@ -1,11 +1,11 @@
-//! The owner's commands: creating items and ordering the queue, answering asks of the owner and ruling on design
+//! The owner's commands: creating and changing items, answering asks of the owner and ruling on design
 //! cards, interjecting, pausing, holding a project's new starts, and the views of where everything stands. Every write
 //! is made as the owner, so `changes` records it as theirs.
 
 use std::path::Path;
 
 use db::Actor;
-use db::rusqlite::{OptionalExtension, params};
+use db::rusqlite::params;
 use engine::database::open;
 use engine::{Counted, query_json, query_json_counted};
 use serde_json::Value;
@@ -29,8 +29,6 @@ pub struct NewItem {
     pub work: Option<ItemWork>,
     /// Items it depends on.
     pub depends_on: Vec<Dependency>,
-    /// Puts it last in the dispatch queue.
-    pub queue: bool,
     pub imported: Imported,
 }
 
@@ -71,8 +69,6 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
         if !matches!(w.deliver.as_str(), "change" | "report") {
             return Err("deliver is change or report".into());
         }
-    } else if x.queue {
-        return Err("a goal has no work of its own, so it cannot be queued".into());
     }
     config::title_fits(&x.title, c.install.items.title_max as usize)?;
     if x.imported.pr.is_some() && x.imported.branch.is_none() {
@@ -100,15 +96,6 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
         let id = tx.last_insert_rowid();
         for d in &x.depends_on {
             db::add_dependency(tx, id, d.on, &d.needs, &d.kind)?;
-        }
-        if x.queue {
-            let last: f64 = tx.query_row("SELECT coalesce(max(position), 0) FROM dispatch_queue", [], |r| {
-                r.get(0)
-            })?;
-            tx.execute(
-                "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
-                params![id, last + 1.0],
-            )?;
         }
         Ok(id)
     })
@@ -218,60 +205,6 @@ pub fn cancel(data: &Path, item: i64, why: &str) -> Result<String, String> {
         }
         engine::ending::Cancelling::Merged => format!("item {item} is not cancelled: its merge stands on main"),
     })
-}
-
-/// Where an item goes in the queue.
-pub enum Place {
-    First,
-    Last,
-    Before(i64),
-    After(i64),
-}
-
-pub fn queue(data: &Path, item: i64, place: Place) -> Result<(), String> {
-    open(data)?
-        .write(Actor::Owner, |tx| {
-            let goal: Option<bool> = tx
-                .query_row("SELECT deliver IS NULL FROM items WHERE id = ?1", [item], |r| r.get(0))
-                .optional()?;
-            if goal == Some(true) {
-                return Err(db::Error::Abort(format!(
-                    "item {item} is a goal: it has no work of its own, so it cannot be queued"
-                )));
-            }
-            let pos = |i: i64| -> db::Result<Option<f64>> {
-                Ok(tx
-                    .query_row("SELECT position FROM dispatch_queue WHERE item = ?1", [i], |r| r.get(0))
-                    .optional()?)
-            };
-            tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])?;
-            let edge = |q: &str| -> db::Result<Option<f64>> { Ok(tx.query_row(q, [], |r| r.get(0))?) };
-            let p = match place {
-                Place::First => edge("SELECT min(position) FROM dispatch_queue")?.map_or(1.0, |m| m - 1.0),
-                Place::Last => edge("SELECT max(position) FROM dispatch_queue")?.map_or(1.0, |m| m + 1.0),
-                Place::Before(o) | Place::After(o) => {
-                    let at = pos(o)?.ok_or_else(|| db::Error::Abort(format!("item {o} is not in the queue")))?;
-                    let before = matches!(place, Place::Before(_));
-                    let q = if before {
-                        "SELECT max(position) FROM dispatch_queue WHERE position < ?1"
-                    } else {
-                        "SELECT min(position) FROM dispatch_queue WHERE position > ?1"
-                    };
-                    let next: Option<f64> = tx.query_row(q, [at], |r| r.get(0))?;
-                    match next {
-                        Some(n) => (n + at) / 2.0,
-                        None if before => at - 1.0,
-                        None => at + 1.0,
-                    }
-                }
-            };
-            tx.execute(
-                "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
-                params![item, p],
-            )?;
-            Ok(())
-        })
-        .map_err(sql)
 }
 
 /// How the owner answers an ask of the owner.
@@ -460,7 +393,6 @@ pub fn items(data: &Path) -> Result<String, String> {
     show(
         data,
         "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled,
-                (SELECT position FROM dispatch_queue q WHERE q.item = i.id) AS queued,
                 (SELECT group_concat(depends_on || ' ' || kind, ', ') FROM item_links l WHERE l.item = i.id)
                   AS depends_on,
                 (SELECT max(w.id) FROM works w WHERE w.item = i.id) AS work
@@ -470,10 +402,12 @@ pub fn items(data: &Path) -> Result<String, String> {
     )
 }
 
-pub fn queue_list(data: &Path) -> Result<String, String> {
+/// The items waiting to start, in the order they start: one whose work was taken over first, then each project's items
+/// in its architect's start order.
+pub fn ready(data: &Path) -> Result<String, String> {
     show(
         data,
-        "SELECT item, project, title, level, position FROM ready_items",
+        "SELECT item, project, title, level, place, taken_over FROM ready_items",
         &[],
         40,
     )

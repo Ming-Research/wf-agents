@@ -147,7 +147,7 @@ What the page shows, read:
 - `wf-agents anomalies`: returns sent back, compactions, counters past their limits, and works paused.
 - `wf-agents cost WORK`: the time and cost of each work, or of one work's rounds.
 
-Items and the queue:
+Items and what starts next:
 
 - `wf-agents item add --project P --title T --problem X --why Y --level L`: creates an item.
 - `wf-agents item add --project P --title T --problem X --why Y --goal`: creates a goal, an item with no work of its
@@ -155,8 +155,8 @@ Items and the queue:
 - `wf-agents item list`: every item.
 - `wf-agents item depend ITEM ON --needs WHAT --kind blocking`: makes an item depend on another.
 - `wf-agents item cancel ITEM --why WHY`: cancels an item.
-- `wf-agents queue list`: the items waiting to start, in order.
-- `wf-agents queue put ITEM --first`: puts an item in the queue.
+- `wf-agents ready`: the items waiting to start, in the order they start: one whose work was taken over first, then
+  each project's items in its architect's start order, which the architect keeps.
 
 Asks and decision cards, which the page shows where they were asked:
 

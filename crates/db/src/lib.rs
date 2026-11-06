@@ -1359,14 +1359,14 @@ mod tests {
         let id = db
             .write(Actor::Owner, |tx| {
                 let id = item(tx, "first")?;
-                tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [id])?;
+                tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 1)", [id])?;
                 Ok(id)
             })
             .unwrap();
         db.write(Actor::Engine, |tx| {
             tx.execute("UPDATE items SET title = title WHERE id = ?1", [id])?;
             tx.execute("UPDATE items SET title = 'second' WHERE id = ?1", [id])?;
-            tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [id])?;
+            tx.execute("DELETE FROM start_order WHERE item = ?1", [id])?;
             Ok(())
         })
         .unwrap();
@@ -1375,7 +1375,7 @@ mod tests {
         assert_eq!((c[0].0, c[0].1.as_str(), c[0].2.as_str()), (1, "owner", "items"));
         assert_eq!(c[0].3, format!("{{\"id\":{id}}}"));
         assert!(c[0].4.is_none() && c[0].5.as_deref().unwrap().contains("\"title\":\"first\""));
-        assert_eq!((c[1].0, c[1].2.as_str()), (1, "dispatch_queue"));
+        assert_eq!((c[1].0, c[1].2.as_str()), (1, "start_order"));
         assert_eq!((c[2].0, c[2].1.as_str()), (2, "engine"));
         assert!(c[2].4.as_deref().unwrap().contains("\"first\"") && c[2].5.as_deref().unwrap().contains("\"second\""));
         assert!(c[3].4.is_some() && c[3].5.is_none());
@@ -1549,8 +1549,8 @@ mod tests {
         assert_eq!(n, 0);
     }
 
-    // An item that depends on another by a blocking dependency is not ready to start, queued by the owner or not, until
-    // the other is merged; one that depends on it by a parallel dependency is ready at once.
+    // An item that depends on another by a blocking dependency is not ready to start, first in the start order or not,
+    // until the other is merged; one that depends on it by a parallel dependency is ready at once.
     #[test]
     fn a_blocking_dependency_keeps_an_item_from_starting_until_the_other_merges() {
         let mut db = Db::in_memory().unwrap();
@@ -1562,7 +1562,7 @@ mod tests {
                 let library = item(tx, "library")?;
                 add_dependency(tx, parser, library, "its lexer", "blocking")?;
                 add_dependency(tx, checker, library, "its types", "parallel")?;
-                tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [parser])?;
+                tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 1)", [parser])?;
                 Ok((parser, checker, library))
             })
             .unwrap();
@@ -1593,17 +1593,21 @@ mod tests {
         );
     }
 
-    // What is on hand, each item with its state: a work on it gives its number and cell, what is ready here is what
-    // ready_items starts, and an item done or cancelled is not there. A work paused or an item held that a work is on
-    // is at that work; nothing but the items' own order sorts them.
+    // What is on hand: each item open, none done or cancelled, with what its work does, whether the plan holds it and
+    // whether an item it depends on keeps it from starting, each a column of its own; what is ready here is what
+    // ready_items starts. An item held that a work is on is at that work and held still; the start order sorts them.
     #[test]
-    fn open_items_gives_each_item_not_done_or_cancelled_with_its_state() {
+    fn open_items_gives_each_open_item_with_its_work_its_plan_and_its_dependencies() {
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Engine, |tx| {
             let [running, paused, held, blocked, ready, done, cancelled] =
                 ["running", "paused", "held", "blocked", "ready", "done", "cancelled"].map(|t| item(tx, t).unwrap());
             add_dependency(tx, blocked, ready, "its part", "blocking")?;
-            tx.execute("UPDATE items SET held = 'later' WHERE id = ?1", [held])?;
+            tx.execute("INSERT INTO start_order (item, place, held) VALUES (?1, 1, 1)", [held])?;
+            tx.execute(
+                "INSERT INTO start_order (item, place, held) VALUES (?1, 2, 1)",
+                [paused],
+            )?;
             tx.execute("UPDATE items SET cancelled = 'no' WHERE id = ?1", [cancelled])?;
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
@@ -1629,17 +1633,20 @@ mod tests {
         .unwrap();
         let rows = |sql: &str| names(db.conn(), sql).unwrap();
         assert_eq!(
-            rows("SELECT title || ' ' || state || ' ' || coalesce(work || ' ' || at, '-') FROM open_items"),
+            rows(
+                "SELECT title || ' ' || coalesce(work_state, '-') || ' ' || held || ' ' || blocked || ' ' || goal
+                   || ' ' || coalesce(work || ' ' || at, '-') FROM open_items"
+            ),
             [
-                "running running 1 R1",
-                "paused paused 2 D1",
-                "held held -",
-                "blocked blocked -",
-                "ready ready -",
+                "held - 1 0 0 -",
+                "paused paused 1 0 0 2 D1",
+                "running running 0 0 0 1 R1",
+                "blocked - 0 1 0 -",
+                "ready - 0 0 0 -",
             ]
         );
         assert_eq!(
-            rows("SELECT title FROM open_items WHERE state = 'ready'"),
+            rows("SELECT title FROM open_items WHERE work IS NULL AND NOT held AND NOT blocked AND NOT goal"),
             rows("SELECT title FROM ready_items")
         );
     }
@@ -1817,7 +1824,7 @@ mod tests {
         let mut db = Db::create(&path).unwrap();
         db.write(Actor::Owner, |tx| {
             let id = item(tx, "visible")?;
-            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)", [id])?;
+            tx.execute("INSERT INTO start_order (item, place) VALUES (?1, 1)", [id])?;
             Ok(())
         })
         .unwrap();
@@ -1827,7 +1834,7 @@ mod tests {
             .unwrap();
         assert_eq!(t, "visible");
         assert!(agent.prepare("SELECT cli_session FROM sessions").is_err());
-        assert!(agent.execute("DELETE FROM dispatch_queue", []).is_err());
+        assert!(agent.execute("DELETE FROM start_order", []).is_err());
         assert!(agent.execute_batch("ATTACH ':memory:' AS other").is_err());
         let forever = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
         let slow = open_for_agents(&path, Duration::from_millis(50)).unwrap();
@@ -1842,7 +1849,7 @@ mod tests {
         assert_eq!(first, "A piece of work to do, as its creator wrote it.");
         assert_eq!(columns[..3], ["id", "project", "title"]);
         let (_, columns, _) = index.iter().find(|(n, _, _)| n == "ready_items").unwrap();
-        assert!(columns.contains(&"position".to_string()), "{columns:?}");
+        assert!(columns.contains(&"place".to_string()), "{columns:?}");
         for (n, _, first) in &index {
             assert!(first.ends_with('.') && !first.contains(". "), "{n}: {first}");
         }
@@ -1985,7 +1992,8 @@ mod tests {
         };
         assert!(ended(&old).iter().all(|(id, ended)| *id == 7 || ended.is_none()));
 
-        old.migrate(MIGRATIONS).unwrap();
+        // Only this migration is taken: those after it give the items on hand otherwise, as the owner's queue went.
+        old.migrate(&MIGRATIONS[..=at]).unwrap();
 
         let done = Some(ENDED_DONE.to_string());
         assert_eq!(
@@ -2057,12 +2065,16 @@ mod tests {
         assert_eq!(before, "light");
         old.migrate(MIGRATIONS).unwrap();
         assert!(old.conn().prepare("SELECT route FROM items").is_err());
+        // The item's rank and hold went to the start order since, its place counted afresh in its project.
         let mut st = old
             .conn()
-            .prepare("SELECT json_array(id, title, deliver, rank, held) FROM items ORDER BY id")
+            .prepare(
+                "SELECT json_array(i.id, i.title, i.deliver, s.place, s.held)
+                 FROM items i LEFT JOIN start_order s ON s.item = i.id ORDER BY i.id",
+            )
             .unwrap();
         let items: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
-        assert_eq!(items, [r#"[1,"a","change",3,"held"]"#, r#"[2,"b","report",null,null]"#]);
+        assert_eq!(items, [r#"[1,"a","change",1,1]"#, r#"[2,"b","report",null,null]"#]);
         let (links, works): (i64, i64) = old
             .conn()
             .query_row(
@@ -2814,13 +2826,7 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         // A table made afresh for its description has the description the schema writes, which agents read.
-        for table in [
-            "items",
-            "architect_matters",
-            "dispatch_queue",
-            "interjections",
-            "rounds",
-        ] {
+        for table in ["items", "architect_matters", "start_order", "interjections", "rounds"] {
             let definition = |db: &Db| -> String {
                 db.conn()
                     .query_row("SELECT sql FROM sqlite_schema WHERE name = ?1", [table], |r| r.get(0))
@@ -3794,7 +3800,8 @@ mod tests {
     }
 
     // Taken to version 19, a database has no plan: every item is ranked among its project's items by the order it was
-    // made, the owner's queue keeps its rows, and the items to start come from the queue first, then by rank.
+    // made, and the owner's queue keeps its rows; taken on to the start order, the queued item is first in its
+    // project, the others follow by rank, the held one stays held, and the items to start come by their places.
     #[test]
     fn the_items_are_ranked_in_each_project_by_the_order_they_were_made() {
         let mut old = at_version(18);
@@ -3825,21 +3832,18 @@ mod tests {
                 .collect()
         };
         assert_eq!(
-            rows("SELECT id, rank FROM items ORDER BY id"),
-            [(1, Some(1)), (2, Some(1)), (3, Some(2)), (4, Some(3))]
+            rows("SELECT item, place FROM start_order ORDER BY item"),
+            [(1, Some(2)), (2, Some(1)), (3, Some(1)), (4, Some(3))]
         );
         assert_eq!(
-            rows("SELECT item, rank FROM ready_items"),
-            [(3, Some(2)), (1, Some(1)), (2, Some(1))]
+            rows("SELECT item, held FROM start_order WHERE held = 1"),
+            [(4, Some(1))]
         );
-        let queued: Vec<(i64, f64)> = {
-            let mut st = old.conn().prepare("SELECT item, position FROM dispatch_queue").unwrap();
-            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-                .unwrap()
-                .map(|x| x.unwrap())
-                .collect()
-        };
-        assert_eq!(queued, [(3, 1.0)]);
+        assert_eq!(
+            rows("SELECT item, place FROM ready_items"),
+            [(2, Some(1)), (3, Some(1)), (1, Some(2))]
+        );
+        assert!(old.conn().prepare("SELECT 1 FROM dispatch_queue").is_err());
         let plan: i64 = old
             .conn()
             .query_row("SELECT count(*) FROM sqlite_schema WHERE name LIKE 'plan%'", [], |r| {

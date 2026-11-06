@@ -37,9 +37,10 @@ fn database_before_the_drop(path: &std::path::Path) -> Connection {
     conn
 }
 
-/// The columns of the items table that survive the migration, in the order the rows below give them.
+/// The columns of the items table that survive the migration and those after it, which took its rank and its hold
+/// into the start order, in the order the rows below give them.
 const KEPT: &str = "id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work, \
-                    acceptance_round, cancelled, imported_from, imported_branch, imported_pr, wanted, held, rank, \
+                    acceptance_round, cancelled, imported_from, imported_branch, imported_pr, wanted, \
                     decision_points";
 
 // Every column of every item, and every row of every table that points to an item, comes out of the migration as it
@@ -130,8 +131,8 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
     assert_eq!(
         items,
         [
-            r#"[1,"p","one","pro","why","how","change","l1","[{\"id\":\"A1\"}]",1,1,null,null,null,null,"[{\"id\":\"V1\"}]","held for now",4,"[{\"id\":\"P1\"}]"]"#,
-            r#"[2,"p","two","pro2","why2",null,"report","l2",null,null,null,"dup","old board","br",9,null,null,null,null]"#,
+            r#"[1,"p","one","pro","why","how","change","l1","[{\"id\":\"A1\"}]",1,1,null,null,null,null,"[{\"id\":\"V1\"}]","[{\"id\":\"P1\"}]"]"#,
+            r#"[2,"p","two","pro2","why2",null,"report","l2",null,null,null,"dup","old board","br",9,null,null]"#,
         ]
     );
     // Each table that points to an item still has its row, and the row still reaches the item it pointed to.
@@ -142,8 +143,8 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
              WHERE l.item = 2 AND l.depends_on = 1",
         ),
         (
-            "dispatch_queue",
-            "SELECT count(*) FROM dispatch_queue q JOIN items i ON i.id = q.item WHERE q.item = 2 AND q.position = 1.5",
+            "start_order, which took in the owner's queue",
+            "SELECT count(*) FROM start_order s JOIN items i ON i.id = s.item WHERE s.item = 2 AND s.place = 1",
         ),
         (
             "known_red_checks",
@@ -170,7 +171,7 @@ fn every_column_and_every_row_pointing_to_an_item_survives_the_drop_of_the_route
         "the migration recorded the rows it copied as changes"
     );
     db.write(Actor::Engine, |tx| {
-        tx.execute("UPDATE items SET held = NULL WHERE id = 1", [])?;
+        tx.execute("UPDATE items SET title = 'one again' WHERE id = 1", [])?;
         Ok(())
     })
     .unwrap();

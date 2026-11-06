@@ -134,9 +134,13 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
     .unwrap();
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
-            "INSERT INTO items (project, title, problem, why, deliver, level, held)
-             VALUES ('p', 'Made later', 'Missing.', 'Needed.', 'change', 'l', 'not yet')",
+            "INSERT INTO items (project, title, problem, why, deliver, level)
+             VALUES ('p', 'Made later', 'Missing.', 'Needed.', 'change', 'l')",
             [],
+        )?;
+        tx.execute(
+            "INSERT INTO start_order (item, held) VALUES (?1, 1)",
+            [tx.last_insert_rowid()],
         )?;
         tx.execute("UPDATE items SET cancelled = 'not needed' WHERE id = ?1", [item])?;
         Ok(())
@@ -212,9 +216,13 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
         e.db.write(Actor::Owner, |tx| {
             for from in [None, None, Some("an earlier board")] {
                 tx.execute(
-                    "INSERT INTO items (project, title, problem, why, deliver, level, imported_from, held)
-                     VALUES ('p', 'Made', 'Missing.', 'Needed.', 'change', 'l', ?1, 'not yet')",
+                    "INSERT INTO items (project, title, problem, why, deliver, level, imported_from)
+                     VALUES ('p', 'Made', 'Missing.', 'Needed.', 'change', 'l', ?1)",
                     [from],
+                )?;
+                tx.execute(
+                    "INSERT INTO start_order (item, held) VALUES (?1, 1)",
+                    [tx.last_insert_rowid()],
                 )?;
             }
             tx.execute("UPDATE changes SET at = ?1 WHERE table_name = 'items'", [ago])?;

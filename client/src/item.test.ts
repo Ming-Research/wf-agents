@@ -22,7 +22,6 @@ function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummar
     route_taken: null,
     cancelled: null,
     state,
-    queued: null,
     work: null,
     at: null,
     stage: null,
@@ -52,19 +51,24 @@ function lines(rows: TreeRow[], depth = 0): string[] {
 }
 
 describe('the tree of items', () => {
-  // 1 needs 2 and 3, 4 needs 3 too, 3 needs 5; 6 stands alone.
+  // 1 needs 2 and 3, 4 needs 3 too, 3 needs 5; 6 stands alone. 2 is done, the others open; a work goes on on 6.
   const items = [
-    item(1, 'working'),
+    item(1, 'open'),
     item(2, 'done'),
-    item(3, 'queued', { queued: 2 }),
-    item(4, 'new'),
-    item(5, 'new'),
-    item(6, 'queued', { queued: 1 }),
+    item(3, 'open'),
+    item(4, 'open'),
+    item(5, 'open'),
+    item(6, 'open'),
   ];
   const links = [link(1, 2), link(1, 3, 'blocking'), link(4, 3, 'parallel', false), link(3, 5)];
+  const moving = new Set([6]);
 
   it('puts what nothing waits for at the top, and what an item depends on under it', () => {
-    expect(lines(tree(items, links))).toEqual(['1', '  3', '    5', '  2', '6', '4', '  ->3']);
+    expect(lines(tree(items, links))).toEqual(['1', '  3', '    5', '  2', '4', '  ->3', '6']);
+  });
+
+  it('puts an item a work goes on on first among the open ones', () => {
+    expect(lines(tree(items, links, moving))).toEqual(['6', '1', '  3', '    5', '  2', '4', '  ->3']);
   });
 
   it('gives each item under another the kind of the dependency', () => {
@@ -82,20 +86,20 @@ describe('the tree of items', () => {
     const shared = rows.find((r) => r.item.id === 4)?.children[0];
     expect(shared).toMatchObject({ full: false, children: [] });
     const moved = [link(1, 2), link(1, 3, 'blocking', false), link(4, 3), link(3, 5)];
-    expect(lines(tree(items, moved))).toEqual(['1', '  ->3', '  2', '6', '4', '  3', '    5']);
+    expect(lines(tree(items, moved))).toEqual(['1', '  ->3', '  2', '4', '  3', '    5', '6']);
   });
 
   it('opens the first item the tree shows while none is picked', () => {
-    expect(firstShown(items, links, ['working', 'queued', 'new'])).toBe(1);
-    expect(firstShown(items, links, ['queued', 'new'])).toBe(6);
-    const other = [item(7, 'new', { project: 'a' }), ...items];
-    expect(firstShown(other, links, ['working', 'new'])).toBe(7);
+    expect(firstShown(items, links, ['open'])).toBe(1);
+    expect(firstShown(items, links, ['open'], moving)).toBe(6);
+    const other = [item(7, 'open', { project: 'a' }), ...items];
+    expect(firstShown(other, links, ['open'], moving)).toBe(7);
     expect(firstShown(items, links, ['cancelled'])).toBeNull();
   });
 
   it('makes an item a top one when everything that waits for it is hidden', () => {
-    const shown = items.filter((i) => i.state !== 'working');
-    expect(lines(tree(shown, links))).toEqual(['6', '4', '  3', '    5', '2']);
+    const shown = items.filter((i) => i.id !== 1);
+    expect(lines(tree(shown, links))).toEqual(['4', '  3', '    5', '6', '2']);
   });
 
   it('counts what is done of what an item depends on, and how far its stage is', () => {

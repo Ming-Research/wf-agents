@@ -153,9 +153,9 @@ describe('the list of conversations', () => {
   it("draws the items' buttons with the items' marks", () => {
     const html = renderToStaticMarkup(
       <StateFilter
-        order={['new', 'queued', 'working', 'done', 'stopped', 'cancelled'] as ItemState[]}
-        states={['new', 'queued', 'queued', 'working', 'done', 'stopped', 'cancelled']}
-        shown={['new', 'queued', 'working', 'stopped']}
+        order={['open', 'done', 'cancelled'] as ItemState[]}
+        states={['open', 'open', 'done', 'cancelled']}
+        shown={['open']}
         tone={ITEM_TONE}
         mark={(s) => ITEM_MARK[s]}
         title={(s, n, on) => tn(on ? 'items_hide' : 'items_show', n, { state: t(`item_${s}`) })}
@@ -163,8 +163,8 @@ describe('the list of conversations', () => {
       />,
     );
     const icons = [...html.matchAll(/class="octicon octicon-([\w-]+)"/g)].map((m) => m[1]);
-    expect(icons).toEqual(['issue-opened', 'list-ordered', 'play', 'check-circle', 'stop', 'skip']);
-    expect(html).toContain('title="2 items are queued. Click to hide them."');
+    expect(icons).toEqual(['issue-opened', 'check-circle', 'skip']);
+    expect(html).toContain('title="2 items are open. Click to hide them."');
     expect(html).toContain('title="1 item is cancelled. Click to show it."');
   });
 

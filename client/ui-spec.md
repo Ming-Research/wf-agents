@@ -714,10 +714,12 @@ a work's group), because the owner asked that the list say at a glance how each 
 one plainly in motion, while the list's headings and each row's name already say what kind of row it is; wf-agents' own
 and a group of projects, which stand for no work, keep their kind's Octicon. An item's state has its own map beside it
 (`ITEM_MARK`), the one every place that shows an item's state as an icon takes (the items' tree's buttons, below), none
-of its marks a work's mark of another meaning: new `IssueOpenedIcon`, GitHub's mark of an issue open, filed and not
-taken up yet; queued `ListOrderedIcon`, the item's place in the queue; working `PlayIcon`, under way; done
-`CheckCircleIcon` and stopped `StopIcon`, the marks of a work done and of a work ended, since an item is done or stopped
-as its latest work is; cancelled `SkipIcon`, GitHub's mark of an issue closed as not planned.
+of its marks a work's mark of another meaning: an item is open, done or cancelled, open `IssueOpenedIcon`, GitHub's mark
+of an issue open; done `CheckCircleIcon`, the mark of a work done, since an item is done once a work of it reached its
+end; cancelled `SkipIcon`, GitHub's mark of an issue closed as not planned. What its work does is that work's state, with
+the work's marks, and what the architect's plan does with it is the plan's, neither a state of the item, because the
+owner found an item's state that mixed them read one item five ways, and an item whose work stopped read as stopped
+though nothing was delivered or given up.
 
 ### Halted and paused
 
@@ -733,7 +735,7 @@ those shown, so that a state the page comes to have shows until the owner hides 
 
 Instead of every pause one state, which the list drew as a yellow pause while the head drew the engine's stop in red,
 and of "stopped (you paused it)", because the owner asked that the same work read the same on the left and in the head,
-and that one word mean one state; halted, since stopped already names an item whose work ended. The usage limit's halt
+and that one word mean one state. The usage limit's halt
 of every work stays the bar's, since it is the engine's and lifts by itself.
 
 ### Waiting for a free slot
@@ -1015,11 +1017,14 @@ board before this one showed them, and goes from item to item, such as to rule o
 nothing waits for are at the top, and under each, indented with a rule down their left and foldable, the items it
 depends on; an item several items depend on is in full under the first and a line that leads to it under the others, so
 that the tree stays a tree. A row is a card whose left edge is in its item's state's colour; it says the item's number,
-a fixed-width number in white on that colour that says the state on hovering, and its title, what it needs from the
-owner as chips, how many of what it depends on are done, its place in the queue and its work's stage in words where the
-row has room, how far through the stages on hovering, rather than a bar behind the row, and no chip of its state,
-instead of that chip at its end, because the owner, shown the board before this one, found its tree better: the colour
-on the left says the state and the indent reads at a glance.
+a fixed-width number in white on that colour that says the state on hovering; while the item is open, what its latest
+work does, as that work's mark (`StateMark`, the one the list of conversations draws), its room kept empty when it has
+none, so that the titles stay in line; and its title, what it needs from the owner as chips, how many of what it depends
+on are done and its work's stage in words where the row has room, how far through the stages on hovering, rather than a
+bar behind the row, and no chip of its state, instead of that chip at its end, because the owner, shown the board before
+this one, found its tree better: the colour on the left says the state and the indent reads at a glance. Among the items
+of one state an item a work goes on on comes first, then by number. Where it stands in the architect's start order is
+not shown: what comes first is the architect's plan.
 
 ### The states' buttons
 

@@ -1366,9 +1366,10 @@ export type FlowVersion = { id: number, digest: string,
 works: number, };
 
 /**
- * Where an item stands.
+ * Where an item stands: whether what it is to deliver has been delivered. What its works do is theirs (`WorkState`),
+ * what the architect's plan does with it is the plan's, and what it waits for is its dependencies'.
  */
-export type ItemState = "new" | "queued" | "working" | "done" | "stopped" | "cancelled";
+export type ItemState = "open" | "done" | "cancelled";
 
 /**
  * An item as a list shows it.
@@ -1387,10 +1388,6 @@ level: string | null,
  * or turned, begun on the research's plan and then sent to the design; none before the research answers.
  */
 route_taken: string | null, cancelled: string | null, state: ItemState,
-/**
- * Its place in the dispatch queue, lower first; none when it is not queued.
- */
-queued: number | null,
 /**
  * Its latest work and the cell that work is at.
  */
