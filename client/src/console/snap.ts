@@ -44,7 +44,7 @@ const MAP_PAD = 8;
 const TURN = 35;
 /// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the stage goes at its faintest.
-const PULSE_MS = 1000;
+const PULSE_MS = 750;
 const FADE = 0.4;
 const DARK = 0.15;
 /// The part of the way to where it belongs that a column moves each frame.
