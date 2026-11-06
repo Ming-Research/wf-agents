@@ -85,7 +85,17 @@ export function Console({ demo }: { demo: boolean }) {
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       />
       <Drawer open={open} onToggle={() => setOpen(!open)} panel={panel}>
-        <ItemWindow item={selected === null ? null : windowMock(selected)} demo={demo} />
+        <ItemWindow
+          item={selected === null ? null : windowMock(selected)}
+          demo={demo}
+          onTitle={() => {
+            // The room the window leaves the tree: from the tree's left to the window's.
+            const tree = host.current?.getBoundingClientRect();
+            const side = panel.current?.getBoundingClientRect();
+            if (selected === null || tree === undefined) return;
+            scene.current?.reveal(selected.id, (open && side !== undefined ? side.left : tree.right) - tree.left);
+          }}
+        />
       </Drawer>
     </div>
   );

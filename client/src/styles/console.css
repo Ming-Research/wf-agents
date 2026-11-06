@@ -272,17 +272,21 @@
   color: var(--fgColor-success);
 }
 
-.cw-quote-offer {
+.cw-item .cw-quote-offer {
   position: absolute;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
   transform: translate(-50%, calc(-100% - 6px));
   padding: 2px var(--base-size-8);
-  border: none;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
-  background: var(--fgColor-default);
-  color: var(--fgColor-onEmphasis);
+  background: var(--bgColor-default);
+  color: var(--fgColor-accent);
   font: inherit;
   font-size: var(--text-body-size-small);
+  box-shadow: var(--shadow-resting-medium);
   cursor: pointer;
 }
 
@@ -444,4 +448,19 @@
 
 .cw-track .us-track {
   height: var(--base-size-8);
+}
+
+/* The title, which brings the item into view in the tree. */
+.cw-title-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cw-title-link:hover {
+  text-decoration: underline;
 }

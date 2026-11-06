@@ -339,6 +339,9 @@ export class SnapScene {
   /// the pointer has left stays until it has faded out.
   private glowing = new Map<number, number>();
   private left = 40;
+  /// Where the columns are moving sideways to, when the scene brings an item into view, until they are there or the
+  /// owner moves them.
+  private leftGoal: number | null = null;
   private frames: number[] = [];
   private lastDraw = 0;
   private last = 0;
@@ -878,8 +881,10 @@ export class SnapScene {
 
   private wheel = (e: WheelEvent) => {
     e.preventDefault();
-    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) this.left -= e.deltaX;
-    else this.scroll(this.hovered, e.deltaY);
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      this.leftGoal = null;
+      this.left -= e.deltaX;
+    } else this.scroll(this.hovered, e.deltaY);
   };
 
   private hover = (e: PointerEvent) => {
@@ -905,6 +910,7 @@ export class SnapScene {
 
   private drag = (e: PointerEvent) => {
     if (this.dragging === null) return;
+    this.leftGoal = null;
     this.left += e.clientX - this.dragging.x;
     this.dragging = { x: e.clientX };
   };
@@ -928,6 +934,25 @@ export class SnapScene {
   };
 
   /// Selects the item numbered `id`, or none.
+  /// Brings the item numbered `id` into view, within the `room` pixels of the screen's width from its left that the
+  /// window beside the tree leaves: held on the line if it is above or below what is seen, and the columns moved
+  /// sideways until its column stands in the middle of the room if it is not wholly within it. An item already in view
+  /// stays where it is.
+  reveal(id: number, room: number): void {
+    const t = this.tree;
+    const i = this.real.get(id);
+    if (t === null || i === undefined) return;
+    const d = t.depth[i];
+    const rank = t.rank[i];
+    const c = this.columns[d];
+    const height = this.app.screen.height;
+    const y = height / 2 + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
+    const h = high(this.rowsAt(d, rank)) / 2;
+    const x = this.left + d * PITCH;
+    if (y - h < EDGE || y + h > height - EDGE) this.hold(d, rank);
+    if (x < 0 || x + NODE_W > room) this.leftGoal = room / 2 - NODE_W / 2 - d * PITCH;
+  }
+
   select(id: number | null): void {
     this.selected = id !== null && this.real.has(id) ? id : null;
     this.announce();
@@ -984,7 +1009,13 @@ export class SnapScene {
     // Moved sideways no further than leaves half of the first column on the screen at its right, or half of the last at
     // its left, so that one always sees where the tree ends.
     const last = Math.max(0, t.columns.length - 1) * PITCH;
-    this.left = Math.min(width - NODE_W / 2, Math.max(-last - NODE_W / 2, this.left));
+    const bound = (v: number) => Math.min(width - NODE_W / 2, Math.max(-last - NODE_W / 2, v));
+    if (this.leftGoal !== null) {
+      const goal = bound(this.leftGoal);
+      this.left += (goal - this.left) * SNAP;
+      if (Math.abs(goal - this.left) < 0.5) this.leftGoal = null;
+    }
+    this.left = bound(this.left);
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
     // The line across the middle, dashed.

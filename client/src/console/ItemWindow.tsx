@@ -1,4 +1,5 @@
-// What the window beside the console shows of the item selected: its number, title and project; a line of where the
+// What the window beside the console shows of the item selected: its number, its title, which brings the item into view
+// in the tree, and its project; a line of where the
 // item stands and a line of what its work does, with the work's stages and where its time went as its row in the list
 // of works has them; and two tabs, beside them a button to mark the item read while something in it is new to the
 // owner. The first holds the body (where the item came from, the problem it solves, the plan, with each choice that
@@ -7,7 +8,7 @@
 // replies, and a box to write one, which a passage selected in the body can be quoted into and which names whom it goes
 // to. The second holds what of the work the lines do not say. With no item selected it says how to select one.
 
-import { XIcon } from '@primer/octicons-react';
+import { QuoteIcon, XIcon } from '@primer/octicons-react';
 import { Button, IconButton } from '@primer/react';
 import { type MouseEvent, type ReactNode, type RefObject, useRef, useState } from 'react';
 
@@ -40,12 +41,12 @@ function mood(state: WorkState): { words: Key; tone: string } {
   return { words: 'console_work_waiting', tone: 'waiting' };
 }
 
-export function ItemWindow({ item, demo }: { item: WindowItem | null; demo: boolean }) {
+export function ItemWindow({ item, demo, onTitle }: { item: WindowItem | null; demo: boolean; onTitle: () => void }) {
   if (item === null) return <p className="cw-empty">{t('console_window_empty')}</p>;
-  return <ItemView key={item.id} start={item} demo={demo} />;
+  return <ItemView key={item.id} start={item} demo={demo} onTitle={onTitle} />;
 }
 
-function ItemView({ start, demo }: { start: WindowItem; demo: boolean }) {
+function ItemView({ start, demo, onTitle }: { start: WindowItem; demo: boolean; onTitle: () => void }) {
   const [w, setW] = useState(start);
   const [tab, setTab] = useState<'item' | 'work'>('item');
   const [quote, setQuote] = useState<string | null>(null);
@@ -101,7 +102,11 @@ function ItemView({ start, demo }: { start: WindowItem; demo: boolean }) {
     <div className="cw-item" ref={inner}>
       <div className="cw-head">
         <span className="cw-id">{w.id}</span>
-        <h2 className="cw-title">{w.title}</h2>
+        <h2 className="cw-title">
+          <button type="button" className="cw-title-link" title={t('console_show_in_tree')} onClick={onTitle}>
+            {w.title}
+          </button>
+        </h2>
         <span className="cw-project">{w.item.project}</span>
       </div>
       <ItemLine w={w} />
@@ -156,6 +161,7 @@ function ItemView({ start, demo }: { start: WindowItem; demo: boolean }) {
                 box.current?.focus();
               }}
             >
+              <QuoteIcon size={12} />
               {t('console_quote')}
             </button>
           ) : null}
@@ -193,8 +199,8 @@ function WorkLine({ w }: { w: WindowItem }) {
   return (
     <div className="cw-line">
       <span className={`cw-dot dot-${m.tone}`} />
-      <span className="cw-strong">{t(m.words)}</span>
-      {k.waits !== null ? <span>{t('console_waits', { what: k.waits })}</span> : null}
+      {/* What it waits for says what it does, in one phrase; one that waits for nothing it names says how it stands. */}
+      <span className="cw-strong">{k.waits !== null ? t('console_waiting_for', { what: k.waits }) : t(m.words)}</span>
       <Link to={workHref(k.id)} className="cw-mono" title={t('console_work_open', { n: k.id })}>
         {t('console_work_name', { n: k.id })}
       </Link>
