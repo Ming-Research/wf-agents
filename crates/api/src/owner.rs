@@ -917,14 +917,17 @@ pub fn remove_dependency(db: &mut Db, item: i64, on: i64) -> Result<String, Stri
     Ok(format!("item {item} no longer depends on item {on}"))
 }
 
-/// Marks an item seen, as the owner: the owner opened it, so what it holds now is no longer new to them. It is new
-/// again once its content changes after this (`item_content_version`). An item seen already stays as it was, and one
-/// that does not exist is refused.
+/// Marks an item seen, as the owner: the owner opened it, so what it holds now is no longer new to them. It is seen up
+/// to its latest change of any kind, and new again once its content changes after that (`item_content_changes`). An
+/// item seen already stays as it was, and one that does not exist is refused.
 pub fn mark_item_seen(db: &mut Db, item: i64) -> Result<String, String> {
     let found = db
         .write(Actor::Owner, |tx| {
             Ok(tx.execute(
-                "INSERT INTO owner_seen (item, change) SELECT item, change FROM item_content_version WHERE item = ?1
+                "INSERT INTO owner_seen (item, change)
+                 SELECT i.id, coalesce((SELECT max(c.id) FROM changes c
+                                        WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id)), 0)
+                 FROM items i WHERE i.id = ?1
                  ON CONFLICT (item) DO UPDATE SET change = max(change, excluded.change)",
                 [item],
             )?)

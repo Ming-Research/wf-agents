@@ -1235,16 +1235,18 @@ CREATE TABLE conversation_reads (
 ) STRICT;
 
 CREATE TABLE owner_seen (
-  -- Which version of each item the owner has seen: the last content change of the item (item_content_version) that
-  -- the owner had seen when they last opened the item. An item is new to the owner when it has no row here, or its
-  -- content version is newer than the row's change; it is new when it is created and again each time its content
-  -- changes, and opening it marks it seen. Kept apart from items, which hold what its creator wrote and not what the
-  -- owner has read.
+  -- How far the owner has seen each item: its latest change, of any kind, when they last opened it. An item is new to
+  -- the owner when it has no row here, or a change of its content (item_content_changes) came after the row's change;
+  -- it is new when it is created and again each time its content changes, and opening it marks it seen. The latest
+  -- change of any kind is kept rather than the latest of content, so that whether an item is new is read from the few
+  -- changes after it, not from the item's whole history, which ran to hundreds of rows for an item reordered often and
+  -- took over a second to read for every item at once. Kept apart from items, which hold what its creator wrote and
+  -- not what the owner has read.
   -- Hidden from agents.
   -- Read by: the owner's interface, which marks each item new to the owner.
   -- The item.
   item INTEGER PRIMARY KEY REFERENCES items(id),
-  -- The id in changes of the item's latest content change that the owner had seen.
+  -- The id in changes of the item's latest change when the owner last opened it; 0 for an item with none recorded.
   change INTEGER NOT NULL
 ) STRICT;
 
@@ -1534,24 +1536,31 @@ CREATE VIEW item_body AS
   -- cells `R1`, `D1`, `I1`, `T2`, `T3` and `T6`.
   SELECT id AS item, project, title, problem, why, approach, deliver, wanted, decision_points FROM items;
 
-CREATE VIEW item_content_version AS
-  -- Each item with the change of its content that came last: the id in changes of the row that made the item, or that
-  -- changed what its creator writes (title, problem, why, approach, wanted, decision_points). A change to any other
-  -- column (the level, deliver, cancelled, and what the engine and the architect set) is no change of content. 0 for
-  -- an item with no change recorded.
+CREATE VIEW item_content_changes AS
+  -- The changes of the items' content: the rows of changes that made an item, or that changed what its creator writes
+  -- (title, problem, why, approach, wanted, decision_points), by their id and the item's key. A change to any other
+  -- column (the level, deliver, cancelled, and what the engine and the architect set) is no change of content.
+  -- Read for one item through row_key = json_object('id', item), which finds its rows by the index of changes by row.
   -- Hidden from agents.
-  -- Read by: the owner's interface, which marks an item new while this is newer than its owner_seen row.
+  -- Read by: item_content_version; the owner's interface, which marks an item new while one of these came after its
+  -- owner_seen row.
+  SELECT c.id, c.row_key FROM changes c
+  WHERE c.table_name = 'items' AND c.new_row IS NOT NULL
+    AND (c.old_row IS NULL
+      OR json_extract(c.old_row, '$.title') IS NOT json_extract(c.new_row, '$.title')
+      OR json_extract(c.old_row, '$.problem') IS NOT json_extract(c.new_row, '$.problem')
+      OR json_extract(c.old_row, '$.why') IS NOT json_extract(c.new_row, '$.why')
+      OR json_extract(c.old_row, '$.approach') IS NOT json_extract(c.new_row, '$.approach')
+      OR json_extract(c.old_row, '$.wanted') IS NOT json_extract(c.new_row, '$.wanted')
+      OR json_extract(c.old_row, '$.decision_points') IS NOT json_extract(c.new_row, '$.decision_points'));
+
+CREATE VIEW item_content_version AS
+  -- Each item with the change of its content that came last (item_content_changes), 0 for an item with none recorded.
+  -- It reads the item's whole history, so it is for one item at a time.
+  -- Hidden from agents.
+  -- Read by: people and tests looking at an item's content version.
   SELECT i.id AS item, coalesce((
-    SELECT max(c.id) FROM changes c
-    WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id) AND c.new_row IS NOT NULL
-      AND (c.old_row IS NULL
-        OR json_extract(c.old_row, '$.title') IS NOT json_extract(c.new_row, '$.title')
-        OR json_extract(c.old_row, '$.problem') IS NOT json_extract(c.new_row, '$.problem')
-        OR json_extract(c.old_row, '$.why') IS NOT json_extract(c.new_row, '$.why')
-        OR json_extract(c.old_row, '$.approach') IS NOT json_extract(c.new_row, '$.approach')
-        OR json_extract(c.old_row, '$.wanted') IS NOT json_extract(c.new_row, '$.wanted')
-        OR json_extract(c.old_row, '$.decision_points') IS NOT json_extract(c.new_row, '$.decision_points'))), 0)
-    AS change
+    SELECT max(v.id) FROM item_content_changes v WHERE v.row_key = json_object('id', i.id)), 0) AS change
   FROM items i;
 
 CREATE VIEW item_problem AS

@@ -1802,8 +1802,10 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 i.id IN (SELECT item FROM goals_open),
                 EXISTS (SELECT 1 FROM works w WHERE w.item = i.id AND w.graph = 'engineer'
                           AND (w.ended IS NULL OR w.ended = '{done}') AND w.at IN {end}),
-                NOT EXISTS (SELECT 1 FROM owner_seen s JOIN item_content_version v ON v.item = s.item
-                            WHERE s.item = i.id AND s.change >= v.change)
+                NOT EXISTS (SELECT 1 FROM owner_seen s WHERE s.item = i.id)
+                  OR EXISTS (SELECT 1 FROM owner_seen s JOIN item_content_changes v
+                               ON v.row_key = json_object('id', s.item) AND v.id > s.change
+                             WHERE s.item = i.id)
          FROM items i ORDER BY i.id",
         done = db::ENDED_DONE,
         end = db::cells_sql("engineer", &["E1"]),
