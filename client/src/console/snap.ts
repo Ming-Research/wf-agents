@@ -6,12 +6,13 @@
 // detents: a pull short of the threshold springs back to the line; past it, the next item comes to the line. Holding an
 // item of another parent holds that parent in the column to the left.
 //
-// Each item is a white card; one a work goes on on has a bar down its left in the colour of what the work does, and
-// one above such an item an edge of the light accent. A filled funnel joins each item's top and bottom to the first item
-// under it and the last, light accent from a held item and grey from the others; a ribbon of the same light accent joins
-// each item to each of its items a work goes on on or under, so that the way from a root to every item in work reads as
-// one. Each held item is ringed in the accent, or orange while the pointer is over its column, and the stage a running
-// work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`.
+// Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, a bar of it down its
+// left, and one above such an item has an edge of the light accent. A filled funnel joins each item's top and bottom to
+// the first item under it and the last, light accent from a held item and grey from the others; a ribbon of the same
+// light accent joins each item to each of its items a work goes on on or under, so that the way from a root to every
+// item in work reads as one. Each held item is ringed in the accent, or orange while the pointer is over its column, and
+// the stage a running work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in
+// `stats`.
 
 import { Application, BitmapText, Container, Graphics, TextStyle } from 'pixi.js';
 
@@ -158,6 +159,9 @@ const STAGE: Record<Mood, string> = {
   halted: PALETTE.red,
   waiting: PALETTE.muted,
 };
+
+/// How much of its work's colour a card in work takes, the rest white.
+const TINT = 0.09;
 
 /// The colour of an item's number by its state: open, done or cancelled.
 const NUMBER = {
@@ -379,8 +383,8 @@ export class SnapScene {
     this.stats.items = items.length;
   }
 
-  /// The node of an item: a white card, its edge the accent's tint above a work, and down its left, while a work goes
-  /// on on it, a bar in the colour of what the work does. On its first row its number in its state's
+  /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does,
+  /// with a bar of that colour down its left; its edge the accent's tint above a work. On its first row its number in its state's
   /// colour, its title, and at the right, framed, its questions waiting for the owner, red, and its returns sent back,
   /// grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one it is
   /// at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how long
@@ -395,7 +399,7 @@ export class SnapScene {
     const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
     view.addChild(
       card
-        .fill(PALETTE.card)
+        .fill(mood !== null ? mix(PALETTE.card, BAR[mood], TINT) : PALETTE.card)
         .stroke({ color: this.lit[k] === 1 && mood === null ? PALETTE.branch : PALETTE.edge, width: 1 }),
     );
     if (mood !== null) {
