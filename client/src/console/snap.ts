@@ -11,8 +11,8 @@
 // the first item under it and the last, light accent from a held item and grey from the others; a ribbon of the same
 // light accent joins each item to each of its items a work goes on on or under, so that the way from a root to every
 // item in work reads as one. Each held item is ringed in the accent, or orange while the pointer is over its column, and
-// the stages a running work has come through are swept dark in turn every half second. Only what is on the screen is
-// drawn. What it draws and how fast is kept in `stats`.
+// the stage a running work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in
+// `stats`.
 
 import { Application, BitmapText, Container, Graphics, TextStyle } from 'pixi.js';
 
@@ -42,11 +42,10 @@ const MAP_PAD = 8;
 /// How quickly a held item's frame turns between the accent and orange: the milliseconds in which it goes about two
 /// thirds of the way.
 const TURN = 35;
-/// The stages a running work has come through, up to the one it is at, rest lit for half a second, then go dark one
-/// after another, from the first, each for a moment, as a quick sweep; how long that moment is, in milliseconds, and how
-/// faint a stage goes.
-const REST_MS = 500;
-const STEP_MS = 70;
+/// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
+/// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the stage goes at its faintest.
+const PULSE_MS = 1000;
+const FADE = 0.4;
 const DARK = 0.15;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
@@ -251,9 +250,9 @@ export class SnapScene {
   /// For each item, whether a work goes on on it or under it: the ribbons and the edges of the cards on the way to it
   /// are lit.
   private lit: Uint8Array = new Uint8Array(0);
-  /// The parts of a node that change while it is shown: the stages a running work has come through up to the one it is
-  /// at, which go dark in turn, and the label of how long its work has gone on, with when the work started.
-  private pulses = new Map<number, Graphics[]>();
+  /// The parts of a node that change while it is shown: the stage a running work is at, which pulses, and the label of
+  /// how long its work has gone on, with when the work started.
+  private pulses = new Map<number, Graphics>();
   private ages = new Map<number, { from: number; label: BitmapText; shown: string; row: number }>();
   private styles: Styles | null = null;
   /// For each column, the ranks of its items whose questions wait for the owner, which the map marks.
@@ -459,17 +458,17 @@ export class SnapScene {
     const row2 = top + h - (WORK_ROW * ROW) / 2 - 3;
     const here = w.stage !== null ? w.stages.indexOf(w.stage) : -1;
     const [cell, thick, gap] = [12, 4, 3];
-    // Those gone through and the one it is at each of its own, so that each can go dark in turn while the work runs.
     const stages = new Graphics();
-    const through: Graphics[] = [];
     w.stages.forEach((_, i) => {
-      const r = [x + i * (cell + gap), row2 - thick / 2, cell, thick] as const;
-      if (i > here) stages.rect(...r).fill(PALETTE.hair);
-      else through.push(new Graphics().rect(...r).fill(i < here ? PALETTE.faint : STAGE[mood]));
+      if (i !== here)
+        stages.rect(x + i * (cell + gap), row2 - thick / 2, cell, thick).fill(i < here ? PALETTE.faint : PALETTE.hair);
     });
-    view.addChild(stages, ...through);
-    if (mood === 'running' && through.length > 0) this.pulses.set(k, through);
+    view.addChild(stages);
     if (here >= 0) {
+      // The one it is at, of its own, so that it can pulse while the work runs.
+      const at = new Graphics().rect(x + here * (cell + gap), row2 - thick / 2, cell, thick).fill(STAGE[mood]);
+      view.addChild(at);
+      if (mood === 'running') this.pulses.set(k, at);
       const letter = new BitmapText({
         text: w.stages[here].charAt(0).toUpperCase(),
         style: s.mono(PALETTE.muted),
@@ -754,6 +753,11 @@ export class SnapScene {
       return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
     };
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
+    // The stage a running work is at: lit, then in the last part of each beat faded out and back in, every running node
+    // at once.
+    const beat = (now % PULSE_MS) / PULSE_MS;
+    const fade = beat < 1 - FADE ? 0 : Math.sin((Math.PI * (beat - (1 - FADE))) / FADE) ** 2;
+    const pulse = 1 - (1 - DARK) * fade;
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
     // The line across the middle, dashed.
@@ -777,12 +781,7 @@ export class SnapScene {
         const view = this.views[item];
         view.position.set(cx, yy);
         const p = this.pulses.get(item);
-        if (p !== undefined) {
-          // Which of them is dark: none while they rest, then one after another, from the first.
-          const t = now % (REST_MS + p.length * STEP_MS);
-          const dark = t < REST_MS ? -1 : Math.floor((t - REST_MS) / STEP_MS);
-          p.forEach((g, i) => (g.alpha = i === dark ? DARK : 1));
-        }
+        if (p !== undefined) p.alpha = pulse;
         this.age(item);
         nowShown.add(view);
         if (!this.shown.has(view)) this.layer.addChild(view);
