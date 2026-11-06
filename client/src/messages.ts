@@ -53,7 +53,6 @@ const messages = {
   console_work_waiting: 'Waiting',
   console_waiting_for: 'Waiting for {what}',
   console_show_in_tree: 'Show it in the tree',
-  console_sent_back: 'Sent back {n} times',
   console_fact_rounds: 'Rounds',
   console_fact_cost: 'Cost',
   console_fact_started: 'Started',

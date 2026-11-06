@@ -21,7 +21,7 @@ import { TimeTrack, barSpans } from '../charts';
 import { StageCells } from '../pages/StageBar';
 import { DraftArea } from '../parts';
 import { Link, workHref } from '../route';
-import { type Key, t } from '../text';
+import { type Key, t, tn } from '../text';
 import { age } from './snap';
 import { changedIn, type Note, type Part, picks, recipients, type WindowItem, type Who } from './window';
 
@@ -164,13 +164,7 @@ function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props)
       </div>
       {fresh ? (
         <div className="cw-fresh">
-          <span>
-            {changes === 0
-              ? t('console_new_to_you')
-              : changes === 1
-                ? t('console_changed_one')
-                : t('console_changed', { n: changes })}
-          </span>
+          <span>{changes === 0 ? t('console_new_to_you') : tn('console_changed', changes)}</span>
           <button type="button" className="cw-fresh-read" aria-keyshortcuts="r" onClick={read}>
             {keyed(t('console_read'), 'r')}
           </button>
