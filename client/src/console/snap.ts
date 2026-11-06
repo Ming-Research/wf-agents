@@ -81,8 +81,8 @@ const PALETTE = {
   hair: '#e3e6ea',
   edge: '#e5e7eb',
   card: '#ffffff',
-  /// The ground the tree is drawn on: a soft beige, the cards white on it as paper.
-  page: '#faf8f3',
+  /// The ground the tree is drawn on: a very light grey, the cards white on it as paper.
+  page: '#f6f7f9',
   accent: '#3b5bfd',
   /// A card's edge above a work.
   branch: '#c7cdfd',

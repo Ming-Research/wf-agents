@@ -12,9 +12,9 @@
   overflow: hidden;
 }
 
-/* The window beside the tree, white like paper on the console's beige, over the right of the tree, kept out at the right
-   of the screen like a binder's page: a narrow tab stuck to its left edge stays on the screen, and slides the window in
-   and out with it; its left edge is dragged to change its width. */
+/* The window beside the tree, white like paper on the console's light grey, over the right of the tree, kept out at
+   the right of the screen like a binder's page: a narrow tab stuck to its left edge stays on the screen, and slides the
+   window in and out with it; its left edge is dragged to change its width. */
 .console {
   position: relative;
   overflow: hidden;
