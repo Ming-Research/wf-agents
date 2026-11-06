@@ -9,11 +9,11 @@
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such an
 // item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge. A
 // filled funnel joins each item's top and bottom to the first item under it and the last, light accent from a held item
-// and grey from the others. Each held item is ringed in the accent; the item under the pointer, and each above it up to
-// its root, in orange, each joined to the one above by a ribbon of light orange. The stage a running work is at pulses.
-// Every column fades out into the page near the top and the bottom of the screen; at those two edges the column under
-// the pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws
-// and how fast is kept in `stats`.
+// and grey from the others. Each held item is ringed in a soft blue; the item under the pointer, and each above it up
+// to its root, in orange, each joined to the one above by a ribbon of light orange. The stage a running work is at
+// pulses. Every column fades out into the page near the top and the bottom of the screen; at those two edges the column
+// under the pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it
+// draws and how fast is kept in `stats`.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -76,6 +76,8 @@ const PALETTE = {
   edge: '#e5e7eb',
   card: '#ffffff',
   accent: '#3b5bfd',
+  /// The ring round a held item: a softer blue than the accent, so that it marks the way without standing out from it.
+  held: '#7891fc',
   /// A card's edge above a work, and the funnel from a held card.
   branch: '#c7cdfd',
   /// The line inside the left edge of a card new to the owner.
@@ -900,7 +902,7 @@ export class SnapScene {
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
       this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
-    // Each held item ringed, in the accent.
+    // Each held item ringed, in a soft blue.
     for (let d = 0; d < t.columns.length; d += 1) {
       const c = this.columns[d];
       if (c.held < 0) continue;
@@ -910,9 +912,9 @@ export class SnapScene {
       if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
       this.marks
         .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
-        .stroke({ color: PALETTE.accent, width: HALO, alpha: HALO_ALPHA })
+        .stroke({ color: PALETTE.held, width: HALO, alpha: HALO_ALPHA })
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: PALETTE.accent, width: RING });
+        .stroke({ color: PALETTE.held, width: RING });
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
