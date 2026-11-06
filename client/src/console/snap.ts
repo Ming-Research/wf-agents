@@ -91,6 +91,9 @@ const SETTLE = 150;
 /// off as a bell of this width; and how much a column holds to where it is, against the wants, so that wants that
 /// weigh little move it little at a frame, and it never leaps between two places that meet the heavy ones alike.
 const REACH = 3;
+/// By links, how many rows of the column scrolled stay on the screen at least, at its top or its bottom: with no line to
+/// rest on, it may go as far as that.
+const KEEP = 3;
 const STAY = 0.2;
 /// By links, how much of the way to where it stands a column goes each frame: a column that was the one scrolled has
 /// rested where its own scroll left it, not where its links would put it, and glides there once another is scrolled.
@@ -1065,8 +1068,11 @@ export class SnapScene {
         c.pull = 0;
         c.aim = c.at;
       }
+      // Gradually it rests with an item on the line, so it goes no further than its first and last items; by links, as
+      // far as leaves a little of it on the screen.
       const last = t.columns[d].length - 1;
-      c.aim = Math.max(this.middle(d, 0), Math.min(this.middle(d, last), c.aim + dy / ROW));
+      const room = this.mode === 'links' ? Math.max(0, this.app.screen.height / 2 / ROW - KEEP) : 0;
+      c.aim = Math.max(this.middle(d, 0) - room, Math.min(this.middle(d, last) + room, c.aim + dy / ROW));
       c.lastScroll = now;
       let lo = 0;
       let hi = last;
