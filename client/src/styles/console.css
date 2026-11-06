@@ -284,13 +284,6 @@
 
 .cw-confirm {
   margin: var(--base-size-12) 0;
-  padding: var(--base-size-12);
-  border-radius: var(--borderRadius-medium);
-  background: var(--bgColor-muted);
-}
-
-.cw-confirm p {
-  margin: 0 0 var(--base-size-8);
 }
 
 .cw-done {

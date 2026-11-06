@@ -3,8 +3,9 @@
 // item stands and a line of what its work does, with the work's stages and where its time went as its row in the list
 // of works has them; and two tabs, beside them a button to mark the item read while something in it is new to the
 // owner. The first holds the body (where the item came from, the problem it solves, the plan, with each choice that
-// waits for the owner where it stands in the plan, picked by a press on an option, and at the plan's end a button to
-// confirm it, which waits until each choice has its pick; once confirmed, the picks stand), each
+// waits for the owner where it stands in the plan, picked by a press on an option and let go by another, and at the
+// plan's end a button as wide as the body to confirm it, which waits until each choice has its pick; once confirmed,
+// the picks stand), each
 // passage changed since the owner read it marked at its left, and under the body the notes: the owner's and the
 // replies, and a box to write one, which a passage selected in the body can be quoted into and which names whom it goes
 // to. The second holds what of the work the lines do not say. With no item selected it says how to select one. While the
@@ -94,8 +95,14 @@ function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props)
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, read]);
+  // A press on an option picks it, and a press on the one picked lets it go.
   const choose = (at: number, option: number) =>
-    setW({ ...w, plan: w.plan.map((p, i) => (i === at && p.kind === 'choice' ? { ...p, chosen: option } : p)) });
+    setW({
+      ...w,
+      plan: w.plan.map((p, i) =>
+        i === at && p.kind === 'choice' ? { ...p, chosen: p.chosen === option ? null : option } : p,
+      ),
+    });
   // A passage selected in the body offers to be quoted, by a button just above it.
   const selected = () => {
     const sel = window.getSelection();
@@ -170,11 +177,9 @@ function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props)
             <Section title="console_plan" parts={w.plan} choose={w.planWaits ? choose : undefined} />
             {w.planWaits ? (
               <div className="cw-confirm">
-                <p>
-                  {openChoices(w) > 0 ? t('console_plan_choices_open', { n: openChoices(w) }) : t('console_plan_waits')}
-                </p>
                 <Button
                   variant="primary"
+                  block
                   disabled={openChoices(w) > 0}
                   onClick={() => {
                     setW((was) => ({ ...was, planWaits: false }));
@@ -286,7 +291,8 @@ function Section({
   );
 }
 
-/// A choice of the plan: a press on an option picks it, and another changes the pick, until the plan is confirmed.
+/// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
+/// until the plan is confirmed.
 function Choice({ p, pick }: { p: Extract<Part, { kind: 'choice' }>; pick?: (option: number) => void }) {
   return (
     <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
