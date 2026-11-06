@@ -88,9 +88,9 @@ const PALETTE = {
   branch: '#c7cdfd',
   /// The line inside the left edge of a card new to the owner.
   unseen: '#6a82fd',
-  /// The funnel from a held item: a grey a little deeper than the others', no colour, so that only the item selected and
+  /// The funnel from a held item: a grey clearly deeper than the others', no colour, so that only the item selected and
   /// the one under the pointer are lit.
-  funnel: '#e1e4e9',
+  funnel: '#d3d8e0',
   /// The ribbons from the item under the pointer up to its root.
   hoverRibbon: '#d3dcfe',
   /// The ring round the item selected and those on its way to its root, and the ribbons between them.
@@ -368,7 +368,7 @@ export class SnapScene {
   private gone = false;
   private colours = {
     other: '#8d9bb3',
-    otherAlpha: 0.12,
+    otherAlpha: 0.072,
     ground: '#ffffff',
     mapLine: '#59636e',
   };
@@ -425,12 +425,13 @@ export class SnapScene {
     this.layer.removeChildren();
     for (const v of this.views) v.destroy({ children: true });
     this.shown = new Set();
-    // A colour with its opacity as `#rrggbbaa`, split for Pixi.
+    // A colour with its opacity as `#rrggbbaa`, split for Pixi; the funnels not held take it at a little more than half,
+    // so that the held one stands apart from them.
     const neutral = colour('--bgColor-neutral-muted', '#8d9bb31f');
     const ground = PALETTE.page;
     this.colours = {
       other: neutral.slice(0, 7),
-      otherAlpha: neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12,
+      otherAlpha: 0.6 * (neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12),
       ground,
       mapLine: colour('--fgColor-muted', '#59636e'),
     };
