@@ -277,6 +277,11 @@ pub enum Error {
         item: i64,
         depends_on: i64,
     },
+    /// A deliverable item that is done would depend on an item that is not: what is done stands above only what is done.
+    DoneOverUnfinished {
+        item: i64,
+        depends_on: i64,
+    },
     /// The write was given up, for the reason given; nothing of it was kept.
     Abort(String),
 }
@@ -303,6 +308,13 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "item {item} cannot depend on {depends_on}: {depends_on} already depends on {item}"
+                )
+            }
+            Error::DoneOverUnfinished { item, depends_on } => {
+                write!(
+                    f,
+                    "item {item} cannot depend on {depends_on}: {item} is done and {depends_on} is not, and the item \
+                     depended on must be done before the item depending on it can be; make a new item for what is left"
                 )
             }
             Error::Abort(why) => write!(f, "{why}"),
@@ -931,8 +943,34 @@ fn triggers(conn: &Connection, table: &str) -> rusqlite::Result<String> {
     ))
 }
 
+/// An SQL condition: the item `i` (an alias in the query) is a deliverable item that is done, as the view `goals_open`
+/// reads it: a work of it reached the end of the engineer's graph, ended as `done` or, while its round there is not
+/// completed, not ended.
+#[macro_export]
+macro_rules! sql_item_done {
+    () => {
+        "(i.deliver IS NOT NULL AND EXISTS (SELECT 1 FROM works w WHERE w.item = i.id \
+         AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer' AND w.at IN ('E1', '20', 'end')))"
+    };
+}
+
+/// An SQL condition: the item `i` (an alias in the query) is unfinished, so that an item standing over it is held back
+/// by it: it is not cancelled, and is a deliverable item not done, or a goal in `goals_open`.
+#[macro_export]
+macro_rules! sql_item_unfinished {
+    () => {
+        concat!(
+            "(i.cancelled IS NULL AND ((i.deliver IS NOT NULL AND NOT ",
+            $crate::sql_item_done!(),
+            ") OR (i.deliver IS NULL AND i.id IN (SELECT item FROM goals_open))))"
+        )
+    };
+}
+
 /// Makes `item` depend on `depends_on` by a dependency of the kind given, `blocking` or `parallel`, unless `depends_on`
-/// already depends on `item`, directly or not.
+/// already depends on `item`, directly or not. Refused too when `item` is a deliverable item that is done and
+/// `depends_on` is unfinished ([`Error::DoneOverUnfinished`]): the item depended on is done before the item depending
+/// on it can be. A goal as `item` is never refused: it is done only while what it depends on is.
 pub fn add_dependency(tx: &Transaction<'_>, item: i64, depends_on: i64, needs: &str, kind: &str) -> Result<()> {
     let cycle: bool = tx.query_row(
         "WITH RECURSIVE reach(id) AS (SELECT ?1 UNION SELECT l.depends_on FROM item_links l JOIN reach ON l.item = reach.id)
@@ -942,6 +980,20 @@ pub fn add_dependency(tx: &Transaction<'_>, item: i64, depends_on: i64, needs: &
     )?;
     if cycle {
         return Err(Error::Cycle { item, depends_on });
+    }
+    let done_over_unfinished: bool = tx.query_row(
+        concat!(
+            "SELECT EXISTS (SELECT 1 FROM items i WHERE i.id = ?1 AND ",
+            sql_item_done!(),
+            ") AND EXISTS (SELECT 1 FROM items i WHERE i.id = ?2 AND ",
+            sql_item_unfinished!(),
+            ")"
+        ),
+        params![item, depends_on],
+        |r| r.get(0),
+    )?;
+    if done_over_unfinished {
+        return Err(Error::DoneOverUnfinished { item, depends_on });
     }
     tx.execute(
         "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (?1, ?2, ?3, ?4)",

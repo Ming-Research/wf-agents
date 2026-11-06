@@ -163,7 +163,7 @@ export function demoShown(): Shown[] {
     ]),
     item('What an item is', [
       item('Open, nothing started'),
-      item('Done, with work under it', [work('Running under a done item', 'running', { age: 20 })], 'done'),
+      item('Done', [], 'done'),
       item('Cancelled, with an open item under it', [item('Open under a cancelled item')], 'cancelled'),
     ]),
     item('A long branch at work', [
