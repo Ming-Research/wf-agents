@@ -5,7 +5,8 @@
 // case it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item
 // selected brings it out again. The window coming out over the item selected, or an item selected half under it or
 // half off the screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item
-// go while the tree has the keys, and slides the window in while it has them.
+// go while the tree has the keys, and slides the window in while it has them. A small switch at the bottom left chooses
+// how the columns follow the one scrolled, by steps or gradually, for trying the two.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -17,6 +18,9 @@ import { ItemWindow } from '../console/ItemWindow';
 import { SnapScene } from '../console/snap';
 import { windowMock } from '../console/window-mock';
 import { useResource, useStatus } from '../live';
+import { t } from '../text';
+
+const SNAP_KEY = 'console-snap';
 
 export function Console({ demo }: { demo: boolean }) {
   const host = useRef<HTMLDivElement>(null);
@@ -33,6 +37,25 @@ export function Console({ demo }: { demo: boolean }) {
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
   const panel = useRef<HTMLElement>(null);
+  // Whether the columns follow the one scrolled gradually or each spring to its place, for trying the two; the browser
+  // keeps the choice.
+  const [gradual, setGradual] = useState(() => {
+    try {
+      return localStorage.getItem(SNAP_KEY) !== 'steps';
+    } catch {
+      return true;
+    }
+  });
+  const latestGradual = useRef(gradual);
+  useEffect(() => {
+    latestGradual.current = gradual;
+    if (scene.current !== null) scene.current.gradual = gradual;
+    try {
+      localStorage.setItem(SNAP_KEY, gradual ? 'gradual' : 'steps');
+    } catch {
+      // Kept for this page only.
+    }
+  }, [gradual]);
 
   useEffect(() => {
     const el = host.current;
@@ -42,6 +65,7 @@ export function Console({ demo }: { demo: boolean }) {
     void s.mount(el).then(() => {
       if (!alive) return;
       scene.current = s;
+      s.gradual = latestGradual.current;
       let was: number | null = null;
       s.onSelect = (item) => {
         setSelected(item);
@@ -111,6 +135,13 @@ export function Console({ demo }: { demo: boolean }) {
         ref={host}
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       />
+      <div className="console-snap" role="group" aria-label={t('console_snap')}>
+        {([false, true] as const).map((g) => (
+          <button key={String(g)} type="button" aria-pressed={gradual === g} onClick={() => setGradual(g)}>
+            {t(g ? 'console_snap_gradual' : 'console_snap_steps')}
+          </button>
+        ))}
+      </div>
       <Drawer
         open={open}
         onToggle={() => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true }))}

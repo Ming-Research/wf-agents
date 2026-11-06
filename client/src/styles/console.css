@@ -12,6 +12,34 @@
   overflow: hidden;
 }
 
+/* The switch between the columns' two ways of following the one scrolled, small at the bottom left, for trying them. */
+.console-snap {
+  position: absolute;
+  bottom: var(--base-size-12);
+  left: var(--base-size-12);
+  z-index: 3;
+  display: flex;
+  padding: 2px;
+  border: var(--borderWidth-thin) solid var(--borderColor-muted);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
+}
+
+.console .console-snap button {
+  padding: 2px var(--base-size-8);
+  border: none;
+  border-radius: var(--borderRadius-small);
+  background: none;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  cursor: pointer;
+}
+
+.console .console-snap button[aria-pressed='true'] {
+  background: var(--bgColor-neutral-muted);
+  color: var(--fgColor-default);
+}
+
 /* The window beside the tree, white like paper on the console's light grey, over the right of the tree, kept out at
    the right of the screen like a binder's page: a narrow tab stuck to its left edge stays on the screen, and slides the
    window in and out with it; its left edge is dragged to change its width. */
