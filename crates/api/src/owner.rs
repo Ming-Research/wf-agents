@@ -917,6 +917,25 @@ pub fn remove_dependency(db: &mut Db, item: i64, on: i64) -> Result<String, Stri
     Ok(format!("item {item} no longer depends on item {on}"))
 }
 
+/// Marks an item seen, as the owner: the owner opened it, so what it holds now is no longer new to them. It is new
+/// again once its content changes after this (`item_content_version`). An item seen already stays as it was, and one
+/// that does not exist is refused.
+pub fn mark_item_seen(db: &mut Db, item: i64) -> Result<String, String> {
+    let found = db
+        .write(Actor::Owner, |tx| {
+            Ok(tx.execute(
+                "INSERT INTO owner_seen (item, change) SELECT item, change FROM item_content_version WHERE item = ?1
+                 ON CONFLICT (item) DO UPDATE SET change = max(change, excluded.change)",
+                [item],
+            )?)
+        })
+        .map_err(sql)?;
+    if found == 0 {
+        return Err(format!("no item {item}"));
+    }
+    Ok(format!("item {item} is seen"))
+}
+
 /// Asks to lift a paused work's pause, as the owner: the engine lifts it once the work's machine has a slot free, as it
 /// does for the owner's Start, and its cell then runs again. The engine closes a round the pause left open, with the
 /// reason. A work the architect stopped is the owner's release of it, which the architect is told. It reads and writes

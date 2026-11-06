@@ -1410,7 +1410,11 @@ pr: number | null,
  * The items not merged yet that it depends on by a blocking dependency, which keep it from starting; empty while a
  * work on it goes on, or it is done or cancelled.
  */
-blocked_by: Array<number>, };
+blocked_by: Array<number>,
+/**
+ * Whether it is new to the owner: made, or its content changed, since the owner last opened it.
+ */
+unseen: boolean, };
 
 /**
  * A dependency: `item` cannot finish until `depends_on` is done.

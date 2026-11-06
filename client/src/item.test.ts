@@ -30,6 +30,7 @@ function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummar
     open_design_cards: 0,
     pr: null,
     blocked_by: [],
+    unseen: false,
     ...extra,
   };
 }

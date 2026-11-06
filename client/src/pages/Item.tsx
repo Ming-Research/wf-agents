@@ -682,6 +682,12 @@ function Detail({ d }: { d: ItemDetail }) {
 /// An item's page, on the items view beside the tree.
 export function Item({ id }: { id: number }) {
   const item = useResource<ItemDetail>(`item:${id}`, `/api/v1/items/${id}`);
+  // Opening an item new to the owner marks it seen; the items list is read again when the interface reports it, and the
+  // mark goes. A failed request leaves the item new, and the next time it is opened asks again.
+  const unseen = item.data?.item.unseen === true;
+  useEffect(() => {
+    if (unseen) postJson(`/api/v1/items/${id}/seen`, {}).catch(() => undefined);
+  }, [id, unseen]);
   return (
     <div className="page item-page">
       <Loaded r={item}>{(d) => <Detail d={d} />}</Loaded>

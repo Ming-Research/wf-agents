@@ -931,6 +931,8 @@ pub struct ItemSummary {
     /// The items not merged yet that it depends on by a blocking dependency, which keep it from starting; empty while a
     /// work on it goes on, or it is done or cancelled.
     pub blocked_by: Vec<i64>,
+    /// Whether it is new to the owner: made, or its content changed, since the owner last opened it.
+    pub unseen: bool,
 }
 
 /// A dependency: `item` cannot finish until `depends_on` is done.

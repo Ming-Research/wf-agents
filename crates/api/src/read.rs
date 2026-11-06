@@ -1801,7 +1801,9 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 (SELECT r.route FROM work_routes r WHERE r.item = i.id ORDER BY r.work DESC LIMIT 1),
                 i.id IN (SELECT item FROM goals_open),
                 EXISTS (SELECT 1 FROM works w WHERE w.item = i.id AND w.graph = 'engineer'
-                          AND (w.ended IS NULL OR w.ended = '{done}') AND w.at IN {end})
+                          AND (w.ended IS NULL OR w.ended = '{done}') AND w.at IN {end}),
+                NOT EXISTS (SELECT 1 FROM owner_seen s JOIN item_content_version v ON v.item = s.item
+                            WHERE s.item = i.id AND s.change >= v.change)
          FROM items i ORDER BY i.id",
         done = db::ENDED_DONE,
         end = db::cells_sql("engineer", &["E1"]),
@@ -1847,6 +1849,7 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 open_design_cards: w.map_or(0, |w| w.open_design_cards),
                 pr: prs.get(&id).copied().or(imported_pr),
                 blocked_by,
+                unseen: r.get(10)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;

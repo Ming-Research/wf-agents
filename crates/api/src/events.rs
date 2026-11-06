@@ -78,6 +78,8 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 )
                 .ok(),
             "items" => Some(Event::Item { item: Some(id) }),
+            // The owner opening an item marks it seen; the items list the page holds shows the mark.
+            "owner_seen" => Some(Event::Item { item: Some(id) }),
             "item_links" => Some(Event::Item {
                 item: one(conn, "SELECT item FROM item_links WHERE rowid = ?1", id),
             }),
