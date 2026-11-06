@@ -9,10 +9,11 @@
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such an
 // item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge. A
 // filled funnel joins each item's top and bottom to the first item under it and the last, light accent from a held item
-// and grey from the others. Each held item is ringed in the accent, and the stage a running work is at pulses. Every
-// column fades out into the page near the top and the bottom of the screen; at those two edges the column under the
-// pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and
-// how fast is kept in `stats`.
+// and grey from the others. Each held item is ringed in the accent; the item under the pointer, and each above it up to
+// its root, in orange, each joined to the one above by a ribbon of light orange. The stage a running work is at pulses.
+// Every column fades out into the page near the top and the bottom of the screen; at those two edges the column under
+// the pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws
+// and how fast is kept in `stats`.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -71,6 +72,8 @@ const PALETTE = {
   /// The line inside the left edge of a card new to the owner.
   unseen: '#6a82fd',
   funnel: '#e8ebff',
+  /// The ribbons from the item under the pointer up to its root.
+  hoverRibbon: '#fde6c6',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#aab6fd',
   /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting
@@ -293,6 +296,8 @@ export class SnapScene {
   private shown = new Set<Container>();
   /// The column under the pointer, or none; and how far the columns are moved right.
   private hovered = -1;
+  /// Where the pointer is over the canvas, or none; the item under it is found each frame, as the columns move.
+  private pointer: { x: number; y: number } | null = null;
   private left = 40;
   private frames: number[] = [];
   private lastDraw = 0;
@@ -327,7 +332,10 @@ export class SnapScene {
     const canvas = this.app.canvas;
     canvas.addEventListener('wheel', this.wheel, { passive: false });
     canvas.addEventListener('pointermove', this.hover);
-    canvas.addEventListener('pointerleave', () => (this.hovered = -1));
+    canvas.addEventListener('pointerleave', () => {
+      this.hovered = -1;
+      this.pointer = null;
+    });
     canvas.addEventListener('pointerdown', (e) => (this.dragging = { x: e.clientX }));
     window.addEventListener('pointermove', this.drag);
     window.addEventListener('pointerup', this.up);
@@ -740,7 +748,22 @@ export class SnapScene {
     const r = this.app.canvas.getBoundingClientRect();
     const d = Math.floor((e.clientX - r.left - this.left + (PITCH - NODE_W) / 2) / PITCH);
     this.hovered = d >= 0 && d < this.columns.length ? d : -1;
+    this.pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
   };
+
+  /// The item under the pointer, by its index in the tree, or none: the card of column `d` whose box holds the
+  /// pointer. `y` gives an item's middle on the screen.
+  private pointed(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): number {
+    const p = this.pointer;
+    const d = this.hovered;
+    if (p === null || d < 0 || p.x < x(d) || p.x > x(d) + NODE_W) return -1;
+    const c = this.columns[d];
+    const line = this.app.screen.height / 2;
+    const rank = this.rankAt(d, (p.y - line) / ROW + c.at + c.pull * GIVE);
+    if (rank >= t.columns[d].length) return -1;
+    const h = high(this.rowsAt(d, rank)) / 2;
+    return Math.abs(p.y - y(d, rank)) <= h ? t.columns[d][rank] : -1;
+  }
 
   private drag = (e: PointerEvent) => {
     if (this.dragging === null) return;
@@ -845,6 +868,18 @@ export class SnapScene {
     this.links.fill({ color: this.colours.other, alpha: this.colours.otherAlpha });
     for (const [px, top, bottom, cx, f, l] of held) this.funnel(px, top, bottom, cx, f, l);
     this.links.fill(PALETTE.funnel);
+    // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
+    // orange and ringed in orange, over everything else.
+    const chain: number[] = [];
+    for (let i = this.pointed(t, x, y); i >= 0; i = t.parent[i]) chain.push(i);
+    for (const i of chain) {
+      const p = t.parent[i];
+      if (p < 0) continue;
+      const d = t.depth[i];
+      const [py, ph, iy, ih] = [y(d - 1, t.rank[p]), half(d - 1, t.rank[p]), y(d, t.rank[i]), half(d, t.rank[i])];
+      this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
+    }
+    if (chain.length > 1) this.links.fill(PALETTE.hoverRibbon);
     // Each held item ringed, in the accent.
     for (let d = 0; d < t.columns.length; d += 1) {
       const c = this.columns[d];
@@ -858,6 +893,15 @@ export class SnapScene {
         .stroke({ color: PALETTE.accent, width: 3, alpha: 0.18 })
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
         .stroke({ color: PALETTE.accent, width: 1 });
+    }
+    for (const i of chain) {
+      const d = t.depth[i];
+      const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
+      this.marks
+        .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
+        .stroke({ color: PALETTE.over, width: 3, alpha: 0.25 })
+        .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
+        .stroke({ color: PALETTE.over, width: 1 });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
     // of orange.
