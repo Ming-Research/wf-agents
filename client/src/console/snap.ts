@@ -70,11 +70,9 @@ const SNAP = 0.32;
 const GLIDE = 0.35;
 /// How far from the middle of the screen, in rows, an item's want of the column beside it still weighs: its weight
 /// falls off as a bell of this width. A want is met within `SLACK` rows times the inverse of its weight less one, none
-/// for an item in the middle and the more the further out it is, so that an item coming in towards the middle asks for
-/// a little more at a time, and the column moves at its pace rather than at once. What an item wants seen stands at
-/// least `MARGIN` rows in from the top and the bottom of the screen, clear of their fade.
+/// for an item in the middle and the more the further out it is, so that items far out, weighing little, ask for little
+/// and do not swing the column between them, and an item coming in towards the middle asks for a little more at a time.
 const REACH = 3;
-const MARGIN = 2;
 const SLACK = 1;
 /// How many rows of the column scrolled stay on the screen at least, at its top or its bottom.
 const KEEP = 3;
@@ -736,13 +734,11 @@ export class SnapScene {
   }
 
   /// Moves column `c` towards where it stands by its links with the column `from` beside it, which it follows. Each
-  /// item of `from` near the middle of the screen wants what it is joined to in `c` on the screen: the item above it,
-  /// or the block of the items under it, or as much of the block as the screen holds; it weighs the more the nearer the
-  /// middle it is. Seen is enough: two items whose links in `c` stand further apart than in `from` would else pull the
-  /// column between them a long way at a small scroll. The column stays where it is while every want is met, and else
-  /// goes to the nearest place where the wants not met, each pulling by its weight times how far it is from being met,
-  /// pull it no further either way, but no more than `most` rows in one frame. With nothing joining them near the
-  /// middle, it stays.
+  /// item of `from` near the middle of the screen wants what it is joined to in `c` level with it, the item above it or
+  /// any part of the block of the items under it, the more nearly the nearer the middle it is, and weighs the more. The
+  /// column stays where it is while every want is met, and else goes to the nearest place where the wants not met, each
+  /// pulling by its weight times how far it is from being met, pull it no further either way, but no more than `most`
+  /// rows in one frame. With nothing joining them near the middle, it stays.
   private link(c: number, from: number, most = Infinity): void {
     const t = this.tree as Tree;
     const src = this.columns[from];
@@ -750,10 +746,8 @@ export class SnapScene {
     const col = t.columns[from];
     const line = src.at;
     // Where each want is met, as the places of the column `c` at the middle of the screen, from `lows` to `highs`, and
-    // its weight. What stands from `top` to `bottom` of the column is seen while its place at the middle is between
-    // `bottom - seen` and `top + seen`; a block taller than the screen fills it while its place is between
-    // `top + seen` and `bottom - seen`.
-    const seen = Math.max(1, this.app.screen.height / 2 / ROW - MARGIN);
+    // its weight: what stands from `top` to `bottom` of the column is level with an item `s` rows below the middle
+    // while its place is between `top - s` and `bottom - s`.
     const lows: number[] = [];
     const highs: number[] = [];
     const weights: number[] = [];
@@ -776,11 +770,10 @@ export class SnapScene {
         top = this.slot(c, t.rank[above]);
         bottom = top + this.rowsAt(c, t.rank[above]);
       }
-      const fits = bottom - top <= 2 * seen;
       const weight = Math.exp(-(s * s) / (2 * REACH * REACH));
       const slack = SLACK * (1 / weight - 1);
-      lows.push((fits ? bottom - seen : top + seen) - slack);
-      highs.push((fits ? top + seen : bottom - seen) + slack);
+      lows.push(top - s - slack);
+      highs.push(bottom - s + slack);
       weights.push(weight);
     }
     if (weights.length === 0) return;
