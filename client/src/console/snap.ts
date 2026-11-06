@@ -65,13 +65,14 @@ const PALETTE = {
   /// A card's edge on the way to a work, and the funnel from a held card and the ribbon to a work.
   branch: '#c7cdfd',
   funnel: '#e8ebff',
-  /// The bars of works, of one weight so that each reads apart from the others: running indigo, waiting for the owner
-  /// amber, paused grey, halted red, waiting for something else teal.
+  /// The bars of works, of one weight so that each reads apart from the others: running indigo, paused grey, halted red,
+  /// and the two waits of one warm family, waiting for the owner orange amber and waiting for something else yellow, as
+  /// green would read as all being well.
   running: '#5b6cf0',
   asked: '#e08a1e',
   paused: '#8b93a1',
   halted: '#e5484d',
-  waiting: '#2fb3a3',
+  waiting: '#d4a72c',
   amber: '#d97706',
   red: '#e5484d',
   violet: '#8b5cf6',
