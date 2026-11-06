@@ -7,8 +7,8 @@
 // item of another parent holds that parent in the column to the left.
 //
 // It is drawn in one of two looks, to be tried side by side. The schematic: on a dotted paper, each item a small square
-// and its words, joined to the items under it by lines at right angles, the way to each work that runs in the accent;
-// each held item framed by four corners. The cards: each item a white card, a filled funnel joining its top and bottom
+// and its words, joined to the items under it by faint lines at right angles, the way to each work that runs in a light
+// accent; each held item framed by four corners over a faint wash. The cards: each item a white card, a filled funnel joining its top and bottom
 // to the first item under it and the last, light accent from a held item and grey from the others; each held item
 // ringed. In both a held item's frame or ring is in the accent, or orange while the pointer is over its column, and the
 // stage a running work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`.
@@ -55,6 +55,9 @@ const PALETTE = {
   faint: '#9aa1ad',
   pale: '#c3c8cf',
   line: '#cdd2d9',
+  /// The schematic's lines between items, and those of them leading to a work that runs.
+  wire: '#e1e4e9',
+  traced: '#b3bdfd',
   hair: '#e3e6ea',
   edge: '#e5e7eb',
   paper: '#fbfbfa',
@@ -890,8 +893,8 @@ export class SnapScene {
       }
     }
     if (schematic) {
-      this.links.stroke({ color: PALETTE.line, width: 1 });
-      this.trace.stroke({ color: PALETTE.accent, width: 1.2 });
+      this.links.stroke({ color: PALETTE.wire, width: 1 });
+      this.trace.stroke({ color: PALETTE.traced, width: 1 });
     } else {
       this.links.fill({
         color: this.colours.other,
@@ -900,7 +903,7 @@ export class SnapScene {
       for (const [px, top, bottom, cx, f, l] of heldFunnels) this.funnel(px, top, bottom, cx, f, l);
       this.links.fill(PALETTE.funnel);
     }
-    // Each held item framed by four corners, or ringed, in the accent or orange.
+    // Each held item framed by four corners over a faint wash, or ringed, in the accent or orange.
     for (let d = 0; d < t.columns.length; d += 1) {
       const c = this.columns[d];
       if (c.held < 0) continue;
@@ -910,8 +913,10 @@ export class SnapScene {
       if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
       const tone = mix(PALETTE.accent, PALETTE.over, c.warm);
       if (schematic) {
-        const [x1, y1, x2, y2, k] = [gx - 6, gy - gh - 2, gx + NODE_W + 2, gy + gh + 2, 6];
+        const [x1, y1, x2, y2, k] = [gx - 6, gy - gh - 2, gx + NODE_W + 2, gy + gh + 2, 10];
         this.marks
+          .rect(x1, y1, x2 - x1, y2 - y1)
+          .fill({ color: tone, alpha: 0.06 })
           .moveTo(x1, y1 + k)
           .lineTo(x1, y1)
           .lineTo(x1 + k, y1)
@@ -924,7 +929,7 @@ export class SnapScene {
           .moveTo(x1 + k, y2)
           .lineTo(x1, y2)
           .lineTo(x1, y2 - k)
-          .stroke({ color: tone, width: 1.3 });
+          .stroke({ color: tone, width: 2 });
       } else {
         this.marks
           .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
