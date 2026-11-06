@@ -253,8 +253,8 @@
 
 /* The option picked is filled; the one under the pointer is ringed. */
 .cw-option.on {
-  border-color: #e6ddfd;
-  background: #e6ddfd;
+  border-color: #f1ecfe;
+  background: #f1ecfe;
 }
 
 .cw-option:hover:not(:disabled) {
