@@ -1,3 +1,4 @@
+import type { Waits, WorkState } from '../api';
 import type { Shown } from './items';
 
 // A made-up tree of items for trying the console's drawing at scale: shallow and wide, as a project's items are, a few
@@ -13,12 +14,26 @@ export type FakeItem = {
 
 /// Words the titles are made of, of the length real titles have.
 const WORDS = [
-  'Make the engineer flow right, fast and lean', 'Cut rework', 'Keep long rounds in hand', 'Merge returns of a kind',
-  'Keep late interjections', 'Hand long rounds to a new session', 'Record faults found after the merge',
-  'Watch what builds and tests cost', 'Install without stopping works', 'Give health numbers past their line an owner',
-  "Gather a project's own measures", 'Watch anomalies and settle them', 'Count slot waits in the stops',
-  'Open pages fast', 'Undo the slowdown of the new index', 'Show the system page read-only',
-  'Add prices, timezone', 'Review each ended work', 'Trial a candidate flow', 'Fix guard line',
+  'Make the engineer flow right, fast and lean',
+  'Cut rework',
+  'Keep long rounds in hand',
+  'Merge returns of a kind',
+  'Keep late interjections',
+  'Hand long rounds to a new session',
+  'Record faults found after the merge',
+  'Watch what builds and tests cost',
+  'Install without stopping works',
+  'Give health numbers past their line an owner',
+  "Gather a project's own measures",
+  'Watch anomalies and settle them',
+  'Count slot waits in the stops',
+  'Open pages fast',
+  'Undo the slowdown of the new index',
+  'Show the system page read-only',
+  'Add prices, timezone',
+  'Review each ended work',
+  'Trial a candidate flow',
+  'Fix guard line',
 ];
 
 const STATES: FakeItem['state'][] = ['working', 'waiting', 'new', 'new', 'done', 'done', 'done'];
@@ -91,4 +106,72 @@ export function fakeShown(count: number): Shown[] {
     children: i.children.map(shown),
   });
   return fakeTree(count).map(shown);
+}
+
+/// Made-up items that show everything the console draws, each titled by what it shows: a work in each of its states,
+/// of each age and with questions and returns sent back; items open, done and cancelled; and branches with work at
+/// their ends and without. The console draws them at `/console/demo`.
+export function demoShown(): Shown[] {
+  const now = Date.now();
+  const minutes = 60000;
+  const stages = ['research', 'design', 'implement', 'test', 'merge', 'end'];
+  let next = 1;
+  const item = (title: string, children: Shown[] = [], standing: Shown['standing'] = 'open'): Shown => ({
+    id: next++,
+    title,
+    standing,
+    asks: 0,
+    work: null,
+    children,
+  });
+  const work = (
+    title: string,
+    state: WorkState,
+    o: { waits?: Waits; stage?: number; age?: number; asks?: number; sentBack?: number } = {},
+  ): Shown => ({
+    ...item(title),
+    asks: o.asks ?? 0,
+    work: {
+      state,
+      waits: o.waits ?? null,
+      stage: stages[o.stage ?? 2],
+      stages,
+      bar: 'mmmtt..mmmtmm.ttmm',
+      from: now - (o.age ?? 12) * minutes,
+      until: now,
+      sentBack: o.sentBack ?? 0,
+    },
+  });
+  return [
+    item('What a work does', [
+      work('Running for 12 minutes', 'running'),
+      work('Sent back twice', 'running', { age: 45, sentBack: 2, stage: 3 }),
+      work('Its next step due', 'ready', { stage: 1 }),
+      work('Waiting for your answer', 'asking', { waits: { kind: 'answer', ask: 1 }, asks: 1, age: 90 }),
+      work('Waiting for your ruling for 2 days', 'asking', {
+        waits: { kind: 'ruling', design_card: 1 },
+        asks: 2,
+        age: 2 * 24 * 60,
+        stage: 1,
+      }),
+      work('Paused', 'paused', { age: 5 * 60 }),
+      work('Halted by the engine', 'halted', { age: 3 * 60, stage: 3 }),
+      work('Waiting for a free slot', 'waiting_for_slot', { stage: 4 }),
+      work('Waiting for another item', 'waiting', { waits: { kind: 'items', items: [1] }, age: 30 }),
+      work('Waiting for its architect', 'asking', { waits: { kind: 'architect', matter: 1 }, stage: 0 }),
+      work('Stopping', 'stopping', { stage: 5 }),
+    ]),
+    item('What an item is', [
+      item('Open, nothing started'),
+      item('Done, with work under it', [work('Running under a done item', 'running', { age: 20 })], 'done'),
+      item('Cancelled, with an open item under it', [item('Open under a cancelled item')], 'cancelled'),
+    ]),
+    item('A long branch at work', [
+      item('One step down', [
+        item('Two steps down', [work('Running at the end of the branch', 'running', { age: 8 })]),
+      ]),
+      item('Beside it, nothing at work'),
+    ]),
+    item('Nothing at work under it', [item('Open, not started'), item('Open, not started either')]),
+  ];
 }

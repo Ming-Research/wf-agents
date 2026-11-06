@@ -1,15 +1,15 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`console/snap.ts`), as they stand,
-// drawn again as they change.
+// drawn again as they change; at `/console/demo`, made-up items that show every state the drawing has.
 
 import { useEffect, useRef } from 'react';
 
 import type { Items, Status, WorkSummary } from '../api';
-import { fakeShown } from '../console/fake';
+import { demoShown, fakeShown } from '../console/fake';
 import { shownTree } from '../console/items';
 import { SnapScene } from '../console/snap';
 import { useResource, useStatus } from '../live';
 
-export function Console() {
+export function Console({ demo }: { demo: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<SnapScene | null>(null);
   const items = useResource<Items>('items', '/api/v1/items');
@@ -26,7 +26,9 @@ export function Console() {
     void s.mount(el).then(() => {
       if (!alive) return;
       scene.current = s;
-      if (latest.current !== undefined) s.show(shownTree(latest.current, latestWorks.current, latestStatus.current));
+      if (demo) s.show(demoShown());
+      else if (latest.current !== undefined)
+        s.show(shownTree(latest.current, latestWorks.current, latestStatus.current));
       // For trying the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
       Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
     });
@@ -35,7 +37,7 @@ export function Console() {
       scene.current = null;
       s.destroy();
     };
-  }, []);
+  }, [demo]);
 
   // The items, the works and the engine's status as last read, for a scene that is made after they came.
   const latest = useRef<Items | undefined>(undefined);
@@ -45,8 +47,8 @@ export function Console() {
     latest.current = data;
     latestWorks.current = workList ?? [];
     latestStatus.current = status;
-    if (data !== undefined) scene.current?.show(shownTree(data, workList ?? [], status));
-  }, [data, workList, status]);
+    if (data !== undefined && !demo) scene.current?.show(shownTree(data, workList ?? [], status));
+  }, [data, workList, status, demo]);
 
   return (
     <div className="console">

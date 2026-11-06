@@ -78,7 +78,8 @@ export type Route =
   | { page: 'works' }
   | WorkRoute
   | ArchitectRoute
-  | { page: 'console' }
+  /// The console; at `/console/demo`, drawn from made-up items that show every state the drawing has.
+  | { page: 'console'; demo: boolean }
   | { page: 'items' }
   | { page: 'item'; id: number }
   | ObservationsRoute
@@ -163,7 +164,8 @@ export function parse(pathname: string, search: string): Route {
       };
     }
   }
-  if (first === 'console' && parts.length === 1) return { page: 'console' };
+  if (first === 'console' && parts.length === 1) return { page: 'console', demo: false };
+  if (first === 'console' && parts.length === 2 && second === 'demo') return { page: 'console', demo: true };
   if (first === 'items' && parts.length === 1) return { page: 'items' };
   if (first === 'observations' && parts.length <= 2) {
     const open = parts.length === 2 ? num(second) : null;
@@ -226,7 +228,7 @@ export function href(r: Route): string {
         ['cell', r.cell],
       ])}`;
     case 'console':
-      return '/console';
+      return r.demo ? '/console/demo' : '/console';
     case 'items':
       return '/items';
     case 'item':

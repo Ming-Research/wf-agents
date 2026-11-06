@@ -43,7 +43,7 @@ export function App() {
         {route.page === 'works' || work !== null ? (
           <Works work={work} />
         ) : null}
-        {route.page === 'console' ? <Console /> : null}
+        {route.page === 'console' ? <Console demo={route.demo} /> : null}
         {/* One element for the tree and the item picked from it, so that picking an item keeps the tree as it is. */}
         {route.page === 'items' || route.page === 'item' ? (
           <Items selected={route.page === 'item' ? route.id : null} />
