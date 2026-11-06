@@ -51,6 +51,10 @@
   be done before another can be, that is a dependency, which puts the one below the other; which of two free items
   starts first when slots are few is only the order the architect's plan gives them.
 
+- A goal other than a root has two items or more under it; with one, that item takes its place. A goal is done exactly
+  when what is under it is, so a goal over a single item adds a level and says nothing, as a group of one is no group. A
+  root, a project's direction, may stand alone until its items come.
+
 - An item that is done never depends on one that is not: a dependency added to it is refused, and what is left goes to
   a new item. A dependency is what must be done before the item can be, so a done item standing over an unfinished one
   would say both. A goal, done only while all it depends on is, takes the dependency and is open again.
