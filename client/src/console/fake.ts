@@ -187,7 +187,7 @@ export function demoShown(): Shown[] {
     ]),
     item('A long branch at work', [
       item('One step down', [
-        item('Two steps down', [work('Running at the end of the branch', 'running', { age: 8 })]),
+        item('Two steps down', [work('Running at the end of the branch', 'running', { age: 8 }), shadow(running)]),
       ]),
       item('Beside it, nothing at work'),
     ]),

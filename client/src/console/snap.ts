@@ -13,7 +13,7 @@
 // item under it and the last, light accent from a held item and grey from the others. Each held item is ringed in a
 // soft blue; the item under the pointer, and each above it up to its root, in orange, each joined to the one above by a
 // ribbon of light orange. Over a shadow, the item it points to lights so too, and a click on the shadow holds that
-// item; over an item, so do its shadows and the items they stand under. The stage a running work is at pulses. Every
+// item; over an item, so do its shadows and the items above them. The stage a running work is at pulses. Every
 // column fades out into the page near the top and the bottom of the screen; at those two edges the column under the
 // pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and
 // how fast is kept in `stats`.
@@ -963,8 +963,8 @@ export class SnapScene {
     this.links.fill(PALETTE.funnel);
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
     // orange and ringed in orange, over everything else; each comes in quickly, and fades out once the pointer has left.
-    // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and the item
-    // each stands under, which depend on it too.
+    // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and those
+    // above each, up to its root, which depend on it too.
     const chain = new Set<number>();
     const light = (from: number) => {
       for (let i = from; i >= 0 && !chain.has(i); i = t.parent[i]) chain.add(i);
@@ -976,10 +976,7 @@ export class SnapScene {
       const to = this.real.get(id);
       if (this.shadows[this.under] === 1 && to !== undefined) light(to);
       if (this.shadows[this.under] === 0) {
-        for (const sh of this.shadowsOf.get(id) ?? []) {
-          chain.add(sh);
-          if (t.parent[sh] >= 0) chain.add(t.parent[sh]);
-        }
+        for (const sh of this.shadowsOf.get(id) ?? []) light(sh);
       }
     }
     for (const i of chain) if (!this.glowing.has(i)) this.glowing.set(i, 0);
