@@ -54,6 +54,10 @@ struct State {
     items: BTreeMap<i64, String>,
     /// The goals among them: items with no work of their own, and so no level.
     goals: BTreeSet<i64>,
+    /// The deliverable items among them that are done, and the items that are unfinished (not cancelled, not done), as
+    /// the database reads them when it adds a dependency; a cancel takes an item out of the unfinished.
+    done: BTreeSet<i64>,
+    unfinished: BTreeSet<i64>,
     /// The dependencies there are then, which a change may remove.
     links: BTreeSet<(i64, i64)>,
     /// The dependencies a cancel took out of `links`. The write may leave them: a cancel is only asked of the loop when
@@ -68,11 +72,23 @@ impl State {
         let mut s = State::default();
         for r in query_json(
             conn,
-            "SELECT id, project, deliver IS NULL AS goal FROM items",
+            concat!(
+                "SELECT i.id AS id, i.project AS project, i.deliver IS NULL AS goal, ",
+                db::sql_item_done!(),
+                " AS done, ",
+                db::sql_item_unfinished!(),
+                " AS unfinished FROM items i"
+            ),
             &[],
             1_000_000,
         )? {
             let id = r["id"].as_i64().unwrap_or_default();
+            if r["done"].as_i64() == Some(1) {
+                s.done.insert(id);
+            }
+            if r["unfinished"].as_i64() == Some(1) {
+                s.unfinished.insert(id);
+            }
             s.items.insert(id, text(&r, "project").to_string());
             if r["goal"].as_i64() == Some(1) {
                 s.goals.insert(id);
@@ -91,12 +107,34 @@ impl State {
         Ok(s)
     }
 
+    /// Whether `item` depending on `on` would put a deliverable item that is done over one that is unfinished, which
+    /// the database refuses: an item the changes create is unfinished.
+    fn done_over_unfinished(&self, item: i64, on: i64) -> bool {
+        self.done.contains(&item) && (on < 0 || self.unfinished.contains(&on))
+    }
+
     /// Whether the items' dependencies close a cycle, those a cancel took away as far as the write may leave them
     /// included.
     fn links_cycle(&self) -> bool {
         let edges: Vec<(i64, i64)> = self.links.union(&self.cancelled_links).copied().collect();
         cycle(&edges)
     }
+}
+
+/// Why a dependency of a done item on an unfinished one is no change to make.
+fn done_over(item: i64, on: i64) -> String {
+    format!(
+        "item {item} is done and item {on} is not, so {item} cannot depend on {on}: the item depended on must be done \
+         before the item depending on it can be; make a new item for what is left"
+    )
+}
+
+/// As [`done_over`], for an item the changes create.
+fn done_over_new(item: i64) -> String {
+    format!(
+        "item {item} is done, so it cannot depend on an item made now: the item depended on must be done before the \
+         item depending on it can be; make a new item for what is left"
+    )
 }
 
 /// Whether directed edges close a cycle.
@@ -249,6 +287,9 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 if let Some(u) = under {
                     dependency(&u["dependency"], &mut bad);
                     if let Some(parent) = item(&u["item"], &s, &mut bad) {
+                        if s.done_over_unfinished(parent, id) {
+                            bad(done_over_new(parent));
+                        }
                         s.links.insert((parent, id));
                     }
                 }
@@ -282,6 +323,9 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     if a == b {
                         bad("an item does not depend on itself".into());
                     }
+                    if s.done_over_unfinished(a, b) {
+                        bad(done_over(a, b));
+                    }
                     s.links.insert((a, b));
                 }
             }
@@ -312,6 +356,9 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                         "under" => match other {
                             Some(b) => {
                                 dependency(&to["dependency"], &mut bad);
+                                if s.done_over_unfinished(b, a) {
+                                    bad(done_over(b, a));
+                                }
                                 s.links.retain(|(_, d)| *d != a);
                                 s.links.insert((b, a));
                             }
@@ -348,6 +395,7 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 // work goes on the item, so no later change removes those dependencies. When a work goes on, they stay
                 // until the loop cancels the item, and close a cycle with what the later changes add.
                 if let Some(a) = own(&c["item"], &s, &mut bad) {
+                    s.unfinished.remove(&a);
                     let away: Vec<(i64, i64)> = s.links.iter().filter(|(x, d)| *x == a || *d == a).copied().collect();
                     for l in away {
                         s.links.remove(&l);
@@ -457,7 +505,7 @@ pub struct Written {
     pub created: Vec<Value>,
     /// The changes the write refused, each by its place in the batch, with why. The review and the check of the reply
     /// found them valid in the state they read, but the changes left out since (the review drops some) leave a state in
-    /// which they are not: a dependency that would close a cycle. A refused change leaves nothing of itself written.
+    /// which they are not: a dependency that would close a cycle, or put a done item over one that is not. A refused change leaves nothing of itself written.
     pub refused: Vec<(usize, String)>,
 }
 
@@ -525,7 +573,9 @@ fn depend(tx: &Transaction<'_>, item: i64, on: i64, needs: &str, kind: &str) -> 
     if has.is_none() && item != on {
         match db::add_dependency(tx, item, on, needs, kind) {
             Ok(()) => {}
-            Err(e @ db::Error::Cycle { .. }) => return Err(Fault::Refused(e.to_string())),
+            Err(e @ (db::Error::Cycle { .. } | db::Error::DoneOverUnfinished { .. })) => {
+                return Err(Fault::Refused(e.to_string()));
+            }
             Err(e) => return Err(Fault::Failed(e.to_string())),
         }
     }
@@ -986,6 +1036,78 @@ mod tests {
             .map(|x| x.unwrap())
             .collect();
         assert_eq!(links, [(1, 2), (2, 3)]);
+        let held: i64 = db
+            .conn()
+            .query_row("SELECT held FROM start_order WHERE item = 3", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(held, 1);
+    }
+
+    // A dependency of an item that is done on one that is not is refused alone, as the database refuses it, and the
+    // changes after it are made; one on an item done or cancelled is made, and the check of the changes before they are
+    // written finds the same.
+    #[test]
+    fn a_done_item_depending_on_an_open_one_is_refused_alone_and_the_changes_after_it_are_written() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "lexer", "tokens", "dropped"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            tx.execute("UPDATE items SET cancelled = 'not wanted' WHERE id = 4", [])?;
+            tx.execute(
+                "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+                [],
+            )?;
+            // The parser is done; the lexer and the tokens are not.
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (1, 1, 'engineer', 'E1', 'done')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let state = State::load(db.conn()).unwrap();
+        assert!(state.done_over_unfinished(1, 2));
+        assert!(state.done_over_unfinished(1, -1));
+        assert!(!state.done_over_unfinished(1, 4));
+        assert!(!state.done_over_unfinished(2, 3));
+        let changes = [
+            // The parser depends on the lexer, which is not done.
+            json!({ "kind": "add_dependency", "item": "1", "on": "2", "dependency": "blocking", "reason": "r" }),
+            // The tokens depend on the lexer: nothing is done above them.
+            json!({ "kind": "add_dependency", "item": "3", "on": "2", "dependency": "blocking", "reason": "r" }),
+            // The parser depends on an item cancelled: it holds nothing back.
+            json!({ "kind": "add_dependency", "item": "1", "on": "4", "dependency": "blocking", "reason": "r" }),
+            // The lexer goes under the parser, which is done.
+            json!({ "kind": "move", "item": "2", "to": { "place": "under", "item": "1", "dependency": "blocking" },
+                    "reason": "r" }),
+            json!({ "kind": "hold", "item": "3", "reason": "Held." }),
+        ];
+        let written = db
+            .write(Actor::Architect, |tx| {
+                write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        let refused: Vec<(usize, bool)> = written
+            .refused
+            .iter()
+            .map(|(i, why)| (*i, why.contains("make a new item for what is left")))
+            .collect();
+        assert_eq!(refused, [(0, true), (3, true)], "{written:?}");
+        let mut st = db
+            .conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+        let links: Vec<(i64, i64)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        assert_eq!(links, [(1, 4), (3, 2)]);
         let held: i64 = db
             .conn()
             .query_row("SELECT held FROM start_order WHERE item = 3", [], |r| r.get(0))
