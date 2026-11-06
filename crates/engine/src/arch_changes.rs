@@ -122,6 +122,52 @@ impl State {
         let edges: Vec<(i64, i64)> = self.links.union(&self.cancelled_links).copied().collect();
         cycle(&edges)
     }
+
+    /// The items that depend on `item` directly and that `under` reaches, by a path of any length that does not start
+    /// with a dependency of `under` on `item`, in order: moved under `under`, `item` would stand beside them, though
+    /// they need it, as [`through_stored`] finds them in the database.
+    fn through(&self, under: i64, item: i64) -> Vec<i64> {
+        let mut reached = BTreeSet::new();
+        let mut next: Vec<i64> = self
+            .links
+            .iter()
+            .filter(|(x, d)| *x == under && *d != item)
+            .map(|(_, d)| *d)
+            .collect();
+        while let Some(n) = next.pop() {
+            if reached.insert(n) {
+                next.extend(self.links.iter().filter(|(x, _)| *x == n).map(|(_, d)| *d));
+            }
+        }
+        reached
+            .into_iter()
+            .filter(|i| self.links.contains(&(*i, item)))
+            .collect()
+    }
+
+    /// An item as a change's words name it: by its number, or, made by the changes, by its key.
+    fn name(&self, id: i64) -> String {
+        match self.keys.iter().find(|(_, v)| **v == id) {
+            Some((key, _)) if id < 0 => format!("\"{key}\""),
+            _ => id.to_string(),
+        }
+    }
+}
+
+/// Why an item is not moved under another that reaches it through other items too, naming those of them that depend on
+/// it directly, one of which it stands under instead.
+fn reached_through(under: &str, item: &str, through: &[String]) -> String {
+    match through {
+        [one] => format!(
+            "item {under} reaches item {item} through item {one} too: item {item} stands under the item that needs it \
+             directly, so move it under item {one}"
+        ),
+        _ => format!(
+            "item {under} reaches item {item} through items {} too: item {item} stands under an item that needs it \
+             directly, so move it under one of them",
+            through.join(", ")
+        ),
+    }
 }
 
 /// Why a dependency of an item done, or whose work is past the merge gate, on an unfinished one is no change to make.
@@ -210,8 +256,8 @@ pub(crate) fn title_fits(title: &str, max: usize, bad: &mut dyn FnMut(String)) {
 /// is of the project (an item of the project may depend on another project's); every dependency a change makes has its
 /// kind; every dependency a change removes is one the items have then, stored or made by an earlier change and not
 /// removed or cancelled away since; an item is moved first, last, under another item, or next to another item of its
-/// own project; observations folded in are the project's and open; and after them the items' dependencies close no
-/// cycle. Otherwise why not, every reason at once.
+/// own project, and under no item that reaches it through other items too; observations folded in are the project's and
+/// open; and after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     validate_from(e, project, changes, 0)
 }
@@ -358,11 +404,17 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                                 ));
                             }
                         }
-                        // The other item's dependency on it, made by the kind given when there is none, becomes its main
-                        // one; every other dependency on it stays, for a later change to remove.
+                        // The other item's dependency on it, made by the kind given when there is none, becomes its
+                        // main one; every other dependency on it stays, for a later change to remove. An item that
+                        // reaches it through others too has one of those that need it directly between them, which it
+                        // stands under instead.
                         "under" => match other {
                             Some(b) => {
                                 dependency(&to["dependency"], &mut bad);
+                                let through: Vec<String> = s.through(b, a).iter().map(|i| s.name(*i)).collect();
+                                if !through.is_empty() {
+                                    bad(reached_through(&s.name(b), &s.name(a), &through));
+                                }
                                 if !s.links.contains(&(b, a)) && s.done_over_unfinished(b, a) {
                                     bad(done_over(b, a));
                                 }
@@ -662,9 +714,18 @@ fn write_one(
             match text(to, "place") {
                 // The item stands under the other one: that one's dependency on it, made now by the kind given when
                 // there is none, becomes its main one, the database unsetting the one before. The items that depend on
-                // it still do; a move changes only where it stands.
+                // it still do; a move changes only where it stands. Refused when the other one reaches it through
+                // other items too, as the check of the changes refuses it.
                 "under" => {
                     let under = item_of(&to["item"], keys)?;
+                    let through: Vec<String> = through_stored(tx, under, item)?.iter().map(i64::to_string).collect();
+                    if !through.is_empty() {
+                        return Err(Fault::Refused(reached_through(
+                            &under.to_string(),
+                            &item.to_string(),
+                            &through,
+                        )));
+                    }
                     depend(tx, under, item, reason, text(to, "dependency"))?;
                     tx.execute(
                         "UPDATE item_links SET main = 1 WHERE item = ?1 AND depends_on = ?2 AND main = 0",
@@ -816,6 +877,24 @@ fn write_one(
     Ok(())
 }
 
+/// The items that depend on `item` directly and that `under` reaches, by a path of any length that does not start with
+/// a dependency of `under` on `item`, in order: moved under `under`, `item` would stand beside them, though they need
+/// it.
+fn through_stored(tx: &Transaction<'_>, under: i64, item: i64) -> Result<Vec<i64>, String> {
+    Ok(query_json(
+        tx,
+        "WITH RECURSIVE reach(id) AS (
+           SELECT depends_on FROM item_links WHERE item = ?1 AND depends_on <> ?2
+           UNION SELECT l.depends_on FROM item_links l JOIN reach r ON l.item = r.id)
+         SELECT l.item AS item FROM item_links l JOIN reach r ON r.id = l.item WHERE l.depends_on = ?2 ORDER BY l.item",
+        &[&under, &item],
+        100_000,
+    )?
+    .iter()
+    .filter_map(|r| r["item"].as_i64())
+    .collect())
+}
+
 /// Puts an item at its place among its project's items in the architect's start order (`start_order`) and ranks every
 /// item of the project afresh by that order, 1 the first, writing only the places that change; the order it starts
 /// from is the items' places, those with none after, in the order they were made. A hold stays as it was.
@@ -965,7 +1044,7 @@ mod tests {
     fn a_move_under_another_item_makes_that_ones_dependency_main_and_keeps_the_others() {
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Owner, |tx| {
-            for title in ["parser", "lexer", "docs", "tokens"] {
+            for title in ["parser", "lexer", "docs", "tokens", "checker"] {
                 tx.execute(
                     "INSERT INTO items (project, title, problem, why, deliver, level)
                      VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
@@ -973,7 +1052,7 @@ mod tests {
                 )?;
             }
             // The parser depends on the lexer, first and so by its main dependency, and the docs on it after; the
-            // lexer depends on the tokens.
+            // lexer depends on the tokens, and the checker on nothing.
             db::add_dependency(tx, 1, 2, "its lexer", "blocking")?;
             db::add_dependency(tx, 3, 2, "its tokens' names", "parallel")?;
             db::add_dependency(tx, 2, 4, "its tokens", "blocking")?;
@@ -1011,15 +1090,15 @@ mod tests {
                 link(3, 2, "parallel", 1)
             ]
         );
-        // The tokens go under the parser, which does not depend on them: it does from now, by their main dependency,
+        // The tokens go under the checker, which does not depend on them: it does from now, by their main dependency,
         // and the lexer still depends on them.
-        let refused = moved(&mut db, "4", "1");
+        let refused = moved(&mut db, "4", "5");
         assert!(refused.is_empty(), "{refused:?}");
         let after = [
             link(1, 2, "blocking", 0),
-            link(1, 4, "blocking", 1),
             link(2, 4, "blocking", 0),
             link(3, 2, "parallel", 1),
+            link(5, 4, "blocking", 1),
         ];
         assert_eq!(links(&db), after);
         // The lexer under the tokens, which it depends on, would close a cycle: refused, and nothing changes.
@@ -1029,6 +1108,73 @@ mod tests {
             "{refused:?}"
         );
         assert_eq!(links(&db), after);
+    }
+
+    // An item stands under the item that needs it directly, never beside it: a move under an item that reaches the
+    // moved one through other items too, two levels down here, is refused, whether that item depends on it directly as
+    // well or not, naming the item between them that depends on it directly, and changes nothing. A move under an item
+    // that reaches it only directly is made.
+    #[test]
+    fn a_move_under_an_item_that_reaches_the_moved_one_through_another_too_is_refused() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "syntax", "lexer", "tokens", "docs"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            // The parser depends on the syntax, the syntax on the lexer, and the lexer on the tokens, by their main
+            // dependency; the docs depend on the tokens too.
+            db::add_dependency(tx, 1, 2, "its syntax", "blocking")?;
+            db::add_dependency(tx, 2, 3, "its lexer", "blocking")?;
+            db::add_dependency(tx, 3, 4, "its tokens", "blocking")?;
+            db::add_dependency(tx, 5, 4, "the names of its tokens", "parallel")?;
+            Ok(())
+        })
+        .unwrap();
+        let moved = |db: &mut Db, item: &str, under: &str| -> Vec<(usize, String)> {
+            let change = json!({ "kind": "move", "item": item,
+                                 "to": { "place": "under", "item": under, "dependency": "blocking" }, "reason": "r" });
+            db.write(Actor::Architect, |tx| {
+                write_all(tx, &[change], &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap()
+            .refused
+        };
+        let links = |db: &Db| -> Vec<(i64, i64, i64)> {
+            let mut st = db
+                .conn()
+                .prepare("SELECT item, depends_on, main FROM item_links ORDER BY item, depends_on")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        let refused_through_the_lexer = |refused: &[(usize, String)]| {
+            matches!(refused, [(0, why)]
+                if why.contains("item 1 reaches item 4 through item 3 too") && why.contains("move it under item 3"))
+        };
+        // The tokens under the parser, which reaches them through the syntax and the lexer: refused, naming the lexer.
+        let refused = moved(&mut db, "4", "1");
+        assert!(refused_through_the_lexer(&refused), "{refused:?}");
+        let before = [(1, 2, 1), (2, 3, 1), (3, 4, 1), (5, 4, 0)];
+        assert_eq!(links(&db), before);
+        // The same once the parser depends on the tokens directly as well.
+        db.write(Actor::Owner, |tx| {
+            db::add_dependency(tx, 1, 4, "its tokens", "blocking")
+        })
+        .unwrap();
+        let refused = moved(&mut db, "4", "1");
+        assert!(refused_through_the_lexer(&refused), "{refused:?}");
+        let before = [(1, 2, 1), (1, 4, 0), (2, 3, 1), (3, 4, 1), (5, 4, 0)];
+        assert_eq!(links(&db), before);
+        // The docs reach the tokens only directly: the tokens go under them.
+        let refused = moved(&mut db, "4", "5");
+        assert!(refused.is_empty(), "{refused:?}");
+        assert_eq!(links(&db), [(1, 2, 1), (1, 4, 0), (2, 3, 1), (3, 4, 0), (5, 4, 1)]);
     }
 
     // A change that removes a dependency deletes that row and no other. One whose row is gone already, removed from the

@@ -671,6 +671,83 @@ fn a_move_under_another_item_keeps_the_items_that_depend_on_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A move under an item that reaches the moved one through other items too, by the dependencies the batch's earlier
+// changes leave, is sent back before anything is written, naming the items between them that depend on it directly;
+// a move in the same batch under an item that does not reach it is sound.
+#[test]
+fn a_move_under_an_item_that_reaches_the_moved_one_through_others_too_is_sent_back() {
+    let s = setup("move-under-reached");
+    let mut agents = scripts();
+    // The items are made below, numbered 1 to 5 in order: the parser, the syntax, the lexer, the tokens and the
+    // checker. The parser depends on the syntax, the syntax on the lexer and the lexer on the tokens; the batch has the
+    // syntax depend on the tokens too, then moves the tokens under the parser, and under the checker.
+    agents.insert(
+        "H1",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let changes = json!([
+                { "kind": "add_dependency", "item": "2", "on": "4", "dependency": "blocking", "reason": "r" },
+                { "kind": "move", "item": "4", "to": { "place": "under", "item": "1", "dependency": "blocking" },
+                  "reason": "r" },
+                { "kind": "move", "item": "4", "to": { "place": "under", "item": "5", "dependency": "blocking" },
+                  "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let syntax = a_ready_item(&mut e, "Read the syntax");
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let checker = a_ready_item(&mut e, "Check it");
+    assert_eq!((parser, syntax, lexer, tokens, checker), (1, 2, 3, 4, 5));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, syntax, "its syntax", "blocking")?;
+        db::add_dependency(tx, syntax, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, lexer, tokens, "its tokens", "blocking")?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Put the tokens where they belong.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rejected = why_sent_back(&e, arch, "H1");
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    assert!(
+        rejected[0].contains(
+            "item change 2 (move): item 1 reaches item 4 through items 2, 3 too: item 4 stands under an item that \
+             needs it directly, so move it under one of them"
+        ),
+        "{rejected:?}"
+    );
+    assert!(!rejected[0].contains("item change 1 "), "{rejected:?}");
+    assert!(!rejected[0].contains("item change 3 "), "{rejected:?}");
+    // Nothing was made.
+    assert_eq!(links_of(&e), [(1, 2), (2, 3), (3, 4)], "{log}");
+    let made: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_item_changes WHERE state = 'made'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(made, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
 // nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
 // its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes
