@@ -5,8 +5,7 @@
 // case it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item
 // selected brings it out again. The window coming out over the item selected, or an item selected half under it or
 // half off the screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item
-// go while the tree has the keys, and slides the window in while it has them. A small switch at the bottom left chooses
-// how the columns follow the one scrolled, by steps, gradually or by links, for trying them.
+// go while the tree has the keys, and slides the window in while it has them.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -15,18 +14,9 @@ import { Drawer } from '../console/Drawer';
 import { demoShown, fakeShown } from '../console/fake';
 import { type Shown, shownTree } from '../console/items';
 import { ItemWindow } from '../console/ItemWindow';
-import { type Follow, SnapScene } from '../console/snap';
+import { SnapScene } from '../console/snap';
 import { windowMock } from '../console/window-mock';
 import { useResource, useStatus } from '../live';
-import { t } from '../text';
-
-const SNAP_KEY = 'console-snap';
-const FOLLOWS: Follow[] = ['steps', 'gradual', 'links'];
-const FOLLOW_WORDS = {
-  steps: 'console_snap_steps',
-  gradual: 'console_snap_gradual',
-  links: 'console_snap_links',
-} as const;
 
 export function Console({ demo }: { demo: boolean }) {
   const host = useRef<HTMLDivElement>(null);
@@ -43,24 +33,6 @@ export function Console({ demo }: { demo: boolean }) {
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
   const panel = useRef<HTMLElement>(null);
-  // How the columns follow the one scrolled, for trying the ways; the browser keeps the choice.
-  const [mode, setMode] = useState<Follow>(() => {
-    try {
-      return FOLLOWS.find((f) => f === localStorage.getItem(SNAP_KEY)) ?? 'gradual';
-    } catch {
-      return 'gradual';
-    }
-  });
-  const latestMode = useRef(mode);
-  useEffect(() => {
-    latestMode.current = mode;
-    if (scene.current !== null) scene.current.mode = mode;
-    try {
-      localStorage.setItem(SNAP_KEY, mode);
-    } catch {
-      // Kept for this page only.
-    }
-  }, [mode]);
 
   useEffect(() => {
     const el = host.current;
@@ -70,7 +42,6 @@ export function Console({ demo }: { demo: boolean }) {
     void s.mount(el).then(() => {
       if (!alive) return;
       scene.current = s;
-      s.mode = latestMode.current;
       let was: number | null = null;
       s.onSelect = (item) => {
         setSelected(item);
@@ -140,13 +111,6 @@ export function Console({ demo }: { demo: boolean }) {
         ref={host}
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       />
-      <div className="console-snap" role="group" aria-label={t('console_snap')}>
-        {FOLLOWS.map((f) => (
-          <button key={f} type="button" aria-pressed={mode === f} onClick={() => setMode(f)}>
-            {t(FOLLOW_WORDS[f])}
-          </button>
-        ))}
-      </div>
       <Drawer
         open={open}
         onToggle={() => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true }))}
