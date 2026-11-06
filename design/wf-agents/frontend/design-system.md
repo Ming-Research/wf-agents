@@ -36,7 +36,7 @@
   stopped it and why. It is one state with the bars in the list, and a state does not need two words.
 
 - The engine halting a work for a problem is a state of its own: red, with its own icon, looking the same in lists,
-  filter buttons (shown by default), heads and stage bubbles, with a name apart from the stopped of the item tree. In a
+  filter buttons (shown by default), heads and stage bubbles. In a
   list one tells at once what someone meant, in yellow, from what went wrong and needs looking at, in red.
 
 - An ended work has a grey stop mark. The owner reads a red mark as broken.

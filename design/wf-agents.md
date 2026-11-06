@@ -49,7 +49,7 @@
 
 - Items side by side under one item do not depend on one another and can be started at the same time. Where one must
   be done before another can be, that is a dependency, which puts the one below the other; which of two free items
-  starts first when slots are few is only their order in the queue.
+  starts first when slots are few is only the order the architect's plan gives them.
 
 - Nothing is designed for the machine's lid closing or its sleeping: the machine that runs the engine stays on.
 
