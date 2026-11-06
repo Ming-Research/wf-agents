@@ -835,6 +835,10 @@ export class SnapScene {
     const beat = (now % PULSE_MS) / PULSE_MS;
     const fade = beat < 1 - FADE ? 0 : Math.sin((Math.PI * (beat - (1 - FADE))) / FADE) ** 2;
     const pulse = 1 - (1 - DARK) * fade;
+    // Moved sideways no further than leaves half of the first column on the screen at its right, or half of the last at
+    // its left, so that one always sees where the tree ends.
+    const last = Math.max(0, t.columns.length - 1) * PITCH;
+    this.left = Math.min(width - NODE_W / 2, Math.max(-last - NODE_W / 2, this.left));
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
     // The line across the middle, dashed.
