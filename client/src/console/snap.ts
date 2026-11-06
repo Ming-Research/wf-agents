@@ -6,12 +6,12 @@
 // detents: a pull short of the threshold springs back to the line; past it, the next item comes to the line. Holding an
 // item of another parent holds that parent in the column to the left.
 //
-// Each item is a white card; one a work goes on on has a bar down its left in the colour of what the work does. A
-// filled funnel joins each item's top and bottom to the first item under it and the last, light accent from a held item
-// and grey from the others; a ribbon of the same light accent joins each item to each of its items a work goes on on or
-// under, so that the way from a root to every item in work reads as one. Each held item is ringed in the accent, or
-// orange while the pointer is over its column, and the stage a running work is at pulses. Only what is on the screen is
-// drawn. What it draws and how fast is kept in `stats`.
+// Each item is a white card; one a work goes on on has a bar down its left in the colour of what the work does, and
+// one above such an item an edge of the light accent. A filled funnel joins each item's top and bottom to the first item
+// under it and the last, light accent from a held item and grey from the others; a ribbon of the same light accent joins
+// each item to each of its items a work goes on on or under, so that the way from a root to every item in work reads as
+// one. Each held item is ringed in the accent, or orange while the pointer is over its column, and the stage a running
+// work is at pulses. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`.
 
 import { Application, BitmapText, Container, Graphics, TextStyle } from 'pixi.js';
 
@@ -60,8 +60,13 @@ const PALETTE = {
   /// A card's edge on the way to a work, and the funnel from a held card and the ribbon to a work.
   branch: '#c7cdfd',
   funnel: '#e8ebff',
-  /// A work's bar while it waits for something other than the owner.
-  waiting: '#a5b4fc',
+  /// The bars of works, of one weight so that each reads apart from the others: running indigo, waiting for the owner
+  /// amber, paused grey, halted red, waiting for something else teal.
+  running: '#5b6cf0',
+  asked: '#e08a1e',
+  paused: '#8b93a1',
+  halted: '#e5484d',
+  waiting: '#2fb3a3',
   amber: '#d97706',
   red: '#e5484d',
   violet: '#8b5cf6',
@@ -140,15 +145,15 @@ export function moodOf(w: ShownWork): Mood {
 
 /// The colour of the bar down the left of an item's card by what its work does; and of the stage it is at.
 const BAR: Record<Mood, string> = {
-  running: PALETTE.accent,
-  owner: PALETTE.amber,
-  paused: PALETTE.faint,
-  halted: PALETTE.red,
+  running: PALETTE.running,
+  owner: PALETTE.asked,
+  paused: PALETTE.paused,
+  halted: PALETTE.halted,
   waiting: PALETTE.waiting,
 };
 const STAGE: Record<Mood, string> = {
-  running: PALETTE.accent,
-  owner: PALETTE.amber,
+  running: PALETTE.running,
+  owner: PALETTE.asked,
   paused: PALETTE.muted,
   halted: PALETTE.red,
   waiting: PALETTE.muted,
@@ -374,8 +379,8 @@ export class SnapScene {
     this.stats.items = items.length;
   }
 
-  /// The node of an item: a white card, its edge the accent's tint on the way to a work, and down its left, while a
-  /// work goes on on it, a bar in the colour of what the work does. On its first row its number in its state's
+  /// The node of an item: a white card, its edge the accent's tint above a work, and down its left, while a work goes
+  /// on on it, a bar in the colour of what the work does. On its first row its number in its state's
   /// colour, its title, and at the right, framed, its questions waiting for the owner, red, and its returns sent back,
   /// grey; on the second row, for an item whose work goes on, the work's stages, those gone through grey, the one it is
   /// at in its state's colour and those ahead faint, the letter of the one it is at, where its time went, and how long
@@ -389,12 +394,14 @@ export class SnapScene {
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
     view.addChild(
-      card.fill(PALETTE.card).stroke({ color: this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge, width: 1 }),
+      card
+        .fill(PALETTE.card)
+        .stroke({ color: this.lit[k] === 1 && mood === null ? PALETTE.branch : PALETTE.edge, width: 1 }),
     );
     if (mood !== null) {
       // The bar, cut to the card's rounded corners.
       const shape = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(0xffffff);
-      const bar = new Graphics().rect(0, top, 3, h).fill(BAR[mood]);
+      const bar = new Graphics().rect(0, top, 5, h).fill(BAR[mood]);
       bar.mask = shape;
       view.addChild(shape, bar);
     }
