@@ -57,7 +57,9 @@
 
 - An item that is done never depends on one that is not: a dependency added to it is refused, and what is left goes to
   a new item. A dependency is what must be done before the item can be, so a done item standing over an unfinished one
-  would say both. A goal, done only while all it depends on is, takes the dependency and is open again.
+  would say both. A goal, done only while all it depends on is, takes the dependency and is open again. An item whose
+  work has passed the merge gate counts as done here: the gate is the one place a work waits for what it depends on, so
+  a dependency added after it would be waited for by nothing, and the item would end done over it all the same.
 
 - Nothing is designed for the machine's lid closing or its sleeping: the machine that runs the engine stays on.
 
