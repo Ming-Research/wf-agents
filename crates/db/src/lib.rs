@@ -277,7 +277,8 @@ pub enum Error {
         item: i64,
         depends_on: i64,
     },
-    /// A deliverable item that is done would depend on an item that is not: what is done stands above only what is done.
+    /// A deliverable item that is done, or whose work is past the merge gate, would depend on an item that is not done:
+    /// what is done stands above only what is done, and past the gate nothing waits for the item depended on any more.
     DoneOverUnfinished {
         item: i64,
         depends_on: i64,
@@ -313,8 +314,9 @@ impl fmt::Display for Error {
             Error::DoneOverUnfinished { item, depends_on } => {
                 write!(
                     f,
-                    "item {item} cannot depend on {depends_on}: {item} is done and {depends_on} is not, and the item \
-                     depended on must be done before the item depending on it can be; make a new item for what is left"
+                    "item {item} cannot depend on {depends_on}: {item} is done, or its work is past the merge gate, \
+                     where it last waited for the items it depends on, and {depends_on} is not done; the item depended \
+                     on must be done before the item depending on it can be: make a new item for what is left"
                 )
             }
             Error::Abort(why) => write!(f, "{why}"),
@@ -954,6 +956,37 @@ macro_rules! sql_item_done {
     };
 }
 
+/// The cells of the engineer's graph past its merge gate, as an SQL list: the merge, and the cells its merged work goes
+/// through to the end, from which it ends with no cell waiting for the items its item depends on, as the gate does. A
+/// merge that fails goes back to the fix, before the gate, which waits again. The flow crate's test
+/// `the_cells_past_the_merge_gate_are_the_flows` holds the list to the flow.
+#[macro_export]
+macro_rules! sql_past_gate_cells {
+    () => {
+        "'M2', 'L2', 'V1', 'V2'"
+    };
+}
+
+/// An SQL condition: the item `i` (an alias in the query) is a deliverable item whose work, not ended or ended `done`,
+/// is past the merge gate ([`sql_past_gate_cells!`]): at one of those cells, or at a cell that asks, answers or runs
+/// tools for one of them, where it stopped (`resume_at`) or the first cell that waits for its answer (`waiting`) is that
+/// cell, which it goes back to.
+#[macro_export]
+macro_rules! sql_item_past_gate {
+    () => {
+        concat!(
+            "(i.deliver IS NOT NULL AND EXISTS (SELECT 1 FROM works w WHERE w.item = i.id \
+             AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer' AND (w.at IN (",
+            $crate::sql_past_gate_cells!(),
+            ") OR w.resume_at IN (",
+            $crate::sql_past_gate_cells!(),
+            ") OR json_extract(w.waiting, '$[0]') IN (",
+            $crate::sql_past_gate_cells!(),
+            "))))"
+        )
+    };
+}
+
 /// An SQL condition: the item `i` (an alias in the query) is unfinished, so that an item standing over it is held back
 /// by it: it is not cancelled, and is a deliverable item not done, or a goal in `goals_open`.
 #[macro_export]
@@ -968,9 +1001,10 @@ macro_rules! sql_item_unfinished {
 }
 
 /// Makes `item` depend on `depends_on` by a dependency of the kind given, `blocking` or `parallel`, unless `depends_on`
-/// already depends on `item`, directly or not. Refused too when `item` is a deliverable item that is done and
-/// `depends_on` is unfinished ([`Error::DoneOverUnfinished`]): the item depended on is done before the item depending
-/// on it can be. A goal as `item` is never refused: it is done only while what it depends on is.
+/// already depends on `item`, directly or not. Refused too when `item` is a deliverable item that is done, or whose work
+/// is past the merge gate ([`sql_item_past_gate!`]), and `depends_on` is unfinished ([`Error::DoneOverUnfinished`]): the
+/// item depended on is done before the item depending on it can be, and past the gate nothing waits for it any more. A
+/// goal as `item` is never refused: it is done only while what it depends on is.
 pub fn add_dependency(tx: &Transaction<'_>, item: i64, depends_on: i64, needs: &str, kind: &str) -> Result<()> {
     let cycle: bool = tx.query_row(
         "WITH RECURSIVE reach(id) AS (SELECT ?1 UNION SELECT l.depends_on FROM item_links l JOIN reach ON l.item = reach.id)
@@ -983,9 +1017,11 @@ pub fn add_dependency(tx: &Transaction<'_>, item: i64, depends_on: i64, needs: &
     }
     let done_over_unfinished: bool = tx.query_row(
         concat!(
-            "SELECT EXISTS (SELECT 1 FROM items i WHERE i.id = ?1 AND ",
+            "SELECT EXISTS (SELECT 1 FROM items i WHERE i.id = ?1 AND (",
             sql_item_done!(),
-            ") AND EXISTS (SELECT 1 FROM items i WHERE i.id = ?2 AND ",
+            " OR ",
+            sql_item_past_gate!(),
+            ")) AND EXISTS (SELECT 1 FROM items i WHERE i.id = ?2 AND ",
             sql_item_unfinished!(),
             ")"
         ),

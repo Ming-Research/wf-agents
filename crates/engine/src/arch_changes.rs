@@ -54,9 +54,10 @@ struct State {
     items: BTreeMap<i64, String>,
     /// The goals among them: items with no work of their own, and so no level.
     goals: BTreeSet<i64>,
-    /// The deliverable items among them that are done, and the items that are unfinished (not cancelled, not done), as
-    /// the database reads them when it adds a dependency; a cancel takes an item out of the unfinished.
-    done: BTreeSet<i64>,
+    /// The deliverable items among them that are done or whose work is past the merge gate, and the items that are
+    /// unfinished (not cancelled, not done), as the database reads them when it adds a dependency; a cancel takes an
+    /// item out of the unfinished.
+    done_or_past_gate: BTreeSet<i64>,
     unfinished: BTreeSet<i64>,
     /// The dependencies there are then, which a change may remove.
     links: BTreeSet<(i64, i64)>,
@@ -73,9 +74,11 @@ impl State {
         for r in query_json(
             conn,
             concat!(
-                "SELECT i.id AS id, i.project AS project, i.deliver IS NULL AS goal, ",
+                "SELECT i.id AS id, i.project AS project, i.deliver IS NULL AS goal, (",
                 db::sql_item_done!(),
-                " AS done, ",
+                " OR ",
+                db::sql_item_past_gate!(),
+                ") AS done, ",
                 db::sql_item_unfinished!(),
                 " AS unfinished FROM items i"
             ),
@@ -84,7 +87,7 @@ impl State {
         )? {
             let id = r["id"].as_i64().unwrap_or_default();
             if r["done"].as_i64() == Some(1) {
-                s.done.insert(id);
+                s.done_or_past_gate.insert(id);
             }
             if r["unfinished"].as_i64() == Some(1) {
                 s.unfinished.insert(id);
@@ -107,10 +110,10 @@ impl State {
         Ok(s)
     }
 
-    /// Whether `item` depending on `on` would put a deliverable item that is done over one that is unfinished, which
-    /// the database refuses: an item the changes create is unfinished.
+    /// Whether `item` depending on `on` would put a deliverable item that is done, or whose work is past the merge
+    /// gate, over one that is unfinished, which the database refuses: an item the changes create is unfinished.
     fn done_over_unfinished(&self, item: i64, on: i64) -> bool {
-        self.done.contains(&item) && (on < 0 || self.unfinished.contains(&on))
+        self.done_or_past_gate.contains(&item) && (on < 0 || self.unfinished.contains(&on))
     }
 
     /// Whether the items' dependencies close a cycle, those a cancel took away as far as the write may leave them
@@ -121,19 +124,21 @@ impl State {
     }
 }
 
-/// Why a dependency of a done item on an unfinished one is no change to make.
+/// Why a dependency of an item done, or whose work is past the merge gate, on an unfinished one is no change to make.
 fn done_over(item: i64, on: i64) -> String {
     format!(
-        "item {item} is done and item {on} is not, so {item} cannot depend on {on}: the item depended on must be done \
-         before the item depending on it can be; make a new item for what is left"
+        "item {item} is done, or its work is past the merge gate, where it last waited for the items it depends on, \
+         and item {on} is not done, so {item} cannot depend on {on}: the item depended on must be done before the \
+         item depending on it can be; make a new item for what is left"
     )
 }
 
 /// As [`done_over`], for an item the changes create.
 fn done_over_new(item: i64) -> String {
     format!(
-        "item {item} is done, so it cannot depend on an item made now: the item depended on must be done before the \
-         item depending on it can be; make a new item for what is left"
+        "item {item} is done, or its work is past the merge gate, where it last waited for the items it depends on, \
+         so it cannot depend on an item made now: the item depended on must be done before the item depending on it \
+         can be; make a new item for what is left"
     )
 }
 
@@ -1114,6 +1119,82 @@ mod tests {
             .query_row("SELECT held FROM start_order WHERE item = 3", [], |r| r.get(0))
             .unwrap();
         assert_eq!(held, 1);
+    }
+
+    // An item whose work is past the merge gate is as one done: at the merge, or at a cell its merged work goes through
+    // to the end, a question asked there included, it waits for no item it comes to depend on, so a dependency on one not
+    // done is refused alone, as the database refuses it, and the check of the changes before they are written finds the
+    // same. One whose merge failed and went back to the fix is not: the gate waits for it again. One on an item done is
+    // made.
+    #[test]
+    fn an_item_whose_work_is_past_the_merge_gate_depending_on_an_open_one_is_refused() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "checker", "lexer", "fixer", "tokens"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+                [],
+            )?;
+            // The parser is in the merge queue; the checker merged, and asks the architect from its check with real
+            // runs; the fixer's merge failed, and it went back to the fix; the tokens are done; the lexer has no work.
+            for (item, at, resume_at, waiting, ended) in [
+                (1, "M2", None, "[]", None),
+                (2, "A2", Some("V2"), "[\"V2\"]", None),
+                (4, "T6", None, "[]", None),
+                (5, "E1", None, "[]", Some("done")),
+            ] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, resume_at, waiting, ended)
+                     VALUES (?1, 1, 'engineer', ?2, ?3, ?4, ?5)",
+                    params![item, at, resume_at, waiting, ended],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let state = State::load(db.conn()).unwrap();
+        assert!(state.done_over_unfinished(1, 3));
+        assert!(state.done_over_unfinished(1, -1));
+        assert!(state.done_over_unfinished(2, 3));
+        assert!(!state.done_over_unfinished(4, 3));
+        assert!(!state.done_over_unfinished(1, 5));
+        let changes = [
+            // The parser, in the merge queue, depends on the lexer, which is not done.
+            json!({ "kind": "add_dependency", "item": "1", "on": "3", "dependency": "blocking", "reason": "r" }),
+            // The checker, merged, depends on the lexer.
+            json!({ "kind": "add_dependency", "item": "2", "on": "3", "dependency": "blocking", "reason": "r" }),
+            // The fixer, back at the fix, depends on the lexer: the gate waits for it.
+            json!({ "kind": "add_dependency", "item": "4", "on": "3", "dependency": "blocking", "reason": "r" }),
+            // The parser depends on the tokens, which are done.
+            json!({ "kind": "add_dependency", "item": "1", "on": "5", "dependency": "blocking", "reason": "r" }),
+        ];
+        let written = db
+            .write(Actor::Architect, |tx| {
+                write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        let refused: Vec<(usize, bool)> = written
+            .refused
+            .iter()
+            .map(|(i, why)| (*i, why.contains("past the merge gate")))
+            .collect();
+        assert_eq!(refused, [(0, true), (1, true)], "{written:?}");
+        let mut st = db
+            .conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+        let links: Vec<(i64, i64)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        assert_eq!(links, [(1, 5), (4, 3)]);
     }
 
     // A hold puts an item in the plan held, where it stood or placed nowhere, and a release lets it start again, where

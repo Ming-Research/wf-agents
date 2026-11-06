@@ -42,6 +42,24 @@ fn done(db: &mut Db, items: &[i64]) {
     .unwrap();
 }
 
+/// Puts a work on the item at a cell of the engineer's graph, not ended: `stopped` the cell it stopped at, and `waiting`
+/// the cells that wait for its answer, as the engine keeps them.
+fn work_at(db: &mut Db, item: i64, at: &str, stopped: Option<&str>, waiting: &str) {
+    db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, resume_at, waiting)
+             VALUES (?1, 1, 'engineer', ?2, ?3, ?4)",
+            params![item, at, stopped, waiting],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
 fn depend(db: &mut Db, item: i64, on: i64) -> db::Result<()> {
     db.write(Actor::Owner, |tx| {
         db::add_dependency(tx, item, on, "its part", "blocking")
@@ -106,6 +124,91 @@ fn a_done_item_may_depend_on_what_is_done_or_cancelled() {
     let mut db = setup();
     depend(&mut db, 1, 4).unwrap();
     depend(&mut db, 1, 5).unwrap();
+    assert_eq!(links(&db), 2);
+}
+
+// Past the merge gate nothing waits for an item the work's item comes to depend on: the work merges, or has merged, and
+// goes to the end without the gate. At the merge itself the item is as done.
+#[test]
+fn an_item_at_the_merge_does_not_come_to_depend_on_an_open_item() {
+    let mut db = setup();
+    items(&mut db, &[(6, true, false)]);
+    work_at(&mut db, 6, "M2", None, "[]");
+    let e = depend(&mut db, 6, 2);
+    assert!(
+        matches!(e, Err(Error::DoneOverUnfinished { item: 6, depends_on: 2 })),
+        "{e:?}"
+    );
+    let message = e.unwrap_err().to_string();
+    assert!(message.contains("past the merge gate"), "{message}");
+    assert!(message.contains("make a new item for what is left"), "{message}");
+    assert_eq!(links(&db), 0);
+}
+
+// After the merge the work goes to the end without passing the gate again: at the cells it goes through, and at a cell
+// that asks, runs tools, chooses the way on or brings it to a new flow version for one of them, which takes it back
+// there, the item is as done.
+#[test]
+fn an_item_whose_work_merged_does_not_come_to_depend_on_an_open_item() {
+    let mut db = setup();
+    let places = [
+        // Writing what was learned, and waiting for the change to take effect.
+        (6, "L2", None, "[]"),
+        (7, "V1", None, "[]"),
+        // Asking the architect from the check with real runs, and running tools for the writing of what was learned.
+        (8, "A2", Some("V2"), "[\"V2\"]"),
+        (9, "X1", None, "[\"L2\"]"),
+        // Choosing the way on after an interjection to the check, and brought to a new version to wait again.
+        (10, "A4", Some("V2"), "[]"),
+        (11, "Y1", Some("V1"), "[]"),
+    ];
+    for (item, at, stopped, waiting) in places {
+        items(&mut db, &[(item, true, false)]);
+        work_at(&mut db, item, at, stopped, waiting);
+        let e = depend(&mut db, item, 2);
+        assert!(
+            matches!(e, Err(Error::DoneOverUnfinished { depends_on: 2, .. })),
+            "{at}: {e:?}"
+        );
+    }
+    assert_eq!(links(&db), 0);
+}
+
+// A merge that fails sends the work back to the fix, and through the gate again, which waits for what its item comes to
+// depend on: at the fix, at a question asked there and at the gate, the item may depend on an open item. So may one
+// whose work at the merge was stopped, which ends with its item not done.
+#[test]
+fn an_item_sent_back_from_the_merge_may_depend_on_an_open_item() {
+    let mut db = setup();
+    let places = [
+        (6, "T6", None, "[]"),
+        (7, "A1", Some("T6"), "[\"T6\"]"),
+        (8, "M1", None, "[]"),
+        (9, "M2", None, "[]"),
+    ];
+    for (item, at, stopped, waiting) in places {
+        items(&mut db, &[(item, true, false)]);
+        work_at(&mut db, item, at, stopped, waiting);
+    }
+    db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET ended = 'started over' WHERE item = 9", [])?;
+        Ok(())
+    })
+    .unwrap();
+    for (item, ..) in places {
+        depend(&mut db, item, 2).unwrap_or_else(|e| panic!("{item}: {e}"));
+    }
+    assert_eq!(links(&db), 4);
+}
+
+// At the merge, as when done, the item may depend on what is done or cancelled.
+#[test]
+fn an_item_at_the_merge_may_depend_on_what_is_done_or_cancelled() {
+    let mut db = setup();
+    items(&mut db, &[(6, true, false)]);
+    work_at(&mut db, 6, "M2", None, "[]");
+    depend(&mut db, 6, 4).unwrap();
+    depend(&mut db, 6, 5).unwrap();
     assert_eq!(links(&db), 2);
 }
 
