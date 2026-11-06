@@ -338,6 +338,8 @@ export class SnapScene {
   /// How far each item ringed in blue, the one under the pointer and those above it, has come in, from 0 to 1; one
   /// the pointer has left stays until it has faded out.
   private glowing = new Map<number, number>();
+  /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
+  private haloed = new Map<number, number>();
   private left = 40;
   /// Where the columns are moving sideways to, when the scene brings an item into view, until they are there or the
   /// owner moves them.
@@ -462,6 +464,7 @@ export class SnapScene {
     });
     this.pulses = new Map();
     this.glowing = new Map();
+    this.haloed = new Map();
     this.ages = new Map();
     this.views = items.map((item, k) => this.node(item, k));
     this.columns = tree.columns.map(() => ({
@@ -1068,7 +1071,8 @@ export class SnapScene {
     for (const [px, top, bottom, cx, f, l] of held) this.funnel(px, top, bottom, cx, f, l);
     this.links.fill(PALETTE.funnel);
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
-    // blue and ringed in blue, over everything else; each comes in quickly, and fades out once the pointer has left.
+    // blue and ringed in blue, over everything else, the item itself glowing too; each comes in quickly, and fades out
+    // once the pointer has left.
     // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and those
     // above each, up to its root, which depend on it too.
     const lit = (from: number) => {
@@ -1098,13 +1102,17 @@ export class SnapScene {
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
     }
     if (chosen.size > 1) this.links.fill(PALETTE.chosenRibbon);
-    for (const i of chain) if (!this.glowing.has(i)) this.glowing.set(i, 0);
-    for (const [i, a] of this.glowing) {
-      const on = chain.has(i);
-      const next = a + ((on ? 1 : 0) - a) * (1 - Math.exp(-step / (on ? GLOW_IN : GLOW_OUT)));
-      if (!on && next < 0.01) this.glowing.delete(i);
-      else this.glowing.set(i, next);
-    }
+    const ease = (lights: Map<number, number>, on: Set<number>) => {
+      for (const i of on) if (!lights.has(i)) lights.set(i, 0);
+      for (const [i, a] of lights) {
+        const to = on.has(i);
+        const next = a + ((to ? 1 : 0) - a) * (1 - Math.exp(-step / (to ? GLOW_IN : GLOW_OUT)));
+        if (!to && next < 0.01) lights.delete(i);
+        else lights.set(i, next);
+      }
+    };
+    ease(this.glowing, chain);
+    ease(this.haloed, new Set(this.under < 0 ? [] : [this.under]));
     for (const [i, a] of this.glowing) {
       const p = t.parent[i];
       if (p < 0) continue;
@@ -1122,14 +1130,17 @@ export class SnapScene {
           .stroke({ color: PALETTE.chosen, width: HALO, alpha: HALO_ALPHA });
       this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, 6).stroke({ color: PALETTE.chosen, width: RING });
     }
-    for (const [i, a] of this.glowing) {
+    for (const [i, a] of this.haloed) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       this.marks
         .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
-        .stroke({ color: PALETTE.over, width: HALO, alpha: HALO_ALPHA * a })
-        .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: PALETTE.over, width: RING, alpha: a });
+        .stroke({ color: PALETTE.over, width: HALO, alpha: HALO_ALPHA * a });
+    }
+    for (const [i, a] of this.glowing) {
+      const d = t.depth[i];
+      const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, 6).stroke({ color: PALETTE.over, width: RING, alpha: a });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
     // of blue.
