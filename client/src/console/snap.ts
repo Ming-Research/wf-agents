@@ -69,10 +69,13 @@ const SNAP = 0.32;
 /// How much of the way to where the scroll has taken it the column scrolled goes each frame.
 const GLIDE = 0.35;
 /// How far from the middle of the screen, in rows, an item's want of the column beside it still weighs: its weight
-/// falls off as a bell of this width; and how much a column holds to where it is, against the wants, so that wants that
-/// weigh little move it little at a frame, and it never leaps between two places that meet the heavy ones alike.
+/// falls off as a bell of this width. A want not met pulls the column by its weight times how far it is from being met,
+/// but never by more than `SAT` rows' worth, so that a want far from met weighs no more than a near one; and the column
+/// stays while the wants pull it by no more than `DEAD`, so that items far from the middle, weighing little, do not
+/// swing it a long way between two places that each meets some of them.
 const REACH = 3;
-const STAY = 0.2;
+const SAT = 2;
+const DEAD = 0.3;
 /// How many rows of the column scrolled stay on the screen at least, at its top or its bottom.
 const KEEP = 3;
 /// How much of the way to where it stands a column beside the one scrolled goes each frame: one that was the one
@@ -705,10 +708,9 @@ export class SnapScene {
 
   /// Moves column `c` towards where it stands by its links with the column `from` beside it, which it follows. Each
   /// item of `from` near the middle of the screen wants what it is joined to in `c` beside it: the block of the items
-  /// under it, or the item above it, any part of which level with it will do; it weighs the more the nearer the line it
-  /// is. The column stays where it is while every want is met, and else goes where the wants not met, weighed, pull it
-  /// no further either way against its hold to where it is, which it takes again each frame. With nothing joining them
-  /// near the middle, it stays.
+  /// under it, or the item above it, any part of which level with it will do; it weighs the more the nearer the middle
+  /// it is. The column stays where it is while the wants not met pull it no harder than `DEAD`, and else goes until
+  /// they pull it just that hard. With nothing joining them near the middle, it stays.
   private link(c: number, from: number): void {
     const t = this.tree as Tree;
     const src = this.columns[from];
@@ -744,29 +746,26 @@ export class SnapScene {
     }
     if (weights.length === 0) return;
     const now = me.at;
-    // How hard the wants not met, and its hold to where it is, pull the column below `x`, those above it counted
-    // against: it grows with `x`.
+    // How hard the wants not met pull the column below `x`, those above it counted against: it grows with `x`.
     const pull = (x: number) => {
-      let g = STAY * (x - now);
+      let g = 0;
       for (let i = 0; i < weights.length; i += 1) {
-        if (x < lows[i]) g += weights[i] * (x - lows[i]);
-        else if (x > highs[i]) g += weights[i] * (x - highs[i]);
+        const off = x < lows[i] ? x - lows[i] : x > highs[i] ? x - highs[i] : 0;
+        g += weights[i] * Math.max(-SAT, Math.min(SAT, off));
       }
       return g;
     };
     const g = pull(now);
-    let to = now;
-    if (Math.abs(g) > 1e-9) {
-      let lo = g > 0 ? Math.min(now, ...lows) : now;
-      let hi = g > 0 ? now : Math.max(now, ...highs);
-      for (let i = 0; i < 40; i += 1) {
-        const mid = (lo + hi) / 2;
-        if (pull(mid) < 0) lo = mid;
-        else hi = mid;
-      }
-      to = (lo + hi) / 2;
+    if (Math.abs(g) <= DEAD) return;
+    const want = Math.sign(g) * DEAD;
+    let lo = g > 0 ? Math.min(...lows) - SAT : now;
+    let hi = g > 0 ? now : Math.max(...highs) + SAT;
+    for (let i = 0; i < 40; i += 1) {
+      const mid = (lo + hi) / 2;
+      if (pull(mid) < want) lo = mid;
+      else hi = mid;
     }
-    me.at += (to - me.at) * LINK_EASE;
+    me.at += ((lo + hi) / 2 - me.at) * LINK_EASE;
   }
 
   /// Adds to the funnels the one from an item ending at `px`, its box from `top` to `bottom`, to items starting at `cx`,
