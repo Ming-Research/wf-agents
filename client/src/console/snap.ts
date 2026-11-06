@@ -9,12 +9,14 @@
 // from the others. Every held item glows blue, the one of the column under the pointer orange. Only what is on the
 // screen is drawn. What it draws and how fast is kept in `stats`.
 
-import { Application, BitmapText, BlurFilter, Container, Graphics, TextStyle } from 'pixi.js';
+import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
-import type { Shown } from './items';
+import type { Shown, ShownWork } from './items';
 import { indexTree, type Tree } from './tree';
 
 const NODE_W = 300;
+/// A row's height, and the height of a node of one row: an item with a work going on takes two rows, the second the
+/// work's.
 const NODE_H = 26;
 const ROW = 32;
 const PITCH = 370;
@@ -36,6 +38,9 @@ const MAP_PAD = 8;
 /// How quickly a held item's glow turns between blue and orange: the milliseconds in which it goes about two thirds of
 /// the way.
 const TURN = 35;
+/// How long the light takes to cross a node whose work runs, in milliseconds, and how wide it is.
+const SWEEP_MS = 2600;
+const SWEEP_W = 90;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
 
@@ -55,6 +60,40 @@ function pixels(length: string): number {
   const n = Number.parseFloat(length);
   if (!length.trim().endsWith('rem')) return n;
   return n * Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+}
+
+/// A node's height in pixels, of `rows` rows.
+const high = (rows: number) => rows * ROW - (ROW - NODE_H);
+
+/// How long a work has gone on, as a short label and the tone of its age: under half an hour green, under an hour
+/// orange, under a day red, longer purple.
+export function age(ms: number): { label: string; tone: 'success' | 'attention' | 'danger' | 'done' } {
+  const minutes = ms / 60000;
+  if (minutes < 60) return { label: `${Math.max(1, Math.round(minutes))}m`, tone: minutes < 30 ? 'success' : 'attention' };
+  const hours = minutes / 60;
+  if (hours < 24) return { label: `${Math.round(hours * 10) / 10}h`, tone: 'danger' };
+  return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'done' };
+}
+
+/// The colour a work's state gives its whole node: running, waiting for the owner, paused, stopped by the engine for a
+/// problem, or waiting for something else.
+export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
+
+export function moodOf(w: ShownWork): Mood {
+  if (w.state === 'running' || w.state === 'ready') return 'running';
+  if (w.state === 'halted') return 'halted';
+  if (w.state === 'paused') return 'paused';
+  if (w.state === 'asking' && (w.waits?.kind === 'answer' || w.waits?.kind === 'ruling')) return 'owner';
+  return 'waiting';
+}
+
+/// A colour of the theme as it shows on the page's ground: one given with its opacity (`#rrggbbaa`) laid over the ground,
+/// and more transparent still by `alpha`.
+function solid(name: string, alpha = 1): number {
+  const v = colour(name, '#f6f8fa');
+  const ground = colour('--bgColor-default', '#ffffff');
+  const own = v.length === 9 ? Number.parseInt(v.slice(7), 16) / 255 : 1;
+  return mix(ground, v.slice(0, 7), own * alpha);
 }
 
 /// A value of the page's theme, a colour or a font, from its CSS custom property.
@@ -98,6 +137,15 @@ export class SnapScene {
   /// Each item's number, in the tree's order.
   private ids: number[] = [];
   private views: Container[] = [];
+  /// Each item's height in rows; for each column, where each of its items starts, its rows counted from the top.
+  private rows: Int32Array = new Int32Array(0);
+  private pre: Float64Array[] = [];
+  /// The parts of a node that change while it is shown: the light crossing a node whose work runs, and the label of
+  /// how long its work has gone on, with when the work started.
+  private sweeps = new Map<number, Graphics>();
+  private ages = new Map<number, { from: number; label: BitmapText; chip: Graphics; shown: string; row: number }>();
+  /// For each column, the ranks of its items whose questions wait for the owner, which the map marks.
+  private asking: number[][] = [];
   private columns: Column[] = [];
   /// For each column, each rank's group: how many items above in the column to the left have items here before it.
   private group: Int32Array[] = [];
@@ -120,6 +168,7 @@ export class SnapScene {
     otherAlpha: 0.12,
     glow: '#3b87ff',
     glowOver: '#f29a1f',
+    asking: '#cf222e',
   };
 
   async mount(host: HTMLElement): Promise<void> {
@@ -175,10 +224,7 @@ export class SnapScene {
       fontSize: pixels(colour('--text-body-size-medium', '14px')),
       fill: colour('--fgColor-default', '#1f2328'),
     });
-    const fill = colour('--bgColor-muted', '#f6f8fa');
     const border = colour('--borderColor-default', '#d1d9e0');
-    // The mark at each item's left edge, one grey for all until how a state is shown is settled.
-    const mark = colour('--bgColor-neutral-emphasis', '#59636e');
     // A colour with its opacity as `#rrggbbaa`, split for Pixi.
     const neutral = colour('--bgColor-neutral-muted', '#8d9bb31f');
     this.colours = {
@@ -190,23 +236,27 @@ export class SnapScene {
       otherAlpha: neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12,
       glow: colour('--bgColor-accent-emphasis', '#3b87ff'),
       glowOver: colour('--bgColor-attention-emphasis', '#f29a1f'),
+      asking: colour('--bgColor-danger-emphasis', '#cf222e'),
     };
     const { tree, items } = indexTree(roots, (i) => i.children);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
-    this.views = items.map((item) => {
-      const view = new Container();
-      const box = new Graphics()
-        .roundRect(0, -NODE_H / 2, NODE_W, NODE_H, 6)
-        .fill(fill)
-        .stroke({ color: border, width: 1 })
-        .roundRect(0, -NODE_H / 2, 4, NODE_H, 2)
-        .fill(mark);
-      const title = new BitmapText({ text: `#${item.id} ${item.title}`, style });
-      title.position.set(10, -title.height / 2);
-      view.addChild(box, title);
-      return view;
+    this.rows = Int32Array.from(items, (i) => (i.work !== null ? 2 : 1));
+    this.pre = tree.columns.map((col) => {
+      const p = new Float64Array(col.length + 1);
+      for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
+      return p;
     });
+    this.asking = tree.columns.map((col) => col.flatMap((i, r) => (items[i].asks > 0 ? [r] : [])));
+    // The items above one whose work runs, up to its root, tinted: from the roots one sees which branch has work on.
+    const tinted = new Set<number>();
+    items.forEach((i, k) => {
+      if (i.work === null || moodOf(i.work) !== 'running') return;
+      for (let p = tree.parent[k]; p >= 0; p = tree.parent[p]) tinted.add(p);
+    });
+    this.sweeps = new Map();
+    this.ages = new Map();
+    this.views = items.map((item, k) => this.node(item, k, style, border, tinted.has(k)));
     this.columns = tree.columns.map(() => ({ held: -1, gapAt: 0, gap: 0, at: 0, pull: 0, lastScroll: 0, warm: 0 }));
     this.group = tree.columns.map((col) => {
       const g = new Int32Array(col.length);
@@ -230,6 +280,124 @@ export class SnapScene {
     this.columns.forEach((c, d) => (c.at = was[d] ?? this.target(d)));
     this.buildMap(tree);
     this.stats.items = items.length;
+  }
+
+  /// The node of an item: its whole ground in the colour of its work's state, tinted when a work runs under it, or plain;
+  /// on its first row its number on a badge in the colour of the item's state, its title, and at the right its badges,
+  /// red for its questions waiting for the owner and grey for its returns sent back; on the second row, for an item
+  /// whose work goes on, the work's stages, where its time went, and how long it has gone on.
+  private node(item: Shown, k: number, style: TextStyle, border: string, tinted: boolean): Container {
+    const view = new Container();
+    const h = high(this.rows[k]);
+    const top = -h / 2;
+    const mood = item.work !== null ? moodOf(item.work) : null;
+    const ground: Record<Mood, string> = {
+      running: '--bgColor-accent-muted',
+      owner: '--bgColor-attention-muted',
+      paused: '--bgColor-neutral-muted',
+      halted: '--bgColor-danger-muted',
+      waiting: '--bgColor-muted',
+    };
+    const fill = mood !== null ? solid(ground[mood]) : tinted ? solid('--bgColor-accent-muted', 0.45) : solid('--bgColor-muted');
+    const box = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(fill).stroke({ color: border, width: 1 });
+    view.addChild(box);
+    if (mood === 'running') {
+      // A light crossing the node, cut to its box.
+      const mask = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(0xffffff);
+      const light = new FillGradient(0, 0, SWEEP_W, 0);
+      light.addColorStop(0, 'rgba(255,255,255,0)');
+      light.addColorStop(0.5, 'rgba(255,255,255,0.65)');
+      light.addColorStop(1, 'rgba(255,255,255,0)');
+      const sweep = new Graphics().rect(0, top, SWEEP_W, h).fill(light);
+      sweep.mask = mask;
+      view.addChild(mask, sweep);
+      this.sweeps.set(k, sweep);
+    }
+    const small = new TextStyle({ ...style, fontSize: Math.round(style.fontSize as number * 0.8), fill: colour('--fgColor-onEmphasis', '#ffffff') });
+    const row1 = top + NODE_H / 2;
+    // The number, on a badge in the item's state's colour.
+    const standing = { open: '--bgColor-accent-emphasis', done: '--bgColor-success-emphasis', cancelled: '--bgColor-neutral-emphasis' };
+    const number = new BitmapText({ text: String(item.id), style: small });
+    const badge = new Graphics().roundRect(6, row1 - 9, number.width + 10, 18, 5).fill(colour(standing[item.standing], '#3b87ff'));
+    number.position.set(11, row1 - number.height / 2);
+    const title = new BitmapText({ text: item.title, style });
+    title.position.set(number.width + 24, row1 - title.height / 2);
+    view.addChild(badge, number, title);
+    // The badges at the right of the first row: questions waiting for the owner, red; returns sent back, grey.
+    let right = NODE_W - 6;
+    const pill = (text: string, colourName: string, back: boolean) => {
+      const t = new BitmapText({ text, style: small });
+      const icon = back ? 10 : 0;
+      const w = Math.max(18, t.width + 10 + icon);
+      right -= w;
+      const g = new Graphics().roundRect(right, row1 - 9, w, 18, 9).fill(colour(colourName, '#59636e'));
+      if (back) {
+        // A small arrow turning back, drawn: the font may have no such sign.
+        const ax = right + 5;
+        const on = colour('--fgColor-onEmphasis', '#ffffff');
+        g.moveTo(ax + 7, row1 - 4)
+          .lineTo(ax + 7, row1 + 1)
+          .lineTo(ax + 1, row1 + 1)
+          .moveTo(ax + 3, row1 - 1)
+          .lineTo(ax + 1, row1 + 1)
+          .lineTo(ax + 3, row1 + 3)
+          .stroke({ color: on, width: 1.4 });
+      }
+      t.position.set(right + icon + (w - icon - t.width) / 2, row1 - t.height / 2);
+      view.addChild(g, t);
+      right -= 4;
+    };
+    if (item.asks > 0) pill(String(item.asks), '--bgColor-danger-emphasis', false);
+    if (item.work !== null && item.work.sentBack > 0) pill(String(item.work.sentBack), '--bgColor-neutral-emphasis', true);
+    if (item.work === null) return view;
+    // The second row: the work's stages, each a letter, those gone through, the one it is at, and those ahead.
+    const w = item.work;
+    const row2 = top + ROW + NODE_H / 2;
+    const here = w.stage !== null ? w.stages.indexOf(w.stage) : -1;
+    const waiting = mood !== 'running';
+    let x = 8;
+    const letter = new TextStyle({ ...style, fontSize: Math.round(style.fontSize as number * 0.7) });
+    w.stages.forEach((stage, i) => {
+      const look = i < here ? 'done' : i > here || here < 0 ? 'ahead' : waiting ? 'wait' : 'now';
+      const bg = { done: '--bgColor-success-muted', now: '--bgColor-accent-emphasis', wait: '--bgColor-attention-emphasis', ahead: '--bgColor-neutral-muted' }[look];
+      const fg = { done: '--fgColor-success', now: '--fgColor-onEmphasis', wait: '--fgColor-onEmphasis', ahead: '--fgColor-muted' }[look];
+      const cell = new Graphics().roundRect(x, row2 - 8, 15, 16, 3).fill(solid(bg));
+      const l = new BitmapText({ text: stage.charAt(0).toUpperCase(), style: new TextStyle({ ...letter, fill: colour(fg, '#1f2328') }) });
+      l.position.set(x + (15 - l.width) / 2, row2 - l.height / 2);
+      view.addChild(cell, l);
+      x += 17;
+    });
+    // Where its time went: the span cut into cells, a model's, the tools', or idle.
+    x += 8;
+    const barW = 96;
+    const cells = [...w.bar];
+    const kind = { m: colour('--chart-1', '#3b87ff'), t: colour('--chart-2', '#f29a1f'), '.': colour('--chart-idle', '#d1d9e0') };
+    const track = new Graphics();
+    cells.forEach((c, i) => {
+      const cw = barW / Math.max(1, cells.length);
+      track.rect(x + i * cw, row2 - 3, cw, 6).fill(kind[c as 'm' | 't' | '.'] ?? kind['.']);
+    });
+    view.addChild(track);
+    // How long it has gone on, on a chip at the right, its colour by its age; the label is kept up as time passes.
+    const chip = new Graphics();
+    const label = new BitmapText({ text: '', style: small });
+    view.addChild(chip, label);
+    this.ages.set(k, { from: w.from, label, chip, shown: '', row: row2 });
+    this.age(k);
+    return view;
+  }
+
+  /// Puts on an item's chip how long its work has gone on, when the label has changed.
+  private age(k: number) {
+    const a = this.ages.get(k);
+    if (a === undefined) return;
+    const { label, tone } = age(Date.now() - a.from);
+    if (label === a.shown) return;
+    a.shown = label;
+    a.label.text = label;
+    const w = a.label.width + 12;
+    a.chip.clear().roundRect(NODE_W - 6 - w, a.row - 9, w, 18, 9).fill(colour(`--bgColor-${tone}-emphasis`, '#59636e'));
+    a.label.position.set(NODE_W - w, a.row - a.label.height / 2);
   }
 
   /// Holds the item of rank `rank` in column `d` on the line, the items above it in the columns to its left, and the
@@ -273,26 +441,31 @@ export class SnapScene {
     this.columns[d].held = rank;
   }
 
+  /// How many rows the item of rank `rank` in column `d` takes.
+  private rowsAt(d: number, rank: number): number {
+    const col = (this.tree as Tree).columns[d];
+    return this.rows[col[Math.max(0, Math.min(col.length - 1, rank))]];
+  }
+
   /// Where a column belongs: its held item's middle on the line, or the middle of its empty place.
   private target(d: number): number {
     const c = this.columns[d];
-    if (c.held >= 0) return this.slot(d, c.held) + 0.5;
+    if (c.held >= 0) return this.slot(d, c.held) + this.rowsAt(d, c.held) / 2;
     const len = this.group[d].length;
-    const above = c.gapAt > 0 ? this.slot(d, c.gapAt - 1) + 1 : this.slot(d, 0) - 1 - APART;
+    const above = c.gapAt > 0 ? this.slot(d, c.gapAt - 1) + this.rowsAt(d, c.gapAt - 1) : this.slot(d, 0) - 1 - APART;
     const below = c.gapAt < len ? this.slot(d, c.gapAt) : above + 1 + APART;
     return (above + below) / 2;
   }
 
-  /// Adds to the funnels the one from an item ending at `px`, its middle at `py`, to items starting at `cx`, the middle
-  /// of the first at `first` and of the last at `last`.
-  private funnel(px: number, py: number, cx: number, first: number, last: number) {
-    const h = NODE_H / 2;
+  /// Adds to the funnels the one from an item ending at `px`, its box from `top` to `bottom`, to items starting at `cx`,
+  /// the first's box starting at `first` and the last's ending at `last`.
+  private funnel(px: number, top: number, bottom: number, cx: number, first: number, last: number) {
     const bend = (cx - px) / 2;
     this.funnels
-      .moveTo(px, py - h)
-      .bezierCurveTo(px + bend, py - h, cx - bend, first - h, cx, first - h)
-      .lineTo(cx, last + h)
-      .bezierCurveTo(cx - bend, last + h, px + bend, py + h, px, py + h)
+      .moveTo(px, top)
+      .bezierCurveTo(px + bend, top, cx - bend, first, cx, first)
+      .lineTo(cx, last)
+      .bezierCurveTo(cx - bend, last, px + bend, bottom, px, bottom)
       .closePath();
   }
 
@@ -302,19 +475,19 @@ export class SnapScene {
     let hi = this.group[d].length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (this.slot(d, mid) + 1 < place) lo = mid + 1;
+      if (this.slot(d, mid) + this.rowsAt(d, mid) < place) lo = mid + 1;
       else hi = mid;
     }
     return lo;
   }
 
-  /// Where an item of a column starts, in rows from the column's top: its rank, the room between the groups above it,
-  /// and the empty place as far as it is open.
+  /// Where an item of a column starts, in rows from the column's top: the rows of the items above it, the room between
+  /// the groups above it, and the empty place as far as it is open.
   private slot(d: number, rank: number): number {
     const c = this.columns[d];
     const g = this.group[d];
     const r = Math.max(0, Math.min(g.length - 1, rank));
-    return rank + APART * g[r] + (rank >= c.gapAt ? c.gap : 0);
+    return this.pre[d][r] + (rank - r) + APART * g[r] + (rank >= c.gapAt ? c.gap : 0);
   }
 
   /// Draws `frames` frames, each with a scroll of one detent over a column, waiting for the GPU each; gives the time of
@@ -345,7 +518,10 @@ export class SnapScene {
   private buildMap(t: Tree) {
     this.map.removeChildren();
     let longest = 1;
-    for (let d = 0; d < t.columns.length; d += 1) longest = Math.max(longest, this.slot(d, t.columns[d].length - 1) + 1);
+    for (let d = 0; d < t.columns.length; d += 1) {
+      const n = t.columns[d].length;
+      longest = Math.max(longest, this.slot(d, n - 1) + this.rowsAt(d, n - 1));
+    }
     this.mapRow = (MAP_HIGH - 2 * MAP_PAD) / (2 * longest);
     const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
     this.mapFrame
@@ -359,16 +535,22 @@ export class SnapScene {
   }
 
   /// Draws each column on the map as one bar from its first item to its last, moved as the column is: blue, or orange
-  /// as its held item's glow turns while the pointer is over it; and the middle line over them, dark grey.
+  /// as its held item's glow turns while the pointer is over it, marked red where questions wait for the owner; and the
+  /// middle line over them, dark grey.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
     this.mapBars.clear();
     this.columns.forEach((c, d) => {
       const from = mid + (0 - c.at - c.pull * GIVE) * this.mapRow;
-      const to = mid + (this.slot(d, t.columns[d].length - 1) + 1 - c.at - c.pull * GIVE) * this.mapRow;
-      this.mapBars
-        .rect(MAP_PAD + d * (MAP_STRIP + MAP_APART), from, MAP_STRIP, Math.max(1, to - from))
-        .fill(mix(this.colours.glow, this.colours.glowOver, c.warm));
+      const n = t.columns[d].length;
+      const to = mid + (this.slot(d, n - 1) + this.rowsAt(d, n - 1) - c.at - c.pull * GIVE) * this.mapRow;
+      const left = MAP_PAD + d * (MAP_STRIP + MAP_APART);
+      this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(this.colours.glow, this.colours.glowOver, c.warm));
+      // Where questions wait for the owner, red across the bar.
+      for (const r of this.asking[d] ?? []) {
+        const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at - c.pull * GIVE) * this.mapRow;
+        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(this.colours.asking);
+      }
     });
     const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
     this.mapBars.moveTo(MAP_PAD / 2, mid).lineTo(wide - MAP_PAD / 2, mid).stroke({ color: this.colours.mapLine, width: 1 });
@@ -453,8 +635,10 @@ export class SnapScene {
     });
     const y = (d: number, rank: number) => {
       const c = this.columns[d];
-      return line + (this.slot(d, rank) + 0.5 - c.at - c.pull * GIVE) * ROW;
+      return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
     };
+    const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
+    const phase = (now % SWEEP_MS) / SWEEP_MS;
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
     // The line across the middle, dashed.
@@ -473,10 +657,14 @@ export class SnapScene {
       const centre = this.rankAt(d, c.at + c.pull * GIVE);
       for (let rank = Math.max(0, centre - rows); rank < Math.min(col.length, centre + rows); rank += 1) {
         const yy = y(d, rank);
-        if (yy < -NODE_H || yy > height + NODE_H) continue;
+        if (yy < -2 * ROW || yy > height + 2 * ROW) continue;
         const item = col[rank];
         const view = this.views[item];
         view.position.set(cx, yy);
+        // The light crosses every running node at once, so that the screen does not flicker; the age is kept up.
+        const sweep = this.sweeps.get(item);
+        if (sweep !== undefined) sweep.x = phase * (NODE_W + SWEEP_W) - SWEEP_W;
+        this.age(item);
         nowShown.add(view);
         if (!this.shown.has(view)) this.layer.addChild(view);
       }
@@ -490,15 +678,18 @@ export class SnapScene {
         const kids = t.children[prev[r]];
         if (kids.length === 0) continue;
         const py = y(d - 1, r);
-        const first = y(d, t.rank[kids[0]]);
-        const lastY = y(d, t.rank[kids[kids.length - 1]]);
-        if (Math.max(py, lastY) < -NODE_H || Math.min(py, first) > height + NODE_H) continue;
-        if (r === heldAbove) heldFunnels.push([px, py, cx, first, lastY, 0]);
-        else this.funnel(px, py, cx, first, lastY);
+        const ph = half(d - 1, r);
+        const f = t.rank[kids[0]];
+        const l = t.rank[kids[kids.length - 1]];
+        const first = y(d, f) - half(d, f);
+        const lastY = y(d, l) + half(d, l);
+        if (Math.max(py + ph, lastY) < 0 || Math.min(py - ph, first) > height) continue;
+        if (r === heldAbove) heldFunnels.push([px, py - ph, py + ph, cx, first, lastY]);
+        else this.funnel(px, py - ph, py + ph, cx, first, lastY);
       }
     }
     this.funnels.fill({ color: this.colours.other, alpha: this.colours.otherAlpha });
-    for (const [px, py, cx, first, lastY] of heldFunnels) this.funnel(px, py, cx, first, lastY);
+    for (const [px, top, bottom, cx, first, lastY] of heldFunnels) this.funnel(px, top, bottom, cx, first, lastY);
     this.funnels.fill(this.colours.held);
     // A glow round each held item: a box a little larger than it, blurred a little, so that it fades out evenly from
     // the edge within the room between it and the items above and below it, where they would hide it.
@@ -507,9 +698,10 @@ export class SnapScene {
       if (c.held < 0) continue;
       const gx = x(d);
       const gy = y(d, c.held);
-      if (gx > width || gx + NODE_W < 0 || gy < -NODE_H || gy > height + NODE_H) continue;
+      const gh = half(d, c.held);
+      if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
       const fill = mix(this.colours.glow, this.colours.glowOver, c.warm);
-      this.glow.roundRect(gx - GLOW, gy - NODE_H / 2 - GLOW, NODE_W + 2 * GLOW, NODE_H + 2 * GLOW, 6 + GLOW).fill(fill);
+      this.glow.roundRect(gx - GLOW, gy - gh - GLOW, NODE_W + 2 * GLOW, 2 * gh + 2 * GLOW, 6 + GLOW).fill(fill);
     }
     this.drawMap(t);
     for (const v of this.shown) if (!nowShown.has(v)) this.layer.removeChild(v);
