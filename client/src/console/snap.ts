@@ -58,6 +58,8 @@ const GLOW_OUT = 160;
 /// The ring round a held item, or one under the pointer or above it: its edge's width, and the halo outside it, how wide
 /// and how strong, within the room between two items.
 const RING = 2;
+/// How far in from the side of the room an item brought into view stands.
+const INSET = 24;
 const HALO = 5;
 const HALO_ALPHA = 0.32;
 /// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
@@ -939,9 +941,9 @@ export class SnapScene {
 
   /// Selects the item numbered `id`, or none.
   /// Brings the item numbered `id` into view, within the `room` pixels of the screen's width from its left that the
-  /// window beside the tree leaves: held on the line if it is above or below what is seen, and the columns moved
-  /// sideways until its column stands in the middle of the room if it is not wholly within it. An item already in view
-  /// stays where it is.
+  /// window beside the tree leaves: held on the line if it is above or below what is seen, and, if its column is not
+  /// wholly within the room, the columns moved sideways only until it is, a little in from the side it was out at. An
+  /// item already in view stays where it is.
   reveal(id: number, room: number): void {
     const t = this.tree;
     const i = this.real.get(id);
@@ -954,7 +956,8 @@ export class SnapScene {
     const h = high(this.rowsAt(d, rank)) / 2;
     const x = this.left + d * PITCH;
     if (y - h < EDGE || y + h > height - EDGE) this.hold(d, rank);
-    if (x < 0 || x + NODE_W > room) this.leftGoal = room / 2 - NODE_W / 2 - d * PITCH;
+    if (x < 0) this.leftGoal = INSET - d * PITCH;
+    else if (x + NODE_W > room) this.leftGoal = room - INSET - NODE_W - d * PITCH;
   }
 
   select(id: number | null): void {

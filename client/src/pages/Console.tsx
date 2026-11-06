@@ -3,9 +3,9 @@
 // a window shows the item selected (`console/ItemWindow.tsx`), so far with made-up contents. Selecting an item slides
 // the window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which
 // case it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item
-// selected brings it out again. The window coming out over the item selected, or an item selected half under it, moves
-// the tree until the item stands in the middle of what the window leaves. Escape lets the item go while the tree has the
-// keys, and slides the window in while it has them.
+// selected brings it out again. The window coming out over the item selected, or an item selected half under it or
+// half off the screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item
+// go while the tree has the keys, and slides the window in while it has them.
 
 import { useEffect, useRef, useState } from 'react';
 
