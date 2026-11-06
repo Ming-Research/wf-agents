@@ -47,6 +47,10 @@ const TURN = 140;
 /// orange line is at each edge of the column under the pointer.
 const EDGE = 48;
 const EDGE_LINE = 6;
+/// How quickly the orange rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
+/// milliseconds in which each goes about two thirds of the way.
+const GLOW_IN = 30;
+const GLOW_OUT = 160;
 /// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the stage goes at its faintest.
 const PULSE_MS = 750;
@@ -298,6 +302,9 @@ export class SnapScene {
   private hovered = -1;
   /// Where the pointer is over the canvas, or none; the item under it is found each frame, as the columns move.
   private pointer: { x: number; y: number } | null = null;
+  /// How far each item ringed in orange, the one under the pointer and those above it, has come in, from 0 to 1; one
+  /// the pointer has left stays until it has faded out.
+  private glowing = new Map<number, number>();
   private left = 40;
   private frames: number[] = [];
   private lastDraw = 0;
@@ -390,6 +397,7 @@ export class SnapScene {
       for (let p = k; p >= 0 && this.lit[p] === 0; p = tree.parent[p]) this.lit[p] = 1;
     });
     this.pulses = new Map();
+    this.glowing = new Map();
     this.ages = new Map();
     this.views = items.map((item, k) => this.node(item, k));
     this.columns = tree.columns.map(() => ({
@@ -869,17 +877,24 @@ export class SnapScene {
     for (const [px, top, bottom, cx, f, l] of held) this.funnel(px, top, bottom, cx, f, l);
     this.links.fill(PALETTE.funnel);
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
-    // orange and ringed in orange, over everything else.
-    const chain: number[] = [];
-    for (let i = this.pointed(t, x, y); i >= 0; i = t.parent[i]) chain.push(i);
-    for (const i of chain) {
+    // orange and ringed in orange, over everything else; each comes in quickly, and fades out once the pointer has left.
+    const chain = new Set<number>();
+    for (let i = this.pointed(t, x, y); i >= 0; i = t.parent[i]) chain.add(i);
+    for (const i of chain) if (!this.glowing.has(i)) this.glowing.set(i, 0);
+    for (const [i, a] of this.glowing) {
+      const on = chain.has(i);
+      const next = a + ((on ? 1 : 0) - a) * (1 - Math.exp(-step / (on ? GLOW_IN : GLOW_OUT)));
+      if (!on && next < 0.01) this.glowing.delete(i);
+      else this.glowing.set(i, next);
+    }
+    for (const [i, a] of this.glowing) {
       const p = t.parent[i];
       if (p < 0) continue;
       const d = t.depth[i];
       const [py, ph, iy, ih] = [y(d - 1, t.rank[p]), half(d - 1, t.rank[p]), y(d, t.rank[i]), half(d, t.rank[i])];
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
+      this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
-    if (chain.length > 1) this.links.fill(PALETTE.hoverRibbon);
     // Each held item ringed, in the accent.
     for (let d = 0; d < t.columns.length; d += 1) {
       const c = this.columns[d];
@@ -894,14 +909,14 @@ export class SnapScene {
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
         .stroke({ color: PALETTE.accent, width: 1 });
     }
-    for (const i of chain) {
+    for (const [i, a] of this.glowing) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       this.marks
         .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
-        .stroke({ color: PALETTE.over, width: 3, alpha: 0.25 })
+        .stroke({ color: PALETTE.over, width: 3, alpha: 0.25 * a })
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: PALETTE.over, width: 1 });
+        .stroke({ color: PALETTE.over, width: 1, alpha: a });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
     // of orange.
