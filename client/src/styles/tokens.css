@@ -63,4 +63,29 @@
 
   /* How long a bubble the bar of what waits brought into view stays lit, long enough to find it after the scroll. */
   --talk-lit-time: 1.6s;
+
+  /* The console's window takes the colours its tree is drawn in on the canvas (console/snap.ts), so that what is new
+     to the owner, the item selected and each state of a work read the same in both, as the owner chose them; Primer
+     has none of these hues. What is new, a changed passage and the window's tab and edge: a light blue, deeper under
+     the pointer and as a link, and a wash of it behind a strip. */
+  --console-accent: #6a82fd;
+  --console-accent-strong: #5a71ec;
+  --console-accent-wash: #f0f2ff;
+  /* The item selected: violet, the tab of what is shown and the option under the pointer; a wash of it for an option
+     picked and for the owner's own notes. */
+  --console-chosen: #8b5cf6;
+  --console-chosen-wash: #f1ecfe;
+  --console-own-note: #f3efff;
+  /* A choice that waits for the owner: the amber of what waits for them, light. */
+  --console-ask-edge: #f8c48a;
+  --console-ask-wash: #fff8ee;
+  /* A work's state, as its card on the canvas: running, done, waiting for the owner, waiting for another, halted. */
+  --console-running: #1a9fff;
+  --console-done: #2f9e6e;
+  --console-asked: #f5840c;
+  --console-waiting: #e8cc6a;
+  --console-halted: #e5484d;
+  /* The window's edge and the mark of a changed passage: thicker than Primer's thick border, so that the edge is seen
+     at the screen's side. */
+  --console-edge-width: 3px;
 }

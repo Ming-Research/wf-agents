@@ -40,14 +40,14 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -3px;
-  width: 3px;
-  background: #6a82fd;
+  left: calc(-1 * var(--console-edge-width));
+  width: var(--console-edge-width);
+  background: var(--console-accent);
   pointer-events: none;
 }
 
 .cw:has(.cw-tab:hover)::before {
-  background: #5a71ec;
+  background: var(--console-accent-strong);
 }
 
 /* The tab: a narrow trapezoid in blue, its long side on the window's edge, so that it is seen at the screen's edge. */
@@ -62,8 +62,8 @@
   height: 88px;
   padding: 0;
   border: none;
-  background: #6a82fd;
-  color: #ffffff;
+  background: var(--console-accent);
+  color: var(--fgColor-onEmphasis);
   /* The trapezoid, 72 high from 8 down, its two outer corners rounded, and above and below it the edge's line, which
      its slanted sides leave in a curve. */
   clip-path: path(
@@ -73,7 +73,7 @@
 }
 
 .cw .cw-tab:hover {
-  background: #5a71ec;
+  background: var(--console-accent-strong);
 }
 
 .cw-open {
@@ -82,8 +82,8 @@
 
 .cw-edge {
   flex: none;
-  width: 6px;
-  margin-left: -3px;
+  width: var(--base-size-6);
+  margin-left: calc(var(--base-size-6) / -2);
   cursor: col-resize;
 }
 
@@ -149,29 +149,29 @@
 .cw-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--borderRadius-full);
   background: var(--bgColor-neutral-emphasis);
 }
 
 .cw-dot.dot-open,
 .cw-dot.dot-running {
-  background: #1a9fff;
+  background: var(--console-running);
 }
 
 .cw-dot.dot-done {
-  background: #2f9e6e;
+  background: var(--console-done);
 }
 
 .cw-dot.dot-owner {
-  background: #f5840c;
+  background: var(--console-asked);
 }
 
 .cw-dot.dot-waiting {
-  background: #e8cc6a;
+  background: var(--console-waiting);
 }
 
 .cw-dot.dot-halted {
-  background: #e5484d;
+  background: var(--console-halted);
 }
 
 .cw-tabs {
@@ -184,7 +184,7 @@
 .cw-tabs button[role='tab'] {
   padding: var(--base-size-4) 0;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: var(--borderWidth-thick) solid transparent;
   background: none;
   color: var(--fgColor-muted);
   font: inherit;
@@ -193,7 +193,7 @@
 
 .cw-tabs button[role='tab'].on {
   color: var(--fgColor-default);
-  border-bottom-color: #8b5cf6;
+  border-bottom-color: var(--console-chosen);
 }
 
 .cw-section {
@@ -205,27 +205,27 @@
   margin: 0 0 var(--base-size-4);
   font-size: var(--text-body-size-small);
   font-weight: var(--base-text-weight-semibold);
-  color: var(--fgColor-muted);
+  color: var(--fgColor-default);
 }
 
-/* A passage changed since the owner read the item is marked at its left, as a card new to the owner is. */
-/* A passage stands in line with its heading; the mark of a changed one is in the margin to its left. */
+/* A passage stands in line with its heading; one changed since the owner read the item is marked in the margin to its
+   left, as a card new to the owner is. */
 .cw-part {
-  margin-left: calc(-1 * var(--base-size-8));
-  padding-left: 5px;
-  border-left: 3px solid transparent;
+  margin-left: calc(-1 * (var(--console-edge-width) + var(--base-size-4)));
+  padding-left: var(--base-size-4);
+  border-left: var(--console-edge-width) solid transparent;
 }
 
 .cw-changed {
-  border-left-color: #6a82fd;
+  border-left-color: var(--console-accent);
 }
 
 .cw-choice {
   margin: var(--base-size-8) 0;
   padding: var(--base-size-12);
-  border: var(--borderWidth-thin) solid #f8c48a;
+  border: var(--borderWidth-thin) solid var(--console-ask-edge);
   border-radius: var(--borderRadius-medium);
-  background: #fff8ee;
+  background: var(--console-ask-wash);
 }
 
 .cw-choice-done {
@@ -253,12 +253,12 @@
 
 /* The option picked is filled; the one under the pointer is ringed. */
 .cw-option.on {
-  border-color: #f1ecfe;
-  background: #f1ecfe;
+  border-color: var(--console-chosen-wash);
+  background: var(--console-chosen-wash);
 }
 
 .cw-option:hover:not(:disabled) {
-  border-color: #8b5cf6;
+  border-color: var(--console-chosen);
 }
 
 .cw-option-label {
@@ -297,7 +297,7 @@
   align-items: center;
   gap: var(--base-size-4);
   transform: translate(-50%, calc(-100% - 6px));
-  padding: 2px var(--base-size-8);
+  padding: var(--base-size-2) var(--base-size-8);
   border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
   background: var(--bgColor-default);
@@ -322,7 +322,7 @@
 }
 
 .cw-note-owner {
-  background: #f3efff;
+  background: var(--console-own-note);
 }
 
 .cw-note-head {
@@ -336,7 +336,7 @@
 .cw-quoted span {
   margin: var(--base-size-4) 0;
   padding-left: var(--base-size-8);
-  border-left: 3px solid var(--borderColor-default);
+  border-left: var(--console-edge-width) solid var(--borderColor-default);
   color: var(--fgColor-muted);
 }
 
@@ -367,7 +367,7 @@
 }
 
 .cw-names button {
-  padding: 2px var(--base-size-8);
+  padding: var(--base-size-2) var(--base-size-8);
   border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
   background: var(--bgColor-default);
@@ -401,47 +401,6 @@
   margin: 0;
 }
 
-.cw-stages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--base-size-4);
-}
-
-.cw-stages span {
-  padding: 0 var(--base-size-4);
-  border-radius: var(--borderRadius-small);
-  background: var(--bgColor-muted);
-  color: var(--fgColor-muted);
-}
-
-.cw-stages .gone {
-  color: var(--fgColor-default);
-}
-
-.cw-stages .here {
-  background: #1a9fff;
-  color: #ffffff;
-}
-
-.cw-bar {
-  display: flex;
-  width: 220px;
-  height: 6px;
-}
-
-.cw-bar i {
-  flex: 1;
-  background: #e5e7eb;
-}
-
-.cw-bar i.m {
-  background: #4b5563;
-}
-
-.cw-bar i.t {
-  background: #9ca3af;
-}
-
 .cw-project {
   flex: none;
   color: var(--fgColor-muted);
@@ -455,10 +414,10 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--base-size-8);
-  margin: 0 0 var(--base-size-12) calc(-1 * var(--base-size-8));
-  padding: var(--base-size-6) var(--base-size-12) var(--base-size-6) 5px;
-  border-left: 3px solid #6a82fd;
-  background: #f0f2ff;
+  margin: 0 0 var(--base-size-12) calc(-1 * (var(--console-edge-width) + var(--base-size-4)));
+  padding: var(--base-size-6) var(--base-size-12) var(--base-size-6) var(--base-size-4);
+  border-left: var(--console-edge-width) solid var(--console-accent);
+  background: var(--console-accent-wash);
   font-size: var(--text-body-size-small);
 }
 
@@ -467,7 +426,7 @@
   padding: 0;
   border: none;
   background: none;
-  color: #5a71ec;
+  color: var(--console-accent-strong);
   font: inherit;
   cursor: pointer;
 }
