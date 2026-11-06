@@ -10,13 +10,13 @@
 // item has an edge of the light accent; one new to the owner has a short line of a light accent inside its left edge.
 // Under each item that depends on an item besides its main dependent, a shadow of it stands: a white card with a dashed
 // edge and grey words, pointing to where the item stands. A filled funnel joins each item's top and bottom to the first
-// item under it and the last, light accent from a held item and grey from the others. Each held item is ringed in a
-// soft blue; the item under the pointer, and each above it up to its root, in orange, each joined to the one above by a
-// ribbon of light orange. Over a shadow, the item it points to lights so too, and a click on the shadow holds that
-// item; over an item, so do its shadows and the items above them. The stage a running work is at pulses. Every
+// item under it and the last, grey, a little deeper from a held item. Two items are lit, each with the way from it to
+// its root, and from each of its shadows to theirs, by rings and by ribbons joining each to the one above: the item
+// under the pointer in blue, faded out once the pointer leaves, and the item selected by a click in purple, until it is
+// let go; a click on a shadow selects the item it points to and holds it. The stage a running work is at pulses. Every
 // column fades out into the page near the top and the bottom of the screen; at those two edges the column under the
-// pointer has a line of orange, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and
-// how fast is kept in `stats`.
+// pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and how
+// fast is kept in `stats`.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -44,14 +44,14 @@ const MAP_APART = 5;
 const MAP_HIGH = 72;
 const MAP_INSET = 12;
 const MAP_PAD = 8;
-/// How quickly the orange lines at a column's edges come and go as the pointer comes over it and leaves: the
+/// How quickly the blue lines at a column's edges come and go as the pointer comes over it and leaves: the
 /// milliseconds in which it goes about two thirds of the way.
 const TURN = 140;
 /// How far in from the top and the bottom of the screen the columns fade out into the page, in pixels; and how thick the
-/// orange line is at each edge of the column under the pointer.
+/// blue line is at each edge of the column under the pointer.
 const EDGE = 48;
 const EDGE_LINE = 6;
-/// How quickly the orange rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
+/// How quickly the blue rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
 /// milliseconds in which each goes about two thirds of the way.
 const GLOW_IN = 30;
 const GLOW_OUT = 160;
@@ -82,15 +82,15 @@ const PALETTE = {
   edge: '#e5e7eb',
   card: '#ffffff',
   accent: '#3b5bfd',
-  /// The ring round a held item: a softer blue than the accent, so that it marks the way without standing out from it.
-  held: '#7891fc',
-  /// A card's edge above a work, and the funnel from a held card.
+  /// A card's edge above a work.
   branch: '#c7cdfd',
   /// The line inside the left edge of a card new to the owner.
   unseen: '#6a82fd',
-  funnel: '#e8ebff',
+  /// The funnel from a held item: a grey a little deeper than the others', no colour, so that only the item selected and
+  /// the one under the pointer are lit.
+  funnel: '#e1e4e9',
   /// The ribbons from the item under the pointer up to its root.
-  hoverRibbon: '#fbcf93',
+  hoverRibbon: '#d3dcfe',
   /// The ring round the item selected and those on its way to its root, and the ribbons between them.
   chosen: '#8b5cf6',
   chosenRibbon: '#e2d7fd',
@@ -108,8 +108,8 @@ const PALETTE = {
   red: '#e5484d',
   violet: '#8b5cf6',
   green: '#2f9e6e',
-  /// A held item's frame while the pointer is over its column.
-  over: '#f29a1f',
+  /// The item under the pointer, and those above it, ringed; the lines at the edges of the column under it.
+  over: '#7891fc',
   /// Where a work's time went: a model's, the tools', idle.
   model: '#4b5563',
   tools: '#9ca3af',
@@ -268,7 +268,7 @@ type Column = {
   at: number;
   pull: number;
   lastScroll: number;
-  /// How far the orange lines at its edges have come, moving to 1 while the pointer is over the column.
+  /// How far the blue lines at its edges have come, moving to 1 while the pointer is over the column.
   warm: number;
 };
 
@@ -282,7 +282,7 @@ export class SnapScene {
   private marks = new Graphics();
   private layer = new Container();
   /// The fade of every column into the page at the top and the bottom of the screen, each a gradient in the shape's own
-  /// measure, from its top (0) to its bottom (1); and the orange lines there of the column under the pointer.
+  /// measure, from its top (0) to its bottom (1); and the blue lines there of the column under the pointer.
   private edges = new Graphics();
   private fades = { top: vertical('#ffffff', 1, 0), bottom: vertical('#ffffff', 0, 1) };
   /// The map at the top left: its frame, and a bar for each column, drawn each frame, cut to the room inside the frame.
@@ -318,7 +318,7 @@ export class SnapScene {
   private hovered = -1;
   /// Where the pointer is over the canvas, or none; the item under it is found each frame, as the columns move.
   private pointer: { x: number; y: number } | null = null;
-  /// How far each item ringed in orange, the one under the pointer and those above it, has come in, from 0 to 1; one
+  /// How far each item ringed in blue, the one under the pointer and those above it, has come in, from 0 to 1; one
   /// the pointer has left stays until it has faded out.
   private glowing = new Map<number, number>();
   private left = 40;
@@ -773,7 +773,7 @@ export class SnapScene {
   }
 
   /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in a light accent,
-  /// or orange while the pointer is over it, marked in the accent where items are new to the owner, red where questions
+  /// or a deeper blue while the pointer is over it, marked in the accent where items are new to the owner, red where questions
   /// wait for them, and purple where the item selected stands; and the middle line over them, dark grey.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
@@ -907,7 +907,7 @@ export class SnapScene {
     const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
     this.lastDraw = now;
     this.columns.forEach((c, d) => {
-      // The orange lines at the column's edges fade in while the pointer is over it, and out once it leaves, in about
+      // The blue lines at the column's edges fade in while the pointer is over it, and out once it leaves, in about
       // half a second.
       c.warm += ((d === this.hovered ? 1 : 0) - c.warm) * (1 - Math.exp(-step / TURN));
       c.gap += ((c.held >= 0 ? 0 : 1) - c.gap) * SPRING;
@@ -982,7 +982,7 @@ export class SnapScene {
     for (const [px, top, bottom, cx, f, l] of held) this.funnel(px, top, bottom, cx, f, l);
     this.links.fill(PALETTE.funnel);
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
-    // orange and ringed in orange, over everything else; each comes in quickly, and fades out once the pointer has left.
+    // blue and ringed in blue, over everything else; each comes in quickly, and fades out once the pointer has left.
     // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and those
     // above each, up to its root, which depend on it too.
     const lit = (from: number) => {
@@ -1000,7 +1000,7 @@ export class SnapScene {
     };
     this.under = this.pointed(t, x, y);
     const chain = lit(this.under);
-    // The item selected, the same way, in purple, under the orange.
+    // The item selected, the same way, in purple, under the blue.
     const chosen = lit(this.selected === null ? -1 : (this.real.get(this.selected) ?? -1));
     for (const i of chosen) {
       const p = t.parent[i];
@@ -1025,20 +1025,6 @@ export class SnapScene {
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
       this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
-    // Each held item ringed, in a soft blue.
-    for (let d = 0; d < t.columns.length; d += 1) {
-      const c = this.columns[d];
-      if (c.held < 0) continue;
-      const gx = x(d);
-      const gy = y(d, c.held);
-      const gh = half(d, c.held);
-      if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
-      this.marks
-        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
-        .stroke({ color: PALETTE.held, width: HALO, alpha: HALO_ALPHA })
-        .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: PALETTE.held, width: RING });
-    }
     for (const i of chosen) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
@@ -1058,7 +1044,7 @@ export class SnapScene {
         .stroke({ color: PALETTE.over, width: RING, alpha: a });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
-    // of orange.
+    // of blue.
     this.edges.clear();
     this.edges.rect(0, 0, width, EDGE).fill(this.fades.top);
     this.edges.rect(0, height - EDGE, width, EDGE).fill(this.fades.bottom);
