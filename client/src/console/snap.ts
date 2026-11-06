@@ -65,6 +65,8 @@ const PALETTE = {
   /// A card's edge on the way to a work, and the funnel from a held card and the ribbon to a work.
   branch: '#c7cdfd',
   funnel: '#e8ebff',
+  /// A column's bar on the map, light, so that the marks across it show.
+  mapBar: '#aab6fd',
   /// The bars of works: running a vivid sky blue, green being kept for what is done; waiting for the owner a vivid
   /// orange, the one that asks for them; waiting for something else a pale yellow, which asks nothing of them; paused
   /// grey; halted red.
@@ -256,8 +258,10 @@ export class SnapScene {
   private pulses = new Map<number, Graphics>();
   private ages = new Map<number, { from: number; label: BitmapText; shown: string; row: number }>();
   private styles: Styles | null = null;
-  /// For each column, the ranks of its items whose questions wait for the owner, which the map marks.
+  /// For each column, the ranks of its items whose questions wait for the owner, and of those new to the owner, which
+  /// the map marks.
   private asking: number[][] = [];
+  private fresh: number[][] = [];
   private columns: Column[] = [];
   /// For each column, each rank's group: how many items above in the column to the left have items here before it.
   private group: Int32Array[] = [];
@@ -344,6 +348,7 @@ export class SnapScene {
       return p;
     });
     this.asking = tree.columns.map((col) => col.flatMap((i, r) => (items[i].asks > 0 ? [r] : [])));
+    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (items[i].unseen ? [r] : [])));
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
     this.lit = new Uint8Array(items.length);
@@ -414,7 +419,10 @@ export class SnapScene {
       bar.mask = shape;
       view.addChild(shape, bar);
     }
-    const x = 10;
+    // A dot before the number while the item is new to the owner, as an unread letter has; the room for it kept on every
+    // card, so that the numbers and titles stand in line.
+    if (item.unseen) view.addChild(new Graphics().circle(11, row1, 4).fill(PALETTE.accent));
+    const x = 18;
     const number = new BitmapText({
       text: String(item.id),
       style: s.mono(NUMBER[item.standing]),
@@ -649,9 +657,9 @@ export class SnapScene {
     this.map.addChild(this.mapFrame, this.mapMask, this.mapBars);
   }
 
-  /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in the accent,
-  /// or orange as its held item's frame turns while the pointer is over it, marked red where questions wait for the
-  /// owner; and the middle line over them, dark grey.
+  /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in a light accent,
+  /// or orange as its held item's frame turns while the pointer is over it, marked in the accent where items are new to
+  /// the owner and red where questions wait for them; and the middle line over them, dark grey.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
     this.mapBars.clear();
@@ -660,8 +668,12 @@ export class SnapScene {
       const n = t.columns[d].length;
       const to = mid + (this.slot(d, n - 1) + this.rowsAt(d, n - 1) - c.at - c.pull * GIVE) * this.mapRow;
       const left = MAP_PAD + d * (MAP_STRIP + MAP_APART);
-      this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(PALETTE.accent, PALETTE.over, c.warm));
-      // Where questions wait for the owner, red across the bar.
+      this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(PALETTE.mapBar, PALETTE.over, c.warm));
+      // Where items are new to the owner, the accent across the bar; where questions wait for the owner, red, over it.
+      for (const r of this.fresh[d] ?? []) {
+        const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at - c.pull * GIVE) * this.mapRow;
+        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.accent);
+      }
       for (const r of this.asking[d] ?? []) {
         const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at - c.pull * GIVE) * this.mapRow;
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);

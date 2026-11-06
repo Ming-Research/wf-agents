@@ -29,6 +29,8 @@ export type Shown = {
   standing: ItemStanding;
   /// Its questions and decision cards waiting for the owner, which hold its work until answered.
   asks: number;
+  /// New to the owner: made, or what it says changed, since they last opened it.
+  unseen: boolean;
   work: ShownWork | null;
   children: Shown[];
 };
@@ -68,6 +70,8 @@ export function shownTree(data: Items, works: WorkSummary[] = [], status: Status
       title: i?.title ?? '',
       standing: standing(id),
       asks: (i?.open_asks ?? 0) + (i?.open_design_cards ?? 0),
+      // The engine does not say yet which items the owner has seen.
+      unseen: false,
       work:
         w !== undefined && live(w)
           ? {

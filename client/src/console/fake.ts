@@ -102,6 +102,7 @@ export function fakeShown(count: number): Shown[] {
     title: i.title,
     standing: i.state === 'done' ? 'done' : 'open',
     asks: i.state === 'waiting' ? 1 : 0,
+    unseen: i.id % 7 === 0,
     work: work(i),
     children: i.children.map(shown),
   });
@@ -116,20 +117,26 @@ export function demoShown(): Shown[] {
   const minutes = 60000;
   const stages = ['research', 'design', 'implement', 'test', 'merge', 'end'];
   let next = 1;
-  const item = (title: string, children: Shown[] = [], standing: Shown['standing'] = 'open'): Shown => ({
+  const item = (
+    title: string,
+    children: Shown[] = [],
+    standing: Shown['standing'] = 'open',
+    unseen = false,
+  ): Shown => ({
     id: next++,
     title,
     standing,
     asks: 0,
+    unseen,
     work: null,
     children,
   });
   const work = (
     title: string,
     state: WorkState,
-    o: { waits?: Waits; stage?: number; age?: number; asks?: number; sentBack?: number } = {},
+    o: { waits?: Waits; stage?: number; age?: number; asks?: number; sentBack?: number; unseen?: boolean } = {},
   ): Shown => ({
-    ...item(title),
+    ...item(title, [], 'open', o.unseen ?? false),
     asks: o.asks ?? 0,
     work: {
       state,
@@ -147,7 +154,12 @@ export function demoShown(): Shown[] {
       work('Running for 12 minutes', 'running'),
       work('Sent back twice', 'running', { age: 45, sentBack: 2, stage: 3 }),
       work('Its next step due', 'ready', { stage: 1 }),
-      work('Waiting for your answer', 'asking', { waits: { kind: 'answer', ask: 1 }, asks: 1, age: 90 }),
+      work('New, and waiting for your answer', 'asking', {
+        waits: { kind: 'answer', ask: 1 },
+        asks: 1,
+        age: 90,
+        unseen: true,
+      }),
       work('Waiting for your ruling for 2 days', 'asking', {
         waits: { kind: 'ruling', design_card: 1 },
         asks: 2,
@@ -163,6 +175,7 @@ export function demoShown(): Shown[] {
     ]),
     item('What an item is', [
       item('Open, nothing started'),
+      item('New to you', [], 'open', true),
       item('Done', [], 'done'),
       item('Cancelled, with an open item under it', [item('Open under a cancelled item')], 'cancelled'),
     ]),
