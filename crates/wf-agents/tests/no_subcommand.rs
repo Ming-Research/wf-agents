@@ -25,7 +25,7 @@ fn no_subcommand_fails_with_the_usage_and_the_subcommands() {
             String::from_utf8_lossy(&out.stdout)
         );
         assert!(said.contains("Usage:"), "{args:?}: {said}");
-        for name in ["flow", "config", "init", "run", "item", "queue"] {
+        for name in ["flow", "config", "init", "run", "item", "ready"] {
             assert!(said.contains(name), "{args:?}: {name} is not in {said}");
         }
     }
