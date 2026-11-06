@@ -42,8 +42,10 @@ const MAP_PAD = 8;
 /// How quickly a held item's frame turns between the accent and orange: the milliseconds in which it goes about two
 /// thirds of the way.
 const TURN = 35;
-/// How long the stage a running work is at takes to blink once, on then off, in milliseconds.
-const PULSE_MS = 1200;
+/// How long the stage a running work is at takes to blink once, on then off, in milliseconds: 0.4 times a second; and
+/// the part of that time it is on.
+const PULSE_MS = 2500;
+const PULSE_ON = 0.65;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
 
@@ -748,8 +750,9 @@ export class SnapScene {
       return line + (this.slot(d, rank) + this.rowsAt(d, rank) / 2 - c.at - c.pull * GIVE) * ROW;
     };
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
-    // The stage a running work is at blinks, full then almost gone with no fade between, every running node at once.
-    const pulse = now % PULSE_MS < PULSE_MS / 2 ? 1 : 0.15;
+    // The stage a running work is at blinks, full a while then almost gone a shorter while, with no fade between, every
+    // running node at once.
+    const pulse = now % PULSE_MS < PULSE_MS * PULSE_ON ? 1 : 0.15;
     const x = (d: number) => this.left + d * PITCH;
     this.back.clear();
     // The line across the middle, dashed.
