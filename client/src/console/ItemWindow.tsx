@@ -204,14 +204,17 @@ function WorkLine({ w }: { w: WindowItem }) {
       <Link to={workHref(k.id)} className="cw-mono" title={t('console_work_open', { n: k.id })}>
         {t('console_work_name', { n: k.id })}
       </Link>
-      <StageCells
-        stages={k.stages.map((stage) => ({ stage, letter: stage.charAt(0).toUpperCase() }))}
-        at={k.stage}
-        state={k.state}
-        waiting={m.tone !== 'running'}
-      />
-      <span className="cw-track">
-        <TimeTrack spans={barSpans(k.bar)} />
+      {/* How far it has come and where its time went, together at the line's right end. */}
+      <span className="cw-progress">
+        <StageCells
+          stages={k.stages.map((stage) => ({ stage, letter: stage.charAt(0).toUpperCase() }))}
+          at={k.stage}
+          state={k.state}
+          waiting={m.tone !== 'running'}
+        />
+        <span className="cw-track">
+          <TimeTrack spans={barSpans(k.bar)} />
+        </span>
       </span>
     </div>
   );
