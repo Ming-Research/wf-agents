@@ -51,6 +51,11 @@ const EDGE_LINE = 6;
 /// milliseconds in which each goes about two thirds of the way.
 const GLOW_IN = 30;
 const GLOW_OUT = 160;
+/// The ring round a held item, or one under the pointer or above it: its edge's width, and the halo outside it, how wide
+/// and how strong, within the room between two items.
+const RING = 2;
+const HALO = 5;
+const HALO_ALPHA = 0.32;
 /// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the stage goes at its faintest.
 const PULSE_MS = 750;
@@ -904,19 +909,19 @@ export class SnapScene {
       const gh = half(d, c.held);
       if (gx > width || gx + NODE_W < 0 || gy < -2 * ROW || gy > height + 2 * ROW) continue;
       this.marks
-        .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
-        .stroke({ color: PALETTE.accent, width: 3, alpha: 0.18 })
+        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
+        .stroke({ color: PALETTE.accent, width: HALO, alpha: HALO_ALPHA })
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: PALETTE.accent, width: 1 });
+        .stroke({ color: PALETTE.accent, width: RING });
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       this.marks
-        .roundRect(gx - 1.5, gy - gh - 1.5, NODE_W + 3, 2 * gh + 3, 7.5)
-        .stroke({ color: PALETTE.over, width: 3, alpha: 0.25 * a })
+        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
+        .stroke({ color: PALETTE.over, width: HALO, alpha: HALO_ALPHA * a })
         .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: PALETTE.over, width: 1, alpha: a });
+        .stroke({ color: PALETTE.over, width: RING, alpha: a });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
     // of orange.
