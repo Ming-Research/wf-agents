@@ -157,6 +157,26 @@ pub fn edit_item(data: &Path, item: i64, x: &ItemText) -> Result<(), String> {
         .map_err(sql)
 }
 
+/// Takes a matter out of its architect's queue, as the owner, saying why: one already handled or taken out is left as
+/// it is, and said so.
+pub fn withdraw_matter(data: &Path, matter: i64, why: &str) -> Result<(), String> {
+    open(data)?
+        .write(Actor::Owner, |tx| {
+            let n = tx.execute(
+                "UPDATE architect_matters SET withdrawn = ?2
+                 WHERE id = ?1 AND handled_round IS NULL AND withdrawn IS NULL",
+                params![matter, why],
+            )?;
+            if n == 0 {
+                return Err(db::Error::Abort(format!(
+                    "matter {matter} is not in the queue: there is none, or it was handled or taken out already"
+                )));
+            }
+            Ok(())
+        })
+        .map_err(sql)
+}
+
 /// Makes the dependency of `item` on `on` the main one of `on`, which then stands under `item` in the tree of items.
 pub fn main_dependency(data: &Path, item: i64, on: i64) -> Result<(), String> {
     open(data)?

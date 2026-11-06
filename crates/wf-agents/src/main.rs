@@ -352,6 +352,14 @@ enum ArchitectCommand {
         #[arg(long)]
         item: Option<i64>,
     },
+    /// Takes a matter out of the architect's queue before it is handled, saying why: the architect never takes it.
+    Withdraw {
+        /// The matter.
+        matter: i64,
+        /// Why it is taken out, in the owner's language.
+        #[arg(long)]
+        why: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -785,6 +793,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                 },
             ))
         }
+        Command::Architect(ArchitectCommand::Withdraw { matter, why }) => owner::withdraw_matter(d, matter, &why),
         Command::Architect(ArchitectCommand::Say {
             text,
             speaker,
