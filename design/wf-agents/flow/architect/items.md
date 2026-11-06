@@ -6,6 +6,10 @@
   to the same place. A good flow handles large and small alike, and the architect merging to save effort is no way to be
   efficient; nor is folding small things into big ones, which saves a round of flow the same way.
 
+- An item with more than ten dependencies side by side has them gathered under items between, each delivering one part
+  of what it needs; the items gathered keep their own works. A long row under one item is the flat backlog the tree is
+  there to replace: it cannot be taken in at a glance, nor does it show how far each part has come.
+
 - The rules on writing items keep only what changes the writing: a short title with no conditions, numbers or internal
   names; one example for a problem; why as conclusions only; acceptance as checkable results and no method; on a merge,
   a title for the common scope. Long passages reasoning or giving examples stay out, since the fewer the rules the

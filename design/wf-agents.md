@@ -36,6 +36,18 @@
   dependency and category ended in a tangle, and items owning sub-items beside plan rows that ordered them gave two
   relations to keep apart.
 
+- The items form a tree by their dependencies: if A depends on B, B stands below A, directly or under items that stand
+  below A. Reading down from an item then shows all it needs, and how far it has come is how far what stands below it
+  has come. A tree drawn by anything else beside the dependencies would be a second relation to keep in step with them.
+
+- An item stands in one place, the most fitting of the items that depend on it, and the dependencies of the others
+  point to it there. Shown in several places, it would be counted, read and answered more than once, and each thing
+  has one place.
+
+- Items side by side under one item do not depend on one another and can be started at the same time; an order between
+  two is a dependency, which puts one below the other. What can start now is then what has nothing left undone below
+  it, read straight off the tree.
+
 - Nothing is designed for the machine's lid closing or its sleeping: the machine that runs the engine stays on.
 
 - A technology is chosen as mature, mainstream and fit for the project's scale, with no item-by-item comparison of its
