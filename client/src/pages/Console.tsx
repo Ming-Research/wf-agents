@@ -3,8 +3,9 @@
 // a window shows the item selected (`console/ItemWindow.tsx`), so far with made-up contents. Selecting an item slides
 // the window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which
 // case it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item
-// selected brings it out again. Escape lets the item go while the tree has the keys, and slides the window in while it
-// has them.
+// selected brings it out again. The window coming out over the item selected, or an item selected half under it, moves
+// the tree until the item stands in the middle of what the window leaves. Escape lets the item go while the tree has the
+// keys, and slides the window in while it has them.
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -79,6 +80,16 @@ export function Console({ demo }: { demo: boolean }) {
     if (data !== undefined && !demo) scene.current?.show(shownTree(data, workList ?? [], status, conversations ?? []));
   }, [data, workList, status, conversations, demo]);
 
+  /// The width of the tree that the window leaves to be seen: all of it while the window is in.
+  const room = (out: boolean) => {
+    const tree = host.current?.clientWidth ?? 0;
+    return out ? tree - (panel.current?.offsetWidth ?? 0) : tree;
+  };
+  const selectedId = selected?.id ?? null;
+  useEffect(() => {
+    if (open && selectedId !== null) scene.current?.reveal(selectedId, room(true));
+  }, [open, selectedId]);
+
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -109,13 +120,7 @@ export function Console({ demo }: { demo: boolean }) {
           item={selected === null ? null : windowMock(selected)}
           open={open}
           demo={demo}
-          onTitle={() => {
-            // The room the window leaves the tree: from the tree's left to the window's.
-            const tree = host.current?.getBoundingClientRect();
-            const side = panel.current?.getBoundingClientRect();
-            if (selected === null || tree === undefined) return;
-            scene.current?.reveal(selected.id, (open && side !== undefined ? side.left : tree.right) - tree.left);
-          }}
+          onTitle={() => selected !== null && scene.current?.reveal(selected.id, room(open))}
         />
       </Drawer>
     </div>
