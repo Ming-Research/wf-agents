@@ -150,7 +150,18 @@ impl Work {
 }
 
 impl Item {
+    /// Reads the item a work runs on. A goal has no work of its own, so none runs on it: reading one as a work's item
+    /// is an error that says so.
     pub fn load(conn: &Connection, id: i64) -> Result<Item, String> {
+        let goal: Option<bool> = conn
+            .query_row("SELECT deliver IS NULL FROM items WHERE id = ?1", [id], |r| r.get(0))
+            .optional()
+            .map_err(|e| format!("item {id}: {e}"))?;
+        if goal == Some(true) {
+            return Err(format!(
+                "item {id} is a goal: it has no work of its own, and no work runs on it"
+            ));
+        }
         conn.query_row(
             "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work,
                     acceptance_round, cancelled, imported_from, imported_branch, imported_pr

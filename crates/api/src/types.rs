@@ -909,9 +909,10 @@ pub struct ItemSummary {
     pub id: i64,
     pub project: String,
     pub title: String,
-    /// change or report.
-    pub deliver: String,
-    pub level: String,
+    /// change or report; none for a goal, which has no work of its own.
+    pub deliver: Option<String>,
+    /// The agent level its works run at; none for a goal.
+    pub level: Option<String>,
     /// The way its latest work went, from the rows it took (`work_routes`): direct, on the research's plan; designed;
     /// or turned, begun on the research's plan and then sent to the design; none before the research answers.
     pub route_taken: Option<String>,

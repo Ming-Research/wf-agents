@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use config::toml_edit::Value;
-use db::rusqlite::params;
+use db::rusqlite::{OptionalExtension, params};
 use db::{Actor, Db};
 use sessions::choose::same_dir;
 
@@ -665,7 +665,8 @@ pub fn switch_account(data: &Path, choice: &AccountChoice) -> Result<String, Str
 }
 
 /// Puts an item at another tier, as the owner: a tier the configuration has, at most the highest an item may be at.
-/// The change is the owner's in the item's history, and its works run at the new tier from their next round.
+/// The change is the owner's in the item's history, and its works run at the new tier from their next round. A goal,
+/// which has no work, has no tier.
 pub fn set_level(db: &mut Db, data: &Path, item: i64, level: &str) -> Result<String, String> {
     let c = config::committed(data).map_err(|e| e.to_string())?.config;
     if c.level(level).is_none() {
@@ -674,6 +675,14 @@ pub fn set_level(db: &mut Db, data: &Path, item: i64, level: &str) -> Result<Str
     c.item_level(level)?;
     let changed = db
         .write(Actor::Owner, |tx| {
+            let goal: Option<bool> = tx
+                .query_row("SELECT deliver IS NULL FROM items WHERE id = ?1", [item], |r| r.get(0))
+                .optional()?;
+            if goal == Some(true) {
+                return Err(db::Error::Abort(format!(
+                    "item {item} is a goal: it has no work, and no tier"
+                )));
+            }
             Ok(tx.execute(
                 "UPDATE items SET level = ?2 WHERE id = ?1 AND level <> ?2",
                 params![item, level],

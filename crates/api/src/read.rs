@@ -1798,25 +1798,34 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
     }
     let mut st = conn.prepare(
         "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr,
-                (SELECT r.route FROM work_routes r WHERE r.item = i.id ORDER BY r.work DESC LIMIT 1)
+                (SELECT r.route FROM work_routes r WHERE r.item = i.id ORDER BY r.work DESC LIMIT 1),
+                i.id IN (SELECT item FROM goals_open)
          FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id ORDER BY i.id",
     )?;
     let items = st
         .query_map([], |r| {
             let id: i64 = r.get(0)?;
+            let deliver: Option<String> = r.get(3)?;
             let cancelled: Option<String> = r.get(5)?;
             let queued: Option<f64> = r.get(6)?;
             let imported_pr: Option<i64> = r.get(7)?;
+            let goal_open: bool = r.get(9)?;
             let w = latest.get(&id).copied();
-            let state = item_state(cancelled.is_some(), queued.is_some(), w);
-            // Only an item that would start but for them is held back by them.
-            let waiting = matches!(state, ItemState::New | ItemState::Queued | ItemState::Stopped);
+            // A goal has no work: it is done once everything it depends on is, and new until then.
+            let state = match deliver {
+                None if cancelled.is_some() => ItemState::Cancelled,
+                None if goal_open => ItemState::New,
+                None => ItemState::Done,
+                Some(_) => item_state(cancelled.is_some(), queued.is_some(), w),
+            };
+            // Only an item that would start but for them is held back by them; a goal never starts.
+            let waiting = deliver.is_some() && matches!(state, ItemState::New | ItemState::Queued | ItemState::Stopped);
             let blocked_by = blocked.get(&id).filter(|_| waiting).cloned().unwrap_or_default();
             Ok(ItemSummary {
                 id,
                 project: r.get(1)?,
                 title: r.get(2)?,
-                deliver: r.get(3)?,
+                deliver,
                 level: r.get(4)?,
                 route_taken: r.get(8)?,
                 state,

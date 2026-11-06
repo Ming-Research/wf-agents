@@ -150,6 +150,8 @@ What the page shows, read:
 Items and the queue:
 
 - `wf-agents item add --project P --title T --problem X --why Y --level L`: creates an item.
+- `wf-agents item add --project P --title T --problem X --why Y --goal`: creates a goal, an item with no work of its
+  own, which no work runs on: it is done once every item it depends on is done.
 - `wf-agents item list`: every item.
 - `wf-agents item depend ITEM ON --needs WHAT --kind blocking`: makes an item depend on another.
 - `wf-agents item cancel ITEM --why WHY`: cancels an item.

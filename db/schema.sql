@@ -43,7 +43,8 @@ CREATE TABLE items (
   -- A piece of work to do, as its creator wrote it. Text that a work's rounds produce later (the problem as the
   -- engineer understood it, the study, the design, progress) is not stored here: views read it from rounds. Items own
   -- nothing; how they depend on each other is in item_links. Only cancellation is stored as a status; every other
-  -- status is derived.
+  -- status is derived. A goal is an item with no work of its own, which no work ever runs on: it is reached through
+  -- the items it depends on, and is done once each of them is (goals_open).
   -- Read by: every cell that reads the item or the items around it; the engine when it starts and stops works.
 
   -- Item number, one sequence across all projects.
@@ -60,10 +61,11 @@ CREATE TABLE items (
   why TEXT NOT NULL,
   -- How to do it, when the creator already knows; NULL otherwise. Read by: cell `R1`.
   approach TEXT,
-  -- What the work hands in: a change to merge, or a report. Read by: cells `R1`, `D1` and `I1`; the engine.
-  deliver TEXT NOT NULL CHECK (deliver IN ('change', 'report')),
-  -- Agent level; decides which agent and model run the work. Read by: the engine at cell `S1`.
-  level TEXT NOT NULL,
+  -- What the work hands in: a change to merge, or a report; NULL for a goal, which has no work. Read by: cells `R1`,
+  -- `D1` and `I1`; the engine.
+  deliver TEXT CHECK (deliver IS NULL OR deliver IN ('change', 'report')),
+  -- Agent level; decides which agent and model run the work; NULL for a goal. Read by: the engine at cell `S1`.
+  level TEXT,
   -- The acceptance: a JSON list of acceptance rows in the flow's acceptance shape, as the research's plan or the design
   -- the owner approved gave them when the work went on to implement, and as the implementation, a fix or the advisor
   -- changed them since, each saying why; NULL until then. Read by: cells `I1`, `T2`, `T3`, `T1` and `T6`; the engine,
@@ -104,6 +106,7 @@ CREATE TABLE items (
   decision_points TEXT CHECK (decision_points IS NULL OR json_valid(decision_points)),
   CHECK ((acceptance IS NULL) = (acceptance_round IS NULL)),
   CHECK ((acceptance_work IS NULL) = (acceptance_round IS NULL)),
+  CHECK ((deliver IS NULL) = (level IS NULL)),
   FOREIGN KEY (acceptance_work, acceptance_round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -112,7 +115,8 @@ CREATE TABLE item_links (
   -- graph, and the engine refuses a write that would close a cycle. Splitting an item means creating new items and
   -- making it depend on them. A blocking dependency keeps item from starting until depends_on is merged; with a
   -- parallel one, item can start while depends_on is unfinished, and waits before it merges. A work already running
-  -- goes on either way.
+  -- goes on either way. A goal counts as merged once it is done (goals_open); a goal itself never starts, so the kind
+  -- of a dependency it has says nothing.
   -- Read by: cell `R1` (the items above and beside this one, what it waits for, who waits for it),
   -- `D8` (what it has been split into), `A4` and `A6` (what the items it waits for handed
   -- in), `M1` (how far they have got); item_blocked_by.
@@ -1353,22 +1357,50 @@ CREATE INDEX works_by_flow_version ON works (flow_version);
 -- Views: what cells read and the owner's interface shows, computed from the tables. A view a cell reads for the item,
 -- work or project at hand has a column of that name; the engine filters on it.
 
+CREATE VIEW goals_open AS
+  -- The goals not done, each with its project: a goal is done once every item it depends on is, a cancelled one left
+  -- out, and one that depends on nothing is not done. An item with a work of its own is done when a work of it reached
+  -- the end of the engineer's graph, ended as `done` or, while its round there is not completed, not ended.
+  -- Read by: open_items; item_blocked_by; the engine, where a work waits for the items it depends on; the owner's
+  -- interface.
+  WITH RECURSIVE
+  done(item) AS (
+    SELECT w.item FROM works w
+    WHERE w.item IS NOT NULL AND (w.ended IS NULL OR w.ended = 'done') AND w.graph = 'engineer'
+      AND w.at IN ('E1', '20', 'end')),
+  unfinished(item) AS (
+    SELECT i.id FROM items i
+    WHERE i.deliver IS NOT NULL AND i.cancelled IS NULL AND i.id NOT IN (SELECT item FROM done)
+    UNION
+    SELECT g.id FROM items g
+    WHERE g.deliver IS NULL AND g.cancelled IS NULL AND NOT EXISTS (
+      SELECT 1 FROM item_links l JOIN items d ON d.id = l.depends_on WHERE l.item = g.id AND d.cancelled IS NULL)
+    UNION
+    SELECT g.id FROM item_links l JOIN unfinished o ON o.item = l.depends_on JOIN items g ON g.id = l.item
+    WHERE g.deliver IS NULL AND g.cancelled IS NULL)
+  SELECT g.id AS item, g.project FROM items g
+  WHERE g.deliver IS NULL AND g.cancelled IS NULL AND g.id IN (SELECT item FROM unfinished);
+
 CREATE VIEW item_blocked_by AS
   -- Each item with each item it depends on by a blocking dependency that is not merged yet, as the merge cell
-  -- (`M2`) records a merge: no work starts on the item until every one is. A cancelled item, which never
-  -- delivers, holds back none. Read by: ready_items; the agents; the owner's interface, which
-  -- shows an item that would start but for them as waiting for them.
+  -- (`M2`) records a merge, or, for a goal, not done yet (goals_open): no work starts on the item until every one is. A
+  -- cancelled item, which never delivers, holds back none. Read by: ready_items; the agents; the owner's interface,
+  -- which shows an item that would start but for them as waiting for them.
   SELECT l.item, l.depends_on, l.needs
   FROM item_links l JOIN items d ON d.id = l.depends_on
-  WHERE l.kind = 'blocking' AND d.cancelled IS NULL AND NOT EXISTS (
-    SELECT 1 FROM rounds r JOIN works w ON w.id = r.work
-    WHERE w.item = l.depends_on AND r.cell IN ('M2', '9', 'merge_queue', 'merge.queue') AND r.transition = 'merged');
+  WHERE l.kind = 'blocking' AND d.cancelled IS NULL AND CASE
+    WHEN d.deliver IS NULL THEN d.id IN (SELECT item FROM goals_open)
+    ELSE NOT EXISTS (
+      SELECT 1 FROM rounds r JOIN works w ON w.id = r.work
+      WHERE w.item = l.depends_on AND r.cell IN ('M2', '9', 'merge_queue', 'merge.queue') AND r.transition = 'merged')
+  END;
 
 CREATE VIEW ready_items AS
   -- Items waiting to start, in the order they start: first those the owner queued, in the owner's order; then the
   -- others in the architect's order, each by its rank among its project's items, lower first, those placed nowhere yet
-  -- after, in the order made. An item is ready when it is not cancelled, not held, has no work running and no item it
-  -- depends on by a blocking dependency unmerged (item_blocked_by), and, unless the owner queued it, is not done. An
+  -- after, in the order made. An item is ready when it is no goal, not cancelled, not held, has no work running and no
+  -- item it depends on by a blocking dependency unmerged (item_blocked_by), and, unless the owner queued it, is not
+  -- done. An
   -- item leaves the owner's queue when a work starts on it, and may be queued again once its works ended. A work runs
   -- until it ends or its last round, at the cell it is at, completed without taking a row, which only the end of its
   -- graph does; it is done at the end of the engineer's graph, ended as `done` or, while its round there is not
@@ -1387,7 +1419,7 @@ CREATE VIEW ready_items AS
       AND w.at IN ('E1', '20', 'end'))
   SELECT i.id AS item, i.project, i.title, i.level, q.position, i.rank
   FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id
-  WHERE i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
+  WHERE i.deliver IS NOT NULL AND i.cancelled IS NULL AND i.held IS NULL AND i.id NOT IN (SELECT item FROM running)
     AND i.id NOT IN (SELECT item FROM item_blocked_by)
     AND (q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done))
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
@@ -1397,8 +1429,9 @@ CREATE VIEW open_items AS
   -- on it, whose number and cell are in work and at; `paused`, that work is paused; `resuming`, it is paused and asked
   -- to go on, which waits for a free slot; `stopping`, a cancel or a start over was asked, and it reads as it stands
   -- until the work's step has ended; `held`, the architect holds it (items.held says why); `blocked`, an item it waits
-  -- for is not merged (item_blocked_by); `ready`, it starts when a slot is free (ready_items). version is what a change
-  -- to the item is written on. Read by: the agents, to see what is on hand.
+  -- for is not merged (item_blocked_by); `ready`, it starts when a slot is free (ready_items); `goal`, it has no work
+  -- of its own and is not done yet (goals_open). version is what a change to the item is written on. Read by: the
+  -- agents, to see what is on hand.
   WITH
   running(item, work, at, paused) AS (
     SELECT w.item, w.id, w.at, w.paused FROM works w
@@ -1420,6 +1453,7 @@ CREATE VIEW open_items AS
         SELECT 1 FROM outbox o WHERE o.kind = 'resume_work' AND o.work = r.work) THEN 'resuming'
       WHEN r.paused IS NOT NULL THEN 'paused'
       WHEN r.item IS NOT NULL THEN 'running'
+      WHEN i.deliver IS NULL THEN 'goal'
       WHEN i.held IS NOT NULL THEN 'held'
       WHEN i.id IN (SELECT item FROM item_blocked_by) THEN 'blocked'
       ELSE 'ready'
@@ -1429,7 +1463,10 @@ CREATE VIEW open_items AS
       AS version,
     r.work, r.at
   FROM items i LEFT JOIN running r ON r.item = i.id LEFT JOIN dispatch_queue q ON q.item = i.id
-  WHERE i.cancelled IS NULL AND (r.item IS NOT NULL OR q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done))
+  WHERE i.cancelled IS NULL AND CASE
+    WHEN i.deliver IS NULL THEN i.id IN (SELECT item FROM goals_open)
+    ELSE r.item IS NOT NULL OR q.item IS NOT NULL OR i.id NOT IN (SELECT item FROM done)
+  END
   ORDER BY q.position NULLS LAST, i.rank NULLS LAST, i.id;
 
 CREATE VIEW item_body AS

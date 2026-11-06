@@ -1375,9 +1375,13 @@ export type ItemState = "new" | "queued" | "working" | "done" | "stopped" | "can
  */
 export type ItemSummary = { id: number, project: string, title: string,
 /**
- * change or report.
+ * change or report; none for a goal, which has no work of its own.
  */
-deliver: string, level: string,
+deliver: string | null,
+/**
+ * The agent level its works run at; none for a goal.
+ */
+level: string | null,
 /**
  * The way its latest work went, from the rows it took (`work_routes`): direct, on the research's plan; designed;
  * or turned, begun on the research's plan and then sent to the design; none before the research answers.

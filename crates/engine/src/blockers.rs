@@ -297,15 +297,19 @@ pub fn end_of(tx: &Transaction<'_>, work: i64, why: &str) -> Result<(), String> 
     Ok(())
 }
 
-/// The items an item depends on that are not merged yet, each with its project: those a work on it waits for.
+/// The items an item depends on that are not merged yet, a goal until it is done, each with its project: those a work
+/// on it waits for.
 pub fn unmerged(conn: &Connection, item: i64) -> Result<Vec<(i64, String)>, String> {
     let rows = query_json(
         conn,
         &format!(
             "SELECT d.id AS item, d.project FROM item_links l JOIN items d ON d.id = l.depends_on
-             WHERE l.item = ?1 AND d.cancelled IS NULL AND NOT EXISTS (
-               SELECT 1 FROM rounds x JOIN works y ON y.id = x.work
-               WHERE y.item = d.id AND x.cell IN {} AND x.transition = 'merged')
+             WHERE l.item = ?1 AND d.cancelled IS NULL AND CASE
+               WHEN d.deliver IS NULL THEN d.id IN (SELECT item FROM goals_open)
+               ELSE NOT EXISTS (
+                 SELECT 1 FROM rounds x JOIN works y ON y.id = x.work
+                 WHERE y.item = d.id AND x.cell IN {} AND x.transition = 'merged')
+             END
              ORDER BY d.id",
             db::cells_sql(ENGINEER, &["M2"])
         ),

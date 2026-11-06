@@ -547,7 +547,7 @@ export function routeFact(i: Pick<ItemSummary, 'route_taken'>): ReactNode {
 
 /// The item's head: its number and title, and its facts in two lines, each kind in its one look, the facts muted words,
 /// the links in the accent, joined by a bar. On the title's line after a bar, smaller, wrapping under it where the line
-/// is short: its project, its tier (how it changed said on hovering), the way its work went when that is not through
+/// is short: its project, its tier (how it changed said on hovering; a goal has none), the way its work went when that is not through
 /// the design (`routeFact`), its state as its chip with the items it waits for after it, and its pull request. Under it, while a work goes on on it: that work, once, by its number with its
 /// state's chip, its stage, its cell, what it waits for, and its group, where the owner speaks to it and its tier is
 /// set.
@@ -558,7 +558,10 @@ function Head({ d }: { d: ItemDetail }) {
   const changes = d.level_changes.map((c) => t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) }));
   const facts = factsAfter([
     i.project,
-    <span title={changes.length > 0 ? changes.join('\n') : undefined}>{t('item_tier', { tier: i.level })}</span>,
+    // A goal has no work, and so no tier.
+    i.level !== null ? (
+      <span title={changes.length > 0 ? changes.join('\n') : undefined}>{t('item_tier', { tier: i.level })}</span>
+    ) : null,
     routeFact(i),
     <span className="item-head-pair">
       <ItemBadge state={i.state} />

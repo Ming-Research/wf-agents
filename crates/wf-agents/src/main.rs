@@ -247,8 +247,12 @@ struct AddItem {
     #[arg(long, default_value = "change")]
     deliver: String,
     /// The agent level, as the configuration names it.
-    #[arg(long)]
-    level: String,
+    #[arg(long, required_unless_present = "goal")]
+    level: Option<String>,
+    /// Makes a goal: an item with no work of its own, done once every item it depends on is done; it takes no level
+    /// and no deliver.
+    #[arg(long, conflicts_with_all = ["level", "deliver", "queue"])]
+    goal: bool,
     /// An item it depends on, the dependency's kind and what it needs of it, as N:blocking:what (it does not start until
     /// N is merged) or N:parallel:what (it may start before).
     #[arg(long = "depends-on")]
@@ -640,6 +644,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                 approach,
                 deliver,
                 level,
+                goal,
                 depends_on,
                 queue,
                 imported_from,
@@ -671,8 +676,10 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                     problem,
                     why,
                     approach,
-                    deliver,
-                    level,
+                    work: match (goal, level) {
+                        (false, Some(level)) => Some(owner::ItemWork { deliver, level }),
+                        _ => None,
+                    },
                     depends_on: deps,
                     queue,
                     imported: owner::Imported {

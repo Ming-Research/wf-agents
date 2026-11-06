@@ -25,13 +25,19 @@ pub struct NewItem {
     pub problem: String,
     pub why: String,
     pub approach: Option<String>,
-    pub deliver: String,
-    pub level: String,
+    /// What its work hands in and the agent level the work runs at; none for a goal, which has no work of its own.
+    pub work: Option<ItemWork>,
     /// Items it depends on.
     pub depends_on: Vec<Dependency>,
     /// Puts it last in the dispatch queue.
     pub queue: bool,
     pub imported: Imported,
+}
+
+/// What an item's work hands in, change or report, and the agent level it runs at.
+pub struct ItemWork {
+    pub deliver: String,
+    pub level: String,
 }
 
 /// An item another depends on, the kind of the dependency and what the other needs of it.
@@ -57,14 +63,18 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
     if !c.projects.contains_key(&x.project) {
         return Err(format!("no project {} in the configuration", x.project));
     }
-    if c.level(&x.level).is_none() {
-        return Err(format!("no level {} in the configuration", x.level));
+    if let Some(w) = &x.work {
+        if c.level(&w.level).is_none() {
+            return Err(format!("no level {} in the configuration", w.level));
+        }
+        c.item_level(&w.level)?;
+        if !matches!(w.deliver.as_str(), "change" | "report") {
+            return Err("deliver is change or report".into());
+        }
+    } else if x.queue {
+        return Err("a goal has no work of its own, so it cannot be queued".into());
     }
-    c.item_level(&x.level)?;
     config::title_fits(&x.title, c.install.items.title_max as usize)?;
-    if !matches!(x.deliver.as_str(), "change" | "report") {
-        return Err("deliver is change or report".into());
-    }
     if x.imported.pr.is_some() && x.imported.branch.is_none() {
         return Err("an imported pull request is recorded with its branch".into());
     }
@@ -80,8 +90,8 @@ pub fn add_item(data: &Path, x: NewItem) -> Result<i64, String> {
                 x.problem,
                 x.why,
                 x.approach,
-                x.deliver,
-                x.level,
+                x.work.as_ref().map(|w| &w.deliver),
+                x.work.as_ref().map(|w| &w.level),
                 x.imported.from,
                 x.imported.branch,
                 x.imported.pr
@@ -143,6 +153,14 @@ pub enum Place {
 pub fn queue(data: &Path, item: i64, place: Place) -> Result<(), String> {
     open(data)?
         .write(Actor::Owner, |tx| {
+            let goal: Option<bool> = tx
+                .query_row("SELECT deliver IS NULL FROM items WHERE id = ?1", [item], |r| r.get(0))
+                .optional()?;
+            if goal == Some(true) {
+                return Err(db::Error::Abort(format!(
+                    "item {item} is a goal: it has no work of its own, so it cannot be queued"
+                )));
+            }
             let pos = |i: i64| -> db::Result<Option<f64>> {
                 Ok(tx
                     .query_row("SELECT position FROM dispatch_queue WHERE item = ?1", [i], |r| r.get(0))
