@@ -42,11 +42,11 @@ const MAP_INSET = 12;
 const MAP_PAD = 8;
 /// How quickly the orange glow at a column's edges comes and goes as the pointer comes over it and leaves: the
 /// milliseconds in which it goes about two thirds of the way.
-const TURN = 35;
+const TURN = 140;
 /// How far in from the top and the bottom of the screen the columns fade out into the page, in pixels; and how strong
 /// the orange is at the very edge of the column under the pointer.
 const EDGE = 96;
-const EDGE_GLOW = 0.55;
+const EDGE_GLOW = 0.22;
 /// The stage a running work is at pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the stage goes at its faintest.
 const PULSE_MS = 750;
@@ -785,7 +785,8 @@ export class SnapScene {
     const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
     this.lastDraw = now;
     this.columns.forEach((c, d) => {
-      // The ring turns to orange while the pointer is over the column, and back, in about a tenth of a second.
+      // The glow at the column's edges fades in while the pointer is over it, and out once it leaves, in about half a
+      // second.
       c.warm += ((d === this.hovered ? 1 : 0) - c.warm) * (1 - Math.exp(-step / TURN));
       c.gap += ((c.held >= 0 ? 0 : 1) - c.gap) * SPRING;
       // A pull short of the threshold goes back quickly once the scrolling stops: the column is held to the line.
