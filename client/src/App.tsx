@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 
 import { connect } from './live';
 import { Architect } from './pages/Architect';
+import { Console } from './pages/Console';
 import { Flow } from './pages/Flow';
 import { Items } from './pages/Items';
 import { Messages } from './pages/Messages';
@@ -33,7 +34,7 @@ export function App() {
   const work = route.page === 'work' ? route : null;
   // A view that fills the window and scrolls inside its parts; the items and the observations scroll the page, their
   // list's pane staying under the bar as Primer's PageLayout keeps a sticky pane.
-  const screen = ['flow', 'work', 'works', 'architect', 'messages'].includes(route.page);
+  const screen = ['console', 'flow', 'work', 'works', 'architect', 'messages'].includes(route.page);
   return (
     <div className={screen ? 'app app-screen' : 'app'}>
       <TopBar route={route} />
@@ -42,6 +43,7 @@ export function App() {
         {route.page === 'works' || work !== null ? (
           <Works work={work} />
         ) : null}
+        {route.page === 'console' ? <Console /> : null}
         {/* One element for the tree and the item picked from it, so that picking an item keeps the tree as it is. */}
         {route.page === 'items' || route.page === 'item' ? (
           <Items selected={route.page === 'item' ? route.id : null} />

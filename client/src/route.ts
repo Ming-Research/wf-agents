@@ -78,6 +78,7 @@ export type Route =
   | { page: 'works' }
   | WorkRoute
   | ArchitectRoute
+  | { page: 'console' }
   | { page: 'items' }
   | { page: 'item'; id: number }
   | ObservationsRoute
@@ -162,6 +163,7 @@ export function parse(pathname: string, search: string): Route {
       };
     }
   }
+  if (first === 'console' && parts.length === 1) return { page: 'console' };
   if (first === 'items' && parts.length === 1) return { page: 'items' };
   if (first === 'observations' && parts.length <= 2) {
     const open = parts.length === 2 ? num(second) : null;
@@ -223,6 +225,8 @@ export function href(r: Route): string {
         ['round', r.round !== null ? roundName(r.round.work, r.round.n) : null],
         ['cell', r.cell],
       ])}`;
+    case 'console':
+      return '/console';
     case 'items':
       return '/items';
     case 'item':

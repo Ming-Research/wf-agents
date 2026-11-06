@@ -238,6 +238,7 @@ export type View = { to: string; pages: Route['page'][]; name: Key };
 export const VIEWS: View[] = [
   { to: '/messages', pages: ['messages'], name: 'nav_messages' },
   { to: '/works', pages: ['works', 'work', 'architect'], name: 'nav_works' },
+  { to: '/console', pages: ['console'], name: 'nav_console' },
   { to: '/items', pages: ['items', 'item'], name: 'nav_items' },
   { to: '/observations', pages: ['observations'], name: 'nav_observations' },
   { to: '/flow', pages: ['flow'], name: 'nav_flow' },

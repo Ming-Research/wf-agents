@@ -2,6 +2,7 @@
 
 const messages = {
   nav_works: 'Works',
+  nav_console: 'Console',
   nav_items: 'Items',
   nav_observations: 'Observations',
   nav_flow: 'Flow',
