@@ -528,21 +528,32 @@ export class SnapScene {
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: its questions waiting for the owner, white on red, the strongest mark a card has,
-    // as what the owner looks for first; its messages unread that hold nothing up, white on orange; and its returns
-    // sent back, framed in grey.
+    // as what the owner looks for first; its messages unread that hold nothing up, white on orange; its returns sent
+    // back, framed in grey; and, while it has not started, a lock framed in grey with how many items it waits for to
+    // merge, which stand under it.
     let right = NODE_W - 8;
-    const tag = (text: string, fill: string, back: boolean, solid: boolean) => {
+    const tag = (text: string, fill: string, sign: 'back' | 'lock' | null, solid: boolean) => {
       const t = new BitmapText({ text, style: s.mono(solid ? '#ffffff' : fill) });
       const pad = 4;
-      const icon = back ? 10 : 0;
+      const icon = sign !== null ? 10 : 0;
       const w = t.width + icon + 2 * pad;
       right -= w;
       const g = new Graphics();
       if (solid) g.roundRect(right, row1 - 8, w, 16, 3).fill(fill);
       else g.roundRect(right, row1 - 8, w, 16, 3).stroke({ color: fill, width: 1 });
-      if (back) {
+      const ax = right + pad;
+      if (sign === 'lock') {
+        // A small padlock, drawn: its body, and the shackle over it.
+        g.roundRect(ax + 1, row1 - 1, 7, 5.5, 1)
+          .stroke({ color: fill, width: 1.2 })
+          .moveTo(ax + 2.5, row1 - 1)
+          .lineTo(ax + 2.5, row1 - 3)
+          .arc(ax + 4.5, row1 - 3, 2, Math.PI, 0)
+          .lineTo(ax + 6.5, row1 - 1)
+          .stroke({ color: fill, width: 1.2 });
+      }
+      if (sign === 'back') {
         // A small arrow turning back, drawn: the font may have no such sign.
-        const ax = right + pad;
         g.moveTo(ax + 7, row1 - 4)
           .lineTo(ax + 7, row1 + 1)
           .lineTo(ax + 1, row1 + 1)
@@ -555,9 +566,10 @@ export class SnapScene {
       view.addChild(g, t);
       right -= 6;
     };
-    if (item.asks > 0) tag(String(item.asks), PALETTE.red, false, true);
-    if (item.unread > 0) tag(String(item.unread), PALETTE.asked, false, true);
-    if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, true, false);
+    if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
+    if (item.unread > 0) tag(String(item.unread), PALETTE.asked, null, true);
+    if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
+    if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
     // The title ends where the badges begin.
     fit(title, right - title.x);
     if (item.work === null || mood === null) return view;

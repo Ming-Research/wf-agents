@@ -103,6 +103,7 @@ export function fakeShown(count: number): Shown[] {
     standing: i.state === 'done' ? 'done' : 'open',
     asks: i.state === 'waiting' ? 1 : 0,
     unread: i.id % 9 === 0 ? 2 : 0,
+    blocked: 0,
     unseen: i.id % 7 === 0,
     shadow: false,
     work: work(i),
@@ -125,12 +126,14 @@ export function demoShown(): Shown[] {
     children: Shown[] = [],
     standing: Shown['standing'] = 'open',
     unseen = false,
+    blocked = 0,
   ): Shown => ({
     id: next++,
     title,
     standing,
     asks: 0,
     unread: 0,
+    blocked,
     unseen,
     shadow: false,
     work: null,
@@ -141,6 +144,7 @@ export function demoShown(): Shown[] {
     ...of,
     asks: 0,
     unread: 0,
+    blocked: 0,
     unseen: false,
     shadow: true,
     work: null,
@@ -211,6 +215,10 @@ export function demoShown(): Shown[] {
       ]),
       item('Beside it, nothing at work'),
     ]),
-    item('Nothing at work under it', [item('Open, not started'), item('Open, not started either'), shadow(running)]),
+    item('Nothing at work under it', [
+      item('Open, not started'),
+      item('Waiting for an item it depends on to merge', [], 'open', false, 1),
+      shadow(running),
+    ]),
   ];
 }

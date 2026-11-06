@@ -33,6 +33,8 @@ export type Shown = {
   /// What its works' conversations hold for the owner that holds nothing up: the entries from others since the owner
   /// last read, what waits aside.
   unread: number;
+  /// How many items it depends on by a blocking dependency are not merged yet, which keep it from starting.
+  blocked: number;
   /// New to the owner: made, or what it says changed, since they last opened it.
   unseen: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
@@ -90,6 +92,7 @@ export function shownTree(
       standing: standing(id),
       asks: (i?.open_asks ?? 0) + (i?.open_design_cards ?? 0),
       unread: unread.get(id) ?? 0,
+      blocked: i?.blocked_by.length ?? 0,
       unseen: i?.unseen === true,
       shadow: false,
       work:
@@ -123,6 +126,7 @@ export function shownTree(
     standing: standing(id),
     asks: 0,
     unread: 0,
+    blocked: 0,
     unseen: false,
     shadow: true,
     work: null,
