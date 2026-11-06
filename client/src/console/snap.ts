@@ -1086,8 +1086,10 @@ export class SnapScene {
     };
     this.under = this.pointed(t, x, y);
     const chain = lit(this.under);
-    // The item selected, the same way, in purple, under the blue.
-    const chosen = lit(this.selected === null ? -1 : (this.real.get(this.selected) ?? -1));
+    // The item selected, the same way, in purple, under the blue; only the item itself glows, those lit with it are
+    // only ringed, so that it stands out among them.
+    const picked = this.selected === null ? -1 : (this.real.get(this.selected) ?? -1);
+    const chosen = lit(picked);
     for (const i of chosen) {
       const p = t.parent[i];
       if (p < 0) continue;
@@ -1114,11 +1116,11 @@ export class SnapScene {
     for (const i of chosen) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      this.marks
-        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
-        .stroke({ color: PALETTE.chosen, width: HALO, alpha: HALO_ALPHA })
-        .roundRect(gx, gy - gh, NODE_W, 2 * gh, 6)
-        .stroke({ color: PALETTE.chosen, width: RING });
+      if (i === picked)
+        this.marks
+          .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
+          .stroke({ color: PALETTE.chosen, width: HALO, alpha: HALO_ALPHA });
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, 6).stroke({ color: PALETTE.chosen, width: RING });
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
