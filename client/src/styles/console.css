@@ -35,35 +35,26 @@
   transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* The tab: a narrow trapezoid, its long side on the window's edge. */
-.cw-tab {
+/* The tab: a narrow trapezoid in orange, its long side on the window's edge, so that it is seen at the screen's edge. */
+.cw .cw-tab {
   position: absolute;
   top: var(--base-size-80);
-  left: -20px;
+  left: -24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 64px;
+  width: 24px;
+  height: 72px;
   padding: 0;
   border: none;
-  background: var(--borderColor-default);
-  color: var(--fgColor-muted);
+  background: #f29a1f;
+  color: #ffffff;
   clip-path: polygon(0 12%, 100% 0, 100% 100%, 0 88%);
   cursor: pointer;
 }
 
-.cw-tab::before {
-  position: absolute;
-  inset: 0 0 0 1px;
-  z-index: -1;
-  background: var(--bgColor-default);
-  clip-path: polygon(0 12%, 100% 0, 100% 100%, 0 88%);
-  content: '';
-}
-
-.cw-tab:hover {
-  color: var(--fgColor-default);
+.cw .cw-tab:hover {
+  background: #e0880f;
 }
 
 .cw-open {
