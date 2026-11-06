@@ -35,7 +35,7 @@
   transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* The tab: a narrow trapezoid in orange, its long side on the window's edge, so that it is seen at the screen's edge. */
+/* The tab: a narrow trapezoid in blue, its long side on the window's edge, so that it is seen at the screen's edge. */
 .cw .cw-tab {
   position: absolute;
   top: var(--base-size-80);
@@ -47,14 +47,14 @@
   height: 72px;
   padding: 0;
   border: none;
-  background: #f29a1f;
+  background: #6a82fd;
   color: #ffffff;
   clip-path: polygon(0 12%, 100% 0, 100% 100%, 0 88%);
   cursor: pointer;
 }
 
 .cw .cw-tab:hover {
-  background: #e0880f;
+  background: #5a71ec;
 }
 
 .cw-open {
