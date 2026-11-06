@@ -27,10 +27,11 @@ const NODE_H = 26;
 const ROW = 32;
 const WORK_ROW = 0.55;
 const PITCH = 370;
-/// How far, in rows, a scroll must pull a column before the next item comes to the line; and how much of the pull
-/// shows while it is short of that.
+/// How far, in rows, a scroll must pull a column before the next item comes to the line; and how little of the pull
+/// shows while it is short of that, so that the column stands nearly still between steps and moves a whole item at
+/// each.
 const DETENT = 0.85;
-const GIVE = 0.28;
+const GIVE = 0.1;
 /// The room between the items of one item and those of the next in a column, in rows.
 const APART = 0.7;
 /// The map at the top left: each column a bar of this width, this far apart, the map this high, set this far in from
@@ -61,8 +62,10 @@ const HALO_ALPHA = 0.32;
 const PULSE_MS = 750;
 const FADE = 0.4;
 const DARK = 0.15;
-/// The part of the way to where it belongs that a column moves each frame.
+/// The part of the way to where it belongs that an empty place opens or closes each frame; and that a column moves, more
+/// at once, so that each step of a scroll lands quickly, as a wheel's notch does.
 const SPRING = 0.22;
+const SNAP = 0.42;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs and what is held; amber for what
 /// waits for the owner; red for what has gone wrong or on long; violet for what has gone on for days.
@@ -820,7 +823,7 @@ export class SnapScene {
       // A pull short of the threshold goes back quickly once the scrolling stops: the column is held to the line.
       if (now - c.lastScroll > 70) c.pull *= 0.7;
       if (Math.abs(c.pull) < 0.001) c.pull = 0;
-      c.at += (this.target(d) - c.at) * SPRING;
+      c.at += (this.target(d) - c.at) * SNAP;
     });
     const y = (d: number, rank: number) => {
       const c = this.columns[d];
