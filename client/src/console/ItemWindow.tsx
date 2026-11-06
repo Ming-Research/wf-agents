@@ -1,15 +1,14 @@
 // What the window beside the console shows of the item selected: its number, its title, which brings the item into view
-// in the tree, and its project; a line of where the
-// item stands and a line of what its work does, with the work's stages and where its time went as its row in the list
-// of works has them; and two tabs, beside them a button to mark the item read while something in it is new to the
-// owner. The first holds the body (where the item came from, the problem it solves, the plan, with each choice that
-// waits for the owner where it stands in the plan, picked by a press on an option and let go by another, and at the
-// plan's end a button as wide as the body to confirm it, which waits until each choice has its pick; once confirmed,
-// the picks stand), each
-// passage changed since the owner read it marked at its left, and under the body the notes: the owner's and the
-// replies, and a box to write one, which a passage selected in the body can be quoted into and which names whom it goes
-// to. The second holds what of the work the lines do not say. With no item selected it says how to select one. While the
-// window is out, R marks the item read, as its button does, unless a box has the keys.
+// in the tree, and its project; a line of where the item stands and a line of what its work does, with the work's
+// stages and where its time went as its row in the list of works has them; and two tabs, beside them a button to mark
+// the item read while something in it is new to the owner. The first holds the body (where the item came from, the
+// problem it solves, the plan, with each choice that waits for the owner where it stands in the plan, picked by a press
+// on an option and let go by another, and at the plan's end a button as wide as the body to confirm it, which counts
+// the picks and waits until each choice has one; once confirmed, the picks stand), each passage changed since the owner
+// read it marked at its left, and under the body the notes: the owner's and the replies, and a box to write one, which
+// a passage selected in the body can be quoted into and which names whom it goes to. The second holds what of the work
+// the lines do not say. With no item selected it says how to select one. While the window is out, R marks the item
+// read, as its button does, unless a box has the keys.
 
 import { QuoteIcon, XIcon } from '@primer/octicons-react';
 import { Button, IconButton } from '@primer/react';
@@ -24,7 +23,7 @@ import { DraftArea } from '../parts';
 import { Link, workHref } from '../route';
 import { type Key, t } from '../text';
 import { age } from './snap';
-import { changedIn, type Note, openChoices, type Part, recipients, type WindowItem, type Who } from './window';
+import { changedIn, type Note, type Part, picks, recipients, type WindowItem, type Who } from './window';
 
 const WHO: Record<Who, Key> = {
   owner: 'console_who_owner',
@@ -97,12 +96,12 @@ function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props)
   }, [open, fresh, read]);
   // A press on an option picks it, and a press on the one picked lets it go.
   const choose = (at: number, option: number) =>
-    setW({
-      ...w,
-      plan: w.plan.map((p, i) =>
+    setW((was) => ({
+      ...was,
+      plan: was.plan.map((p, i) =>
         i === at && p.kind === 'choice' ? { ...p, chosen: p.chosen === option ? null : option } : p,
       ),
-    });
+    }));
   // A passage selected in the body offers to be quoted, by a button just above it.
   const selected = () => {
     const sel = window.getSelection();
@@ -180,13 +179,13 @@ function ItemView({ start, open, demo, onTitle }: { start: WindowItem } & Props)
                 <Button
                   variant="primary"
                   block
-                  disabled={openChoices(w) > 0}
+                  disabled={picks(w).picked < picks(w).all}
                   onClick={() => {
                     setW((was) => ({ ...was, planWaits: false }));
                     setConfirmed(true);
                   }}
                 >
-                  {t('console_confirm_plan')}
+                  {picks(w).all > 0 ? t('console_confirm_picked', picks(w)) : t('console_confirm')}
                 </Button>
               </div>
             ) : null}

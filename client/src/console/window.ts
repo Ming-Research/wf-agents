@@ -65,9 +65,11 @@ export type WindowItem = {
 export const changedIn = (w: WindowItem): boolean =>
   [...w.background, ...w.problem, ...w.plan].some((p) => p.changed === true);
 
-/// The choices of the plan that wait for the owner.
-export const openChoices = (w: WindowItem): number =>
-  w.plan.filter((p) => p.kind === 'choice' && p.chosen === null).length;
+/// How many choices the plan has, and how many of them have their pick.
+export function picks(w: WindowItem): { picked: number; all: number } {
+  const choices = w.plan.filter((p) => p.kind === 'choice');
+  return { picked: choices.filter((p) => p.chosen !== null).length, all: choices.length };
+}
 
 /// Who a note goes to: those named in it with `@`, or, with none named, the engineer while a work goes on and the
 /// assistant otherwise.
