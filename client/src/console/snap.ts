@@ -65,9 +65,10 @@ const PALETTE = {
   /// A card's edge on the way to a work, and the funnel from a held card and the ribbon to a work.
   branch: '#c7cdfd',
   funnel: '#e8ebff',
-  /// The bars of works: running green, as all is going well; waiting for the owner a vivid orange, the one that asks
-  /// for them; waiting for something else a pale yellow, which asks nothing of them; paused grey; halted red.
-  running: '#2fa66f',
+  /// The bars of works: running a vivid sky blue, green being kept for what is done; waiting for the owner a vivid
+  /// orange, the one that asks for them; waiting for something else a pale yellow, which asks nothing of them; paused
+  /// grey; halted red.
+  running: '#1a9fff',
   asked: '#f5840c',
   paused: '#8b93a1',
   halted: '#e5484d',
