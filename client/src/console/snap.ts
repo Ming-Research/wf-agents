@@ -82,7 +82,7 @@ const PALETTE = {
   edge: '#e5e7eb',
   card: '#ffffff',
   /// The ground the tree is drawn on: a soft beige, the cards white on it as paper.
-  page: '#f6f2e9',
+  page: '#faf8f3',
   accent: '#3b5bfd',
   /// A card's edge above a work.
   branch: '#c7cdfd',

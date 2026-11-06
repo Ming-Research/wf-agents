@@ -1,6 +1,9 @@
-// The window beside the console's tree: a small tab at the top right that slides it out over the right of the tree, and
-// slides back in; its left edge dragged to change its width, which this browser keeps.
+// The window beside the console's tree, kept at the right of the screen like a page of a binder: a narrow tab stuck to
+// its left edge, which stays on the screen while the window is out of it; a press on the tab slides the window in along
+// the edge, the tab with it, and another slides it back. Its left edge dragged changes its width, which the browser
+// keeps.
 
+import { ChevronLeftIcon, ChevronRightIcon } from '@primer/octicons-react';
 import { type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useState } from 'react';
 
 import { t } from '../text';
@@ -21,12 +24,12 @@ function kept(): number {
 
 export function Drawer({
   open,
-  onOpen,
+  onToggle,
   panel,
   children,
 }: {
   open: boolean;
-  onOpen: () => void;
+  onToggle: () => void;
   panel: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
@@ -55,14 +58,20 @@ export function Drawer({
     window.addEventListener('pointerup', up);
   };
   return (
-    <>
-      <button type="button" className="cw-tab" hidden={open} onClick={onOpen}>
-        {t('console_window_tab')}
+    <aside ref={panel} className={open ? 'cw cw-open' : 'cw'} style={{ width }}>
+      <button
+        type="button"
+        className="cw-tab"
+        aria-expanded={open}
+        aria-label={t(open ? 'console_window_hide' : 'console_window_show')}
+        onClick={onToggle}
+      >
+        {open ? <ChevronRightIcon size={12} /> : <ChevronLeftIcon size={12} />}
       </button>
-      <aside ref={panel} className={open ? 'cw cw-open' : 'cw'} style={{ width }} aria-hidden={!open} inert={!open}>
-        <div className="cw-edge" title={t('console_window_resize')} onPointerDown={drag} />
-        <div className="cw-inner">{children}</div>
-      </aside>
-    </>
+      <div className="cw-edge" title={t('console_window_resize')} onPointerDown={drag} />
+      <div className="cw-inner" aria-hidden={!open} inert={!open}>
+        {children}
+      </div>
+    </aside>
   );
 }

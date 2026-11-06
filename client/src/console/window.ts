@@ -33,11 +33,10 @@ export type WindowItem = {
     goal: boolean;
     project: string;
     level: string | null;
-    madeBy: Who;
+    /// When the architect added it.
     madeAt: number;
-    /// The items it waits for to merge before it can start, and how many items depend on it.
+    /// The items it waits for to merge before it can start.
     waitsFor: number[];
-    neededBy: number;
     unseen: boolean;
   };
   work: {

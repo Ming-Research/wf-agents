@@ -180,6 +180,14 @@ export function demoShown(): Shown[] {
   const running = work('Running for 12 minutes', 'running');
   return [
     item('What a work does', [
+      // Item 263 of the trial board, whose window shows its real body (window-mock.ts).
+      work('Watch for anomalies and settle them', 'asking', {
+        waits: { kind: 'answer', ask: 98 },
+        asks: 1,
+        unread: 2,
+        age: 8.6 * 60,
+        unseen: true,
+      }),
       running,
       work('Sent back twice, with messages unread', 'running', { age: 45, sentBack: 2, stage: 3, unread: 3 }),
       work('Its next step due', 'ready', { stage: 1 }),

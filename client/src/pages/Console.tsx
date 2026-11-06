@@ -1,6 +1,6 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`console/snap.ts`), as they stand,
 // drawn again as they change; at `/console/demo`, made-up items that show every state the drawing has. Beside the tree,
-// a window slid out from a tab at the top right shows the item selected (`console/ItemWindow.tsx`), so far with
+// a window slid out by the tab stuck to its left edge shows the item selected (`console/ItemWindow.tsx`), so far with
 // made-up contents. Escape lets the item go while the tree has the keys, and slides the window in while it has them.
 
 import { useEffect, useRef, useState } from 'react';
@@ -84,8 +84,8 @@ export function Console({ demo }: { demo: boolean }) {
         ref={host}
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       />
-      <Drawer open={open} onOpen={() => setOpen(true)} panel={panel}>
-        <ItemWindow item={selected === null ? null : windowMock(selected)} demo={demo} onHide={() => setOpen(false)} />
+      <Drawer open={open} onToggle={() => setOpen(!open)} panel={panel}>
+        <ItemWindow item={selected === null ? null : windowMock(selected)} demo={demo} />
       </Drawer>
     </div>
   );

@@ -1,19 +1,23 @@
-// What the window beside the console shows of the item selected: its number and title, with a button to mark it read
-// while something in it is new to the owner; a line of where the item stands and a line of what its work does; and two
-// tabs. The first holds the body (where the item came from, the problem it solves, the plan, with each choice that
+// What the window beside the console shows of the item selected: its number, title and project; a line of where the
+// item stands and a line of what its work does, with the work's stages and where its time went as its row in the list
+// of works has them; and two tabs, beside them a button to mark the item read while something in it is new to the
+// owner. The first holds the body (where the item came from, the problem it solves, the plan, with each choice that
 // waits for the owner where it stands in the plan and, once the plan has no choice open, a button to confirm it), each
 // passage changed since the owner read it marked at its left, and under the body the notes: the owner's and the
 // replies, and a box to write one, which a passage selected in the body can be quoted into and which names whom it goes
-// to. The second holds the work's facts. With no item selected it says how to select one.
+// to. The second holds what of the work the lines do not say. With no item selected it says how to select one.
 
-import { ChevronRightIcon, XIcon } from '@primer/octicons-react';
+import { XIcon } from '@primer/octicons-react';
 import { Button, IconButton } from '@primer/react';
 import { type MouseEvent, type ReactNode, type RefObject, useRef, useState } from 'react';
 
 import type { WorkState } from '../api';
 import { useDraft } from '../drafts';
 import { Markdown } from '../markdown';
+import { TimeTrack, barSpans } from '../charts';
+import { StageCells } from '../pages/StageBar';
 import { DraftArea } from '../parts';
+import { Link, workHref } from '../route';
 import { type Key, t } from '../text';
 import { age } from './snap';
 import { changedIn, type Note, openChoices, type Part, recipients, type WindowItem, type Who } from './window';
@@ -36,12 +40,12 @@ function mood(state: WorkState): { words: Key; tone: string } {
   return { words: 'console_work_waiting', tone: 'waiting' };
 }
 
-export function ItemWindow({ item, demo, onHide }: { item: WindowItem | null; demo: boolean; onHide: () => void }) {
+export function ItemWindow({ item, demo }: { item: WindowItem | null; demo: boolean }) {
   if (item === null) return <p className="cw-empty">{t('console_window_empty')}</p>;
-  return <ItemView key={item.id} start={item} demo={demo} onHide={onHide} />;
+  return <ItemView key={item.id} start={item} demo={demo} />;
 }
 
-function ItemView({ start, demo, onHide }: { start: WindowItem; demo: boolean; onHide: () => void }) {
+function ItemView({ start, demo }: { start: WindowItem; demo: boolean }) {
   const [w, setW] = useState(start);
   const [tab, setTab] = useState<'item' | 'work'>('item');
   const [quote, setQuote] = useState<string | null>(null);
@@ -98,18 +102,7 @@ function ItemView({ start, demo, onHide }: { start: WindowItem; demo: boolean; o
       <div className="cw-head">
         <span className="cw-id">{w.id}</span>
         <h2 className="cw-title">{w.title}</h2>
-        {w.item.unseen || changedIn(w) ? (
-          <Button size="small" onClick={read}>
-            {t('console_read')}
-          </Button>
-        ) : null}
-        <IconButton
-          size="small"
-          variant="invisible"
-          icon={ChevronRightIcon}
-          aria-label={t('console_window_hide')}
-          onClick={onHide}
-        />
+        <span className="cw-project">{w.item.project}</span>
       </div>
       <ItemLine w={w} />
       <WorkLine w={w} />
@@ -126,6 +119,11 @@ function ItemView({ start, demo, onHide }: { start: WindowItem; demo: boolean; o
             {t(k === 'item' ? 'console_tab_item' : 'console_tab_work')}
           </button>
         ))}
+        {w.item.unseen || changedIn(w) ? (
+          <Button size="small" className="cw-read" onClick={read}>
+            {t('console_read')}
+          </Button>
+        ) : null}
       </div>
       {tab === 'work' ? (
         <WorkFacts w={w} />
@@ -178,14 +176,12 @@ function ItemLine({ w }: { w: WindowItem }) {
         : 'console_item_open';
   return (
     <div className="cw-line">
-      <span className={`cw-dot cw-${i.standing}`} />
+      <span className={`cw-dot dot-${i.standing}`} />
       <span className="cw-strong">{t(state)}</span>
       {i.goal ? <span>{t('console_goal')}</span> : null}
-      <span>{i.project}</span>
       {i.level !== null ? <span>{t('console_tier', { n: i.level })}</span> : null}
-      <span>{t('console_made', { who: t(WHO[i.madeBy]).toLowerCase(), when: ago(i.madeAt) })}</span>
+      <span>{t('console_added', { when: ago(i.madeAt) })}</span>
       {i.waitsFor.length > 0 ? <span>{t('console_waits_for', { items: i.waitsFor.join(', ') })}</span> : null}
-      {i.neededBy > 0 ? <span>{t('console_needed_by', { n: i.neededBy })}</span> : null}
     </div>
   );
 }
@@ -194,16 +190,23 @@ function WorkLine({ w }: { w: WindowItem }) {
   const k = w.work;
   if (k === null) return <div className="cw-line cw-muted">{t('console_no_work')}</div>;
   const m = mood(k.state);
-  const at = k.stage === null ? -1 : k.stages.indexOf(k.stage);
   return (
     <div className="cw-line">
-      <span className={`cw-dot cw-${m.tone}`} />
+      <span className={`cw-dot dot-${m.tone}`} />
       <span className="cw-strong">{t(m.words)}</span>
       {k.waits !== null ? <span>{t('console_waits', { what: k.waits })}</span> : null}
-      <span>{t('console_work', { n: k.id })}</span>
-      {at >= 0 ? <span>{t('console_stage', { stage: k.stages[at], at: at + 1, of: k.stages.length })}</span> : null}
-      <span className="cw-mono">{age(Date.now() - k.from).label}</span>
-      {k.sentBack > 0 ? <span>{t('console_sent_back', { n: k.sentBack })}</span> : null}
+      <Link to={workHref(k.id)} className="cw-mono" title={t('console_work_open', { n: k.id })}>
+        {t('console_work_name', { n: k.id })}
+      </Link>
+      <StageCells
+        stages={k.stages.map((stage) => ({ stage, letter: stage.charAt(0).toUpperCase() }))}
+        at={k.stage}
+        state={k.state}
+        waiting={m.tone !== 'running'}
+      />
+      <span className="cw-track">
+        <TimeTrack spans={barSpans(k.bar)} />
+      </span>
     </div>
   );
 }
@@ -348,34 +351,12 @@ function Notes({
 function WorkFacts({ w }: { w: WindowItem }) {
   const k = w.work;
   if (k === null) return <p className="cw-muted">{t('console_no_work')}</p>;
-  const at = k.stage === null ? -1 : k.stages.indexOf(k.stage);
   const rows: [Key, ReactNode][] = [
-    [
-      'console_fact_state',
-      `${t(mood(k.state).words)}${k.waits !== null ? ` ${t('console_waits', { what: k.waits })}` : ''}`,
-    ],
-    [
-      'console_fact_stages',
-      <span className="cw-stages">
-        {k.stages.map((s, i) => (
-          <span key={s} className={i < at ? 'gone' : i === at ? 'here' : ''}>
-            {s}
-          </span>
-        ))}
-      </span>,
-    ],
     ['console_fact_rounds', String(k.rounds)],
     ['console_fact_cost', `$${k.costUsd.toFixed(2)}`],
     ['console_fact_started', t('console_ago', { when: age(Date.now() - k.from).label })],
     ['console_fact_tier', k.tier],
-    [
-      'console_fact_time',
-      <span className="cw-bar">
-        {[...k.bar].map((c, i) => (
-          <i key={i} className={c === 'm' ? 'm' : c === 't' ? 't' : ''} />
-        ))}
-      </span>,
-    ],
+    ['console_fact_sent_back', String(k.sentBack)],
   ];
   return (
     <dl className="cw-facts">
