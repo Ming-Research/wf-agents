@@ -52,6 +52,8 @@ fn known(v: &Value, s: &State) -> Option<i64> {
 #[derive(Debug, Default)]
 struct State {
     items: BTreeMap<i64, String>,
+    /// The goals among them: items with no work of their own, and so no level.
+    goals: BTreeSet<i64>,
     /// The dependencies there are then, which a change may remove.
     links: BTreeSet<(i64, i64)>,
     /// The dependencies a cancel took out of `links`. The write may leave them: a cancel is only asked of the loop when
@@ -64,9 +66,17 @@ struct State {
 impl State {
     fn load(conn: &Connection) -> Result<State, String> {
         let mut s = State::default();
-        for r in query_json(conn, "SELECT id, project FROM items", &[], 1_000_000)? {
-            s.items
-                .insert(r["id"].as_i64().unwrap_or_default(), text(&r, "project").to_string());
+        for r in query_json(
+            conn,
+            "SELECT id, project, deliver IS NULL AS goal FROM items",
+            &[],
+            1_000_000,
+        )? {
+            let id = r["id"].as_i64().unwrap_or_default();
+            s.items.insert(id, text(&r, "project").to_string());
+            if r["goal"].as_i64() == Some(1) {
+                s.goals.insert(id);
+            }
         }
         for r in query_json(conn, "SELECT item, depends_on FROM item_links", &[], 1_000_000)? {
             s.links.insert((
@@ -378,7 +388,11 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                 }
             }
             "set_level" => {
-                own(&c["item"], &s, &mut bad);
+                if let Some(id) = own(&c["item"], &s, &mut bad)
+                    && s.goals.contains(&id)
+                {
+                    bad(format!("item {id} is a goal: it has no work of its own, and no level"));
+                }
                 if cfg.level(text(c, "level")).is_none() {
                     bad(format!("there is no level {}", text(c, "level")));
                 }

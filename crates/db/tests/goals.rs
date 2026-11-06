@@ -104,13 +104,13 @@ fn a_goal_is_done_once_everything_it_depends_on_is_and_no_work_starts_on_it() {
         ),
         [9, 10]
     );
-    // Queued by hand, a goal still does not start.
+    // Queued by hand, a goal that nothing holds back still does not start.
     db.write(Actor::Owner, |tx| {
-        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (1, 1.0)", [])?;
+        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (5, 1.0)", [])?;
         Ok(())
     })
     .unwrap();
-    assert!(!ids(&db, "SELECT item FROM ready_items").contains(&1));
+    assert!(!ids(&db, "SELECT item FROM ready_items").contains(&5));
 
     done(&mut db, &[3]);
     assert_eq!(ids(&db, "SELECT item FROM goals_open ORDER BY item"), [5]);

@@ -310,21 +310,22 @@ pub fn dependencies(e: &Engine, item: i64) -> Result<Vec<i64>, String> {
 /// Whether an item is merged: one of its works took the merge cell's merged row; a goal, which has no work, once it is
 /// done (`goals_open`).
 pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
-    let n: i64 =
-        e.db.conn()
-            .query_row(
-                &format!(
-                    "SELECT CASE WHEN (SELECT deliver FROM items WHERE id = ?1) IS NULL
+    let n: i64 = e
+        .db
+        .conn()
+        .query_row(
+            &format!(
+                "SELECT CASE WHEN EXISTS (SELECT 1 FROM items WHERE id = ?1 AND deliver IS NULL AND cancelled IS NULL)
                        THEN NOT EXISTS (SELECT 1 FROM goals_open WHERE item = ?1)
                        ELSE EXISTS (SELECT 1 FROM rounds r JOIN works w ON w.id = r.work
                                     WHERE w.item = ?1 AND r.cell IN {} AND r.transition = 'merged')
                      END",
-                    db::cells_sql(ENGINEER, &[MERGE])
-                ),
-                [item],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
+                db::cells_sql(ENGINEER, &[MERGE])
+            ),
+            [item],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
     Ok(n > 0)
 }
 
