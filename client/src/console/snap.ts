@@ -133,6 +133,21 @@ function mix(a: string, b: string, k: number): number {
   return out;
 }
 
+/// Cuts the words of `t` short, ending them with an ellipsis, so that they take no more than `room` pixels.
+function fit(t: BitmapText, room: number) {
+  if (t.width <= room) return;
+  const full = [...t.text];
+  let lo = 0;
+  let hi = full.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    t.text = `${full.slice(0, mid).join('')}…`;
+    if (t.width <= room) lo = mid;
+    else hi = mid - 1;
+  }
+  t.text = `${full.slice(0, lo).join('').trimEnd()}…`;
+}
+
 /// A gradient from top to bottom in the measure of the shape it fills, from `colour` at opacity `from` to `to`.
 function vertical(colour: string, from: number, to: number): FillGradient {
   const rgba = (a: number) => {
@@ -540,6 +555,8 @@ export class SnapScene {
     };
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, false, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, true, false);
+    // The title ends where the badges begin.
+    fit(title, right - title.x);
     if (item.work === null || mood === null) return view;
     // The second row: the work's stages, each a short bar.
     const w = item.work;
@@ -605,6 +622,7 @@ export class SnapScene {
     number.position.set(14, row1 - number.height / 2);
     const title = new BitmapText({ text: item.title, style: s.title(PALETTE.faint) });
     title.position.set(14 + Math.max(26, number.width + 8), row1 - title.height / 2);
+    fit(title, NODE_W - 24 - title.x);
     // The arrow, drawn: the font may have no such sign.
     const ax = NODE_W - 16;
     const arrow = new Graphics()
