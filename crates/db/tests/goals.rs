@@ -96,7 +96,14 @@ fn a_goal_is_done_once_everything_it_depends_on_is_and_no_work_starts_on_it() {
         ids(&db, "SELECT item FROM open_items WHERE state = 'goal' ORDER BY item"),
         [1, 5, 10]
     );
-    assert_eq!(ids(&db, "SELECT item FROM item_blocked_by WHERE depends_on = 1"), [9]);
+    // Goal 10 waits for goal 1 by a blocking dependency too, though it never starts either way.
+    assert_eq!(
+        ids(
+            &db,
+            "SELECT item FROM item_blocked_by WHERE depends_on = 1 ORDER BY item"
+        ),
+        [9, 10]
+    );
     // Queued by hand, a goal still does not start.
     db.write(Actor::Owner, |tx| {
         tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (1, 1.0)", [])?;
