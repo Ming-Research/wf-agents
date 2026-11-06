@@ -505,7 +505,8 @@ pub struct Written {
     pub created: Vec<Value>,
     /// The changes the write refused, each by its place in the batch, with why. The review and the check of the reply
     /// found them valid in the state they read, but the changes left out since (the review drops some) leave a state in
-    /// which they are not: a dependency that would close a cycle, or put a done item over one that is not. A refused change leaves nothing of itself written.
+    /// which they are not: a dependency that would close a cycle, or put a done item over one that is not. A refused
+    /// change leaves nothing of itself written.
     pub refused: Vec<(usize, String)>,
 }
 
