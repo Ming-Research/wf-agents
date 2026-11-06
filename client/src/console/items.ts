@@ -4,7 +4,7 @@
 // under them is still open. Each item carries its own state, the work going on on it, if any, and how many of its
 // questions wait for the owner. Pure, so that it is tested on its own.
 
-import type { Items, Status, Waits, WorkState, WorkSummary } from '../api';
+import type { Conversation, Items, Status, Waits, WorkState, WorkSummary } from '../api';
 import { liveState } from '../components';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -30,6 +30,9 @@ export type Shown = {
   standing: ItemStanding;
   /// Its questions and decision cards waiting for the owner, which hold its work until answered.
   asks: number;
+  /// What its works' conversations hold for the owner that holds nothing up: the entries from others since the owner
+  /// last read, what waits aside.
+  unread: number;
   /// New to the owner: made, or what it says changed, since they last opened it.
   unseen: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
@@ -42,8 +45,15 @@ export type Shown = {
 /// Whether a work still goes on: not done and not ended.
 const live = (w: WorkSummary) => w.state !== 'done' && w.state !== 'ended';
 
-export function shownTree(data: Items, works: WorkSummary[] = [], status: Status | null = null): Shown[] {
+export function shownTree(
+  data: Items,
+  works: WorkSummary[] = [],
+  status: Status | null = null,
+  conversations: Conversation[] = [],
+): Shown[] {
   const byId = new Map(data.items.map((i) => [i.id, i]));
+  const unread = new Map<number, number>();
+  for (const c of conversations) if (c.item !== null) unread.set(c.item, (unread.get(c.item) ?? 0) + c.unread);
   const workById = new Map(works.map((w) => [w.id, w]));
   const standing = (id: number): ItemStanding => {
     const s = byId.get(id)?.state;
@@ -79,6 +89,7 @@ export function shownTree(data: Items, works: WorkSummary[] = [], status: Status
       title: i?.title ?? '',
       standing: standing(id),
       asks: (i?.open_asks ?? 0) + (i?.open_design_cards ?? 0),
+      unread: unread.get(id) ?? 0,
       unseen: i?.unseen === true,
       shadow: false,
       work:
@@ -111,6 +122,7 @@ export function shownTree(data: Items, works: WorkSummary[] = [], status: Status
     title: byId.get(id)?.title ?? '',
     standing: standing(id),
     asks: 0,
+    unread: 0,
     unseen: false,
     shadow: true,
     work: null,

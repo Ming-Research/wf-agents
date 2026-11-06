@@ -492,7 +492,8 @@ export class SnapScene {
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work; and while the item is new to the owner, a short line of a light accent
   /// inside its left edge. On its first row its number in its state's colour, its title, and at the right its questions
-  /// waiting for the owner, white on red, and its returns sent back, grey; on the second row, for an item whose work
+  /// waiting for the owner, white on red, its messages unread that hold nothing up, white on orange, and its returns
+  /// sent back, grey; on the second row, for an item whose work
   /// goes on, the work's stages, those gone through grey, the one it is at in its state's colour and those ahead faint,
   /// the letter of the one it is at, where its time went, and how long it has gone on.
   private node(item: Shown, k: number): Container {
@@ -527,7 +528,8 @@ export class SnapScene {
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: its questions waiting for the owner, white on red, the strongest mark a card has,
-    // as what the owner looks for first; and its returns sent back, framed in grey.
+    // as what the owner looks for first; its messages unread that hold nothing up, white on orange; and its returns
+    // sent back, framed in grey.
     let right = NODE_W - 8;
     const tag = (text: string, fill: string, back: boolean, solid: boolean) => {
       const t = new BitmapText({ text, style: s.mono(solid ? '#ffffff' : fill) });
@@ -554,6 +556,7 @@ export class SnapScene {
       right -= 6;
     };
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, false, true);
+    if (item.unread > 0) tag(String(item.unread), PALETTE.asked, false, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, true, false);
     // The title ends where the badges begin.
     fit(title, right - title.x);

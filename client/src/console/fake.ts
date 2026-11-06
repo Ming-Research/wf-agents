@@ -102,6 +102,7 @@ export function fakeShown(count: number): Shown[] {
     title: i.title,
     standing: i.state === 'done' ? 'done' : 'open',
     asks: i.state === 'waiting' ? 1 : 0,
+    unread: i.id % 9 === 0 ? 2 : 0,
     unseen: i.id % 7 === 0,
     shadow: false,
     work: work(i),
@@ -129,20 +130,38 @@ export function demoShown(): Shown[] {
     title,
     standing,
     asks: 0,
+    unread: 0,
     unseen,
     shadow: false,
     work: null,
     children,
   });
   // A shadow of an item, under another item that depends on it besides its main one.
-  const shadow = (of: Shown): Shown => ({ ...of, asks: 0, unseen: false, shadow: true, work: null, children: [] });
+  const shadow = (of: Shown): Shown => ({
+    ...of,
+    asks: 0,
+    unread: 0,
+    unseen: false,
+    shadow: true,
+    work: null,
+    children: [],
+  });
   const work = (
     title: string,
     state: WorkState,
-    o: { waits?: Waits; stage?: number; age?: number; asks?: number; sentBack?: number; unseen?: boolean } = {},
+    o: {
+      waits?: Waits;
+      stage?: number;
+      age?: number;
+      asks?: number;
+      unread?: number;
+      sentBack?: number;
+      unseen?: boolean;
+    } = {},
   ): Shown => ({
     ...item(title, [], 'open', o.unseen ?? false),
     asks: o.asks ?? 0,
+    unread: o.unread ?? 0,
     work: {
       state,
       waits: o.waits ?? null,
@@ -158,7 +177,7 @@ export function demoShown(): Shown[] {
   return [
     item('What a work does', [
       running,
-      work('Sent back twice', 'running', { age: 45, sentBack: 2, stage: 3 }),
+      work('Sent back twice, with messages unread', 'running', { age: 45, sentBack: 2, stage: 3, unread: 3 }),
       work('Its next step due', 'ready', { stage: 1 }),
       work('New, and waiting for your answer', 'asking', {
         waits: { kind: 'answer', ask: 1 },
@@ -169,6 +188,7 @@ export function demoShown(): Shown[] {
       work('Waiting for your ruling for 2 days', 'asking', {
         waits: { kind: 'ruling', design_card: 1 },
         asks: 2,
+        unread: 1,
         age: 2 * 24 * 60,
         stage: 1,
       }),

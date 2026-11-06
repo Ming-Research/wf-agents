@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from 'react';
 
-import type { Items, Status, WorkSummary } from '../api';
+import type { Conversation, Items, Status, WorkSummary } from '../api';
 import { demoShown, fakeShown } from '../console/fake';
 import { shownTree } from '../console/items';
 import { SnapScene } from '../console/snap';
@@ -14,6 +14,8 @@ export function Console({ demo }: { demo: boolean }) {
   const scene = useRef<SnapScene | null>(null);
   const items = useResource<Items>('items', '/api/v1/items');
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
+  // The owner's conversations, as the bar reads them, for each work's messages unread.
+  const conversations = useResource<Conversation[]>('messages', '/api/v1/conversations').data;
   const data = items.data;
   const workList = works.data;
   const status = useStatus();
@@ -28,7 +30,7 @@ export function Console({ demo }: { demo: boolean }) {
       scene.current = s;
       if (demo) s.show(demoShown());
       else if (latest.current !== undefined)
-        s.show(shownTree(latest.current, latestWorks.current, latestStatus.current));
+        s.show(shownTree(latest.current, latestWorks.current, latestStatus.current, latestConversations.current));
       // For trying the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
       Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
     });
@@ -39,16 +41,18 @@ export function Console({ demo }: { demo: boolean }) {
     };
   }, [demo]);
 
-  // The items, the works and the engine's status as last read, for a scene that is made after they came.
+  // The items, the works, the engine's status and the conversations as last read, for a scene made after they came.
   const latest = useRef<Items | undefined>(undefined);
   const latestWorks = useRef<WorkSummary[]>([]);
   const latestStatus = useRef<Status | null>(null);
+  const latestConversations = useRef<Conversation[]>([]);
   useEffect(() => {
     latest.current = data;
     latestWorks.current = workList ?? [];
     latestStatus.current = status;
-    if (data !== undefined && !demo) scene.current?.show(shownTree(data, workList ?? [], status));
-  }, [data, workList, status, demo]);
+    latestConversations.current = conversations ?? [];
+    if (data !== undefined && !demo) scene.current?.show(shownTree(data, workList ?? [], status, conversations ?? []));
+  }, [data, workList, status, conversations, demo]);
 
   return (
     <div className="console">
