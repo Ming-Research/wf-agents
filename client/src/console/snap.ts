@@ -43,6 +43,27 @@ const SWEEP_MS = 2600;
 const SWEEP_W = 90;
 /// The part of the way to where it belongs that a column moves each frame.
 const SPRING = 0.22;
+/// The console's own colours, softer than the page's: the marks lettered white on fills of middling lightness and
+/// little saturation, and the nodes' grounds tints light enough for the words on them and strong enough to be seen.
+const PALETTE = {
+  blue: '#5b8bd6',
+  green: '#43a27a',
+  grey: '#8f9aad',
+  red: '#d9706b',
+  orange: '#d98b3f',
+  purple: '#8f76cc',
+  /// The tint of a node by its work's state, of one above a work that runs, and of one with none.
+  running: '#d6e4fa',
+  branch: '#eaf1fc',
+  owner: '#fbe3c6',
+  paused: '#e5e8ed',
+  halted: '#f8d7d4',
+  plain: '#ffffff',
+  /// Where a work's time went: a model's, the tools', idle.
+  model: '#7fa6e3',
+  tools: '#e6a868',
+  idle: '#e3e7ed',
+};
 
 export type Stats = { items: number; drawn: number; fps: number; meanMs: number; p95Ms: number };
 
@@ -87,13 +108,16 @@ export function moodOf(w: ShownWork): Mood {
   return 'waiting';
 }
 
-/// A colour of the theme as it shows on the page's ground: one given with its opacity (`#rrggbbaa`) laid over the ground,
-/// and more transparent still by `alpha`.
-function solid(name: string, alpha = 1): number {
+/// The styles of a node's words, all of one size: its title, the white words on its marks, and its stages' letters in
+/// their colours.
+type Styles = { title: TextStyle; white: TextStyle; letter: (fill: string) => TextStyle };
+
+/// A colour of the theme as it shows on the page's ground: one given with its opacity (`#rrggbbaa`) laid over the ground.
+function solid(name: string): number {
   const v = colour(name, '#f6f8fa');
   const ground = colour('--bgColor-default', '#ffffff');
   const own = v.length === 9 ? Number.parseInt(v.slice(7), 16) / 255 : 1;
-  return mix(ground, v.slice(0, 7), own * alpha);
+  return mix(ground, v.slice(0, 7), own);
 }
 
 /// A value of the page's theme, a colour or a font, from its CSS custom property.
@@ -218,12 +242,22 @@ export class SnapScene {
     this.layer.removeChildren();
     for (const v of this.views) v.destroy({ children: true });
     this.shown = new Set();
-    // Primer's text, as the rest of the page has it.
-    const style = new TextStyle({
-      fontFamily: colour('--fontStack-sansSerif', 'sans-serif'),
-      fontSize: pixels(colour('--text-body-size-medium', '14px')),
-      fill: colour('--fgColor-default', '#1f2328'),
-    });
+    // Primer's text, as the rest of the page has it. Each style is made from plain values: one made by spreading
+    // another keeps the other's fill.
+    const fontFamily = colour('--fontStack-sansSerif', 'sans-serif');
+    const fontSize = pixels(colour('--text-body-size-medium', '14px'));
+    const letters = new Map<string, TextStyle>();
+    const styles: Styles = {
+      title: new TextStyle({ fontFamily, fontSize, fill: colour('--fgColor-default', '#1f2328') }),
+      white: new TextStyle({ fontFamily, fontSize, fill: '#ffffff' }),
+      letter: (fill) => {
+        const known = letters.get(fill);
+        if (known !== undefined) return known;
+        const made = new TextStyle({ fontFamily, fontSize, fill });
+        letters.set(fill, made);
+        return made;
+      },
+    };
     const border = colour('--borderColor-default', '#d1d9e0');
     // A colour with its opacity as `#rrggbbaa`, split for Pixi.
     const neutral = colour('--bgColor-neutral-muted', '#8d9bb31f');
@@ -236,7 +270,7 @@ export class SnapScene {
       otherAlpha: neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12,
       glow: colour('--bgColor-accent-emphasis', '#3b87ff'),
       glowOver: colour('--bgColor-attention-emphasis', '#f29a1f'),
-      asking: colour('--bgColor-danger-emphasis', '#cf222e'),
+      asking: PALETTE.red,
     };
     const { tree, items } = indexTree(roots, (i) => i.children);
     this.tree = tree;
@@ -256,7 +290,7 @@ export class SnapScene {
     });
     this.sweeps = new Map();
     this.ages = new Map();
-    this.views = items.map((item, k) => this.node(item, k, style, border, tinted.has(k)));
+    this.views = items.map((item, k) => this.node(item, k, styles, border, tinted.has(k)));
     this.columns = tree.columns.map(() => ({ held: -1, gapAt: 0, gap: 0, at: 0, pull: 0, lastScroll: 0, warm: 0 }));
     this.group = tree.columns.map((col) => {
       const g = new Int32Array(col.length);
@@ -286,55 +320,62 @@ export class SnapScene {
   /// on its first row its number on a badge in the colour of the item's state, its title, and at the right its badges,
   /// red for its questions waiting for the owner and grey for its returns sent back; on the second row, for an item
   /// whose work goes on, the work's stages, where its time went, and how long it has gone on.
-  private node(item: Shown, k: number, style: TextStyle, border: string, tinted: boolean): Container {
+  private node(item: Shown, k: number, styles: Styles, border: string, tinted: boolean): Container {
     const view = new Container();
     const h = high(this.rows[k]);
     const top = -h / 2;
     const mood = item.work !== null ? moodOf(item.work) : null;
     const ground: Record<Mood, string> = {
-      running: '--bgColor-accent-muted',
-      owner: '--bgColor-attention-muted',
-      paused: '--bgColor-neutral-muted',
-      halted: '--bgColor-danger-muted',
-      waiting: '--bgColor-muted',
+      running: PALETTE.running,
+      owner: PALETTE.owner,
+      paused: PALETTE.paused,
+      halted: PALETTE.halted,
+      waiting: PALETTE.plain,
     };
-    const fill = mood !== null ? solid(ground[mood]) : tinted ? solid('--bgColor-accent-muted', 0.45) : solid('--bgColor-muted');
+    const fill = mood !== null ? ground[mood] : tinted ? PALETTE.branch : PALETTE.plain;
     const box = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(fill).stroke({ color: border, width: 1 });
     view.addChild(box);
     if (mood === 'running') {
-      // A light crossing the node, cut to its box.
+      // A light crossing the node, cut to its box; the gradient's ends given in the shape's own measure, from its
+      // left edge (0) to its right (1).
       const mask = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(0xffffff);
-      const light = new FillGradient(0, 0, SWEEP_W, 0);
-      light.addColorStop(0, 'rgba(255,255,255,0)');
-      light.addColorStop(0.5, 'rgba(255,255,255,0.65)');
-      light.addColorStop(1, 'rgba(255,255,255,0)');
+      const light = new FillGradient({
+        start: { x: 0, y: 0 },
+        end: { x: 1, y: 0 },
+        textureSpace: 'local',
+        colorStops: [
+          { offset: 0, color: 'rgba(255,255,255,0)' },
+          { offset: 0.5, color: 'rgba(255,255,255,0.85)' },
+          { offset: 1, color: 'rgba(255,255,255,0)' },
+        ],
+      });
       const sweep = new Graphics().rect(0, top, SWEEP_W, h).fill(light);
       sweep.mask = mask;
       view.addChild(mask, sweep);
       this.sweeps.set(k, sweep);
     }
-    const small = new TextStyle({ ...style, fontSize: Math.round(style.fontSize as number * 0.8), fill: colour('--fgColor-onEmphasis', '#ffffff') });
+    const white = styles.white;
     const row1 = top + NODE_H / 2;
     // The number, on a badge in the item's state's colour.
-    const standing = { open: '--bgColor-accent-emphasis', done: '--bgColor-success-emphasis', cancelled: '--bgColor-neutral-emphasis' };
-    const number = new BitmapText({ text: String(item.id), style: small });
-    const badge = new Graphics().roundRect(6, row1 - 9, number.width + 10, 18, 5).fill(colour(standing[item.standing], '#3b87ff'));
+    const standing = { open: PALETTE.blue, done: PALETTE.green, cancelled: PALETTE.grey };
+    const number = new BitmapText({ text: String(item.id), style: white });
+    const badge = new Graphics().roundRect(6, row1 - 9, number.width + 10, 18, 5).fill(standing[item.standing]);
     number.position.set(11, row1 - number.height / 2);
-    const title = new BitmapText({ text: item.title, style });
+    const title = new BitmapText({ text: item.title, style: styles.title });
     title.position.set(number.width + 24, row1 - title.height / 2);
     view.addChild(badge, number, title);
     // The badges at the right of the first row: questions waiting for the owner, red; returns sent back, grey.
     let right = NODE_W - 6;
-    const pill = (text: string, colourName: string, back: boolean) => {
-      const t = new BitmapText({ text, style: small });
+    const pill = (text: string, fill: string, back: boolean) => {
+      const t = new BitmapText({ text, style: white });
       const icon = back ? 10 : 0;
       const w = Math.max(18, t.width + 10 + icon);
       right -= w;
-      const g = new Graphics().roundRect(right, row1 - 9, w, 18, 9).fill(colour(colourName, '#59636e'));
+      const g = new Graphics().roundRect(right, row1 - 9, w, 18, 9).fill(fill);
       if (back) {
         // A small arrow turning back, drawn: the font may have no such sign.
         const ax = right + 5;
-        const on = colour('--fgColor-onEmphasis', '#ffffff');
+        const on = '#ffffff';
         g.moveTo(ax + 7, row1 - 4)
           .lineTo(ax + 7, row1 + 1)
           .lineTo(ax + 1, row1 + 1)
@@ -347,8 +388,8 @@ export class SnapScene {
       view.addChild(g, t);
       right -= 4;
     };
-    if (item.asks > 0) pill(String(item.asks), '--bgColor-danger-emphasis', false);
-    if (item.work !== null && item.work.sentBack > 0) pill(String(item.work.sentBack), '--bgColor-neutral-emphasis', true);
+    if (item.asks > 0) pill(String(item.asks), PALETTE.red, false);
+    if (item.work !== null && item.work.sentBack > 0) pill(String(item.work.sentBack), PALETTE.grey, true);
     if (item.work === null) return view;
     // The second row: the work's stages, each a letter, those gone through, the one it is at, and those ahead.
     const w = item.work;
@@ -356,13 +397,12 @@ export class SnapScene {
     const here = w.stage !== null ? w.stages.indexOf(w.stage) : -1;
     const waiting = mood !== 'running';
     let x = 8;
-    const letter = new TextStyle({ ...style, fontSize: Math.round(style.fontSize as number * 0.7) });
     w.stages.forEach((stage, i) => {
       const look = i < here ? 'done' : i > here || here < 0 ? 'ahead' : waiting ? 'wait' : 'now';
-      const bg = { done: '--bgColor-success-muted', now: '--bgColor-accent-emphasis', wait: '--bgColor-attention-emphasis', ahead: '--bgColor-neutral-muted' }[look];
-      const fg = { done: '--fgColor-success', now: '--fgColor-onEmphasis', wait: '--fgColor-onEmphasis', ahead: '--fgColor-muted' }[look];
-      const cell = new Graphics().roundRect(x, row2 - 8, 15, 16, 3).fill(solid(bg));
-      const l = new BitmapText({ text: stage.charAt(0).toUpperCase(), style: new TextStyle({ ...letter, fill: colour(fg, '#1f2328') }) });
+      const bg = { done: solid('--bgColor-success-muted'), now: PALETTE.blue, wait: PALETTE.orange, ahead: solid('--bgColor-neutral-muted') }[look];
+      const fg = { done: colour('--fgColor-success', '#217952'), now: '#ffffff', wait: '#ffffff', ahead: colour('--fgColor-muted', '#59636e') }[look];
+      const cell = new Graphics().roundRect(x, row2 - 8, 15, 16, 3).fill(bg);
+      const l = new BitmapText({ text: stage.charAt(0).toUpperCase(), style: styles.letter(fg) });
       l.position.set(x + (15 - l.width) / 2, row2 - l.height / 2);
       view.addChild(cell, l);
       x += 17;
@@ -371,7 +411,7 @@ export class SnapScene {
     x += 8;
     const barW = 96;
     const cells = [...w.bar];
-    const kind = { m: colour('--chart-1', '#3b87ff'), t: colour('--chart-2', '#f29a1f'), '.': colour('--chart-idle', '#d1d9e0') };
+    const kind = { m: PALETTE.model, t: PALETTE.tools, '.': PALETTE.idle };
     const track = new Graphics();
     cells.forEach((c, i) => {
       const cw = barW / Math.max(1, cells.length);
@@ -380,7 +420,7 @@ export class SnapScene {
     view.addChild(track);
     // How long it has gone on, on a chip at the right, its colour by its age; the label is kept up as time passes.
     const chip = new Graphics();
-    const label = new BitmapText({ text: '', style: small });
+    const label = new BitmapText({ text: '', style: white });
     view.addChild(chip, label);
     this.ages.set(k, { from: w.from, label, chip, shown: '', row: row2 });
     this.age(k);
@@ -396,7 +436,7 @@ export class SnapScene {
     a.shown = label;
     a.label.text = label;
     const w = a.label.width + 12;
-    a.chip.clear().roundRect(NODE_W - 6 - w, a.row - 9, w, 18, 9).fill(colour(`--bgColor-${tone}-emphasis`, '#59636e'));
+    a.chip.clear().roundRect(NODE_W - 6 - w, a.row - 9, w, 18, 9).fill({ success: PALETTE.green, attention: PALETTE.orange, danger: PALETTE.red, done: PALETTE.purple }[tone]);
     a.label.position.set(NODE_W - w, a.row - a.label.height / 2);
   }
 
