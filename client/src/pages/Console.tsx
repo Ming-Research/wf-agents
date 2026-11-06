@@ -1,12 +1,17 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`console/snap.ts`), as they stand,
-// drawn again as they change; at `/console/demo`, made-up items that show every state the drawing has.
+// drawn again as they change; at `/console/demo`, made-up items that show every state the drawing has. Beside the tree,
+// a window slid out from a tab at the top right shows the item selected (`console/ItemWindow.tsx`), so far with
+// made-up contents. Escape lets the item go while the tree has the keys, and slides the window in while it has them.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { Conversation, Items, Status, WorkSummary } from '../api';
+import { Drawer } from '../console/Drawer';
 import { demoShown, fakeShown } from '../console/fake';
-import { shownTree } from '../console/items';
+import { type Shown, shownTree } from '../console/items';
+import { ItemWindow } from '../console/ItemWindow';
 import { SnapScene } from '../console/snap';
+import { windowMock } from '../console/window-mock';
 import { useResource, useStatus } from '../live';
 
 export function Console({ demo }: { demo: boolean }) {
@@ -19,6 +24,9 @@ export function Console({ demo }: { demo: boolean }) {
   const data = items.data;
   const workList = works.data;
   const status = useStatus();
+  const [selected, setSelected] = useState<Shown | null>(null);
+  const [open, setOpen] = useState(false);
+  const panel = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const el = host.current;
@@ -28,6 +36,7 @@ export function Console({ demo }: { demo: boolean }) {
     void s.mount(el).then(() => {
       if (!alive) return;
       scene.current = s;
+      s.onSelect = setSelected;
       if (demo) s.show(demoShown());
       else if (latest.current !== undefined)
         s.show(shownTree(latest.current, latestWorks.current, latestStatus.current, latestConversations.current));
@@ -54,9 +63,30 @@ export function Console({ demo }: { demo: boolean }) {
     if (data !== undefined && !demo) scene.current?.show(shownTree(data, workList ?? [], status, conversations ?? []));
   }, [data, workList, status, conversations, demo]);
 
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const inside = panel.current?.contains(document.activeElement) === true;
+      if (open && inside) {
+        (document.activeElement as HTMLElement | null)?.blur();
+        setOpen(false);
+      } else scene.current?.select(null);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [open]);
+
   return (
     <div className="console">
-      <div className="console-canvas" ref={host} />
+      {/* A press on the tree gives it the keys back from the window. */}
+      <div
+        className="console-canvas"
+        ref={host}
+        onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
+      />
+      <Drawer open={open} onOpen={() => setOpen(true)} panel={panel}>
+        <ItemWindow item={selected === null ? null : windowMock(selected)} demo={demo} onHide={() => setOpen(false)} />
+      </Drawer>
     </div>
   );
 }

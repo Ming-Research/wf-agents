@@ -81,6 +81,8 @@ const PALETTE = {
   hair: '#e3e6ea',
   edge: '#e5e7eb',
   card: '#ffffff',
+  /// The ground the tree is drawn on: a soft beige, the cards white on it as paper.
+  page: '#f6f2e9',
   accent: '#3b5bfd',
   /// A card's edge above a work.
   branch: '#c7cdfd',
@@ -299,7 +301,7 @@ export class SnapScene {
   /// The fade of every column into the page at the top and the bottom of the screen, each a gradient in the shape's own
   /// measure, from its top (0) to its bottom (1); and the blue lines there of the column under the pointer.
   private edges = new Graphics();
-  private fades = { top: vertical('#ffffff', 1, 0), bottom: vertical('#ffffff', 0, 1) };
+  private fades = { top: vertical(PALETTE.page, 1, 0), bottom: vertical(PALETTE.page, 0, 1) };
   /// The map at the top left: its frame, and a bar for each column, drawn each frame, cut to the room inside the frame.
   private map = new Container();
   private mapFrame = new Graphics();
@@ -351,6 +353,10 @@ export class SnapScene {
   /// The item selected, by its number, or none: it and the way from it to its root, and from each of its shadows to
   /// theirs, stay lit in purple until it is let go.
   private selected: number | null = null;
+  /// Told the item selected each time it changes, or is drawn afresh: the window beside the tree shows it.
+  onSelect: ((item: Shown | null) => void) | null = null;
+  /// The items as last shown, by their place in the tree.
+  private shownItems: Shown[] = [];
   private shadowsOf = new Map<number, number[]>();
   private shadows: Uint8Array = new Uint8Array(0);
   private ready = false;
@@ -365,7 +371,7 @@ export class SnapScene {
   async mount(host: HTMLElement): Promise<void> {
     await this.app.init({
       resizeTo: host,
-      background: colour('--bgColor-default', '#ffffff'),
+      background: PALETTE.page,
       antialias: true,
       resolution: window.devicePixelRatio,
       autoDensity: true,
@@ -416,7 +422,7 @@ export class SnapScene {
     this.shown = new Set();
     // A colour with its opacity as `#rrggbbaa`, split for Pixi.
     const neutral = colour('--bgColor-neutral-muted', '#8d9bb31f');
-    const ground = colour('--bgColor-default', '#ffffff');
+    const ground = PALETTE.page;
     this.colours = {
       other: neutral.slice(0, 7),
       otherAlpha: neutral.length === 9 ? Number.parseInt(neutral.slice(7), 16) / 255 : 0.12,
@@ -427,6 +433,7 @@ export class SnapScene {
     const { tree, items } = indexTree(roots, (i) => i.children);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
+    this.shownItems = items;
     this.shadows = Uint8Array.from(items, (i) => (i.shadow ? 1 : 0));
     this.real = new Map();
     this.shadowsOf = new Map();
@@ -487,6 +494,8 @@ export class SnapScene {
     this.columns.forEach((c, d) => (c.at = was[d] ?? this.target(d)));
     this.buildMap(tree);
     this.stats.items = items.length;
+    if (this.selected !== null && !this.real.has(this.selected)) this.selected = null;
+    this.announce();
   }
 
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
@@ -915,7 +924,20 @@ export class SnapScene {
       this.selected = this.ids[to];
       this.hold(this.tree.depth[to], this.tree.rank[to]);
     } else this.selected = this.selected === this.ids[i] ? null : this.ids[i];
+    this.announce();
   };
+
+  /// Selects the item numbered `id`, or none.
+  select(id: number | null): void {
+    this.selected = id !== null && this.real.has(id) ? id : null;
+    this.announce();
+  }
+
+  /// Tells `onSelect` the item selected, as last shown, or none.
+  private announce() {
+    const at = this.selected === null ? undefined : this.real.get(this.selected);
+    this.onSelect?.(at === undefined ? null : this.shownItems[at]);
+  }
 
   private tick = () => {
     const now = performance.now();
