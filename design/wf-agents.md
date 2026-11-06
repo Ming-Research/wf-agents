@@ -42,7 +42,8 @@
 
 - An item stands in one place, under the item whose dependency on it is its main one; below every other item that
   depends on it, it is a line pointing to that place. Of the dependencies on an item, exactly one is main at all
-  times: the most fitting, the first made until another is chosen, and the earliest made of those left when it goes.
+  times: the most fitting, the first made until another is chosen, and the earliest made of those left when it goes;
+  never that of an item that also depends on it through another, which would set it beside an item that needs it.
   Shown in full in several places, an item would be counted, read and answered more than once, and each thing has one
   place. The place is a mark on a dependency rather than on the item, so that an item never stands under one that does
   not need it.
