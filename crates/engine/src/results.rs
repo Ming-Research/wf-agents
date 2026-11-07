@@ -159,11 +159,18 @@ fn entry(c: &Case) -> Value {
     e
 }
 
+/// Why a name the run's results hold no test of is not run, when the run built every unit: a name cut before a test's
+/// own name, such as a unit or a module alone, names nothing, and neither does one of a test the run did not reach. Said
+/// in the result, so that the same name is not asked again in another run of the fast CI.
+const NAMES_NONE: &str = "no test the run reported is named so: a name ends at a test's own name, and a unit, a module \
+                          or a group of tests alone names none; or the run did not reach it";
+
 /// What became of each test named (`tests`, as the request wrote each), one row each, from what the run reported
 /// (`run`), or unread with why when it could not be read; `seps` are the project's separators. A row lists the tests
 /// the name names (`matched`), each with its own result, and is failed when any of them failed, not run when each was
 /// skipped, and passed otherwise. A name that names no test is not built when the run did not build some unit, which
-/// the engine cannot tell the test is not in, and says which and why; else not run.
+/// the engine cannot tell the test is not in, and says which and why; else not run, saying why a name can name none
+/// ([`NAMES_NONE`]).
 pub fn rows(tests: &[String], run: Result<&Run, &str>, seps: &[String]) -> Vec<Value> {
     tests
         .iter()
@@ -213,7 +220,10 @@ pub fn rows(tests: &[String], run: Result<&Run, &str>, seps: &[String]) -> Vec<V
                         units.join("; ")
                     ));
                 }
-                None => row["result"] = json!("not_run"),
+                None => {
+                    row["result"] = json!("not_run");
+                    row["why"] = json!(NAMES_NONE);
+                }
             }
             row
         })
@@ -481,14 +491,14 @@ error[E0599]: no method named `rounds_mark` found
             "no test the run reported is named so, and these units were not built: db::rounds: error[E0599]: no \
              method named `rounds_mark` found"
         );
-        // With every unit built, a name that names no test is not run.
+        // With every unit built, a name that names no test is not run, saying why a name can name none.
         let built = Run {
             unbuilt: Vec::new(),
             ..run
         };
         assert_eq!(
             rows(&named[4..], Ok(&built), &seps())[0],
-            json!({ "test": "missing", "matched": [], "result": "not_run" })
+            json!({ "test": "missing", "matched": [], "result": "not_run", "why": NAMES_NONE })
         );
         // A run whose results could not be read gives each name unread, with why.
         let unread = rows(&named[..1], Err("the run uploaded no artifact test-results"), &seps());
@@ -499,6 +509,44 @@ error[E0599]: no method named `rounds_mark` found
                 "why": "the run's results could not be read: the run uploaded no artifact test-results",
             })
         );
+    }
+
+    // A name cut before a test's own name, as agents asked of the fast CI: a unit, a module, a file or a describe alone,
+    // or any of these ending in a separator, names no test of a run that built every unit; its row is not run and says
+    // why, so that the same name is not asked again. The reference is the name rule ([`test_name::names`]): a name
+    // ends at a test's own name.
+    #[test]
+    fn a_name_cut_before_a_test_s_own_name_names_none_and_its_row_says_why() {
+        let run = Run {
+            unbuilt: Vec::new(),
+            ..read(&two_files()).unwrap()
+        };
+        let cut = names(&[
+            "engine::e2e",
+            "engine::e2e ",
+            "engine::e2e::",
+            "tools::tests",
+            "tools::tests::",
+            "src/page.test.ts",
+            "a page",
+            "a page > ",
+            "src/page.test.ts > a page",
+        ]);
+        for row in rows(&cut, Ok(&run), &seps()) {
+            assert_eq!(
+                (&row["result"], &row["matched"], &row["why"]),
+                (&json!("not_run"), &json!([]), &json!(NAMES_NONE)),
+                "{row}"
+            );
+        }
+        // The whole name, or what follows a separator in it, still names its test, with no why.
+        let whole = rows(
+            &names(&["tools::tests::later", "a page > shows the owner's list"]),
+            Ok(&run),
+            &seps(),
+        );
+        assert!(whole.iter().all(|r| r.get("why").is_none()), "{whole:?}");
+        assert_eq!(whole[1]["result"], "passed");
     }
 
     // The files wf-agents' own fast CI uploaded on a run where a test file did not compile and a page test failed (#269),
