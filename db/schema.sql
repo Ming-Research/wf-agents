@@ -1727,7 +1727,8 @@ CREATE VIEW work_owner_words AS
   -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
   -- kept before it was declared. relayed is, for words a delegate said, the parts of them it declared to be the owner's
   -- own words, a JSON array; none when it declared none. Cell `L2` is given it as its input.
-  -- Hidden from agents, as the hub's tables it reads are.
+  -- It reads the hub's tables, which agents do not read.
+  -- Hidden from agents.
   -- Read by: cell `L2`.
   SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
     json_extract(m.body, '$.speaker') AS speaker,
@@ -1799,7 +1800,8 @@ CREATE VIEW line_sayings AS
   -- decision card it asks about, the item whose cancellation it tells of, the architect's matter that holds the same
   -- words when they were said in the work's group to the architect too, when it was said, and the round of the work
   -- that took it (taken_round), none until one did.
-  -- Hidden from agents, as the hub's tables it reads are.
+  -- It reads the hub's tables, which agents do not read.
+  -- Hidden from agents.
   -- Read by: the engine, which gives each line what waits for it, and judges a decision by the words it cites; the
   -- owner's interface, which shows them and offers to take back what no agent took up yet; the views
   -- waiting_interjections, work_owner_words and conversation_entries.
@@ -1815,7 +1817,8 @@ CREATE VIEW waiting_interjections AS
   -- Interjections not yet handed in, in the order they came, each with the decision card it asks about, by its number
   -- and key, if it does: the messages said to a work's lines that no round took yet (line_sayings). Each cell is given
   -- what waits for its line as its input.
-  -- Hidden from agents, as the hub's tables it reads are.
+  -- It reads the hub's tables, which agents do not read.
+  -- Hidden from agents.
   -- Read by: every agent cell; cells `T7`, `M1` and `E1`.
   SELECT s.work, s.id AS interjection, s.line, s.speaker, s.text, s.design_card, c.key AS card_key
   FROM line_sayings s LEFT JOIN design_cards c ON c.id = s.design_card
