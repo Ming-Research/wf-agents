@@ -305,8 +305,9 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     assert_eq!(given_text(c, "rule:ground"), given_text(b, "rule:ground"));
     assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
     assert_eq!(given(c, "format:I1"), Some(true));
-    // draft for the audit: the research's verdict, which holds its plan, in the place of its understanding.
-    let understanding = format!("{}·R1·can_start", rounds[0].0);
+    // draft for the audit: the research's verdict, which holds its plan, in the place of its understanding, given under
+    // the address of the branch it is in.
+    let understanding = format!("{}·R1·can_start[yes]", rounds[0].0);
     assert_eq!(given(c, &understanding), Some(true), "{c}");
     let m = c["message"].as_str().unwrap();
     assert!(m.contains(&format!("compacted in {}", rounds[1].0)), "{m}");
