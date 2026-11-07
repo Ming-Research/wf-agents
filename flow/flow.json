@@ -6246,7 +6246,7 @@
             }
           ],
           "prompt": [
-            "You are the engineer of this work. This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs through ci and the implementation keeps it; a simple research leaves nothing but its conclusion.",
+            "You are the engineer of this work. This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs through ci and the implementation keeps it, and a probe there that showed nothing is taken out once run, its result noted in `research/`; a simple research leaves nothing but its conclusion.",
             "First read the item, the owner's words in it and the background given; the background gives addresses: follow those you need.",
             "Read the code concerned. Reproduce the problem first when you can, with ci, ci_before or measure; when you cannot, prove it another way, such as reasoning from the code or adding logs.",
             "A defect, though, is fixed only once seen to happen where it shows, as on the page in a real browser or in the program on its own data: by a test run there with ci or, where no test can show it, by a probe, a log or the owner's own run; a cause read from the code, or a test in a stand-in such as a simulated page, has not seen it. If, after looking as far as the tools reach, it is still seen nowhere, neither start nor hand it to deep research: ask the owner how to go on.",
@@ -6265,7 +6265,7 @@
             "cases": {
               "within": [],
               "past": [
-                "By now: can a sound approach be settled by the facts found? If it cannot, hand it to deep research."
+                "By now: can a sound approach be settled by the facts found? If it cannot, hand it to deep research; but a defect still seen nowhere goes to the owner, as said above, never to deep research."
               ]
             }
           },
@@ -7369,7 +7369,7 @@
           ],
           "prompt": [
             "Change the code by the plan or the design; change only what this work needs, nothing on the side.",
-            "For behaviour that is wrong, first write a test that reproduces it, see it red on the code before the change with ci_before, then change the code until ci runs it green; a test the research left is that test, its run of ci_before counting while its files are unchanged; where it cannot be reproduced, use the other evidence the research named.",
+            "For behaviour that is wrong, first write a test that reproduces it, see it red on the code before the change with ci_before, then change the code until ci runs it green; a test the research left is that test, its run of ci_before, if the research made one, counting while its files are unchanged; where it cannot be reproduced, use the other evidence the research named.",
             "Every acceptance condition has a test, which the conditions name, but one written in_effect: it has none, is checked after the merge, and its row says `how: in_effect`.",
             "A small case the design did not foresee you handle yourself, and write it as a departure. To change the approach, or where the plan or the design does not hold, do not work around it: say where it does not hold, and the work goes back to research.",
             "Before handing in, merge the latest main into the branch, resolve any conflict yourself, and run ci again: hand in only once it is green. To run CI or a measurement, commit locally and use ci or measure.",
@@ -7386,7 +7386,7 @@
                 "When the change changes one of the engine's own checks of returns (the flow's `engine.checks`), name each such check in checks_changed: until the change is installed, the engine running this work still judges it by the check as it was, and what only those checks find in this work's returns is then set aside for the review to judge, not sent back."
               ],
               "report": [
-                "This work delivers only a report: do the research and measurements by the design, write the conclusions into `research/` with the measurement code, so that they can be reproduced; change no implementation code and no file outside `research/`. The report states the problem, the approaches compared, what was measured, and the conclusions, which claim no more than was measured. With done, write what to do next in followup. If the research meets a gap in what is under test (a natural way of writing something rejected or handled badly), ask as usual; if the advisor judges it a gap, write it into the report and into followup."
+                "This work delivers only a report: do the research and measurements by the design, write the conclusions into `research/` with the measurement code, so that they can be reproduced; change no implementation code and no file outside `research/`, and take out before handing in a test the research left outside it, the report citing the commit that ran it. The report states the problem, the approaches compared, what was measured, and the conclusions, which claim no more than was measured. With done, write what to do next in followup. If the research meets a gap in what is under test (a natural way of writing something rejected or handled badly), ask as usual; if the advisor judges it a gap, write it into the report and into followup."
               ]
             }
           },
