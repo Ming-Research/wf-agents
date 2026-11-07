@@ -7283,11 +7283,20 @@
                   "by": "work"
                 }
               ]
+            },
+            {
+              "what": "The measurement workflows the project lists; none when it lists none, and then no measurement is missing",
+              "from": [
+                {
+                  "config": "measure"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
             "You review this work's change in two passes in this session: this one looks at the upper level, the next at the details. You are given what its engineer was given. Change no file.",
-            "This pass: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written; where the change can alter how much runs per operation or request, or how that grows with the data, was what it can make slower measured as well as what it is for: a measurement missing there, where the project can measure (`measure` refuses where it lists no workflow), or a slowdown measured, is a finding.",
+            "This pass: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written; where the change can alter how much runs per operation or request, or how that grows with the data, was what it can make slower measured as well as what it is for: a measurement missing there, or a slowdown measured that the design or the owner did not accept, is a finding.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history."
           ],
           "out": [

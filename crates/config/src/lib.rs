@@ -1134,7 +1134,7 @@ fn is_true(b: &bool) -> bool {
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
-pub const SETTINGS: [&str; 9] = [
+pub const SETTINGS: [&str; 10] = [
     "design_goal",
     "attack_points",
     "test_paths",
@@ -1144,6 +1144,7 @@ pub const SETTINGS: [&str; 9] = [
     "records",
     "under_test",
     "other_projects",
+    "measure",
 ];
 
 impl Project {
@@ -1180,6 +1181,9 @@ impl Project {
             "records" => self.records.as_ref().map_or(Value::Null, |r| json!(r)),
             "under_test" => list(&self.under_test),
             "other_projects" => list(&self.other_projects),
+            // The workflows the measure tool may run; none, and nothing can be measured.
+            "measure" if self.ci.measure.is_empty() => Value::Null,
+            "measure" => json!(self.ci.measure),
             _ => return None,
         })
     }
@@ -3092,8 +3096,8 @@ asks = 9
     }
 
     // A project lists the workflows its measure tool runs as `[[ci.measure]]` tables. One that lists none reads as
-    // `none` in the settings an agent is shown, one that lists some as the list; a table with a field the list does
-    // not know, or with no workflow, is refused.
+    // `none` in the settings an agent is shown, and as nothing to an input that reads the setting `measure`; one that
+    // lists some as the list, both ways; a table with a field the list does not know, or with no workflow, is refused.
     #[test]
     fn a_project_lists_the_workflows_the_measure_tool_runs() {
         const MEASURING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
@@ -3102,6 +3106,7 @@ asks = 9
         const SETTING: &str = "`project.ci.measure`";
         let none = read(&files(&[])).unwrap();
         assert!(none.projects["p"].ci.measure.is_empty());
+        assert_eq!(none.projects["p"].setting("measure"), Some(serde_json::Value::Null));
         assert_eq!(
             none.named_settings("p", SETTING),
             [("project.ci.measure".to_string(), "none".to_string())]
@@ -3130,6 +3135,13 @@ asks = 9
                  {\"workflow\":\"other.yml\",\"inputs\":[]}]"
                     .to_string()
             )]
+        );
+        assert_eq!(
+            c.projects["q"].setting("measure"),
+            Some(serde_json::json!([
+                {"workflow": "measure.yml", "inputs": ["command", "base"], "artifact": "measurement"},
+                {"workflow": "other.yml", "inputs": []}
+            ]))
         );
         for (table, word) in [
             ("workflow = \"m.yml\"\ncolour = \"red\"", "colour"),

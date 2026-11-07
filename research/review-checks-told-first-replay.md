@@ -11,7 +11,7 @@ done. Three problems are met that way, and each change was replayed on past work
 
 - Performance (#316: W368 merged #312's indexes, and a read whose plan the new index changed went from 106.8 to
   5,596 ms at ten times the data). I1 is told to measure what the change can make slower as well as what it is for, and
-  T2 to raise a measurement missing there, where the project can measure, or a slowdown measured. Does I1 on W368 name
+  T2 to raise a measurement missing there, or a slowdown measured that was not accepted. Does I1 on W368 name
   what can get slower, does I1 on a page change stay out of measuring, and what does T2 find on heads that measured
   only the read they meant to change, measured a slowdown the owner accepted, or changed nothing that runs?
 - A defect's class and its prevention (#306 pinned git's hooks, #309 then the other programs git runs, W344 found four
@@ -41,9 +41,13 @@ Besides, R1's line on probes that showed nothing was replayed in a new wording o
   that grows with the data, measure with measure what it can make slower as well as what it is for, before and after
   the change, at the size the data has and at a larger one." No field: the engine keeps each run of `measure`.
 - T2: "where the change can alter how much runs per operation or request, or how that grows with the data, was what it
-  can make slower measured as well as what it is for: a measurement missing there, where the project can measure
-  (`measure` refuses where it lists no workflow), or a slowdown measured, is a finding", and the input of every
-  measurement the engine recorded for the work.
+  can make slower measured as well as what it is for: a measurement missing there, or a slowdown measured that the
+  design or the owner did not accept, is a finding", and two inputs: every measurement the engine recorded for the
+  work, and the measurement workflows the project lists ("none when it lists none, and then no measurement is
+  missing"). The T2 replays below ran with a wording before the last: "where the project can measure (`measure`
+  refuses where it lists no workflow)" in place of the input of the workflows, and no words on an accepted slowdown.
+  They were not run again: every case replayed is of this project, which lists a measurement workflow, so the input
+  says what the earlier wording assumed, and on W353 T2 already left the slowdown the owner accepted alone.
 - T3: "for a defect, whether the change covers the like cases the cause, or the design where there is one, says it
   covers, and what keeps the kind from coming back".
 
