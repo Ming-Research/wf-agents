@@ -52,6 +52,8 @@ struct Held {
 
 /// What an interjection row says of itself.
 struct Said {
+    /// Who sent the message: the engine's words in the owner's name are given to agents as the owner's (`speaker`).
+    sender: String,
     speaker: String,
     informs: bool,
     delivered: Option<i64>,
@@ -87,8 +89,9 @@ fn interjection(conn: &Connection, id: i64) -> db::rusqlite::Result<Verdict> {
         .query_row(
             "SELECT j.speaker, j.informs, j.taken_round, j.matter, j.text, j.design_card, w.graph,
                     EXISTS (SELECT 1 FROM rounds r, json_each(r.input, '$.engine.interjections') g
-                            WHERE r.work = j.work AND r.ended_at IS NULL AND g.value = j.id)
-             FROM line_sayings j JOIN works w ON w.id = j.work WHERE j.id = ?1",
+                            WHERE r.work = j.work AND r.ended_at IS NULL AND g.value = j.id),
+                    m.sender
+             FROM line_sayings j JOIN messages m ON m.id = j.id JOIN works w ON w.id = j.work WHERE j.id = ?1",
             [id],
             |r| {
                 Ok(Said {
@@ -100,6 +103,7 @@ fn interjection(conn: &Connection, id: i64) -> db::rusqlite::Result<Verdict> {
                     card: r.get(5)?,
                     graph: r.get(6)?,
                     given: r.get(7)?,
+                    sender: r.get(8)?,
                 })
             },
         )
@@ -110,6 +114,11 @@ fn interjection(conn: &Connection, id: i64) -> db::rusqlite::Result<Verdict> {
     if j.speaker != "owner" || db::relays_an_answer(&j.text) {
         return Ok(Verdict::Kept(
             "these are not words the owner typed: an answer is recorded on its ask".into(),
+        ));
+    }
+    if j.sender == "engine" {
+        return Ok(Verdict::Kept(
+            "these are not words the owner typed: the engine said them in the owner's name".into(),
         ));
     }
     if j.card.is_some() {

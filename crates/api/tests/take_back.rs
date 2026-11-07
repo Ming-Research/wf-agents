@@ -202,8 +202,9 @@ fn words_no_agent_has_come_back_whole_and_leave_no_row_for_an_agent() {
 }
 
 // Words an agent has stay where they are, whatever way it has them: given by the message of a round that has not ended,
-// recorded as handed in, or relayed from an answer to an ask, which the ask records; and what the owner did not say is
-// not the owner's to take back. The page says which are which, and a refusal deletes nothing.
+// recorded as handed in, or relayed from an answer to an ask, which the ask records; and what the owner did not say, the
+// architect's words or the engine's in the owner's name, is not the owner's to take back. The page says which are
+// which, and a refusal deletes nothing.
 #[test]
 fn words_an_agent_has_are_not_taken_back_and_nothing_is_deleted() {
     let mut db = world();
@@ -218,6 +219,14 @@ fn words_an_agent_has_are_not_taken_back_and_nothing_is_deleted() {
     );
     db.write(Actor::Engine, |tx| {
         to_line(tx, 5, "architect", "Mine.", None, None)?;
+        to_line(
+            tx,
+            6,
+            "engine",
+            "Item 2, which this item depended on, was cancelled.",
+            Some(r#"{"cancelled_item":2}"#),
+            None,
+        )?;
         Ok(())
     })
     .unwrap();
@@ -228,10 +237,12 @@ fn words_an_agent_has_are_not_taken_back_and_nothing_is_deleted() {
     // Handed in: not shown as waiting any more. The relay of an answer is the owner's answer, not words to take back.
     assert_eq!(page(&db, "work:1", "interjection", 3).map(|p| p.1), Some(Retract::No));
     assert_eq!(page(&db, "work:1", "interjection", 4), Some((true, Retract::No)));
-    for id in 2..=5 {
+    // The engine's notice in the owner's name shows as the owner's, and is no more the owner's to take back.
+    assert_eq!(page(&db, "work:1", "interjection", 6), Some((true, Retract::No)));
+    for id in 2..=6 {
         assert!(take(&mut db, "interjection", id).is_err(), "interjection {id}");
     }
-    assert_eq!(count(db.conn(), "SELECT count(*) FROM messages"), 4);
+    assert_eq!(count(db.conn(), "SELECT count(*) FROM messages"), 5);
     assert_eq!(
         count(
             db.conn(),
