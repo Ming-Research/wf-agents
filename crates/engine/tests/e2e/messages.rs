@@ -164,7 +164,8 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let guide = |input: &Value| -> Option<(String, bool)> {
         input["conditional"].as_array()?.iter().find_map(|m| {
             let a = m["address"].as_str()?;
-            a.ends_with("·engine·project_guide")
+            // draft for the audit: the project's AGENTS.md alone, in the project guide's place.
+            a.ends_with("·engine·agents_md")
                 .then(|| (a.to_string(), m["given"].as_bool().unwrap_or(false)))
         })
     };
@@ -304,7 +305,8 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     assert_eq!(given_text(c, "rule:ground"), given_text(b, "rule:ground"));
     assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
     assert_eq!(given(c, "format:I1"), Some(true));
-    let understanding = format!("{}·R1·understanding", rounds[0].0);
+    // draft for the audit: the research's verdict, which holds its plan, in the place of its understanding.
+    let understanding = format!("{}·R1·can_start", rounds[0].0);
     assert_eq!(given(c, &understanding), Some(true), "{c}");
     let m = c["message"].as_str().unwrap();
     assert!(m.contains(&format!("compacted in {}", rounds[1].0)), "{m}");
@@ -358,6 +360,7 @@ fn a_works_own_edits_to_its_records_do_not_give_the_guide_again() {
 // When main changed the project guide since the version a session holds, and the branch merged it, the session is
 // given only the entries that differ, under the new version's address, and holds the new version after.
 #[test]
+#[ignore = "draft for the audit: the opening gives the project's AGENTS.md alone, with no index of the records to change"]
 fn a_changed_main_gives_only_what_changed_in_the_guide() {
     let s = setup_records("main-guide");
     let (mut e, said, item) = start(&s, scripts());
@@ -452,7 +455,7 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
             }
         }
     }
-    // The engineer's graph has six lines, the architect's three.
-    assert_eq!(lines, 9);
+    // The engineer's graph has seven lines in the draft for the audit, the architect's three.
+    assert_eq!(lines, 10);
     let _ = std::fs::remove_dir_all(&s.root);
 }

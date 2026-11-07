@@ -1705,7 +1705,8 @@ fn in_system(input: &Value, address: &str) -> bool {
 fn guide_in(input: &Value) -> Option<(String, bool)> {
     input["conditional"].as_array()?.iter().find_map(|m| {
         let a = m["address"].as_str()?;
-        a.ends_with("·engine·project_guide")
+        // draft for the audit: the project's AGENTS.md alone, in the project guide's place.
+        a.ends_with("·engine·agents_md")
             .then(|| (a.to_string(), m["given"].as_bool().unwrap_or(false)))
     })
 }
@@ -2262,6 +2263,11 @@ fn move_to(e: &mut Engine, work: i64, cell: &str) {
 fn agent_rounds_to(e: &mut Engine, item: i64, n: usize) {
     for _ in 0..10 {
         if agent_rounds(e, item).len() == n {
+            // draft for the audit: the cards' cell, an engine step that lets the work on at once while no card is
+            // recorded, stands between the research and implementing; the work is taken past it.
+            if state(e, item).is_some_and(|(_, at, _)| at == "I0") {
+                e.step(None).unwrap();
+            }
             return;
         }
         e.step(None).unwrap();

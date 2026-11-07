@@ -6056,13 +6056,6 @@
                   [
                     "goal"
                   ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
                 ]
               ],
               "to": "E1",
@@ -6079,13 +6072,6 @@
                   "answer.verdict",
                   [
                     "first_part"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
                   ]
                 ]
               ],
@@ -6104,13 +6090,6 @@
                   [
                     "declined"
                   ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
                 ]
               ],
               "to": "D1",
@@ -6122,6 +6101,13 @@
             {
               "name": "interjection",
               "if": [
+                [
+                  "is",
+                  "answer.verdict",
+                  [
+                    "waiting"
+                  ]
+                ],
                 [
                   "inp",
                   "interjection",
@@ -6135,7 +6121,8 @@
                 "withdraw_blocker"
               ],
               "counts": "interjections",
-              "interject": true
+              "interject": true,
+              "note": "What was said to the work while it waited here takes it on to choose the way on."
             }
           ],
           "inenums": {
@@ -6437,13 +6424,6 @@
                   [
                     "reviewed"
                   ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
                 ]
               ],
               "to": "D2",
@@ -6461,6 +6441,13 @@
               "if": [
                 [
                   "inp",
+                  "architect_review",
+                  [
+                    "waiting"
+                  ]
+                ],
+                [
+                  "inp",
                   "interjection",
                   [
                     "yes"
@@ -6473,7 +6460,7 @@
               ],
               "counts": "interjections",
               "interject": true,
-              "note": "What was said to the work while it waited for the review takes it on to choose the way on."
+              "note": "What was said to the work while it waited here takes it on to choose the way on."
             }
           ],
           "inenums": {
@@ -6783,13 +6770,6 @@
                   [
                     "no"
                   ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
                 ]
               ],
               "to": "I1",
@@ -6817,13 +6797,6 @@
                   "designed",
                   [
                     "yes"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
                   ]
                 ]
               ],
@@ -6880,13 +6853,6 @@
                   [
                     "no"
                   ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
                 ]
               ],
               "to": "R1",
@@ -6915,13 +6881,6 @@
                   [
                     "yes"
                   ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
                 ]
               ],
               "to": "D1",
@@ -6941,6 +6900,13 @@
               "if": [
                 [
                   "inp",
+                  "cards",
+                  [
+                    "open"
+                  ]
+                ],
+                [
+                  "inp",
                   "interjection",
                   [
                     "yes"
@@ -6952,7 +6918,8 @@
                 "withdraw_blocker"
               ],
               "counts": "interjections",
-              "interject": true
+              "interject": true,
+              "note": "What was said to the work while it waited here takes it on to choose the way on."
             }
           ],
           "inenums": {

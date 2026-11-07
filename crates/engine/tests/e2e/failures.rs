@@ -10,8 +10,9 @@ use super::*;
 fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let s = setup("repeat");
     let (mut e, said, item) = start(&s, scripts());
-    // The start, the gathering of the background and the research, whose round is the third.
-    for _ in 0..3 {
+    // The start, the gathering of the background and the research, whose round is the third, and the cards' cell
+    // (draft for the audit).
+    for _ in 0..4 {
         e.step(None).unwrap();
     }
     let (work, _, _) = state(&e, item).unwrap();
@@ -32,7 +33,7 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(
         paused.starts_with(&format!(
-            "cell I1: the message of R{work}-4 was not sent, since it would repeat what its session holds: \
+            "cell I1: the message of R{work}-5 was not sent, since it would repeat what its session holds: \
              rule:ground (12 characters) would be given whole again, though the session got the same content in \
              R{work}-3 as rule:elsewhere"
         )),

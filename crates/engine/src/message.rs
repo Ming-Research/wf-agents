@@ -136,7 +136,9 @@ fn setting_empty(v: &Value) -> bool {
 /// Whether a value is the project's own context, which a message gives before anything else: the project's guide (its
 /// AGENTS.md and records) and a setting of its configuration, such as its design goal.
 fn project_own(o: &Origin) -> bool {
-    matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == GUIDE)
+    // draft for the audit: the project's AGENTS.md alone, which the common opening of every cell gives in the guide's
+    // place.
+    matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == GUIDE || n == "agents_md")
 }
 
 /// A return format or a rule with the value of each setting it names written beside the setting's name, such as

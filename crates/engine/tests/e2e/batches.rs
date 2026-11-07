@@ -765,7 +765,8 @@ fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_
         e.db.write(Actor::Engine, |tx| {
             db::add_dependency(tx, parser, lexer, "its tokens", "blocking")?;
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'M1')",
+                "INSERT INTO works (item, flow_version, graph, at, recorded)
+                 VALUES (?1, ?2, 'engineer', 'M1', '{\"designed\":\"no\"}')",
                 params![parser, v],
             )?;
             Ok(tx.last_insert_rowid())
