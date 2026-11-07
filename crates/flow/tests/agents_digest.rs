@@ -34,5 +34,11 @@ fn what_agents_are_given_hashes_as_before() {
     }
     let compiled = flow::formats::hash(&v);
     let formats = flow::formats::hash(&serde_json::json!(texts));
-    assert_eq!(format!("{compiled} {formats}"), "", "the hashes");
+    // As main compiled its flow at 73b1b383, before the titles and the names were taken out.
+    assert_eq!(
+        format!("{compiled} {formats}"),
+        "c72caaaea15ff1934bc4017e83e721835683b497c588ce1d344d536e624f8160 \
+         653b9c6b1768e54f2a7404106d1d00cb3931ec7c202c9456504ad38a33906803",
+        "the hashes"
+    );
 }
