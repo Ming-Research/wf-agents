@@ -157,7 +157,7 @@ fn the_migration_makes_every_ask_a_message_and_renames_it_everywhere() {
     );
     assert_eq!(
         rows(conn, "SELECT item, ask FROM item_asks ORDER BY ask"),
-        [vec![int(1), int(3)], vec![int(1), int(5)]]
+        [vec![int(1), int(3)], vec![Value::Null, int(4)], vec![int(1), int(5)]]
     );
     assert_eq!(
         rows(
