@@ -2147,13 +2147,7 @@ mod tests {
             .find(|f| f["name"] == "files")
             .unwrap();
         assert_eq!(files["type"], "list");
-        // The check of an answer of measured looks at the whole work's runs, as the code does, not at one cell's.
-        let flow: Value = serde_json::from_str(flow::FLOW).unwrap();
-        let check = flow["engine"]["checks"]["measure_matches_runs"].as_str().unwrap();
-        assert!(
-            check.contains("a run of this work's measure tool") && !check.contains("in this cell"),
-            "{check}"
-        );
+        // draft for the audit: deep research hands in no answer of how it measured, and the flow has no check of one.
     }
 
     // A request of api only reads: a write flag is refused whichever way gh takes it, apart from its value

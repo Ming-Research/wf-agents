@@ -2145,16 +2145,17 @@ mod tests {
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("designer"));
         let schema = g.cell("D2").unwrap().schema.clone().unwrap();
-        let mut ret = samples()["D2"][0]["json"].clone();
+        // draft for the audit: the second look's field of its own is what it weighed.
+        let mut ret = samples()["D2"][1]["json"].clone();
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
-        let changed = ret["outcome"].as_object_mut().unwrap().shift_remove("changed").unwrap();
+        let changed = ret["outcome"].as_object_mut().unwrap().shift_remove("weighed").unwrap();
         assert!(!flow::valid(&schema, &ret));
         assert_eq!(
             refused(&s, &ret, "").as_deref(),
-            Some("/outcome: must have required property 'changed'")
+            Some("/outcome: must have required property 'weighed'")
         );
-        ret["outcome"]["changed"] = changed;
+        ret["outcome"]["weighed"] = changed;
         ret["outcome"]["pause"] = json!({});
         let mixed = refused(&s, &ret, "").unwrap_or_default();
         assert!(mixed.contains("is not allowed"), "{mixed}");
@@ -2244,8 +2245,7 @@ mod tests {
             refused(&s, &ret, "").as_deref(),
             Some("/outcome/can_start: must NOT have additional properties ('stuck' is not allowed)")
         );
-        ret["outcome"]["can_start"] =
-            json!({ "verdict": "no", "why": "Unchecked", "stuck": "Two approaches to compare" });
+        ret["outcome"]["can_start"] = json!({ "verdict": "no", "stuck": "Two approaches to compare" });
         assert!(flow::valid(&schema, &ret));
         assert_eq!(refused(&s, &ret, ""), None);
     }

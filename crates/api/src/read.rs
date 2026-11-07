@@ -3680,7 +3680,7 @@ mod tests {
     fn an_item_shows_what_the_flow_marks_shown_of_its_rounds() {
         let mut s = setup("shown");
         let ret = json!({
-            "outcome": { "understanding": { "problem": "what is wrong" } },
+            "outcome": { "can_start": { "verdict": "yes", "owner_plan": "what is wrong" } },
             "progress": "read the code",
             "side_reports": []
         })
@@ -3701,7 +3701,7 @@ mod tests {
                 .find(|x| x.cell == "R1" && x.path == path)
                 .map(|x| x.value.clone())
         };
-        assert_eq!(at("understanding"), Some(json!({ "problem": "what is wrong" })));
+        assert_eq!(at("can_start[yes].owner_plan"), Some(json!("what is wrong")));
         assert_eq!(at("progress"), Some(json!("read the code")));
         // The start's return holds nothing the flow shows.
         assert!(d.shown.iter().all(|x| x.cell == "R1"));

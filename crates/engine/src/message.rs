@@ -1526,15 +1526,12 @@ mod tests {
         let goal = implement
             .inputs
             .iter()
-            .find(|x| x.name.as_deref() == Some("Design goal"))
+            .find(|x| x.name.as_deref() == Some("AGENTS.md"))
             .unwrap();
         assert_eq!(common.matches(goal.what.as_str()).count(), 1, "{common}");
         let listed = cell_inputs(implement);
         assert!(!listed.contains(goal.what.as_str()), "{listed}");
-        assert!(
-            listed.contains("Design goal, which format:common describes"),
-            "{listed}"
-        );
+        assert!(listed.contains("AGENTS.md, which format:common describes"), "{listed}");
         assert!(listed.contains(implement.inputs[0].what.as_str()), "{listed}");
     }
 

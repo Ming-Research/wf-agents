@@ -791,7 +791,7 @@ mod tests {
     fn the_first_own_answer_that_no_longer_fits_is_done_again() {
         let old = engineer();
         let mut new = old.clone();
-        needs_after(&mut new, "R1", "understanding");
+        needs_after(&mut new, "R1", "can_start");
         needs_after(&mut new, "X1", "results");
         let understood = sample("R1", "start");
         let results = sample("X1", "ran");
@@ -967,10 +967,10 @@ mod tests {
         // An answer from before the merge that no longer fits, the understanding or the design Z1 reads, moves the work:
         // the cells before its merge are never done again, and later ones read those answers as they are.
         let mut r1 = old.clone();
-        needs_after(&mut r1, "R1", "understanding");
+        needs_after(&mut r1, "R1", "can_start");
         assert_eq!(plan(&old, &r1, &at("Z1"), &rounds), Plan::Move);
         let mut d2 = old.clone();
-        needs_after(&mut d2, "D2", "examined");
+        needs_after(&mut d2, "D2", "weighed");
         assert!(read_from(&d2, &at("Z1")).contains("D2"));
         assert_eq!(plan(&old, &d2, &at("Z1"), &rounds), Plan::Move);
         // A cell after the merge it had begun, on another line, is done again.
