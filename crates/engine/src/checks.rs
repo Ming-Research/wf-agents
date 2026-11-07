@@ -2299,8 +2299,9 @@ struct BeforeRun {
 }
 
 /// The run of ci_before whose result for a test counts: the latest that reported the test ([`reported_before`]); none
-/// when none of them did. A test no run reported has no result before the change, and no run's files make it stale: a
-/// run that never reported it is not the one to run again for it.
+/// when none of them did. In the engineer's tables a test no run reported has no result before the change, and no run's
+/// files make it stale ([`engineer_before_problems`]); adversarial testing's still judges it by the latest run
+/// ([`results_vs_runs`]).
 fn run_for<'a>(runs: &'a [BeforeRun], name: &str, seps: &[String]) -> Option<&'a BeforeRun> {
     run_index_for(runs, name, seps).map(|i| &runs[i])
 }
@@ -2310,19 +2311,20 @@ fn run_index_for(runs: &[BeforeRun], name: &str, seps: &[String]) -> Option<usiz
     runs.iter().position(|r| reported_before(&r.ran, name, seps).is_some())
 }
 
-/// Whether a run of ci_before did not build or did not run the test a table names: it reports it not built or not run
-/// ([`reported_before`]). For a test that cannot run on the code before the change, running it again there gives the
-/// same, so a file of that run changed after it does not make its result stale.
-fn did_not_run(run: &BeforeRun, name: &str, seps: &[String]) -> bool {
-    reported_before(&run.ran, name, seps).is_some_and(|(r, _)| matches!(r.as_str(), "not_built" | "not_run"))
+/// Whether a run of ci_before did not build the test a table names: it reports it not built ([`reported_before`]). A
+/// test that cannot be built on the code before the change, which that run did not build, is not sent back to run again
+/// when a file of that run changes after it, though the change may have taken away what kept it from being built. A test
+/// the run skipped or did not reach is not excused so: a change of its file can change what a new run gives.
+fn did_not_build(run: &BeforeRun, name: &str, seps: &[String]) -> bool {
+    reported_before(&run.ran, name, seps).is_some_and(|(r, _)| r == "not_built")
 }
 
 /// What a table of the engineer's tests (`filled`, each row with the results [`with_results`] read for it) is sent back
 /// for before the change, by the runs of ci_before (`before`, the latest first) and the files of a run that changed
 /// after it (`changed_since`); `seps` are the project's separators. A test's result there comes from the run
 /// [`run_for`] gives, and is to be run again when any of that run's files changed after it, unless the test says in
-/// `not_before` why it cannot run before the change and that run did not build or run it ([`did_not_run`]). A test no
-/// run reported, and that says nothing in `not_before`, has no result before the change.
+/// `not_before` why it cannot run before the change and that run did not build it ([`did_not_build`]). A test no run
+/// reported, and that says nothing in `not_before`, has no result before the change.
 fn engineer_before_problems(
     filled: &[Value],
     before: &[BeforeRun],
@@ -2334,7 +2336,7 @@ fn engineer_before_problems(
         let name = t["name"].as_str().unwrap_or_default();
         let excused = t["not_before"].as_str().is_some_and(|x| !x.trim().is_empty());
         let changed = run_for(before, name, seps)
-            .filter(|run| !(excused && did_not_run(run, name, seps)))
+            .filter(|run| !(excused && did_not_build(run, name, seps)))
             .map(&changed_since)
             .unwrap_or_default();
         if !changed.is_empty() {
@@ -2370,8 +2372,8 @@ fn files_changed_since(run: &BeforeRun, wt: Option<&Path>, to: &str) -> Vec<Stri
 
 /// Tests whose result before the change, as the latest run of ci_before that reported them gives it, would not count in
 /// a return that names them: the test files that run put on the code before the change changed after it. One entry for
-/// each such run. A test that run did not build or run is among them, since only the return says whether it cannot run
-/// before the change, which would excuse it ([`did_not_run`]); the note's description tells the engineer so.
+/// each such run. A test that run did not build is among them, since only the return says whether it cannot run before
+/// the change, which would excuse it ([`did_not_build`]); the note's description tells the engineer so.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StaleBefore {
     /// The tests the run is the latest to report, which are to be asked again.
@@ -2384,7 +2386,8 @@ pub(crate) struct StaleBefore {
 
 /// The tests asked of the runs of ci_before (`runs`, the latest first) whose latest run, the one [`run_for`] picks as
 /// the check of a return does, is stale by `changed`; grouped by run, the latest run first, the tests in the order they
-/// were first asked. A test no run reported (a row of an engine before the results were read from JUnit) is in none.
+/// were first asked. A test no run reported (a row of an engine before the results were read from JUnit) goes with the
+/// latest run, as adversarial testing's check takes it.
 fn stale_runs(runs: &[BeforeRun], seps: &[String], changed: impl Fn(&BeforeRun) -> Vec<String>) -> Vec<StaleBefore> {
     let mut names: Vec<&str> = Vec::new();
     for run in runs {
@@ -2397,7 +2400,7 @@ fn stale_runs(runs: &[BeforeRun], seps: &[String], changed: impl Fn(&BeforeRun) 
     let mut stale: Vec<Option<StaleBefore>> = runs.iter().map(|_| None).collect();
     let mut checked: Vec<Option<Vec<String>>> = runs.iter().map(|_| None).collect();
     for name in names {
-        let Some(i) = run_index_for(runs, name, seps) else {
+        let Some(i) = run_index_for(runs, name, seps).or((!runs.is_empty()).then_some(0)) else {
             continue;
         };
         let files = checked[i].get_or_insert_with(|| changed(&runs[i]));
@@ -2437,8 +2440,8 @@ pub(crate) fn stale_before_results(
 /// and the tests no run there reported are said in one problem. A result before the change counts only while the files
 /// that run put on the code before the change are as they were (`changed_since` gives those of a run that changed after
 /// its commit): a test whose result comes from a run they changed after is to be run again, and is not compared with
-/// that run, unless it is said cannot_run and that run did not build or run it ([`did_not_run`]). A test no run of
-/// ci_before reported is judged by the latest run's checks alone ([`base_matches_run`]).
+/// that run, unless it is said cannot_run and that run did not build it ([`did_not_build`]). A test no run of ci_before
+/// reported is judged by the latest run: stale by its files, else by its checks alone ([`base_matches_run`]).
 fn results_vs_runs(
     rows: &[Value],
     on_head: &[Value],
@@ -2478,33 +2481,29 @@ fn results_vs_runs(
             )),
             _ => {}
         }
-        let said = t["on_base"].as_str();
-        let Some(run) = run_for(before, name, seps) else {
-            // No run reported the test (a run of an engine before the results were read from JUnit, or a name the
-            // request left out): it is judged by the latest run's checks alone, and no run's files make it stale.
-            if let Some(latest) = before.first() {
-                problems.extend(base_matches_run(name, said, &latest.ran, seps));
+        // A test no run reported (a run of an engine before the results were read from JUnit, or a name the request
+        // left out) is judged by the latest run, as it was when there was one run to look at.
+        if let Some(run) = run_for(before, name, seps).or(before.first()) {
+            let said = t["on_base"].as_str();
+            // A test said cannot_run, which that run did not build, is not sent to run again for a file of that run.
+            let changed = if said == Some("cannot_run") && did_not_build(run, name, seps) {
+                Vec::new()
+            } else {
+                changed_since(run)
+            };
+            if changed.is_empty() {
+                problems.extend(base_matches_run(name, said, &run.ran, seps));
+            } else {
+                let at = run
+                    .head
+                    .as_deref()
+                    .map_or("a commit the worktree lacks", |h| &h[..h.len().min(10)]);
+                problems.push(format!(
+                    "{name}: its result before the change comes from the latest run of ci_before that reported it, at \
+                     {at}, and {} changed after that; {RUN_AGAIN}",
+                    changed.join(", ")
+                ));
             }
-            continue;
-        };
-        // A test said not to run before the change, which that run did not build or run, would give the same again.
-        let changed = if said == Some("cannot_run") && did_not_run(run, name, seps) {
-            Vec::new()
-        } else {
-            changed_since(run)
-        };
-        if changed.is_empty() {
-            problems.extend(base_matches_run(name, said, &run.ran, seps));
-        } else {
-            let at = run
-                .head
-                .as_deref()
-                .map_or("a commit the worktree lacks", |h| &h[..h.len().min(10)]);
-            problems.push(format!(
-                "{name}: its result before the change comes from the latest run of ci_before that reported it, at \
-                 {at}, and {} changed after that; {RUN_AGAIN}",
-                changed.join(", ")
-            ));
         }
     }
     if !unreported_names.is_empty() {
@@ -3969,14 +3968,16 @@ mod tests {
         assert!(results_vs_runs(&rows, &head, &[], &seps(), |_| Vec::new()).is_empty());
     }
 
-    // Trial returns sent back for nothing (308-81, 329-64, 368-28, 368-29): a test that cannot run before the change,
-    // which the run of ci_before whose result counts did not build or run, was sent back to run ci_before again when a
-    // file of that run changed, which gives the same; and a test no run reported was blamed on the latest run's files.
-    // The engineer's test saying why in not_before, and adversarial testing's said cannot_run, are not stale by that run;
-    // one that says neither, or that the run built and ran, still is; and a test no run reported is stale by no run.
-    // The reference is what a new run would give: the same not built or not run for a test that cannot run there.
+    // Trial returns sent back for nothing (308-81, 329-64, 368-28, 368-29): a test that cannot be built before the
+    // change, which the run of ci_before whose result counts did not build, was sent back to run ci_before again when a
+    // file of that run changed; and an engineer's test no run reported was blamed on the latest run's files. The
+    // engineer's test saying why in not_before, and adversarial testing's said cannot_run, are not stale by a run that
+    // did not build them; a test that run skipped, or that says neither, or that the run ran, still is; an engineer's
+    // test no run reported is stale by no run, and adversarial testing's still by the latest run. The note of ci still
+    // lists the test not built, which only the return can excuse. The reference is the settled rule: only a test the
+    // run did not build is excused, since a skipped one can give another result once its files change.
     #[test]
-    fn a_test_that_cannot_run_before_the_change_is_not_stale_by_a_run_that_did_not_run_it() {
+    fn a_test_that_cannot_be_built_before_the_change_is_not_stale_by_a_run_that_did_not_build_it() {
         let ran = json!({
             "checks": [{ "name": "test", "result": "red" }],
             "tests": [
@@ -4003,8 +4004,8 @@ mod tests {
             }
             t
         };
-        // Saying why in not_before: the run did not build `new_api` and did not run `skipped`, so neither is stale;
-        // `old`, which it ran, is; and `gone`, which no run reported, has no run to be stale by.
+        // Saying why in not_before: the run did not build `new_api`, so it is not stale; `skipped`, which the run
+        // skipped, and `old`, which it ran, are; and `gone`, which no run reported, has no run to be stale by.
         let excused = vec![
             engineer("new_api", Some("cannot_run"), Some("it calls what the change adds")),
             engineer("skipped", Some("not_run"), Some("its job stops first")),
@@ -4013,8 +4014,13 @@ mod tests {
         ];
         assert_eq!(
             said(engineer_before_problems(&excused, &runs, &seps(), changed)),
-            [stale("old")]
+            [stale("skipped"), stale("old")]
         );
+        // The note of ci still lists the test the run did not build, which the check takes: only the return says it
+        // cannot run before the change.
+        let noted = stale_runs(&runs, &seps(), changed);
+        assert_eq!(noted.len(), 1, "{noted:?}");
+        assert_eq!(noted[0].tests, ids(&["new_api", "skipped", "old"]));
         // Saying nothing: each test the run reported is stale, and one no run reported has no result before the change.
         let plain = vec![
             engineer("new_api", Some("cannot_run"), None),
@@ -4029,8 +4035,9 @@ mod tests {
                     .to_string()
             ]
         );
-        // Adversarial testing's table: said cannot_run, the test the run did not build or run is not stale; said
-        // otherwise, or a test the run ran, it is.
+        // Adversarial testing's table: said cannot_run, the test the run did not build is not stale; one the run
+        // skipped or ran, or one said otherwise, is; and one no run reported is judged by the latest run, whose file
+        // changed.
         let head = [json!({ "tests": [
             row("new_api", "passed", &[("t", "new_api", "passed")]),
             row("skipped", "passed", &[("t", "skipped", "passed")]),
@@ -4044,29 +4051,27 @@ mod tests {
             json!({ "name": "gone", "on_head": "green", "on_base": "cannot_run" }),
         ];
         let sent_back = said(results_vs_runs(&rows, &head, &runs, &seps(), changed));
-        assert_eq!(sent_back.len(), 1, "{sent_back:?}");
-        assert!(
-            sent_back[0].starts_with("old: its result before the change"),
-            "{sent_back:?}"
-        );
-        let not_said = vec![json!({ "name": "skipped", "on_head": "green", "on_base": "not_run" })];
+        let stale_ones: Vec<&str> = sent_back
+            .iter()
+            .filter(|p| p.contains("its result before the change comes from the latest run of ci_before"))
+            .filter_map(|p| p.split(':').next())
+            .collect();
+        assert_eq!(stale_ones, ["skipped", "old", "gone"], "{sent_back:?}");
+        assert_eq!(sent_back.len(), 3, "{sent_back:?}");
+        let not_said = vec![json!({ "name": "new_api", "on_head": "green", "on_base": "not_run" })];
         let sent_back = said(results_vs_runs(&not_said, &head, &runs, &seps(), changed));
         assert_eq!(sent_back.len(), 1, "{sent_back:?}");
         assert!(
-            sent_back[0].starts_with("skipped: its result before the change"),
+            sent_back[0].starts_with("new_api: its result before the change"),
             "{sent_back:?}"
         );
-        // A test no run reported is still judged by the latest run's checks alone: said red while they are all green.
+        // A test no run reported, whose latest run's files did not change, is judged by that run's checks alone: said
+        // red while they are all green.
         let green = json!({ "checks": [{ "name": "test", "result": "green" }], "tests": [] });
         let unreported = vec![json!({ "name": "gone", "on_head": "green", "on_base": "red" })];
+        let latest = [before_run(green, "bbbbbbbbbbbb", &["t/b.rs"])];
         assert_eq!(
-            said(results_vs_runs(
-                &unreported,
-                &head,
-                &[before_run(green, "bbbbbbbbbbbb", &["t/b.rs"])],
-                &seps(),
-                changed
-            )),
+            said(results_vs_runs(&unreported, &head, &latest, &seps(), |_| Vec::new())),
             ["gone is said to be red before the change, and every check there is green"]
         );
     }

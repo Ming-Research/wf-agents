@@ -16,13 +16,18 @@ with no run of ci_before (D). Do the changed texts and checks remove these, and 
 
 The checks `new_test_results`, `guard_test_results` and `adversarial_test_results` no longer take a result before the
 change for stale when the test says `not_before` (or is said `cannot_run`) and the run of ci_before whose result counts
-did not build or run it, and no longer blame a test no run reported on the latest run's files (Ch1). The texts the cells
-read, each beside its old wording in the pull request: ci's `tests` says only runs on the head handed in count, and T6's
-prompt says to name every test its test changes name (Ch2); `on_base` gives the mapping from ci_before's result to the
-label (Ch3); `test_changes` says a row added or extended is a test ci reports by name (Ch4); T6's prompt says to run
-each test it adds or extends with ci and ci_before (Ch5); `test_name` says a name ends at a test's own name (Ch6); a row
-of ci whose name matched no test says why (Ch7); AGENTS.md, the project guide, says how this project names its tests
-(Ch8).
+did not build it; the engineer's tables no longer blame a test no run reported on the latest run's files, while
+adversarial testing's still does (Ch1). The texts the cells read, each beside its old wording in the pull request: ci's
+`tests` says only runs on the head handed in count, and T6's prompt says to name every test its test changes name (Ch2);
+`on_base` gives the mapping from ci_before's result to the label (Ch3); `test_changes` says a row added or extended is a
+test ci reports by name (Ch4); T6's prompt says to run each test it adds or extends with ci and ci_before (Ch5);
+`test_name` says a name ends at a test's own name (Ch6); a row of ci whose name matched no test says why (Ch7);
+AGENTS.md, the project guide, says how this project names its tests (Ch8).
+
+The replays ran an earlier wording of two texts, which the review then settled: ci's `tests` said "name in the last ci
+before it every test the return names, those of earlier rounds included", and Ch7's why lacked its last clause ("or no
+test so named is in the code it ran"). Ch1 then excused a test the run did not run as well as one it did not build; each
+A1 case below is one it did not build, or one no run reported, so the narrowing changes none of them.
 
 ## 3. How the rounds were run
 

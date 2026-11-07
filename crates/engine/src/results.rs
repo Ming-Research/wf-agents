@@ -160,10 +160,12 @@ fn entry(c: &Case) -> Value {
 }
 
 /// Why a name the run's results hold no test of is not run, when the run built every unit: a name cut before a test's
-/// own name, such as a unit or a module alone, names nothing, and neither does one of a test the run did not reach. Said
-/// in the result, so that the same name is not asked again in another run of the fast CI.
+/// own name, such as a unit or a module alone, names nothing, and neither does one of a test the run did not reach or
+/// that the code it ran does not hold. Said in the result, so that the same name is not asked again in another run of
+/// the fast CI.
 const NAMES_NONE: &str = "no test the run reported is named so: a name ends at a test's own name, and a unit, a module \
-                          or a group of tests alone names none; or the run did not reach it";
+                          or a group of tests alone names none; or the run did not reach it; or no test so named is \
+                          in the code it ran";
 
 /// What became of each test named (`tests`, as the request wrote each), one row each, from what the run reported
 /// (`run`), or unread with why when it could not be read; `seps` are the project's separators. A row lists the tests
@@ -512,9 +514,9 @@ error[E0599]: no method named `rounds_mark` found
     }
 
     // A name cut before a test's own name, as agents asked of the fast CI: a unit, a module, a file or a describe alone,
-    // or any of these ending in a separator, names no test of a run that built every unit; its row is not run and says
-    // why, so that the same name is not asked again. The reference is the name rule ([`test_name::names`]): a name
-    // ends at a test's own name.
+    // or any of these ending in a separator, names no test of a run that built every unit; nor does the whole name of a
+    // test the code the run ran does not hold. Each row is not run and says why, so that the same name is not asked
+    // again. The reference is the name rule ([`test_name::names`]): a name ends at a test's own name.
     #[test]
     fn a_name_cut_before_a_test_s_own_name_names_none_and_its_row_says_why() {
         let run = Run {
@@ -531,6 +533,8 @@ error[E0599]: no method named `rounds_mark` found
             "a page",
             "a page > ",
             "src/page.test.ts > a page",
+            "engine::e2e a_row_the_code_does_not_hold",
+            "a page > shows what the code does not hold",
         ]);
         for row in rows(&cut, Ok(&run), &seps()) {
             assert_eq!(
@@ -547,6 +551,10 @@ error[E0599]: no method named `rounds_mark` found
         );
         assert!(whole.iter().all(|r| r.get("why").is_none()), "{whole:?}");
         assert_eq!(whole[1]["result"], "passed");
+        assert!(
+            NAMES_NONE.ends_with("; or no test so named is in the code it ran"),
+            "{NAMES_NONE}"
+        );
     }
 
     // The files wf-agents' own fast CI uploaded on a run where a test file did not compile and a page test failed (#269),
