@@ -41,13 +41,10 @@ const CANDIDATE_PINS: &[(&str, &str)] = &[
     ("core.hooksPath", "/dev/null"),
     ("core.fsmonitor", "false"),
     ("core.sshCommand", "ssh"),
-    ("core.gitProxy", ""),
     ("core.attributesFile", "/dev/null"),
     ("attr.tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
     ("credential.helper", ""),
     ("protocol.ext.allow", "never"),
-    ("remote.origin.uploadpack", "git-upload-pack"),
-    ("remote.origin.receivepack", "git-receive-pack"),
     ("commit.gpgsign", "false"),
 ];
 
@@ -363,18 +360,35 @@ impl Fixture {
 /// program that ran and failed has run.
 fn plain_steps(fx: &Fixture, label: &str, work: &Path, pins: &[(&str, &str)]) {
     let attempt = |dir: &Path, args: &[&str]| {
-        let _ = Command::new("git")
+        let mut command = Command::new("git");
+        command
             .arg("-C")
             .arg(dir)
             .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-            .args(pins.iter().flat_map(|(k, v)| ["-c".to_string(), format!("{k}={v}")]))
-            .args(args)
-            .output()
-            .unwrap();
+            .args(pins.iter().flat_map(|(k, v)| ["-c".to_string(), format!("{k}={v}")]));
+        // `core.gitProxy` is read after the environment's `GIT_PROXY_COMMAND` and only if that is unset, and the first
+        // value in the configuration wins: an empty variable is what stops the program.
+        if !pins.is_empty() {
+            command.env("GIT_PROXY_COMMAND", "");
+        }
+        let _ = command.args(args).output().unwrap();
+    };
+    // The programs on the other side of a fetch and a push, named on the command line, which outranks the remote's
+    // configuration.
+    let (upload, receive) = if pins.is_empty() {
+        ("-q", "-q")
+    } else {
+        ("--upload-pack=git-upload-pack", "--receive-pack=git-receive-pack")
     };
     attempt(
         work,
-        &["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"],
+        &[
+            "fetch",
+            upload,
+            "-q",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+        ],
     );
     attempt(work, &["merge", "--no-edit", "-q", "origin/main"]);
     attempt(work, &["status", "--porcelain"]);
@@ -389,8 +403,14 @@ fn plain_steps(fx: &Fixture, label: &str, work: &Path, pins: &[(&str, &str)]) {
         work,
         &[&["diff"], flags, &[&format!("{}..origin/main", fx.first)]].concat(),
     );
-    attempt(work, &["push", "-q", "origin", &format!("HEAD:refs/heads/{label}")]);
-    attempt(work, &["push", "-q", "origin", &format!(":refs/heads/{label}")]);
+    attempt(
+        work,
+        &["push", receive, "-q", "origin", &format!("HEAD:refs/heads/{label}")],
+    );
+    attempt(
+        work,
+        &["push", receive, "-q", "origin", &format!(":refs/heads/{label}")],
+    );
     let fresh = fx.root.join(format!("worktree-{label}-fresh"));
     attempt(
         &fx.checkout,
