@@ -306,3 +306,58 @@ describe('Space on the flow page, in a real browser', () => {
     }
   });
 });
+
+/// What Space did, from the page's side: whether the page took the key, whether the drawing moved, and where the
+/// keyboard focus was.
+async function press() {
+  const before = seen();
+  const n = keys.length;
+  await userEvent.keyboard(' ');
+  const on = document.activeElement;
+  await settle();
+  return {
+    saw: keys.length > n,
+    prevented: keys[n]?.prevented ?? false,
+    moved: !unmoved(before),
+    focus: on === null ? 'none' : `${on.tagName}.${on.className}`,
+  };
+}
+
+// Situations the owner reports (#302) that the tests above do not walk: a click on the chart, the pointer leaving the
+// chart and coming back, and the page told that the pointer left the window.
+describe('Space on the flow page after the pointer has been moved about, in a real browser', () => {
+  const works = { saw: true, prevented: true, moved: true };
+
+  it('works after a click on a cell', async () => {
+    await openFlowPage();
+    await userEvent.click(cellNearTop());
+    await settle();
+    expect(whole()).toBe(false);
+    expect(await press()).toMatchObject(works);
+  });
+
+  it('works after the pointer goes off the chart and back', async () => {
+    await openFlowPage();
+    await userEvent.hover(cellNearTop());
+    await userEvent.hover(find('.flow-tools'));
+    await userEvent.hover(cellNearTop());
+    expect(await press()).toMatchObject(works);
+  });
+
+  it('works after a click and then the pointer going off the chart and back', async () => {
+    await openFlowPage();
+    await userEvent.click(cellNearTop());
+    await settle();
+    await userEvent.hover(find('.flow-tools'));
+    await userEvent.hover(find('.viewer'));
+    expect(await press()).toMatchObject(works);
+  });
+
+  it('works after the page is told the pointer left the window and the pointer then moves', async () => {
+    await openFlowPage();
+    await userEvent.hover(cellNearTop());
+    document.documentElement.dispatchEvent(new PointerEvent('pointerleave'));
+    await userEvent.hover(find('.viewer'));
+    expect(await press()).toMatchObject(works);
+  });
+});
