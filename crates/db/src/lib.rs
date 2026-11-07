@@ -2847,17 +2847,14 @@ mod tests {
         assert_eq!(pair("SELECT acceptance_work, acceptance_round FROM items"), (1, 2));
         assert_eq!(pair("SELECT work, taken_round FROM line_sayings"), (2, 1));
         assert_eq!(pair("SELECT work, round FROM design_cards"), (1, 1));
-        // Design cards and asks of the owner are apart, with their ids; the ask a failed run raised is closed, and
-        // its work goes on.
+        // Design cards and asks of the owner are apart, the cards with their ids and the asks, messages now, in their
+        // order; the ask a failed run raised (the second) is closed, and its work goes on.
         let ids = |q: &str| -> Vec<i64> {
             let mut st = old.conn().prepare(q).unwrap();
             st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
         };
         assert_eq!(ids("SELECT id FROM design_cards"), [2]);
-        // The asks are messages now, numbered after the hub's other messages: each by its place among the asks.
-        let place = "SELECT n FROM (SELECT row_number() OVER (ORDER BY id) AS n, answer FROM work_asks) WHERE ";
-        assert_eq!(ids(&format!("{place}answer IS NULL")), [1]);
-        assert_eq!(ids(&format!("{place}answer IS NOT NULL")), [3]);
+        assert_eq!(ids("SELECT answer IS NOT NULL FROM work_asks ORDER BY id"), [0, 1]);
         assert_eq!(ids("SELECT id FROM works WHERE paused IS NOT NULL"), Vec::<i64>::new());
         let broken: i64 = old
             .conn()
