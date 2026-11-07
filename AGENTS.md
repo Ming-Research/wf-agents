@@ -53,18 +53,25 @@ What an agent needs to know for this repository, beyond the rules every agent is
 ## The design tree
 
 `design/` holds wf-agents' design decisions by category: `x.md` holds x's decisions, `x/` its sub-decisions, level by
-level. Before changing something, walk down to it from `design/wf-agents.md`, reading each file on the way.
+level. A decision is placed at the most specific node whose whole subject it governs; one that governs two siblings goes
+to their parent. Each decision then has one place to be found and one to be changed, and two places for one decision
+drift apart. Before changing something, walk down to it from `design/wf-agents.md`, reading each file on the way.
 
-The tree goes ahead of the code: where they differ, the code is behind. Fix it if it is at hand, or tell the architect;
-neither holds up the work in hand, and a review holds no merge for an old gap. Code that looks deliberate goes to the
-architect unchanged.
+The tree goes ahead of the code: where they differ, the code is behind. Nothing records how far behind: a mark of what
+the code lacks would itself fall behind, and the tree, holding what is done or where it is going, needs none. Fix it if
+it is at hand, or tell the architect; neither holds up the work in hand, and a review holds no merge for an old gap.
+Code that looks deliberate goes to the architect unchanged.
 
 The tree changes only by entries the owner confirmed: the assistant writes those confirmed in the owner's chat, and an
 engineer, in its work, those the owner answered yes to on its ask; what needs recording elsewhere comes back to that
-chat. It records only what is implemented or going to be. For what is going to be, it first walks the tree for
-contradictions; if that is too much work, it opens a deep research and writes nothing yet. Changing means rewriting and
-not wanting means deleting, the commit saying why; the past is in git.
+chat. It records only what is implemented or going to be. Before the tree changes, the decisions the change touches are
+found and read: a cheap model may narrow where to look, quoting what it finds, and the one changing the tree judges;
+where that is too much work, a deep research is opened and nothing is written yet. Changes made without that left
+contradictions for later reviews to find. Changing means rewriting and not wanting means deleting, the commit saying
+why; the past is in git.
 
-A decision is a short paragraph: what, then why, failed paths included. "The owner said" is no reason; with no reason it
-does not enter, and none is invented. No code names, cell ids, progress, or words bound to when it was written. Longer
-background stays in the item.
+A decision is a cause and what follows from it, in a short paragraph: because of what, what is done, with the paths that
+failed. Its reasons go back to the constitution where they can, and where they cannot they are still given, so that a
+later change can judge whether they still hold. An intent of the owner's is a reason for a decision, never a decision by
+itself; "the owner said" is no reason. With no reason a decision does not enter, and none is invented. No code names,
+cell ids, progress, or words bound to when it was written. Longer background stays in the item.

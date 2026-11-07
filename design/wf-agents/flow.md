@@ -32,8 +32,17 @@
   itself enlarges the input of all. A tool for each kind of lookup was dropped: what such tools read, the general query
   and git read too, and each was one more piece of schema.
 
-- What an agent writes for the owner to read is in the owner's language, as the installation sets it, with technical
-  terms in their English original. The owner reads it to judge.
+- A cheap model's cell finds and reads the decisions a question touches, for an engineer, an architect or the assistant,
+  quoting them and judging nothing. Reading the whole tree each time costs too much, and a model that judged would put
+  its reading in place of the decisions.
+
+- The flow's definition holds what agents are told and what the chart shows of what the flow does; why it is so is in
+  the design tree, and an instruction does not carry its reasons. Text that reaches no agent and shows on no chart is
+  not kept, and the compiler refuses it, as it refuses a field nothing reads. Reasons kept in the definition were sent
+  to agents every round and drifted from the tree's.
+
+- What an agent writes for the owner to read is in the owner's language, as the installation sets it, and English where
+  it sets none, with technical terms in their English original. The owner reads it to judge.
 
 - The language a field of a return is written in is said in the return's schema and in no rule, since an agent writes a
   field by its description.
