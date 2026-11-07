@@ -15,8 +15,8 @@ use serde_json::Value;
 
 use crate::read::{self, Error, Flows};
 use crate::{
-    Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Gap, Handled, MadeThing,
-    MatterProgress, Misses, PlanChange, Retract, ReviewFindings, StageCard, StageNote, WordsState,
+    Conversation, ConversationDetail, ConversationEntry, Gap, Handled, MadeThing, MatterProgress, Misses, Passed,
+    PlanChange, Retract, ReviewFindings, StageCard, StageNote, WordsState,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -28,13 +28,15 @@ pub const CONVERSATION_WINDOW: usize = 100;
 pub const CONVERSATION_WINDOW_MOST: usize = 1000;
 
 /// What the conversations need of the configuration: its projects, in order, the groups of two projects or more it
-/// connects through each project's `other_projects`, and how long, in milliseconds, an architect waits for the owner's
-/// reply to the question it put last (`agents.owner_reply_wait`).
+/// connects through each project's `other_projects`, how long, in milliseconds, an architect waits for the owner's
+/// reply to the question it put last (`agents.owner_reply_wait`), and the project wf-agents is built from, whose
+/// architect alone a fault of wf-agents is passed on to.
 #[derive(Debug, Clone, Default)]
 pub struct Talks {
     pub projects: Vec<String>,
     pub sets: Vec<Vec<String>>,
     pub reply_wait: i64,
+    pub wf_agents: Option<String>,
 }
 
 impl Talks {
@@ -67,6 +69,7 @@ impl Talks {
             reply_wait: i64::try_from(c.install.agents.owner_reply_wait)
                 .unwrap_or(i64::MAX / 1000)
                 .saturating_mul(1000),
+            wf_agents: c.wf_agents_project(),
         }
     }
 
@@ -283,7 +286,7 @@ pub fn conversation(
                 answerable: r.get(16)?,
                 fault: r.get(17)?,
                 misses: None,
-                forwards: Vec::new(),
+                passed: Vec::new(),
                 images: Vec::new(),
                 ask_detail: None,
                 stage: None,
@@ -308,7 +311,7 @@ pub fn conversation(
         said_at_once(&mut entries);
     }
     misses(conn, &mut entries)?;
-    forwards(conn, &mut entries)?;
+    passed(conn, &mut entries)?;
     words_states(conn, &mut entries)?;
     crate::retract::states(conn, &mut entries)?;
     images(conn, &mut entries)?;
@@ -412,14 +415,7 @@ pub fn conversation(
         questions,
         waits_on,
         read_to,
-        forwarding: if key == "wf-agents" {
-            Some(Forwarding {
-                projects: t.projects.clone(),
-                auto: db::fault_forwarding(conn).map_err(|e| Error::Failed(e.to_string()))?,
-            })
-        } else {
-            None
-        },
+        pass_to: if key == "wf-agents" { t.wf_agents.clone() } else { None },
         gaps,
     })
 }
@@ -651,7 +647,7 @@ fn blank() -> ConversationEntry {
         answerable: false,
         fault: None,
         misses: None,
-        forwards: Vec::new(),
+        passed: Vec::new(),
         images: Vec::new(),
         ask_detail: None,
         stage: None,
@@ -663,11 +659,11 @@ fn blank() -> ConversationEntry {
     }
 }
 
-/// The cache misses each notice of a fault of that kind holds.
+/// The cache misses each message of a fault of that kind holds.
 fn misses(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
     let mut tally = conn.prepare(
         "SELECT count(*), coalesce(sum(c.written), 0), coalesce(sum(c.cost_usd), 0.0), max(r.started_at)
-         FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round WHERE c.notice = ?1",
+         FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round WHERE c.message = ?1",
     )?;
     for e in entries.iter_mut().filter(|e| e.source == "notice" && e.fault.is_some()) {
         let m = tally.query_row([e.id], |r| {
@@ -683,19 +679,19 @@ fn misses(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
     Ok(())
 }
 
-/// Where each notice of a fault of wf-agents went: the architects it was forwarded to, in the order it went, by whom,
+/// Where each message of a fault of wf-agents went: the architects it was passed on to, in the order it went, by whom,
 /// and how the matter it became stands with each.
-fn forwards(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
+fn passed(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
     let mut st = conn.prepare(
-        "SELECT project, coalesce(json_extract(body, '$.by'), 'owner'), id,
-           CASE WHEN handled_round IS NOT NULL THEN 'handled' WHEN withdrawn IS NOT NULL THEN 'withdrawn'
+        "SELECT m.project, coalesce(json_extract(m.body, '$.by'), 'owner'), m.id,
+           CASE WHEN m.handled_round IS NOT NULL THEN 'handled' WHEN m.withdrawn IS NOT NULL THEN 'withdrawn'
                 ELSE 'queued' END,
-           handled_work, handled_round
-         FROM architect_matters WHERE notice = ?1 ORDER BY id",
+           m.handled_work, m.handled_round
+         FROM deliveries d JOIN architect_matters m ON m.id = d.matter WHERE d.message = ?1 ORDER BY m.id",
     )?;
     for e in entries.iter_mut().filter(|e| e.source == "notice" && e.fault.is_some()) {
         let rows = st.query_map([e.id], |r| {
-            Ok(Forwarded {
+            Ok(Passed {
                 project: r.get(0)?,
                 by: r.get(1)?,
                 matter: r.get(2)?,
@@ -704,7 +700,7 @@ fn forwards(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> 
                 handled_round: r.get(5)?,
             })
         })?;
-        e.forwards = rows.collect::<db::rusqlite::Result<_>>()?;
+        e.passed = rows.collect::<db::rusqlite::Result<_>>()?;
     }
     Ok(())
 }
@@ -944,8 +940,10 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
             .and_then(|r| r.note.clone());
         Some(note.unwrap_or_else(|| row.replace('_', " ")))
     };
-    let mut st = conn
-        .prepare("SELECT text, at FROM engine_notices WHERE work = ?1 AND ask IS NULL AND fault IS NULL ORDER BY id")?;
+    let mut st = conn.prepare(
+        "SELECT m.text, m.at FROM messages m JOIN deliveries d ON d.message = m.id AND d.recipient = 'owner'
+         WHERE m.work = ?1 AND m.sender = 'engine' AND m.ask IS NULL ORDER BY m.id",
+    )?;
     let notices: Vec<(String, i64)> = st
         .query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<db::rusqlite::Result<_>>()?;

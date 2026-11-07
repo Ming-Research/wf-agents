@@ -14,7 +14,7 @@ use db::Actor;
 use db::rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
-use crate::hub::{self, CheckRun, Failure};
+use crate::github::{self, CheckRun, Failure};
 use crate::inputs::Gathered;
 use crate::work::{self, Item, RoundId, Work};
 use crate::{Engine, git, results};
@@ -271,7 +271,7 @@ fn work_full_checks(e: &Engine, project: &config::Project, branch: &str, sha: &s
 /// The latest run of each of the project's own full workflows on a commit, read when it is there, and, given the
 /// branch the commit is the head of and the project's CI running on demand, made when it is not.
 fn full_checks_on(
-    github: &dyn hub::GitHub,
+    github: &dyn github::GitHub,
     project: &config::Project,
     sha: &str,
     branch: Option<&str>,
@@ -337,7 +337,7 @@ fn again_with_main_ci<T>(
     let Some(at) = with_main_ci(project, wt, commit, own, tag)? else {
         return Err(refused);
     };
-    hub::push(wt, &at, refname, true)?;
+    github::push(wt, &at, refname, true)?;
     run(&at).map_err(|again| {
         if again.kind != "rejected" {
             return again;
@@ -380,7 +380,7 @@ fn no_run_on_before_branch(f: Failure) -> Failure {
 /// the tests `listed` that the engine makes by hand where the workflow takes them (`named` is its input), else the
 /// run the push of the commit made.
 fn before_checks(
-    github: &dyn hub::GitHub,
+    github: &dyn github::GitHub,
     project: &config::Project,
     branch: &str,
     commit: &str,
@@ -405,7 +405,7 @@ fn before_checks(
 /// demand, and then only the run of that workflow this made, never one that was there before, or no run and no check
 /// when neither is named; else the run the push of the commit made, the whole of the fast CI.
 fn fast_checks(
-    github: &dyn hub::GitHub,
+    github: &dyn github::GitHub,
     project: &config::Project,
     branch: &str,
     sha: &str,
@@ -548,7 +548,7 @@ fn record_push(e: &mut Engine, w: &Work, head: Option<&str>, pr: Option<i64>) ->
 /// checks is of; unread, with why, when the project names no results, the run has no job or uploaded no such artifact,
 /// or it could not be fetched or read. Nothing is fetched when no test is named.
 fn named_results(
-    github: &dyn hub::GitHub,
+    github: &dyn github::GitHub,
     project: &config::Project,
     checks: &[CheckRun],
     tests: &[String],
@@ -971,7 +971,7 @@ fn ci(
     // first push of a commit of the work's own opens it. One open already stays the work's, whatever the branch holds.
     let own_commit = !git::is_ancestor(&wt, &sha, &format!("origin/{}", project.main));
     let got = attempts(e, round, "ci", req, |e| {
-        hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
+        github::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
         told(&sha);
         if pr.get().is_some() || own_commit {
             let tb = title_body
@@ -991,7 +991,7 @@ fn ci(
             }
             // A pull request that was open already, one a work took over among them, keeps the base it was opened
             // with.
-            hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
+            github::ensure_base(e.github(), &repo(project), n, &project.main)?;
         }
         let (ran, ci_files) = match fast_checks(e.github(), project, &branch, &sha, &tests, &checks) {
             // A branch made before main's fast workflow took the request: the head runs with main's CI files, on a
@@ -1005,7 +1005,7 @@ fn ci(
                 let again = again_with_main_ci(project, &wt, &sha, true, &tag, &main_ci_ref, refused, |at| {
                     fast_checks(e.github(), project, &main_ci, at, &tests, &checks)
                 });
-                let _ = hub::delete_ref(&wt, &main_ci_ref);
+                let _ = github::delete_ref(&wt, &main_ci_ref);
                 (again, Some(note))
             }
             ran => (ran, None),
@@ -1064,7 +1064,7 @@ const GENERATED: &str = "What the run generated from your head, put in your work
 /// path in the repository. None when the run is green, the project names no such artifact, the run has none, or each
 /// of its files is as the worktree has it; what could not be fetched or written is said.
 fn generated(
-    github: &dyn hub::GitHub,
+    github: &dyn github::GitHub,
     repo: &str,
     artifact: Option<&str>,
     checks: &[CheckRun],
@@ -1210,7 +1210,7 @@ fn ci_before(
     let recorded = recorded_request(req, &sha);
     attempts(e, round, "ci_before", &recorded, |e| {
         let commit = git::files_onto(&wt, &files, &sha, &base, &tag).map_err(Failure::other)?;
-        hub::push(&wt, &commit, &refname, true)?;
+        github::push(&wt, &commit, &refname, true)?;
         let mut ran = before_checks(e.github(), project, &branch, &commit, named, &listed);
         // The code before the change of a branch made before main's fast workflow took the request runs with main's CI
         // files, on the same temporary branch.
@@ -1228,12 +1228,12 @@ fn ci_before(
         if let Err(f) = &ran
             && f.kind == "rejected"
         {
-            let _ = hub::delete_ref(&wt, &refname);
+            let _ = github::delete_ref(&wt, &refname);
             return Ok(json!({ "ran": { "verdict": "refused", "why": format!(
                 "GitHub refused to run {}: {}", project.ci.fast, f.what
             ) } }));
         }
-        let _ = hub::delete_ref(&wt, &refname);
+        let _ = github::delete_ref(&wt, &refname);
         let checks = ran?;
         let mut ran = json!({
             "verdict": "ran",
@@ -1306,7 +1306,7 @@ fn save_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// it: the log of each of its jobs, and, when the workflow names an artifact it uploads, the files of that. Gives the
 /// paths saved, and what could not be fetched or written.
 fn keep_measurement(
-    github: &dyn hub::GitHub,
+    github: &dyn github::GitHub,
     dir: &Path,
     repo: &str,
     artifact: Option<&str>,
@@ -1321,7 +1321,7 @@ fn keep_measurement(
             .collect();
         let path = dir.join(format!("job-{}-{name}.log", i + 1));
         match github.job_log(repo, c) {
-            Ok(log) => match save_file(&path, hub::clean_log(&log).as_bytes()) {
+            Ok(log) => match save_file(&path, github::clean_log(&log).as_bytes()) {
                 Ok(()) => kept.push(path.display().to_string()),
                 Err(x) => missed.push(format!("the log of {} could not be saved: {x}", c.name)),
             },
@@ -1406,7 +1406,7 @@ fn measure(
         let ran = if dispatched {
             e.github().checks(&repo(project), &at, &wf.workflow)
         } else {
-            hub::push(&wt, &at, &refname, true)
+            github::push(&wt, &at, &refname, true)
                 .and_then(|()| e.github().dispatch(&repo(project), &wf.workflow, &branch, &inputs))
                 .and_then(|()| {
                     dispatched = true;
@@ -1463,7 +1463,7 @@ fn measure(
         Ok(json!({ "push": push }))
     });
     // The run is over, or did not come, or no try will: the ref has served.
-    let _ = hub::delete_ref(&wt, &refname);
+    let _ = github::delete_ref(&wt, &refname);
     got
 }
 
@@ -1639,7 +1639,8 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     // Nothing below applies to a merged PR: catching up with main can conflict, the full CI has nothing to guard, a stop
     // cannot undo the merge, and the merge call is refused.
     let merged = attempts(e, round, "merge", &json!({ "pr": pr }), |e| {
-        hub::merged_on(e.github(), &repo(&project), pr, &project.main).map(|sha| sha.map_or(Value::Null, Value::String))
+        github::merged_on(e.github(), &repo(&project), pr, &project.main)
+            .map(|sha| sha.map_or(Value::Null, Value::String))
     });
     match merged {
         Ok(Value::String(sha)) => return Ok(json!({ "result": { "kind": "merged", "merge_commit": sha } })),
@@ -1655,7 +1656,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     let waited = json!({ "step": health::FULL_CI_STEP, "head": head, "pr": pr });
     let checked = attempts(e, round, "merge", &waited, |e| {
         if w.pushed_head.as_deref() != Some(head.as_str()) {
-            hub::push(&wt, &head, &format!("refs/heads/{branch}"), false)?;
+            github::push(&wt, &head, &format!("refs/heads/{branch}"), false)?;
         }
         Ok(checks_json(&work_full_checks(e, &project, &branch, &head)?))
     });
@@ -1688,7 +1689,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
     match attempts(e, round, "merge", &json!({ "head": head, "pr": pr }), |e| {
-        hub::merge_into(e.github(), &repo(&project), pr, &project.main).map(Value::String)
+        github::merge_into(e.github(), &repo(&project), pr, &project.main).map(Value::String)
     }) {
         Ok(Value::String(sha)) => Ok(json!({ "result": { "kind": "merged", "merge_commit": sha } })),
         Ok(other) => Err(format!("the merge gave {other}")),
@@ -1838,11 +1839,11 @@ mod tests {
     /// an artifact; its jobs have a log, but the job `unreadable`'s, and it is asked for nothing else.
     struct OneArtifact {
         name: &'static str,
-        files: Vec<hub::ArtifactFile>,
+        files: Vec<github::ArtifactFile>,
         asked: std::sync::atomic::AtomicUsize,
     }
 
-    impl hub::GitHub for OneArtifact {
+    impl github::GitHub for OneArtifact {
         fn pull_request(
             &self,
             _repo: &str,
@@ -1902,7 +1903,7 @@ mod tests {
             _repo: &str,
             _check: &CheckRun,
             name: &str,
-        ) -> Result<Option<Vec<hub::ArtifactFile>>, Failure> {
+        ) -> Result<Option<Vec<github::ArtifactFile>>, Failure> {
             self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok((name == self.name).then(|| self.files.clone()))
         }
@@ -1918,7 +1919,7 @@ mod tests {
         std::fs::create_dir_all(wt.join("client/src")).unwrap();
         std::fs::write(wt.join("client/src/api.ts"), "export type A = { a: number, };\n").unwrap();
         std::fs::write(wt.join("same.txt"), "same\n").unwrap();
-        let hub = OneArtifact {
+        let github = OneArtifact {
             name: "generated",
             files: vec![
                 (
@@ -1939,12 +1940,12 @@ mod tests {
         };
         let green = [check("green")];
         let red = [check("green"), check("red")];
-        assert_eq!(generated(&hub, "o/r", Some("generated"), &green, &wt), None);
-        assert_eq!(generated(&hub, "o/r", None, &red, &wt), None);
-        assert_eq!(hub.asked.load(std::sync::atomic::Ordering::SeqCst), 0);
-        assert_eq!(generated(&hub, "o/r", Some("other"), &red, &wt), None);
+        assert_eq!(generated(&github, "o/r", Some("generated"), &green, &wt), None);
+        assert_eq!(generated(&github, "o/r", None, &red, &wt), None);
+        assert_eq!(github.asked.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(generated(&github, "o/r", Some("other"), &red, &wt), None);
         assert_eq!(
-            generated(&hub, "o/r", Some("generated"), &red, &wt),
+            generated(&github, "o/r", Some("generated"), &red, &wt),
             Some(json!({ "files": ["client/src/api.ts"], "note": GENERATED }))
         );
         assert_eq!(
@@ -1952,7 +1953,7 @@ mod tests {
             "export type A = { a: string, };\n"
         );
         // Once they are there, nothing differs.
-        assert_eq!(generated(&hub, "o/r", Some("generated"), &red, &wt), None);
+        assert_eq!(generated(&github, "o/r", Some("generated"), &red, &wt), None);
         let _ = std::fs::remove_dir_all(&wt);
     }
 
@@ -2015,7 +2016,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("wf-agents-measurement-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let dir = root.join("run");
-        let hub = OneArtifact {
+        let github = OneArtifact {
             name: "measurement",
             files: vec![
                 ("pairs.tsv".to_string(), b"1\t2\n".to_vec()),
@@ -2033,7 +2034,7 @@ mod tests {
             skipped: false,
         };
         let checks = [check("measure it"), check("unreadable")];
-        let (kept, missed) = keep_measurement(&hub, &dir, "o/r", Some("measurement"), &checks);
+        let (kept, missed) = keep_measurement(&github, &dir, "o/r", Some("measurement"), &checks);
         let at = |rel: &str| dir.join(rel).display().to_string();
         assert_eq!(
             kept,
@@ -2059,12 +2060,12 @@ mod tests {
         assert!(missed[1].contains("../escape.txt"), "{missed:?}");
         assert!(!root.join("escape.txt").exists() && !dir.join("escape.txt").exists());
         // An artifact the run did not upload is said; a workflow naming none asks for none.
-        let (kept, missed) = keep_measurement(&hub, &dir, "o/r", Some("other"), &checks[..1]);
+        let (kept, missed) = keep_measurement(&github, &dir, "o/r", Some("other"), &checks[..1]);
         assert_eq!(kept, [at("job-1-measure-it.log")]);
         assert_eq!(missed, ["the run uploaded no artifact other"]);
-        let before = hub.asked.load(std::sync::atomic::Ordering::SeqCst);
-        keep_measurement(&hub, &dir, "o/r", None, &checks[..1]);
-        assert_eq!(hub.asked.load(std::sync::atomic::Ordering::SeqCst), before);
+        let before = github.asked.load(std::sync::atomic::Ordering::SeqCst);
+        keep_measurement(&github, &dir, "o/r", None, &checks[..1]);
+        assert_eq!(github.asked.load(std::sync::atomic::Ordering::SeqCst), before);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -2260,7 +2261,7 @@ mod ci_on_demand {
         /// as a push to a branch the workflow runs on does.
         on_push: BTreeMap<String, Made>,
         /// The files of the artifact of test results ([`RESULTS`]) every run has; none, and no run has one.
-        reports: Option<Vec<hub::ArtifactFile>>,
+        reports: Option<Vec<github::ArtifactFile>>,
         /// What GitHub says in refusing every request to run a workflow by hand, when it does.
         rejects: Option<String>,
         /// The head of a branch, where no repository tells.
@@ -2425,7 +2426,7 @@ mod ci_on_demand {
         }
     }
 
-    impl hub::GitHub for Runs {
+    impl github::GitHub for Runs {
         fn pull_request(
             &self,
             _repo: &str,
@@ -2500,7 +2501,7 @@ mod ci_on_demand {
             _repo: &str,
             _check: &CheckRun,
             name: &str,
-        ) -> Result<Option<Vec<hub::ArtifactFile>>, Failure> {
+        ) -> Result<Option<Vec<github::ArtifactFile>>, Failure> {
             Ok(self.state().reports.clone().filter(|_| name == RESULTS))
         }
 

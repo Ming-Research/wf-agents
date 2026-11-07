@@ -116,7 +116,7 @@ const entry = (id: number, extra: Partial<ConversationEntry> = {}): Conversation
   retract: 'no',
   policy: null,
   plan: null,
-  forwards: [],
+  passed: [],
   images: [],
   ...extra,
 });
@@ -128,7 +128,7 @@ const detail = (key: string, entries: ConversationEntry[], gaps: ConversationDet
   design_cards: [],
   questions: [],
   waits_on: null,
-  forwarding: null,
+  pass_to: null,
   // Everything is read, so that opening it posts nothing and reads nothing again.
   read_to: 1_000_000,
   gaps,

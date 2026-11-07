@@ -1,5 +1,5 @@
 //! What the engine does with git in a project's clone and a work's worktree. Everything here is local; pushing and
-//! everything on GitHub go through [`crate::hub::GitHub`]; setting a worktree up and removing it are the session
+//! everything on GitHub go through [`crate::github::GitHub`]; setting a worktree up and removing it are the session
 //! manager's ([`sessions::worktree`]).
 
 use std::collections::BTreeSet;

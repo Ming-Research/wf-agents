@@ -2104,9 +2104,9 @@ fn ask(
             }
             let told = format!("{text} (ask {id})");
             if anomaly {
-                actions::notify_fault_ask(tx, w.id, id, crate::faults::FLOW_ANOMALY, &told)
+                crate::hub::fault_ask(tx, w.id, id, crate::faults::FLOW_ANOMALY, &told)
             } else {
-                actions::notify_ask(tx, w.id, id, &told)
+                crate::hub::tell_of_ask(tx, w.id, id, &told)
             }
             .map_err(db::Error::Abort)?;
             Ok(id)

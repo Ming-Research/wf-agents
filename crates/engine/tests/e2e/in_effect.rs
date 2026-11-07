@@ -355,9 +355,11 @@ fn a_condition_that_does_not_hold_is_reported_urgent_only_when_it_does_harm_now(
         assert_eq!((kind.as_str(), of_item, queued_urgent), ("report", item, urgent));
         let told: i64 =
             e.db.conn()
-                .query_row("SELECT count(*) FROM owner_messages WHERE work = ?1", [work], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT count(*) FROM messages WHERE sender <> 'engine' AND work = ?1",
+                    [work],
+                    |r| r.get(0),
+                )
                 .unwrap();
         assert_eq!(told, 1);
         step_to(&mut e, item, "E1");

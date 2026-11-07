@@ -72,67 +72,20 @@ pub(crate) fn outbox(tx: &Transaction<'_>, work: Option<i64>, kind: &str, args: 
     Ok(())
 }
 
-/// Tells the owner something: kept for the owner's interface in the same transaction, and written to the
-/// notifications log through the outbox.
-pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(), String> {
-    tell(tx, work, None, None, text).map(|_| ())
-}
-
 /// Writes to the notifications log alone, through the outbox, what the owner's page says in its own place and keeps no
-/// notice of: a decision card waiting, new or replacing another, which the card pinned in the work's group and the bubble
-/// of the stage that handed it in say, and a work ready to merge but held, which the group's head says.
+/// message of: a decision card waiting, new or replacing another, which the card pinned in the work's group and the
+/// bubble of the stage that handed it in say, and a work ready to merge but held, which the group's head says.
 pub(crate) fn log_only(tx: &Transaction<'_>, work: i64, text: &str) -> Result<(), String> {
     outbox(tx, Some(work), "notify", &json!({ "text": text }))
 }
 
-/// Tells the owner of a new ask of the owner, the notice naming the ask for the owner's interface to link to.
-pub fn notify_ask(tx: &Transaction<'_>, work: i64, ask: i64, text: &str) -> Result<(), String> {
-    tell(tx, Some(work), Some(ask), None, text).map(|_| ())
-}
-
-/// Tells the owner of a new ask of the owner that reports a fault of wf-agents, the notice naming the ask and the kind
-/// of fault.
-pub fn notify_fault_ask(tx: &Transaction<'_>, work: i64, ask: i64, fault: &str, text: &str) -> Result<(), String> {
-    tell(tx, Some(work), Some(ask), Some(fault), text).map(|_| ())
-}
-
-/// Tells the owner of a fault of wf-agents, the notice naming its kind for the owner's interface to set it apart;
-/// gives the notice.
-pub fn notify_fault(tx: &Transaction<'_>, work: i64, fault: &str, text: &str) -> Result<i64, String> {
-    tell(tx, Some(work), None, Some(fault), text)
-}
-
-/// Reminds the owner of the asks waiting for the owner's answer, at `at`: a notice about no work as [`notify`] keeps
-/// one, marked a reminder, from which the next is timed, and written to the notifications log through the outbox.
-pub fn remind(tx: &Transaction<'_>, at: i64, text: &str) -> Result<(), String> {
-    tx.execute(
-        "INSERT INTO engine_notices (text, at, reminder) VALUES (?1, ?2, 1)",
-        params![text, at],
-    )
-    .map_err(sql)?;
-    outbox(tx, None, "notify", &json!({ "text": text }))
-}
-
-/// Keeps a notice for the owner and writes it to the notifications log; a fault of wf-agents goes on at once to the
-/// architect the owner's setting names, if it names one.
-fn tell(
-    tx: &Transaction<'_>,
-    work: Option<i64>,
-    ask: Option<i64>,
-    fault: Option<&str>,
-    text: &str,
-) -> Result<i64, String> {
-    tx.execute(
-        "INSERT INTO engine_notices (work, ask, fault, text, at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![work, ask, fault, text, db::now()],
-    )
-    .map_err(sql)?;
-    let id = tx.last_insert_rowid();
-    outbox(tx, work, "notify", &json!({ "text": text }))?;
-    if fault.is_some() {
-        db::forward_new_fault(tx, id).map_err(sql)?;
+/// Who an agent's message is from, by its work's graph: an engineer's line, or an architect's.
+fn sender_of(ctx: &Ctx) -> db::Sender {
+    if ctx.work.graph == "engineer" {
+        db::Sender::Engineer
+    } else {
+        db::Sender::Architect
     }
-    Ok(id)
 }
 
 impl Ctx {
@@ -423,7 +376,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     _ => Vec::new(),
                 })
                 .unwrap_or_default();
-            notify(
+            crate::hub::tell(
                 tx,
                 Some(w),
                 &format!(
@@ -634,11 +587,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 }
                 // An answer to the owner is the agent's message to the owner, of the round whose return holds it, as
                 // what it tells the owner is; the notifications log says it too.
-                tx.execute(
-                    "INSERT INTO owner_messages (work, round, text, design_card) VALUES (?1, ?2, ?3, ?4)",
-                    params![ctx.round.work, round, text, card],
-                )
-                .map_err(sql)?;
+                crate::hub::agent_tells(tx, sender_of(ctx), RoundId::new(ctx.round.work, round), text, card)?;
                 let logged = format!("The {line} of {} answers the {to}: {text}", ctx.about());
                 outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
             }
@@ -654,13 +603,9 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 .map(str::to_string)
                 .collect();
             // The owner's interface shows the message as the agent's, with its cell; the notifications log says it too,
-            // and no notice of the engine's repeats it.
+            // and no message of the engine's repeats it.
             for text in said {
-                tx.execute(
-                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
-                    params![ctx.round.work, ctx.round.n, text],
-                )
-                .map_err(sql)?;
+                crate::hub::agent_tells(tx, sender_of(ctx), ctx.round, &text, None)?;
                 let logged = format!(
                     "The {} of {} at cell {} tells you: {text}",
                     line_of(ctx),
@@ -689,7 +634,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 ctx.round.n,
                 db::without_final_terminal(o["why"].as_str().unwrap_or_default())
             );
-            notify(tx, Some(w), &text)?;
+            crate::hub::tell(tx, Some(w), &text)?;
         }
         "tell_wait" => crate::verification::tell_wait(ctx, tx)?,
         "report_verification" => crate::verification::report(ctx, tx)?,
@@ -783,7 +728,7 @@ pub(crate) enum Carried {
 /// Closes a pull request, unless GitHub says it merged. The engine's record of a merge may lack one that GitHub made
 /// (the answer of its merge call was lost), and gh refuses to close a merged pull request, so the state is read from
 /// GitHub when the close is carried out. A merged pull request is done with: it is neither closed nor commented on.
-fn close_unless_merged(github: &dyn crate::hub::GitHub, repo: &str, pr: i64, comment: &str) -> Result<(), String> {
+fn close_unless_merged(github: &dyn crate::github::GitHub, repo: &str, pr: i64, comment: &str) -> Result<(), String> {
     if github.merge_commit(repo, pr).map_err(|f| f.what)?.is_some() {
         return Ok(());
     }
@@ -919,7 +864,7 @@ fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: 
     let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
     git::git(dir, &[&who[..], &["revert", "--no-edit", sha]].concat())?;
     let head = git::head(dir)?;
-    crate::hub::push(dir, &head, &format!("refs/heads/{branch}"), true).map_err(|f| f.what)?;
+    crate::github::push(dir, &head, &format!("refs/heads/{branch}"), true).map_err(|f| f.what)?;
     let short: String = sha.chars().take(10).collect();
     let title = format!("Revert {short}: it broke main");
     let body = format!("The merge {sha} broke main. This reverts it so that main recovers; the fix comes in a new PR.");
@@ -927,7 +872,7 @@ fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: 
         .github()
         .pull_request(repo, branch, main, Some((&title, &body)), None)
         .map_err(|f| f.what)?;
-    crate::hub::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)
+    crate::github::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)
 }
 
 #[cfg(test)]

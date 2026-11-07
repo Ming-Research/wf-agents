@@ -119,7 +119,7 @@ const entry = (source: string, extra: Partial<ConversationEntry> = {}): Conversa
   retract: 'no',
   policy: null,
   plan: null,
-  forwards: [],
+  passed: [],
   images: [],
   ...extra,
 });
@@ -150,7 +150,7 @@ const detail = (entries: ConversationEntry[]): ConversationDetail => ({
   design_cards: [],
   questions: [],
   waits_on: null,
-  forwarding: null,
+  pass_to: null,
   read_to: null,
   gaps: [],
 });

@@ -65,7 +65,7 @@ const words = (id: number, text: string, retract: ConversationEntry['retract']):
   retract,
   policy: null,
   plan: null,
-  forwards: [],
+  passed: [],
   images: [],
 });
 
@@ -109,7 +109,7 @@ beforeEach(() => {
         design_cards: [],
         questions: [],
         waits_on: null,
-        forwarding: null,
+        pass_to: null,
         read_to: 1_000_000,
         gaps: [],
       };

@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::agent::{self, Reply};
 use crate::work::{self, Ended, Round, RoundId, Work};
-use crate::{Advance, Engine, actions};
+use crate::{Advance, Engine};
 
 /// Why the engine starts no new round for any work, and until when.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,7 +354,7 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
             params![w.id, why],
         )?;
         db::withdraw_resume(tx, w.id)?;
-        actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
+        crate::hub::tell(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
     e.say(&format!("work {} paused: {why}", w.id));
@@ -470,7 +470,7 @@ impl Failed<'_> {
                     };
                     let w = self.w.id;
                     e.db.write(Actor::Engine, |tx| {
-                        actions::notify(tx, Some(w), &text).map_err(db::Error::Abort)
+                        crate::hub::tell(tx, Some(w), &text).map_err(db::Error::Abort)
                     })
                     .map_err(sql)?;
                 }
@@ -543,7 +543,7 @@ impl Failed<'_> {
                     );
                     let w = self.w.id;
                     e.db.write(Actor::Engine, |tx| {
-                        actions::notify(tx, Some(w), &text).map_err(db::Error::Abort)
+                        crate::hub::tell(tx, Some(w), &text).map_err(db::Error::Abort)
                     })
                     .map_err(sql)?;
                 }

@@ -165,8 +165,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/items/{id}/seen", post(mark_item_seen))
         .route("/api/v1/items/{id}/depends-on/{on}/remove", post(remove_dependency))
         .route("/api/v1/messages/read", post(mark_read))
-        .route("/api/v1/faults/{id}/forward", post(forward_fault))
-        .route("/api/v1/faults/forward-new", post(forward_new))
+        .route("/api/v1/messages/{id}/pass", post(pass_on))
         .route("/api/v1/conversations/read", post(read_to))
         .route("/api/v1/conversation/retract", post(take_back))
         .route(
@@ -979,30 +978,17 @@ async fn say_to_projects(State(app): State<App>, Json(s): Json<api::ProjectsSaid
     .await
 }
 
-/// Forwards a fault of wf-agents to a project's architect, as the owner: a project of the configuration, whose
-/// architect takes it as a matter of its queue once; the engine is woken, so that the architect takes it up.
-async fn forward_fault(
+/// Passes a message on to a project's architect, as the owner: a fault of wf-agents, which the architect of the project
+/// wf-agents is built from alone takes, as a matter of its queue, once; the engine is woken, so that the architect
+/// takes it up.
+async fn pass_on(
     State(app): State<App>,
     Path(id): Path<i64>,
-    Json(f): Json<api::ForwardFault>,
+    Json(p): Json<api::Pass>,
 ) -> Result<Json<api::Done>, Fail> {
-    let (project, _) = project_of(
-        &app,
-        &OfProject {
-            project: Some(f.project),
-        },
-    )?;
-    decide(&app, move |db| api::forward_fault(db, id, &project)).await
-}
-
-/// Sets, as the owner, where each new fault of wf-agents goes as it comes: to the architect of a project of the
-/// configuration, or to nobody.
-async fn forward_new(State(app): State<App>, Json(f): Json<api::ForwardNew>) -> Result<Json<api::Done>, Fail> {
-    let project = match f.project {
-        Some(p) => Some(project_of(&app, &OfProject { project: Some(p) })?.0),
-        None => None,
-    };
-    decide(&app, move |db| api::set_fault_forwarding(db, project.as_deref())).await
+    let (project, c) = project_of(&app, &OfProject { project: Some(p.to) })?;
+    let wf_agents = c.wf_agents_project();
+    decide(&app, move |db| api::pass_on(db, id, &project, wf_agents.as_deref())).await
 }
 
 /// Marks how far the owner has read a conversation, as the owner.

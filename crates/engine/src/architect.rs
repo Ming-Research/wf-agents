@@ -892,7 +892,7 @@ pub fn ask_owner(
                 params![round.work, round.n, body.to_string()],
             )?;
             let id = tx.last_insert_rowid();
-            actions::notify_ask(tx, w.id, id, &format!("{notice} (ask {id})")).map_err(db::Error::Abort)?;
+            crate::hub::tell_of_ask(tx, w.id, id, &format!("{notice} (ask {id})")).map_err(db::Error::Abort)?;
             // The matter the ask holds waits for the answer out of the queue, and goes back to the cell that takes it.
             if let (Some(m), Some(c)) = (holds, &resume) {
                 tx.execute(
@@ -1191,7 +1191,7 @@ fn pause_item(tx: &Transaction<'_>, item: i64, why: &str) -> Result<(), String> 
         params![work, why],
     )
     .map_err(sql)?;
-    actions::notify(tx, Some(work), &format!("Work {work} on item {item} is {why}"))
+    crate::hub::tell(tx, Some(work), &format!("Work {work} on item {item} is {why}"))
 }
 
 /// Holds a project's new starts for a reason of the architect's, its own or setting the project straight.
@@ -1744,11 +1744,7 @@ fn reply_to_owner_now(
             |r| r.get(0),
         )
         .map_err(sql)?;
-    tx.execute(
-        "INSERT INTO owner_messages (work, round, text, design_card) VALUES (?1, ?2, ?3, ?4)",
-        params![round.work, round.n, said, card],
-    )
-    .map_err(sql)?;
+    crate::hub::agent_tells(tx, db::Sender::Architect, round, said, card)?;
     let logged = format!("The architect of {project} replies: {said}");
     actions::outbox(tx, Some(work), "notify", &json!({ "text": logged }))
 }
@@ -2272,7 +2268,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             )
             .map_err(sql)?;
             sessions::choose::end_matter(tx, m)?;
-            actions::notify_ask(
+            crate::hub::tell_of_ask(
                 tx,
                 w,
                 ask,
@@ -4214,8 +4210,8 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
         }
     }
     match matter["kind"].as_str().unwrap_or_default() {
-        // A fault of wf-agents forwarded to the architect, as it stands now: misses that came after the forward are
-        // in it too.
+        // A fault of wf-agents passed on to the architect, as it stands now: misses that came after it was passed on
+        // are in it too.
         "report" if matter["detail"] == db::FAULT => {
             if let Some(f) = crate::faults::forwarded(conn, m)? {
                 material.insert("fault".into(), f);

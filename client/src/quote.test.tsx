@@ -35,7 +35,7 @@ const entry = (extra: Partial<ConversationEntry> = {}): ConversationEntry => ({
   words_state: null,
   policy: null,
   plan: null,
-  forwards: [],
+  passed: [],
   images: [],
   retract: 'no',
   ...extra,

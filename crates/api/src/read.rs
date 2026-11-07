@@ -927,11 +927,11 @@ pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args:
     Ok(out)
 }
 
-/// An ask of the owner, with when the owner was told of it, from which it waits: the engine's notice of it, or else the
-/// start of the round that put it, as the owner's conversations date it; and the graph of the work that put it, whose
-/// cell says its buttons.
+/// An ask of the owner, with when the owner was told of it, from which it waits: the engine's message of it, or else
+/// the start of the round that put it, as the owner's conversations date it; and the graph of the work that put it,
+/// whose cell says its buttons.
 const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer,
-       coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id),
+       coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id),
                 (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0), w.graph
 FROM owner_asks a JOIN works w ON w.id = a.work";
 
@@ -957,9 +957,11 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
     Ok(out)
 }
 
-const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, m.work, w.item, i.title, m.text, m.read_at,
+/// An agent's message to the owner: the round whose return holds it, with its cell and line, and whether it was read.
+const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, m.at, m.work, w.item, i.title, m.text, d.read_at,
        CASE WHEN w.graph IN ('architect', 'policy') THEN w.project END
-FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
+FROM messages m JOIN deliveries d ON d.message = m.id AND d.recipient = 'owner'
+JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
 LEFT JOIN sessions s ON s.id = r.session LEFT JOIN items i ON i.id = w.item";
 
 fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerMessage>> {
@@ -984,9 +986,11 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask,
+/// The engine's message to the owner or to the flow's keeper, and whether whoever received it read it.
+const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, d.read_at, n.ask,
        CASE WHEN w.graph IN ('architect', 'policy') THEN w.project END
-FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item";
+FROM messages n JOIN deliveries d ON d.message = n.id AND d.recipient IN ('owner', 'keeper')
+LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item";
 
 fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerMessage>> {
     let mut st = conn.prepare(&format!("{NOTICE} {filter} ORDER BY n.id"))?;
@@ -1055,7 +1059,7 @@ pub fn work(conn: &Connection, flows: &Flows, id: i64) -> Result<WorkDetail> {
         rounds.push(round);
     }
     let mut messages = messages_where(conn, "WHERE m.work = ?1", &[id])?;
-    messages.extend(notices_where(conn, "WHERE n.work = ?1", &[id])?);
+    messages.extend(notices_where(conn, "WHERE n.work = ?1 AND n.sender = 'engine'", &[id])?);
     messages.sort_by_key(|m| m.at.unwrap_or(0));
     Ok(WorkDetail {
         work: summary,
@@ -2438,7 +2442,7 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
             }
         }
         h.told = conn.query_row(
-            "SELECT count(*) FROM owner_messages WHERE work = ?1 AND round > ?2 AND round <= ?3",
+            "SELECT count(*) FROM messages WHERE work = ?1 AND round > ?2 AND round <= ?3",
             params![h.work, from, h.round],
             |r| r.get(0),
         )?;
@@ -2992,14 +2996,16 @@ mod tests {
     fn a_work_says_where_it_stands_and_what_each_round_came_to() {
         let mut s = setup("work");
         s.db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "INSERT INTO owner_messages (work, round, text) VALUES (1, 2, 'told')",
-                [],
-            )?;
-            tx.execute(
-                "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 waits.', 45), (NULL, 'Halted.', 46)",
-                [],
-            )?;
+            for sql in [
+                "INSERT INTO messages (sender, work, round, text, at) SELECT 'engineer', work, n, 'told', coalesce(ended_at, started_at) FROM rounds WHERE work = 1 AND n = 2",
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
+                "INSERT INTO messages (sender, work, text, at) VALUES ('engine', 1, 'Work 1 waits.', 45)",
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
+                "INSERT INTO messages (sender, work, text, at) VALUES ('engine', NULL, 'Halted.', 46)",
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
+            ] {
+                tx.execute(sql, [])?;
+            }
             tx.execute(
                 "INSERT INTO pings (session, waited, usage, started_at, ended_at) VALUES (1,
                    '{\"cell\":\"R1\",\"on\":\"pause\",\"what\":\"to look\"}',
@@ -3867,7 +3873,14 @@ mod tests {
                 &[],
             )?;
             run("UPDATE observations SET closed = 'outdated', closed_why = 'Gone.' WHERE id = 2", &[])?;
-            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 8, 'Learned L'), (1, 2, 'told')", &[])?;
+            for sql in [
+                "INSERT INTO messages (sender, work, round, text, at) SELECT 'architect', work, n, 'Learned L', coalesce(ended_at, started_at) FROM rounds WHERE work = 2 AND n = 8",
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
+                "INSERT INTO messages (sender, work, round, text, at) SELECT 'engineer', work, n, 'told', coalesce(ended_at, started_at) FROM rounds WHERE work = 1 AND n = 2",
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
+            ] {
+                run(sql, &[])?;
+            }
             Ok(())
         })
         .unwrap();
@@ -4136,20 +4149,27 @@ mod tests {
                     db::rusqlite::params![work, n, cell, session, output.to_string(), row, started, ended],
                 )?;
             }
-            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 3, 'It stands, as I read it.')")?;
-            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 11, 'The review tells you something.')")?;
+            run("INSERT INTO messages (sender, work, round, text, at) SELECT 'engineer', work, n, 'It stands, as I read it.', coalesce(ended_at, started_at) FROM rounds WHERE work = 2 AND n = 3")?;
+            run("INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages")?;
+            run("INSERT INTO messages (sender, work, round, text, at) SELECT 'engineer', work, n, 'The review tells you something.', coalesce(ended_at, started_at) FROM rounds WHERE work = 2 AND n = 11")?;
+            run("INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages")?;
             run(
                 "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
                  VALUES ('p', 'report', 'A side report', '{}', 2, 2, 10, 190)",
             )?;
             run("INSERT INTO design_cards (work, round, key, body, status) VALUES (2, 5, 'card-1', '[]', 'open')")?;
-            run(
-                "INSERT INTO engine_notices (work, text, at) VALUES
-                 (2, 'Design card 1 of work 2 (item 2: Second) waits for your ruling; the architect looks at it too.', 160),
-                 (2, 'Work 2 passed the limit its project sets on fixes: 3 times, the limit 2. It goes on; look at it.', 225),
-                 (2, 'Work 2 on item 2 (Second) is paused: cell T6: no return', 226),
-                 (4, 'Work 4 stopped: the flow moved to version 2, and a new work on it takes the item over.', 420)",
-            )?;
+            for (work, text, at) in [
+                (2, "Design card 1 of work 2 (item 2: Second) waits for your ruling; the architect looks at it too.", 160),
+                (2, "Work 2 passed the limit its project sets on fixes: 3 times, the limit 2. It goes on; look at it.", 225),
+                (2, "Work 2 on item 2 (Second) is paused: cell T6: no return", 226),
+                (4, "Work 4 stopped: the flow moved to version 2, and a new work on it takes the item over.", 420),
+            ] {
+                tx.execute(
+                    "INSERT INTO messages (sender, work, text, at) VALUES ('engine', ?1, ?2, ?3)",
+                    db::rusqlite::params![work, text, at],
+                )?;
+                run("INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages")?;
+            }
             Ok(())
         })
         .unwrap();
@@ -4287,10 +4307,14 @@ mod tests {
                  VALUES (2, 20, 'B2', 40, '{}', 'done', 'c', 500, 501), (2, 21, 'O1', 41, '{}', 'done', 'c', 510, 511),
                  (2, 22, 'B1', NULL, '{}', 'done', 'c', 520, 521)",
             )?;
-            run(
-                "INSERT INTO owner_messages (work, round, text) VALUES (2, 20, 'The batch reads well.'),
-                 (2, 21, 'Found two like it.'), (2, 22, 'The batch is in.')",
-            )?;
+            for (n, text) in [(20, "The batch reads well."), (21, "Found two like it."), (22, "The batch is in.")] {
+                tx.execute(
+                    "INSERT INTO messages (sender, work, round, text, at)
+                     SELECT 'architect', work, n, ?2, coalesce(ended_at, started_at) FROM rounds WHERE work = 2 AND n = ?1",
+                    db::rusqlite::params![n, text],
+                )?;
+                run("INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages")?;
+            }
             Ok(())
         })
         .unwrap();
@@ -4327,7 +4351,8 @@ mod tests {
         let mut s = architect_setup("chat");
         s.db.write(Actor::Engine, |tx| {
             let run = |sql: &str| tx.execute(sql, []).map(|_| ());
-            run("INSERT INTO engine_notices (work, text, at) VALUES (2, 'Work 2 (the architect of p) is paused: no fetch', 250)")?;
+            run("INSERT INTO messages (sender, work, text, at) VALUES ('engine', 2, 'Work 2 (the architect of p) is paused: no fetch', 250)")?;
+            run("INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages")?;
             run(
                 "INSERT INTO architect_matters (project, kind, detail, what, body, at, handled_work, handled_round)
                  VALUES ('p', 'report', 'other', 'Nothing here', '{}', 240, 2, 11)",
@@ -4455,7 +4480,8 @@ mod tests {
             }
             run("UPDATE architect_matters SET handled_work = 5, handled_round = 2 WHERE id = 6", &[])?;
             // Its path told the owner something: a matter that changed nothing would leave the conversation once done.
-            run("INSERT INTO owner_messages (work, round, text) VALUES (5, 2, 'Set it straight.')", &[])?;
+            run("INSERT INTO messages (sender, work, round, text, at) SELECT 'architect', work, n, 'Set it straight.', coalesce(ended_at, started_at) FROM rounds WHERE work = 5 AND n = 2", &[])?;
+            run("INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages", &[])?;
             Ok(())
         })
         .unwrap();
@@ -4640,7 +4666,8 @@ mod tests {
             &[
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
                  VALUES (5, 3, 'H8', '{}', '{}', 'done', 'c', 690, 700)",
-                "INSERT INTO owner_messages (work, round, text) VALUES (5, 3, 'Hello.')",
+                "INSERT INTO messages (sender, work, round, text, at) SELECT 'architect', work, n, 'Hello.', coalesce(ended_at, started_at) FROM rounds WHERE work = 5 AND n = 3",
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
                 "UPDATE architect_matters SET handled_work = 5, handled_round = 3 WHERE id = 10",
                 "UPDATE works SET at = 'B1' WHERE id = 5",
             ],
@@ -4684,7 +4711,8 @@ mod tests {
             &[
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
                  VALUES (5, 6, 'H8', '{}', '{}', 'done', 'c', 730, 740)",
-                "INSERT INTO owner_messages (work, round, text) VALUES (5, 6, 'On it.')",
+                "INSERT INTO messages (sender, work, round, text, at) SELECT 'architect', work, n, 'On it.', coalesce(ended_at, started_at) FROM rounds WHERE work = 5 AND n = 6",
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
                 "UPDATE architect_matters SET handled_work = 5, handled_round = 6 WHERE id = 14",
                 "UPDATE works SET at = 'B1' WHERE id = 5",
             ],
@@ -4781,6 +4809,7 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             sets: Vec::new(),
             reply_wait: wait,
+            wf_agents: None,
         };
         let read = |s: &Setup, wait: i64| {
             let d = crate::conversation(

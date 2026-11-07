@@ -1246,14 +1246,6 @@ semibold, kept in the address; an architect's usage offers the last day, the las
 and all time, instead of a period switch of each view's own or a `Select`, because the System view drew it so first, and
 a period is read with the others beside it.
 
-### A command to one of a list that grows
-
-A command the owner sends to one of a list that grows (a fault of wf-agents forwarded to a project's architect) is an
-`ActionMenu` whose button, size small, names the command with an ellipsis ("Forward to..."), its items a plain
-`ActionList`, each a target in words, one the command already went to `disabled` with the word for it ("Forwarded") as
-its trailing visual; where the command went shows after it as small `--fgColor-muted` lines, instead of a button for
-each target, because the targets grow with the board, and a target done already must show and must not be picked again.
-
 ## The window over a chart
 
 ### A chart fills the window under the bar
@@ -2344,24 +2336,22 @@ page fetches nothing, so after main was pushed to with the engine idle the page 
 until the next round that reads main. A constitution that cannot be read is never an empty one: its section opens to
 say why, in a sentence that names the file and the commit, and the rest of the panel is shown as it is.
 
-### Forwarding a fault
+### Passing a fault on
 
-A fault of wf-agents in wf-agents' own conversation is forwarded by the owner to any project's architect: its entry has
-"Forward to...", a menu of every project's architect on the board ("The architect of p"), and the one picked has the
-fault in its queue as its next matter, of the kind `report` with the detail `fault`, the fault then read; a fault goes
-to several architects but to each once, the menu marking "Forwarded" those it went to, which cannot be picked again; and
-under the fault's words a line for each architect it went to says so and how it stands there, "Forwarded to the
-architect of p | in the queue", then "Forwarded to the architect of p | handled in R12-4", the round a link to it on
-that architect's chart. The conversation's head holds the setting "Forward new faults to", Nobody at first or "The
-architect of p" for any project, which the owner sets by hand and the board keeps across restarts (`owner_choices`, who
-set it and when in `changes`): a new fault is then in that architect's queue at once and read, its entry saying
-"Forwarded automatically to the architect of p". In that architect's one-to-one the fault is a matter in the queue like
-any other ("Look into a fault of wf-agents").
+A fault of wf-agents in wf-agents' own conversation is the flow's keeper's, and the owner passes it on only to the
+architect of the project wf-agents is built from: until the fault went to that architect its entry has a small button,
+"Pass on to the architect of p", and that architect then has the fault in its queue as its next matter, of the kind
+`report` with the detail `fault`, the fault then read; under the fault's words a line says where it went and how it
+stands there, "Passed on to the architect of p | in the queue", then "Passed on to the architect of p | handled in
+R12-4", the round a link to it on that architect's chart, and a fault the setting that forwarded each new fault sent
+before says "Forwarded automatically to the architect of p". In that architect's one-to-one the fault is a matter in the
+queue like any other ("Look into a fault of wf-agents"). With no project of the configuration that is wf-agents, there
+is no button.
 
-Instead of every fault going by itself to the architect of the project it came up in, which would hand it on to
-wf-agents' own architect as well, or to the project that is wf-agents alone, a name the page would have to know and a
-board without it could not use, because which architect looks into a fault is the owner's to say, from all of them, and
-nothing goes on by itself that the owner did not set.
+Instead of a menu of every project's architect, and a setting in the head that forwarded each new fault as it came,
+because wf-agents run on other projects must still get its faults fixed in wf-agents, and architects that must never
+touch it would get them otherwise; the keeper's queue is the owner's and the assistant's to work, and nothing of it goes
+on by itself.
 
 ## Roles and small marks
 

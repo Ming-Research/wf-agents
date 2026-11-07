@@ -86,6 +86,7 @@ fn entries(db: &Db, key: &str) -> Vec<ConversationEntry> {
         projects: vec!["p".into(), "q".into()],
         sets: vec![vec!["p".into(), "q".into()]],
         reply_wait: 0,
+        wf_agents: None,
     };
     api::conversation(db.conn(), &api::Flows::default(), &t, key, api::CONVERSATION_WINDOW)
         .unwrap()

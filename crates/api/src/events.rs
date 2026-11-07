@@ -56,18 +56,27 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 ask: id,
                 work: one(conn, "SELECT work FROM owner_asks WHERE id = ?1", id),
             }),
-            "owner_messages" => Some(Event::OwnerMessage {
+            "messages" => Some(Event::OwnerMessage {
                 message: id,
-                work: one(conn, "SELECT work FROM owner_messages WHERE id = ?1", id),
+                work: one(conn, "SELECT work FROM messages WHERE id = ?1", id),
             }),
-            "engine_notices" => Some(Event::OwnerMessage {
-                message: id,
-                work: one(conn, "SELECT work FROM engine_notices WHERE id = ?1", id),
-            }),
-            // A cache miss added to a notice changes what the notice holds; one the engine expects is in no notice.
+            // A message read or passed on.
+            "deliveries" => conn
+                .query_row(
+                    "SELECT m.id, m.work FROM deliveries d JOIN messages m ON m.id = d.message WHERE d.id = ?1",
+                    [id],
+                    |r| {
+                        Ok(Event::OwnerMessage {
+                            message: r.get(0)?,
+                            work: r.get(1)?,
+                        })
+                    },
+                )
+                .ok(),
+            // A cache miss added to a message changes what the message holds; one the engine expects is in no message.
             "cache_misses" => conn
                 .query_row(
-                    "SELECT notice, work FROM cache_misses WHERE rowid = ?1 AND notice IS NOT NULL",
+                    "SELECT message, work FROM cache_misses WHERE rowid = ?1 AND message IS NOT NULL",
                     [id],
                     |r| {
                         Ok(Event::OwnerMessage {
@@ -158,6 +167,41 @@ mod tests {
                 Event::Item { item: Some(1) },
                 Event::Flow { version: 1 },
             ]
+        );
+    }
+
+    // A message sent, and one of its deliveries marked read or passed on, name the message and its work, once.
+    #[test]
+    fn a_message_and_its_deliveries_name_the_message() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'S0')",
+                [],
+            )?;
+            let m = db::Message {
+                sender: db::Sender::Engine,
+                work: Some(1),
+                round: None,
+                text: "Work 1 stopped.",
+                body: None,
+                ask: None,
+            };
+            db::send(tx, &m, db::Recipient::Owner)?;
+            Ok(())
+        })
+        .unwrap();
+        let touched = |t: &str, rowid: i64| Changed {
+            table: t.to_string(),
+            rowid,
+        };
+        assert_eq!(
+            events(db.conn(), &[touched("messages", 1), touched("deliveries", 1)]),
+            [Event::OwnerMessage {
+                message: 1,
+                work: Some(1)
+            }]
         );
     }
 

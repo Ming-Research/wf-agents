@@ -227,7 +227,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
 
     let (misses, missed, miss_usd): (i64, i64, f64) = conn.query_row(
         "SELECT count(*), coalesce(sum(m.written), 0), coalesce(sum(m.cost_usd), 0) FROM cache_misses m
-         JOIN rounds r ON r.work = m.work AND r.n = m.round WHERE r.started_at >= ?1 AND m.notice IS NOT NULL",
+         JOIN rounds r ON r.work = m.work AND r.n = m.round WHERE r.started_at >= ?1 AND m.message IS NOT NULL",
         [since],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
@@ -273,8 +273,9 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
             // An ask waits from when the owner was told of it.
             asks: waiting(
                 conn,
-                "SELECT count(*), min(coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id),
-                   r.started_at))
+                "SELECT count(*),
+                   min(coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id),
+                     r.started_at))
                  FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.answer IS NULL",
             )?,
             // A decision card waits from the end of the round that handed it in.
@@ -285,7 +286,8 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
             )?,
             faults: waiting(
                 conn,
-                "SELECT count(*), min(at) FROM engine_notices WHERE fault IS NOT NULL AND read_at IS NULL",
+                "SELECT count(*), min(m.at) FROM messages m JOIN deliveries d ON d.message = m.id
+                 WHERE d.recipient = 'keeper' AND d.read_at IS NULL",
             )?,
             running: running(conn, &works)?,
         },
@@ -1137,17 +1139,18 @@ mod tests {
                 &[&at(4)],
             )?;
             run(
-                "INSERT INTO engine_notices (work, text, at, fault) VALUES (1, 'missed', ?1, 'cache_miss')",
+                "INSERT INTO messages (sender, work, text, body, at) VALUES ('engine', 1, 'missed', '{\"kind\":\"cache_miss\"}', ?1)",
                 &[&at(4)],
             )?;
+            run("INSERT INTO deliveries (message, recipient) VALUES (1, 'keeper')", &[])?;
             run(
-                "INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, notice)
+                "INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, message)
                  VALUES (1, 1, 'engineer', '[]', 40, 100, 0.125, 1)",
                 &[],
             )?;
             // A miss the engine expected, after the envelope changed, is no fault and not counted.
             run(
-                "INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, notice)
+                "INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, message)
                  VALUES (1, 2, 'engineer', '[{\"part\":\"--json-schema\"}]', 90, 100, 0.5, NULL)",
                 &[],
             )?;

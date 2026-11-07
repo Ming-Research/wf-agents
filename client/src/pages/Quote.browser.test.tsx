@@ -44,7 +44,7 @@ const entry = (id: number, text: string): ConversationEntry => ({
   words_state: null,
   policy: null,
   plan: null,
-  forwards: [],
+  passed: [],
   images: [],
   retract: 'no',
 });
@@ -71,7 +71,7 @@ const detail: ConversationDetail = {
   design_cards: [],
   questions: [],
   waits_on: null,
-  forwarding: null,
+  pass_to: null,
   read_to: 1_000_000,
   gaps: [],
 };

@@ -251,7 +251,7 @@ fn a_pull_request_merged_on_github_before_the_merge_step_is_recorded_without_mer
             // The second round hands in the end of the work: its branch and its pull request are on GitHub by then.
             if n == 2 {
                 let pr = *prs.lock().unwrap().keys().next().unwrap();
-                *kept.lock().unwrap() = Some(FakeHub::squash_merge(&origin, &root, &prs, "o/p", pr).unwrap());
+                *kept.lock().unwrap() = Some(FakeGitHub::squash_merge(&origin, &root, &prs, "o/p", pr).unwrap());
             }
             implement(r, n)
         }),
@@ -326,7 +326,7 @@ fn a_cancel_after_github_merged_the_pull_request_closes_nothing() {
     let (s, mut e, said, item, work) = at_the_merge("cancel-after-github-merge");
     held_at_full_ci(&mut e, &s, &said);
     let pr = *s.prs.lock().unwrap().keys().next().unwrap();
-    FakeHub::squash_merge(&s.origin, &s.root, &s.prs, "o/p", pr).unwrap();
+    FakeGitHub::squash_merge(&s.origin, &s.root, &s.prs, "o/p", pr).unwrap();
     cancel(&mut e, item, "owner");
     s.ci.open();
     // Settled once the work has ended, and either a close was asked of GitHub, which the assertions refuse, or the
