@@ -10,10 +10,20 @@
   source. A flow that fails this never reaches a running work, since finding the fault halfway through a work costs far
   more than a failure at compile time.
 
-- The flow has two graphs, the engineer's and the architect's, which meet only through the database: what the hub sends
-  the architect from an engineer enters the architect's queue, and the architect acts on works through its returns. One
-  graph, or a row from one graph into the other, was not taken: an architect runs for a long time over every work of its
-  project, while each work runs on its own, and the compiler can then check each graph apart.
+- The flow has three graphs, the engineer's, the report's and the architect's, which meet only through the database:
+  what the hub sends the architect from an engineer enters the architect's queue, and the architect acts on works
+  through its returns. One graph, or a row from one graph into another, was not taken: an architect runs for a long time
+  over every work of its project, while each work runs on its own, and the compiler can then check each graph apart.
+
+- A work that delivers only a report runs a graph of its own: the step that brings its history and one research, both as
+  an engineer's work has them, then the full CI, the merge, the end. A report settles how to do something very uncertain
+  at first, or whether to do it at all; the architect creates an item for one, for an item that uncertain or for what
+  the owner wants studied. What a work delivers is set when its item is made, unlike how hard it is, which shows only as
+  it is done, so this is no light road beside a heavy one. A conclusion that decides the project's design goes to the
+  owner as a change to the tree, which, once the owner says yes, goes in with the report as an engineer's does. Beyond
+  that it changes only the research folder, which conflicts with nothing, so it needs no implementation, review or merge
+  queue, though it waits at the merge gate as every work does. Run through the engineer's graph, it took every cell made
+  for a change to the code (Article 3).
 
 - When the flow changes, a running work neither ends nor starts over: it goes on where it stands if it can, goes back to
   the cell it must do again if not, and where it cannot go back, as past a merge, it stops for the flow's keeper.
@@ -35,6 +45,10 @@
 - A cheap model's cell finds and reads the decisions a question touches, for an engineer, an architect or the assistant,
   quoting them and judging nothing. Reading the whole tree each time costs too much, and a model that judged would put
   its reading in place of the decisions.
+
+- To understand something, an agent reads both the code and the design tree's decisions on it: the code holds what is
+  done, the tree why it is so and where it is going, ahead of the code. Either alone misleads: the code gives no
+  reasons, and the tree does not say how far the code has got (Article 2).
 
 - The flow's definition holds what agents are told and what the chart shows of what the flow does; why it is so is in
   the design tree, and an instruction does not carry its reasons. Text that reaches no agent and shows on no chart is
@@ -60,22 +74,25 @@
 
 - Every review can be disputed, and a dispute that holds goes up. A review is not always right.
 
+- What a review will check, the cell that does the work is told first and, where it applies, hands in done, such as a
+  measurement of a change's effect on performance, or a defect's like cases and what keeps it from coming back: the
+  review then finds what was told and not done, and is not the first to ask. A review that is the first to ask for
+  something sends the work back a round every time, for what the agent would have done in the round before had it been
+  told (Article 3).
+
 - The flow's design must converge, getting nearer the goal with each polish, and needs a way to model this complexity
   rather than going through the cases cell by cell. The possibilities diverge as cells grow, and considering each case
   of each cell soon grows past handling.
 
-- Going through the flow or adding a cell uses one standard: map what is to be stopped onto a tool that can be used, and
-  look at the consequences, whether it makes small things large or large things small, or leaves an agent unable to do
-  what it could, or forced to go around. Most cells do stop errors and what lacked was one standard, and such
-  consequences are worse than flow bugs such as an endless loop.
-
-- A problem is met in the flow only after it is placed: whether every work meets it or only a kind of work, and whether
-  that kind is what the cell it would go in serves. A cell that serves every work asks nothing only some works have,
-  such as asking a change to the design tree whether a defect was seen to happen, or every work whether it should be
-  split. Then the means is weighed against its cost: a line of a prompt costs little, a question an answer from every
-  work it is asked of, a cell a round in every work that passes it; one is taken only where what it stops is worth that
-  (Articles 3 and 4). Adding something where a problem showed, each addition reasonable alone, was the path that failed:
-  together they made most of the flow's problems.
+- Going through the flow or adding to it uses one standard. A problem is first placed: whether every work meets it or
+  only a kind of work, and whether that kind is what the cell it would go in serves; a cell that serves every work
+  demands of none an answer only some works have, such as whether a defect was seen to happen or whether the work should
+  be split. What is to be stopped is then mapped onto a means that can be used, weighed against its cost: a line of a
+  prompt costs little, a question an answer from every work it is asked of, a cell a round in every work that passes it;
+  one is taken only where what it stops is worth that (Articles 3 and 4). Its consequences are looked at too: whether it
+  makes small things large or large things small, or leaves an agent unable to do what it could, or forced to go around;
+  they are worse than flow bugs such as an endless loop. Most cells do stop errors and what lacked was one standard;
+  additions made where a problem showed, each reasonable alone, together made most of the flow's problems.
 
 - A problem is solved first by writing it in a cell's input, and only if that is not enough by a tool of the flow: what
   prompting alone cannot do, needing another pair of eyes, a CI check, adversarial testing an agent cannot do for

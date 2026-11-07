@@ -53,8 +53,8 @@
   understood, with no limit enforced. What is written has no value, and writing less was tried, once, with no harm to
   understanding.
 
-- Reading the project is mainly reading the constitution and the code as it stands, with the database as an aid. The
-  items in the database are what the architect must keep by its own judgment.
+- Reading the project is mainly reading the constitution, the design tree and the code as it stands, with the database
+  as an aid. The items in the database are what the architect must keep by its own judgment.
 
 - The reading round's message holds only what is needed to understand the project: no descriptions of its inputs and no
   rule on the policy's scope. It writes and judges no policy, and leaving the descriptions out was tried with no effect
