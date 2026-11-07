@@ -959,8 +959,11 @@ impl LockUpdate {
 }
 
 /// How many rounds the initial research runs before it is asked whether the work can be started directly, where the
-/// project sets no other bound: on the trial board the research took 3 rounds at the median, 5 at p90 and 8 at most.
-pub const RESEARCH_ROUNDS: u64 = 6;
+/// project sets no other bound. On the trial board, while the research could not run tests, a visit to it took 2
+/// rounds at the median, 5 at p95 and 8 at most (129 visits to 2026-11-06); now that it reproduces a defect through ci,
+/// each run costs a round more (a replay of #302 took 4 rounds for 2 runs), so 10 leaves room for three or four runs on
+/// a long one.
+pub const RESEARCH_ROUNDS: u64 = 10;
 
 /// How many hours a merged work waits for its change to take effect, where the project sets no other limit. Measured on
 /// 2026-11-04 over the 39 merges of this flow on main that an installed build has taken in, each from its merge to the

@@ -1,8 +1,8 @@
 //! A work's branch brought to the latest main before the first round of a cell that reads the engine's input
 //! [`INPUT`] (cells `R1`, `D1` and `I1`) each time the work comes to it, so that no agent works on an old picture of
-//! main: the round is told the files main changed since the branch last took it. The research and the deep research
-//! commit only under `research/`, so taking main in does not conflict there; the implementation may meet a conflict,
-//! which is undone and given as the files in conflict for the agent to merge itself. A worktree with changes not
+//! main: the round is told the files main changed since the branch last took it. A merge that meets a conflict, most
+//! likely at the implementation, since the research commits little beyond `research/` and a test that reproduces the
+//! problem, is undone and given as the files in conflict for the agent to merge itself. A worktree with changes not
 //! committed is left as it is, and the round told why.
 
 use std::path::Path;

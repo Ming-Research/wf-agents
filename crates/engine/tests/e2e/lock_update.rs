@@ -419,10 +419,10 @@ fn cargo_locks_what_a_manifest_newly_asks_for_and_changes_nothing_else() {
 }
 
 // The cells that change a manifest and commit are offered the tool, and no other cell of any graph is: research and design
-// change only `research/`, adversarial testing only the test paths, which its check `tests_only` holds it to, and the
-// others only read. The implementation's format names it, what the tool's input says holds the value of the setting it
-// names (`none` where the project lists none, the lock files where it does), and an engineer is told by rule never to
-// write a lock file by hand and what to do instead.
+// commit their material in `research/` and a test that reproduces the problem, adversarial testing only the test paths,
+// which its check `tests_only` holds it to, and the others only read. The implementation's format names it, what the
+// tool's input says holds the value of the setting it names (`none` where the project lists none, the lock files where
+// it does), and an engineer is told by rule never to write a lock file by hand and what to do instead.
 #[test]
 fn only_the_cells_that_change_a_manifest_are_offered_the_tool_and_they_are_told_what_the_project_lists() {
     let s = setup("lock-update-offered");
