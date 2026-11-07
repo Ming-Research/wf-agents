@@ -21,7 +21,6 @@ CREATE TABLE attachments_before_the_lines AS SELECT * FROM attachments;
 CREATE TABLE shift_before_the_lines AS SELECT coalesce(max(id), 0) AS by FROM interjections;
 DROP VIEW conversation_shown;
 DROP VIEW conversation_entries;
-DROP VIEW work_owner_words;
 DROP VIEW waiting_interjections;
 DROP TABLE messages;
 DROP TABLE deliveries;
@@ -200,37 +199,6 @@ CREATE UNIQUE INDEX attachments_of_message ON attachments (message, position) WH
 CREATE UNIQUE INDEX attachments_of_matter ON attachments (matter, position) WHERE matter IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask IS NOT NULL;
 
-CREATE VIEW work_owner_words AS
-  -- What the owner said that concerns a work, one row for each record that holds it: the words said in the work's
-  -- group to its project's architect (a matter of the kind owner_words), the owner's answer in the group to a question
-  -- of its engineer's (the reply of a matter of the kind engineer_question), the words said to its engineer alone (an
-  -- interjection no matter holds) and the owner's answers to the work's asks. A decision cites a row by its source and
-  -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
-  -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
-  -- kept before it was declared. relayed is, for words a delegate said, the parts of them it declared to be the owner's
-  -- own words, a JSON array; none when it declared none. Cell `L2` is given it as its input.
-  -- Read by: cell `L2`.
-  SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
-    json_extract(m.body, '$.speaker') AS speaker,
-    coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at,
-    json_extract(m.body, '$.relayed') AS relayed
-  FROM architect_matters m
-  WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.where') = 'work'
-  UNION ALL
-  SELECT m.work, 'matter', m.id, json_extract(m.reply, '$.speaker'), json_extract(m.reply, '$.text'),
-    coalesce(json_extract(m.reply, '$.at'), 0), json_extract(m.reply, '$.relayed')
-  FROM architect_matters m
-  WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
-  UNION ALL
-  SELECT s.work, 'interjection', s.id, s.declared, s.text, s.at, s.relayed
-  FROM line_sayings s
-  WHERE s.speaker = 'owner' AND s.matter IS NULL AND s.cancelled_item IS NULL
-  UNION ALL
-  SELECT a.work, 'ask', a.id, json_extract(a.answer, '$.speaker'), json_extract(a.answer, '$.text'),
-    coalesce(json_extract(a.answer, '$.at'), 0), json_extract(a.answer, '$.relayed')
-  FROM owner_asks a
-  WHERE json_extract(a.answer, '$.by') = 'owner';
-
 CREATE VIEW line_sayings AS
   -- Each message said to a line of a work, one row for each, with the columns the words said to a line have had: who
   -- said it (speaker, owner or architect), the work and the line, the words, who the caller declared to speak
@@ -240,7 +208,7 @@ CREATE VIEW line_sayings AS
   -- that took it (taken_round), none until one did.
   -- Read by: the engine, which gives each line what waits for it, and judges a decision by the words it cites; the
   -- owner's interface, which shows them and offers to take back what no agent took up yet; the views
-  -- waiting_interjections, work_owner_words and conversation_entries.
+  -- waiting_interjections and conversation_entries.
   SELECT m.id, m.work, d.line, m.sender AS speaker, m.text, json_extract(m.body, '$.speaker') AS declared,
     json_extract(m.body, '$.relayed') AS relayed, coalesce(json_extract(m.body, '$.informs'), 0) AS informs,
     json_extract(m.body, '$.design_card') AS design_card, json_extract(m.body, '$.cancelled_item') AS cancelled_item,

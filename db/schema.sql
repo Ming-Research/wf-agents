@@ -226,7 +226,7 @@ CREATE TABLE owner_asks (
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The owner's answer, JSON: who answered and when, and the text, and who the caller declared to speak (`speaker`,
   -- owner or delegate; none for an answer kept before it was declared); for an ask of the architect, the rest of the
-  -- architect's reply too. NULL while it waits. Read by: the engine; cells `R1` and `L2`.
+  -- architect's reply too. NULL while it waits. Read by: the engine; cell `R1`.
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -412,8 +412,7 @@ CREATE TABLE works (
   paused TEXT,
   -- How the work ended: `done` when it reached the end of its graph, written in the write that completes the round at
   -- its end cell; otherwise why it was stopped before its end, for example because its item was cancelled. NULL while
-  -- it goes on, a work waiting for a change to take effect included. Read by: the engine, which takes no step of a work
-  -- that ended and does not load it; the status view.
+  -- it goes on. Read by: the engine, which takes no step of a work that ended and does not load it; the status view.
   ended TEXT,
   -- Who paused the work, the owner or the engine; NULL while it goes on. The owner's Start all lets go on only the
   -- works the owner paused: a work the engine paused waits for the owner to look at it and let it go on by itself.
@@ -1532,21 +1531,8 @@ CREATE VIEW item_problem AS
 CREATE VIEW item_acceptance AS
   -- The item's acceptance, and the round that gave it, by its work and its number in the work; NULL until the work
   -- goes on to implement: until then what its creator wanted is `wanted` of item_body. locked says only whether there
-  -- is one. Read by: cells `I1`, `T2`, `T3`, `T1`, `T6`, `V1` and
-  -- `V2`.
+  -- is one. Read by: cells `I1`, `T2`, `T3`, `T1` and `T6`.
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_work, acceptance_round FROM items;
-
-CREATE VIEW item_verifications AS
-  -- What each acceptance condition written in_effect came to, at each look of the cell that checks it once the work's
-  -- change took effect (`V2`): the item, the work and the round, the condition's number (`id`), its verdict, and for a
-  -- verdict that rests on a run the run and what it showed there. A condition stands as its latest round has it. Read
-  -- by: the agents and the architect, by query.
-  SELECT w.item, r.work, r.n AS round, json_extract(v.value, '$.id') AS id,
-    json_extract(v.value, '$.verdict') AS verdict,
-    json_extract(v.value, '$.run') AS run,
-    json_extract(v.value, '$.seen') AS seen
-  FROM rounds r JOIN works w ON w.id = r.work, json_each(r.output, '$.outcome.verdicts') v
-  WHERE r.cell = 'V2' AND r.transition IS NOT NULL;
 
 CREATE VIEW item_design_cards AS
   -- Every decision card of the item's works, by key, with its rulings, and why one withdrawn was. Read by: cells `R1`,
@@ -1711,42 +1697,11 @@ CREATE VIEW work_design_cards AS
 
 CREATE VIEW work_open_questions AS
   -- Each work's open questions as its design handed them in, each a matter of the project's architect, with the answer
-  -- that came, which is the architect's reply: its own judgment, or the owner's answer it carried. Read by: cells `D1`,
-  -- `D2` and `L2`; the engine, at cell `M1`.
+  -- that came, which is the architect's reply: its own judgment, or the owner's answer it carried. Read by: cells `D1`
+  -- and `D2`; the engine, at cell `M1`.
   SELECT m.work, m.id AS matter, m.what AS question, json_extract(m.body, '$.answer') AS answer
   FROM architect_matters m
   WHERE m.kind = 'open_question';
-
-CREATE VIEW work_owner_words AS
-  -- What the owner said that concerns a work, one row for each record that holds it: the words said in the work's
-  -- group to its project's architect (a matter of the kind owner_words), the owner's answer in the group to a question
-  -- of its engineer's (the reply of a matter of the kind engineer_question), the words said to its engineer alone (an
-  -- interjection no matter holds) and the owner's answers to the work's asks. A decision cites a row by its source and
-  -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
-  -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
-  -- kept before it was declared. relayed is, for words a delegate said, the parts of them it declared to be the owner's
-  -- own words, a JSON array; none when it declared none. Cell `L2` is given it as its input.
-  -- Read by: cell `L2`.
-  SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
-    json_extract(m.body, '$.speaker') AS speaker,
-    coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at,
-    json_extract(m.body, '$.relayed') AS relayed
-  FROM architect_matters m
-  WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.where') = 'work'
-  UNION ALL
-  SELECT m.work, 'matter', m.id, json_extract(m.reply, '$.speaker'), json_extract(m.reply, '$.text'),
-    coalesce(json_extract(m.reply, '$.at'), 0), json_extract(m.reply, '$.relayed')
-  FROM architect_matters m
-  WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
-  UNION ALL
-  SELECT s.work, 'interjection', s.id, s.declared, s.text, s.at, s.relayed
-  FROM line_sayings s
-  WHERE s.speaker = 'owner' AND s.matter IS NULL AND s.cancelled_item IS NULL
-  UNION ALL
-  SELECT a.work, 'ask', a.id, json_extract(a.answer, '$.speaker'), json_extract(a.answer, '$.text'),
-    coalesce(json_extract(a.answer, '$.at'), 0), json_extract(a.answer, '$.relayed')
-  FROM owner_asks a
-  WHERE json_extract(a.answer, '$.by') = 'owner';
 
 CREATE VIEW work_ci AS
   -- The CI on each work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on
@@ -1799,7 +1754,7 @@ CREATE VIEW line_sayings AS
   -- that took it (taken_round), none until one did.
   -- Read by: the engine, which gives each line what waits for it, and judges a decision by the words it cites; the
   -- owner's interface, which shows them and offers to take back what no agent took up yet; the views
-  -- waiting_interjections, work_owner_words and conversation_entries.
+  -- waiting_interjections and conversation_entries.
   SELECT m.id, m.work, d.line, m.sender AS speaker, m.text, json_extract(m.body, '$.speaker') AS declared,
     json_extract(m.body, '$.relayed') AS relayed, coalesce(json_extract(m.body, '$.informs'), 0) AS informs,
     json_extract(m.body, '$.design_card') AS design_card, json_extract(m.body, '$.cancelled_item') AS cancelled_item,

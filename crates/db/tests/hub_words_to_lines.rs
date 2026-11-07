@@ -254,17 +254,6 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
         ),
         [vec![int(2)], vec![int(3)], vec![int(4)], vec![int(5)]]
     );
-    assert_eq!(
-        rows(
-            conn,
-            "SELECT source, id, speaker, words FROM work_owner_words ORDER BY source, id"
-        ),
-        [
-            vec![text("interjection"), int(1), text("delegate"), text("Fine. Go on.")],
-            vec![text("interjection"), int(3), text("owner"), text("Why this size?")],
-            vec![text("matter"), int(1), Value::Null, text("Hold it.")],
-        ]
-    );
     // The owner's words to the architect in the group show once, as the copy the engineer is told; the talk's entry
     // in the one-to-one.
     assert_eq!(

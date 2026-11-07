@@ -793,14 +793,6 @@ pub struct Project {
     /// [`RESEARCH_ROUNDS`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub research_rounds: Option<u64>,
-    /// How many hours a merged work whose acceptance holds a condition written in_effect waits for its change to take
-    /// effect before it reports the condition unverified and ends; none, and [`INSTALL_WAIT_HOURS`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install_wait_hours: Option<u64>,
-    /// How many times the check of such a condition may find its evidence not there yet and send the work back to wait,
-    /// before it reports the condition unverified and ends; none, and [`VERIFICATION_LOOKS`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub verification_looks: Option<u64>,
     /// The lock files whose dependencies' source an agent may have put in its worktree to read, each with the command
     /// that does it ([`DependencySources`]); none, and the tool `dependency_sources` refuses and says so. Left out of
     /// the settings an agent is shown when empty, which they read as `none`. An engine that does not include the tool
@@ -959,24 +951,11 @@ impl LockUpdate {
 }
 
 /// How many rounds the initial research runs before it is asked whether the work can be started directly, where the
-/// project sets no other bound. On the trial board, while the research could not run tests, a visit to it took 2
-/// rounds at the median, 5 at p95 and 8 at most (129 visits to 2026-11-06); now that it reproduces a defect through ci,
-/// each run costs a round more (a replay of #302 took 4 rounds for 2 runs), so 10 leaves room for three or four runs on
-/// a long one.
+/// project sets no other bound. On the trial board, while the research could commit no test where the CI runs them, a
+/// visit to it took 2 rounds at the median, 5 at p95 and 8 at most (129 visits to 2026-11-06); now that it reproduces a
+/// defect through ci, each run costs a round more (a replay of #302 took 4 rounds for 2 runs), so 10 leaves room for
+/// three or four runs on a long one.
 pub const RESEARCH_ROUNDS: u64 = 10;
-
-/// How many hours a merged work waits for its change to take effect, where the project sets no other limit. Measured on
-/// 2026-11-04 over the 39 merges of this flow on main that an installed build has taken in, each from its merge to the
-/// first round of a build holding it: 17 minutes at least, 2.0 hours at the median, 23.4 hours at p90 and 26.2 hours at
-/// most; the longest two installed builds were ever apart is 62 hours. Installing is done by hand, so the limit stays
-/// above the longest of these.
-pub const INSTALL_WAIT_HOURS: u64 = 72;
-
-/// How many times the check of a condition written in_effect may send the work back to wait, where the project sets no
-/// other limit. Taken with its wait of two days at most, the work ends within 16 days of the change taking effect, and
-/// within 19 of its merge with the limit of the wait above: the longest a work ran on the trial board, as far as the
-/// evidence "a work that ran after the change" could need, was 6.2 days (measured on 2026-11-04).
-pub const VERIFICATION_LOOKS: u64 = 8;
 
 /// Where a project keeps its records, and how they are checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1134,7 +1113,7 @@ fn is_true(b: &bool) -> bool {
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
-pub const SETTINGS: [&str; 9] = [
+pub const SETTINGS: [&str; 10] = [
     "design_goal",
     "attack_points",
     "test_paths",
@@ -1144,6 +1123,7 @@ pub const SETTINGS: [&str; 9] = [
     "records",
     "under_test",
     "other_projects",
+    "measure",
 ];
 
 impl Project {
@@ -1180,6 +1160,9 @@ impl Project {
             "records" => self.records.as_ref().map_or(Value::Null, |r| json!(r)),
             "under_test" => list(&self.under_test),
             "other_projects" => list(&self.other_projects),
+            // The workflows the measure tool may run; none, and nothing can be measured.
+            "measure" if self.ci.measure.is_empty() => Value::Null,
+            "measure" => json!(self.ci.measure),
             _ => return None,
         })
     }
@@ -3092,8 +3075,8 @@ asks = 9
     }
 
     // A project lists the workflows its measure tool runs as `[[ci.measure]]` tables. One that lists none reads as
-    // `none` in the settings an agent is shown, one that lists some as the list; a table with a field the list does
-    // not know, or with no workflow, is refused.
+    // `none` in the settings an agent is shown, and as nothing to an input that reads the setting `measure`; one that
+    // lists some as the list, both ways; a table with a field the list does not know, or with no workflow, is refused.
     #[test]
     fn a_project_lists_the_workflows_the_measure_tool_runs() {
         const MEASURING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
@@ -3102,6 +3085,7 @@ asks = 9
         const SETTING: &str = "`project.ci.measure`";
         let none = read(&files(&[])).unwrap();
         assert!(none.projects["p"].ci.measure.is_empty());
+        assert_eq!(none.projects["p"].setting("measure"), Some(serde_json::Value::Null));
         assert_eq!(
             none.named_settings("p", SETTING),
             [("project.ci.measure".to_string(), "none".to_string())]
@@ -3130,6 +3114,13 @@ asks = 9
                  {\"workflow\":\"other.yml\",\"inputs\":[]}]"
                     .to_string()
             )]
+        );
+        assert_eq!(
+            c.projects["q"].setting("measure"),
+            Some(serde_json::json!([
+                {"workflow": "measure.yml", "inputs": ["command", "base"], "artifact": "measurement"},
+                {"workflow": "other.yml", "inputs": []}
+            ]))
         );
         for (table, word) in [
             ("workflow = \"m.yml\"\ncolour = \"red\"", "colour"),
