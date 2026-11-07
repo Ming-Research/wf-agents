@@ -4,8 +4,8 @@ use super::*;
 
 // The first review is given the CI on the head it reviews: each run of ci on the head the work last pushed, as the
 // tool recorded what it reported, so that it does not look the CI up. The details review goes on in the same session
-// and is referred to the same input, by its address, not given it again. Takes about a second, as the other works of
-// these tests that run through the reviews.
+// and is referred to the same input, by its address, not given it again. It takes under a second (0.9 s on the fast CI),
+// as the other works of these tests that run to the reviews, and is the one test of the input `head_ci`.
 #[test]
 fn the_reviews_are_given_the_ci_on_the_head_they_review() {
     let s = setup("head-ci");
