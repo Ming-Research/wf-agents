@@ -25,8 +25,13 @@ What an agent needs to know for this repository, beyond the rules every agent is
   so), `ui` and `browser`. What depends on a real browser's layout, pointer, focus or keys (the graph's viewer in
   `client/src/graph/` above all) is tested in a file named `*.browser.test.tsx`, which draws the page in Chromium;
   the rest stays in `unit`, since the browser costs its own start. A work that changes such code names the browser tests
-  in `ci` (`client/src/graph/Viewer.browser.test.tsx`), because the fast CI starts Chromium only for a run that names
-  one; the full CI runs them once, at the merge, whenever the page's files changed.
+  in `ci` (those of `client/src/graph/Viewer.browser.test.tsx`, each by its title), because the fast CI starts Chromium
+  only for a run that names one; the full CI runs them once, at the merge, whenever the page's files changed.
+- `ci` and `ci_before` take a test by the name its results give it, ending at the test's own name: a Rust test by its
+  function's name, or with its module path and its test binary before it (`tests::a_row`, `engine::e2e routes::a_row`);
+  a page test by its own title, or with the titles of its describes before it, joined by ` > ` (`a describe > its
+  title`), its file counted from `client/` (`src/x.test.ts > a describe > its title`). A binary, a module, a file or a
+  describe alone names no test.
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
   passes `wf-agents flow check`; the flow crate's tests run the same check. Such a change merges once the owner
   approved it at the merge (M1), with a link to the flow page's comparison; it is no reason by itself to go to deep

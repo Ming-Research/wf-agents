@@ -4,7 +4,7 @@
 //!
 //! The reference is the check of a return that the engine runs on the test results the engineer hands in: a result of
 //! ci_before counts only while the files that run put on the code before the change are as they were. The note must
-//! name no run that check would accept, and must miss none it would send back.
+//! name no run that check would accept for a test the run built, and must miss none it would send back.
 
 use super::*;
 
