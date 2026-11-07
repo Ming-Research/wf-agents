@@ -253,3 +253,16 @@ T2 now judges a passage as design: W318's, a change of direction written as a pa
 being more than the problem needed. The fix writes its decision into the design as implementing does (W319). The
 item page draws the passages inside the design block; that part was not replayed, being the page's, and is held by the
 page's tests.
+
+## 10. After the re-check: no passage unjudged, none left standing once taken back
+
+Three changes after the review's re-check, not replayed (each one sentence, closing a gap the earlier rounds show
+rather than changing what a cell was seen to do):
+
+- The re-check (T4), the only review after the fix, is given the passages the fix wrote (`T6·design_updates`) and judges
+  each as the first review judges implementing's: a short cut, another method or more than the row needs is a problem
+  the fix brought in. Without it the fix approved its own passages.
+- The fix writes in `design_updates`, as it now stands, a passage of implementing's that a row has it change or take
+  back (taken back: what the design says there). Implementing does not run again, and its newest return keeps listing
+  the passage; the fix's later row is the one that stands, as the page orders passages by round.
+- The fix asks the advisor, by name, when the design is wrong in its direction.
