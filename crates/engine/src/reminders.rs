@@ -117,8 +117,10 @@ mod tests {
     /// Reminds at `now` when a reminder is due, as the engine does; gives what it said.
     fn remind(db: &mut db::Db, now: i64, interval: i64) -> Option<String> {
         let text = due(db.conn(), now, interval).unwrap()?;
-        db.write(Actor::Engine, |tx| remind(tx, now, &text).map_err(db::Error::Abort))
-            .unwrap();
+        db.write(Actor::Engine, |tx| {
+            super::remind(tx, now, &text).map_err(db::Error::Abort)
+        })
+        .unwrap();
         Some(text)
     }
 
