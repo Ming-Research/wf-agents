@@ -59,6 +59,7 @@ pub(crate) const POINTERS: [&str; 3] = ["@stopped", "@caller", "@from"];
 #[derive(Debug, Clone)]
 pub(crate) struct In {
     pub id: Option<String>,
+    /// The name an input every agent's cell has goes by; none for any other.
     pub name: Option<String>,
     /// An input every agent's cell has, which the agent knows by its name.
     pub common: bool,
@@ -252,7 +253,7 @@ impl Cell {
 fn input(x: &Input, common: bool) -> In {
     In {
         id: x.id.clone(),
-        name: x.name.clone(),
+        name: x.name.clone().filter(|_| common),
         common,
         numbered: x.numbered.clone(),
         empty: x.empty.clone(),
@@ -666,12 +667,6 @@ impl<'s> Graph<'s> {
             let row_names: BTreeSet<&String> = raw_rows.iter().map(|r| &r.0.name).collect();
             ensure!(row_names.len() == raw_rows.len(), "two rows with one name: {nid}");
             for x in &n.inputs {
-                // The owner's page heads every input with its name.
-                ensure!(
-                    x.name.as_ref().is_some_and(|s| !s.trim().is_empty()),
-                    "every input goes by a name: {nid} {}",
-                    x.what
-                );
                 let table = x
                     .numbered
                     .as_ref()
@@ -1744,7 +1739,6 @@ fn from_gate(n: &Node, g: &crate::format::Gate) -> Result<Node, String> {
     // The answer is the outcome that goes on, or, for a gate that may not apply, not applicable; each with why.
     let why = |desc: &str| RawField {
         name: Some("why".into()),
-        title: Some(g.why_title.clone()),
         kind: Some(Kind::Text),
         desc: Some(desc.to_string()),
         ..RawField::default()
@@ -1763,7 +1757,6 @@ fn from_gate(n: &Node, g: &crate::format::Gate) -> Result<Node, String> {
     }
     let answer = RawField {
         name: Some("answer".into()),
-        title: Some(g.answer_title.clone()),
         kind: Some(Kind::Union),
         desc: Some(fill(g.answer.as_str())),
         by: Some("verdict".into()),

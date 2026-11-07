@@ -64,13 +64,13 @@ fn remove_row(v: &mut Value, id: &str, name: &str) {
     rows(v, id).retain(|r| r["name"] != name);
 }
 
-/// The input `name` of cell `id`.
-fn input<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
+/// The input of cell `id` that reads only the place `path` of cell `at`'s return.
+fn input<'a>(v: &'a mut Value, id: &str, at: &str, path: &str) -> &'a mut Value {
     node(v, id)["inputs"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
-        .find(|x| x["name"] == name)
+        .find(|x| x["from"] == json!([[at, path]]))
         .unwrap()
 }
 
@@ -81,8 +81,7 @@ fn gated(v: &mut Value) {
     graph(v)["nodes"].as_array_mut().unwrap().push(json!({
         "id": "G9", "kind": "gate", "title": "Whether it stands", "effort": "medium",
         "question": "Judge whether this work stands.", "to": "I1", "shown": ["answer"],
-        "inputs": [{ "name": "How the work is understood", "what": "How this work is understood",
-                     "from": [["R1", "understanding"]] }],
+        "inputs": [{ "what": "How this work is understood", "from": [["R1", "understanding"]] }],
         "outcomes": { "on": ["stands", "It stands"], "problem": ["does_not_stand", "It does not stand"] }
     }));
     graph(v)["blocks"][1]["nodes"].as_array_mut().unwrap().push(json!("G9"));
@@ -340,16 +339,14 @@ case!(
     "a branch has a field named like the union's marker verdict",
     |v| {
         let must = out_field(v, "T3", "must_fix");
-        must["branches"][0]["fields"][0] =
-            json!({ "name": "verdict", "title": "Verdict", "type": "text", "desc": "x" });
+        must["branches"][0]["fields"][0] = json!({ "name": "verdict", "type": "text", "desc": "x" });
     }
 );
 case!(
     a_field_every_branch_has_is_also_in_a_branch,
     "a field every branch has is also in a branch",
     |v| {
-        out_field(v, "T3", "must_fix")["common"] =
-            json!([{ "name": "why", "title": "Why", "type": "text", "desc": "x" }]);
+        out_field(v, "T3", "must_fix")["common"] = json!([{ "name": "why", "type": "text", "desc": "x" }]);
     }
 );
 case!(
@@ -510,7 +507,7 @@ fn a_flow_from_before_asks_lost_their_kinds_is_shown_and_does_not_run() {
         .unwrap()
         .insert(
             0,
-            json!({ "name": "kind", "title": "Kind", "type": "enum", "desc": "Which kind", "values": "askKinds" }),
+            json!({ "name": "kind", "type": "enum", "desc": "Which kind", "values": "askKinds" }),
         );
     gated(&mut v);
     node(&mut v, "G9")["about"] = json!("an_old_kind");
@@ -789,23 +786,22 @@ case!(a_shown_place_the_return_does_not_have, "nope", |v| {
 case!(an_input_every_cell_has_with_no_name, "goes by a name", |v| {
     obj(&mut graph(v)["agentCommon"]["inputs"][0]).remove("name");
 });
-// The owner's page heads every input with its name and every field of a return with its title.
-case!(an_input_with_no_name, "every input goes by a name: S0", |v| {
-    obj(&mut node(v, "S0")["inputs"][0]).remove("name");
-});
+// An input is known by what it is and a field by its name: the name of an input not every agent's cell has, or the
+// title of a field, reaches no agent and shows on no chart, and is refused where it is.
 case!(
-    a_return_field_with_no_title,
-    "a return field with no title: R1 understanding.grounds[verified].where",
+    an_input_with_a_name,
+    "flows.engineer.nodes.S0.inputs[0].name: text that reaches no agent and shows on no chart: remove it",
     |v| {
-        let grounds = &mut node(v, "R1")["out"][0]["fields"][4];
-        obj(&mut grounds["item"]["branches"][0]["fields"][1]).remove("title");
+        node(v, "S0")["inputs"][0]["name"] = json!("Start order");
     }
 );
 case!(
-    a_field_every_agent_return_has_with_no_title,
-    "a return field with no title: R0 progress",
+    a_return_field_with_a_title,
+    "flows.engineer.nodes.R1.out.understanding.fields.grounds.item.branches.verified.fields.where.title: text that \
+     reaches no agent and shows on no chart: remove it",
     |v| {
-        obj(&mut v["shapes"]["progress_form"]).remove("title");
+        let grounds = &mut node(v, "R1")["out"][0]["fields"][4];
+        grounds["item"]["branches"][0]["fields"][1]["title"] = json!("Where checked");
     }
 );
 case!(a_numbered_table_not_read_from_returns, "numbered with a prefix", |v| {
@@ -887,10 +883,10 @@ case!(
 // Nothing missing.
 // The design, which the implementation straight from the research has not, is taken as one it always has.
 case!(an_input_missing_on_some_way, "missing", |v| {
-    obj(input(v, "I1", "The design")).remove("maybe");
+    obj(input(v, "I1", "D2", "design")).remove("maybe");
 });
 case!(an_input_marked_maybe_that_is_always_there, "marked maybe", |v| {
-    input(v, "T3", "The first pass's findings")["maybe"] = json!(true);
+    input(v, "T3", "T2", "findings")["maybe"] = json!(true);
 });
 // The fix's table, which on the way from an interjection at the merge's judge holds only the change the way on asked,
 // is taken as one it must always have a row of without the reviews' findings and that change.
@@ -926,7 +922,6 @@ case!(
     "cell `T4` is given history_sources without the rule history that goes with it",
     |v| {
         let input = json!({
-            "name": "Where the history is",
             "what": "The database's read-only address and the directory your git runs in",
             "from": [{ "engine": "history_sources" }]
         });

@@ -29,7 +29,7 @@ import { held, nowWords, runningWords, StartOver, startOverWords, stepWhyNot, wa
 import { standingWords } from './pages/System';
 import { cellTab, cellTabs, cellWhere, numbered } from './flow/CellPanel';
 import { inputName } from './flow/CellGiven';
-import { fieldActions, titleOf } from './flow/Returns';
+import { fieldActions } from './flow/Returns';
 import { enteredFrom, fallbackWords, lacksMoves, leavesTo, leftBy } from './flow/Rows';
 import { conditionsWords, conditionWords, placeIn, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
@@ -916,11 +916,11 @@ const COLOURS = coloursOf([
   {
     graph: 'engineer',
     lines: [
-      { name: 'engineer', desc: 'The engineer', colour: 'blue' },
-      { name: 'review', desc: 'The review', colour: 'teal' },
+      { name: 'engineer', colour: 'blue' },
+      { name: 'review', colour: 'teal' },
     ],
   },
-  { graph: 'architect', lines: [{ name: 'observer', desc: 'The search of observations', colour: 'brown' }] },
+  { graph: 'architect', lines: [{ name: 'observer', colour: 'brown' }] },
 ]);
 
 function cell(id: string, rows: CompiledRow[], extra: Partial<CompiledCell> = {}): CompiledCell {
@@ -1839,20 +1839,14 @@ describe("a cell's panel", () => {
     expect(numbered(c).map((x) => x.no)).toEqual([1, null, 2]);
   });
 
-  it('heads an input by its name, or in a flow stored before inputs had names by the first words of what it is', () => {
-    const x = (what: string, name?: string) => ({ id: null, name, what, from: [], maybe: false });
-    expect(inputName(x('The item itself: its problem, why', 'The item itself'))).toBe('The item itself');
+  it('heads an input every cell has by its name, and any other by the first words of what it is', () => {
+    const x = (what: string, name?: string, common = false) => ({ id: null, name, common, what, from: [], maybe: false });
+    expect(inputName(x('The tools you asked for and their results, as they ran', 'Tool results', true))).toBe('Tool results');
+    // A version stored while every input had a name for the owner's page: the name of a cell's own input is not shown.
+    expect(inputName(x('The item itself: its problem, why', 'The item as written'))).toBe('The item itself');
     expect(inputName(x("The project's AGENTS.md, and the index of the design tree"))).toBe("The project's AGENTS.md");
     expect(inputName(x('What already exists for this item, when it was worked on before'))).toBe('What already exists for this item');
     expect(inputName(x('The results of the tools you asked for'))).toBe('The results of the tools you asked for');
-  });
-
-  it('heads a field by the title the flow gives its place, a branch\'s field by that of its place in any branch', () => {
-    const titles = { 'understanding.grounds[verified].claim': 'Claim', 'understanding.grounds[verified].where': 'Where checked' };
-    expect(titleOf(titles, 'understanding.grounds[verified].where', 'where')).toBe('Where checked');
-    expect(titleOf(titles, 'understanding.grounds[inferred].claim', 'claim')).toBe('Claim');
-    // A flow version stored before fields had titles: the key in words.
-    expect(titleOf(undefined, 'understanding.vs_item', 'vs_item')).toBe('Vs item');
   });
 });
 
@@ -1933,7 +1927,7 @@ describe("a helper's thread with the engineer", () => {
   });
 
   // A bubble of the thread: what the round said it did, and its whole return folded under it, read once opened.
-  const told = (r: RoundSummary) => renderToStaticMarkup(createElement(RoundTold, { work: 9, r, cell: undefined, within: 'outcome' }));
+  const told = (r: RoundSummary) => renderToStaticMarkup(createElement(RoundTold, { work: 9, r, cell: undefined }));
 
   it('says what a round did as a text an agent wrote, its whole return folded under it in small words', () => {
     const html = told({ ...by(10, 'T3', 'review', 'took', 'done'), progress: 'Both new tests are **green** after the change.' });
@@ -2026,7 +2020,7 @@ describe('a round', () => {
     expect(chars('\u{1f680}\u{2192}\u{2713}')).toBe(3);
   });
 
-  it("heads each field handed back by the title of its place, the forms of a return at the places' root", () => {
+  it('heads each field handed back by its key, the forms of a return as fields of their own', () => {
     const better: JsonValue = {
       description: 'Is there a better design',
       oneOf: [
@@ -2056,31 +2050,24 @@ describe('a round', () => {
         progress: { type: 'string', description: 'One sentence' },
       },
     };
-    const titles = { better: 'A better design', 'better[no].considered': 'Approaches considered', progress: 'Progress note' };
-    const shown = shape({ outcome: { better: { verdict: 'no', considered: ['one', 'two'] } }, progress: 'Done.' }, schema, {
-      within: 'outcome',
-      titles,
-    });
+    const shown = shape({ outcome: { better: { verdict: 'no', considered: ['one', 'two'] } }, progress: 'Done.' }, schema);
     expect(shown).toEqual({
       kind: 'fields',
       fields: [
         {
           key: 'outcome',
-          title: null,
           value: {
             kind: 'fields',
             fields: [
               {
                 key: 'better',
-                title: 'A better design',
                 value: {
                   kind: 'fields',
                   fields: [
-                    // A value the schema fixes is a kind; its place has no title, so its key in words heads it.
-                    { key: 'verdict', title: 'Verdict', value: { kind: 'fixed', text: 'no' } },
+                    // A value the schema fixes is a kind.
+                    { key: 'verdict', value: { kind: 'fixed', text: 'no' } },
                     {
                       key: 'considered',
-                      title: 'Approaches considered',
                       value: {
                         kind: 'list',
                         items: [
@@ -2095,22 +2082,22 @@ describe('a round', () => {
             ],
           },
         },
-        { key: 'progress', title: 'Progress note', value: { kind: 'text', text: 'Done.' } },
+        { key: 'progress', value: { kind: 'text', text: 'Done.' } },
       ],
     });
-    // A pause holds an object with no fields listed: its own keys, by their JSON type, with no title.
-    const paused = shape({ outcome: { pause: { why: 'asked', n: 2 } } }, schema, { within: 'outcome', titles });
+    // A pause holds an object with no fields listed: its own keys, by their JSON type.
+    const paused = shape({ outcome: { pause: { why: 'asked', n: 2 } } }, schema);
     const pause = paused.kind === 'fields' && paused.fields[0].value.kind === 'fields' ? paused.fields[0].value.fields[0] : null;
     expect(pause?.value).toEqual({
       kind: 'fields',
       fields: [
-        { key: 'why', title: null, value: { kind: 'text', text: 'asked' } },
-        { key: 'n', title: null, value: { kind: 'plain', text: '2' } },
+        { key: 'why', value: { kind: 'text', text: 'asked' } },
+        { key: 'n', value: { kind: 'plain', text: '2' } },
       ],
     });
   });
 
-  it("lays out a list of objects item by item, each branch's fields by the titles of its places, and an empty list as empty", () => {
+  it("lays out a list of objects item by item, each by its branch's schema, and an empty list as empty", () => {
     const schema: JsonValue = {
       type: 'object',
       properties: {
@@ -2126,46 +2113,38 @@ describe('a round', () => {
         side_reports: { type: 'array', items: { type: 'object', properties: { urgent: { type: 'boolean' } } } },
       },
     };
-    const titles = {
-      grounds: 'What it rests on',
-      'grounds[verified].claim': 'Claim',
-      'grounds[verified].where': 'Where checked',
-      'grounds[inferred].from': 'Follows from',
-    };
     const shown = shape(
       { grounds: [{ kind: 'verified', claim: 'a', where: 'here' }, { kind: 'inferred', claim: 'b', from: 'there' }], side_reports: [] },
       schema,
-      { titles },
     );
     const grounds = shown.kind === 'fields' ? shown.fields[0] : null;
-    expect(grounds?.title).toBe('What it rests on');
+    expect(grounds?.key).toBe('grounds');
     expect(grounds?.value).toEqual({
       kind: 'list',
       items: [
         {
           kind: 'fields',
           fields: [
-            { key: 'kind', title: 'Kind', value: { kind: 'fixed', text: 'verified' } },
-            { key: 'claim', title: 'Claim', value: { kind: 'text', text: 'a' } },
-            { key: 'where', title: 'Where checked', value: { kind: 'text', text: 'here' } },
+            { key: 'kind', value: { kind: 'fixed', text: 'verified' } },
+            { key: 'claim', value: { kind: 'text', text: 'a' } },
+            { key: 'where', value: { kind: 'text', text: 'here' } },
           ],
         },
         {
           kind: 'fields',
           fields: [
-            { key: 'kind', title: 'Kind', value: { kind: 'fixed', text: 'inferred' } },
-            // The same field in another branch takes the title of its place in any branch.
-            { key: 'claim', title: 'Claim', value: { kind: 'text', text: 'b' } },
-            { key: 'from', title: 'Follows from', value: { kind: 'text', text: 'there' } },
+            { key: 'kind', value: { kind: 'fixed', text: 'inferred' } },
+            { key: 'claim', value: { kind: 'text', text: 'b' } },
+            { key: 'from', value: { kind: 'text', text: 'there' } },
           ],
         },
       ],
     });
     expect(shown.kind === 'fields' && shown.fields[1].value).toEqual({ kind: 'empty', text: '[]' });
-    // With no schema, a value by its JSON type alone, no field titled.
+    // With no schema, a value by its JSON type alone.
     expect(shape({ a: [1, 'x'] }, null)).toEqual({
       kind: 'fields',
-      fields: [{ key: 'a', title: null, value: { kind: 'list', items: [{ kind: 'plain', text: '1' }, { kind: 'text', text: 'x' }] } }],
+      fields: [{ key: 'a', value: { kind: 'list', items: [{ kind: 'plain', text: '1' }, { kind: 'text', text: 'x' }] } }],
     });
   });
 

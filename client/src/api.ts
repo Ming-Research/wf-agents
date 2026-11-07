@@ -2724,8 +2724,8 @@ export type CostEffect = { "kind": "unreadable", why: string, } | { "kind": "goe
 from: number | null, redone: number, } | { "kind": "stuck", at: string, pause: string, } | { "kind": "ends", why: string, taken_over: boolean, } | { "kind": "moves" } | { "kind": "stays" };
 
 /**
- * The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
- * are.
+ * The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not their
+ * colours.
  */
 export type GraphLines = { graph: string, lines: Array<LineView>, };
 
@@ -2733,10 +2733,6 @@ export type GraphLines = { graph: string, lines: Array<LineView>, };
  * A line, the agent whose cells go on in one session.
  */
 export type LineView = { name: string,
-/**
- * How its session is kept (when it starts and which cells continue it).
- */
-desc: string,
 /**
  * The colour its role is drawn in wherever the page shows it: its cells on a chart, its avatar and its bubbles.
  */
@@ -3134,17 +3130,12 @@ shown?: Array<string>,
 /**
  * Places of the return a role reads outside this flow, through the database.
  */
-read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> },
-/**
- * Each field of the return by its path (`understanding.grounds[verified].claim`), with the title the owner's
- * page heads it with. No agent is sent these.
- */
-titles?: { [key in string]: string }, };
+read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, };
 
 export type CompiledInput = { id?: string | null,
 /**
- * What the input is called, as the owner's page heads it; none in a flow version stored before every input had
- * a name, where only an input every agent's cell has had one.
+ * What an input every agent's cell has is called, as the agents know it; none for any other input. A flow
+ * version stored while every input had a name for the owner's page holds one for each.
  */
 name?: string | null,
 /**

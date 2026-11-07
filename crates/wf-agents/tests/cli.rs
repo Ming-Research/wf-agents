@@ -1231,11 +1231,11 @@ On version 2 already (1):
            INSERT INTO works (id, item, flow_version, graph, at) VALUES (8, 5, 3, 'engineer', 'R1');"#,
     );
     let before = (entries(&dir), std::fs::read(&path).unwrap());
-    // A branch's flow, as `git show` writes it.
+    // A branch's flow, as `git show` writes it: a store's title, which the chart shows, said otherwise.
     let flow = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../flow/flow.json")).unwrap();
-    let title = "\"title\": \"Whether it can go wrong silently\"";
+    let title = "\"title\": \"Known red checks\"";
     assert!(flow.contains(title));
-    let branch = flow.replacen(title, "\"title\": \"Whether it may go wrong silently\"", 1);
+    let branch = flow.replacen(title, "\"title\": \"Checks known to be red\"", 1);
     let mut child = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
         .args(["flow", "cost", "-", "--data"])
         .arg(&dir)

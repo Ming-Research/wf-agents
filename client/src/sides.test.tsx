@@ -306,10 +306,10 @@ describe("a cell's panel", () => {
   });
 
   it("shows a round's return as JSON, a key's tip what the flow says of its place", () => {
-    const html = renderToStaticMarkup(<Json value={detail.output ?? null} schema={schema} within="outcome" titles={{ take: 'Which way' }} />);
+    const html = renderToStaticMarkup(<Json value={detail.output ?? null} schema={schema} />);
     const text = html.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"');
     expect(text).toBe('{"outcome": {"take": {"way": "do_now"}},"progress": "Closed it."}');
-    expect(html).toContain('title="Which way\nHow the matter goes on."');
+    expect(html).toContain('title="How the matter goes on."');
     expect(html).toContain('title="What this round did."');
     expect(html).toContain('<span class="json-string">&quot;do_now&quot;</span>');
   });

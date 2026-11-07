@@ -41,7 +41,7 @@ describe("a role's colour", () => {
   // Read as the page starts, the lines are there before any bubble is drawn, which is then drawn in its role's colour
   // and not in the grey of an agent with no colour of its own; asked for again while being read, they are read once.
   it('is read as the page starts, before a bubble is drawn, and once', async () => {
-    const lines: GraphLines[] = [{ graph: 'engineer', lines: [{ name: 'engineer', desc: 'The engineer', colour: 'blue' }] }];
+    const lines: GraphLines[] = [{ graph: 'engineer', lines: [{ name: 'engineer', colour: 'blue' }] }];
     const asked: string[] = [];
     vi.stubGlobal('fetch', async (path: string) => {
       asked.push(path);
@@ -60,11 +60,11 @@ describe("a role's colour", () => {
       {
         graph: 'engineer',
         lines: [
-          { name: 'engineer', desc: 'The engineer', colour: 'blue' },
-          { name: 'review', desc: 'The review', colour: 'teal' },
+          { name: 'engineer', colour: 'blue' },
+          { name: 'review', colour: 'teal' },
         ],
       },
-      { graph: 'architect', lines: [{ name: 'architect', desc: 'The architect', colour: 'purple' }] },
+      { graph: 'architect', lines: [{ name: 'architect', colour: 'purple' }] },
     ]);
     expect(roleClass(colours, 'engineer')).toBe('role-blue');
     expect(roleClass(colours, 'review')).toBe('role-teal');

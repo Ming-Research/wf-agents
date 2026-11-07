@@ -45,7 +45,6 @@ fn with_decisions(e: &mut Engine, cells: &[(&str, &str)]) -> i64 {
             .any(|x| x["from"].as_array().is_some_and(|f| f.contains(&source)))
         {
             inputs.push(json!({
-                "name": "The project's decisions",
                 "what": "The decisions in force, each file by its path with its text; none when there are none",
                 "from": [source],
                 "maybe": true

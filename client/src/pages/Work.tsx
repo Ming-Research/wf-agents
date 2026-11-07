@@ -139,7 +139,7 @@ function Said({ work, r, line, to, g, onRound }: {
         </BubbleHead>
       }
     >
-      <RoundTold work={work} r={r} cell={cell} within={g.within} />
+      <RoundTold work={work} r={r} cell={cell} />
     </Bubble>
   );
 }

@@ -33,9 +33,9 @@ pub fn view(c: &Compiled) -> FlowView {
     }
 }
 
-/// The lines of each graph of the flow built into this program, with what each is and the colour its role is drawn in
-/// wherever the page shows it: a compiled flow version keeps the lines, not what they are, and a role has one colour
-/// on every page, whatever flow version a work runs on.
+/// The lines of each graph of the flow built into this program, with the colour each one's role is drawn in wherever
+/// the page shows it: a compiled flow version keeps the lines, not their colours, and a role has one colour on every
+/// page, whatever flow version a work runs on.
 pub fn flow_lines() -> Vec<GraphLines> {
     // The flow built into this program compiles, every line of it with a colour, as its tests hold; a source that does
     // not read has no lines, and a line with no colour is not given.
@@ -54,7 +54,6 @@ pub fn flow_lines() -> Vec<GraphLines> {
                 .filter_map(|l| {
                     Some(LineView {
                         name: l.name.clone(),
-                        desc: l.desc.clone(),
                         colour: l.colour?,
                     })
                 })
@@ -1195,7 +1194,7 @@ mod tests {
     }
 
     // Every part of the page that shows a role reads its colour here: each line of the flow built into the program,
-    // graph by graph, with what it is and the colour the flow gives it.
+    // graph by graph, with the colour the flow gives it.
     #[test]
     fn the_lines_are_the_flow_s_each_with_its_colour() {
         use flow::format::Colour;
@@ -1220,6 +1219,5 @@ mod tests {
                 ("second_eye", Colour::Indigo),
             ]
         );
-        assert!(graphs.iter().flat_map(|g| &g.lines).all(|l| !l.desc.is_empty()));
     }
 }
