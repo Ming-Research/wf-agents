@@ -154,7 +154,7 @@ fn the_engines_commit_merge_revert_checkout_fetch_and_worktree_run_no_program() 
         run(&["checkout", "-q", "main"]);
         run(&["commit", "-q", "--allow-empty", "-m", "main"]);
         run(&["merge", "-q", "--no-ff", "-m", "merge", "side"]);
-        run(&["revert", "--no-edit", "HEAD"]);
+        run(&["revert", "--no-edit", "-m", "1", "HEAD"]);
 
         // A commit of someone else on the origin, which the fetch brings in.
         let other = r.root.join("other");
