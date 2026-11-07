@@ -306,3 +306,47 @@ describe('Space on the flow page, in a real browser', () => {
     }
   });
 });
+
+// Space after the steps the owner reported (click the chart, leave it and come back, leave the window and come back),
+// which the tests above do not take: they only hover.
+describe('Space on the flow page after a click, a leave and a return', () => {
+  // Presses Space and says whether the page took it and the drawing moved.
+  async function spaceMoves(before: ReturnType<typeof seen>, index: number) {
+    await userEvent.keyboard(' ');
+    expect(keys[index]).toEqual({ code: 'Space', prevented: true });
+    await settle();
+    expect(unmoved(before)).toBe(false);
+  }
+
+  it('after a click on a cell', async () => {
+    await openFlowPage();
+    await userEvent.click(cellNearTop());
+    await settle();
+    await userEvent.hover(find('.viewer'));
+    await spaceMoves(seen(), 0);
+  });
+
+  it('after a click on the chart where nothing is', async () => {
+    await openFlowPage();
+    await userEvent.click(find('.viewer'));
+    await settle();
+    await spaceMoves(seen(), 0);
+  });
+
+  it('after the pointer leaves the chart and comes back', async () => {
+    await openFlowPage();
+    await userEvent.hover(cellNearTop());
+    await userEvent.hover(find('.flow-tools'));
+    await userEvent.hover(document.body);
+    await userEvent.hover(cellNearTop());
+    await spaceMoves(seen(), 0);
+  });
+
+  it('after the window loses and regains focus', async () => {
+    await openFlowPage();
+    await userEvent.click(find('.viewer'));
+    window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new Event('focus'));
+    await spaceMoves(seen(), 0);
+  });
+});
