@@ -4203,7 +4203,6 @@
       "queue_steps": "Withdraws the steps of the plan before not yet taken, and queues each step of this plan as a matter of the kind set_straight, taken in the plan's order, after what something waits on and before the rest of the queue, each in a session forked from this one."
     },
     "checks": {
-      "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
       "measure_matches_runs": "An answer of measured has a run of this work's measure tool among the engine's records, a request that was refused not counting; any other answer (not_measured, from_records) has none. Reading the records, with query or otherwise, needs no run of measure.",
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it that ci made is green; so is the latest that ran tests, when a later run ran the lint only, which does not stand for them.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a report changes nothing outside `research/`.",
@@ -6247,9 +6246,10 @@
             }
           ],
           "prompt": [
-            "You are the engineer of this work. This round researches: change no file outside `research/`, where code that reproduces the problem goes, committed locally.",
+            "You are the engineer of this work. This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs through ci and the implementation keeps it; a simple research leaves nothing but its conclusion.",
             "First read the item, the owner's words in it and the background given; the background gives addresses: follow those you need.",
             "Read the code concerned. Reproduce the problem first when you can, with ci, ci_before or measure; when you cannot, prove it another way, such as reasoning from the code or adding logs.",
+            "A defect, though, is fixed only once seen to happen where it shows, as on the page in a real browser or in the program on its own data: by a test run there with ci or, where no test can show it, by a probe, a log or the owner's own run; a cause read from the code, or a test in a stand-in such as a simulated page, has not seen it. If, after looking as far as the tools reach, it is still seen nowhere, neither start nor hand it to deep research: ask the owner how to go on.",
             "When you are unsure, look further: read more code, run more, look up the history; do not stop to ask.",
             "Find the cause at its root; if you think the design itself is at fault, say so plainly.",
             "This research answers one question: by the facts found, can a sound approach be settled? If it can, write how to change it and how to verify it: the work is implemented next. It cannot only when a fact that would change the direction is unchecked and cannot be checked in a round or two, or several approaches must be measured or tried before one can be chosen; then hand it to deep research, saying where it is stuck. Nothing else is a reason for deep research: a choice for the owner, an approval or a departure from a decision you write as a decision point or a departure, with what you recommend, and the work goes on by your recommendation while the owner answers; an item whose own words contradict each other you settle by the facts, writing the acceptance that holds and saying in vs_item where it differs; a fact the history holds, in git or the records, you look up. Handing it to deep research is no failure; a conclusion that cannot stand is.",
@@ -6560,9 +6560,6 @@
           ],
           "checks": [
             {
-              "check": "research_only"
-            },
-            {
               "at": "can_start[yes].acceptance",
               "check": "in_effect_known"
             }
@@ -6687,7 +6684,7 @@
             }
           ],
           "prompt": [
-            "This round researches what the initial research could not settle, and designs how to do it. Change no file outside `research/`; measurement and experiment code goes there, committed locally, and runs with measure.",
+            "This round researches what the initial research could not settle, and designs how to do it. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally, measurement and experiment code running with measure; a test that reproduces the problem goes where the project's tests are, so that it runs where they run and the implementation keeps it; a simple research leaves nothing but its conclusion.",
             "The reproductions, data and experiments of the initial research are in the worktree: use them, do not run them again. Take its conclusion as a hypothesis to verify, not as a premise.",
             "Start where it got stuck: a missing fact, find it out; a measurement, run it; more than one approach, compare them; a fault of the design itself, analyse it as a design.",
             "A fact that would change the direction is verified before it is used.",
@@ -6764,9 +6761,6 @@
           ],
           "checks": [
             {
-              "check": "research_only"
-            },
-            {
               "at": "measure",
               "check": "measure_matches_runs"
             }
@@ -6825,7 +6819,7 @@
           ],
           "prompt": [
             "List everything this design takes for granted: earlier decisions (the owner's, the architect's), the architecture and interfaces as they are, how the item puts it, the initial research's conclusion, and what you take for facts. Pick the two or three that bind this design most: those without which the design would change the most. For each, suppose it broken: what does the design become? Follow it on: what else must change with it, and at what cost, until it either works or does not; where it does not, write at which step it dies. Where breaking one is plainly better and worth its cost, write it as a proposal: which, why, and what must change with it; before proposing to break a decision in force, read its history with `git log --follow` on its file. Never break one quietly: whoever made it decides, at the review. Where none is better, write that the design stands, with the ones you examined and why each is not broken.",
-            "Hand in the design again whole, with only what this examination changed changed, and say what changed. Change no file outside `research/`."
+            "Hand in the design again whole, with only what this examination changed changed, and say what changed. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else; a test that reproduces the problem goes where the project's tests are, so that it runs where they run and the implementation keeps it; a simple research leaves nothing but its conclusion."
           ],
           "out": [
             {
@@ -6942,9 +6936,6 @@
             }
           ],
           "checks": [
-            {
-              "check": "research_only"
-            },
             {
               "at": "design.acceptance",
               "check": "in_effect_known"
@@ -7378,7 +7369,7 @@
           ],
           "prompt": [
             "Change the code by the plan or the design; change only what this work needs, nothing on the side.",
-            "For behaviour that is wrong, first write a test that reproduces it, see it red on the code before the change with ci_before, then change the code until ci runs it green; where it cannot be reproduced, use the other evidence the research named.",
+            "For behaviour that is wrong, first write a test that reproduces it, see it red on the code before the change with ci_before, then change the code until ci runs it green; a test the research left is that test, its run of ci_before counting while its files are unchanged; where it cannot be reproduced, use the other evidence the research named.",
             "Every acceptance condition has a test, which the conditions name, but one written in_effect: it has none, is checked after the merge, and its row says `how: in_effect`.",
             "A small case the design did not foresee you handle yourself, and write it as a departure. To change the approach, or where the plan or the design does not hold, do not work around it: say where it does not hold, and the work goes back to research.",
             "Before handing in, merge the latest main into the branch, resolve any conflict yourself, and run ci again: hand in only once it is green. To run CI or a measurement, commit locally and use ci or measure.",

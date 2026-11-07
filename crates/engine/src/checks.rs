@@ -693,14 +693,6 @@ fn text_on_branch(worktree: &Path, text: &str) -> Result<(), String> {
 
 fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
     match check {
-        "research_only" => {
-            let clean = git::is_clean(c.wt()?)?;
-            let outside: Vec<String> = match &c.head_start {
-                Some(start) => c.own(start, "HEAD")?,
-                None => Vec::new(),
-            };
-            research_problems(clean, &outside).into_result()
-        }
         "design_paths_unchanged" => {
             let wt = c.wt()?;
             let Some(start) = &c.head_start else { return Ok(()) };
@@ -2037,27 +2029,6 @@ fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
     }
     if unlocked {
         problems.push(LOCKED_ACCEPTANCE);
-    }
-    problems
-}
-
-/// What is wrong with a research round's changes: the worktree holds changes that are not committed, and the round
-/// changed files outside `research/` (`changed`, the files it changed); the two are independent.
-fn research_problems(clean: bool, changed: &[String]) -> Problems {
-    let mut problems = Problems::default();
-    if !clean {
-        problems.push("the worktree has uncommitted changes");
-    }
-    let outside: Vec<&str> = changed
-        .iter()
-        .map(String::as_str)
-        .filter(|f| !f.starts_with("research/"))
-        .collect();
-    if !outside.is_empty() {
-        problems.push(format!(
-            "this round changed files outside research/: {}",
-            outside.join(", ")
-        ));
     }
     problems
 }
@@ -4307,27 +4278,6 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-    }
-
-    #[test]
-    fn a_research_round_that_left_changes_uncommitted_and_changed_outside_research_is_told_both() {
-        assert_eq!(
-            said(research_problems(false, &ids(&["research/a.md", "src/x.rs", "y.rs"]))),
-            [
-                "the worktree has uncommitted changes",
-                "this round changed files outside research/: src/x.rs, y.rs"
-            ]
-        );
-        assert_eq!(
-            said(research_problems(false, &ids(&["research/a.md"]))),
-            ["the worktree has uncommitted changes"]
-        );
-        assert_eq!(
-            said(research_problems(true, &ids(&["x.rs"]))),
-            ["this round changed files outside research/: x.rs"]
-        );
-        assert!(research_problems(true, &ids(&["research/a.md", "research/b/c.md"])).is_empty());
-        assert!(research_problems(true, &[]).is_empty());
     }
 
     #[test]
