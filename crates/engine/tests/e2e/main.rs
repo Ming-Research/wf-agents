@@ -17,7 +17,7 @@ use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Call, Next, Reply, Request, Seen};
 use engine::flow_cost::Effect;
-use engine::hub::{CheckRun, Failure, GitHub};
+use engine::github::{CheckRun, Failure, GitHub};
 use engine::{Advance, Ask, Engine, GlobalPause, Go, Hooks, Passed, Stepped};
 use serde_json::{Value, json};
 
@@ -702,7 +702,7 @@ fn commanded(inputs: &[(String, String)], c: &str) -> bool {
 /// branch onto the pull request's base and fails for a pull request that is not open, as `gh pr ready` does, and closing a
 /// pull request that merged fails, as `gh pr close` does. A workflow
 /// run by hand is recorded in `by_hand`, and its run has a log and an artifact `measurement`.
-struct FakeHub {
+struct FakeGitHub {
     origin: PathBuf,
     scratch: PathBuf,
     prs: Prs,
@@ -713,7 +713,7 @@ struct FakeHub {
     watch_main: Arc<AtomicBool>,
 }
 
-impl FakeHub {
+impl FakeGitHub {
     /// The run by hand whose commit is the one given.
     fn run_by_hand(&self, commit: &str) -> Option<ByHand> {
         let runs = self.by_hand.lock().unwrap();
@@ -729,7 +729,7 @@ impl FakeHub {
     }
 
     /// What GitHub does to merge an open pull request: squashes its branch onto its base on the remote, marks it merged
-    /// and keeps the commit it made. It is a function of the pull requests and the remote, not of the hub, so that a
+    /// and keeps the commit it made. It is a function of the pull requests and the remote, not of GitHub, so that a
     /// test can merge a pull request on GitHub without the engine's merge call, as when the answer of that call is
     /// lost. `gh pr ready`, the first thing the engine's real merge does, refuses a pull request that is not open,
     /// whether it merged or was closed, and so does this, with gh's own words.
@@ -777,7 +777,7 @@ impl FakeHub {
     }
 }
 
-impl GitHub for FakeHub {
+impl GitHub for FakeGitHub {
     fn pull_request(
         &self,
         _repo: &str,
@@ -912,7 +912,7 @@ impl GitHub for FakeHub {
         _repo: &str,
         check: &CheckRun,
         name: &str,
-    ) -> Result<Option<Vec<engine::hub::ArtifactFile>>, Failure> {
+    ) -> Result<Option<Vec<engine::github::ArtifactFile>>, Failure> {
         // Every run reports its tests' results; its check's link ends with its commit.
         if name == RESULTS {
             let sha = check.run.rsplit('/').next().unwrap_or_default();
@@ -953,7 +953,7 @@ impl GitHub for FakeHub {
 
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure> {
         self.merging.pass();
-        FakeHub::squash_merge(&self.origin, &self.scratch, &self.prs, repo, pr)
+        FakeGitHub::squash_merge(&self.origin, &self.scratch, &self.prs, repo, pr)
     }
 
     fn close(&self, _repo: &str, pr: i64, _comment: &str) -> Result<(), Failure> {
@@ -979,7 +979,7 @@ const REGRESSION: &str = "regression";
 /// The artifact every run of the fake GitHub's CI reports its tests' results in, as the project's configuration names it.
 const RESULTS: &str = "test-results";
 
-impl FakeHub {
+impl FakeGitHub {
     /// The results a run of the commit reports, as JUnit: the feature's test, which passes, and the regression test,
     /// which fails where the commit's CI is red for it.
     fn junit(&self, sha: &str) -> String {
@@ -1287,14 +1287,14 @@ fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Arc<Mu
 /// An engine made only to read over a setup, which takes no lock and so runs beside an engine that holds it: it reads
 /// the database as an engine started afresh finds it.
 fn reading_engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> Engine {
-    let (agents, hub) = fakes(s, scripts);
+    let (agents, github) = fakes(s, scripts);
     let committed = config::committed(&s.data).unwrap();
-    Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap()
+    Engine::reading(&s.data, committed, Box::new(agents), Box::new(github)).unwrap()
 }
 
 /// The engine over a setup as it starts, telling `hooks` what runs, with what it says kept.
 fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks) -> (Engine, Arc<Mutex<Vec<String>>>) {
-    let (agents, hub) = fakes(s, scripts);
+    let (agents, github) = fakes(s, scripts);
     let committed = config::committed(&s.data).unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
     let log = said.clone();
@@ -1305,18 +1305,18 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
     // The lock of the data directory, as the command takes it: a test that starts a second engine on the same data
     // drops the first first.
     let lock = engine::Lock::acquire(&s.data).unwrap();
-    let mut e = Engine::new(lock, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
+    let mut e = Engine::new(lock, committed, Box::new(agents), Box::new(github), hooks).unwrap();
     e.retry_wait = std::time::Duration::ZERO;
     (e, said)
 }
 
 /// The scripted agents and the fake GitHub over a setup.
-fn fakes(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Scripted, FakeHub) {
+fn fakes(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Scripted, FakeGitHub) {
     let agents = Scripted {
         scripts,
         rounds: Mutex::new(BTreeMap::new()),
     };
-    let hub = FakeHub {
+    let github = FakeGitHub {
         origin: s.origin.clone(),
         scratch: s.root.clone(),
         prs: s.prs.clone(),
@@ -1326,7 +1326,7 @@ fn fakes(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Scripted, FakeH
         by_hand: s.by_hand.clone(),
         watch_main: s.watch_main.clone(),
     };
-    (agents, hub)
+    (agents, github)
 }
 
 fn state(e: &Engine, item: i64) -> Option<(i64, String, Option<String>)> {
@@ -1617,7 +1617,7 @@ fn brought(e: &Engine, work: i64) -> Vec<(String, Value)> {
 fn notices_of(e: &Engine, work: i64) -> Vec<String> {
     let mut st =
         e.db.conn()
-            .prepare("SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id")
+            .prepare("SELECT text FROM messages WHERE sender = 'engine' AND work = ?1 ORDER BY id")
             .unwrap();
     st.query_map([work], |r| r.get(0))
         .unwrap()
@@ -2665,7 +2665,7 @@ fn transitions_at(e: &Engine, work: i64, cell: &str) -> Vec<Option<String>> {
 fn notices(e: &Engine, word: &str) -> i64 {
     e.db.conn()
         .query_row(
-            "SELECT count(*) FROM engine_notices WHERE instr(text, ?1) > 0",
+            "SELECT count(*) FROM messages WHERE sender = 'engine' AND instr(text, ?1) > 0",
             [word],
             |r| r.get(0),
         )

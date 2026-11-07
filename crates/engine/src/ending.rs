@@ -348,7 +348,7 @@ pub(crate) fn merge_came_first(tx: &Transaction<'_>, item: i64, not: &str, asker
         item,
     )?;
     let text = format!("Item {item} ({title}) is not {not}: its merge stands on main, which it reached first.");
-    crate::actions::notify(tx, work.first().copied(), &text)?;
+    crate::hub::tell(tx, work.first().copied(), &text)?;
     if askers.contains(&db::Actor::Architect.name()) {
         let m = db::Matter {
             project,
@@ -737,7 +737,7 @@ mod tests {
             "SELECT what FROM architect_matters WHERE kind = 'report' AND detail = 'other'",
         );
         assert!(report.contains("is not cancelled"), "{report}");
-        let notice: String = one(&db, "SELECT text FROM engine_notices");
+        let notice: String = one(&db, "SELECT text FROM messages WHERE sender = 'engine'");
         assert_eq!(notice, report);
         db.write(Actor::Engine, |tx| {
             tx.execute("DELETE FROM outbox", [])?;

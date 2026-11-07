@@ -24,15 +24,15 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert!(at != "S1" && at != "R1", "{log}");
-    let (cell, text, read): (String, String, Option<i64>) = e
-        .db
-        .conn()
-        .query_row(
-            "SELECT r.cell, m.text, m.read_at FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .unwrap();
+    let (cell, text, read): (String, String, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT r.cell, m.text, d.read_at FROM messages m JOIN rounds r ON r.work = m.work AND r.n = m.round
+             JOIN deliveries d ON d.message = m.id AND d.recipient = 'owner'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
     assert_eq!(
         (cell.as_str(), text.as_str(), read),
         ("R1", "The item's example does not run as written.", None)

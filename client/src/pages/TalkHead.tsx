@@ -13,10 +13,10 @@ import { BlockedIcon, SidebarExpandIcon } from '@primer/octicons-react';
 import { Button, IconButton, Label, Select } from '@primer/react';
 import { Fragment, useState } from 'react';
 
-import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
+import type { Architect, Conversation, Settings, Status, WorkSummary } from '../api';
 import { architectNow, architectState, holdWords, matterSentence, standing } from '../architect';
 import { course, heldName, RunningMark, StateChip, WORK_TONE, WorkBadge } from '../components';
-import { conversationTitle, forwardNewChoices, stageName } from '../conversation';
+import { conversationTitle, stageName } from '../conversation';
 import {
   atWork,
   Control,
@@ -306,46 +306,6 @@ export function ArchitectHead({ c, a, onSide }: { c: Conversation; a: Architect 
         ) : null}
       </div>
       {a !== null && asking !== null ? <HoldAsk project={project} asking={asking} onDone={() => setAsking(null)} /> : null}
-    </header>
-  );
-}
-
-/// The head of wf-agents' own conversation: its name, and where each new fault goes as it comes, which the owner sets
-/// here: nobody, as it is at first, or a project's architect, which takes each as a matter of its queue.
-export function WfAgentsHead({ title, forwarding }: { title: string; forwarding: Forwarding | null }) {
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <header className="talk-head">
-      <div className="talk-head-title">
-        <h2 className="talk-head-name">{title}</h2>
-      </div>
-      {forwarding !== null ? (
-        <div className="talk-head-facts">
-          <span className="talk-head-choice">
-            <label htmlFor="forward-new">{t('fault_forward_new')}</label>
-            <Select
-              id="forward-new"
-              size="small"
-              value={forwarding.auto ?? ''}
-              onChange={(e) => {
-                setError(null);
-                const project = e.target.value === '' ? null : e.target.value;
-                postJson('/api/v1/faults/forward-new', { project }).then(
-                  () => reread('messages'),
-                  (x: unknown) => setError(x instanceof Error ? x.message : String(x)),
-                );
-              }}
-            >
-              {forwardNewChoices(forwarding).map((c) => (
-                <Select.Option key={c.value} value={c.value}>
-                  {c.label}
-                </Select.Option>
-              ))}
-            </Select>
-            {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
-          </span>
-        </div>
-      ) : null}
     </header>
   );
 }

@@ -478,13 +478,11 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
             "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'T4', '{}', 'c', 1)",
             [],
         )?;
-        tx.execute(
-            "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, 'first'), (1, 1, 'second')",
-            [],
-        )?;
-        tx.execute(
-            "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 stopped.', 5)",
-            [],
+        tx.execute_batch(
+            "INSERT INTO messages (sender, work, round, text, at)
+               VALUES ('engineer', 1, 1, 'first', 1), ('engineer', 1, 1, 'second', 1);
+             INSERT INTO messages (sender, work, text, at) VALUES ('engine', 1, 'Work 1 stopped.', 5);
+             INSERT INTO deliveries (message, recipient) SELECT id, 'owner' FROM messages ORDER BY id;",
         )?;
         Ok(())
     })
@@ -574,6 +572,62 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
 // The page reads a conversation in a window of its latest entries, as many as the request names: whatever the number, the
 // entries given and the runs left out (`gaps`) are all the conversation has, the latest entry is always given, a number
 // above the most is the most, none at all is at least one entry, and a number that is no count is refused.
+// A fault of wf-agents is passed on to the architect of the project wf-agents is built from, once; to a project the
+// configuration lacks, or with no project of the configuration that is wf-agents, it is refused and goes nowhere.
+#[test]
+fn a_fault_is_passed_on_only_to_the_architect_of_wf_agents() {
+    let fault = |s: &Server| -> i64 {
+        let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+        db.write(db::Actor::Engine, |tx| {
+            let m = db::Message {
+                sender: db::Sender::Engine,
+                work: None,
+                round: None,
+                text: "R1-2 missed its session's prompt cache.",
+                body: Some(serde_json::json!({ "kind": "cache_miss" })),
+                ask: None,
+            };
+            db::send(tx, &m, db::Recipient::Keeper)
+        })
+        .unwrap()
+    };
+    let matters = |s: &Server| -> i64 {
+        let db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+        db.conn()
+            .query_row("SELECT count(*) FROM architect_matters", [], |r| r.get(0))
+            .unwrap()
+    };
+    let pass = |s: &Server, id: i64, to: &str| {
+        post(
+            s.port,
+            &format!("/api/v1/messages/{id}/pass"),
+            &format!(r#"{{"to":"{to}"}}"#),
+            "application/json",
+        )
+    };
+    // Project p is wf-agents itself.
+    let own = serve_project(
+        "pass-own",
+        &format!("repo = \"Ming-Research/wf-agents\"\ncheckout = \"/p\"\n{PROJECT_REST}"),
+    );
+    let id = fault(&own);
+    let (status, done) = pass(&own, id, "p");
+    assert_eq!(status, 200, "{done}");
+    let (status, again) = pass(&own, id, "p");
+    assert_eq!(status, 422, "{again}");
+    assert!(again.contains("already"), "{again}");
+    let (status, nowhere) = pass(&own, id, "q");
+    assert_eq!(status, 404, "{nowhere}");
+    assert_eq!(matters(&own), 1);
+    // Project p is another project: no architect takes the fault.
+    let other = serve("pass-other");
+    let id = fault(&other);
+    let (status, refused) = pass(&other, id, "p");
+    assert_eq!(status, 422, "{refused}");
+    assert!(refused.contains("wf-agents itself"), "{refused}");
+    assert_eq!(matters(&other), 0);
+}
+
 #[test]
 fn a_conversation_is_read_in_the_window_the_request_names() {
     let s = serve("window");
@@ -591,8 +645,12 @@ fn a_conversation_is_read_in_the_window_the_request_names() {
         )?;
         for i in 0..12 {
             tx.execute(
-                "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, ?1)",
+                "INSERT INTO messages (sender, work, round, text, at) VALUES ('engineer', 1, 1, ?1, 1)",
                 [format!("m{i:02}")],
+            )?;
+            tx.execute(
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
+                [],
             )?;
         }
         Ok(())

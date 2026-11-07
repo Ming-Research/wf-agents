@@ -118,13 +118,14 @@ END = {"engineer": "E1", "architect": "R1", "policy": "R1"}
 TOOLS = [("query", 4378, 1766), ("ci", 978, 4214), ("gh", 697, 6111), ("ci_before", 362, 7047), ("merge", 208, 390),
          ("full_ci", 65, 1019), ("watch_main", 39, 640), ("measure", 9, 618)]
 
-# table, changes, mean old_row bytes (an update), mean new_row bytes: the field's change log by table.
+# table, changes, mean old_row bytes (an update), mean new_row bytes: the field's change log by table, messages and
+# deliveries standing for the field's owner_messages and engine_notices, which the hub's tables took the place of.
 CHANGES = [
     ("items", 25200, 4925, 4922), ("works", 15774, 354, 354), ("architect_matters", 3845, 15333, 12145),
     ("architect_item_changes", 3601, 564, 576), ("sessions", 1784, 149, 152), ("conversation_reads", 1722, 56, 56),
-    ("owner_messages", 820, 376, 358), ("interjections", 706, 642, 639), ("observations", 636, 709, 694),
+    ("messages", 820, 376, 358), ("interjections", 706, 642, 639), ("observations", 636, 709, 694),
     ("item_links", 410, 172, 113), ("notebook_edits", 410, 0, 2065), ("blockers", 346, 555, 987),
-    ("engine_notices", 318, 286, 273), ("owner_asks", 169, 3579, 3683), ("flow_versions", 56, 0, 1778600),
+    ("deliveries", 318, 286, 273), ("owner_asks", 169, 3579, 3683), ("flow_versions", 56, 0, 1778600),
     ("design_cards", 51, 3986, 3955), ("dispatch_queue", 22, 27, 26),
 ]
 
@@ -506,18 +507,32 @@ class Builder:
             asks.add((w, n, self.blob(self.sz(3500), '"kind":"points","question":"%s"' % self.txt(80)),
                       None if i % 7 == 0 else '{"verdict":"ok"}'))
         asks.flush()
-        msgs = self.sink("owner_messages", "work,round,text,read_at,design_card")
+        # What an agent told the owner and what the engine told of its own accord (the field's owner_messages and
+        # engine_notices) are the hub's messages, each with its delivery: a fault to the keeper, the rest to the owner.
+        # The engine's reminders are no messages, but rows of their own.
+        msgs = self.sink("messages", "id,sender,work,round,text,body,at")
+        deliveries = self.sink("deliveries", "message,recipient,read_at")
+        reminders = self.sink("reminders", "at,text")
+        n_messages = 0
         for _ in range(self.n(RECIPE["owner_messages"])):
             if not agent_eng:
                 break
             w, n = agent_eng[r.randrange(len(agent_eng))]
-            msgs.add((w, n, self.txt(self.sz(268)), T0 if r.random() < 0.9 else None, None))
-        msgs.flush()
-        notices = self.sink("engine_notices", "work,text,at,read_at,ask,fault,reminder")
+            n_messages += 1
+            msgs.add((n_messages, "engineer", w, n, self.txt(self.sz(268)), None, T0))
+            deliveries.add((n_messages, "owner", T0 if r.random() < 0.9 else None))
         for i in range(self.n(RECIPE["engine_notices"])):
-            notices.add((r.randint(1, nwork), self.txt(self.sz(280)), T0 + i * 10000, T0, None,
-                         None if r.random() < 0.9 else "fault", 1 if i % 25 == 0 else 0))
-        notices.flush()
+            if i % 25 == 0:
+                reminders.add((T0 + i * 10000, self.txt(self.sz(280))))
+                continue
+            fault = r.random() >= 0.9
+            n_messages += 1
+            msgs.add((n_messages, "engine", r.randint(1, nwork), None, self.txt(self.sz(280)),
+                      '{"kind":"cache_miss"}' if fault else None, T0 + i * 10000))
+            deliveries.add((n_messages, "keeper" if fault else "owner", T0))
+        msgs.flush()
+        deliveries.flush()
+        reminders.flush()
         # kind, matters, handled, on a work, with a reply, asked, withdrawn, mean body bytes: the field's, by kind
         kinds = [("report", 271, 268, 220, 0, 3, 1, 1594), ("set_straight", 180, 148, 169, 0, 10, 30, 621),
                  ("owner_words", 131, 131, 0, 0, 0, 0, 402), ("open_question", 127, 123, 127, 0, 28, 4, 850),
@@ -622,10 +637,10 @@ class Builder:
         table_rows = {
             "items": n_items, "works": nwork, "architect_matters": n_matters,
             "architect_item_changes": self.n(RECIPE["architect_item_changes"]), "sessions": session_id,
-            "conversation_reads": self.n(RECIPE["conversation_reads"]), "owner_messages": self.n(RECIPE["owner_messages"]),
+            "conversation_reads": self.n(RECIPE["conversation_reads"]), "messages": n_messages,
             "interjections": self.n(RECIPE["interjections"]), "observations": self.n(RECIPE["observations"]),
             "item_links": len(seen), "notebook_edits": self.n(RECIPE["notebook_edits"]),
-            "blockers": self.n(RECIPE["blockers"]), "engine_notices": self.n(RECIPE["engine_notices"]),
+            "blockers": self.n(RECIPE["blockers"]), "deliveries": n_messages,
             "owner_asks": self.n(RECIPE["owner_asks"]), "flow_versions": versions,
             "design_cards": self.n(RECIPE["design_cards"]), "dispatch_queue": 22,
         }
@@ -905,7 +920,7 @@ def build_paths():
     add("engine.turn.ready_items", "engine", "start_ready / queue_due: the ready_items view",
         sql_path("SELECT item, project, position FROM ready_items"))
     add("engine.turn.reminder", "engine", "reminders::due: the last reminder, then the oldest waiting ask",
-        sql_path("SELECT max(at) FROM engine_notices WHERE reminder = 1",
+        sql_path("SELECT max(at) FROM reminders",
                  "SELECT id, at, count(*) OVER () FROM conversation_entries WHERE source = 'ask' AND waiting "
                  "ORDER BY at, id LIMIT 1"))
     add("engine.turn.architect_queue", "engine", "architect::start: the project's unhandled matters",

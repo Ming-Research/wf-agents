@@ -279,8 +279,8 @@ fn a_fork_that_misses_its_warmed_base_is_a_fault_named_by_the_ping() {
     let (notice, text): (Option<i64>, Option<String>) =
         e.db.conn()
             .query_row(
-                "SELECT c.notice, n.text FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round
-                 LEFT JOIN engine_notices n ON n.id = c.notice WHERE c.work = ?1 AND r.cell = 'H1'",
+                "SELECT c.message, n.text FROM cache_misses c JOIN rounds r ON r.work = c.work AND r.n = c.round
+                 LEFT JOIN messages n ON n.id = c.message WHERE c.work = ?1 AND r.cell = 'H1'",
                 [arch],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )

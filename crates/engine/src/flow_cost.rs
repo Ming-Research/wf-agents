@@ -136,7 +136,7 @@ impl fmt::Display for Refused {
 pub fn of_text(data: &Path, text: &str) -> Result<Costed, Refused> {
     let committed = config::committed(data).map_err(|e| Refused::Data(e.to_string()))?;
     let compiled = crate::compile_flow_for(text, &committed.config).map_err(Refused::Flow)?;
-    let github = crate::hub::Gh::new(data.join("logs"));
+    let github = crate::github::Gh::new(data.join("logs"));
     let (mut e, database_at) = Engine::trying(
         data,
         committed,

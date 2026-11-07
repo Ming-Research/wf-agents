@@ -1,8 +1,8 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
 //! decision card, what the owner says to a work's line, pausing a work and lifting a work's pause, starting a work over,
 //! the switch that keeps waiting sessions warm while every work is paused, holding a project's new starts and releasing
-//! a hold on them, forwarding a fault of wf-agents to an architect, the setting that forwards each new one as it comes,
-//! removing a dependency between items, and ending a talk with an architect. Each is written as the owner, so `changes`
+//! a hold on them, passing a fault of wf-agents on to the architect of the project wf-agents is built from, removing a
+//! dependency between items, and ending a talk with an architect. Each is written as the owner, so `changes`
 //! records it as theirs, and the engine reads it as it goes on; a start over is an action of the outbox, which the
 //! engine carries out and records as the owner's in the end it writes. What the owner says to the architect is
 //! `db::say_to_architect`. The owner's words and answers may carry images, kept with them in the same write, and may
@@ -1000,35 +1000,33 @@ pub fn set_keep_warm_paused(db: &mut Db, on: bool) -> Result<String, String> {
     })
 }
 
-/// Forwards a fault of wf-agents, the engine's notice of it, to a project's architect, as the owner: it comes to the
-/// architect's queue as a report of the fault, and the notice is read. A fault goes to each architect once.
-pub fn forward_fault(db: &mut Db, notice: i64, project: &str) -> Result<String, String> {
+/// Passes a message the flow's keeper received, a fault of wf-agents, on to a project's architect, as the owner: it
+/// comes to the architect's queue as a report of the fault, once, and the keeper's delivery is read. A fault goes on
+/// only to the architect of the project wf-agents is built from, `wf_agents` as the configuration names it: run on
+/// other projects, wf-agents must still get its faults fixed in wf-agents, and architects that must never touch it
+/// would get them otherwise.
+pub fn pass_on(db: &mut Db, message: i64, project: &str, wf_agents: Option<&str>) -> Result<String, String> {
+    let project = project.trim();
+    match wf_agents {
+        None => {
+            return Err(format!(
+                "message {message} cannot be passed on: no project of the configuration is wf-agents itself"
+            ));
+        }
+        Some(own) if own != project => {
+            return Err(format!(
+                "a fault of wf-agents goes on only to the architect of {own}, the project wf-agents is built from, \
+                 not to the architect of {project}"
+            ));
+        }
+        Some(_) => {}
+    }
     let matter = db
-        .write(Actor::Owner, |tx| {
-            db::forward_fault(tx, notice, project, db::Forwarder::Owner)
-        })
+        .write(Actor::Owner, |tx| db::pass_on(tx, message, project))
         .map_err(sql)?;
     Ok(format!(
-        "fault {notice} goes to the architect of {} as matter {matter}",
-        project.trim()
+        "message {message} goes to the architect of {project} as matter {matter}"
     ))
-}
-
-/// The project whose architect each new fault of wf-agents goes to as it comes, by the owner's setting; none for
-/// nobody, as it is at first.
-pub fn fault_forwarding(conn: &Connection) -> Result<Option<String>, String> {
-    db::fault_forwarding(conn).map_err(sql)
-}
-
-/// Sets, as the owner, where each new fault of wf-agents goes as it comes: to a project's architect, or with none to
-/// nobody, the owner then forwarding a fault by hand or not at all.
-pub fn set_fault_forwarding(db: &mut Db, project: Option<&str>) -> Result<String, String> {
-    db.write(Actor::Owner, |tx| db::set_fault_forwarding(tx, project))
-        .map_err(sql)?;
-    Ok(match project {
-        Some(p) => format!("each new fault of wf-agents goes to the architect of {}", p.trim()),
-        None => "new faults of wf-agents go to nobody: you forward each or not".into(),
-    })
 }
 
 /// Holds a project's new starts, as the owner: the engine starts no new work on the project's items from its next

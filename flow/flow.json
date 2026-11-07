@@ -3965,17 +3965,20 @@
         "inputs": [],
         "owner": "says something to a work or to the architect, or rules on a decision card"
       },
-      "owner_notices": {
-        "title": "Notices to the owner",
+      "messages": {
+        "title": "Messages",
         "layer": "work",
-        "desc": "What the engine tells the owner of its own accord: pauses, decision cards, waits, reverts, and the faults of wf-agents, with their cache misses, which the owner may forward to an architect",
+        "desc": "What the agents and the engine say to the owner and to the flow's keeper, each with whom it went to and whether it was read: what an agent told the owner and its answers to the owner, what the engine tells of its own accord, and the faults of wf-agents with their cache misses, which go on only to the architect of the project wf-agents is built from",
         "relations": [
-          "engine_notices",
+          "messages",
+          "deliveries",
           "cache_misses"
         ],
         "inputs": [
-          "matter"
-        ]
+          "matter",
+          "owner_talk"
+        ],
+        "owner": "passes a fault of wf-agents on to the architect of the project wf-agents is built from"
       },
       "counters": {
         "title": "Counters",
@@ -4014,15 +4017,6 @@
           "owner_answer"
         ],
         "owner": "answers"
-      },
-      "owner_messages": {
-        "title": "Messages to the owner",
-        "layer": "round",
-        "desc": "What an agent told the owner, which needs no answer, and its answers to what the owner said",
-        "relations": [
-          "owner_messages"
-        ],
-        "inputs": []
       },
       "tool_runs": {
         "title": "Tool runs",
@@ -4111,7 +4105,7 @@
       ],
       "ask_owner": [
         "owner_asks",
-        "owner_notices"
+        "messages"
       ],
       "close_asks": [
         "owner_asks"
@@ -4125,7 +4119,7 @@
         "branch"
       ],
       "deliver_answers": [
-        "owner_messages",
+        "messages",
         "architect_queue"
       ],
       "end_sessions": [
@@ -4188,16 +4182,16 @@
         "sessions"
       ],
       "tell_owner": [
-        "owner_messages"
+        "messages"
       ],
       "tell_went_back": [
-        "owner_notices"
+        "messages"
       ],
       "report_stuck": [
         "architect_queue"
       ],
       "wait_for_start": [
-        "owner_notices",
+        "messages",
         "architect_queue"
       ],
       "wait_on_blocker": [
@@ -4236,12 +4230,12 @@
         "architect_queue",
         "blockers",
         "owner_asks",
-        "owner_notices"
+        "messages"
       ],
       "ask_owner_approval": [
         "owner_asks",
         "blockers",
-        "owner_notices"
+        "messages"
       ],
       "relay_owner_answer": [
         "interjections"
@@ -4283,11 +4277,11 @@
       "keep_flow_feedback": [],
       "ask_owner_points": [
         "owner_asks",
-        "owner_notices"
+        "messages"
       ],
       "ask_change_approval": [
         "owner_asks",
-        "owner_notices"
+        "messages"
       ],
       "hold_for_approvals": [
         "blockers"
@@ -4303,7 +4297,7 @@
       ],
       "deliver_reply": [
         "architect_queue",
-        "owner_messages"
+        "messages"
       ],
       "queue_steps": [
         "architect_queue"

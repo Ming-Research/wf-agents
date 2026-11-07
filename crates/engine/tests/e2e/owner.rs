@@ -85,7 +85,11 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
     assert_eq!(why, json!({ "error": "cell R1: the return does not fit" }));
     let told: String =
         e.db.conn()
-            .query_row("SELECT text FROM engine_notices WHERE work = ?1", [work], |r| r.get(0))
+            .query_row(
+                "SELECT text FROM messages WHERE sender = 'engine' AND work = ?1",
+                [work],
+                |r| r.get(0),
+            )
             .unwrap();
     assert!(told.ends_with("is paused: cell R1: the return does not fit"), "{told}");
     // An earlier engine paused without closing the round; the owner lets the work go on.
@@ -406,7 +410,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     let notice: String =
         e.db.conn()
             .query_row(
-                "SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                "SELECT text FROM messages WHERE sender = 'engine' AND work = ?1 ORDER BY id DESC LIMIT 1",
                 [old],
                 |r| r.get(0),
             )

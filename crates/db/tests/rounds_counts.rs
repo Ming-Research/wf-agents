@@ -84,7 +84,7 @@ fn the_migration_keeps_every_round_and_what_points_at_it() {
     assert_eq!(
         rows(
             conn,
-            "SELECT 'a', work, round, body FROM owner_asks UNION ALL SELECT 'm', work, round, text FROM owner_messages
+            "SELECT 'a', work, round, body FROM owner_asks UNION ALL SELECT 'm', work, round, text FROM messages
              UNION ALL SELECT 't', work, round, args FROM tool_runs ORDER BY 1, 2, 3",
         ),
         before_children

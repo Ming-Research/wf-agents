@@ -3,7 +3,7 @@
 // page draws it, what of it streams, what waits for the owner and is pinned on the bar under the head, which question
 // of an architect's the owner's words reply to, what the box at the bottom says things to and sends, how the bubble of a stage
 // a work entered names it and says how it ended, what is new for the owner to be told of, and where a fault of
-// wf-agents can go and went.
+// wf-agents went.
 
 import type { Icon } from '@primer/octicons-react';
 
@@ -11,9 +11,8 @@ import type {
   Conversation,
   ConversationDetail,
   ConversationEntry,
-  Forwarded,
-  Forwarding,
   OwnerAsk,
+  Passed,
   PolicyDraft,
   StageCard,
   WordsState,
@@ -463,24 +462,17 @@ export function newlyWaiting(before: ReadonlyMap<string, number> | null, now: Co
 /// What waits in each conversation, by its key, for the next comparison.
 export const waitingByKey = (list: Conversation[]): Map<string, number> => new Map(list.map((c) => [c.key, c.waiting]));
 
-/// One line of the menu a fault's Forward to… opens: a project, its architect in words, and whether the fault went
-/// there already.
-export type ForwardChoice = { project: string; label: string; sent: boolean };
-
-/// The menu a fault's Forward to… opens: every project's architect, those the fault already went to marked, since it
-/// goes to each once.
-export function forwardMenu(projects: string[], forwards: Forwarded[]): ForwardChoice[] {
-  return projects.map((p) => ({
-    project: p,
-    label: t('fault_forward_to', { project: p }),
-    sent: forwards.some((f) => f.project === p),
-  }));
+/// Whether a fault can be passed on, to the architect of the project wf-agents is built from (`passTo`, none when the
+/// configuration has no such project): until it went to that architect, as it goes to each once.
+export function canPass(e: ConversationEntry, passTo: string | null): boolean {
+  return e.fault !== null && passTo !== null && !e.passed.some((f) => f.project === passTo);
 }
 
-/// What a fault's entry says of one place it went: to whose architect, by hand or by the owner's setting, and how it
-/// stands there, in the queue or handled in a round, which the page links to.
-export function forwardParts(f: Forwarded): { lead: string; state: string; round: string | null } {
-  const lead = t(f.by === 'setting' ? 'fault_forwarded_auto' : 'fault_forwarded', { project: f.project });
+/// What a fault's entry says of one place it went: to whose architect, passed on by the owner or, before, by the
+/// setting that forwarded each new fault, and how it stands there, in the queue or handled in a round, which the page
+/// links to.
+export function passedParts(f: Passed): { lead: string; state: string; round: string | null } {
+  const lead = t(f.by === 'setting' ? 'fault_passed_auto' : 'fault_passed', { project: f.project });
   if (f.state === 'handled' && f.handled_work !== null && f.handled_round !== null) {
     return { lead, state: t('fault_handled_in'), round: `R${f.handled_work}-${f.handled_round}` };
   }
@@ -488,18 +480,7 @@ export function forwardParts(f: Forwarded): { lead: string; state: string; round
 }
 
 /// The same, as one line of words.
-export function forwardWords(f: Forwarded): string {
-  const p = forwardParts(f);
+export function passedWords(f: Passed): string {
+  const p = passedParts(f);
   return joinedWords([p.lead, p.round !== null ? `${p.state} ${p.round}` : p.state]);
-}
-
-/// The choices of the setting that forwards each new fault as it comes, each a value and its words: nobody (`''`)
-/// first, as it is at first, then every project's architect, and the project it names now even when the
-/// configuration no longer has it.
-export function forwardNewChoices(f: Forwarding): Array<{ value: string; label: string }> {
-  const projects = f.auto !== null && !f.projects.includes(f.auto) ? [...f.projects, f.auto] : f.projects;
-  return [
-    { value: '', label: t('fault_forward_nobody') },
-    ...projects.map((p) => ({ value: p, label: t('fault_forward_to', { project: p }) })),
-  ];
 }

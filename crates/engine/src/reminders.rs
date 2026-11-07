@@ -1,9 +1,11 @@
 //! The reminder of the asks waiting for the owner's answer. An ask of the owner has no deadline and no answer the
 //! engine gives in the owner's place: while any waits, the engine reminds the owner once an interval of the
-//! installation's setting (`owner.remind_interval`), in one notice saying how many wait and how long the oldest has
-//! waited, not one for each ask.
+//! installation's setting (`owner.remind_interval`), in one reminder saying how many wait and how long the oldest has
+//! waited, not one for each ask. A reminder is no message of the hub: it goes to the notifications log, and is kept
+//! (`reminders`) for the next to be timed from.
 
-use db::rusqlite::{Connection, OptionalExtension};
+use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde_json::json;
 
 /// The reminder due at `now`, reminders being `interval_ms` apart, and none when the interval is 0: due when an ask
 /// waits for the owner's answer, as the owner's conversations count what waits, the oldest has waited an interval
@@ -13,9 +15,7 @@ pub fn due(conn: &Connection, now: i64, interval_ms: i64) -> Result<Option<Strin
         return Ok(None);
     }
     let last: Option<i64> = conn
-        .query_row("SELECT max(at) FROM engine_notices WHERE reminder = 1", [], |r| {
-            r.get(0)
-        })
+        .query_row("SELECT max(at) FROM reminders", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
     if last.is_some_and(|t| now - t < interval_ms) {
         return Ok(None);
@@ -32,6 +32,14 @@ pub fn due(conn: &Connection, now: i64, interval_ms: i64) -> Result<Option<Strin
     Ok(oldest
         .filter(|(_, since, _)| now - since >= interval_ms)
         .map(|(ask, since, n)| text(n, ask, now - since)))
+}
+
+/// Reminds the owner of the asks waiting for the owner's answer, at `at`: no message of the hub, but a reminder kept,
+/// from which the next is timed, and written to the notifications log through the outbox.
+pub fn remind(tx: &Transaction<'_>, at: i64, text: &str) -> Result<(), String> {
+    tx.execute("INSERT INTO reminders (at, text) VALUES (?1, ?2)", params![at, text])
+        .map_err(|e| e.to_string())?;
+    crate::actions::outbox(tx, None, "notify", &json!({ "text": text }))
 }
 
 /// What the reminder says: how many asks wait for the owner's answer, and the oldest by its number with how long it
@@ -110,13 +118,13 @@ mod tests {
     fn remind(db: &mut db::Db, now: i64, interval: i64) -> Option<String> {
         let text = due(db.conn(), now, interval).unwrap()?;
         db.write(Actor::Engine, |tx| {
-            crate::actions::remind(tx, now, &text).map_err(db::Error::Abort)
+            super::remind(tx, now, &text).map_err(db::Error::Abort)
         })
         .unwrap();
         Some(text)
     }
 
-    // While asks wait, the owner is reminded once an hour, an hour after the oldest was put, in one notice for all of
+    // While asks wait, the owner is reminded once an hour, an hour after the oldest was put, in one reminder for all of
     // them; an answered ask counts no longer, and once none waits nothing is said, until one has waited an hour again.
     #[test]
     fn the_owner_is_reminded_once_an_hour_while_an_ask_waits() {
@@ -156,17 +164,17 @@ mod tests {
         })
         .unwrap();
         assert_eq!(remind(&mut db, t0 + 5 * HOUR, HOUR), None);
-        // Each reminder is one notice about no work, and goes to the notifications log.
-        let (notices, logged): (i64, i64) = db
+        // Each reminder is kept, no message of the hub, and goes to the notifications log.
+        let (reminders, messages, logged): (i64, i64, i64) = db
             .conn()
             .query_row(
-                "SELECT (SELECT count(*) FROM engine_notices WHERE reminder = 1 AND work IS NULL),
+                "SELECT (SELECT count(*) FROM reminders), (SELECT count(*) FROM messages),
                         (SELECT count(*) FROM outbox WHERE kind = 'notify')",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-        assert_eq!((notices, logged), (3, 3));
+        assert_eq!((reminders, messages, logged), (3, 0, 3));
     }
 
     // The interval is the installation's: at half an hour, an ask that has waited half an hour is reminded of; at 0,

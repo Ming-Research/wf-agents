@@ -1094,7 +1094,7 @@ fn trying(s: &Setup, compiled: flow::Compiled) -> Engine {
         scripts: scripts(),
         rounds: Mutex::new(BTreeMap::new()),
     };
-    let hub = FakeHub {
+    let github = FakeGitHub {
         origin: s.origin.clone(),
         scratch: s.root.clone(),
         prs: s.prs.clone(),
@@ -1105,7 +1105,7 @@ fn trying(s: &Setup, compiled: flow::Compiled) -> Engine {
         watch_main: s.watch_main.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
-    let (e, at) = Engine::trying(&s.data, committed, compiled, Box::new(agents), Box::new(hub)).unwrap();
+    let (e, at) = Engine::trying(&s.data, committed, compiled, Box::new(agents), Box::new(github)).unwrap();
     assert_eq!(at, db::VERSION);
     e
 }
@@ -1119,7 +1119,7 @@ fn rows_held(e: &Engine) -> Vec<i64> {
         n("SELECT count(*) FROM works WHERE ended IS NOT NULL"),
         n("SELECT count(*) FROM rounds"),
         n("SELECT count(*) FROM changes"),
-        n("SELECT count(*) FROM engine_notices"),
+        n("SELECT count(*) FROM messages WHERE sender = 'engine'"),
         n("SELECT count(*) FROM outbox"),
     ]
 }

@@ -238,7 +238,7 @@ fn put_change_ask(ctx: &Ctx, tx: &Transaction<'_>) -> Result<i64, String> {
         item.title,
         files.join(", ")
     );
-    crate::actions::notify_ask(tx, w.id, id, &text)?;
+    crate::hub::tell_of_ask(tx, w.id, id, &text)?;
     Ok(id)
 }
 
@@ -292,7 +292,7 @@ pub fn ask_points(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
          recommendation meanwhile, and merges once you answered. The research: {link}. (ask {id})",
         w.id, item.id, item.title
     );
-    crate::actions::notify_ask(tx, w.id, id, &text)
+    crate::hub::tell_of_ask(tx, w.id, id, &text)
 }
 
 /// `hold_for_approvals`: has the work's blocker at the merge gate stand for what it waits for: the architect's review of
