@@ -6140,14 +6140,14 @@
             }
           ],
           "prompt": [
-            "This round gathers the background of this item for its research: the earlier works on it and on the items around it, the observations it took in, the decisions in force that bear on it (the files of `decisions/`), and what the owner decided before in like cases. Give the address of each, not its text: the research reads what it needs."
+            "This round gathers the history of this item, so that its work learns what was learned before and does not take again a path that failed: the earlier works on it and on the items around it, and how each went; the approaches dropped, with why; the decisions overturned, with what replaced them, the design tree's own history among them; the observations it took in; the decisions in force that bear on it (the files of `decisions/`); and what the owner decided before in like cases. The design tree as it stands the work reads itself; the history no one looks back at unasked, and this round brings it. Give the address of each with the lesson it holds, not its text: the research reads what it needs."
           ],
           "out": [
             {
               "name": "brief",
               "title": "The background found",
               "type": "text",
-              "desc": "At most 500 words; count them. Sections, each entry one line: what it is, and its address (#item, R<work>-<n>, a commit, or a file of `decisions/`), which the reader follows with the query tool or git: the decisions in force that bear on it; what the owner decided in like cases; earlier works and the approaches they dropped; related items. No quotations: the research reads what it needs. End with one line on what you searched."
+              "desc": "At most 500 words; count them. Sections, each entry one line: the lesson it holds or what it is, and its address (#item, R<work>-<n>, a commit, or a file of `decisions/`), which the reader follows with the query tool or git: paths that failed or were dropped, with why; decisions overturned, with what replaced them; the decisions in force that bear on it; what the owner decided in like cases; related items. No quotations: the research reads what it needs. End with one line on what you searched."
             }
           ],
           "shown": [
@@ -6292,7 +6292,7 @@
                   "name": "cause",
                   "title": "Its cause",
                   "type": "text",
-                  "desc": "Why the problem exists: for a defect its root, for a new capability which part is missing, for an investigation why it is not known yet; and whether it is one corner of a more basic problem elsewhere; the like problems in other code or projects, each with how to handle it, those this work does not take going into side reports. If the cause is inferred, say so and how it will be confirmed"
+                  "desc": "Why the problem exists: for a defect its root, its like cases and what keeps it from coming back, which the change covers; for a new capability which part is missing; for an investigation why it is not known yet; and whether it is one corner of a more basic problem elsewhere; the like problems in other code or projects, each with how to handle it, those this work does not take going into side reports. If the cause is inferred, say so and how it will be confirmed"
                 },
                 {
                   "name": "vs_item",
@@ -6378,7 +6378,7 @@
                       "name": "change",
                       "title": "How to change it",
                       "type": "text",
-                      "desc": "What changes where, in a few sentences"
+                      "desc": "What changes where, in a few sentences; for a defect, covering the like cases and what keeps it from coming back, as the cause names them"
                     },
                     {
                       "name": "verify",
@@ -7383,6 +7383,7 @@
             "cases": {
               "implementation": [
                 "This work delivers a change: change the code by the design. If the branch has no change against main, you may not hand in done: ask, saying why no change is needed, such as another PR having fixed it already.",
+                "Where the change can alter how much runs per event, round, work or request, or how that grows with the data, measure it with measure, before and after the change, at the size the data has and at a larger one, and hand in the numbers in measured.",
                 "When the change changes one of the engine's own checks of returns (the flow's `engine.checks`), name each such check in checks_changed: until the change is installed, the engine running this work still judges it by the check as it was, and what only those checks find in this work's returns is then set aside for the review to judge, not sent back."
               ],
               "report": [
@@ -7408,6 +7409,36 @@
             },
             {
               "$ref": "checks_changed"
+            },
+            {
+              "name": "measured",
+              "title": "What was measured",
+              "type": "list",
+              "optional": true,
+              "desc": "Only where the change can alter how much runs per event, round, work or request, or how that grows with the data: one row for each thing measured with measure. Leave it out otherwise",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "what",
+                    "title": "What was measured",
+                    "type": "text",
+                    "desc": "What ran, on what data, at which sizes"
+                  },
+                  {
+                    "name": "run",
+                    "title": "Measurement run",
+                    "type": "text",
+                    "desc": "The link to the run"
+                  },
+                  {
+                    "name": "numbers",
+                    "title": "Numbers",
+                    "type": "text",
+                    "desc": "Before and after the change at each size, the run's noise, and the verdict: slower, faster or no change found"
+                  }
+                ]
+              }
             },
             {
               "name": "decisions_written",
@@ -7843,11 +7874,22 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "name": "What was measured",
+              "what": "What the implementation measured where the change can alter how much runs: what, its run and the numbers; none when it measured nothing",
+              "from": [
+                [
+                  "I1",
+                  "measured"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
             "You review this work's change in two passes in this session: this one looks at the upper level, the next at the details. You are given what its engineer was given. Change no file.",
-            "This pass: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written.",
+            "This pass: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written; where the change can alter how much runs per event, round, work or request, or how that grows with the data, was it measured: a measurement missing there, or a slowdown measured, is a finding.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history."
           ],
           "out": [
@@ -8068,7 +8110,7 @@
             }
           ],
           "prompt": [
-            "This pass looks at the details: whether what was said is done, and done right; whether each acceptance condition has a test that ran green on the head, but one written in_effect, which has none and whose row says `how: in_effect`, as it is checked after the merge; for each old-behaviour test of the engineer's that could not be built before the change (cannot_run) or was not run there (not_run), whether the reason it gives in not_before (in the test changes) holds by the diff, that is, whether the old behaviour is shown unchanged some other way, such as old code moved as it was, and a finding when it is not; whether the owner's decisions and the options chosen were followed; whether the conditions to merge are met. Raise again none of the first pass's findings.",
+            "This pass looks at the details: whether what was said is done, and done right; for a defect, whether the change covers the like cases and what keeps it from coming back, as the research's cause names them; whether each acceptance condition has a test that ran green on the head, but one written in_effect, which has none and whose row says `how: in_effect`, as it is checked after the merge; for each old-behaviour test of the engineer's that could not be built before the change (cannot_run) or was not run there (not_run), whether the reason it gives in not_before (in the test changes) holds by the diff, that is, whether the old behaviour is shown unchanged some other way, such as old code moved as it was, and a finding when it is not; whether the owner's decisions and the options chosen were followed; whether the conditions to merge are met. Raise again none of the first pass's findings.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history.",
             "Judge each finding set aside you are given, in set_aside, by the diff: old_rule when the check as the branch changes it would not report it, saying why; real when it is a problem all the same, which you then also write as a finding and must fix.",
             "Then answer two questions. Must anything be fixed before it can merge: yes when you or the first pass found anything. Is this change of the kinds that go wrong silently, where only an adversary's tests find the error: a compiler, a checker, a runtime, a data format, concurrency, security, parsing? When the project's standard for adversarial testing is given, answer this one by that standard alone, read against the diff: yes when the diff does what it names, no otherwise, adding no reason of your own for or against."
