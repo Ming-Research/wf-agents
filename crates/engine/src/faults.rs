@@ -98,7 +98,7 @@ pub fn forwarded(conn: &Connection, matter: i64) -> Result<Option<Value>, String
         Some(FLOW_ANOMALY) => {
             let asked = query_json(
                 conn,
-                "SELECT id AS ask, 'R' || work || '-' || round AS round, body, answer FROM owner_asks WHERE id = ?1",
+                "SELECT id AS ask, 'R' || work || '-' || round AS round, body, answer FROM work_asks WHERE id = ?1",
                 &[&ask],
                 1,
             )?;

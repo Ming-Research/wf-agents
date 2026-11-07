@@ -155,7 +155,7 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
     let ask = |e: &mut Engine, question: &str, asked: i64, answer: Option<(&str, i64)>, images: i64| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body, answer) VALUES (?1, 1, ?2, ?3)",
+                "INSERT INTO messages (kind, sender, work, round, text, body, answer, at) VALUES ('ask', 'engineer', ?1, 1, '', ?2, ?3, 0)",
                 params![
                     one,
                     json!({ "question": question }).to_string(),

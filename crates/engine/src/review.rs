@@ -79,7 +79,7 @@ fn owner_ask(conn: &Connection, work: i64, since: i64) -> Result<Option<(i64, Op
     let row: Option<(i64, Option<String>)> = conn
         .query_row(
             &format!(
-                "SELECT a.id, a.answer FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round
+                "SELECT a.id, a.answer FROM work_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round
                  WHERE a.work = ?1 AND r.cell IN {} AND a.round >= ?2 ORDER BY a.id DESC LIMIT 1",
                 db::cells_sql(ENGINEER, &[CELL])
             ),
@@ -231,12 +231,7 @@ fn put_owner_ask(tx: &Transaction<'_>, work: i64, item: i64, title: &str, n: i64
         ],
         "design_link": reviewed["link"],
     });
-    tx.execute(
-        "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
-        params![work, n, body.to_string()],
-    )
-    .map_err(sql)?;
-    let id = tx.last_insert_rowid();
+    let id = db::ask(tx, db::Sender::Engine, work, n, &body).map_err(sql)?;
     let said = comments["text"]
         .as_str()
         .map(|t| format!(" The architect said: {}", db::one_sentence(t)))

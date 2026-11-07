@@ -358,7 +358,7 @@ fn waits(conn: &Connection, w: &WorkRow, rounds: &[Light], g: Option<&CompiledGr
         let Some(r) = open else { return Ok(None) };
         let ask: Option<(i64, bool)> = conn
             .query_row(
-                "SELECT id, answer IS NOT NULL FROM owner_asks WHERE work = ?1 AND round = ?2 ORDER BY id DESC LIMIT 1",
+                "SELECT id, answer IS NOT NULL FROM work_asks WHERE work = ?1 AND round = ?2 ORDER BY id DESC LIMIT 1",
                 [r.work, r.n],
                 |x| Ok((x.get(0)?, x.get(1)?)),
             )
@@ -418,7 +418,7 @@ fn held_by(conn: &Connection, work: i64) -> Result<Option<Option<Waits>>> {
     Ok(match (holder.as_str(), ask, matter) {
         ("owner", Some(ask), _) => {
             let answered: bool =
-                conn.query_row("SELECT answer IS NOT NULL FROM owner_asks WHERE id = ?1", [ask], |r| {
+                conn.query_row("SELECT answer IS NOT NULL FROM work_asks WHERE id = ?1", [ask], |r| {
                     r.get(0)
                 })?;
             Some((!answered).then_some(Waits::Answer { ask }))
@@ -675,7 +675,7 @@ fn counts(conn: &Connection, q: &str) -> Result<HashMap<i64, i64>> {
 fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Result<Vec<(WorkRow, WorkSummary)>> {
     let asks = counts(
         conn,
-        "SELECT work, count(*) FROM owner_asks WHERE answer IS NULL GROUP BY work",
+        "SELECT work, count(*) FROM work_asks WHERE answer IS NULL GROUP BY work",
     )?;
     let design_cards = counts(
         conn,
@@ -933,7 +933,7 @@ pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args:
 const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer,
        coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id),
                 (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0), w.graph
-FROM owner_asks a JOIN works w ON w.id = a.work";
+FROM work_asks a JOIN works w ON w.id = a.work";
 
 pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerAsk>> {
     let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
@@ -2121,7 +2121,7 @@ pub fn architect_standing(conn: &Connection, flows: &Flows, project: &str) -> Re
     let listed: Vec<String> = mine.iter().map(i64::to_string).collect();
     let asking = conn.query_row(
         &format!(
-            "SELECT EXISTS (SELECT 1 FROM owner_asks WHERE work IN ({}) AND answer IS NULL)",
+            "SELECT EXISTS (SELECT 1 FROM work_asks WHERE work IN ({}) AND answer IS NULL)",
             listed.join(", ")
         ),
         [],
@@ -2327,7 +2327,7 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
     let Some(m) = picked.flatten() else { return Ok(None) };
     let open: i64 = conn.query_row(
         "SELECT count(*) FROM architect_matters m WHERE m.id = ?1 AND m.handled_round IS NULL AND m.withdrawn IS NULL
-           AND (m.asked IS NULL OR EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL))",
+           AND (m.asked IS NULL OR EXISTS (SELECT 1 FROM work_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL))",
         [m],
         |r| r.get(0),
     )?;
@@ -2442,7 +2442,7 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
             }
         }
         h.told = conn.query_row(
-            "SELECT count(*) FROM messages WHERE work = ?1 AND round > ?2 AND round <= ?3",
+            "SELECT count(*) FROM messages WHERE kind = 'say' AND work = ?1 AND round > ?2 AND round <= ?3",
             params![h.work, from, h.round],
             |r| r.get(0),
         )?;
@@ -2484,7 +2484,7 @@ fn queue(conn: &Connection, project: &str) -> Result<Vec<Matter>> {
            CASE WHEN w.graph = 'architect' THEN 'architect' WHEN m.work IS NOT NULL THEN 'work'
                 WHEN m.kind = 'owner_words' THEN 'owner' ELSE 'engine' END,
            m.item, i.title, m.work, m.round, m.at, m.asked, m.resume_cell,
-           m.asked IS NOT NULL AND EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL),
+           m.asked IS NOT NULL AND EXISTS (SELECT 1 FROM work_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL),
            q.waits, q.waited_ms, coalesce(json_extract(m.body, '$.urgent'), 0),
            CASE WHEN m.kind = 'set_straight' THEN json_extract(m.body, '$.fix') END,
            d.id, d.status, d.rulings, d.replaced_by
@@ -3120,7 +3120,7 @@ mod tests {
                 "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (2, 1, ?1, '{}', 'c', 60)",
                 [&asking],
             )?;
-            tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (2, 1, '{\"to\": \"owner\"}')", [])?;
+            tx.execute("INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 2, 1, '', '{\"to\": \"owner\"}', 0)", [])?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
                  VALUES (3, 1, ?1, '{}', '{}', ?2, 'c', 60, 70)",
@@ -3145,7 +3145,7 @@ mod tests {
             )
         );
         s.db.write(Actor::Owner, |tx| {
-            tx.execute("UPDATE owner_asks SET answer = '{\"text\": \"yes\"}' WHERE id = 1", [])?;
+            tx.execute("UPDATE messages SET answer = '{\"text\": \"yes\"}' WHERE id = 1", [])?;
             Ok(())
         })
         .unwrap();
@@ -3612,7 +3612,7 @@ mod tests {
         ] } }] });
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (1, 2, ?1)",
+                "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 1, 2, '', ?1, 0)",
                 [held.to_string()],
             )?;
             Ok(())
@@ -3830,7 +3830,7 @@ mod tests {
             let study = json!({ "from": "architect", "project": "p", "kind": "study", "work": 3, "cell": "P3",
                 "study": { "intent": "i" }, "choices": [["satisfied", "s"]] })
             .to_string();
-            run("INSERT INTO owner_asks (work, round, body) VALUES (3, 2, ?1)", &[&study])?;
+            run("INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 3, 2, '', ?1, 0)", &[&study])?;
             // The setting stopped for the owner to read its study: its blocker, which the ask stands for.
             run(
                 "INSERT INTO blockers (work, cell, round, kind, what, holder, ask, at, since)
@@ -3840,7 +3840,7 @@ mod tests {
             let held = json!({ "from": "architect", "project": "p", "kind": "ask", "work": 2, "cell": "A3",
                 "asked": [], "holds": [3] })
             .to_string();
-            run("INSERT INTO owner_asks (work, round, body) VALUES (2, 8, ?1)", &[&held])?;
+            run("INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 2, 8, '', ?1, 0)", &[&held])?;
             run(
                 "INSERT INTO architect_matters (project, kind, detail, what, body, item, work, round, at, handled_work,
                  handled_round) VALUES ('p', 'engineer_question', 'split', 'Split #1?', '{}', 1, 1, 1, 5, 2, 8)",
@@ -4762,7 +4762,7 @@ mod tests {
         let given = json!({ "by": "owner", "at": 500, "choice": "satisfied", "text": "Good." }).to_string();
         assert_eq!(counts(&s), (2, 0));
         s.db.write(Actor::Owner, |tx| {
-            tx.execute("UPDATE owner_asks SET answer = ?1 WHERE id = 1", [&given])?;
+            tx.execute("UPDATE messages SET answer = ?1 WHERE id = 1", [&given])?;
             Ok(())
         })
         .unwrap();
@@ -4815,7 +4815,8 @@ mod tests {
             .unwrap();
             (d.questions.iter().map(|a| a.id).collect::<Vec<_>>(), d.waits_on)
         };
-        // Question 2 parks matter 3; a newer one, 4, parks matter 9 and is the one waited on.
+        // Question 2 parks matter 3; a newer one, 5 (numbered after the two messages the setup told the owner), parks
+        // matter 9 and is the one waited on.
         s.db.write(Actor::Engine, |tx| {
             let body = json!({ "from": "architect", "project": "p", "kind": "question", "work": 2, "cell": "A3",
                 "question": "Research a new policy?", "holds": [9] })
@@ -4824,10 +4825,10 @@ mod tests {
                 "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (2, 14, 'A3', '{}', 'c', 900)",
                 [],
             )?;
-            tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (2, 14, ?1)", [&body])?;
+            tx.execute("INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 2, 14, '', ?1, 0)", [&body])?;
             tx.execute(
                 "INSERT INTO architect_matters (id, project, kind, what, body, at, asked, resume_cell)
-                 VALUES (9, 'p', 'check_policy', 'Check the policy', '{}', 880, 3, 'P1')",
+                 VALUES (9, 'p', 'check_policy', 'Check the policy', '{}', 880, 5, 'P1')",
                 [],
             )?;
             Ok(())
@@ -4835,11 +4836,11 @@ mod tests {
         .unwrap();
         let ask: i64 =
             s.db.conn()
-                .query_row("SELECT id FROM owner_asks WHERE round = 14", [], |r| r.get(0))
+                .query_row("SELECT id FROM work_asks WHERE round = 14", [], |r| r.get(0))
                 .unwrap();
-        assert_eq!(ask, 3);
-        assert_eq!(read(&s, i64::MAX), (vec![3, 2], Some(3)));
-        assert_eq!(read(&s, 0), (vec![3, 2], None));
+        assert_eq!(ask, 5);
+        assert_eq!(read(&s, i64::MAX), (vec![5, 2], Some(5)));
+        assert_eq!(read(&s, 0), (vec![5, 2], None));
         // The owner says something to the architect in the one-to-one after it: the architect waits on none.
         s.db.write(Actor::Owner, |tx| {
             tx.execute(
@@ -4850,11 +4851,11 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(read(&s, i64::MAX), (vec![3, 2], None));
+        assert_eq!(read(&s, i64::MAX), (vec![5, 2], None));
         // Replied to, a question is pinned no longer; nor is one whose matter was withdrawn.
         s.db.write(Actor::Owner, |tx| {
             tx.execute(
-                "UPDATE owner_asks SET answer = '{\"by\":\"owner\",\"at\":960,\"text\":\"No.\"}' WHERE id = 3",
+                "UPDATE messages SET answer = '{\"by\":\"owner\",\"at\":960,\"text\":\"No.\"}' WHERE id = 5",
                 [],
             )?;
             tx.execute(
@@ -5169,14 +5170,14 @@ mod tests {
         assert!(r.works.is_empty() && r.queue.is_empty());
         // The owner answers the study: the question that holds the matter still waits.
         s.db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE owner_asks SET answer = '{\"text\":\"yes\"}' WHERE id = 1", [])?;
+            tx.execute("UPDATE messages SET answer = '{\"text\":\"yes\"}' WHERE id = 1", [])?;
             Ok(())
         })
         .unwrap();
         assert!(same(&s, "p"));
         // And then that: nothing waits.
         s.db.write(Actor::Engine, |tx| {
-            tx.execute("UPDATE owner_asks SET answer = '{\"text\":\"yes\"}' WHERE id = 2", [])?;
+            tx.execute("UPDATE messages SET answer = '{\"text\":\"yes\"}' WHERE id = 2", [])?;
             Ok(())
         })
         .unwrap();

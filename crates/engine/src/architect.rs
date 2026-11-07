@@ -512,7 +512,7 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, _cell: &CompiledCell) -> Result<V
 /// The owner's answer to the ask of the owner that held a matter; none while it has none.
 fn answer_of(conn: &Connection, ask: i64) -> Result<Option<Value>, String> {
     let answer: Option<Option<String>> = conn
-        .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+        .query_row("SELECT answer FROM work_asks WHERE id = ?1", [ask], |r| r.get(0))
         .optional()
         .map_err(sql)?;
     Ok(json_col(answer.flatten()))
@@ -638,7 +638,7 @@ fn sent_back_to(conn: &Connection, work: i64) -> Result<Option<String>, String> 
 
 /// That the owner answered an ask of kind question that holds the matter `m.id`: the owner's words on it, which the
 /// answer to an open question begins with.
-const RULED_BY_OWNER: &str = "EXISTS (SELECT 1 FROM owner_asks a, json_each(a.body, '$.holds') h
+const RULED_BY_OWNER: &str = "EXISTS (SELECT 1 FROM work_asks a, json_each(a.body, '$.holds') h
      WHERE a.answer IS NOT NULL AND json_extract(a.body, '$.kind') = 'question' AND h.value = m.id)";
 
 /// The detail of the matter picked.
@@ -708,7 +708,7 @@ fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
                   ELSE 0 END AS images,
                 json_extract(a.answer, '$.text') AS answer, json_extract(a.answer, '$.at') AS answered_at,
                 json_extract(a.answer, '$.by') AS answered_by
-         FROM conversation_shown c LEFT JOIN owner_asks a ON c.source = 'ask' AND a.id = c.id
+         FROM conversation_shown c LEFT JOIN work_asks a ON c.source = 'ask' AND a.id = c.id
          WHERE c.conversation = 'architect:' || ?1
            AND max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)) >= ?2
          ORDER BY max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)), c.source, c.id",
@@ -787,7 +787,7 @@ fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 pub fn owner_ask_of(e: &Engine, round: RoundId) -> Result<Option<(i64, Option<Value>)>, String> {
     e.db.conn()
         .query_row(
-            "SELECT a.id, a.answer FROM owner_asks a JOIN rounds r ON r.work = a.work
+            "SELECT a.id, a.answer FROM work_asks a JOIN rounds r ON r.work = a.work
              WHERE r.work = ?1 AND r.n = ?2 AND (a.round = r.n OR a.id = json_extract(r.input, '$.ask'))
              ORDER BY a.id LIMIT 1",
             [round.work, round.n],
@@ -884,11 +884,7 @@ pub fn ask_owner(
     let (round, id) =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
-            tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
-                params![round.work, round.n, body.to_string()],
-            )?;
-            let id = tx.last_insert_rowid();
+            let id = db::ask(tx, db::Sender::Architect, round.work, round.n, &body)?;
             crate::hub::tell_of_ask(tx, w.id, id, &format!("{notice} (ask {id})")).map_err(db::Error::Abort)?;
             // The matter the ask holds waits for the answer out of the queue, and goes back to the cell that takes it.
             if let (Some(m), Some(c)) = (holds, &resume) {
@@ -2246,12 +2242,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 "from": "architect", "project": project, "work": w, "cell": ctx.cell.id, "kind": "question",
                 "question": APPROVAL, "holds": [m],
             });
-            tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
-                params![ctx.round.work, ctx.round.n, body.to_string()],
-            )
-            .map_err(sql)?;
-            let ask = tx.last_insert_rowid();
+            let ask = db::ask(tx, db::Sender::Engine, ctx.round.work, ctx.round.n, &body).map_err(sql)?;
             tx.execute(
                 "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, goes_on_at = NULL WHERE id = ?1",
                 params![m, ask, ctx.cell.id],
@@ -2657,7 +2648,7 @@ pub fn took_hold(g: &CompiledGraph, r: &Round) -> Option<String> {
 fn owner_words(conn: &Connection, work: i64) -> Result<Vec<String>, String> {
     let rows = query_json(
         conn,
-        "SELECT json_extract(a.answer, '$.text') AS text FROM owner_asks a JOIN works w ON w.id = a.work
+        "SELECT json_extract(a.answer, '$.text') AS text FROM work_asks a JOIN works w ON w.id = a.work
            JOIN works x ON x.id = ?1
          WHERE w.project = x.project AND w.graph IN ('architect', 'policy') AND a.answer IS NOT NULL
          UNION ALL SELECT json_extract(body, '$.text') FROM architect_matters WHERE kind = 'owner_words'
@@ -3188,7 +3179,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), P
             let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
             let replied = count(
                 conn,
-                "SELECT count(*) FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
+                "SELECT count(*) FROM architect_matters m JOIN work_asks a ON a.id = m.asked
                  WHERE m.id = ?1 AND a.answer IS NOT NULL",
                 &[&m],
             )? > 0;
@@ -3224,7 +3215,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), P
             let yes = count(
                 conn,
                 "SELECT count(*) FROM architect_matters m
-                 WHERE m.id = ?1 AND (EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
+                 WHERE m.id = ?1 AND (EXISTS (SELECT 1 FROM work_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
                    OR EXISTS (SELECT 1 FROM json_each(m.body, '$.asked_by') b
                               WHERE json_extract(b.value, '$.cell') IN (?2, 'H8')))",
                 &[&m, &HANDLE],
@@ -3731,7 +3722,7 @@ fn work_waits(e: &Engine, g: Option<&CompiledGraph>, work: i64, at: &str) -> Res
     let ask: Option<i64> =
         e.db.conn()
             .query_row(
-                "SELECT max(id) FROM owner_asks WHERE work = ?1 AND answer IS NULL",
+                "SELECT max(id) FROM work_asks WHERE work = ?1 AND answer IS NULL",
                 [work],
                 |r| r.get(0),
             )
@@ -4493,7 +4484,7 @@ fn owner_answer(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     };
     let row = query_json(
         conn,
-        "SELECT a.id AS ask, a.body, a.answer FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
+        "SELECT a.id AS ask, a.body, a.answer FROM architect_matters m JOIN work_asks a ON a.id = m.asked
          WHERE m.id = ?1 AND a.answer IS NOT NULL",
         &[&m],
         1,

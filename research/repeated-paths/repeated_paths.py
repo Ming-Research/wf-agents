@@ -119,14 +119,15 @@ TOOLS = [("query", 4378, 1766), ("ci", 978, 4214), ("gh", 697, 6111), ("ci_befor
          ("full_ci", 65, 1019), ("watch_main", 39, 640), ("measure", 9, 618)]
 
 # table, changes, mean old_row bytes (an update), mean new_row bytes: the field's change log by table, messages and
-# deliveries standing for the field's owner_messages, engine_notices and interjections, which the hub's tables took the
-# place of (a table named twice has the changes of each: the inserts of the second go on from the first's).
+# deliveries standing for the field's owner_messages, engine_notices, interjections and owner_asks, which the hub's
+# tables took the place of (a table named twice has the changes of each: the inserts of the second go on from the
+# first's).
 CHANGES = [
     ("items", 25200, 4925, 4922), ("works", 15774, 354, 354), ("architect_matters", 3845, 15333, 12145),
     ("architect_item_changes", 3601, 564, 576), ("sessions", 1784, 149, 152), ("conversation_reads", 1722, 56, 56),
     ("messages", 820, 376, 358), ("deliveries", 706, 642, 639), ("observations", 636, 709, 694),
     ("item_links", 410, 172, 113), ("notebook_edits", 410, 0, 2065), ("blockers", 346, 555, 987),
-    ("deliveries", 318, 286, 273), ("owner_asks", 169, 3579, 3683), ("flow_versions", 56, 0, 1778600),
+    ("deliveries", 318, 286, 273), ("messages", 169, 3579, 3683), ("flow_versions", 56, 0, 1778600),
     ("design_cards", 51, 3986, 3955), ("dispatch_queue", 22, 27, 26),
 ]
 
@@ -492,19 +493,22 @@ class Builder:
 
         # -- the other tables the paths read ------------------------------------------------------------------------
         n_arch_rounds = len(arch_rounds)
-        asks = self.sink("owner_asks", "work,round,body,answer")
+        # The asks of the owner (the field's owner_asks), each with its question, which become messages below.
+        asks = []
         for i in range(self.n(RECIPE["owner_asks"])):
             if not agent_eng:
                 break
             w, n = agent_eng[r.randrange(len(agent_eng))]
-            asks.add((w, n, self.blob(self.sz(3500), '"kind":"points","question":"%s"' % self.txt(80)),
-                      None if i % 7 == 0 else '{"verdict":"ok"}'))
-        asks.flush()
+            size = self.sz(3500)
+            question = self.txt(80)
+            asks.append((w, n, question, self.blob(size, '"kind":"points","question":"%s"' % question),
+                         None if i % 7 == 0 else '{"verdict":"ok"}'))
         # What was said to a work's engineer (the field's interjections), what an agent told the owner and what the
         # engine told of its own accord (the field's owner_messages and engine_notices) are the hub's messages, each with
         # its delivery: a word said to a work to the engineer's line, which the round that took it took, a fault to the
-        # keeper, the rest to the owner. The engine's reminders are no messages, but rows of their own.
-        msgs = self.sink("messages", "id,sender,work,round,text,body,at")
+        # keeper, the rest to the owner. The asks come after them, messages of the kind ask with no delivery. The
+        # engine's reminders are no messages, but rows of their own.
+        msgs = self.sink("messages", "id,kind,sender,work,round,text,body,answer,at")
         deliveries = self.sink("deliveries", "message,recipient,line,read_at,taken_work,taken_round")
         reminders = self.sink("reminders", "at,text")
         n_messages = 0
@@ -514,15 +518,15 @@ class Builder:
             w, n = agent_eng[r.randrange(len(agent_eng))]
             taken = r.random() < 0.89
             n_messages += 1
-            msgs.add((n_messages, r.choice(["owner", "architect"]), w, None, self.txt(self.sz(464)),
-                      '{"speaker":"owner"}', T0))
+            msgs.add((n_messages, "say", r.choice(["owner", "architect"]), w, None, self.txt(self.sz(464)),
+                      '{"speaker":"owner"}', None, T0))
             deliveries.add((n_messages, "line", "engineer", None, w if taken else None, n if taken else None))
         for _ in range(self.n(RECIPE["owner_messages"])):
             if not agent_eng:
                 break
             w, n = agent_eng[r.randrange(len(agent_eng))]
             n_messages += 1
-            msgs.add((n_messages, "engineer", w, n, self.txt(self.sz(268)), None, T0))
+            msgs.add((n_messages, "say", "engineer", w, n, self.txt(self.sz(268)), None, None, T0))
             deliveries.add((n_messages, "owner", None, T0 if r.random() < 0.9 else None, None, None))
         for i in range(self.n(RECIPE["engine_notices"])):
             if i % 25 == 0:
@@ -530,9 +534,13 @@ class Builder:
                 continue
             fault = r.random() >= 0.9
             n_messages += 1
-            msgs.add((n_messages, "engine", r.randint(1, nwork), None, self.txt(self.sz(280)),
-                      '{"kind":"cache_miss"}' if fault else None, T0 + i * 10000))
+            msgs.add((n_messages, "say", "engine", r.randint(1, nwork), None, self.txt(self.sz(280)),
+                      '{"kind":"cache_miss"}' if fault else None, None, T0 + i * 10000))
             deliveries.add((n_messages, "keeper" if fault else "owner", None, T0, None, None))
+        first_ask = n_messages + 1
+        for w, n, question, body, answer in asks:
+            n_messages += 1
+            msgs.add((n_messages, "ask", "engineer", w, n, question, body, answer, T0))
         msgs.flush()
         deliveries.flush()
         reminders.flush()
@@ -562,7 +570,7 @@ class Builder:
                                                                                   w or 0, kind))
             reply = '{"text":"%s","by":"architect","at":%d}' % (self.txt(self.sz(400)), T0) \
                 if has_work and r.random() < replied / total else None
-            ask = r.randint(1, n_asks) if r.random() < asked / total else None
+            ask = first_ask + r.randint(1, n_asks) - 1 if r.random() < asked / total else None
             matters.add(("wf-agents", kind, None, self.txt(100), body, None, w, n, T0 + i * 20000, hw, hn, reply, ask,
                          "A3" if ask else None, "withdrawn" if r.random() < withdrawn / total else None))
         matters.flush()
@@ -643,8 +651,8 @@ class Builder:
             "conversation_reads": self.n(RECIPE["conversation_reads"]), "messages": n_messages,
             "observations": self.n(RECIPE["observations"]),
             "item_links": len(seen), "notebook_edits": self.n(RECIPE["notebook_edits"]),
-            "blockers": self.n(RECIPE["blockers"]), "deliveries": n_messages,
-            "owner_asks": self.n(RECIPE["owner_asks"]), "flow_versions": versions,
+            "blockers": self.n(RECIPE["blockers"]), "deliveries": first_ask - 1,
+            "flow_versions": versions,
             "design_cards": self.n(RECIPE["design_cards"]), "dispatch_queue": 22,
         }
         specs_c = []
@@ -1022,7 +1030,7 @@ def build_paths():
     add("api.events.row_lookups", "interface", "api::events: two point lookups for each of 200 changed rows (control)",
         event_lookups)
     add("api.works", "interface", "GET /works (also /items, /system, /architect): the whole-table statements",
-        sql_path("SELECT work, count(*) FROM owner_asks WHERE answer IS NULL GROUP BY work",
+        sql_path("SELECT work, count(*) FROM work_asks WHERE answer IS NULL GROUP BY work",
                  "SELECT work, count(*) FROM design_cards WHERE status = 'open' GROUP BY work",
                  "SELECT s.work, sum(coalesce(json_extract(p.usage, '$.cost_usd'), 0)) FROM pings p "
                  "JOIN sessions s ON s.id = p.session GROUP BY s.work",
@@ -1059,7 +1067,7 @@ def build_paths():
         sql_path("SELECT input FROM rounds WHERE work = :w_eng_big AND instr(input, 'no-such-text') > 0 ORDER BY n"))
     add("api.conversations", "interface", "GET /conversations: the conversation_shown view, read whole",
         sql_path("SELECT conversation, at, sender, waiting, fault IS NOT NULL, "
-                 "source = 'ask' AND id IN (SELECT id FROM owner_asks WHERE answer IS NOT NULL), recipient = 'owner' "
+                 "source = 'ask' AND id IN (SELECT id FROM work_asks WHERE answer IS NOT NULL), recipient = 'owner' "
                  "FROM conversation_shown"))
     add("api.conversation.work", "interface", "GET /conversation of one work: its entries",
         sql_path("SELECT conversation, source, id, sender, recipient, text, at, work, round, ask, design_card, matter, "

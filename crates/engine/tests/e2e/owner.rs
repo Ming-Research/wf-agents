@@ -341,7 +341,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
             let mut asks = Vec::new();
             for _ in 0..2 {
                 tx.execute(
-                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\": \"owner\"}')",
+                    "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', ?1, ?2, '', '{\"to\": \"owner\"}', 0)",
                     [old, round],
                 )?;
                 asks.push(tx.last_insert_rowid());
@@ -429,7 +429,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     let by = |e: &Engine, ask: i64| -> String {
         e.db.conn()
             .query_row(
-                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                "SELECT json_extract(answer, '$.by') FROM work_asks WHERE id = ?1",
                 [ask],
                 |r| r.get(0),
             )

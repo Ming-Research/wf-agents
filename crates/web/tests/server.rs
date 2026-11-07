@@ -809,7 +809,7 @@ fn the_owner_answers_and_rules_on_the_page() {
             [],
         )?;
         tx.execute(
-            "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"to\":\"owner\"}')",
+            "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 1, 1, '', '{\"to\":\"owner\"}', 0)",
             [],
         )?;
         tx.execute(

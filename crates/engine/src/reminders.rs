@@ -97,7 +97,7 @@ mod tests {
                         params![work, t],
                     )?;
                     tx.execute(
-                        "INSERT INTO owner_asks (work, round, body) VALUES (?1, 1, '{}')",
+                        "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', ?1, 1, '', '{}', 0)",
                         [work],
                     )?;
                     let ask = tx.last_insert_rowid();
@@ -145,7 +145,7 @@ mod tests {
         );
         db.write(Actor::Owner, |tx| {
             tx.execute(
-                "UPDATE owner_asks SET answer = '{\"by\": \"owner\", \"text\": \"Yes.\"}' WHERE id = ?1",
+                "UPDATE messages SET answer = '{\"by\": \"owner\", \"text\": \"Yes.\"}' WHERE id = ?1",
                 [asks[0]],
             )?;
             Ok(())
@@ -157,7 +157,7 @@ mod tests {
         );
         db.write(Actor::Owner, |tx| {
             tx.execute(
-                "UPDATE owner_asks SET answer = '{\"by\": \"owner\", \"text\": \"No.\"}' WHERE id = ?1",
+                "UPDATE messages SET answer = '{\"by\": \"owner\", \"text\": \"No.\"}' WHERE id = ?1",
                 [asks[1]],
             )?;
             Ok(())
@@ -168,7 +168,7 @@ mod tests {
         let (reminders, messages, logged): (i64, i64, i64) = db
             .conn()
             .query_row(
-                "SELECT (SELECT count(*) FROM reminders), (SELECT count(*) FROM messages),
+                "SELECT (SELECT count(*) FROM reminders), (SELECT count(*) FROM messages WHERE kind = 'say'),
                         (SELECT count(*) FROM outbox WHERE kind = 'notify')",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),

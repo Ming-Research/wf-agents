@@ -34,7 +34,8 @@ pub use matters::{
     plan_written_at, project_of_item, queue_matter, say_to_architect, without_final_terminal,
 };
 pub use messages::{
-    FAULT, Message, Recipient, Sender, ToLine, mark_read, pass_on, say_to_line, send, take, unsay, untake,
+    FAULT, Message, Recipient, Sender, ToLine, answer, answer_if_open, answer_open_asks, ask, mark_read, pass_on,
+    relayed, say_to_line, send, take, unsay, untake,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
@@ -2363,7 +2364,7 @@ mod tests {
         let one = |q: &str| -> String { old.conn().query_row(q, [], |r| r.get(0)).unwrap() };
         assert!(one("SELECT withdrawn FROM architect_matters WHERE id = 1").contains("no longer runs so"));
         assert_eq!(
-            one("SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = 1"),
+            one("SELECT json_extract(answer, '$.by') FROM work_asks ORDER BY id LIMIT 1"),
             "engine"
         );
         assert_eq!(one("SELECT count(*) || '' FROM dispatch_holds"), "0");
@@ -2846,15 +2847,14 @@ mod tests {
         assert_eq!(pair("SELECT acceptance_work, acceptance_round FROM items"), (1, 2));
         assert_eq!(pair("SELECT work, taken_round FROM line_sayings"), (2, 1));
         assert_eq!(pair("SELECT work, round FROM design_cards"), (1, 1));
-        // Design cards and asks of the owner are apart, with their ids; the ask a failed run raised is closed, and
-        // its work goes on.
+        // Design cards and asks of the owner are apart, the cards with their ids and the asks, messages now, in their
+        // order; the ask a failed run raised (the second) is closed, and its work goes on.
         let ids = |q: &str| -> Vec<i64> {
             let mut st = old.conn().prepare(q).unwrap();
             st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
         };
         assert_eq!(ids("SELECT id FROM design_cards"), [2]);
-        assert_eq!(ids("SELECT id FROM owner_asks WHERE answer IS NULL"), [1]);
-        assert_eq!(ids("SELECT id FROM owner_asks WHERE answer IS NOT NULL"), [3]);
+        assert_eq!(ids("SELECT answer IS NOT NULL FROM work_asks ORDER BY id"), [0, 1]);
         assert_eq!(ids("SELECT id FROM works WHERE paused IS NOT NULL"), Vec::<i64>::new());
         let broken: i64 = old
             .conn()
@@ -3746,11 +3746,17 @@ mod tests {
         assert!(ended.is_some());
         let answered: Vec<bool> = {
             let mut st = conn
-                .prepare("SELECT answer IS NOT NULL FROM owner_asks ORDER BY id")
+                .prepare("SELECT answer IS NOT NULL FROM work_asks ORDER BY id")
                 .unwrap();
             st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
         };
         assert_eq!(answered, [true, false, true]);
+        // The second ask, by the number it took among the hub's messages once asks became messages.
+        let second: i64 = conn
+            .query_row("SELECT id FROM work_asks ORDER BY id LIMIT 1 OFFSET 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         type Matter = (String, Option<String>, Option<i64>, Option<String>, Option<i64>);
         let matters: Vec<Matter> = {
             let mut st = conn
@@ -3775,7 +3781,7 @@ mod tests {
             [
                 m("engineer_question", Some("split"), None, None, None),
                 m("set_straight", Some("tidy_board"), None, None, None),
-                m("failure", Some("tool_failed"), Some(2), Some("H7"), None),
+                m("failure", Some("tool_failed"), Some(second), Some("H7"), None),
                 m("advance", None, None, None, Some(1)),
             ]
         );

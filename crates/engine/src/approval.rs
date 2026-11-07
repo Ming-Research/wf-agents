@@ -77,7 +77,7 @@ fn latest_ask(conn: &Connection, work: i64) -> Result<Option<ChangeAsk>, String>
     let row: Option<(i64, i64, Option<String>, bool)> = conn
         .query_row(
             &format!(
-                "SELECT a.id, a.round, a.answer, json_extract(a.body, '$.relayed') IS NOT NULL FROM owner_asks a
+                "SELECT a.id, a.round, a.answer, json_extract(a.body, '$.relayed') IS NOT NULL FROM work_asks a
                  JOIN rounds r ON r.work = a.work AND r.n = a.round
                  WHERE a.work = ?1 AND (r.cell IN {} OR json_extract(a.body, '$.kind') = ?2) ORDER BY a.id DESC LIMIT 1",
                 db::cells_sql(ENGINEER, &[GATE])
@@ -94,7 +94,7 @@ fn latest_ask(conn: &Connection, work: i64) -> Result<Option<ChangeAsk>, String>
 fn unanswered_points(conn: &Connection, work: i64) -> Result<Vec<i64>, String> {
     let mut st = conn
         .prepare(
-            "SELECT id FROM owner_asks WHERE work = ?1 AND answer IS NULL AND json_extract(body, '$.kind') = ?2
+            "SELECT id FROM work_asks WHERE work = ?1 AND answer IS NULL AND json_extract(body, '$.kind') = ?2
              ORDER BY id",
         )
         .map_err(sql)?;
@@ -219,12 +219,7 @@ fn put_change_ask(ctx: &Ctx, tx: &Transaction<'_>) -> Result<i64, String> {
         "title": item.title,
         "asked": [{ "what": "The change to approve before it merges", "value": change }],
     });
-    tx.execute(
-        "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
-        params![w.id, ctx.round.n, body.to_string()],
-    )
-    .map_err(sql)?;
-    let id = tx.last_insert_rowid();
+    let id = db::ask(tx, db::Sender::Engine, w.id, ctx.round.n, &body).map_err(sql)?;
     let compare = change["pull_request"]
         .as_str()
         .map(|u| format!(" Compare them with main: {u}."))
@@ -280,12 +275,7 @@ pub fn ask_points(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
         "asked": asked,
         "research_link": link,
     });
-    tx.execute(
-        "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
-        params![w.id, ctx.round.n, body.to_string()],
-    )
-    .map_err(sql)?;
-    let id = tx.last_insert_rowid();
+    let id = db::ask(tx, db::Sender::Engine, w.id, ctx.round.n, &body).map_err(sql)?;
     let text = format!(
         "The research of work {} on item {} ({}) left you to choose: choose an option for each decision point and rule \
          on each departure, or reply exactly {APPROVED} to take what it recommends. The work implements by the \

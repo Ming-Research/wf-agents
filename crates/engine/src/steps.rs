@@ -1956,7 +1956,7 @@ fn ask(
         let asked: Option<(i64, Option<String>)> =
             e.db.conn()
                 .query_row(
-                    "SELECT id, answer FROM owner_asks WHERE work = ?1 AND round = ?2",
+                    "SELECT id, answer FROM work_asks WHERE work = ?1 AND round = ?2",
                     [r.id.work, r.id.n],
                     |x| Ok((x.get(0)?, x.get(1)?)),
                 )
@@ -2088,11 +2088,7 @@ fn ask(
     let id =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
-            tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, ?3)",
-                params![round.work, round.n, body.to_string()],
-            )?;
-            let id = tx.last_insert_rowid();
+            let id = db::ask(tx, db::Sender::Engineer, round.work, round.n, &body)?;
             // The ask stands for the work's blocker before the owner while the owner holds it.
             if let Some(b) = crate::blockers::open(tx, w.id).map_err(db::Error::Abort)?
                 && b.holder == "owner"

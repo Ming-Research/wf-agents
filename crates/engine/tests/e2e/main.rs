@@ -1397,7 +1397,7 @@ fn owner_approves_src(s: &Setup) {
 fn open_ask(e: &Engine, work: i64) -> Option<(i64, Value)> {
     e.db.conn()
         .query_row(
-            "SELECT id, body FROM owner_asks WHERE work = ?1 AND answer IS NULL ORDER BY id DESC LIMIT 1",
+            "SELECT id, body FROM work_asks WHERE work = ?1 AND answer IS NULL ORDER BY id DESC LIMIT 1",
             [work],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
         )

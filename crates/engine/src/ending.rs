@@ -210,11 +210,7 @@ fn close_asks(tx: &Transaction<'_>, work: i64, why: &str) -> Result<(), String> 
         "at": db::now(),
         "text": format!("No answer is needed: the work ended ({why})."),
     });
-    tx.execute(
-        "UPDATE owner_asks SET answer = ?2 WHERE answer IS NULL AND work = ?1",
-        params![work, answer.to_string()],
-    )
-    .map_err(sql)?;
+    db::answer_open_asks(tx, work, None, &answer).map_err(sql)?;
     Ok(())
 }
 
@@ -511,7 +507,7 @@ mod tests {
             params![work, format!("s{work}")],
         )?;
         tx.execute(
-            "INSERT INTO owner_asks (work, round, body) VALUES (?1, 1, '{}')",
+            "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', ?1, 1, '', '{}', 0)",
             [work],
         )?;
         tx.execute(
@@ -571,7 +567,7 @@ mod tests {
         assert_eq!(open, 0);
         let cut: String = one(&db, "SELECT json_extract(rejected, '$.interrupted') FROM rounds");
         assert_eq!(cut, ended);
-        let answer: String = one(&db, "SELECT json_extract(answer, '$.text') FROM owner_asks");
+        let answer: String = one(&db, "SELECT json_extract(answer, '$.text') FROM work_asks");
         assert_eq!(
             answer,
             "No answer is needed: the work ended (item cancelled: a duplicate)."

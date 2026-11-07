@@ -16,7 +16,7 @@ pub const QUESTIONS_PENDING: &str = "SELECT a.id AS question, json_extract(a.bod
         m.resume_cell AS cell,
         coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id), r.started_at) AS at,
         m.id AS matter, m.what AS about
- FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
+ FROM work_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
  JOIN architect_matters m ON m.asked = a.id
  WHERE w.graph = 'architect' AND w.project = ?1 AND a.answer IS NULL
    AND m.handled_round IS NULL AND m.withdrawn IS NULL
@@ -54,7 +54,7 @@ pub fn question_waited_on(conn: &Connection, project: &str, wait_ms: i64, now: i
                    JOIN architect_matters m ON m.id = d.matter
                  WHERE d.recipient = 'architect' AND e.sender = 'owner' AND m.project = ?1 AND e.at > ?2
                    AND NOT EXISTS (SELECT 1 FROM deliveries x WHERE x.message = e.id AND x.recipient = 'line'))
-              + (SELECT count(*) FROM owner_asks a JOIN works w ON w.id = a.work
+              + (SELECT count(*) FROM work_asks a JOIN works w ON w.id = a.work
                  WHERE w.graph = 'architect' AND w.project = ?1 AND json_extract(a.answer, '$.at') > ?2)",
         rusqlite::params![project, at],
         |r| r.get(0),
@@ -88,7 +88,7 @@ mod tests {
                     rusqlite::params![n, at],
                 )?;
                 tx.execute(
-                    "INSERT INTO owner_asks (work, round, body) VALUES (1, ?1, json_object('question', 'Which?'))",
+                    "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 1, ?1, '', json_object('question', 'Which?'), 0)",
                     [n],
                 )?;
                 let ask = tx.last_insert_rowid();
