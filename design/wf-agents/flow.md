@@ -10,20 +10,21 @@
   source. A flow that fails this never reaches a running work, since finding the fault halfway through a work costs far
   more than a failure at compile time.
 
-- The flow has two graphs, the engineer's and the architect's, which meet only through the database: an engineer's
-  questions and side reports enter the architect's queue, and the architect acts on works through its returns. One
+- The flow has two graphs, the engineer's and the architect's, which meet only through the database: what the hub sends
+  the architect from an engineer enters the architect's queue, and the architect acts on works through its returns. One
   graph, or a row from one graph into the other, was not taken: an architect runs for a long time over every work of its
   project, while each work runs on its own, and the compiler can then check each graph apart.
 
 - When the flow changes, a running work neither ends nor starts over: it goes on where it stands if it can, goes back to
-  the cell it must do again if not, and where it cannot go back, as past a merge, it stops for someone to handle.
+  the cell it must do again if not, and where it cannot go back, as past a merge, it stops for the flow's keeper.
   Starting over wastes what was done, and holding a work in a state the new flow lacks goes wrong. A work whose graph
   the new flow lacks altogether still ends.
 
 - Where an agent decides which way a work goes, each fork is one yes/no question asked by the cell just before it, and
   the way on depends on that answer alone, with no labels to route on later. A label compresses the information, so that
   judging by it later distorts, and it hides steps no one can see. "When unsure, take the heavier way" is not used: the
-  heavier way costs much, so the question is answered as the facts stand.
+  heavier way costs much, so the question is answered as the facts stand. Where an ask holds its work is no fork: the
+  work's way stays the same, and only when it may go on changes.
 
 - Cells share tools and output forms wherever they can, with no second copy for the same thing, and every lookup in the
   database goes through one general query tool. A cell may have an ability of its own, never a second one of what

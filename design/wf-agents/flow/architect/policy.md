@@ -33,8 +33,8 @@
   as usual, filters no matters and holds no starts. There is no state of a policy being set: the owner is there then,
   generally for a quarter of an hour or so, and the filtering was not needed.
 
-- A policy, once written, takes effect only on the owner's exact reply of approved, no word more or less, and any other
-  answer goes back to the round that writes it. That is the simplest rule.
+- A policy, once written, takes effect only when the owner answers yes on the ask to approve it, and a no goes back with
+  its reason to the round that writes it. That is the simplest rule.
 
 - When the architect asks whether to set the policy and the owner answers to leave it, this check is closed on that
   answer, with no draft and no further asking for approval. Otherwise any answer could only lead to a draft, even a

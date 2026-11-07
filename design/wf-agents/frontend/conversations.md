@@ -3,11 +3,6 @@
   architect's page has no way into a talk. There will be several architects and the owner also talks with running
   engineers, and a talk on the architect's page would spoil its look.
 
-- Each work has one group, whose members are the owner, the engineer and the architect, and what the three say is seen
-  by all. What an engineer tells the architect the owner should receive, what the owner guides an engineer with the
-  architect should know, and what the owner tells the architect the engineer should see too. A one-to-one talk for each
-  pair was not taken.
-
 - Helpers such as advisors and reviewers are not in the group: the owner does not talk to them and cannot interject into
   a line not running, and they talk only with the engineer. The owner has no need to, and they are mostly not running.
 
@@ -43,17 +38,10 @@
 
 - On start and step the owner can choose a new session or going on in the old. Debugging needs it.
 
-- Whom to send to is chosen above the input, as a row of check boxes, with the engineer ticked by default. With no
-  address it is not known whom it is for, and in a work's group a message is most likely for the engineer. A drop-down,
-  and having to choose before sending, were rejected.
-
 - The list of conversations is grouped by project, to hold several projects.
 
 - The list on the left keeps its order, and what needs attention only gets a mark. A list should not change under the
   owner's hand.
-
-- The owner's rulings and answers are given in one place, the conversation. Everything the owner types is in a
-  conversation, and where the same question could be seen in several places it was confusing.
 
 - The options of a question can themselves be chosen: a click selects, another clears, and once answered they are read
   only; below them are only the text box and the reply button. A row of short forms below the options had to be matched

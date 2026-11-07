@@ -14,9 +14,5 @@
 
 - A design block shows the design itself first, not why it was chosen. The owner opens it to see what the design is.
 
-- The record of what is to be ruled is on the item page, by time, with what awaits a ruling on top; it is read only
-  there, with a link to rule in its conversation. A ruling belongs to the item, which may pass through several works and
-  outlives them, and the owner's input goes through messages.
-
 - An item's dependency can be removed on the page. An item done may otherwise be held at the merge by a dependency no
   longer needed.

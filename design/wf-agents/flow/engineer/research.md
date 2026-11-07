@@ -53,5 +53,5 @@
   it was not thought through: whether a design built on past decisions is bound by them and can break out. Only after
   doing it once, and asked so, does a better way come.
 
-- After deep research there are no fork questions to answer one by one: a departure from a decision in force is said in
-  the prompt, and the rest is left to the review, since the owner reviews the design.
+- After deep research there are no fork questions to answer one by one: a departure from a decision in force is an ask
+  to change the design tree, standing in the design where it arises, and the rest is left to the review.

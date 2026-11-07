@@ -7,14 +7,8 @@
   handled it, by logging in again, the work goes on.
 
 - Being stopped by the service's safety check is a fault of its own kind: the first retries in a new session, and a
-  second pauses the work and tells the owner. It more likely comes from a session full of repeats than from the prompt's
-  words, though this cannot be proved.
+  second pauses the work and tells the flow's keeper. It more likely comes from a session full of repeats than from the
+  prompt's words, though this cannot be proved.
 
-- Too many send-backs in a row stop the work and tell the owner. Otherwise a cell could keep being sent back, rerun and
-  spending.
-
-- wf-agents' own faults, such as the cache failing, are reported to the owner and enter no project architect's queue by
-  themselves; to pass one on, the owner forwards it, choosing from all the projects' architects, or turns that on in
-  settings. Running other projects, such a fault must still come to wf-agents to be fixed, and forwarded automatically
-  it would reach other projects' architects. A fixed recipient would hard-code a project, and could not forward when the
-  current project is another.
+- Too many send-backs in a row stop the work and tell the flow's keeper. Otherwise a cell could keep being sent back,
+  rerun and spending.

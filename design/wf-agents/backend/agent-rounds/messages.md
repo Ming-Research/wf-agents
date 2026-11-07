@@ -7,8 +7,8 @@
   of address it could not be referred to.
 
 - Before a message goes out, it is checked that what the session has was not sent whole again; if so the work stops and
-  the owner is told. Sending again is a waste and a serious bug, since apart from the rules and the guide little should
-  go in each round. This took the place of a threshold of fixed size.
+  the flow's keeper is told. Sending again is a waste and a serious bug, since apart from the rules and the guide little
+  should go in each round. This took the place of a threshold of fixed size.
 
 - The rules agents are given say how to read things, to reduce tokens. A small matter's token use looked too high.
 

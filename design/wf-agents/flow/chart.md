@@ -11,8 +11,8 @@
   return. Active behaviour is at heart a turn through the engine back to itself, whether or not it is drawn as a step,
   so pausing and answering an interjection were not drawn as going straight back.
 
-- The way back to a cell that asked, carrying the owner's answer, has a name that can be understood and a line of note.
-  Without that layer showing, a dispatch cell looks like two ways to pick freely.
+- The way back to a cell that asked, carrying the answer, has a name that can be understood and a line of note. Without
+  that layer showing, a dispatch cell looks like two ways to pick freely.
 
 - The flow gives each role a colour, used by the helper list and the message avatars, so that a role looks the same
   everywhere.

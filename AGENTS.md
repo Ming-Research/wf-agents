@@ -59,10 +59,11 @@ The tree goes ahead of the code: where they differ, the code is behind. Fix it i
 neither holds up the work in hand, and a review holds no merge for an old gap. Code that looks deliberate goes to the
 architect unchanged.
 
-Only the assistant writes the tree, each entry confirmed by the owner in their chat; what needs recording elsewhere
-comes back to that chat. It records only what is implemented or going to be. For what is going to be, it first walks the
-tree for contradictions; if that is too much work, it opens a deep research and writes nothing yet. Changing means
-rewriting and not wanting means deleting, the commit saying why; the past is in git.
+The tree changes only by entries the owner confirmed: the assistant writes those confirmed in the owner's chat, and an
+engineer, in its work, those the owner answered yes to on its ask; what needs recording elsewhere comes back to that
+chat. It records only what is implemented or going to be. For what is going to be, it first walks the tree for
+contradictions; if that is too much work, it opens a deep research and writes nothing yet. Changing means rewriting and
+not wanting means deleting, the commit saying why; the past is in git.
 
 A decision is a short paragraph: what, then why, failed paths included. "The owner said" is no reason; with no reason it
 does not enter, and none is invented. No code names, cell ids, progress, or words bound to when it was written. Longer

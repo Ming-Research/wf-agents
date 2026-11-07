@@ -1,8 +1,8 @@
 - A return that cannot be parsed is repaired in order: the engine first closes missing brackets and moves things into
   place; failing that, the cheapest model repairs it once, and the content is checked unchanged; failing that, the agent
-  hands it in again in its session; only then is the work paused and the owner told. The round is not rerun. A cheap
-  model costs little and lengthens no session. A cut-off return lacks a large part, and forcing it into valid JSON would
-  lose content, so a repair must not change content.
+  hands it in again in its session; only then is the work paused and the flow's keeper told. The round is not rerun. A
+  cheap model costs little and lengthens no session. A cut-off return lacks a large part, and forcing it into valid JSON
+  would lose content, so a repair must not change content.
 
 - A return sent back gets a few words on what is wrong and to rewrite it; the task, basis and form are not sent again,
   and the work is not redone. It only handed in the wrong thing, the work is done, and more words waste tokens.
