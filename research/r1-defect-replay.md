@@ -1,16 +1,17 @@
 # R1 replayed with the defect rule and the research folder rule
 
 For: the owner, who approves the change to cell R1 (Initial research) at the merge, and its reviewer.
-Kept: until that change merges or is dropped; then deleted, git keeping it.
+Kept: while R1's defect line stands as written here; deleted when that line next changes, git keeping it.
 Written: 2026-11-06, on the branch `research-reproduces-defects`, from the trial database as it stood that day.
 
 ## 1. Question
 
-Does the changed R1 prompt (a) stop a work that fixes a defect it has not seen, or make it see the defect where it
-shows, and (b) leave works that fix no defect as they were? Two cases test (a): W332 (#300), which started on an
+Does the changed R1 prompt (a) stop a work that fixes a defect it has not seen, or make it try to see the defect where
+it shows, and (b) leave works that fix no defect as they were? Two cases test (a): W332 (#300), which started on an
 inferred cause and whose defect came back as #302, and W349 (#302), whose research could not run a Chromium probe
-because R1 could write only `research/`. Three cases from 2026-11-05 test (b): W356 (#223, a page feature), W345 (#310,
-an engine feature) and W350 (#311, an engine and flow change).
+because R1 could write only `research/`. W349 is followed past the round bound too. Three cases from 2026-11-05 test
+(b): W356 (#223, a page feature), W345 (#310, an engine feature) and W350 (#311, an engine and flow change). One case
+tests D1 (Deep research), which takes the same research-folder sentence with no `ci`: W317 (#284, a report).
 
 ## 2. What changed in the message
 
@@ -23,7 +24,8 @@ becomes
 
 > This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere
 > else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs
-> through ci and the implementation keeps it; a simple research leaves nothing but its conclusion.
+> through ci and the implementation keeps it, and a probe there that showed nothing is taken out once run, its result
+> noted in `research/`; a simple research leaves nothing but its conclusion.
 
 and after the line that says to reproduce the problem (unchanged) comes
 
@@ -33,17 +35,23 @@ and after the line that says to reproduce the problem (unchanged) comes
 > looking as far as the tools reach, it is still seen nowhere, neither start nor hand it to deep research: ask the
 > owner how to go on.
 
-A first wording of that sentence (`When the work fixes a defect, reasoning is not enough: see it happen where it shows
-..., by a test or, where none can show it, a probe, a log or the owner's own run; ...`) was replayed on W332 first and
-did not hold: the agent read the code, wrote "the root cause is confirmed by reading the code", planned a happy-dom
+The line R1 is given once it passed its round bound, "By now: can a sound approach be settled by the facts found? If it
+cannot, hand it to deep research.", gains "; but a defect still seen nowhere goes to the owner, as said above, never to
+deep research".
+
+A first wording of the defect sentence (`When the work fixes a defect, reasoning is not enough: see it happen where it
+shows ..., by a test or, where none can show it, a probe, a log or the owner's own run; ...`) was replayed on W332 first
+and did not hold: the agent read the code, wrote "the root cause is confirmed by reading the code", planned a happy-dom
 test as "a test", and started (the row "New, first wording" in section 4). The wording above names the stand-in and
-the cause read from the code as not seeing it, and names ci; it is what the change carries.
+the cause read from the code as not seeing it, and names ci; it is what the change carries. The clause on probes that
+showed nothing came after the first replays of W332, W356, W345 and W350, none of which ran a probe; the W349 rounds
+below ran with it.
 
 ## 3. How the rounds were run
 
-Each case is the first R1 round of the work, rebuilt from `rounds.input` (the message word for word and the whole
-command line), with the stored contents put back. The command line ran as recorded, with these differences, none of
-which reaches the agent's instructions:
+Each case is a round of the work rebuilt from `rounds.input` (the message word for word and the whole command line),
+with the stored contents put back. The command line ran as recorded, with these differences, none of which reaches the
+agent's instructions:
 
 - the working directory is a scratch clone of this repository at the commit the round ran on (head and main were the
   same commit in every case), on the work's branch, with no remote, `origin/main` at that commit and every later ref
@@ -54,9 +62,11 @@ which reaches the agent's instructions:
 - the `--add-dir` directories of the trial pointed at empty scratch directories.
 
 Both prompts ran the same day under the same conditions; the original return is given beside them. Where a round asked
-for `query`, the queries were run by hand, read-only on the trial database, limited to rows from before the original
-round started, and given back in a resumed session as the engine gives tool results, only where the decision was not
-yet visible. No `ci` was run: it would push to the project's repository. Cost of all replays: about 5 USD.
+for `query`, the queries were run by hand on the trial database, read-only, limited to what it held when the original
+round started (rows after it filtered out, or a copy with every later change undone), and given back in a resumed
+session as the engine gives tool results, only where the decision was not yet visible. W349's `ci` requests ran through
+the fast CI on the branch `replay/w349-scenarios`, which holds the replayed probe; no other `ci` ran. Cost of all
+replays: about 21 USD.
 
 ## 4. Cases
 
@@ -84,14 +94,32 @@ and decides; on the old prompt the work started both times, and on the first wor
 
 At this commit the CI runs `client/src/**/*.browser.test.tsx` in Chromium (#303).
 
-| Run | First return | Decision |
-| --- | --- | --- |
-| Original R349-5, -7, -9 | queries, queries, then start | started with no reproduction: "the research round may change only research/, and a browser test must be in client/src/, so the probe goes to the implementation" |
-| Old prompt | queries (engine runs, matters, interjections) | not reached in one round; the same first step as the original |
-| New prompt | `ci` naming `client/src/graph/Viewer.browser.test.tsx` | wrote and committed five Chromium scenarios (a click on empty chart space, on a cell, on a page control, the pointer out and back, a cell clicked then the pointer out and back) and runs them before deciding |
+| Run | Decision |
+| --- | --- |
+| Original R349-5, -7, -9 | queries, queries, then start with no reproduction: "the research round may change only research/, and a browser test must be in client/src/, so the probe goes to the implementation" |
+| Old prompt | queries first (engine runs, matters, interjections), as the original |
+| New prompt, round 1 | wrote and committed four Chromium probes in `client/src/graph/Viewer.browser.test.tsx` (a click on a cell, a click on empty chart, the pointer out and back, a window blur and focus) and asked `ci` to run them |
+| Round 2 | its test names ended in `" > "` and selected no test (fast CI run 42342761043 ran only the check every run holds); it queried earlier `ci` runs for the name form |
+| Round 3 | asked `ci` again with the same names |
+| Round 4, within the bound | given the probes' real results (see below): all passed; asked the owner, neither starting nor going to deep research |
+| Round 4, past the bound | the same, given the line R1 sees past its bound: took the probes out, noted the result in `research/`, asked the owner |
 
-Judgment: the research now reproduces where the defect shows, in its first round, instead of handing an unreproduced
-cause to the implementation. The probe went into the existing test file, where the implementation keeps it.
+The names of round 3 select nothing either, so the result given at round 4 came from a run of the same probes named by
+their titles (fast CI run 42342946691 on c3265748): the four probes and the four tests of #303 passed, so nothing
+reproduced the defect. That result is what the agent's `ci` would have given had it named the tests rightly; the naming
+detour is its own problem, which its flow feedback reports.
+
+At round 4 within the bound, the ask to the owner asked for the browser and system, the input method and any shortcut
+pressed before Space, which build the owner's page was (before or after the #300 fix), and a one-line console listener
+to run when it fails again; it said the probes' synthetic input cannot show a key the operating system swallows. Of two
+runs, the first left the probes in the test file and the second took them out and noted the result in `research/`.
+Past the bound, both runs took the probes out, wrote the note and asked the owner. The CLI refused the returns of the
+second run within the bound and of both runs past it for their form (`outcome` written as a string, or `progress`
+missing), which the engine sends back to be written again; the decision in each is the ask to the owner.
+
+Judgment: the research now tries to reproduce the defect in a real browser before deciding, which the old limit
+forbade; here nothing reproduced it, and it asked the owner rather than start or go to deep research, past the round
+bound too. Taking out probes that showed nothing held in three runs of four.
 
 ### W356, #223 (quote a chat bubble), commit 017903a4
 
@@ -132,10 +160,34 @@ the rejection was seen to happen.
 
 Judgment: unchanged; no round asked the owner.
 
-## 5. Conclusion
+### W317, #284 (what an agent can reach, a report), D1, commit 985347f9
+
+D1 has no `ci`; its line on the research folder is the same as R1's but says a reproducing test "runs where they run".
+
+| Run | Where the material goes |
+| --- | --- |
+| Original R317-8 | a `measure` run first, to see whether the project lists a measurement workflow |
+| Old prompt | a harness in `research/284/`, and possibly a workflow under `.github/` or a configuration entry: "the only place this work touches outside research/" |
+| New prompt | everything in `research/284-what-an-agent-can-reach/`; and, if the owner picks the option that drives the engine's own command runner, a reproducing test in a new file of the engine's end-to-end tests |
+
+Neither left a file. Judgment: D1 keeps its material in the research folder and puts a reproducing test where the
+tests are, as told. For a report, I1 now takes such a test out before handing in, citing the commit that ran it, so the
+report's check, which refuses anything outside `research/`, does not send it back.
+
+## 5. The round bound
+
+R1 is asked whether a sound approach can be settled once it ran the project's bound of rounds since it last handed in
+its answer. On the trial board, while the research could not run tests, a visit to R1 took 2 rounds at the median, 5 at
+p95 and 8 at most (129 visits; 3 reached 6 or more, all with queries, none with `ci`). A reproduction costs a round for
+each `ci` run: W349 above took 4 rounds for 2 runs, one of them lost to a naming slip. The default goes from 6 to 10,
+room for three or four runs on a long visit. The bound is counted and knows nothing of whether a defect was seen; the
+line it shows sends a defect still seen nowhere to the owner, never to deep research.
+
+## 6. Conclusion
 
 Both defect cases change as intended: W332 stops and asks the owner rather than start on a cause read from the code,
-and W349 reproduces in a real browser through ci, which the old limit to `research/` forbade. The works that fix no
-defect take the same way as before. The first wording of the defect sentence failed on W332, so the wording replayed
-second is the one in the flow. D1, D2 and I1 were not replayed: D1 and D2 take the same sentence on the research
-folder that R1 took here, and no past work had a reproducing test left by its research for I1 to take.
+and W349 runs probes in a real browser through ci, which the old limit to `research/` forbade, and asks the owner when
+they show nothing, within the round bound and past it. The works that fix no defect take the same way as before. D1
+keeps its material in the research folder. The first wording of the defect sentence failed on W332, so the wording
+replayed second is the one in the flow. I1 was not replayed: no past work had a reproducing test left by its research
+for it to take.
