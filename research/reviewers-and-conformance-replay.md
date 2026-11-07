@@ -259,7 +259,7 @@ page's tests.
 Three changes after the review's re-check, not replayed (each one sentence, closing a gap the earlier rounds show
 rather than changing what a cell was seen to do):
 
-- The re-check (T4), the only review after the fix, is given the passages the fix wrote (`T6·design_updates`) and judges
+- The re-check (T4), the only review after the fix, is given the passages the fix wrote (`design_updates` of T6) and judges
   each as the first review judges implementing's: a short cut, another method or more than the row needs is a problem
   the fix brought in. Without it the fix approved its own passages.
 - The fix writes in `design_updates`, as it now stands, a passage of implementing's that a row has it change or take

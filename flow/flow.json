@@ -8486,14 +8486,13 @@
               "maybe": true
             },
             {
-              "what": "The passages the fix wrote into the design, each with why: every one the fixes of this work wrote, as it stands now; none when they wrote none",
+              "what": "The passages the fix wrote into the design, each with why: every one the fixes of this work wrote, as it stands now; an empty list when they wrote none",
               "from": [
                 [
                   "T6",
                   "design_updates"
                 ]
-              ],
-              "maybe": true
+              ]
             },
             {
               "what": "The commits the change is read by, with the head the review last looked at",
