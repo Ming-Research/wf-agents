@@ -1141,8 +1141,14 @@ mod tests {
             design_card: None,
             images,
         };
+        // The latest words said to a line, by their message: numbered among the hub's, after the setup's ask.
+        let latest = |db: &Db| -> i64 {
+            db.conn()
+                .query_row("SELECT max(id) FROM line_sayings", [], |r| r.get(0))
+                .unwrap()
+        };
         say_to_work(&mut db, 1, &said("engineer", "", vec![png(), png()])).unwrap();
-        assert_eq!(kept(&db, Words::Message(1)), 2);
+        assert_eq!(kept(&db, Words::Message(latest(&db))), 2);
         say_to_work(&mut db, 1, &said("both", "See.", vec![png()])).unwrap();
         let (matter, what): (i64, String) = db
             .conn()
@@ -1152,7 +1158,7 @@ mod tests {
             .unwrap();
         assert_eq!(what, "The owner says, with an image: See.");
         assert_eq!(kept(&db, Words::Matter(matter)), 1);
-        assert_eq!(attachments::of_interjection(db.conn(), 2).unwrap().len(), 1);
+        assert_eq!(attachments::of_interjection(db.conn(), latest(&db)).unwrap().len(), 1);
         say_to_work(&mut db, 1, &said("architect", " ", vec![png(), png()])).unwrap();
         let what: String = db
             .conn()
