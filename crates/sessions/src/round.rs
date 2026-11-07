@@ -116,11 +116,13 @@ fn own_rounds(conn: &Connection, cli_session: &str) -> Result<Vec<Round>, String
         .map_err(|e| e.to_string())
 }
 
-/// The statement `own_rounds` reads a CLI session's rounds with: `?1` is the CLI session. Its plan is checked by a test
-/// that searches `rounds_by_session`.
+/// The statement `own_rounds` reads a CLI session's rounds with: `?1` is the CLI session. It is a CROSS JOIN, which
+/// makes `sessions` the outer loop, so that each session's rounds are found by `rounds_by_session`. With a plain JOIN
+/// the planner scans every round in the order of its primary key instead. The test
+/// `a_cli_sessions_rounds_are_read_from_the_index_on_rounds_session` checks the plan.
 pub fn own_rounds_sql() -> String {
     format!(
-        "SELECT {COLUMNS} FROM rounds r JOIN sessions s ON s.id = r.session
-         WHERE s.cli_session = ?1 ORDER BY r.work, r.n"
+        "SELECT {COLUMNS} FROM sessions s CROSS JOIN rounds r
+         WHERE r.session = s.id AND s.cli_session = ?1 ORDER BY r.work, r.n"
     )
 }
