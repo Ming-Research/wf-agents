@@ -1456,12 +1456,13 @@ fn acceptance_before(conn: &Connection, work: i64, n: i64) -> Result<Option<Valu
     Ok(before.flatten().and_then(|t| serde_json::from_str(&t).ok()))
 }
 
+/// The statement `flows` reads the stored flow versions with, each with the number of works it has.
+pub const FLOWS_SQL: &str = "SELECT v.id, v.digest, (SELECT count(*) FROM works w WHERE w.flow_version = v.id)
+    FROM flow_versions v ORDER BY v.id DESC";
+
 /// Every stored flow version, newest first.
 pub fn flows(conn: &Connection) -> Result<Vec<FlowVersion>> {
-    let mut st = conn.prepare(
-        "SELECT v.id, v.digest, (SELECT count(*) FROM works w WHERE w.flow_version = v.id) FROM flow_versions v
-         ORDER BY v.id DESC",
-    )?;
+    let mut st = conn.prepare(FLOWS_SQL)?;
     let rows = st.query_map([], |r| {
         Ok(FlowVersion {
             id: r.get(0)?,
@@ -1470,6 +1471,28 @@ pub fn flows(conn: &Connection) -> Result<Vec<FlowVersion>> {
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    // The plan of the works each flow version has searches the index on the works' flow version, not every work.
+    #[test]
+    fn the_flows_count_their_works_from_the_index_on_flow_version() {
+        let db = db::Db::in_memory().unwrap();
+        let mut st = db.conn().prepare(&format!("EXPLAIN QUERY PLAN {FLOWS_SQL}")).unwrap();
+        let steps: Vec<String> = st
+            .query_map([], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let plan = steps.join("\n");
+        assert!(
+            plan.contains("works_by_flow_version"),
+            "FLOWS_SQL does not search works_by_flow_version:\n{plan}"
+        );
+    }
 }
 
 /// A flow version's compiled flow, as the database keeps it: the JSON of [`Compiled`].

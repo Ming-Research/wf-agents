@@ -322,6 +322,13 @@ struct Watch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoundsMark(u64);
 
+/// The number the next write takes: one more than the largest in `changes`, read under the write lock. The maximum is a
+/// scalar subquery of its own, so that the index on `tx` (`changes_by_tx`) can answer it; `coalesce(max(tx), 0) + 1`
+/// wraps the aggregate in an expression, which the research measured as scanning the whole log (E2 of
+/// `research/repeated-paths.md`). The plan is checked by the test
+/// `the_next_transaction_number_is_read_from_the_index_on_changes`.
+pub const NEXT_TX: &str = "SELECT coalesce((SELECT max(tx) FROM changes), 0) + 1";
+
 /// The database as the engine and the owner's commands use it. Every write goes through [`Db::write`]: a state
 /// table's triggers refuse a change made any other way, so none escapes `changes`.
 pub struct Db {
@@ -501,7 +508,7 @@ impl Db {
     /// succeeds.
     pub fn write<T>(&mut self, actor: Actor, f: impl FnOnce(&Transaction<'_>) -> Result<T>) -> Result<T> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let id: i64 = tx.query_row("SELECT coalesce(max(tx), 0) + 1 FROM changes", [], |r| r.get(0))?;
+        let id: i64 = tx.query_row(NEXT_TX, [], |r| r.get(0))?;
         set(
             &self.writer,
             Some(Writer {

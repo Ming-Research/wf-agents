@@ -565,18 +565,44 @@ pub fn basis_problems(verdicts: &[Value], conditions: &[Value], at: i64, runs: &
 /// after, though each look is a session of its own.
 pub fn words_given(conn: &Connection, work: i64) -> Result<bool, String> {
     let n: i64 = conn
-        .query_row(
-            &format!(
-                "SELECT count(*) FROM interjections
-                 WHERE work = ?1 AND delivered_round > coalesce(
-                   (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
-                db::cells_sql(ENGINEER, &[MERGE])
-            ),
-            params![work],
-            |r| r.get(0),
-        )
+        .query_row(&words_given_sql(), params![work], |r| r.get(0))
         .map_err(sql)?;
     Ok(n > 0)
+}
+
+/// The statement `words_given` counts the words with: `?1` is the work.
+pub fn words_given_sql() -> String {
+    format!(
+        "SELECT count(*) FROM interjections
+         WHERE work = ?1 AND delivered_round > coalesce(
+           (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
+        db::cells_sql(ENGINEER, &[MERGE])
+    )
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    // The plan of the count of words given to a work searches the index on the work and the round that took each
+    // word, not every interjection.
+    #[test]
+    fn the_words_given_to_a_work_are_read_from_the_index_on_work_and_round() {
+        let db = db::Db::in_memory().unwrap();
+        let sql = words_given_sql();
+        let mut st = db.conn().prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        // The statement takes the work; the plan does not depend on its value.
+        let steps: Vec<String> = st
+            .query_map(params![None::<i64>], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let plan = steps.join("\n");
+        assert!(
+            plan.contains("interjections_by_work_delivered"),
+            "{sql} does not search interjections_by_work_delivered:\n{plan}"
+        );
+    }
 }
 
 /// `tell_wait`: tells the owner, the first time in the work it takes the row, what settles a wait the engine cannot judge

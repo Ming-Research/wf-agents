@@ -53,16 +53,18 @@ fn design_round(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
     .map_err(sql)
 }
 
+/// The statement `asked` reads the latest matter with: `?1` is the work, `?2` the kind of design review (`KIND`) and
+/// `?3` the round the design was handed in at.
+pub const ASKED_SQL: &str = "SELECT id, reply, withdrawn IS NOT NULL FROM architect_matters
+     WHERE work = ?1 AND kind = 'engineer_question' AND detail = ?2 AND round > ?3
+     ORDER BY id DESC LIMIT 1";
+
 /// The latest matter that asked the architect to review the design the work handed in at round `since` or after.
 fn asked(conn: &Connection, work: i64, since: i64) -> Result<Option<Asked>, String> {
     let row: Option<(i64, Option<String>, bool)> = conn
-        .query_row(
-            "SELECT id, reply, withdrawn IS NOT NULL FROM architect_matters
-             WHERE work = ?1 AND kind = 'engineer_question' AND detail = ?2 AND round > ?3
-             ORDER BY id DESC LIMIT 1",
-            params![work, KIND, since],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
+        .query_row(ASKED_SQL, params![work, KIND, since], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
         .optional()
         .map_err(sql)?;
     Ok(row.map(|(id, reply, withdrawn)| Asked {
@@ -70,6 +72,32 @@ fn asked(conn: &Connection, work: i64, since: i64) -> Result<Option<Asked>, Stri
         reply: crate::work::json_col(reply),
         withdrawn,
     }))
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    // The plan of the latest design review matter of a work searches the index on the work and the kind, not every
+    // matter of every work.
+    #[test]
+    fn the_design_review_asks_are_read_from_the_index_on_work_and_kind() {
+        let db = db::Db::in_memory().unwrap();
+        let mut st = db.conn().prepare(&format!("EXPLAIN QUERY PLAN {ASKED_SQL}")).unwrap();
+        // The statement takes the work, the kind and the round; the plan does not depend on their values.
+        let steps: Vec<String> = st
+            .query_map(params![None::<i64>, None::<String>, None::<i64>], |r| {
+                r.get::<_, String>(3)
+            })
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let plan = steps.join("\n");
+        assert!(
+            plan.contains("architect_matters_by_work"),
+            "ASKED_SQL does not search architect_matters_by_work:\n{plan}"
+        );
+    }
 }
 
 /// The latest ask of the owner that put the design to the owner since round `since`, the design's, with its answer if it
