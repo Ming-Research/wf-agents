@@ -263,9 +263,7 @@ pub fn take_back(db: &mut Db, t: &TakeBack) -> Result<TakenBack, String> {
             }
         }
         if let Some(j) = held.interjection {
-            tx.execute("DELETE FROM attachments WHERE message = ?1", [j])?;
-            tx.execute("DELETE FROM deliveries WHERE message = ?1", [j])?;
-            tx.execute("DELETE FROM messages WHERE id = ?1", [j])?;
+            db::unsay(tx, j)?;
         }
         if let Some(m) = held.matter {
             tx.execute("DELETE FROM attachments WHERE matter = ?1", [m])?;

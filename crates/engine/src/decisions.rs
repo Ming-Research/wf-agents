@@ -221,7 +221,7 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                 Option<i64>,
                 Option<String>,
                 Option<String>,
-                Option<i64>,
+                i64,
                 Option<String>,
                 Option<String>,
                 Option<String>,
@@ -257,9 +257,6 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
             let Some((speaker, text, matter, wp, ip, at, of_matter, declared, matter_relayed, own_relayed)) = row
             else {
                 return Err(format!("there is no interjection {id}"));
-            };
-            let Some(at) = at else {
-                return Err(format!("interjection {id} has no recorded time"));
             };
             let of = wp.or(ip).unwrap_or_default();
             if of != project {

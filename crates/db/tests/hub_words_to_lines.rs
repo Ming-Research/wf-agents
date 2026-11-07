@@ -58,12 +58,13 @@ fn int(n: i64) -> Value {
 
 // A database with words to a work's lines of every kind (the owner's with a delegate and a part relayed, taken by a
 // round; the owner's to the architect in the work's group, its copy told to the engineer; a question about a decision
-// card with an image; the architect's word that needs no answer; the notice of an item cancelled, not taken), an entry of
-// a talk with the architect, and the hub's messages before (a fault with its cache miss, passed on to an architect)
-// takes the migration: each word keeps its number as its message, delivered to its line, taken by the round that took
-// it, and to the architect too when a matter holds it; the talk's entry is the owner's message to the architect, naming
-// the talk; the messages before come after them, with their deliveries and their cache miss; the image belongs to its
-// message; and the views read them as they read the words before.
+// card with an image; the architect's word that needs no answer; the notice of an item cancelled, not taken; a ruling on
+// a decision card, the engine's in the owner's name), an entry of a talk with the architect, and the hub's messages
+// before (a fault with its cache miss, passed on to an architect) with their changes takes the migration: each word
+// keeps its number as its message, delivered to its line, taken by the round that took it, and to the architect too when
+// a matter holds it; the ruling is the engine's, which agents are given as the owner's; the talk's entry is the owner's
+// message to the architect, naming the talk; the messages before come after them, with their deliveries, their cache
+// miss and their changes; the image belongs to its message; and the views read them as they read the words before.
 #[test]
 fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
     let dir = temp("hub-words");
@@ -90,7 +91,9 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
                   NULL, NULL),
                  (3, 1, 'engineer', 'owner', 'owner', NULL, 'Why this size?', NULL, 0, NULL, 1, NULL),
                  (4, 1, 'review', 'architect', NULL, NULL, 'Nothing changes for you.', NULL, 1, NULL, NULL, NULL),
-                 (5, 1, 'engineer', 'architect', NULL, NULL, 'Item 2 was cancelled.', NULL, 0, NULL, NULL, 2);
+                 (5, 1, 'engineer', 'architect', NULL, NULL, 'Item 2 was cancelled.', NULL, 0, NULL, NULL, 2),
+                 (6, 1, 'engineer', 'owner', NULL, NULL, 'Ruling on decision card 1 (k): B.', NULL, 0, NULL, NULL,
+                  NULL);
                INSERT INTO attachments (id, interjection, position, media_type, size, hash, bytes)
                  VALUES (1, 3, 1, 'image/png', 4, 'h', zeroblob(4));
                INSERT INTO talk_entries (id, matter, text, at, taken_work, taken_round) VALUES (1, 2, 'And more.', 11, 2, 1);
@@ -100,11 +103,15 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
                INSERT INTO deliveries (id, message, recipient, matter, read_at)
                  VALUES (1, 1, 'owner', NULL, NULL), (2, 2, 'keeper', NULL, 13), (3, 2, 'architect', 3, NULL);
                INSERT INTO cache_misses (work, round, line, differs, written, held, cost_usd, message)
-                 VALUES (1, 1, 'engineer', '[]', 1, 2, NULL, 2);"#,
+                 VALUES (1, 1, 'engineer', '[]', 1, 2, NULL, 2);
+               INSERT INTO changes (tx, at, actor, table_name, row_key, old_row, new_row)
+                 VALUES (2, 20, 'engine', 'messages', '{"id":1}', NULL, '{"id":1,"text":"Told you."}'),
+                        (3, 13, 'owner', 'deliveries', '{"id":2}', '{"id":2,"message":2,"read_at":null}',
+                         '{"id":2,"message":2,"read_at":13}');"#,
         )
         .unwrap();
         // When each word was said, as the record of changes keeps it.
-        for (id, at) in [(1, 15), (2, 16), (3, 17), (4, 18), (5, 19)] {
+        for (id, at) in [(1, 15), (2, 16), (3, 17), (4, 18), (5, 19), (6, 21)] {
             conn.execute(
                 "INSERT INTO changes (tx, at, actor, table_name, row_key, new_row)
                  VALUES (1, ?2, 'owner', 'interjections', json_object('id', ?1), '{}')",
@@ -193,6 +200,32 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
                 int(19),
                 Value::Null
             ],
+            vec![
+                int(6),
+                text("owner"),
+                text("engineer"),
+                text("Ruling on decision card 1 (k): B."),
+                Value::Null,
+                Value::Null,
+                int(0),
+                Value::Null,
+                Value::Null,
+                Value::Null,
+                int(21),
+                Value::Null
+            ],
+        ]
+    );
+    // The ruling is the engine's, the others' words their own.
+    assert_eq!(
+        rows(conn, "SELECT sender FROM messages WHERE id <= 6 ORDER BY id"),
+        [
+            vec![text("owner")],
+            vec![text("owner")],
+            vec![text("owner")],
+            vec![text("architect")],
+            vec![text("architect")],
+            vec![text("engine")],
         ]
     );
     // The messages before come after the words, with their deliveries; the talk's entry after them.
@@ -200,11 +233,11 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
         rows(
             conn,
             "SELECT m.id, m.sender, m.text, d.recipient, d.matter, d.read_at, d.taken_work, d.taken_round
-             FROM messages m JOIN deliveries d ON d.message = m.id WHERE m.id > 5 ORDER BY m.id, d.id"
+             FROM messages m JOIN deliveries d ON d.message = m.id WHERE m.id > 6 ORDER BY m.id, d.id"
         ),
         [
             vec![
-                int(6),
+                int(7),
                 text("engineer"),
                 text("Told you."),
                 text("owner"),
@@ -214,7 +247,7 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
                 Value::Null
             ],
             vec![
-                int(7),
+                int(8),
                 text("engine"),
                 text("R1-1 missed its cache."),
                 text("keeper"),
@@ -224,7 +257,7 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
                 Value::Null
             ],
             vec![
-                int(7),
+                int(8),
                 text("engine"),
                 text("R1-1 missed its cache."),
                 text("architect"),
@@ -234,7 +267,7 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
                 Value::Null
             ],
             vec![
-                int(8),
+                int(9),
                 text("owner"),
                 text("And more."),
                 text("architect"),
@@ -245,14 +278,36 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
             ],
         ]
     );
-    assert_eq!(rows(conn, "SELECT message FROM cache_misses"), [vec![int(7)]]);
+    assert_eq!(rows(conn, "SELECT message FROM cache_misses"), [vec![int(8)]]);
+    // The change log names the messages before, and their deliveries the message, by their numbers now.
+    assert_eq!(
+        rows(
+            conn,
+            "SELECT table_name, row_key, old_row, new_row FROM changes
+             WHERE table_name IN ('messages', 'deliveries') ORDER BY id"
+        ),
+        [
+            vec![
+                text("messages"),
+                text(r#"{"id":7}"#),
+                Value::Null,
+                text(r#"{"id":7,"text":"Told you."}"#)
+            ],
+            vec![
+                text("deliveries"),
+                text(r#"{"id":2}"#),
+                text(r#"{"id":2,"message":8,"read_at":null}"#),
+                text(r#"{"id":2,"message":8,"read_at":13}"#)
+            ],
+        ]
+    );
     assert_eq!(rows(conn, "SELECT message FROM attachments"), [vec![int(3)]]);
     assert_eq!(
         rows(
             conn,
             "SELECT interjection FROM waiting_interjections ORDER BY interjection"
         ),
-        [vec![int(2)], vec![int(3)], vec![int(4)], vec![int(5)]]
+        [vec![int(2)], vec![int(3)], vec![int(4)], vec![int(5)], vec![int(6)]]
     );
     // The owner's words to the architect in the group show once, as the copy the engineer is told; the talk's entry
     // in the one-to-one.
@@ -268,7 +323,7 @@ fn the_migration_keeps_every_word_s_number_and_where_it_stands() {
             vec![text("work:1"), text("interjection"), int(3)],
             vec![text("work:1"), text("interjection"), int(4)],
             vec![text("work:1"), text("interjection"), int(5)],
-            vec![text("architect:p"), text("talk"), int(8)],
+            vec![text("architect:p"), text("talk"), int(9)],
             vec![text("architect:p"), text("words"), int(2)],
         ]
     );

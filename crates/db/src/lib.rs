@@ -33,7 +33,9 @@ pub use matters::{
     Appended, BASE_BUILT, Declared, Matter, Speaker, appended_since, base_built_at, lift_pause, one_sentence,
     plan_written_at, project_of_item, queue_matter, say_to_architect, without_final_terminal,
 };
-pub use messages::{FAULT, Message, Recipient, Sender, ToLine, mark_read, pass_on, say_to_line, send, take, untake};
+pub use messages::{
+    FAULT, Message, Recipient, Sender, ToLine, mark_read, pass_on, say_to_line, send, take, unsay, untake,
+};
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
 pub use start_over::{

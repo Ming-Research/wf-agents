@@ -17,12 +17,13 @@ pub const FAULT: &str = "fault";
 /// Who sends a message, as `messages.sender` names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sender {
-    /// The owner's words, and what the engine says to a line in the owner's name.
+    /// The owner's words.
     Owner,
     /// A line of an engineer's work.
     Engineer,
     /// A line of a project's architect's work.
     Architect,
+    /// The engine: what it tells of its own accord, and what it says to a line in the owner's name.
     Engine,
 }
 
@@ -65,8 +66,8 @@ pub struct Message<'a> {
     pub ask: Option<i64>,
 }
 
-/// Sends a message now: written once, and delivered to `to`. Gives the message.
-pub fn send(tx: &Transaction<'_>, m: &Message<'_>, to: Recipient) -> Result<i64> {
+/// Writes a message once, now, as every saying is written; gives it. Its deliveries are the caller's.
+fn write(tx: &Transaction<'_>, m: &Message<'_>) -> Result<i64> {
     tx.execute(
         "INSERT INTO messages (sender, work, round, text, body, ask, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
@@ -79,7 +80,12 @@ pub fn send(tx: &Transaction<'_>, m: &Message<'_>, to: Recipient) -> Result<i64>
             now()
         ],
     )?;
-    let id = tx.last_insert_rowid();
+    Ok(tx.last_insert_rowid())
+}
+
+/// Sends a message now: written once, and delivered to `to`. Gives the message.
+pub fn send(tx: &Transaction<'_>, m: &Message<'_>, to: Recipient) -> Result<i64> {
+    let id = write(tx, m)?;
     tx.execute(
         "INSERT INTO deliveries (message, recipient) VALUES (?1, ?2)",
         params![id, to.as_str()],
@@ -87,11 +93,11 @@ pub fn send(tx: &Transaction<'_>, m: &Message<'_>, to: Recipient) -> Result<i64>
     Ok(id)
 }
 
-/// What is said to a line of a work: by the owner (the owner's words, or the engine's in the owner's name: a ruling on
-/// a decision card, an answer of the owner's relayed, the notice that an item depended on was cancelled) or by the
-/// architect; the work and its line; the words; and what more it says (`messages.body`): who the caller declared to
-/// speak and the parts a delegate relayed as the owner's own, whether it needs no answer, the decision card it asks
-/// about and the item whose cancellation it tells of.
+/// What is said to a line of a work: by the owner, by the architect, or by the engine in the owner's name (a ruling on
+/// a decision card, an answer of the owner's relayed, the notice that an item depended on was cancelled), which agents
+/// are given as the owner's; the work and its line; the words; and what more it says (`messages.body`): who the caller
+/// declared to speak and the parts a delegate relayed as the owner's own, whether it needs no answer, the decision card
+/// it asks about and the item whose cancellation it tells of.
 #[derive(Debug, Clone)]
 pub struct ToLine<'a> {
     pub sender: Sender,
@@ -147,17 +153,15 @@ impl<'a> ToLine<'a> {
 /// that runs after its next tool use; and, for the owner's words said in a work's group to its architect too, delivered
 /// to the architect as `matter`, the matter of its queue that holds them. Gives the message.
 pub fn say_to_line(tx: &Transaction<'_>, s: &ToLine<'_>, matter: Option<i64>) -> Result<i64> {
-    tx.execute(
-        "INSERT INTO messages (sender, work, text, body, at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            s.sender.as_str(),
-            s.work,
-            s.text,
-            s.body().as_ref().map(Value::to_string),
-            now()
-        ],
-    )?;
-    let id = tx.last_insert_rowid();
+    let m = Message {
+        sender: s.sender,
+        work: Some(s.work),
+        round: None,
+        text: s.text,
+        body: s.body(),
+        ask: None,
+    };
+    let id = write(tx, &m)?;
     tx.execute(
         "INSERT INTO deliveries (message, recipient, line) VALUES (?1, 'line', ?2)",
         params![id, s.line],
@@ -169,6 +173,14 @@ pub fn say_to_line(tx: &Transaction<'_>, s: &ToLine<'_>, matter: Option<i64>) ->
         )?;
     }
     Ok(id)
+}
+
+/// Takes back a message no one took up yet: the message, its deliveries and the images sent with it are deleted.
+pub fn unsay(tx: &Transaction<'_>, message: i64) -> Result<()> {
+    tx.execute("DELETE FROM attachments WHERE message = ?1", [message])?;
+    tx.execute("DELETE FROM deliveries WHERE message = ?1", [message])?;
+    tx.execute("DELETE FROM messages WHERE id = ?1", [message])?;
+    Ok(())
 }
 
 /// Records that round `round` of `work` took a message said to one of its lines; gives whether it was still to take.

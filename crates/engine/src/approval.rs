@@ -329,8 +329,8 @@ pub fn relay(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let relayed = format!("{} {text}", db::RELAY_APPROVAL);
     let relay = db::ToLine {
         speaker: declared,
-        ..db::ToLine::new(db::Sender::Owner, w.id, "engineer", &relayed)
+        ..db::ToLine::new(db::Sender::Engine, w.id, "engineer", &relayed)
     };
-    db::say_to_line(tx, &relay, None).map_err(sql)?;
+    crate::hub::say_to_line(tx, &relay)?;
     Ok(())
 }

@@ -5,9 +5,14 @@
 -- held (talk_entries), which nothing writes now, are the owner's messages delivered to the architect, naming the talk's
 -- matter. An image the owner sent with words to a line belongs to their message.
 --
+-- What the engine said in the owner's name (a ruling on a decision card, an answer of the owner's relayed, the notice
+-- that an item depended on was cancelled, each told by its words as the code that wrote it worded it) is the engine's
+-- message, which agents are given as the owner's.
+--
 -- What is in flight stays as it was: each word to a line keeps its number, which the rounds that were given it hold
 -- (their input's `engine.interjections`), as do the sessions (`ij:<number>`) and the decisions that cite it; the
--- messages before, to the owner and the keeper, take numbers after them, which nothing outside the database names.
+-- messages before, to the owner and the keeper, take numbers after them, which nothing outside the database names but
+-- the change log, whose rows of them and of their deliveries take the same numbers.
 -- Words not taken stay to be taken, by the same line; those taken keep the round that took them; each keeps when it was
 -- said, as the owner's conversations dated it. The messages, their deliveries and the images are made afresh with their
 -- rows, as SQLite cannot change a table's checks or what a column refers to; a migration runs with the foreign keys off,
@@ -40,8 +45,9 @@ CREATE TABLE messages (
   -- said to it (line_sayings), adds a further cache miss to the message of a fault still open, and hands a fault passed
   -- on to an architect to it.
   id INTEGER PRIMARY KEY,
-  -- Who sent it: owner (the owner's words, and what the engine says to a line in the owner's name), engineer (a line of
-  -- an engineer's work), architect (a line of a project's architect's work), or engine.
+  -- Who sent it: owner (the owner's words), engineer (a line of an engineer's work), architect (a line of a project's
+  -- architect's work), or engine (what the engine tells of its own accord, and what it says to a line in the owner's
+  -- name, which agents are given as the owner's).
   sender TEXT NOT NULL CHECK (sender IN ('owner', 'engineer', 'architect', 'engine')),
   -- The work it is about: an agent's to the owner, the work whose round handed it in; one to a line, the work whose
   -- line it is said to; the engine's, the work it tells of, NULL for one about no work.
@@ -51,15 +57,15 @@ CREATE TABLE messages (
   -- The message, as its sender wrote it.
   text TEXT NOT NULL,
   -- What more it says, JSON; NULL when nothing. For a fault of wf-agents, its kind (`kind`): cache_miss, rounds that
-  -- missed their session's prompt cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a row
-  -- counting a flow anomaly, where the way on an engineer chose did not fit the situation. For an agent's answer to the
-  -- owner's question about a decision card, or the owner's question about one, that card (`design_card`), which the
-  -- work's group shows the one as a reply to and the engineer is given with the other. For the owner's words to a line:
-  -- who the caller declared to speak (`speaker`, owner, or delegate for a session that speaks for the owner; none for
-  -- what the engine says in the owner's name, and for words kept before it was declared), and the parts a delegate
-  -- declared to be the owner's own words (`relayed`, each found letter for letter in the text). For a word to a line
-  -- that needs no answer and changes no way on, as the owner confirming every decision of a design card or the words
-  -- said in a work's group to its architect alone (`informs`, 1): the line's next round is given it, and a work
+  -- missed their session's prompt cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a
+  -- row counting a flow anomaly, where the way on an engineer chose did not fit the situation. For an agent's answer to
+  -- the owner's question about a decision card, or the owner's question about one, that card (`design_card`), which the
+  -- work's group shows the one as a reply to and the engineer is given with the other. For the owner's words to a line,
+  -- and an answer of the owner's the engine relays to one: who the caller declared to speak (`speaker`, owner, or
+  -- delegate for a session that speaks for the owner; none for words kept before it was declared), and the parts a
+  -- delegate declared to be the owner's own words (`relayed`, each found letter for letter in the text). For a word to
+  -- a line that needs no answer and changes no way on, as the owner confirming every decision of a design card or the
+  -- words said in a work's group to its architect alone (`informs`, 1): the line's next round is given it, and a work
   -- standing at an engine step is not taken by it to choose the way on. For the notice that an item the work's item
   -- depended on was cancelled, that item (`cancelled_item`): the cells where the work waits (`A2`, `A6`, `M1`) take
   -- such a notice to choose the way on by a row of their own. Read by: the owner's interface; the engine.
@@ -145,7 +151,15 @@ CREATE TABLE attachments (
 
 -- The words to a line, each by its own number, said when the owner's conversations dated it.
 INSERT INTO messages (id, sender, work, round, text, body, ask, at)
-  SELECT j.id, j.speaker, j.work, NULL, j.text,
+  SELECT j.id,
+    CASE WHEN j.speaker = 'owner' AND (j.cancelled_item IS NOT NULL
+        OR j.text LIKE 'Ruling on decision card %' OR j.text LIKE 'Ruling on design card %'
+        OR j.text LIKE 'The owner confirmed decision card %'
+        OR j.text LIKE 'The owner confirmed every decision of design card %'
+        OR j.text LIKE 'Asked to approve the change before it merges, the owner replied:%'
+        OR (j.text LIKE 'Asked about %' AND instr(j.text, ', the owner answered (ask ') > 0))
+      THEN 'engine' ELSE j.speaker END,
+    j.work, NULL, j.text,
     nullif(json_patch('{}', json_object('speaker', j.declared, 'relayed', json(j.relayed),
       'informs', CASE WHEN j.informs = 1 THEN 1 END, 'design_card', j.design_card,
       'cancelled_item', j.cancelled_item)), '{}'),
@@ -177,6 +191,21 @@ INSERT INTO deliveries (message, recipient, matter, taken_work, taken_round)
   SELECT message, 'architect', matter, taken_work, taken_round FROM talks_before_the_lines ORDER BY message;
 
 UPDATE cache_misses SET message = message + (SELECT by FROM shift_before_the_lines) WHERE message IS NOT NULL;
+-- The change log names the messages before, and their deliveries the message, by the numbers they take.
+UPDATE changes SET
+  row_key = json_set(row_key, '$.id',
+    json_extract(row_key, '$.id') + (SELECT by FROM shift_before_the_lines)),
+  old_row = json_set(old_row, '$.id',
+    json_extract(old_row, '$.id') + (SELECT by FROM shift_before_the_lines)),
+  new_row = json_set(new_row, '$.id',
+    json_extract(new_row, '$.id') + (SELECT by FROM shift_before_the_lines))
+WHERE table_name = 'messages';
+UPDATE changes SET
+  old_row = json_set(old_row, '$.message',
+    json_extract(old_row, '$.message') + (SELECT by FROM shift_before_the_lines)),
+  new_row = json_set(new_row, '$.message',
+    json_extract(new_row, '$.message') + (SELECT by FROM shift_before_the_lines))
+WHERE table_name = 'deliveries';
 
 INSERT INTO attachments (id, message, matter, ask, position, media_type, size, hash, bytes)
   SELECT id, interjection, matter, ask, position, media_type, size, hash, bytes
@@ -201,15 +230,16 @@ CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask 
 
 CREATE VIEW line_sayings AS
   -- Each message said to a line of a work, one row for each, with the columns the words said to a line have had: who
-  -- said it (speaker, owner or architect), the work and the line, the words, who the caller declared to speak
-  -- (declared) and the parts a delegate relayed as the owner's own (relayed), whether it needs no answer (informs), the
-  -- decision card it asks about, the item whose cancellation it tells of, the architect's matter that holds the same
-  -- words when they were said in the work's group to the architect too, when it was said, and the round of the work
-  -- that took it (taken_round), none until one did.
+  -- said it (speaker: owner, for the owner's words and the engine's in the owner's name, or architect), the work and
+  -- the line, the words, who the caller declared to speak (declared) and the parts a delegate relayed as the owner's
+  -- own (relayed), whether it needs no answer (informs), the decision card it asks about, the item whose cancellation
+  -- it tells of, the architect's matter that holds the same words when they were said in the work's group to the
+  -- architect too, when it was said, and the round of the work that took it (taken_round), none until one did.
   -- Read by: the engine, which gives each line what waits for it, and judges a decision by the words it cites; the
   -- owner's interface, which shows them and offers to take back what no agent took up yet; the views
   -- waiting_interjections and conversation_entries.
-  SELECT m.id, m.work, d.line, m.sender AS speaker, m.text, json_extract(m.body, '$.speaker') AS declared,
+  SELECT m.id, m.work, d.line, CASE WHEN m.sender = 'engine' THEN 'owner' ELSE m.sender END AS speaker, m.text,
+    json_extract(m.body, '$.speaker') AS declared,
     json_extract(m.body, '$.relayed') AS relayed, coalesce(json_extract(m.body, '$.informs'), 0) AS informs,
     json_extract(m.body, '$.design_card') AS design_card, json_extract(m.body, '$.cancelled_item') AS cancelled_item,
     (SELECT a.matter FROM deliveries a WHERE a.message = m.id AND a.recipient = 'architect') AS matter, m.at,

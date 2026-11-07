@@ -245,8 +245,9 @@ CREATE TABLE messages (
   -- said to it (line_sayings), adds a further cache miss to the message of a fault still open, and hands a fault passed
   -- on to an architect to it.
   id INTEGER PRIMARY KEY,
-  -- Who sent it: owner (the owner's words, and what the engine says to a line in the owner's name), engineer (a line of
-  -- an engineer's work), architect (a line of a project's architect's work), or engine.
+  -- Who sent it: owner (the owner's words), engineer (a line of an engineer's work), architect (a line of a project's
+  -- architect's work), or engine (what the engine tells of its own accord, and what it says to a line in the owner's
+  -- name, which agents are given as the owner's).
   sender TEXT NOT NULL CHECK (sender IN ('owner', 'engineer', 'architect', 'engine')),
   -- The work it is about: an agent's to the owner, the work whose round handed it in; one to a line, the work whose
   -- line it is said to; the engine's, the work it tells of, NULL for one about no work.
@@ -256,15 +257,15 @@ CREATE TABLE messages (
   -- The message, as its sender wrote it.
   text TEXT NOT NULL,
   -- What more it says, JSON; NULL when nothing. For a fault of wf-agents, its kind (`kind`): cache_miss, rounds that
-  -- missed their session's prompt cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a row
-  -- counting a flow anomaly, where the way on an engineer chose did not fit the situation. For an agent's answer to the
-  -- owner's question about a decision card, or the owner's question about one, that card (`design_card`), which the
-  -- work's group shows the one as a reply to and the engineer is given with the other. For the owner's words to a line:
-  -- who the caller declared to speak (`speaker`, owner, or delegate for a session that speaks for the owner; none for
-  -- what the engine says in the owner's name, and for words kept before it was declared), and the parts a delegate
-  -- declared to be the owner's own words (`relayed`, each found letter for letter in the text). For a word to a line
-  -- that needs no answer and changes no way on, as the owner confirming every decision of a design card or the words
-  -- said in a work's group to its architect alone (`informs`, 1): the line's next round is given it, and a work
+  -- missed their session's prompt cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a
+  -- row counting a flow anomaly, where the way on an engineer chose did not fit the situation. For an agent's answer to
+  -- the owner's question about a decision card, or the owner's question about one, that card (`design_card`), which the
+  -- work's group shows the one as a reply to and the engineer is given with the other. For the owner's words to a line,
+  -- and an answer of the owner's the engine relays to one: who the caller declared to speak (`speaker`, owner, or
+  -- delegate for a session that speaks for the owner; none for words kept before it was declared), and the parts a
+  -- delegate declared to be the owner's own words (`relayed`, each found letter for letter in the text). For a word to
+  -- a line that needs no answer and changes no way on, as the owner confirming every decision of a design card or the
+  -- words said in a work's group to its architect alone (`informs`, 1): the line's next round is given it, and a work
   -- standing at an engine step is not taken by it to choose the way on. For the notice that an item the work's item
   -- depended on was cancelled, that item (`cancelled_item`): the cells where the work waits (`A2`, `A6`, `M1`) take
   -- such a notice to choose the way on by a row of their own. Read by: the owner's interface; the engine.
@@ -1747,15 +1748,16 @@ CREATE VIEW waited_items AS
 
 CREATE VIEW line_sayings AS
   -- Each message said to a line of a work, one row for each, with the columns the words said to a line have had: who
-  -- said it (speaker, owner or architect), the work and the line, the words, who the caller declared to speak
-  -- (declared) and the parts a delegate relayed as the owner's own (relayed), whether it needs no answer (informs), the
-  -- decision card it asks about, the item whose cancellation it tells of, the architect's matter that holds the same
-  -- words when they were said in the work's group to the architect too, when it was said, and the round of the work
-  -- that took it (taken_round), none until one did.
+  -- said it (speaker: owner, for the owner's words and the engine's in the owner's name, or architect), the work and
+  -- the line, the words, who the caller declared to speak (declared) and the parts a delegate relayed as the owner's
+  -- own (relayed), whether it needs no answer (informs), the decision card it asks about, the item whose cancellation
+  -- it tells of, the architect's matter that holds the same words when they were said in the work's group to the
+  -- architect too, when it was said, and the round of the work that took it (taken_round), none until one did.
   -- Read by: the engine, which gives each line what waits for it, and judges a decision by the words it cites; the
   -- owner's interface, which shows them and offers to take back what no agent took up yet; the views
   -- waiting_interjections and conversation_entries.
-  SELECT m.id, m.work, d.line, m.sender AS speaker, m.text, json_extract(m.body, '$.speaker') AS declared,
+  SELECT m.id, m.work, d.line, CASE WHEN m.sender = 'engine' THEN 'owner' ELSE m.sender END AS speaker, m.text,
+    json_extract(m.body, '$.speaker') AS declared,
     json_extract(m.body, '$.relayed') AS relayed, coalesce(json_extract(m.body, '$.informs'), 0) AS informs,
     json_extract(m.body, '$.design_card') AS design_card, json_extract(m.body, '$.cancelled_item') AS cancelled_item,
     (SELECT a.matter FROM deliveries a WHERE a.message = m.id AND a.recipient = 'architect') AS matter, m.at,

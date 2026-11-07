@@ -1,8 +1,8 @@
 //! Interjections handed to a round that runs: the command line's hook after each tool use asks the session manager for
 //! what is said to the round's line and waits (the hub's messages to the line, `line_sayings`), which it hands in to
-//! the round and records as taken in it, and the command line adds them to the session before the agent goes on. Those still waiting when the round ends go at
-//! the top of the next round's message. What the owner said with images waits for that message too: the hook adds text
-//! only, and the images go to the agent with their words.
+//! the round and records as taken in it, and the command line adds them to the session before the agent goes on. Those
+//! still waiting when the round ends go at the top of the next round's message. What the owner said with images waits
+//! for that message too: the hook adds text only, and the images go to the agent with their words.
 //!
 //! The round's message has given the interjections that waited when the round began, and the round's record lists them
 //! (`rounds.input`, `$.engine.interjections`); the hook records them as delivered in the round, so that the owner's

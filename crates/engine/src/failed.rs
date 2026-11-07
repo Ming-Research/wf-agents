@@ -509,7 +509,8 @@ impl Failed<'_> {
                         "UPDATE rounds SET input = json_set(input, '$.engine.interjections', json((
                            SELECT json_group_array(value) FROM json_each(input, '$.engine.interjections')
                            WHERE value NOT IN (
-                             SELECT message FROM deliveries WHERE taken_work = ?1 AND taken_round = ?2))))
+                             SELECT message FROM deliveries
+                             WHERE recipient = 'line' AND taken_work = ?1 AND taken_round = ?2))))
                          WHERE work = ?1 AND n = ?2",
                         params![round.work, round.n],
                     )?;

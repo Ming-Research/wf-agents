@@ -41,9 +41,9 @@ fn says_nothing(text: &str, images: &[Image]) -> bool {
 }
 
 /// Says something to a work's engineer as the owner: a message to its line, handed to the engineer's round that runs
-/// after its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines: its
-/// helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`) is
-/// told nothing more: its way on no longer changes. The images sent with the words are kept with them. Gives the
+/// after its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines:
+/// its helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`)
+/// is told nothing more: its way on no longer changes. The images sent with the words are kept with them. Gives the
 /// message, which keeps who the caller declared to speak (`speaker`).
 pub fn interject(
     db: &mut Db,
@@ -592,7 +592,7 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
                 .filter(|s| matches!(*s, "owner" | "delegate"));
             let relay = db::ToLine {
                 speaker: declared,
-                ..db::ToLine::new(db::Sender::Owner, *work, "engineer", text)
+                ..db::ToLine::new(db::Sender::Engine, *work, "engineer", text)
             };
             db::say_to_line(tx, &relay, None)?;
             tx.execute(
@@ -751,7 +751,7 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
         match &said {
             Some(s) => {
                 let text = format!("{} {design_card} ({key}): {s}", db::CARD_RULING);
-                db::say_to_line(tx, &db::ToLine::new(db::Sender::Owner, work, "engineer", &text), None)?;
+                db::say_to_line(tx, &db::ToLine::new(db::Sender::Engine, work, "engineer", &text), None)?;
             }
             None => {
                 // A confirmation is a word to the engineer, which needs no answer and turns nothing.
@@ -760,7 +760,7 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
                     format!("The owner confirmed decision card {design_card} ({key}): nothing changes.{words}");
                 let told = db::ToLine {
                     informs: true,
-                    ..db::ToLine::new(db::Sender::Owner, work, "engineer", &confirmed)
+                    ..db::ToLine::new(db::Sender::Engine, work, "engineer", &confirmed)
                 };
                 db::say_to_line(tx, &told, None)?;
             }

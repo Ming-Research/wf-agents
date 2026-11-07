@@ -1262,7 +1262,7 @@ fn act_now(ctx: &Ctx, tx: &Transaction<'_>, project: &str, a: &Value) -> Result<
                 return Ok(());
             };
             let said = db::ToLine::new(db::Sender::Architect, work, "engineer", text(&a["say"]));
-            db::say_to_line(tx, &said, None).map_err(sql)?;
+            crate::hub::say_to_line(tx, &said)?;
             Ok(())
         }
         // The merge that made main red is reverted by a PR the engine opens and merges first, ahead of the queue.
@@ -1507,12 +1507,7 @@ fn say_unavoidable(tx: &Transaction<'_>, c: &Value) -> Result<(), String> {
         "The architect changed this work's item #{item}: {what}. Why the work must change: {why}. Decide where in the \
          flow to go back to, keeping what you did."
     );
-    db::say_to_line(
-        tx,
-        &db::ToLine::new(db::Sender::Architect, work, "engineer", &said),
-        None,
-    )
-    .map_err(sql)?;
+    crate::hub::say_to_line(tx, &db::ToLine::new(db::Sender::Architect, work, "engineer", &said))?;
     Ok(())
 }
 
@@ -2031,7 +2026,7 @@ fn answer(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<(), Stri
         informs: true,
         ..db::ToLine::new(db::Sender::Architect, r.work, "engineer", &line)
     };
-    db::say_to_line(tx, &told, None).map_err(sql)?;
+    crate::hub::say_to_line(tx, &told)?;
     Ok(())
 }
 

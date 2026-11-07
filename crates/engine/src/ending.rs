@@ -414,16 +414,17 @@ fn cancel_now(
                 );
                 // The notice names the item cancelled: the cells where the work waits take it to choose the way on
                 // by a row of their own (the engine's value `cancelled`).
+                // The architect's cancellation is told in its name, the owner's by the engine in the owner's.
                 let sender = if by == "architect" {
                     db::Sender::Architect
                 } else {
-                    db::Sender::Owner
+                    db::Sender::Engine
                 };
                 let told = db::ToLine {
                     cancelled_item: Some(item),
                     ..db::ToLine::new(sender, w, "engineer", &text)
                 };
-                db::say_to_line(tx, &told, None).map_err(sql)?;
+                crate::hub::say_to_line(tx, &told)?;
             }
             None => {
                 let what = format!(
