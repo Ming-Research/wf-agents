@@ -4862,6 +4862,10 @@
           {
             "name": "splits",
             "desc": "The times deep research put a split of its design into parts to the architect"
+          },
+          {
+            "name": "taken_out",
+            "desc": "The times the small cell took out of the design tree the additions the owner chose not to keep"
           }
         ]
       },
@@ -9622,7 +9626,7 @@
                 "resolve_blocker",
                 "fresh_session"
               ],
-              "note": "A small cell takes out of the design tree the additions the owner chose not to keep."
+              "note": "A small cell takes out of the design tree the additions the owner chose not to keep, and the work comes back here."
             },
             {
               "name": "interjection",
@@ -9774,8 +9778,9 @@
                   "own"
                 ]
               ],
-              "to": "M2",
-              "main": true
+              "to": "M1",
+              "counts": "taken_out",
+              "note": "The merge gate judges again, with the additions taken out."
             }
           ]
         },
