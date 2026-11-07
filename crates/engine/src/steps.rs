@@ -28,7 +28,7 @@ fn interjections_there(conn: &db::rusqlite::Connection, given: &[Value]) -> db::
         .map(|i| json!({ "id": i["interjection"], "text": i["text"] }))
         .collect();
     let there: i64 = conn.query_row(
-        "SELECT count(*) FROM interjections j, json_each(?1) g
+        "SELECT count(*) FROM messages j, json_each(?1) g
          WHERE j.id = json_extract(g.value, '$.id') AND j.text = json_extract(g.value, '$.text')",
         [Value::Array(listed).to_string()],
         |r| r.get(0),
@@ -1247,10 +1247,7 @@ pub fn finish(
             )?;
         }
         for id in delivered {
-            tx.execute(
-                "UPDATE interjections SET delivered_round = ?2 WHERE id = ?1",
-                params![id, round.n],
-            )?;
+            db::take(tx, *id, round.work, round.n)?;
         }
         for a in &cell.always {
             if let Some(name) = &a.action

@@ -13,19 +13,27 @@ fn research_then_said(data: &Path, scripts: &mut BTreeMap<&'static str, Script>)
         Box::new(move |r: &Request, n: usize| {
             let mut db = engine::database::open(&data).unwrap();
             db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, informs)
-                     VALUES (?1, 'engineer', 'owner', 'Why this size?', 0)",
-                    [r.work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine::new(db::Sender::Owner, r.work, "engineer", "Why this size?"),
+                    None,
                 )?;
                 Ok(())
             })
             .unwrap();
             db.write(Actor::Architect, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, informs)
-                     VALUES (?1, 'engineer', 'architect', 'Your question became an item.', 1)",
-                    [r.work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine {
+                        informs: true,
+                        ..db::ToLine::new(
+                            db::Sender::Architect,
+                            r.work,
+                            "engineer",
+                            "Your question became an item.",
+                        )
+                    },
+                    None,
                 )?;
                 Ok(())
             })
@@ -38,11 +46,9 @@ fn research_then_said(data: &Path, scripts: &mut BTreeMap<&'static str, Script>)
 /// What the owner's interjection `text` is recorded as delivered in.
 fn delivered_in(e: &Engine, text: &str) -> Option<i64> {
     e.db.conn()
-        .query_row(
-            "SELECT delivered_round FROM interjections WHERE text = ?1",
-            [text],
-            |r| r.get(0),
-        )
+        .query_row("SELECT taken_round FROM line_sayings WHERE text = ?1", [text], |r| {
+            r.get(0)
+        })
         .unwrap()
 }
 
@@ -79,7 +85,7 @@ fn what_the_message_gave_is_recorded_as_delivered_while_the_round_runs() {
                 .unwrap();
             let mut st = db
                 .conn()
-                .prepare("SELECT delivered_round FROM interjections WHERE work = ?1 ORDER BY id")
+                .prepare("SELECT taken_round FROM line_sayings WHERE work = ?1 ORDER BY id")
                 .unwrap();
             let recorded = st
                 .query_map([r.work], |x| x.get::<_, Option<i64>>(0))
@@ -134,10 +140,10 @@ fn what_the_message_and_the_hook_gave_a_stopped_round_reaches_the_round_run_agai
             // lines.
             let mut db = engine::database::open(&data).unwrap();
             db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, informs)
-                     VALUES (?1, 'engineer', 'owner', 'Look at the log.', 0)",
-                    [r.work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine::new(db::Sender::Owner, r.work, "engineer", "Look at the log."),
+                    None,
                 )?;
                 Ok(())
             })

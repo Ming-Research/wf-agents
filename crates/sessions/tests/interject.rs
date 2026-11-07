@@ -2,7 +2,6 @@
 //! under a lead that says whether it needs an answer (`informs`). The tests give a round the record the engine writes
 //! when it starts one, `rounds.input`, with the interjections its message gave listed in `$.engine.interjections`.
 
-use db::rusqlite::params;
 use db::{Actor, Db};
 use sessions::interject::deliver;
 
@@ -32,10 +31,11 @@ fn running_round(given: &[i64]) -> Db {
 /// Something said to the work's engineer, by its text; `informs` for a word that needs no answer.
 fn say(db: &mut Db, text: &str, informs: bool) {
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (1, 'engineer', 'owner', ?1, ?2)",
-            params![text, informs],
-        )?;
+        let said = db::ToLine {
+            informs,
+            ..db::ToLine::new(db::Sender::Owner, 1, "engineer", text)
+        };
+        db::say_to_line(tx, &said, None)?;
         Ok(())
     })
     .unwrap();
@@ -44,9 +44,7 @@ fn say(db: &mut Db, text: &str, informs: bool) {
 /// The round an interjection is recorded as delivered in.
 fn delivered_in(db: &Db, id: i64) -> Option<i64> {
     db.conn()
-        .query_row("SELECT delivered_round FROM interjections WHERE id = ?1", [id], |r| {
-            r.get(0)
-        })
+        .query_row("SELECT taken_round FROM line_sayings WHERE id = ?1", [id], |r| r.get(0))
         .unwrap()
 }
 

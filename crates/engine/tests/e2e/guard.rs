@@ -452,10 +452,10 @@ fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
                 )
                 .unwrap();
             db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text)
-                     VALUES (?1, 'librarian', 'owner', 'Look at the log.')",
-                    [work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine::new(db::Sender::Owner, work, "librarian", "Look at the log."),
+                    None,
                 )?;
                 Ok(())
             })
@@ -483,7 +483,7 @@ fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
     assert!(told.contains("Look at the log."), "{told}");
     let stopped = input_at(&e, work, "R0", false);
     assert_eq!(stopped["engine"]["interjections"], json!([]), "{stopped}");
-    let taken: i64 = number(&e, "SELECT count(*) FROM interjections WHERE delivered_round IS NULL");
+    let taken: i64 = number(&e, "SELECT count(*) FROM line_sayings WHERE taken_round IS NULL");
     assert_eq!(taken, 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

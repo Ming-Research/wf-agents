@@ -83,7 +83,7 @@ fn an_answer_to_the_review_other_than_approved_reaches_the_engineer_as_the_owner
     let relayed: String =
         e.db.conn()
             .query_row(
-                "SELECT text FROM interjections WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                "SELECT text FROM line_sayings WHERE work = ?1 ORDER BY id DESC LIMIT 1",
                 [work],
                 |r| r.get(0),
             )
@@ -132,7 +132,7 @@ fn a_change_the_owner_approves_waits_at_the_merge_gate_until_the_owner_replies_a
     let relayed: String =
         e.db.conn()
             .query_row(
-                "SELECT text FROM interjections WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                "SELECT text FROM line_sayings WHERE work = ?1 ORDER BY id DESC LIMIT 1",
                 [work],
                 |r| r.get(0),
             )

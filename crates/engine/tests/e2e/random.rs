@@ -255,9 +255,10 @@ fn random_events(seed: u64, events: usize) {
             0..=19 => match a_work(&e, &dice) {
                 Some(w) => {
                     e.db.write(Actor::Owner, |tx| {
-                        tx.execute(
-                            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-                            params![w, "Mind the tests."],
+                        db::say_to_line(
+                            tx,
+                            &db::ToLine::new(db::Sender::Owner, w, "engineer", "Mind the tests."),
+                            None,
                         )?;
                         Ok(())
                     })

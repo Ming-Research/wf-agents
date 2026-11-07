@@ -1644,10 +1644,7 @@ type Changed = (&'static str, fn(&mut flow::CompiledGraph));
 /// The owner's word to the work's engineer, waiting to be delivered.
 fn owner_says(e: &mut Engine, work: i64, text: &str) {
     e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-            params![work, text],
-        )?;
+        db::say_to_line(tx, &db::ToLine::new(db::Sender::Owner, work, "engineer", text), None)?;
         Ok(())
     })
     .unwrap();
@@ -2041,7 +2038,7 @@ fn question_took(e: &Engine, work: i64) -> Option<String> {
 fn lines_told(e: &Engine, work: i64) -> Vec<String> {
     engine::query_json(
         e.db.conn(),
-        "SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect' AND informs = 1 ORDER BY id",
+        "SELECT text FROM line_sayings WHERE work = ?1 AND speaker = 'architect' AND informs = 1 ORDER BY id",
         &[&work],
         10,
     )

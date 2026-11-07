@@ -486,13 +486,11 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
         )
         .map_err(sql)?;
     if runs > 0 {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, ?2, 'architect', ?3)",
-            params![
-                work,
-                ENGINEER,
-                format!("The answer to the open question of your design \"{question}\": {told}")
-            ],
+        let answer = format!("The answer to the open question of your design \"{question}\": {told}");
+        db::say_to_line(
+            tx,
+            &db::ToLine::new(db::Sender::Architect, work, ENGINEER, &answer),
+            None,
         )
         .map_err(sql)?;
     }
