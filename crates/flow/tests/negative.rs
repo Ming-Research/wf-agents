@@ -64,13 +64,13 @@ fn remove_row(v: &mut Value, id: &str, name: &str) {
     rows(v, id).retain(|r| r["name"] != name);
 }
 
-/// The input `name` of cell `id`.
-fn input<'a>(v: &'a mut Value, id: &str, name: &str) -> &'a mut Value {
+/// The input of cell `id` that reads only the place `path` of cell `at`'s return.
+fn input<'a>(v: &'a mut Value, id: &str, at: &str, path: &str) -> &'a mut Value {
     node(v, id)["inputs"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
-        .find(|x| x["name"] == name)
+        .find(|x| x["from"] == json!([[at, path]]))
         .unwrap()
 }
 
@@ -883,10 +883,10 @@ case!(
 // Nothing missing.
 // The design, which the implementation straight from the research has not, is taken as one it always has.
 case!(an_input_missing_on_some_way, "missing", |v| {
-    obj(input(v, "I1", "The design")).remove("maybe");
+    obj(input(v, "I1", "D2", "design")).remove("maybe");
 });
 case!(an_input_marked_maybe_that_is_always_there, "marked maybe", |v| {
-    input(v, "T3", "The first pass's findings")["maybe"] = json!(true);
+    input(v, "T3", "T2", "findings")["maybe"] = json!(true);
 });
 // The fix's table, which on the way from an interjection at the merge's judge holds only the change the way on asked,
 // is taken as one it must always have a row of without the reviews' findings and that change.

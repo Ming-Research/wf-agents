@@ -1987,7 +1987,7 @@ fn the_inputs_say_how_the_acceptance_changes_and_the_advisors_field_says_it_repl
             .as_array()
             .unwrap()
             .iter()
-            .find(|i| i["name"] == "Acceptance")
+            .find(|i| i["from"] == serde_json::json!([{ "db": "item_acceptance", "by": "item" }]))
             .unwrap();
         let what = input["what"].as_str().unwrap();
         assert!(
