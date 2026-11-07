@@ -923,10 +923,9 @@ with it, and every round and cell in it, all links, was left out of the copy.
 ### A code of the flow in a sentence
 
 A code the flow names a thing by (a cell's code, a row, a node's path) in a sentence of the page's is
-`--fontStack-monospace` at `--text-codeInline-size` in the colour of the text round it (after a thing's name in words it
-is small and muted, below), with no background and no weight of its own (ours, as GitHub writes a commit's hash), while
-code an agent wrote inline keeps the markdown code's background, because a cell's code beside its title is a name, not
-code to copy.
+`--fontStack-monospace` at `--text-codeInline-size` in the colour of the text round it, with no background and no
+weight of its own (ours, as GitHub writes a commit's hash), while code an agent wrote inline keeps the markdown code's
+background, because a cell's code beside its title is a name, not code to copy.
 
 ### Label and value pairs
 
@@ -970,31 +969,6 @@ one of them live. An observation is O<n> alike, on the page (a matter's result, 
 engine's words and inputs ("recorded as observation O69", the architect's overview keyed O<n>), so that "#" is an item's
 alone there too, instead of "#69" beside "#17" for an item in one list, which the owner could tell apart only by the
 words before them.
-
-### Names before codes
-
-What the owner reads is headed by its name in words, the code the flow names it by after it, small and muted: an input
-by the name the flow gives it, the flow giving every input one, which no agent is sent but for the inputs every agent's
-cell has, which the agents know by their names; a field of a return by a title the flow gives it, a few words written
-for the owner, which the compiler keeps out of everything an agent is sent (the return schema, the formats and the
-message), since the agent reads the field's description, and which `wf-agents flow check` requires of every field, as it
-requires a name of every input; a field the flow gives no title yet by its key in words; a cell by its code and title. A
-field's type and flags (text, a list of at least one, optional, if any, shown on the item, read by `R2`) are small muted
-words after its code.
-
-Drawn, a thing the flow names where its name heads what the owner reads (an input, a field, a form, a tool) is its name
-in words in the step of the heading it is, then its code in `--fontStack-monospace` at `--text-body-size-small` in
-`--fgColor-muted`, then its type and flags as body small `--fgColor-muted` words joined by a bar, with no border and no
-background, a mark the owner looks for (the main path) a secondary `Label`; a list of such things that each open (the
-inputs, the rules and formats, what a session held) is rows `--base-size-2` apart, each a `Details` whose summary is the
-chevron, its number if it has one, its name, its code and its facts, wrapping under the name, its content indented by
-the chevron's width. The titles have one place, the flow, and the item page takes its names for the fields of the
-understanding and the design from them instead of from its own code.
-
-Instead of keys in bold code heading what was handed back and the return format, a code set in the colour of the text
-round it, and each type in a bordered chip, because the owner reads "Where this differs from the item as written" at
-once and `vs_item` only once learned, scans a list by names in words and looks at a code only to match it, and a row of
-bordered chips reads as things to click.
 
 ### Lists of objects
 

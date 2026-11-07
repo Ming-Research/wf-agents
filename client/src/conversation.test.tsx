@@ -64,11 +64,11 @@ const LINES: GraphLines[] = [
   {
     graph: 'engineer',
     lines: [
-      { name: 'engineer', desc: 'The engineer', colour: 'blue' },
-      { name: 'review', desc: 'The review', colour: 'teal' },
+      { name: 'engineer', colour: 'blue' },
+      { name: 'review', colour: 'teal' },
     ],
   },
-  { graph: 'architect', lines: [{ name: 'architect', desc: 'The architect', colour: 'purple' }] },
+  { graph: 'architect', lines: [{ name: 'architect', colour: 'purple' }] },
 ];
 
 // The engine's status as the page holds it, which a test sets when what it draws depends on the engine (none: the page

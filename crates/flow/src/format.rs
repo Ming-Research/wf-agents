@@ -4,6 +4,14 @@
 //! A flow is a graph of cells. Each cell takes inputs, hands back an output whose shape the flow fixes, and has a
 //! table of rows: the first row whose conditions hold on the output says where the work goes next, what the engine
 //! does on the way and what it records. The compiler (`crate::compile`) expands what cells share and checks the whole.
+//!
+//! Every text the format holds reaches an agent or the chart, and the compiled flow carries it there: the engine sends
+//! agents what the cells, the rules, the tools, the fields and the inputs say, and the flow page (the chart and the
+//! panels its parts open) draws the cells' and the stores' titles, the rows' notes, what the engine's names do and read,
+//! the counters and the rest of what the engine does. A field is known by its name and an input by what it is; only an
+//! input every agent's cell has goes by a name, which the agents know it by. Text that reaches no agent and shows on no
+//! chart is not kept, as a field nothing reads is not: the compiler refuses each kind of it a flow written before held
+//! (`crate::texts::unread`), as it refuses a key the format does not know.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -158,9 +166,6 @@ pub struct RawField {
     pub shape: Option<String>,
     /// The field's name; none for the item of a list.
     pub name: Option<String>,
-    /// What the field is, in a few words for the owner: the owner's page heads the field with it. Every field with a
-    /// name has one. No agent is sent it: an agent reads the description.
-    pub title: Option<String>,
     #[serde(rename = "type")]
     pub kind: Option<Kind>,
     /// What the agent is told the field is.
@@ -278,9 +283,6 @@ pub struct Flow {
     /// What every gate shares. A gate is an agent's cell that asks one question whose yes is a matter to ask about.
     pub gate: Option<Gate>,
     pub nodes: Vec<Node>,
-    /// The rules for the decision card, as the owner reads them.
-    #[serde(rename = "designCard", default)]
-    pub design_card: Vec<String>,
     /// What the owner or the architect says to a running work, and who may.
     pub interject: Option<Interject>,
     /// What the engine does with an agent's round that does not end in a return the cell takes.
@@ -500,8 +502,6 @@ pub struct Named {
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
     pub lines: Vec<Line>,
-    /// How sessions are kept, for people.
-    pub rules: Vec<String>,
 }
 
 /// A line: the agent whose cells go on in one session. The fixed places it starts a new one at are the cells a row
@@ -511,7 +511,6 @@ pub struct Sessions {
 #[serde(deny_unknown_fields)]
 pub struct Line {
     pub name: String,
-    pub desc: String,
     /// The colour the line's role is drawn in wherever the owner's page shows it; no two lines of the flow share one.
     /// A flow that runs gives every line one (`crate::compile`); one written before lines had colours or with a colour
     /// the page no longer draws ([`RETIRED_COLOURS`]), which is only shown (`crate::compile_shown`), has none.
@@ -613,8 +612,6 @@ pub struct Rule {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Stages {
-    /// How stages are shown, for people.
-    pub rules: Vec<String>,
     pub list: Vec<Stage>,
 }
 
@@ -622,7 +619,6 @@ pub struct Stages {
 #[serde(deny_unknown_fields)]
 pub struct Stage {
     pub name: String,
-    pub desc: String,
     /// The cells at this stage. A cell at no stage asks, answers or runs tools for another, and is at the stage of
     /// the cell the work stopped at.
     pub nodes: Vec<String>,
@@ -680,10 +676,6 @@ pub struct Role {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
-    #[serde(rename = "where")]
-    pub where_: String,
-    pub waits: String,
-    pub over: String,
     pub counters: Vec<Counter>,
 }
 
@@ -812,14 +804,8 @@ pub struct Gate {
     pub prompt: String,
     /// What the answer is, with `{problem}`.
     pub answer: String,
-    /// The answer's title, which the owner's page heads it with.
-    #[serde(rename = "answerTitle")]
-    pub answer_title: String,
     /// What the answer's why is.
     pub why: String,
-    /// The title of the answer's why.
-    #[serde(rename = "whyTitle")]
-    pub why_title: String,
     /// For a gate whose question may not fit the work: it answers its outcome that goes on, or not applicable.
     pub na: GateNa,
 }
@@ -1090,10 +1076,9 @@ pub struct Check {
 pub struct Input {
     /// The name the cell's rows, actions and checks read the input by, as `@<id>`.
     pub id: Option<String>,
-    /// What the input is called, in a few words for the owner: the owner's page heads the input with it. Every input
-    /// has one. An input every agent's cell has is also named so to the agent: each cell's list of what its inputs
-    /// are names it only, and the forms every return shares say once what it is. No agent is sent the name of any
-    /// other input.
+    /// What an input every agent's cell has is called, as the agents know it: each cell's list of what its inputs are
+    /// names it only, and the forms every return shares say once what it is. Every such input has one, and no other
+    /// input has one: what it is says it.
     pub name: Option<String>,
     /// For an input that is a table the cell answers row by row: the prefix its rows are numbered with. The engine
     /// gives the input as one table, each finding, column, test, conflict, check and entry its sources hold a row,

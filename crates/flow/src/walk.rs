@@ -570,10 +570,10 @@ mod tests {
     fn cell(id: &str, known: &[(&str, &[&str])], recorded: &[(&str, &[&str])], rows: Vec<Value>) -> Value {
         let known_inputs = known
             .iter()
-            .map(|(n, _)| json!({ "name": n, "what": "a value the engine knows", "from": [{ "engine": n }] }));
+            .map(|(n, _)| json!({ "what": "a value the engine knows", "from": [{ "engine": n }] }));
         let recorded_inputs = recorded
             .iter()
-            .map(|(n, _)| json!({ "name": n, "what": "a value rows recorded", "from": [{ "recorded": n }] }));
+            .map(|(n, _)| json!({ "what": "a value rows recorded", "from": [{ "recorded": n }] }));
         let inputs: Vec<Value> = known_inputs.chain(recorded_inputs).collect();
         let values: BTreeMap<&str, Vec<[&str; 2]>> = known
             .iter()
@@ -649,16 +649,11 @@ mod tests {
                 "start": "S",
                 "end": "E",
                 "blocks": [{ "name": "all", "nodes": ids, "entries": ["S"] }],
-                "sessions": { "lines": [], "rules": [] },
+                "sessions": { "lines": [] },
                 "rules": [],
-                "stages": { "rules": [], "list": [{ "name": "run", "desc": "every cell", "nodes": ids }] },
+                "stages": { "list": [{ "name": "run", "nodes": ids }] },
                 "asking": { "nodes": ["Q", "R"], "roles": [], "counts": "time" },
-                "limits": {
-                    "where": "nowhere",
-                    "waits": "nowhere",
-                    "over": "nowhere",
-                    "counters": [{ "name": "time", "desc": "the total time", "time": true }]
-                },
+                "limits": { "counters": [{ "name": "time", "desc": "the total time", "time": true }] },
                 "agentCommon": {
                     "returns": {
                         "forms": [
@@ -674,10 +669,9 @@ mod tests {
                     },
                     "rows": [],
                     "out": [
-                        { "name": "ask", "title": "Ask", "type": "union", "by": "to", "branches": "askRoles" },
+                        { "name": "ask", "type": "union", "by": "to", "branches": "askRoles" },
                         {
                             "name": "tools",
-                            "title": "Tools",
                             "type": "list",
                             "item": { "type": "union", "by": "tool", "branches": "tools" }
                         }

@@ -14,13 +14,11 @@ import { type ReactNode, useState } from 'react';
 import type { CompiledCell, EngineNames, Field, FieldEarlier, FieldKind, JsonValue, Use } from '../api';
 import { actionWords } from '../graph/flowModel';
 import { isObj, type Obj } from '../labelled';
-import { chars, FOLD_AT, placeSchema, props, resolve, titleOf, under } from '../round';
+import { chars, FOLD_AT, placeSchema, props, resolve } from '../round';
 import { type Key, t, tn } from '../text';
 import { Hole, InnerName, joinedWords, Long, Name, Pairs, Part } from '../voices';
 import { useFlow } from './context';
 import { inline } from './words';
-
-export { titleOf } from '../round';
 
 const KIND: Record<FieldKind, Key> = {
   text: 'kind_text',
@@ -130,26 +128,13 @@ function Nest(p: {
   );
 }
 
-/// What the flow says of a place of a return, for its key's tip: its title and its description.
-function placeTip(s: Obj | null, titles: Record<string, string> | undefined, path: string): string | undefined {
-  const title = path !== '' ? titleOf(titles, path, '') : '';
-  const desc = s !== null && typeof s.description === 'string' ? s.description : '';
-  const tip = [title, desc].filter((x) => x !== '').join('\n');
-  return tip !== '' ? tip : undefined;
+/// What the flow says of a place of a return, for its key's tip: its description.
+function placeTip(s: Obj | null): string | undefined {
+  return s !== null && typeof s.description === 'string' && s.description !== '' ? s.description : undefined;
 }
 
-type Reading = { titles?: Record<string, string>; within?: string };
-
-/// A value of a return at a place, read by the schema of the place (`s`), whose path the titles go by (`path`).
-function ValueAt({ v, s, path, depth, o, head, tail }: {
-  v: JsonValue;
-  s: Obj | null;
-  path: string;
-  depth: number;
-  o: Reading;
-  head: ReactNode;
-  tail: string;
-}) {
+/// A value of a return at a place, read by the schema of the place (`s`).
+function ValueAt({ v, s, head, tail }: { v: JsonValue; s: Obj | null; head: ReactNode; tail: string }) {
   if (typeof v === 'string') {
     return (
       <Line>
@@ -168,9 +153,7 @@ function ValueAt({ v, s, path, depth, o, head, tail }: {
       </Line>
     );
   }
-  const r = resolve(s, v);
-  const at = under(path, r);
-  const schema = r?.schema ?? null;
+  const schema = resolve(s, v)?.schema ?? null;
   if (Array.isArray(v)) {
     if (v.length === 0) {
       return (
@@ -183,7 +166,7 @@ function ValueAt({ v, s, path, depth, o, head, tail }: {
     const items = schema !== null && isObj(schema.items) ? schema.items : null;
     return (
       <Nest head={head} list n={v.length} open tail={tail}>
-        {() => v.map((x, i) => <ValueAt key={i} v={x} s={items} path={at} depth={depth + 1} o={o} head={null} tail={i < v.length - 1 ? ',' : ''} />)}
+        {() => v.map((x, i) => <ValueAt key={i} v={x} s={items} head={null} tail={i < v.length - 1 ? ',' : ''} />)}
       </Nest>
     );
   }
@@ -203,18 +186,12 @@ function ValueAt({ v, s, path, depth, o, head, tail }: {
         keys.map((k, i) => {
           const own = p[k];
           const ks = isObj(own) ? own : null;
-          // The forms of an agent's return are at the places' root: their fields are named as the cell's own.
-          const form = depth === 0 && k === o.within;
-          const kp = form ? '' : at === '' ? k : `${at}.${k}`;
           return (
             <ValueAt
               key={k}
               v={v[k]}
               s={ks}
-              path={kp}
-              depth={depth + 1}
-              o={o}
-              head={<KeyName k={k} tip={placeTip(ks, o.titles, kp)} />}
+              head={<KeyName k={k} tip={placeTip(ks)} />}
               tail={i < keys.length - 1 ? ',' : ''}
             />
           );
@@ -225,16 +202,11 @@ function ValueAt({ v, s, path, depth, o, head, tail }: {
 }
 
 /// A return as JSON, in the look above: every object and list open at first, and a key's tip read from the schema of
-/// the cell that handed it back, by the titles of its places and the field that holds an agent's form.
-export function Json({ value, schema, titles, within }: {
-  value: JsonValue;
-  schema?: JsonValue | null;
-  titles?: Record<string, string>;
-  within?: string;
-}) {
+/// the cell that handed it back.
+export function Json({ value, schema }: { value: JsonValue; schema?: JsonValue | null }) {
   return (
     <div className="json">
-      <ValueAt v={value} s={isObj(schema) ? schema : null} path="" depth={0} o={{ titles, within }} head={null} tail="" />
+      <ValueAt v={value} s={isObj(schema) ? schema : null} head={null} tail="" />
     </div>
   );
 }
@@ -244,7 +216,7 @@ export function fieldActions(uses: Use[], here: string): string[] {
   return uses.flatMap((u) => (u.kind === 'always' && u.cell === here && u.action != null ? [u.action] : []));
 }
 
-/// What a field of a cell's return is, for its key's tip: its title, what the agent is told it is, and in a line what
+/// What a field of a cell's return is, for its key's tip: what the agent is told it is, and in a line what
 /// the page knows of it besides: its fewest items, whether the item shows it, what reads it, what the engine does every
 /// time the return holds it, and what checks it.
 function fieldTip(f: Field, c: CompiledCell, engine: EngineNames): string | undefined {
@@ -262,7 +234,7 @@ function fieldTip(f: Field, c: CompiledCell, engine: EngineNames): string | unde
     ...fieldActions(uses, c.id).map((a) => (engine.actions[a] ?? actionWords(a)).replaceAll('`', '')),
     ...checks.map((k) => t('field_checked', { check: k })),
   ].filter((x) => x !== null);
-  const tip = [titleOf(c.titles, f.path, ''), f.desc ?? '', joinedWords(facts)].filter((x) => x !== '').join('\n');
+  const tip = [f.desc ?? '', joinedWords(facts)].filter((x) => x !== '').join('\n');
   return tip !== '' ? tip : undefined;
 }
 

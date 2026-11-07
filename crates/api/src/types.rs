@@ -2593,8 +2593,8 @@ pub enum CostEffect {
     Stays,
 }
 
-/// The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
-/// are.
+/// The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not their
+/// colours.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct GraphLines {
     pub graph: String,
@@ -2605,8 +2605,6 @@ pub struct GraphLines {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct LineView {
     pub name: String,
-    /// How its session is kept (when it starts and which cells continue it).
-    pub desc: String,
     /// The colour its role is drawn in wherever the page shows it: its cells on a chart, its avatar and its bubbles.
     pub colour: flow::format::Colour,
 }
