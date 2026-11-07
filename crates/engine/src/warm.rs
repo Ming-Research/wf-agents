@@ -290,10 +290,9 @@ pub fn before_fork(
 /// (`pause`), a work it holds waits on it; none is due then if the owner switched keeping warm off, and none while a
 /// failed run's cause stops every work. A work whose next round starts the new session the owner asked for has nothing
 /// to keep warm, nor has a work on an older flow version that the version the engine runs cannot take on where it
-/// stands, until the loop has brought it up, nor a merged work waiting for its change to take effect. A work of a
-/// project's architect is due a ping of the project's base too, whose next matters fork it ([`base_due`]): only while a
-/// work of the architect runs, since no fork of the base comes otherwise, and the first fork after a wait warms the base
-/// itself ([`before_fork`]).
+/// stands, until the loop has brought it up. A work of a project's architect is due a ping of the project's base too,
+/// whose next matters fork it ([`base_due`]): only while a work of the architect runs, since no fork of the base comes
+/// otherwise, and the first fork after a wait warms the base itself ([`before_fork`]).
 pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<(i64, Vec<Ping>)>, String> {
     let mut out = Vec::new();
     if e.halted() || pause.is_some_and(|p| !p.warm) {
@@ -328,10 +327,6 @@ fn due_of(e: &mut Engine, id: i64, now: i64, pause: Option<&GlobalPause>) -> Res
     // A work on an older flow version goes on in its sessions where it stands only when it moves to the version the
     // engine runs.
     if e.done(&w)? || (w.flow_version != e.flow_now && e.plan(&w)? != crate::versions::Plan::Move) {
-        return Ok(None);
-    }
-    // A merged work waiting for its change to take effect may wait for days, and looks in a new session each time.
-    if crate::verification::waits_for_effect(&w) {
         return Ok(None);
     }
     let architect = w.project.as_deref().filter(|_| w.graph == ARCHITECT);

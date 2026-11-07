@@ -1,58 +1,6 @@
-//! What a work learned, and the history gathered for a line and looked up by its reader.
+//! The history gathered for a line and looked up by its reader.
 
 use super::*;
-
-// What the work learned goes into its item's approach once it merged, with the commit it merged, through the one write
-// path, so that the changes keep it.
-#[test]
-fn what_a_work_learned_goes_into_its_item_with_its_commits() {
-    let s = setup("learned");
-    let mut agents = scripts();
-    agents.insert(
-        "L2",
-        Box::new(|_: &Request, _: usize| {
-            (
-                Vec::new(),
-                vec![(
-                    "outcome.learned",
-                    json!("Fact (2026-11-02): One table is enough (R1-2)"),
-                )],
-            )
-        }),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    let done = |e: &mut Engine| !ended_at(e, item, "L2").is_empty();
-    assert!(steps_until(&mut e, 200, done), "{}", said.lock().unwrap().join("\n"));
-    let log = said.lock().unwrap().join("\n");
-    let approach: String =
-        e.db.conn()
-            .query_row("SELECT approach FROM items WHERE id = ?1", [item], |r| r.get(0))
-            .unwrap();
-    let merged: String =
-        e.db.conn()
-            .query_row(
-                "SELECT json_extract(r.output, '$.result.merge_commit') FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.item = ?1 AND r.cell = 'M2' AND r.transition = 'merged'",
-                [item],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(
-        approach,
-        format!("Learned:\nFact (2026-11-02): One table is enough (R1-2)\nCommits: {merged}"),
-        "{log}"
-    );
-    let kept: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM changes WHERE table_name = 'items' AND json_extract(new_row, '$.approach') = ?1",
-                [&approach],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(kept, 1, "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
 
 // The background is gathered before the research, in a round of the reader's line at the lowest level, and given to the
 // research.

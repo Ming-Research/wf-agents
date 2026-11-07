@@ -42,25 +42,21 @@ fn rows_at(e: &Engine, work: i64, at: &str) -> Vec<Option<String>> {
 #[test]
 fn a_return_sent_back_by_a_check_is_reported_by_the_name_of_that_check() {
     let s = setup("look-check");
-    // The plan says a condition is checked once the program is installed, which no project but wf-agents' own can say.
-    let installed = json!([
-        { "by": "test", "id": "A1", "condition": "The feature is there." },
-        {
-            "by": "in_effect", "id": "A2", "condition": "A real run gives seven.", "when": "installed",
-            "tool": "query", "command": "SELECT 7 AS seven", "holds": "It gives 7.", "enough": "none",
-        },
+    // The implementation's end says a condition the acceptance does not have is met, which its schema takes and the
+    // check of the conditions met does not.
+    let unknown = json!([
+        { "how": "tested", "id": "A1", "tests": ["feature"] },
+        { "how": "read_diff", "id": "A9", "where": "src/lib.txt", "what": "The feature." },
     ]);
-    let wrong: Wrong = vec![("outcome.can_start.acceptance", installed)];
-    let (mut e, said, item) = start(&s, sent_back_at(vec![("R1", vec![(1, wrong)])]));
+    let wrong: Wrong = vec![("outcome.conditions", unknown)];
+    let (mut e, said, item) = start(&s, sent_back_at(vec![("I1", vec![(2, wrong)])]));
     let work = e.step(None).unwrap().work.unwrap();
     let held = Go {
         pause: held_but(&[work], &[]),
         ..Go::default()
     };
     let on = turns_until(&mut e, &held, |e| {
-        rows_at(e, work, "R1")
-            .iter()
-            .any(|r| r.as_deref().is_some_and(|r| r != "sent_back"))
+        rows_at(e, work, "I1").iter().any(|r| r.as_deref() == Some("done"))
     });
     let log = said.lock().unwrap().join("\n");
     assert!(on, "{log}");
@@ -85,10 +81,10 @@ fn a_return_sent_back_by_a_check_is_reported_by_the_name_of_that_check() {
         .iter()
         .filter_map(|p| p["check"].as_str())
         .collect();
-    assert!(by_check.contains(&"in_effect_known"), "{body}");
+    assert!(by_check.contains(&"conditions_cover_acceptance"), "{body}");
     assert_eq!(body["reason"].as_str().unwrap(), lines.join("\n"), "{body}");
     let reason = body["reason"].as_str().unwrap();
-    assert!(reason.contains("in_effect_known ("), "{reason}");
+    assert!(reason.contains("conditions_cover_acceptance ("), "{reason}");
     assert!(!reason.contains('{') && !reason.contains("problems"), "{reason}");
     // The report names the check that found the problem.
     let what: String =
@@ -99,7 +95,7 @@ fn a_return_sent_back_by_a_check_is_reported_by_the_name_of_that_check() {
                 |r| r.get(0),
             )
             .unwrap();
-    assert!(what.contains("in_effect_known"), "{what}");
+    assert!(what.contains("conditions_cover_acceptance"), "{what}");
     assert_eq!(
         number(
             &e,

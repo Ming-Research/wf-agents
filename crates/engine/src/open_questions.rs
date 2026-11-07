@@ -28,9 +28,6 @@ const DESIGN: &str = "D2";
 /// The cell of the engineer's graph a work is done at: nothing can be said to a work there.
 const DONE_AT: &str = "E1";
 
-/// The cell of the engineer's graph a work merges at.
-const MERGE: &str = "M2";
-
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -499,94 +496,9 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
     Ok(())
 }
 
-/// `write_learned`: what the work learned, with the commits it merged, goes at the end of its item's `approach`, under
-/// the head `Learned:`; the decisions it made merged with it in the project's `decisions/`, and none is written into
-/// the item. Written as every change to an item is, in the transaction of the round,
-/// so that `changes` keeps it. A work that learned nothing a later agent would miss still records its commits, which
-/// lead from the code's history back to the item.
-pub fn write_learned(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
-    let Some(item) = &ctx.item else {
-        return Ok(());
-    };
-    let learned = ctx.unwrapped["learned"].as_str().unwrap_or_default().trim();
-    let commits = merged(tx, ctx.work.id)?;
-    let now: Option<String> = tx
-        .query_row("SELECT approach FROM items WHERE id = ?1", [item.id], |r| r.get(0))
-        .map_err(sql)?;
-    let approach = with_learned(&now.unwrap_or_default(), learned, &commits);
-    tx.execute(
-        "UPDATE items SET approach = ?2 WHERE id = ?1",
-        params![item.id, approach],
-    )
-    .map_err(sql)?;
-    Ok(())
-}
-
-/// The commits a work merged, oldest first: each its squashed merge into main, the head of what it changed.
-fn merged(tx: &Transaction<'_>, work: i64) -> Result<Vec<String>, String> {
-    let mut st = tx
-        .prepare(&format!(
-            "SELECT json_extract(output, '$.result.merge_commit') FROM rounds
-             WHERE work = ?1 AND cell IN {} AND transition = 'merged' ORDER BY n",
-            db::cells_sql(ENGINEER, &[MERGE])
-        ))
-        .map_err(sql)?;
-    st.query_map([work], |r| r.get::<_, Option<String>>(0))
-        .map_err(sql)?
-        .filter_map(|x| x.transpose())
-        .collect::<Result<_, _>>()
-        .map_err(sql)
-}
-
-/// An item's `approach` with what a work learned and the commits it merged at its end; the head `Learned:` is written
-/// once, by the first work that adds to it.
-fn with_learned(approach: &str, learned: &str, commits: &[String]) -> String {
-    let approach = approach.trim_end();
-    let mut parts: Vec<String> = Vec::new();
-    if !approach.is_empty() {
-        parts.push(approach.to_string());
-    }
-    let added: Vec<String> = [
-        learned.to_string(),
-        if commits.is_empty() {
-            String::new()
-        } else {
-            format!("Commits: {}", commits.join(", "))
-        },
-    ]
-    .into_iter()
-    .filter(|x| !x.is_empty())
-    .collect();
-    if added.is_empty() {
-        return approach.to_string();
-    }
-    let added = added.join("\n");
-    if approach.lines().any(|l| l.trim_end() == "Learned:") {
-        parts.push(added);
-    } else {
-        parts.push(format!("Learned:\n{added}"));
-    }
-    parts.join("\n\n")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // What a work learned goes at the end of the item's approach under one head, with the commits it merged: a first
-    // work writes the head, a later one adds below it, and a work that learned nothing still records its commits.
-    #[test]
-    fn what_a_work_learned_goes_under_one_head_with_its_commits() {
-        let commits = ["abc123".to_string()];
-        assert_eq!(
-            with_learned("Cache the parse.", "Fact (2026-11-02): It is slow (R1-2)", &commits),
-            "Cache the parse.\n\nLearned:\nFact (2026-11-02): It is slow (R1-2)\nCommits: abc123"
-        );
-        assert_eq!(with_learned("", "", &commits), "Learned:\nCommits: abc123");
-        let second = with_learned("Do it.\n\nLearned:\nCommits: abc123\n", "", &["def456".to_string()]);
-        assert_eq!(second, "Do it.\n\nLearned:\nCommits: abc123\n\nCommits: def456");
-        assert_eq!(with_learned("Do it.\n", "", &[]), "Do it.");
-    }
 
     // The address the architect links the owner to is a round's on the page.
     #[test]

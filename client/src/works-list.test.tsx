@@ -44,8 +44,8 @@ vi.mock('./route', async (importOriginal) => ({
 const cell = (id: string, stage: string | null) => ({ id, stage });
 
 /// An engineer graph shaped as version 34 of the flow: the cells of another line (G1 to G3, the librarian's) stand among
-/// the research and the design cells, and the first cell of each of those two stages is one of them. It ends as the flow
-/// does: the stages verify and end after learn, and the cancelled stage, whose one cell C1 is `cancel`.
+/// the research and the design cells, and the first cell of each of those two stages is one of them. It ends as that
+/// version did: the stages verify and end after learn, and the cancelled stage, whose one cell C1 is `cancel`.
 const compiled = {
   graphs: [
     {

@@ -1367,11 +1367,12 @@ mod tests {
                 "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
                 [],
             )?;
-            // The parser is in the merge queue; the checker merged, and asks the architect from its check with real
-            // runs; the fixer's merge failed, and it went back to the fix; the tokens are done; the lexer has no work.
+            // The parser is in the merge queue; the checker's merge did not run, and it asks the architect from the
+            // merge queue; the fixer's merge failed, and it went back to the fix; the tokens are done; the lexer has no
+            // work.
             for (item, at, resume_at, waiting, ended) in [
                 (1, "M2", None, "[]", None),
-                (2, "A2", Some("V2"), "[\"V2\"]", None),
+                (2, "A2", Some("M2"), "[\"M2\"]", None),
                 (4, "T6", None, "[]", None),
                 (5, "E1", None, "[]", Some("done")),
             ] {
@@ -1393,7 +1394,7 @@ mod tests {
         let changes = [
             // The parser, in the merge queue, depends on the lexer, which is not done.
             json!({ "kind": "add_dependency", "item": "1", "on": "3", "dependency": "blocking", "reason": "r" }),
-            // The checker, merged, depends on the lexer.
+            // The checker, asking from the merge queue, depends on the lexer.
             json!({ "kind": "add_dependency", "item": "2", "on": "3", "dependency": "blocking", "reason": "r" }),
             // The fixer, back at the fix, depends on the lexer: the gate waits for it.
             json!({ "kind": "add_dependency", "item": "4", "on": "3", "dependency": "blocking", "reason": "r" }),
