@@ -23,7 +23,7 @@ use serde_json::Value;
 
 use crate::inputs::{answered, at_path, last_return};
 use crate::work::{self, Item, Round, RoundId, Work};
-use crate::{Engine, form_of, git, results, set_aside, test_name, test_tables, values, verification};
+use crate::{Engine, form_of, git, results, set_aside, test_name, test_tables, values};
 use sessions::worktree::Unfit;
 
 pub use db::DESIGN_CARD_RULING;
@@ -946,7 +946,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             let seps = c.separators();
             let named = c.results_named();
-            let mut problems = conditions_problems(
+            conditions_problems(
                 &wanted,
                 &rows,
                 recheck,
@@ -960,43 +960,8 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 },
                 &jobs,
                 |s| text_on_branch(wt, s),
-            );
-            problems.extend(verification::rows_problems(&acceptance, &rows));
-            problems.into_result()
-        }
-        // A condition only a real run can show, written by a return, is one this project's work can check.
-        "in_effect_known" => {
-            let Some(acceptance) = v else { return Ok(()) };
-            let item = c.item()?;
-            let project = verification::Project {
-                name: &item.project,
-                report: item.deliver == "report",
-                engine_s_own: set_aside::engine_s_own(c.e, c.item),
-            };
-            verification::known_problems(acceptance, &project).into_result()
-        }
-        // A look after the change took effect has a verdict for each condition written in_effect, and says how long to
-        // wait exactly when one is not_yet.
-        "verdicts_cover_in_effect" => {
-            if at == Some("again_after_minutes") {
-                let verdicts = items(c.unwrapped.get("verdicts"));
-                return verification::again_problems(&verdicts, v.and_then(Value::as_i64)).into_result();
-            }
-            let wanted: Vec<String> = verification::conditions(c.e.db.conn(), c.item()?.id)?
-                .iter()
-                .filter_map(|a| a["id"].as_str().map(str::to_string))
-                .collect();
-            let words = !c.interjections.is_empty() || verification::words_given(c.e.db.conn(), c.w.id)?;
-            verification::cover_problems(&wanted, &items(v), words).into_result()
-        }
-        // What a verdict rests on is a run the engine recorded since the change took effect, and what that run showed.
-        "verdict_basis_ran" => {
-            let conn = c.e.db.conn();
-            let item = c.item()?.id;
-            let since = verification::took_effect_at(conn, c.w.id, item)?.unwrap_or(0);
-            let runs = verification::runs_since(conn, c.w.id, since)?;
-            let conditions = verification::conditions(conn, item)?;
-            verification::basis_problems(&items(v), &conditions, since, &runs).into_result()
+            )
+            .into_result()
         }
         "new_test_results" | "guard_test_results" => {
             let new = check == "new_test_results";

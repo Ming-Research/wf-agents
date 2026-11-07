@@ -939,6 +939,18 @@ mod tests {
         );
     }
 
+    /// The engineer's graph with cells after its merge, as a version may have them: `Z1`, an agent's cell (the review's
+    /// first pass, `T2`, as it is), and `Z2`, an engine's cell where a work waits (the merge gate, `M1`, as it is).
+    fn with_cells_after_merge() -> CompiledGraph {
+        let mut g = engineer();
+        for (id, like) in [("Z1", "T2"), ("Z2", "M1")] {
+            let mut c = g.cell(like).unwrap().clone();
+            c.id = id.into();
+            g.cells.push(c);
+        }
+        g
+    }
+
     // Item #230, A12: an engineer's work whose merge stands is judged by the rounds after its merge alone, so that
     // neither the engine nor the owner's Start ever takes it back before its merge: an answer from before the merge
     // that no longer fits moves it, a cell after the merge it had begun and the version changed is done again, and with
@@ -946,37 +958,37 @@ mod tests {
     // flow version before watched it, going back past the merge is stuck, with that cell for the owner's Start.
     #[test]
     fn a_merged_work_never_goes_back_before_its_merge() {
-        let old = engineer();
+        let old = with_cells_after_merge();
         let rounds = [
             ran(1, "R1", "start", sample("R1", "start")),
             ran(2, "D2", "done", sample("D2", "done")),
             ran(3, "M2", "merged", sample("M2", "merged")),
         ];
-        // An answer from before the merge that no longer fits, the understanding or the design L2 reads, moves the
-        // work: the cells before its merge are never done again, and later ones read those answers as they are.
+        // An answer from before the merge that no longer fits, the understanding or the design Z1 reads, moves the work:
+        // the cells before its merge are never done again, and later ones read those answers as they are.
         let mut r1 = old.clone();
         needs_after(&mut r1, "R1", "understanding");
-        assert_eq!(plan(&old, &r1, &at("L2"), &rounds), Plan::Move);
+        assert_eq!(plan(&old, &r1, &at("Z1"), &rounds), Plan::Move);
         let mut d2 = old.clone();
         needs_after(&mut d2, "D2", "examined");
-        assert!(read_from(&d2, &at("L2")).contains("D2"));
-        assert_eq!(plan(&old, &d2, &at("L2"), &rounds), Plan::Move);
+        assert!(read_from(&d2, &at("Z1")).contains("D2"));
+        assert_eq!(plan(&old, &d2, &at("Z1"), &rounds), Plan::Move);
         // A cell after the merge it had begun, on another line, is done again.
-        let mut l2 = old.clone();
-        cell(&mut l2, "L2").line = Some("reviewer".into());
-        let begun = [rounds[2].clone(), took_none(4, "L2")];
+        let mut z1 = old.clone();
+        cell(&mut z1, "Z1").line = Some("reviewer".into());
+        let begun = [rounds[2].clone(), took_none(4, "Z1")];
         assert_eq!(
-            plan(&old, &l2, &at("L2"), &begun),
+            plan(&old, &z1, &at("Z1"), &begun),
             Plan::GoBack {
-                to: "L2".into(),
-                why: "cell L2, which the work had begun, is on another line".into()
+                to: "Z1".into(),
+                why: "cell Z1, which the work had begun, is on another line".into()
             }
         );
         // The cell it stands at gone, with no cell walked since the merge, it is stuck with nowhere to go back to,
         // though the version has every cell from before the merge.
         let mut gone = old.clone();
-        gone.cells.retain(|c| c.id != "L2");
-        match plan(&old, &gone, &at("L2"), &rounds) {
+        gone.cells.retain(|c| c.id != "Z1");
+        match plan(&old, &gone, &at("Z1"), &rounds) {
             Plan::Stuck { back_to, .. } => assert_eq!(back_to, None),
             other => panic!("{other:?}"),
         }
@@ -996,31 +1008,29 @@ mod tests {
         }
     }
 
-    // A merged work that waits for its change to take effect moves where it stands to a version that keeps the cell it
-    // waits at, in its sessions, even one that changes that cell's rows. On a version without that cell it goes back no
-    // further than writing what it learned, the latest cell it walked since its merge, and never does the merge again.
+    // A merged work that waits at an engine's cell after its merge moves where it stands to a version that keeps that
+    // cell, even one that changes the cell's rows. On a version without that cell it goes back no further than the
+    // latest cell it walked since its merge, and never does the merge again.
     #[test]
-    fn a_work_waiting_for_its_change_to_take_effect_moves_or_goes_back_no_further_than_its_merge() {
-        let old = engineer();
+    fn a_merged_work_waiting_after_its_merge_moves_or_goes_back_no_further_than_its_merge() {
+        let old = with_cells_after_merge();
         let rounds = [
             ran(1, "M2", "merged", sample("M2", "merged")),
-            ran(2, "L2", "verify", sample("L2", "verify")),
-            ran(3, "V1", "not_carried", json!({})),
+            ran(2, "Z1", "done", sample("T2", "done")),
+            took_none(3, "Z2"),
         ];
-        assert_eq!(plan(&old, &old.clone(), &at("V1"), &rounds), Plan::Move);
+        assert_eq!(plan(&old, &old.clone(), &at("Z2"), &rounds), Plan::Move);
         let mut other_rows = old.clone();
-        cell(&mut other_rows, "V1").rows.retain(|r| r.name != "cannot_tell");
-        assert_eq!(plan(&old, &other_rows, &at("V1"), &rounds), Plan::Move);
-
+        let z2 = cell(&mut other_rows, "Z2");
+        let first = z2.rows[0].name.clone();
+        z2.rows.retain(|r| r.name != first);
+        assert_eq!(plan(&old, &other_rows, &at("Z2"), &rounds), Plan::Move);
         let mut gone = old.clone();
-        gone.cells.retain(|c| c.id != "V1");
-        assert_eq!(
-            plan(&old, &gone, &at("V1"), &rounds),
-            Plan::GoBack {
-                to: "L2".into(),
-                why: "cell V1, which the work handed a return in at, is gone".into()
-            }
-        );
+        gone.cells.retain(|c| c.id != "Z2");
+        match plan(&old, &gone, &at("Z2"), &rounds) {
+            Plan::GoBack { to, .. } => assert_eq!(to, "Z1"),
+            other => panic!("{other:?}"),
+        }
     }
 
     /// A return of an architect's cell that answers an engineer's question, as a round stores it, with `effects`.

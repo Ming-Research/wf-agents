@@ -2,18 +2,6 @@
 
 use super::*;
 
-// A work whose acceptance holds no condition checked after the merge ends after what it learned, and never comes to wait
-// for its change to take effect.
-#[test]
-fn a_work_with_no_condition_in_effect_ends_after_what_it_learned() {
-    let s = setup("in-effect-none");
-    let (mut e, _, item) = start(&s, scripts());
-    step_to(&mut e, item, "E1");
-    assert_eq!(transitions(&e, item, "L2"), ["done"]);
-    assert!(transitions(&e, item, "V1").is_empty());
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 #[test]
 fn an_item_goes_from_the_queue_to_main() {
     let s = setup("main");
@@ -91,7 +79,6 @@ fn an_item_goes_from_the_queue_to_main() {
         "T3:clear",
         "M1:clear",
         "M2:merged",
-        "L2:done",
         "E1:-",
     ] {
         assert!(cells.iter().any(|x| x == c), "no round {c}: {cells:?}\n{log}");
