@@ -9,7 +9,7 @@ fn conversation_entries_reads_each_table_by_its_index() {
     let db = Db::in_memory().unwrap();
     let steps = query_plan(db.conn(), "SELECT * FROM conversation_entries").unwrap();
     for index in [
-        "interjections_by_matter",
+        "deliveries_by_matter",
         "messages_by_ask",
         "architect_matters_by_asked",
         "blockers_by_ask",

@@ -2,12 +2,13 @@
 //! offers to put them back in the box they were said from; the same judgment, made again in the write that deletes
 //! them, decides whether they can be.
 //!
-//! The words are rows the owner's writes made: an interjection to a work's line, an owner_words matter of an
-//! architect's queue, or both (the words said to the architect, or to both, in a work's group). They can be taken
-//! back while no agent has them, and an agent has them once:
-//! - an interjection was handed in (`delivered_round`) or is in the input of a round that has not ended
-//!   (`rounds.input.engine.interjections`, which the round's message gave and which is recorded as delivered only when
-//!   the round ends or its first tool use asks for more);
+//! The words are rows the owner's writes made: a message to a work's line (an interjection, as the owner's
+//! conversations call it), an owner_words matter of an architect's queue, or both (the words said to the architect, or
+//! to both, in a work's group, one message delivered to the line and to the architect as the matter). They can be
+//! taken back while no agent has them, and an agent has them once:
+//! - a round of the work took the message (`deliveries.taken_round`), or it is in the input of a round that has not
+//!   ended (`rounds.input.engine.interjections`, which the round's message gave and which is recorded as taken only
+//!   when the round ends or its first tool use asks for more);
 //! - a matter was picked by a round of the architect's work, handled, withdrawn or held by a question to the owner.
 //!
 //! The architect's cell `N0` picks the matter that comes next in the engine's own step, after its round started: words
@@ -84,10 +85,10 @@ fn judge(conn: &Connection, source: &str, id: i64) -> db::rusqlite::Result<Verdi
 fn interjection(conn: &Connection, id: i64) -> db::rusqlite::Result<Verdict> {
     let found = conn
         .query_row(
-            "SELECT j.speaker, j.informs, j.delivered_round, j.matter, j.text, j.design_card, w.graph,
+            "SELECT j.speaker, j.informs, j.taken_round, j.matter, j.text, j.design_card, w.graph,
                     EXISTS (SELECT 1 FROM rounds r, json_each(r.input, '$.engine.interjections') g
                             WHERE r.work = j.work AND r.ended_at IS NULL AND g.value = j.id)
-             FROM interjections j JOIN works w ON w.id = j.work WHERE j.id = ?1",
+             FROM line_sayings j JOIN works w ON w.id = j.work WHERE j.id = ?1",
             [id],
             |r| {
                 Ok(Said {
@@ -262,8 +263,7 @@ pub fn take_back(db: &mut Db, t: &TakeBack) -> Result<TakenBack, String> {
             }
         }
         if let Some(j) = held.interjection {
-            tx.execute("DELETE FROM attachments WHERE interjection = ?1", [j])?;
-            tx.execute("DELETE FROM interjections WHERE id = ?1", [j])?;
+            db::unsay(tx, j)?;
         }
         if let Some(m) = held.matter {
             tx.execute("DELETE FROM attachments WHERE matter = ?1", [m])?;

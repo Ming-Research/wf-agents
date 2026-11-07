@@ -35,12 +35,16 @@ pub fn read_to(db: &Path, r: &ReadTo) -> Result<Marked, Error> {
                  ON CONFLICT (conversation) DO UPDATE SET at = max(at, excluded.at)",
                 params![r.key, r.at],
             )?;
-            Ok(tx.execute(
-                "UPDATE deliveries SET read_at = ?3 WHERE read_at IS NULL AND recipient = 'owner' AND message IN (
-                   SELECT id FROM conversation_entries
-                   WHERE conversation = ?1 AND source IN ('message', 'notice') AND at <= ?2)",
-                params![r.key, r.at, now],
-            )?)
+            // A message to the owner goes to no one else to read: a fault goes to the keeper alone.
+            let ids: Vec<i64> = tx
+                .prepare(
+                    "SELECT e.id FROM conversation_entries e
+                     JOIN deliveries d ON d.message = e.id AND d.recipient = 'owner' AND d.read_at IS NULL
+                     WHERE e.conversation = ?1 AND e.source IN ('message', 'notice') AND e.at <= ?2",
+                )?
+                .query_map(params![r.key, r.at], |x| x.get(0))?
+                .collect::<db::rusqlite::Result<_>>()?;
+            db::mark_read(tx, Some(&ids), now)
         })
         .map_err(failed)?;
     Ok(Marked { marked: marked as i64 })

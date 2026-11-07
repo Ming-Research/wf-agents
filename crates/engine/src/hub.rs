@@ -1,8 +1,9 @@
-//! The message hub, as the engine sends through it: what the engine tells of its own accord, and what an agent's return
-//! tells the owner, each a message of the hub's tables (`db::send`) written in the transaction of what made it. A fault
-//! of wf-agents goes to the flow's keeper and every other message to the owner. The engine's messages go to the
-//! notifications log too, through the outbox; an agent's are logged by the action that sends them, in words that say
-//! who said them.
+//! The message hub, as the engine sends through it: what the engine tells of its own accord, what an agent's return
+//! tells the owner, and what the architect or the engine in the owner's name says to a line of a work, each a message of
+//! the hub's tables (`db::send`, `db::say_to_line`) written in the transaction of what made it. A fault of wf-agents
+//! goes to the flow's keeper, what is said to a line to that line, and every other message to the owner. The engine's
+//! messages to the owner and the keeper go to the notifications log too, through the outbox; an agent's are logged by
+//! the action that sends them, in words that say who said them.
 
 use db::rusqlite::Transaction;
 use db::{Message, Recipient, Sender};
@@ -72,6 +73,13 @@ pub fn fault_ask(tx: &Transaction<'_>, work: i64, ask: i64, kind: &str, text: &s
         text,
     )
     .map(|_| ())
+}
+
+/// Says something to a line of a work: the architect's words, or the engine's in the owner's name (an answer of the
+/// owner's relayed, the notice that an item depended on was cancelled); the line's next round takes it. Gives the
+/// message.
+pub fn say_to_line(tx: &Transaction<'_>, s: &db::ToLine<'_>) -> Result<i64, String> {
+    db::say_to_line(tx, s, None).map_err(sql)
 }
 
 /// What an agent's return tells the owner, as the message of the round that holds it, from the line of an engineer's

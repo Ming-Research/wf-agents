@@ -78,7 +78,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
     let delivered = |e: &Engine| -> Option<i64> {
         e.db.conn()
             .query_row(
-                "SELECT delivered_round FROM interjections WHERE work = ?1 AND speaker = 'architect'",
+                "SELECT taken_round FROM line_sayings WHERE work = ?1 AND speaker = 'architect'",
                 [work],
                 |r| r.get(0),
             )

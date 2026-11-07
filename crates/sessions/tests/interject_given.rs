@@ -3,7 +3,6 @@
 //! not show them as not taken up while the round runs, so it records the ones the agent has as delivered in the round.
 //! The round's record lists them as the engine writes it, in `rounds.input`, at `$.engine.interjections`.
 
-use db::rusqlite::params;
 use db::{Actor, Db};
 use sessions::interject::{deliver, delivered_during};
 
@@ -29,20 +28,17 @@ fn running_round(given: &[i64]) -> Db {
 /// Something said to the work's engineer, with images when `images` is true; the id it gets is the next.
 fn say(db: &mut Db, text: &str, informs: bool, images: bool) {
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (1, 'engineer', 'owner', ?1, ?2)",
-            params![text, informs],
-        )?;
+        let said = db::ToLine {
+            informs,
+            ..db::ToLine::new(db::Sender::Owner, 1, "engineer", text)
+        };
+        let id = db::say_to_line(tx, &said, None)?;
         if images {
             let image = db::attachments::Image {
                 media_type: "image/png".into(),
                 bytes: b"\x89PNG\r\n\x1a\n".to_vec(),
             };
-            db::attachments::attach(
-                tx,
-                db::attachments::Words::Interjection(tx.last_insert_rowid()),
-                &[image],
-            )?;
+            db::attachments::attach(tx, db::attachments::Words::Message(id), &[image])?;
         }
         Ok(())
     })
@@ -52,9 +48,7 @@ fn say(db: &mut Db, text: &str, informs: bool, images: bool) {
 /// The round an interjection is recorded as delivered in.
 fn delivered_in(db: &Db, id: i64) -> Option<i64> {
     db.conn()
-        .query_row("SELECT delivered_round FROM interjections WHERE id = ?1", [id], |r| {
-            r.get(0)
-        })
+        .query_row("SELECT taken_round FROM line_sayings WHERE id = ?1", [id], |r| r.get(0))
         .unwrap()
 }
 

@@ -752,7 +752,7 @@ fn the_owner_sends_images_with_words_and_the_page_reads_them_by_id() {
     assert_eq!(status, 200, "{said}");
     let id: i64 = db
         .conn()
-        .query_row("SELECT id FROM attachments WHERE interjection = 1", [], |r| r.get(0))
+        .query_row("SELECT id FROM attachments WHERE message = 1", [], |r| r.get(0))
         .unwrap();
     let (status, head, body) = get_bytes(s.port, &format!("/api/v1/attachments/{id}"));
     assert_eq!(status, 200, "{head}");
@@ -838,7 +838,7 @@ fn the_owner_answers_and_rules_on_the_page() {
     assert_eq!(status, 200, "{done}");
     let said: String = db
         .conn()
-        .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
+        .query_row("SELECT text FROM line_sayings WHERE work = 1", [], |r| r.get(0))
         .unwrap();
     assert_eq!(
         said,

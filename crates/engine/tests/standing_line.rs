@@ -2,7 +2,6 @@
 //! engine's value `held` reads to decide whether a question to an architect is withdrawn for words. Neither needs a
 //! running engine, so these tests walk the compiled flow and a database in memory.
 
-use db::rusqlite::params;
 use db::{Actor, Db};
 use engine::blockers::{standing_line, waiting_words};
 use engine::{ENGINEER, Work};
@@ -215,11 +214,15 @@ fn say(db: &mut Db, work: i64, line: &str, informs: i64, cancelled: bool, delive
                 [work],
             )?;
         }
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text, informs, cancelled_item, delivered_round)
-             VALUES (?1, ?2, 'architect', 'Words.', ?3, ?4, ?5)",
-            params![work, line, informs, item, delivered.then_some(1)],
-        )?;
+        let said = db::ToLine {
+            informs: informs == 1,
+            cancelled_item: item,
+            ..db::ToLine::new(db::Sender::Architect, work, line, "Words.")
+        };
+        let id = db::say_to_line(tx, &said, None)?;
+        if delivered {
+            db::take(tx, id, work, 1)?;
+        }
         Ok(())
     })
     .unwrap();

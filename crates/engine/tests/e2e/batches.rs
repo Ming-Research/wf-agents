@@ -217,7 +217,7 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
     assert_eq!(at(&e), "A4", "{}", said.lock().unwrap().join("\n"));
     let told: String =
         e.db.conn()
-            .query_row("SELECT text FROM interjections WHERE work = ?1", [work], |r| r.get(0))
+            .query_row("SELECT text FROM line_sayings WHERE work = ?1", [work], |r| r.get(0))
             .unwrap();
     assert!(
         told.contains("its tokens") && told.contains("no longer needed"),
@@ -833,7 +833,7 @@ fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_
     assert_eq!(state(&e, parser).unwrap().1, "M2", "{}", log());
     let told: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM interjections WHERE work = ?1", [work], |r| {
+            .query_row("SELECT count(*) FROM line_sayings WHERE work = ?1", [work], |r| {
                 r.get(0)
             })
             .unwrap();

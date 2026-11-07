@@ -40,11 +40,11 @@ fn says_nothing(text: &str, images: &[Image]) -> bool {
     text.trim().is_empty() && images.is_empty()
 }
 
-/// Says something to a work's engineer as the owner: an interjection, handed to the engineer's round that runs after
-/// its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines: its
-/// helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`) is
-/// told nothing more: its way on no longer changes. The images sent with the words are kept with them. Gives the
-/// interjection, which keeps who the caller declared to speak (`speaker`).
+/// Says something to a work's engineer as the owner: a message to its line, handed to the engineer's round that runs
+/// after its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines:
+/// its helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`)
+/// is told nothing more: its way on no longer changes. The images sent with the words are kept with them. Gives the
+/// message, which keeps who the caller declared to speak (`speaker`).
 pub fn interject(
     db: &mut Db,
     work: i64,
@@ -70,7 +70,7 @@ fn interject_about(
     if says_nothing(text, images) {
         return Err("what is said to a work says something".into());
     }
-    let relayed = speaker.relayed_in(text)?.map(|r| r.to_string());
+    let relayed = speaker.relayed_in(text)?;
     attachments::check(images)?;
     if line != "engineer" {
         return Err(format!(
@@ -79,13 +79,14 @@ fn interject_about(
     }
     live(db, work)?;
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, declared, relayed, text, design_card)
-             VALUES (?1, ?2, 'owner', ?3, ?4, ?5, ?6)",
-            params![work, line, speaker.speaker.as_str(), relayed, text, card],
-        )?;
-        let id = tx.last_insert_rowid();
-        attachments::attach(tx, Words::Interjection(id), images)?;
+        let said = db::ToLine {
+            speaker: Some(speaker.speaker.as_str()),
+            relayed: relayed.clone(),
+            design_card: card,
+            ..db::ToLine::new(db::Sender::Owner, work, line, text)
+        };
+        let id = db::say_to_line(tx, &said, None)?;
+        attachments::attach(tx, Words::Message(id), images)?;
         Ok(id)
     })
     .map_err(sql)
@@ -180,19 +181,20 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         ..Matter::default()
     };
     let (copy, informs) = match (to, text.is_empty()) {
-        ("both", _) => (text.to_string(), 0),
-        (_, true) => (TOLD_TO_ARCHITECT.to_string(), 1),
-        (_, false) => (format!("{TOLD_TO_ARCHITECT}: {text}"), 1),
+        ("both", _) => (text.to_string(), false),
+        (_, true) => (TOLD_TO_ARCHITECT.to_string(), true),
+        (_, false) => (format!("{TOLD_TO_ARCHITECT}: {text}"), true),
     };
     let id = db
         .write(Actor::Owner, |tx| {
             let matter = queue_matter(tx, &m)?;
             attachments::attach(tx, Words::Matter(matter), &images)?;
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text, informs, matter, design_card)
-                 VALUES (?1, 'engineer', 'owner', ?2, ?3, ?4, ?5)",
-                params![work, copy, informs, matter, card],
-            )?;
+            let told = db::ToLine {
+                informs,
+                design_card: card,
+                ..db::ToLine::new(db::Sender::Owner, work, "engineer", &copy)
+            };
+            db::say_to_line(tx, &told, Some(matter))?;
             Ok(matter)
         })
         .map_err(sql)?;
@@ -588,10 +590,11 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
             let declared = answer["speaker"]
                 .as_str()
                 .filter(|s| matches!(*s, "owner" | "delegate"));
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, declared, text) VALUES (?1, 'engineer', 'owner', ?2, ?3)",
-                params![work, declared, text],
-            )?;
+            let relay = db::ToLine {
+                speaker: declared,
+                ..db::ToLine::new(db::Sender::Engine, *work, "engineer", text)
+            };
+            db::say_to_line(tx, &relay, None)?;
             tx.execute(
                 "UPDATE owner_asks SET body = json_set(body, '$.relayed', ?2) WHERE id = ?1",
                 params![ask, db::now()],
@@ -748,21 +751,18 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
         match &said {
             Some(s) => {
                 let text = format!("{} {design_card} ({key}): {s}", db::CARD_RULING);
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-                    params![work, text],
-                )?;
+                db::say_to_line(tx, &db::ToLine::new(db::Sender::Engine, work, "engineer", &text), None)?;
             }
             None => {
                 // A confirmation is a word to the engineer, which needs no answer and turns nothing.
                 let words = text.map(|t| format!(" The owner said: {t}")).unwrap_or_default();
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (?1, 'engineer', 'owner', ?2, 1)",
-                    params![
-                        work,
-                        format!("The owner confirmed decision card {design_card} ({key}): nothing changes.{words}")
-                    ],
-                )?;
+                let confirmed =
+                    format!("The owner confirmed decision card {design_card} ({key}): nothing changes.{words}");
+                let told = db::ToLine {
+                    informs: true,
+                    ..db::ToLine::new(db::Sender::Engine, work, "engineer", &confirmed)
+                };
+                db::say_to_line(tx, &told, None)?;
             }
         }
         Ok(())
@@ -1154,7 +1154,7 @@ mod tests {
             images,
         };
         say_to_work(&mut db, 1, &said("engineer", "", vec![png(), png()])).unwrap();
-        assert_eq!(kept(&db, Words::Interjection(1)), 2);
+        assert_eq!(kept(&db, Words::Message(1)), 2);
         say_to_work(&mut db, 1, &said("both", "See.", vec![png()])).unwrap();
         let (matter, what): (i64, String) = db
             .conn()
@@ -1182,7 +1182,7 @@ mod tests {
         assert!(say_to_work(&mut db, 1, &said("engineer", "No.", vec![png(); 11])).is_err());
         let interjections: i64 = db
             .conn()
-            .query_row("SELECT count(*) FROM interjections", [], |r| r.get(0))
+            .query_row("SELECT count(*) FROM line_sayings", [], |r| r.get(0))
             .unwrap();
         assert_eq!(interjections, 3);
         let a = Answer {
@@ -1645,7 +1645,7 @@ mod tests {
         rule(&mut db, 1, &ruling("confirm", None, None)).unwrap();
         let said: Vec<(String, i64)> = db
             .conn()
-            .prepare("SELECT text, informs FROM interjections ORDER BY id")
+            .prepare("SELECT text, informs FROM line_sayings ORDER BY id")
             .unwrap()
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
@@ -1701,7 +1701,7 @@ mod tests {
         say_to_work(&mut db, 1, &asks(Some("engineer"), "Is the log kept?", 1)).unwrap();
         let said: Vec<(String, i64, Option<i64>)> = db
             .conn()
-            .prepare("SELECT text, informs, design_card FROM interjections ORDER BY id")
+            .prepare("SELECT text, informs, design_card FROM line_sayings ORDER BY id")
             .unwrap()
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .unwrap()
@@ -2035,7 +2035,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            one("SELECT declared FROM interjections WHERE matter IS NULL ORDER BY id"),
+            one("SELECT declared FROM line_sayings WHERE matter IS NULL ORDER BY id"),
             [Some("delegate".to_string()), Some("owner".to_string())]
         );
         assert_eq!(
@@ -2096,7 +2096,7 @@ mod tests {
         let matters = "SELECT json_extract(body, '$.relayed') FROM architect_matters ORDER BY id";
         let kept = one(&db, matters);
         assert_eq!(kept, r#"["Keep it."] ["Go."] ["Stop."] ["Done."]"#);
-        let alone = "SELECT relayed FROM interjections WHERE matter IS NULL ORDER BY id";
+        let alone = "SELECT relayed FROM line_sayings WHERE matter IS NULL ORDER BY id";
         assert_eq!(one(&db, alone), r#"["Hold it."]"#);
         let asks = "SELECT json_extract(answer, '$.relayed') FROM owner_asks ORDER BY id";
         assert_eq!(one(&db, asks), r#"["Do it."] ["Stop."] ["Done."]"#);

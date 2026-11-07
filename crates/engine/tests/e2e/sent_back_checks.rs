@@ -133,7 +133,7 @@ fn the_architect_takes_a_lone_report_while_the_work_goes_on_and_tells_the_work_n
         "{log}"
     );
     assert_eq!(
-        number(&e, &format!("SELECT count(*) FROM interjections WHERE work = {work}")),
+        number(&e, &format!("SELECT count(*) FROM line_sayings WHERE work = {work}")),
         0,
         "{log}"
     );

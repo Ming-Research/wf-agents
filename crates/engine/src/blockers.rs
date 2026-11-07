@@ -609,7 +609,7 @@ pub fn standing_line(g: &CompiledGraph, w: &Work) -> Option<String> {
 /// and `cancelled`.
 pub fn waiting_words(conn: &Connection, work: i64, line: &str, only_cancelled: bool) -> Result<i64, String> {
     conn.query_row(
-        "SELECT count(*) FROM interjections WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL AND informs = 0
+        "SELECT count(*) FROM line_sayings WHERE work = ?1 AND line = ?2 AND taken_round IS NULL AND informs = 0
            AND (?3 = 0 OR cancelled_item IS NOT NULL)",
         params![work, line, only_cancelled],
         |r| r.get(0),

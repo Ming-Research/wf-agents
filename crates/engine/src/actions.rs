@@ -541,8 +541,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             let cards: Vec<i64> = {
                 let mut st = tx
                     .prepare(
-                        "SELECT DISTINCT design_card FROM interjections
-                         WHERE work = ?1 AND delivered_round = ?2 AND speaker = 'owner' AND design_card IS NOT NULL",
+                        "SELECT DISTINCT design_card FROM line_sayings
+                         WHERE work = ?1 AND taken_round = ?2 AND speaker = 'owner' AND design_card IS NOT NULL",
                     )
                     .map_err(sql)?;
                 st.query_map(params![ctx.round.work, round], |r| r.get(0))
