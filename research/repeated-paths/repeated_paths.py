@@ -917,8 +917,10 @@ def build_paths():
         sql_path("SELECT count(*) FROM architect_matters WHERE project = 'wf-agents' AND kind = 'main_red' "
                  "AND json_extract(body, '$.commit') = 'none'"))
     # -- engine: once per write ---------------------------------------------------------------------------------------
+    # The statement db::NEXT_TX runs (crates/db/src/lib.rs). A commit before that change has the old statement here,
+    # `SELECT coalesce(max(tx), 0) + 1 FROM changes`, which the research measured with no index on changes(tx).
     add("engine.write.next_tx", "engine", "Db::write: the next transaction number",
-        sql_path("SELECT coalesce(max(tx), 0) + 1 FROM changes"))
+        sql_path("SELECT coalesce((SELECT max(tx) FROM changes), 0) + 1"))
     # -- engine: once per step of a work ------------------------------------------------------------------------------
     add("engine.step.stop_asked", "engine", "stop_asked: the outbox scanned for the work",
         sql_path("SELECT EXISTS (SELECT 1 FROM outbox o WHERE (o.kind = 'start_over' AND o.work = w.id) "
