@@ -69,6 +69,14 @@
   what it could, or forced to go around. Most cells do stop errors and what lacked was one standard, and such
   consequences are worse than flow bugs such as an endless loop.
 
+- A problem is met in the flow only after it is placed: whether every work meets it or only a kind of work, and whether
+  that kind is what the cell it would go in serves. A cell that serves every work asks nothing only some works have,
+  such as asking a change to the design tree whether a defect was seen to happen, or every work whether it should be
+  split. Then the means is weighed against its cost: a line of a prompt costs little, a question an answer from every
+  work it is asked of, a cell a round in every work that passes it; one is taken only where what it stops is worth that
+  (Articles 3 and 4). Adding something where a problem showed, each addition reasonable alone, was the path that failed:
+  together they made most of the flow's problems.
+
 - A problem is solved first by writing it in a cell's input, and only if that is not enough by a tool of the flow: what
   prompting alone cannot do, needing another pair of eyes, a CI check, adversarial testing an agent cannot do for
   itself, or what it does badly even when told. One line of prompt settles most things. Mechanical checks and another

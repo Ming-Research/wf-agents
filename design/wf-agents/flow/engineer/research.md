@@ -31,9 +31,12 @@
   what earlier agents thought, and changing things at once may break them; a local matter is not worth reading the
   architecture for.
 
-- Where no reproducing test can be written, as for something that shows only now and then on the page, the work does not
-  get stuck on it: it studies the code or proves it another way. Forcing a test that cannot be written is no use, and
-  there are many such cases.
+- A defect is fixed only after it has been seen to happen where it shows, as on the page in a real browser or in the
+  engine on its data. Where no test can be written for it, as for something that shows only now and then, none is
+  forced: a probe, a log or the owner's own run may show it instead. A defect still seen nowhere after looking as far as
+  the tools reach, whether the tools cannot reach where it shows or the state has since changed, stops the work at its
+  research with an ask of how to go on. A cause inferred and fixed once passed its test in a stand-in for the browser
+  while the defect stayed, and came back as a new item.
 
 - A work that takes over something half done takes the branch, the worktree and the pull request of the work before it,
   and only without one starts a branch from main. The first research gets pointers to look with, sees how far it got and

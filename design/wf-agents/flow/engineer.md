@@ -24,9 +24,6 @@
   is not enough. Given a free cell, engineers often forget or skip key steps, do not read the code or understand the
   problem well, and are too cautious one moment and too loose the next.
 
-- A question that means nothing for most works, such as whether to split it, is not asked of every work. Most works
-  almost surely need no split, and even a small fix would have had to answer.
-
 - The acceptance may change during a work. Locking it after the first design was too strict.
 
 - Research does not only reason down from the decisions in force: where one must change or the work cannot be done, it
