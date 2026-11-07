@@ -471,30 +471,25 @@ fn a_merge_under_way_outruns_a_start_over() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Once its merge stands on main, an item is not cancelled nor its work started over, whether the work is at its end or
-// done; whoever asks is told, and nothing waits in the outbox.
+// Once its merge stands on main, an item is not cancelled, and its work, which ends as it merges, is not started over;
+// whoever asks is told, and nothing waits in the outbox.
 #[test]
 fn an_item_whose_merge_stands_on_main_is_not_cancelled() {
     let (s, mut e, said, item, work) = at_the_merge("cancel-after-merge");
     held_at_the_merge_call(&mut e, &s, &said);
     s.merging.open();
-    let ending = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "E1"));
-    let log = said.lock().unwrap().join("\n");
-    assert!(ending, "{log}");
+    let log = done_after_merging(&mut e, work, &said);
+    assert_eq!(ended_why(&e, work), None, "{log}");
     cancel(&mut e, item, "owner");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(stopping(&e), Vec::<i64>::new(), "{log}");
     assert_eq!(
         api::start_over(&mut e.db, work),
-        Err(format!("work {work} has merged, and its merge stands on main")),
+        Err(format!("work {work} is done")),
         "{log}"
     );
-    let log = done_after_merging(&mut e, work, &said);
-    assert_eq!(ended_why(&e, work), None, "{log}");
-    cancel(&mut e, item, "owner");
-    assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
-    assert_eq!(notices(&e, "is not cancelled"), 2, "{log}");
+    assert_eq!(notices(&e, "is not cancelled"), 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
