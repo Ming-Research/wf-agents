@@ -83,15 +83,15 @@ fn each_graph_compiles_to_the_cells_of_its_nodes() {
 }
 
 /// What of a cell decides whether a work that has begun it moves to a new flow version where it stands or goes back to
-/// do it again, as the engine's `versions::plan` compares a cell's two versions: its kind and line, and the ids, names
-/// and sources of the inputs of its own, in their order (those every agent's cell has, and the cell's rows, a work
-/// under way takes on as they change); hashed short, the file of the cell in `tests/moves/`.
+/// do it again, as the engine's `versions::plan` compares a cell's two versions: its kind and line, and the ids and
+/// sources of the inputs of its own, in their order (those every agent's cell has, and the cell's rows, a work under
+/// way takes on as they change); hashed short, the file of the cell in `tests/moves/`.
 fn moves_by(c: &flow::CompiledCell) -> String {
     let inputs: Vec<Value> = c
         .inputs
         .iter()
         .filter(|x| !x.common)
-        .map(|x| serde_json::json!([x.id, x.name, x.from]))
+        .map(|x| serde_json::json!([x.id, x.from]))
         .collect();
     let text = serde_json::json!([c.kind, c.line, inputs]).to_string();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;

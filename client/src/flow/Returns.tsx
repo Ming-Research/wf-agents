@@ -396,7 +396,7 @@ export function ReturnPattern({ c }: { c: CompiledCell }) {
         {forms.length > 0 ? (
           <>
             <Line>
-              <KeyName k={within} tip={placeTip(placeSchema(c.schema, within), undefined, '')} />
+              <KeyName k={within} tip={placeTip(placeSchema(c.schema, within))} />
               <InnerName>{t('json_one_of')}</InnerName>
             </Line>
             <div className="json-in">
