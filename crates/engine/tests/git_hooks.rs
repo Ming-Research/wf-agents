@@ -150,7 +150,10 @@ fn the_engines_commit_merge_revert_checkout_fetch_and_worktree_run_no_program() 
         let r = repos("commands", plant);
         let run = |args: &[&str]| git(&r.work, &[&who[..], args].concat()).unwrap_or_else(|e| panic!("{plant:?}: {e}"));
         run(&["checkout", "-q", "-b", "side"]);
-        run(&["commit", "-q", "--allow-empty", "-m", "side"]);
+        // A change with content, since reverting a merge of empty commits has nothing to undo.
+        std::fs::write(r.work.join("file"), "text\n").unwrap();
+        run(&["add", "file"]);
+        run(&["commit", "-q", "-m", "side"]);
         run(&["checkout", "-q", "main"]);
         run(&["commit", "-q", "--allow-empty", "-m", "main"]);
         run(&["merge", "-q", "--no-ff", "-m", "merge", "side"]);
