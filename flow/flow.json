@@ -10552,6 +10552,16 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "what": "The commit the work merged as, by which a report's latest \"what to do next\" takes the reports its merge changed; none when the architect gave all of the work to sub-items",
+              "from": [
+                [
+                  "M2",
+                  "result[merged]"
+                ]
+              ],
+              "maybe": true
             }
           ],
           "out": [
