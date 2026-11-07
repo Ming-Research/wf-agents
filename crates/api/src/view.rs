@@ -1214,6 +1214,8 @@ mod tests {
                 ("adversarial", Colour::Auburn),
                 ("advisor", Colour::Pink),
                 ("librarian", Colour::Green),
+                // draft for the audit: the small cell that takes out of the design tree what the owner did not keep.
+                ("scribe", Colour::Brown),
                 ("architect", Colour::Purple),
                 ("matter", Colour::Cyan),
                 ("second_eye", Colour::Indigo),

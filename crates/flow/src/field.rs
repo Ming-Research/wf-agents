@@ -238,6 +238,10 @@ fn inner_mut(f: &mut Field) -> &mut Field {
     }
 }
 
+/// draft for the audit: how a description written by the audit's settled texts says that its field is in the owner's
+/// language.
+const OWN_LANGUAGE: &str = "In the owner's language (`owner.language`)";
+
 /// Adds a sentence to the description of the field, or the branch, at path `p` of `fields`: a list's item is
 /// followed, and below a union, the fields every branch has and those of the branch named. False when the path names
 /// nothing.
@@ -253,7 +257,11 @@ pub(crate) fn add_to_desc(fields: &mut [Field], p: &str, say: &str) -> bool {
         return false;
     };
     let said = |d: &str| {
-        if d.is_empty() {
+        // draft for the audit: a description that says its own language, as the audit's settled texts write it, is
+        // not told it again.
+        if d.contains(OWN_LANGUAGE) {
+            d.to_string()
+        } else if d.is_empty() {
             say.to_string()
         } else if d.ends_with('.') {
             format!("{d} {say}")

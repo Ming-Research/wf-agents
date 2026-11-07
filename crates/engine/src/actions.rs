@@ -51,6 +51,9 @@ pub struct Ctx {
 /// The engineer's cell that hands in the design the owner reviews, whose return holds its acceptance conditions.
 const DESIGN: &str = "D2";
 
+// draft for the audit: deep research, whose acceptance stands unless its second look hands one in again.
+const DEEP: &str = "D1";
+
 /// The cell that splits a design along its parts, whose reply, as an engineer's question's, names the sub-items.
 const SPLIT: &str = "D5";
 
@@ -326,18 +329,21 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             {
                 return lock_designed(tx, ctx.item_id()?, ctx.round, changed);
             }
-            let design = ctx.last(tx, DESIGN, &format!("{}.design.acceptance", ctx.within))?;
+            // draft for the audit: the design's acceptance is deep research's, or its second look's where it handed
+            // one in again.
+            let second = ctx.last(tx, DESIGN, &format!("{}.acceptance", ctx.within))?;
+            let deep = ctx.last(tx, DEEP, &format!("{}.acceptance", ctx.within))?;
             let plan = ctx.last(tx, PLAN, &format!("{}.can_start.acceptance", ctx.within))?;
-            let newest = match (design, plan) {
-                (Some(d), Some(p)) => Some(if d.0 > p.0 { d } else { p }),
-                (d, p) => d.or(p),
-            };
+            let newest = [second, deep, plan].into_iter().flatten().max_by_key(|x| x.0);
             let Some((round, acceptance)) = newest else {
                 return Err("no plan or design handed in acceptance conditions to record".into());
             };
             lock_designed(tx, ctx.item_id()?, round, &acceptance)?;
         }
         "post_design_review" => crate::review::post(ctx, tx)?,
+        // draft for the audit: putting the design to the architect's review through the hub, and showing the owner the
+        // cards, are not carried out yet.
+        "put_design_to_architect" | "show_cards" => {}
         "ask_owner_review" => crate::review::ask_owner(ctx, tx)?,
         "ask_owner_approval" => crate::approval::ask(ctx, tx)?,
         "relay_owner_answer" => crate::approval::relay(ctx, tx)?,
