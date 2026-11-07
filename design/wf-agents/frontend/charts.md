@@ -1,3 +1,6 @@
+- The flow's chart is laid out by elkjs, each node a component. A node carries overlays, such as the cell a work is at
+  and how many rounds it ran, and mermaid gives only a fixed picture, so it draws no flow chart.
+
 - There is no separate web page for reviewing the state machine: the flow page in the service is made good to use. With
   a separate page, one must still go and look at the flow page after reviewing and changing.
 

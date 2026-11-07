@@ -5,6 +5,9 @@
 - How to query is in the tool, and the database's whole structure is not put into an agent's context: at over 20K that
   is very costly.
 
+- Every lookup in the database goes through one general query tool. A tool for each kind of lookup was dropped: what
+  such tools read, the general query and git read too, and each was one more piece of schema.
+
 - No tool opens a page in a browser or takes screenshots; searching and fetching the web are another matter. A project's
   page is tested with a browser in CI, and an agent needs none on its machine.
 

@@ -1,9 +1,10 @@
 - The architect does not work from a long session's unbroken memory: all it receives is stored, and another session can
   take over at any time. That holds down the size of its context and keeps the cache hitting.
 
-- An architect's cache is filled around the layer of what to do next. Its context has four layers: the constitution, the
-  policy, its understanding of the project, and what to do next. The first three do not change with the matter in hand,
-  and only the last changes, by increments.
+- After what every cell shares (wf-agents.md, "What an agent is sent is ordered by how widely it is the same"), an
+  architect's context has three layers, in this order: its understanding of the project, the policy, and what to do
+  next. The first two do not change with the matter in hand, and only the last changes, by increments, so that the cache
+  is filled around it.
 
 - The base is only a means of saving tokens: once it is built, a record is added for each matter handled, no judgment
   rests on it, and no judging logic sits on it. The architect could work without it, by letting the agent compact or by
@@ -56,9 +57,8 @@
 - Reading the project is mainly reading the constitution, the design tree and the code as it stands, with the database
   as an aid. The items in the database are what the architect must keep by its own judgment.
 
-- The reading round's message holds only what is needed to understand the project: no descriptions of its inputs and no
-  rule on the policy's scope. It writes and judges no policy, and leaving the descriptions out was tried with no effect
-  on understanding.
+- The reading round's message holds only what is needed to understand the project, with no descriptions of its inputs:
+  leaving them out was tried with no effect on understanding.
 
 - The reading round always writes from nothing, seeing no old understanding, old plan or records of matters, but what
   the owner and the architect said. When the main policy has changed it must not be led by the old, and given the old it

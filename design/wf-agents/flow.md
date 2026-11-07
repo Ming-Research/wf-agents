@@ -16,19 +16,15 @@
   over every work of its project, while each work runs on its own, and the compiler can then check each graph apart.
 
 - A work that delivers only a report runs a graph of its own: the step that brings its history and one research, both as
-  an engineer's work has them, then the full CI, the merge, the end. A report settles how to do something very uncertain
-  at first, or whether to do it at all; the architect creates an item for one, for an item that uncertain or for what
-  the owner wants studied. What a work delivers is set when its item is made, unlike how hard it is, which shows only as
-  it is done, so this is no light road beside a heavy one. A conclusion that decides the project's design goes to the
-  owner as a change to the tree, which, once the owner says yes, goes in with the report as an engineer's does. Beyond
-  that it changes only the research folder, which conflicts with nothing, so it needs no implementation, review or merge
-  queue, though it waits at the merge gate as every work does. Run through the engineer's graph, it took every cell made
-  for a change to the code (Article 3).
-
-- When the flow changes, a running work neither ends nor starts over: it goes on where it stands if it can, goes back to
-  the cell it must do again if not, and where it cannot go back, as past a merge, it stops for the flow's keeper.
-  Starting over wastes what was done, and holding a work in a state the new flow lacks goes wrong. A work whose graph
-  the new flow lacks altogether still ends.
+  an engineer's work has them, then a review of its change to the design tree when it makes one, the full CI, the merge,
+  the end. A report settles how to do something very uncertain at first, or whether to do it at all; the architect
+  creates an item for one, for an item that uncertain or for what the owner wants studied. What a work delivers is set
+  when its item is made, unlike how hard it is, which shows only as it is done, so this is no light road beside a heavy
+  one. A conclusion that decides the project's design goes on a design card (flow/design-cards.md, "A technical choice
+  for the owner"); the research writes the change of the option chosen, and the review, in a session of its own, checks
+  it against the whole tree. Beyond that it changes only the research folder, which conflicts with nothing, so it needs
+  no implementation, code review or merge queue, though it waits at the merge gate as every work does. Run through the
+  engineer's graph, it took every cell made for a change to the code (Article 3).
 
 - Where an agent decides which way a work goes, each fork is one yes/no question asked by the cell just before it, and
   the way on depends on that answer alone, with no labels to route on later. A label compresses the information, so that
@@ -36,11 +32,34 @@
   heavier way costs much, so the question is answered as the facts stand. Where an ask holds its work is no fork: the
   work's way stays the same, and only when it may go on changes.
 
-- Cells share tools and output forms wherever they can, with no second copy for the same thing, and every lookup in the
-  database goes through one general query tool. A cell may have an ability of its own, never a second one of what
-  another cell has. Every cell of a line carries the line's whole schema in every round, so what one cell writes for
-  itself enlarges the input of all. A tool for each kind of lookup was dropped: what such tools read, the general query
-  and git read too, and each was one more piece of schema.
+- What an engineer puts to the owner, an ask or a design card, stands in the item where it belongs, in its design where
+  it has one, with the background written around it; the owner sees by the marked passages where it changed and where a
+  question stands. Taken out on its own, a question had no background and no place in the design.
+
+- The owner is shown one count of what waits on them, the asks to the owner or the flow's keeper holding a work or a
+  matter now and the design cards holding a work, and everything else as unread; only the first notifies, as each comes,
+  and once an hour while any stays. A design card the work went on past shows as to be confirmed, and reminds of nothing
+  until the merge waits for it. Several counts with different meanings disagreed and were not trusted.
+
+- Cells share tools and output forms wherever they can, with no second copy for the same thing. A cell may have an
+  ability of its own, never a second one of what another cell has. Every cell of a line carries the line's whole schema
+  in every round, so what one cell writes for itself enlarges the input of all.
+
+- A cell that continues another's session has what that cell found, so what the earlier cell hands on is only what a
+  cell outside the session or the owner reads, and nothing is written twice for the one that follows. Every way the work
+  can go keeps it so: where the session may not continue, as when it is restarted for its size or the next cell runs in
+  a session of its own, that cell is given what the earlier one wrote (flow/inputs.md, "A cell's inputs are of two
+  kinds"), so a restart loses no more than what was never written. Output costs the most of a round, and every field
+  rides in every round of its line (flow.md, "Cells share tools and output forms wherever they can").
+
+- The flow's definition holds what agents are told and what the chart shows of what the flow does; why it is so is in
+  the design tree, and an instruction does not carry its reasons. Text that reaches no agent and shows on no chart is
+  not kept, and the compiler refuses it, as it refuses a field nothing reads. Reasons kept in the definition were sent
+  to agents every round and drifted from the tree's.
+
+- A cell keeps no state: a stage is not made a small state machine that stops in several places and pieces state
+  together by various means, and such a problem is met by changing the state machine itself. Greying a button or an
+  input while a talk goes on only goes around it, and what is unreasonable in the machine remains.
 
 - A cheap model's cell finds and reads the decisions a question touches, for an engineer, an architect or the assistant,
   quoting them and judging nothing. Reading the whole tree each time costs too much, and a model that judged would put
@@ -49,28 +68,6 @@
 - To understand something, an agent reads both the code and the design tree's decisions on it: the code holds what is
   done, the tree why it is so and where it is going, ahead of the code. Either alone misleads: the code gives no
   reasons, and the tree does not say how far the code has got (Article 2).
-
-- The flow's definition holds what agents are told and what the chart shows of what the flow does; why it is so is in
-  the design tree, and an instruction does not carry its reasons. Text that reaches no agent and shows on no chart is
-  not kept, and the compiler refuses it, as it refuses a field nothing reads. Reasons kept in the definition were sent
-  to agents every round and drifted from the tree's.
-
-- What an agent writes for the owner to read is in the owner's language, as the installation sets it, and English where
-  it sets none, with technical terms in their English original. The owner reads it to judge.
-
-- The language a field of a return is written in is said in the return's schema and in no rule, since an agent writes a
-  field by its description.
-
-- A choice of the way the engine makes for the flow is drawn as a branch cell on the chart; no condition hangs on a cell
-  or a row to make a way vanish in some cases. A way resting on a condition cannot be seen on the chart, and is a hidden
-  switch.
-
-- The section on what happens every round holds only what the engine really does on receiving a return, each with when
-  it fires. Which view reads which field is how the database is queried, not what the engine does.
-
-- A cell keeps no state: a stage is not made a small state machine that stops in several places and pieces state
-  together by various means, and such a problem is met by changing the state machine itself. Greying a button or an
-  input while a talk goes on only goes around it, and what is unreasonable in the machine remains.
 
 - Every review can be disputed, and a dispute that holds goes up. A review is not always right.
 
@@ -104,6 +101,20 @@
   for case; a part of the flow with no serious problem is left as it is. Changes reasoned out alone left cells worse
   than before, and a change to a cell that works risks what it already does well (Article 4: what solves no named
   problem is not added). Judgment comes from what the cell really returns (Article 2).
+
+- The flow is audited cell by cell from time to time, the agent cells above all, starting from the problem each cell
+  controls and the ideal cell, the cell as it is and its recorded rounds serving only as evidence. Each input is judged
+  for its order (wf-agents.md, "What an agent is sent is ordered by how widely it is the same"), for whether a session
+  is sent again what it has (flow/inputs.md, "A cell's inputs are of two kinds"), its tokens, its content and size, and
+  whether everything the cell needs is there and nothing else; each output for whether it does what the inputs mean it
+  to and has a reader (flow/returns.md, "Every field of a return must have a reader"). The evidence is the recorded
+  rounds, with each input's size, the cache read and written, what the agents' reports on the flow asked for and the
+  returns sent back, and runs of the changed cell on made inputs as well as real past ones (flow.md, "A cell's prompt,
+  inputs or outputs change only to solve a problem that can be named"). Every cell is settled before any is changed and
+  the settled cells are made into a new definition; a cell is fixed only once the owner has reviewed it there, on its
+  chart, and changes after that only by the owner's yes. Cells added one at a time, each reasonable alone, drifted
+  apart, and only a pass over all of them showed it; and cells settled in drafts and fixed there came out otherwise in
+  the definition made from them.
 
 - A solution chosen for a problem must itself be challenged: is this the fittest way, is there a better? This reasoning
   matters more than listing. Without it, the work goes back to solving problems while making others, with no

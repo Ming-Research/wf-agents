@@ -9,10 +9,7 @@
   to decide whether to approve.
 
 - An architect that sees the owner's words beside its question are really an answer tells the owner to answer on the
-  question, and does not take them as one: passed on as an answer, they could not be told from discussion.
-
-- A question the owner has not answered has no deadline and is not decided for the owner: it stays open, holding only
-  what it names, until it is answered, changed or withdrawn. Deadlines and lapsing by themselves are too complicated.
+  question, and does not take them as one (flow/asking.md, "An ask is a yes-or-no question").
 
 - The owner gets no Done button to end a talk with the architect, not knowing when to press it or what it would mean.
 

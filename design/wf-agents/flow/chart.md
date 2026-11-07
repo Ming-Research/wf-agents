@@ -16,3 +16,7 @@
 
 - The flow gives each role a colour, used by the helper list and the message avatars, so that a role looks the same
   everywhere.
+
+- A choice of the way the engine makes for the flow is drawn as a branch cell on the chart; no condition hangs on a cell
+  or a row to make a way vanish in some cases. A way resting on a condition cannot be seen on the chart, and is a hidden
+  switch.

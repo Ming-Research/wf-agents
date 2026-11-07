@@ -5,3 +5,6 @@
   page. Upgrading is no trouble when a change is really needed.
 
 - A cheap model's cell for searching and judging does not get low effort: that model at low judges too poorly.
+
+- The section on what happens every round holds only what the engine really does on receiving a return, each with when
+  it fires. Which view reads which field is how the database is queried, not what the engine does.

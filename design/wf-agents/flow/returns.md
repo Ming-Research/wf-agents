@@ -1,3 +1,9 @@
+- What an agent writes for the owner to read is in the owner's language, as the installation sets it, and English where
+  it sets none, with technical terms in their English original. The owner reads it to judge.
+
+- The language a field of a return is written in is said in the return's schema and in no rule, since an agent writes a
+  field by its description.
+
 - Every field of a return must have a reader: another cell, a page the owner reads, or the hub, which delivers what it
   carries; otherwise it is removed. A field shown on the item page carries a mark, the compiler counts it as used, and
   the page shows by the mark. The check exists so that nothing unattended stays in a return, and a remark saying some

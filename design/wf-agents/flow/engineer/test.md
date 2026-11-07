@@ -8,14 +8,21 @@
 - A reviewer's ability and knowledge are no less than the engineer's: it knows the background and the decisions the
   engineer knows. Engineers mostly do what a review says, so a wrong request turns good code bad.
 
-- Code review checks the code against the design and the design tree: that the item's problem is solved as the design
-  says and to the tree's standard; that the code holds no decision the design and the tree do not record, since a
-  decision hidden in the code is asked nowhere; and that the code the work changed breaks no decision of the tree,
-  wherever it stands, since a change can break a decision it never set out to touch, though where the code was behind
-  the tree before the work, that holds no merge. It catches the design changed on one's own while writing: a short cut,
-  laziness, another method, something different from the design or more than it; this is the most important part of such
-  a review. A design is done when the item's problem is solved: what a principle it changed brings to do elsewhere is
-  not this work's, since one change of a principle may call for many works.
+- Code review checks the code against the design, its design cards and the design tree: that the item's problem is
+  solved as the design says and to the tree's standard; that the code holds no decision that neither the design, the
+  tree nor a card the owner kept out of the tree records, since a decision hidden in the code is asked nowhere; and that
+  the code the work changed breaks no decision of the tree, wherever it stands, since a change can break a decision it
+  never set out to touch, though where the code was behind the tree before the work, that holds no merge. It catches the
+  design changed on one's own while writing: a short cut, laziness, another method, something different from the design
+  or more than it; this is the most important part of such a review.
+
+- Code review checks a work's change to the design tree as every change to the tree is reviewed, in a session other than
+  its writer's: that what the work wrote into the tree says what each card says, entry by entry, and that each card's
+  change agrees with the whole tree; a card that should be none is a finding, and the fix withdraws it. This is done
+  once, here, after the owner has seen the cards, and not before each showing, which was too heavy.
+
+- A design is done when the item's problem is solved: what a principle it changed brings to do elsewhere is not this
+  work's, since one change of a principle may call for many works.
 
 - A migration, or a design done in steps, is not reported by review, including code written on a way about to be
   replaced, provided what departs is kept track of by a comment or a document, so a reviewer can see it is temporary.
@@ -25,8 +32,15 @@
 - Review of an implementation looks at problems such as the effect on performance, in general words, with no fixed check
   for one project. wf-agents is not only for itself.
 
-- Each new test says how long it takes and why that is worth it, and the review challenges it. Tests that can each
-  justify themselves add little to CI's time, and what still adds up the system watches by itself.
+- Each new test says how long it takes and why that is worth it, and the review challenges it (Article 3); what adds up
+  over many tests the system watches by itself (backend/engine/health.md, "Running safely is made the whole system's
+  state control").
+
+- Whether a work must pass the adversarial test is set by a bar in the project's settings, written once by the owner and
+  the assistant, polished and then left, changed only on trouble. A project's bar hardly keeps changing. Written by the
+  architect it takes time each time, a later change undoes the polish, and it does not come out clear. A review
+  answering whether it could quietly fail, or naming a particular bug, was too broad or a matter of luck; and the policy
+  is about what is near, while this is a gate for the whole project.
 
 - A fix in a fresh session is given the item, the acceptance, the design and what the implementation handed in: it is
   checked against the acceptance, must not leave the design, and must know how things were done.

@@ -23,8 +23,8 @@
 - Setting the policy may cost more, and its flow should be thorough. Once set it lasts a long time and does not keep
   changing.
 
-- Reading the project does not check the policy by itself; it is checked only when something bearing on it happens.
-  Queuing a check at every reading never ran in practice, and what was queued was handled by no one.
+- The policy is checked only when something bearing on it happens, not at each reading of the project. Queuing a check
+  at every reading never ran in practice, and what was queued was handled by no one.
 
 - The owner may ask to update the policy directly and start there; a mere question about the policy is only answered and
   does not go back to rewriting. Discussing the policy is not wanting it changed, or each question would mean a rewrite.

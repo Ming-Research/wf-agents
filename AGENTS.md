@@ -60,23 +60,32 @@ What an agent needs to know for this repository, beyond the rules every agent is
 `design/` holds wf-agents' design decisions by category: `x.md` holds x's decisions, `x/` its sub-decisions, level by
 level. A decision is placed at the most specific node whose whole subject it governs; one that governs two siblings goes
 to their parent. Each decision then has one place to be found and one to be changed, and two places for one decision
-drift apart. Before changing something, walk down to it from `design/wf-agents.md`, reading each file on the way.
+drift apart. An entry holds one decision. A principle several decisions follow from is one decision: it is written once,
+at the node that governs all of them, and an entry that applies it says only what it adds, naming the principle by its
+file, as its path under the root's folder or the root's own name, and its opening words, instead of stating it again.
+Entries of one kind stand together, under one node and next to each other in its file. A principle written again in each
+place it was applied, in that place's words, was read as so many rules: what it gave in one place was built as a rule of
+its own, and a case none of them named was missed; and entries of one kind spread through a file are not all read when
+one of them is found. Before changing something, walk down to it from `design/wf-agents.md`, reading each file on the
+way.
 
 The tree goes ahead of the code: where they differ, the code is behind. Nothing records how far behind: a mark of what
 the code lacks would itself fall behind, and the tree, holding what is done or where it is going, needs none. Fix it if
 it is at hand, or tell the architect; neither holds up the work in hand, and a review holds no merge for an old gap.
 Code that looks deliberate goes to the architect unchanged.
 
-The tree changes only by entries the owner confirmed: the assistant writes those confirmed in the owner's chat, and an
-engineer, in its work, those the owner answered yes to on its ask; what needs recording elsewhere comes back to that
-chat. It records only what is implemented or going to be. Before the tree changes, the decisions the change touches are
-found and read: a cheap model may narrow where to look, quoting what it finds, and the one changing the tree judges;
-where that is too much work, a deep research is opened and nothing is written yet. Changes made without that left
-contradictions for later reviews to find, and so did changes checked only by their writer: a review in a session other
-than the writer's then checks the change against those decisions, changes agreed in one discussion being gathered and
-reviewed together, and only the reviewed text is put to the owner; what the owner confirms is written word for word, and
-a text changed after that, by anyone or because a decision it touches changed, is put to the owner again. Changing means
-rewriting and not wanting means deleting, the commit saying why; the past is in git.
+The tree changes only by what the owner confirmed: the assistant writes the entries confirmed in the owner's chat, and
+an engineer, in its work, the changes its design cards carry, which merge only once the owner has chosen on every card;
+what needs recording elsewhere comes back to that chat. It records only what is implemented or going to be. Before the
+tree changes, the decisions the change touches are found and read: a cheap model may narrow where to look, quoting what
+it finds, and the one changing the tree judges; where that is too much work, a deep research is opened and nothing is
+written yet. Changes made without that left contradictions for later reviews to find, and so did changes checked only by
+their writer: a review in a session other than the writer's then checks the change against those decisions. The
+assistant has the changes agreed in one discussion reviewed together, puts only the reviewed text to the owner and
+writes what the owner confirms word for word; a text changed after that, by anyone or because a decision it touches
+changed, is put to the owner again. An engineer's change is put to the owner on a design card, in plain words, before it
+is reviewed, and its work's code review checks it (design/wf-agents/flow/design-cards.md). Changing means rewriting and
+not wanting means deleting, the commit saying why; the past is in git.
 
 A decision is a cause and what follows from it, in a short paragraph: because of what, what is done, with the paths that
 failed. Its reasons go back to the constitution where they can, and where they cannot they are still given, so that a

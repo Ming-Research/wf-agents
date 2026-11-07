@@ -23,54 +23,35 @@
   Keeping them in this repository would put a project's content in the harness; keeping them in each project's
   repository would copy the shared settings many times.
 
+- A project's constitution sits at the root of its repository, its configuration names the path, and every agent that
+  judges is given it: it holds the values every agent judges by.
+
+- What an agent is sent is ordered by how widely it is the same, since the prompt cache knows only a request's opening
+  bytes: the first to write them pays, and later requests that open alike read them. First what every cell of every line
+  shares, then what every cell of its line shares, its rules and its forms, then what is the same for every work of the
+  cell, its task and the list of its inputs, then what is the same within a work, then what changes each round. Every
+  cell then opens alike with what all cells share, the constitution first and the project's AGENTS.md after it, and any
+  input all cells come to share goes there too; a cell that judges nothing may leave that opening out. Whether the cache
+  holds is measured after each change of the order, from the cache read and written that real rounds record: an order
+  meant to be cached was found not to be for a detail no one had seen, and a part placed after one that changes is
+  written again by every work, which cost the first research a fifth of its price.
+
 - The engine follows the compiled flow mechanically: it takes the row a return selects and runs the named actions and
   checks, and does nothing that needs judgment. Judgment belongs to the agents and the owner, and tools only execute and
   never choose the route. Judgment needs someone who can give reasons and be reviewed, and each step of the engine must
   be predictable from the flow.
 
-- A project's constitution sits at the root of its repository, its configuration names the path, and every agent is
-  given it: it holds the values every agent judges by.
+- A thing is named for what it is, and has one name everywhere. A name for what it is needs no explaining; a name of its
+  own, or a second name beside the first, is one more thing each reader must learn and tell apart.
 
-- Items have only dependencies between them, and together form a directed acyclic graph: an item owns nothing, a
-  relation does not double as a category, and if A depends on B, A cannot finish before B. Relations that stood for both
-  dependency and category ended in a tangle, and items owning sub-items beside plan rows that ordered them gave two
-  relations to keep apart.
+- The part of the program that carries the state machine is called the engine (wf-agents.md, "A thing is named for what
+  it is"). Calling it wf-agents would not tell it from the compiler and the session manager, which are in the program
+  too.
 
-- The items are laid out as a tree along their dependencies: if A depends on B, B is below A, directly or under items
-  below A. Reading down from an item then shows all it needs, and how far it has come is how far what is below it has
-  come. A tree drawn by anything else beside the dependencies would be a second relation to keep in step with them.
-
-- An item stands in one place, under the item whose dependency on it is its main one; below every other item that
-  depends on it, it is a line pointing to that place. Of the dependencies on an item, exactly one is main at all
-  times: the most fitting, the first made until another is chosen, and the earliest made of those left when it goes;
-  never that of an item that also depends on it through another, which would set it beside an item that needs it.
-  Shown in full in several places, an item would be counted, read and answered more than once, and each thing has one
-  place. The place is a mark on a dependency rather than on the item, so that an item never stands under one that does
-  not need it.
-
-- Items side by side under one item do not depend on one another and can be started at the same time. Where one must
-  be done before another can be, that is a dependency, which puts the one below the other; which of two free items
-  starts first when slots are few is only the order the architect's plan gives them.
-
-- A goal other than a root has two items or more under it; with one, that item takes its place. A goal is done exactly
-  when what is under it is, so a goal over a single item adds a level and says nothing, as a group of one is no group. A
-  root, a project's direction, may stand alone until its items come.
-
-- An item that is done never depends on one that is not: a dependency added to it is refused, and what is left goes to
-  a new item. A dependency is what must be done before the item can be, so a done item standing over an unfinished one
-  would say both. A goal, done only while all it depends on is, takes the dependency and is open again. An item whose
-  work has passed the merge gate counts as done here: the gate is the one place a work waits for what it depends on, so
-  a dependency added after it would be waited for by nothing, and the item would end done over it all the same.
+- "Board" is no name: what means the data is called the database, and what means what the owner looks at, the owner's
+  page (wf-agents.md, "A thing is named for what it is").
 
 - Nothing is designed for the machine's lid closing or its sleeping: the machine that runs the engine stays on.
 
 - A technology is chosen as mature, mainstream and fit for the project's scale, with no item-by-item comparison of its
   peers. Nobody would really make that comparison, and SQLite and React were not chosen that way.
-
-- The part of the program that carries the state machine is called the engine. The name says what it does. Calling it
-  wf-agents would not tell it from the compiler and the session manager, which are in the program too, and a name of its
-  own is one more thing each reader must first learn.
-
-- "Board" is no name of its own: what means the data is called the database, and what means what the owner looks at is
-  called the owner's page. Named for what it is, it needs no explaining; with a name of its own, each reader must first
-  work out which of the two it means.

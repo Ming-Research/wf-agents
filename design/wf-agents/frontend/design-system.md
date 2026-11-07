@@ -1,3 +1,8 @@
+- The page follows GitHub's Primer design system: colours, type sizes, spacing and the like are its tokens, a few
+  colours keeping the token's name with another value, and controls and recurring parts are its React components. A look
+  the page made up view by view had no rule to hold the next change to, and small grey bold labels came to head a page.
+  Primer's CSS was not taken, since the React components carry behaviour such as focus, keyboard and overflow menus.
+
 - The page's styles write no raw value for colour, size or spacing, only those of the design system, and CI checks that.
   A change then cannot get round it.
 

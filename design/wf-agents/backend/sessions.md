@@ -1,3 +1,2 @@
-- What is byte for byte the same across a project's line, the common description of forms and the rules, goes in the
-  system prompt, ahead of all that differs by session. The cache knows only a request's opening bytes: the first to
-  write pays, and later sessions that match read. The project's guide differs by work and is not there.
+- What every session of a line shares goes in the system prompt a new session of the line starts with, ahead of all that
+  differs by session (wf-agents.md, "What an agent is sent is ordered by how widely it is the same").

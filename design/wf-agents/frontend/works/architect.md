@@ -7,8 +7,8 @@
 - The architect's page has no Log tab, and batch changes to items are seen in the item changes tab. The log only sorted
   each round's progress again by time, with nothing useful to read.
 
-- On the architect's page the panel, when opened, takes half the chart's width by default, and it opens shrunk. The
-  owner looks at the chart to see where the flow has gone.
+- On the architect's page the panel, when opened, takes half the chart's width by default. The owner looks at the chart
+  to see where the flow has gone.
 
 - The architect's page has no yellow banner, which said nothing clear in too many words.
 

@@ -2,12 +2,12 @@
   the items by them, and decides what is next. These belong to the whole project, and an engineer generally need not
   know them.
 
-- The architect's duty is everything about items: creating, deleting, changing, merging, splitting and ordering them and
-  their dependencies, starting and pausing their works, which item a report worth an item goes into, answering
-  engineers' asks about other items or the project's progress, whether to open an item or revert when main is red, the
-  policy and the plan, and the project-level part of reviewing a design; it judges by its plan's priorities, the
-  constitution, the design decisions and the policy, and what it cannot settle within that goes to the owner. That takes
-  the pressure of a global queue off it, so it can give itself to its own duties.
+- The architect's duty is everything about items and observations: creating, deleting, changing, merging, splitting and
+  ordering them and their dependencies, starting and pausing their works, which item a report worth an item goes into,
+  answering engineers' asks about other items or the project's progress, whether to open an item or revert when main is
+  red, the policy and the plan; it judges by its plan's priorities, the constitution, the design decisions and the
+  policy, and what it cannot settle within that goes to the owner. That takes the pressure of a global queue off it, so
+  it can give itself to its own duties.
 
 - Problems are not escalated to the architect: it solves only what is in its function, and what is not goes to the
   owner. Architect and engineer differ by function, and the architect is no stronger than the engineer. Going up to the

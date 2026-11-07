@@ -6,9 +6,3 @@
   several accounts, and changing one is enough.
 
 - Tags are a fixed set to choose from, so that they do not grow into a mess.
-
-- Whether a work must pass the adversarial test is set by a bar in the project's settings, written once by the owner and
-  the assistant, polished and then left, changed only on trouble. A project's bar hardly keeps changing. Written by the
-  architect it takes time each time, a later change undoes the polish, and it does not come out clear. A review
-  answering whether it could quietly fail, or naming a particular bug, was too broad or a matter of luck; and the policy
-  is about what is near, while this is a gate for the whole project.
