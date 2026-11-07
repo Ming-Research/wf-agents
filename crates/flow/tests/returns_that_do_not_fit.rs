@@ -69,7 +69,7 @@ fn at_mut<'a>(v: &'a mut Value, path: &[Seg]) -> Option<&'a mut Value> {
     Some(cur)
 }
 
-/// A path as `misfits` and `without_null_options` write it, `outcome.deviations[3].why`, as steps.
+/// A path as `misfits` and `without_null_options` write it, `outcome.rows[3].why`, as steps.
 fn parse(path: &str) -> Vec<Seg> {
     let mut out = Vec::new();
     for part in path.split('.') {

@@ -1067,9 +1067,9 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// check of the cell's own schema; and it takes no field beyond those it lists when none of its alternatives does, the
 /// field of the forms included, so that a field written inside the form it does not belong to is refused, and a field
 /// every return holds written inside the field of the forms is too. A union below the field of the forms, whose
-/// branches fix one field to a value of their own (a deviation of the kind `surprise` or `workaround`), keeps its
+/// branches fix one field to a value of their own (a fix's answer to a row, `fixed` or `old_rule`), keeps its
 /// branches in the schema ([`crate::shape::Split`]): a value that fixes the field requires what its branch requires and takes no
-/// field the branch does not take, so that `why` written in a `surprise` is refused naming it, where the fields of all
+/// field the branch does not take, so that `why` written in an answer `fixed` is refused naming it, where the fields of all
 /// branches taken together accept it. Each form that has a field no other form of the
 /// line has is told apart by it, and then requires what that form requires and takes no field it does not take
 /// ([`told_apart`]), so that a return of a cell's own answer without a field the answer requires is refused naming it,
@@ -2165,43 +2165,45 @@ mod tests {
         serde_json::from_str(include_str!("../../flow/tests/samples.json")).unwrap()
     }
 
-    /// The engineer's `I1` return that is done, with its deviations as given.
-    fn done_with(deviations: Value) -> Value {
-        let mut ret = samples()["I1"][2]["json"].clone();
-        ret["outcome"]["deviations"] = deviations;
+    /// The engineer's return of the fix (`T6`) that is done, with its answers to the rows as given.
+    fn done_with(rows: Value) -> Value {
+        let mut ret = samples()["T6"][0]["json"].clone();
+        ret["outcome"]["rows"] = rows;
         ret
     }
 
-    // In the engineer's trial a `surprise` row of the deviations carried `why`, which only the other kinds take, eight
-    // times (R227-21 among them): the schema the command line was given took the fields of the three kinds together,
-    // the engine sent the return back and a whole round was spent each time. A union whose branches fix a field now
-    // keeps its branches: a `surprise` with `why` is refused naming `why`, and taken without it; a `workaround` and a
-    // `design_changed` without `why` are refused naming it, and taken with it.
+    // In the engineer's trial a `surprise` row of the departures, which the flow had then, carried `why`, which only the
+    // other kinds took, eight times (R227-21 among them): the schema the command line was given took the fields of the
+    // kinds together, the engine sent the return back and a whole round was spent each time. A union whose branches fix
+    // a field now keeps its branches, as the fix's answers to its rows show: `fixed` with `why`, which only `old_rule`
+    // takes, is refused naming `why`, and taken without it; `old_rule` without `why` is refused naming it, and taken
+    // with it.
     #[test]
-    fn a_deviation_with_a_field_of_another_kind_is_refused_by_the_command_line_naming_it() {
+    fn an_answer_with_a_field_of_another_branch_is_refused_by_the_command_line_naming_it() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("engineer"));
-        let schema = g.cell("I1").unwrap().schema.clone().unwrap();
-        let row = |kind: &str, why: Option<&str>| {
-            let mut r = json!({ "kind": kind, "what": "A thing" });
+        let schema = g.cell("T6").unwrap().schema.clone().unwrap();
+        let row = |answer: &str, why: Option<&str>| {
+            let mut r = json!({ "answer": answer, "id": "F1" });
+            if answer == "fixed" {
+                r["commit"] = json!("9d2c7aa");
+            }
             if let Some(w) = why {
                 r["why"] = json!(w);
             }
             done_with(json!([r]))
         };
-        let with = row("surprise", Some("Because"));
+        let with = row("fixed", Some("Because"));
         assert!(!flow::valid(&schema, &with));
         assert_eq!(
             refused(&s, &with, "").as_deref(),
-            Some("/outcome/deviations/0: must NOT have additional properties ('why' is not allowed)")
+            Some("/outcome/rows/0: must NOT have additional properties ('why' is not allowed)")
         );
         for (kind, why, taken) in [
-            ("surprise", None, true),
-            ("workaround", None, false),
-            ("workaround", Some("Because"), true),
-            ("design_changed", None, false),
-            ("design_changed", Some("Because"), true),
+            ("fixed", None, true),
+            ("old_rule", None, false),
+            ("old_rule", Some("Because"), true),
         ] {
             let ret = row(kind, why);
             assert_eq!(flow::valid(&schema, &ret), taken, "{kind} {why:?}");
@@ -2214,13 +2216,13 @@ mod tests {
         }
         // Every row of a list is checked, not the first alone.
         let mixed = done_with(json!([
-            { "kind": "surprise", "what": "A" },
-            { "kind": "workaround", "what": "B", "why": "C" },
-            { "kind": "surprise", "what": "D", "why": "E" },
+            { "answer": "fixed", "id": "F1", "commit": "9d2c7aa" },
+            { "answer": "old_rule", "id": "F2", "why": "C" },
+            { "answer": "fixed", "id": "F3", "commit": "9d2c7aa", "why": "E" },
         ]));
         assert_eq!(
             refused(&s, &mixed, "").as_deref(),
-            Some("/outcome/deviations/2: must NOT have additional properties ('why' is not allowed)")
+            Some("/outcome/rows/2: must NOT have additional properties ('why' is not allowed)")
         );
     }
 
@@ -2249,7 +2251,7 @@ mod tests {
     }
 
     // A null in a field of a form the return is not (`ask: null` beside what was learned, as R241-2 and R262-2 beside a
-    // brief; `why: null` in a `surprise`) is refused by the command line, which the agent puts right within its run; a
+    // brief; `why: null` in a row answered `fixed`) is refused by the command line, which the agent puts right within its run; a
     // return the command line
     // did not check reaches the engine with it, which takes it as left out, so that the return fits the cell's schema,
     // and gives the path of each such null. A null in a field the return's own form requires, a value of nothing but
@@ -2259,15 +2261,12 @@ mod tests {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("engineer"));
-        let schema = g.cell("I1").unwrap().schema.clone().unwrap();
-        let mut surprise = done_with(json!([{ "kind": "surprise", "what": "A thing", "why": null }]));
-        assert!(refused(&s, &surprise, "").is_some_and(|r| r.contains("'why'")));
-        assert!(!flow::valid(&schema, &surprise));
-        assert_eq!(
-            flow::without_null_options(&schema, &mut surprise),
-            ["outcome.deviations[0].why"]
-        );
-        assert!(flow::valid(&schema, &surprise), "{surprise}");
+        let schema = g.cell("T6").unwrap().schema.clone().unwrap();
+        let mut fixed = done_with(json!([{ "answer": "fixed", "id": "F1", "commit": "9d2c7aa", "why": null }]));
+        assert!(refused(&s, &fixed, "").is_some_and(|r| r.contains("'why'")));
+        assert!(!flow::valid(&schema, &fixed));
+        assert_eq!(flow::without_null_options(&schema, &mut fixed), ["outcome.rows[0].why"]);
+        assert!(flow::valid(&schema, &fixed), "{fixed}");
         // The same two lines of a `brief` of the reader of the history.
         let reader = envelope(g, Some("librarian"));
         let brief_schema = g.cell("R0").unwrap().schema.clone().unwrap();
@@ -2278,7 +2277,7 @@ mod tests {
         assert_eq!(flow::without_null_options(&brief_schema, &mut brief), ["outcome.pause"]);
         assert!(flow::valid(&brief_schema, &brief), "{brief}");
         // What the form requires is not left out.
-        let mut required = done_with(json!([{ "kind": "workaround", "what": "A thing", "why": null }]));
+        let mut required = done_with(json!([{ "answer": "old_rule", "id": "F1", "why": null }]));
         assert!(refused(&s, &required, "").is_some());
         assert_eq!(flow::without_null_options(&schema, &mut required), Vec::<String>::new());
         assert!(!flow::valid(&schema, &required));
@@ -2291,7 +2290,7 @@ mod tests {
         );
         assert!(!flow::valid(&brief_schema, &only));
         // A field the form may leave out is taken by the command line as null, left out by the engine, and not told.
-        let mut optional = samples()["I1"][2]["json"].clone();
+        let mut optional = samples()["T6"][0]["json"].clone();
         optional["outcome"]["followup"] = Value::Null;
         assert_eq!(refused(&s, &optional, ""), None);
         assert!(!flow::valid(&schema, &optional));

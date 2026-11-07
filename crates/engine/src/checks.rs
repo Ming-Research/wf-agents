@@ -2184,8 +2184,9 @@ fn test_results_match_runs(c: &Ctx<'_>, rows: &[Value]) -> Result<Problems, Stri
     }))
 }
 
-/// What each run of ci on the work's pushed head reported (its `push`), newest first; none when nothing was pushed.
-fn head_pushes_of(e: &Engine, w: &Work) -> Result<Vec<Value>, String> {
+/// What each run of ci on the work's pushed head reported (its `push`), newest first; none when nothing was pushed. The
+/// reviews are given the same runs as the input `head_ci`, so that they read the CI these checks judged.
+pub(crate) fn head_pushes_of(e: &Engine, w: &Work) -> Result<Vec<Value>, String> {
     let pushed: Option<String> =
         e.db.conn()
             .query_row("SELECT pushed_head FROM works WHERE id = ?1", [w.id], |r| r.get(0))

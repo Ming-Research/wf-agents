@@ -781,7 +781,7 @@ case!(
     }
 );
 case!(a_shown_place_the_return_does_not_have, "nope", |v| {
-    node(v, "I1")["shown"] = json!(["deviations", "followup", "nope"]);
+    node(v, "I1")["shown"] = json!(["design_updates", "followup", "nope"]);
 });
 case!(an_input_every_cell_has_with_no_name, "goes by a name", |v| {
     obj(&mut graph(v)["agentCommon"]["inputs"][0]).remove("name");
