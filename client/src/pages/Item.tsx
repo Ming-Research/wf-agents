@@ -313,6 +313,16 @@ export function designUpdates(list: Shown[] | undefined): Update[] {
   return out.sort((a, b) => a.from.round - b.from.round);
 }
 
+/// The design as updated while implementing and fixing that stands under the design shown, from every value the item
+/// shows, an empty list included (a cell's newest return that holds none takes its passages back): only the passages of
+/// works no older than the work of the newest design or research plan, since a later work's design replaces what an
+/// earlier work wrote into its own, and until the later work hands in passages it has none.
+export function standingUpdates(all: Shown[]): Update[] {
+  const designs = all.filter((x) => x.path === 'design' || x.path === 'can_start');
+  const since = designs.length > 0 ? Math.max(...designs.map((x) => x.work)) : 0;
+  return designUpdates(all.filter((x) => x.path === 'design_updates' && x.work >= since));
+}
+
 /// The design as updated while implementing and fixing, after the design: each passage with its decision and why, and
 /// the round it came from.
 export function DesignUpdates({ updates }: { updates: Update[] }) {
@@ -341,8 +351,7 @@ export function DesignUpdates({ updates }: { updates: Update[] }) {
 /// came straight from its research has alone.
 function DesignBlock({ shown, d }: { shown: Map<string, Shown[]>; d: ItemDetail }) {
   const marks = ['chosen', 'why', 'design', 'measure', 'options'].flatMap((p) => shown.get(p) ?? []);
-  // From every value shown, an empty list included: a cell's newest return that holds none takes its passages back.
-  const updates = designUpdates(d.shown.filter((x) => x.path === 'design_updates'));
+  const updates = standingUpdates(d.shown);
   const all = [...marks, ...updates.map((u) => u.from)];
   if (all.length === 0) return null;
   const from = all.reduce((a, b) => (after(b, a) ? b : a));
@@ -399,7 +408,8 @@ function AcceptanceBlock({ d, shown }: { d: ItemDetail; shown: Map<string, Shown
   );
 }
 
-/// What changed on the way: where the work departed from the design, newest first, and what to do next.
+/// What changed on the way: where the work departed from the design, newest first, and what to do next. The departures
+/// are kept for works on flow versions before `design_updates`, whose returns still hold them; none hands them in now.
 function Changes({ shown }: { shown: Map<string, Shown[]> }) {
   const deviations = (shown.get('deviations') ?? [])
     .flatMap((x) => (Array.isArray(x.value) ? x.value.map((v) => ({ x, v })) : [{ x, v: x.value }]))

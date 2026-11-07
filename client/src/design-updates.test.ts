@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type { JsonValue, Shown } from './api';
-import { DesignUpdates, designUpdates } from './pages/Item';
+import { DesignUpdates, designUpdates, standingUpdates } from './pages/Item';
 
 const passage = (name: string): JsonValue => ({ passage: name, decision: `${name} decided`, why: `${name} because` });
 const shown = (work: number, round: number, cell: string, value: JsonValue): Shown => ({
@@ -40,6 +40,16 @@ describe('the design as updated while implementing', () => {
     ];
     const got = designUpdates(list);
     expect(got.map((u) => [u.decision, u.from.round])).toEqual([['p1 decided otherwise', 9]]);
+  });
+
+  it("shows no earlier work's passages under a later work's design or plan until that work hands in its own", () => {
+    const earlier = shown(1, 9, 'I1', [passage('of the work before')]);
+    const design = (work: number, path: string): Shown => ({ work, round: 3, cell: 'D2', path, value: { chosen: 'x' } });
+    expect(standingUpdates([earlier, design(2, 'design')])).toEqual([]);
+    expect(standingUpdates([earlier, design(2, 'can_start')])).toEqual([]);
+    const own = shown(2, 12, 'I1', [passage('its own')]);
+    expect(standingUpdates([earlier, design(2, 'design'), own]).map((u) => u.passage)).toEqual(['its own']);
+    expect(standingUpdates([design(1, 'design'), earlier]).map((u) => u.passage)).toEqual(['of the work before']);
   });
 
   it('takes the passages back when the newest return of the cell holds none', () => {

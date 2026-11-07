@@ -8449,7 +8449,7 @@
             "- A change to the code an interjection asked for, as the way on chose it: make it, with the test that shows it, and answer fixed; when it turns out to need the design or the acceptance changed, ask.",
             "- A fix of any of these rows that is in no commit, such as a pull request description to correct: make it (for the description, hand in ci with pr and no tests) and answer fixed_outside_commit with where it is; do not answer fixed with the head as its commit. The side that raised the row looks at it again.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
-            "Fix as the plan or the design says, changing only what the rows need. A decision the fix makes that neither the plan or the design nor the decisions in force record, such as how to meet a case it did not foresee or a detail it got wrong, you write into the design in design_updates, with why; none is left in the code alone. Where the plan or the design is wrong in its direction, do not work around it: ask. A workaround for a problem outside this work is a side report, with a comment in the code where it stands.",
+            "Fix as the plan or the design says, changing only what the rows need. A decision the fix makes that neither the plan or the design nor the decisions in force record, such as how to meet a case it did not foresee or a detail it got wrong, you write into the design in design_updates, with why; none is left in the code alone. When a row has you change or take back a passage implementing wrote, write that passage in design_updates as it now stands (taken back: what the design says there). Where the plan or the design is wrong in its direction, do not work around it: ask the advisor. A workaround for a problem outside this work is a side report, with a comment in the code where it stands.",
             "Before handing in, your last commit must have run with ci and the fast CI must be green: name the tests the fix touches, and for a red lint only the lint; the full CI runs once more in the merge queue, not before every problem is fixed. Hand in the head, what changed in tests and checks, and the rows of the acceptance table that changed. The engine reads the results of each test added or extended from the runs of ci and ci_before."
           ],
           "always": [
@@ -8481,6 +8481,16 @@
                 [
                   "T6",
                   "rows"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "what": "The passages the fix wrote into the design, each with why: every one the fixes of this work wrote, as it stands now; none when they wrote none",
+              "from": [
+                [
+                  "T6",
+                  "design_updates"
                 ]
               ],
               "maybe": true
@@ -8541,7 +8551,7 @@
             }
           ],
           "prompt": [
-            "This round re-checks the fix, once. Look only at the places the review raised and the fix answered: is each fixed, and did the fix break anything near it. Raise nothing new beyond that, unless the fix itself brought it in. When adversarial testing ran and the code changed since, run its tests again with ci; open no new adversarial testing. For an old-behaviour test of the engineer's that the fix added and that could not be built before the change (cannot_run), judge the reason it gives in not_before by the diff as the details review does, and write it among the problems the fix brought in when the old behaviour is not shown unchanged some other way. A disagreement you accept is holds; one you still insist on is insist, saying why: the engineer then takes it to the advisor. A finding set aside the fix answered old_rule holds when the check as the branch changes it would not report it, by the diff.",
+            "This round re-checks the fix, once. Look only at the places the review raised and the fix answered: is each fixed, and did the fix break anything near it. Raise nothing new beyond that, unless the fix itself brought it in. Judge each passage the fix wrote into the design (design_updates) as the first review judges implementing's: a short cut, another method or more than the row needs is a problem the fix brought in. When adversarial testing ran and the code changed since, run its tests again with ci; open no new adversarial testing. For an old-behaviour test of the engineer's that the fix added and that could not be built before the change (cannot_run), judge the reason it gives in not_before by the diff as the details review does, and write it among the problems the fix brought in when the old behaviour is not shown unchanged some other way. A disagreement you accept is holds; one you still insist on is insist, saying why: the engineer then takes it to the advisor. A finding set aside the fix answered old_rule holds when the check as the branch changes it would not report it, by the diff.",
             "Judge each finding set aside you are given, in set_aside, by the diff: old_rule when the check as the branch changes it would not report it, saying why; real when it is a problem all the same, which you then also write among the problems the fix brought in. Your own return is judged by the installed checks: a row that is a finding set aside in a return of the re-check means the same check judges this return; write it by the rule this prompt gives, not the branch's, so that it is not set aside again.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history."
           ],
