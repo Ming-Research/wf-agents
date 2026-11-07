@@ -8,6 +8,13 @@
 
 - The first research may use CI and the tools. Without running things it cannot find a root cause.
 
+- Research is held to researching by what it is asked, not by where it may write. What it makes for the problem, data,
+  code, probes and notes, goes in the research folder and is not left about elsewhere; a test that reproduces the
+  problem goes where the project's tests are, so that it runs where they run and the implementation keeps it. A simple
+  research leaves nothing but its conclusion, and a conclusion that decides something is proposed for the design tree. A
+  limit of everything to the research folder, set to keep research on its task, also kept a reproduction from running
+  where the tests run, so a defect could not be seen to happen before it was fixed.
+
 - Where the first research can settle the way, it writes the change and goes straight to implementing; only where it
   cannot does deep research follow. Most works settle there, and what needs more is a hard performance problem, a
   feature to design or a stubborn defect. Two further cells asking for the root cause and whether it is a design flaw
