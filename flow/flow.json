@@ -4522,8 +4522,8 @@
             "T6",
             "T4",
             "M1",
-            "M3",
-            "M2"
+            "M2",
+            "M3"
           ],
           "entries": [
             "I0",
@@ -4704,8 +4704,8 @@
             "name": "merge",
             "nodes": [
               "M1",
-              "M3",
-              "M2"
+              "M2",
+              "M3"
             ]
           },
           {
@@ -4862,10 +4862,6 @@
           {
             "name": "splits",
             "desc": "The times deep research put a split of its design into parts to the architect"
-          },
-          {
-            "name": "taken_out",
-            "desc": "The times the small cell took out of the design tree the additions the owner chose not to keep"
           }
         ]
       },
@@ -9622,11 +9618,7 @@
                 ]
               ],
               "to": "M3",
-              "do": [
-                "resolve_blocker",
-                "fresh_session"
-              ],
-              "note": "A small cell takes out of the design tree the additions the owner chose not to keep, and the work comes back here."
+              "note": "A small cell takes out of the design tree the additions the owner chose not to keep, before the merge."
             },
             {
               "name": "interjection",
@@ -9733,56 +9725,6 @@
               ]
             ]
           }
-        },
-        {
-          "id": "M3",
-          "kind": "agent",
-          "title": "Take out the additions the owner did not keep",
-          "effort": "medium",
-          "line": "scribe",
-          "tools": [
-            "ci"
-          ],
-          "without": [
-            "ask"
-          ],
-          "inputs": [
-            {
-              "what": "(Draft) The additions to the design tree the owner chose not to keep: for each card, the option chosen and the entry it adds, whose box the owner unticked",
-              "from": [
-                {
-                  "engine": "unticked_additions"
-                }
-              ]
-            }
-          ],
-          "prompt": [
-            "(Draft) This round takes out of the design tree, in `design/`, each addition below that the owner chose not to keep, as this work wrote it there, and changes nothing else. Commit the change locally, and hand in ci with no test named, which pushes it."
-          ],
-          "out": [
-            {
-              "$ref": "head"
-            }
-          ],
-          "checks": [
-            {
-              "at": "head",
-              "check": "head_pushed_and_green"
-            }
-          ],
-          "cases": [
-            {
-              "name": "done",
-              "if": [
-                [
-                  "own"
-                ]
-              ],
-              "to": "M1",
-              "counts": "taken_out",
-              "note": "The merge gate judges again, with the additions taken out."
-            }
-          ]
         },
         {
           "id": "M2",
@@ -10069,6 +10011,55 @@
               ]
             ]
           }
+        },
+        {
+          "id": "M3",
+          "kind": "agent",
+          "title": "Take out the additions the owner did not keep",
+          "effort": "medium",
+          "line": "scribe",
+          "tools": [
+            "ci"
+          ],
+          "without": [
+            "ask"
+          ],
+          "inputs": [
+            {
+              "what": "(Draft) The additions to the design tree the owner chose not to keep: for each card, the option chosen and the entry it adds, whose box the owner unticked",
+              "from": [
+                {
+                  "engine": "unticked_additions"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "(Draft) This round takes out of the design tree, in `design/`, each addition below that the owner chose not to keep, as this work wrote it there, and changes nothing else. Commit the change locally, and hand in ci with no test named, which pushes it."
+          ],
+          "out": [
+            {
+              "$ref": "head"
+            }
+          ],
+          "checks": [
+            {
+              "at": "head",
+              "check": "head_pushed_and_green"
+            }
+          ],
+          "cases": [
+            {
+              "name": "done",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "M2",
+              "main": true
+            }
+          ]
         },
         {
           "id": "A4",
