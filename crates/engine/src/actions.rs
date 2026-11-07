@@ -350,7 +350,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "post_design_card" => post_cards(ctx, tx)?,
         "post_open_questions" => crate::open_questions::post(ctx, tx)?,
-        "write_learned" => crate::open_questions::write_learned(ctx, tx)?,
         "notify_pending_approvers" => {
             let open: Vec<String> = crate::open_questions::unanswered(tx, w)?
                 .iter()
@@ -636,8 +635,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             );
             crate::hub::tell(tx, Some(w), &text)?;
         }
-        "tell_wait" => crate::verification::tell_wait(ctx, tx)?,
-        "report_verification" => crate::verification::report(ctx, tx)?,
         "report_stuck" => {
             let now = ctx.output["to"].as_i64().unwrap_or_default();
             report_stuck(tx, w, now, ctx.output["why"].as_str().unwrap_or_default())?;

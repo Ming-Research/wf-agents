@@ -123,13 +123,6 @@ pub(crate) fn inline_or_saved(e: &Engine, round: RoundId, n: usize, text: String
     }
 }
 
-/// The file a text [`inline_or_saved`] gave says the whole of it was saved to; none for a text given here.
-pub(crate) fn saved_to(text: &str) -> Option<&str> {
-    text.strip_prefix("Too long to give here (")?
-        .split_once("; saved to ")
-        .map(|(_, path)| path)
-}
-
 /// The rows a query found as the flow's query tool gives them: the rows themselves, each an object, when they are short
 /// enough to give here; otherwise as many of the first as are, and what `save` gives for all of them written one JSON
 /// object per line, which says where they were saved.

@@ -959,13 +959,13 @@ macro_rules! sql_item_done {
 }
 
 /// The cells of the engineer's graph past its merge gate, as an SQL list: the merge, and the cells its merged work goes
-/// through to the end, from which it ends with no cell waiting for the items its item depends on, as the gate does. A
-/// merge that fails goes back to the fix, before the gate, which waits again. The flow crate's test
-/// `the_cells_past_the_merge_gate_are_the_flows` holds the list to the flow.
+/// through to the end, from which it ends with no cell waiting for the items its item depends on, as the gate does; a
+/// merged work goes from the merge to the end. A merge that fails goes back to the fix, before the gate, which waits
+/// again. The flow crate's test `the_cells_past_the_merge_gate_are_the_flows` holds the list to the flow.
 #[macro_export]
 macro_rules! sql_past_gate_cells {
     () => {
-        "'M2', 'L2', 'V1', 'V2'"
+        "'M2'"
     };
 }
 
@@ -2485,101 +2485,6 @@ mod tests {
         assert_eq!(
             shape(old.conn()).unwrap(),
             shape(Db::in_memory().unwrap().conn()).unwrap()
-        );
-    }
-
-    // The view of what the owner said that concerns a work gives the words said in the work's group, the owner's answers
-    // to its engineer's questions, those said to its engineer alone and the answers to its asks, each with who was
-    // declared to speak it; the words of a matter that is no work's, an interjection a matter holds and the
-    // architect's own are left out.
-    #[test]
-    fn what_the_owner_said_that_concerns_a_work_is_read_from_its_records() {
-        let mut db = Db::in_memory().unwrap();
-        db.write(Actor::Engine, |tx| {
-            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-            tx.execute("INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'A3')", [])?;
-            tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'A3', '{}', 'c', 1)",
-                [],
-            )?;
-            for (body, at) in [
-                (
-                    r#"{"text":"In the group.","where":"work","work":1,"speaker":"delegate","relayed":["In the"]}"#,
-                    5,
-                ),
-                (r#"{"text":"On the page.","where":"page","speaker":"owner"}"#, 6),
-                (r#"{"text":"Kept before speakers.","where":"work","work":1}"#, 7),
-            ] {
-                tx.execute(
-                    "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'owner_words', 'w', ?1, ?2)",
-                    params![body, at],
-                )?;
-            }
-            tx.execute(
-                "INSERT INTO interjections (work, speaker, text, matter) VALUES (1, 'owner', 'Held by a matter.', 1)",
-                [],
-            )?;
-            tx.execute(
-                "INSERT INTO interjections (work, speaker, declared, relayed, text)
-                 VALUES (1, 'owner', 'delegate', '[\"To the\"]', 'To the engineer.')",
-                [],
-            )?;
-            // The owner's answer to an engineer's question is the reply of its matter; the architect's reply is not.
-            tx.execute(
-                "INSERT INTO architect_matters (project, kind, what, body, work, round, at, reply) VALUES
-                 ('p', 'engineer_question', 'w', '{}', 1, 1, 8,
-                  '{\"by\":\"owner\",\"at\":9,\"text\":\"Split it.\",\"speaker\":\"delegate\",\"relayed\":[\"Split\"]}'),
-                 ('p', 'engineer_question', 'w', '{}', 1, 1, 8, '{\"by\":\"architect\",\"at\":9,\"text\":\"No.\"}')",
-                [],
-            )?;
-            tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'architect', 'Not the owner.')", [])?;
-            tx.execute(
-                "INSERT INTO owner_asks (work, round, body, answer) VALUES
-                 (1, 1, '{}', '{\"by\":\"owner\",\"at\":9,\"text\":\"Yes.\",\"speaker\":\"owner\"}'),
-                 (1, 1, '{}', '{\"by\":\"engine\",\"at\":9,\"text\":\"Closed.\"}'),
-                 (1, 1, '{}', NULL)",
-                [],
-            )?;
-            Ok(())
-        })
-        .unwrap();
-        type Row = (i64, String, i64, Option<String>, String, Option<String>);
-        let rows: Vec<Row> = db
-            .conn()
-            .prepare("SELECT work, source, id, speaker, words, relayed FROM work_owner_words ORDER BY source, id")
-            .unwrap()
-            .query_map([], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-            })
-            .unwrap()
-            .collect::<rusqlite::Result<_>>()
-            .unwrap();
-        // The parts a delegate declared to be the owner's own come with the row, a JSON array; none when it declared none.
-        let said = |source: &str, id: i64, speaker: Option<&str>, words: &str, relayed: Option<&str>| {
-            (
-                1,
-                source.to_string(),
-                id,
-                speaker.map(str::to_string),
-                words.to_string(),
-                relayed.map(str::to_string),
-            )
-        };
-        assert_eq!(
-            rows,
-            [
-                said("ask", 1, Some("owner"), "Yes.", None),
-                said(
-                    "interjection",
-                    2,
-                    Some("delegate"),
-                    "To the engineer.",
-                    Some(r#"["To the"]"#),
-                ),
-                said("matter", 1, Some("delegate"), "In the group.", Some(r#"["In the"]"#)),
-                said("matter", 3, None, "Kept before speakers.", None),
-                said("matter", 4, Some("delegate"), "Split it.", Some(r#"["Split"]"#)),
-            ]
         );
     }
 

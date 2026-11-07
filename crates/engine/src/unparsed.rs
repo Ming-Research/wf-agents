@@ -561,9 +561,9 @@ mod tests {
     fn a_list_the_schema_requires_left_out_is_taken_as_empty() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let cell = g.cell("L2").unwrap();
+        let cell = g.cell("A4").unwrap();
         let schema = cell.schema.clone().unwrap();
-        let answer = json!({ "learned": "Fact (2026-11-04): one read gives the rows and the total (R1-2)" });
+        let answer = json!({ "next": { "way": "carry_on" } });
         let ret = json!({
             "side_reports": [],
             "flow_feedback": "none",
@@ -600,11 +600,9 @@ mod tests {
     fn a_form_written_as_its_json_text_is_taken_with_the_closing_brackets_after_it_dropped() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let cell = g.cell("L2").unwrap();
+        let cell = g.cell("A4").unwrap();
         let schema = cell.schema.clone().unwrap();
-        let answer = json!({
-            "learned": "Fact (2026-11-04): one read of the data gives the rows and the total (R1-2)",
-        });
+        let answer = json!({ "next": { "way": "carry_on" } });
         let with = |text: String| {
             json!({
                 "tell_owner": [],

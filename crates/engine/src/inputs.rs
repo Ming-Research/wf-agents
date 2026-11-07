@@ -822,7 +822,6 @@ pub fn engine_input(
         }
         "owner_approval" => return crate::approval::input(e.db.conn(), &e.project_of(w)?, w),
         "design_review" => return crate::review::input(e.db.conn(), w.id),
-        crate::verification::INPUT => return crate::verification::effect(e, w, item),
         _ => {}
     }
     let wt = w.worktree.as_deref();
