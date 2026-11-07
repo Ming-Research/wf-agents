@@ -1326,6 +1326,13 @@ pub fn engine(
     let item = e.subject(w)?;
     let open = close_interrupted(e, w)?;
     let step = cell.step.clone();
+    // draft for the audit: putting a split of the design to the architect is not carried out yet; the work holds there.
+    if step.as_deref() == Some("put_split") {
+        return Ok(Advance::Waits(format!(
+            "work {} holds at cell {}: its split is not put to the architect yet",
+            w.id, cell.id
+        )));
+    }
     if step.as_deref() == Some("bring_up") {
         return bring_up(e, w, g, cell, None);
     }

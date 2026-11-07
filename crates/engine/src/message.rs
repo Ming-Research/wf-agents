@@ -136,7 +136,9 @@ fn setting_empty(v: &Value) -> bool {
 /// Whether a value is the project's own context, which a message gives before anything else: the project's guide (its
 /// AGENTS.md and records) and a setting of its configuration, such as its design goal.
 fn project_own(o: &Origin) -> bool {
-    matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == GUIDE)
+    // draft for the audit: the project's AGENTS.md alone, which the common opening of every cell gives in the guide's
+    // place.
+    matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == GUIDE || n == "agents_md")
 }
 
 /// A return format or a rule with the value of each setting it names written beside the setting's name, such as
@@ -1526,15 +1528,12 @@ mod tests {
         let goal = implement
             .inputs
             .iter()
-            .find(|x| x.name.as_deref() == Some("Design goal"))
+            .find(|x| x.name.as_deref() == Some("AGENTS.md"))
             .unwrap();
         assert_eq!(common.matches(goal.what.as_str()).count(), 1, "{common}");
         let listed = cell_inputs(implement);
         assert!(!listed.contains(goal.what.as_str()), "{listed}");
-        assert!(
-            listed.contains("Design goal, which format:common describes"),
-            "{listed}"
-        );
+        assert!(listed.contains("AGENTS.md, which format:common describes"), "{listed}");
         assert!(listed.contains(implement.inputs[0].what.as_str()), "{listed}");
     }
 

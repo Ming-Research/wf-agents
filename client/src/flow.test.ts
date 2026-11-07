@@ -346,8 +346,9 @@ describe('the flow as the engine stores it', () => {
     expect(back).toHaveLength(1);
     expect(back[0].actions).toEqual(['raise_blocker', 'hold_for_approvals', 'ask_owner_approval']);
     expect(back[0].only).toEqual({ hold_for_approvals: ['approvals'], ask_owner_approval: ['owner_approves'] });
+    // In the draft of the audit the merge gate waits for the owner's choice on the cards too.
     expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe(
-      'wait, approvals, owner_approves',
+      'wait, approvals, owner_approves, cards',
     );
     expect(actionLine('ask_owner_approval', ['owner_approves'])).toBe('ask owner approval (on owner_approves)');
     expect(actionLine('raise_blocker', undefined)).toBe('raise blocker');

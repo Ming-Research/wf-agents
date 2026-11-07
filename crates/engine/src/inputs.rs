@@ -831,6 +831,15 @@ pub fn engine_input(
             Some(wt) => Some(project_guide(e, item, wt, &guide_base(wt, &main)?)?),
             None => None,
         },
+        // draft for the audit: the project's AGENTS.md as the project guide reads it, from main as the work's branch took
+        // it, without the index of the records; the cards and the owner's choices on them are not recorded yet.
+        "agents_md" => match wt {
+            Some(wt) => project_guide(e, item, wt, &guide_base(wt, &main)?)?
+                .get("agents_md")
+                .cloned(),
+            None => None,
+        },
+        "card_choices" | "unticked_additions" => None,
         "local_commits" => wt.and_then(|wt| {
             let range = match &w.pushed_head {
                 Some(p) => format!("{p}..HEAD"),

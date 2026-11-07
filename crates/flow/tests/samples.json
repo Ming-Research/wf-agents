@@ -18,12 +18,17 @@
     {
       "row": "done",
       "json": {
+        "outcome": {
+          "lessons": [
+            {
+              "lesson": "lessons.lesson",
+              "address": "#1"
+            }
+          ]
+        },
         "side_reports": [],
         "progress": "progress",
-        "flow_feedback": "none",
-        "outcome": {
-          "brief": "outcome.brief"
-        }
+        "flow_feedback": "none"
       },
       "given": {}
     }
@@ -33,152 +38,91 @@
       "row": "start",
       "json": {
         "outcome": {
-          "understanding": {
-            "problem": "understanding.problem",
-            "why": "understanding.why",
-            "cause": "understanding.cause",
-            "vs_item": "understanding.vs_item",
-            "grounds": [
-              {
-                "kind": "verified",
-                "claim": "understanding.grounds.claim",
-                "where": "understanding.grounds.where"
-              }
-            ]
-          },
           "can_start": {
             "verdict": "yes",
-            "why": "can_start.why",
-            "change": "can_start.change",
-            "verify": "can_start.verify",
+            "owner_plan": "can_start.owner_plan",
             "acceptance": [
               {
                 "by": "test",
-                "id": "can_start.acceptance.id",
-                "condition": "can_start.acceptance.condition"
+                "id": "acceptance.id",
+                "condition": "acceptance.condition"
               }
-            ]
-          },
-          "departs": {
-            "verdict": "no",
-            "why": "departs.why"
-          },
-          "points": []
+            ],
+            "cards": []
+          }
         },
         "side_reports": [],
         "tell_owner": [],
         "progress": "progress",
         "flow_feedback": "none"
       },
-      "given": {
-        "research_rounds": "within"
-      }
+      "given": {}
     },
     {
       "row": "cannot_start",
       "json": {
         "outcome": {
-          "understanding": {
-            "problem": "understanding.problem",
-            "why": "understanding.why",
-            "cause": "understanding.cause",
-            "vs_item": "understanding.vs_item",
-            "grounds": [
-              {
-                "kind": "verified",
-                "claim": "understanding.grounds.claim",
-                "where": "understanding.grounds.where"
-              }
-            ]
-          },
           "can_start": {
             "verdict": "no",
-            "why": "can_start.why",
             "stuck": "can_start.stuck"
-          },
-          "departs": {
-            "verdict": "no",
-            "why": "departs.why"
-          },
-          "points": []
+          }
         },
         "side_reports": [],
         "tell_owner": [],
         "progress": "progress",
         "flow_feedback": "none"
       },
-      "given": {
-        "research_rounds": "within"
-      }
+      "given": {}
     },
     {
       "row": "start",
       "json": {
         "outcome": {
-          "understanding": {
-            "problem": "understanding.problem",
-            "why": "understanding.why",
-            "cause": "understanding.cause",
-            "vs_item": "understanding.vs_item",
-            "grounds": [
-              {
-                "kind": "verified",
-                "claim": "understanding.grounds.claim",
-                "where": "understanding.grounds.where"
-              }
-            ]
-          },
           "can_start": {
             "verdict": "yes",
-            "why": "can_start.why",
-            "change": "can_start.change",
-            "verify": "can_start.verify",
+            "owner_plan": "can_start.owner_plan",
             "acceptance": [
               {
                 "by": "test",
-                "id": "can_start.acceptance.id",
-                "condition": "can_start.acceptance.condition"
+                "id": "acceptance.id",
+                "condition": "acceptance.condition"
+              }
+            ],
+            "cards": [
+              {
+                "key": "cards.key",
+                "question": "cards.question",
+                "options": [
+                  {
+                    "option": "cards.options.option",
+                    "does": "cards.options.does",
+                    "cost": "cards.options.cost",
+                    "risks": "cards.options.risks",
+                    "tree": {
+                      "entry": "adds",
+                      "change": "cards.options.tree.change"
+                    }
+                  },
+                  {
+                    "option": "cards.options.other",
+                    "does": "cards.options.does",
+                    "cost": "cards.options.cost",
+                    "risks": "cards.options.risks"
+                  }
+                ],
+                "recommended": "cards.options.option",
+                "confidence": "3",
+                "sure_why": "cards.sure_why"
               }
             ]
-          },
-          "departs": {
-            "verdict": "yes",
-            "decision": "departs.decision",
-            "why": "departs.why",
-            "otherwise": "departs.otherwise"
-          },
-          "points": [
-            {
-              "point": "P1",
-              "question": "points.question",
-              "options": [
-                {
-                  "option": "a",
-                  "does": "a.does",
-                  "good": "a.good",
-                  "bad": "a.bad"
-                },
-                {
-                  "option": "b",
-                  "does": "b.does",
-                  "good": "b.good",
-                  "bad": "b.bad"
-                }
-              ],
-              "recommended": "a",
-              "confidence": "points.confidence",
-              "uncertain": "points.uncertain"
-            }
-          ]
+          }
         },
         "side_reports": [],
         "tell_owner": [],
         "progress": "progress",
         "flow_feedback": "none"
       },
-      "given": {
-        "research_rounds": "within"
-      }
+      "given": {}
     },
     {
       "row": "ask_advisor",
@@ -199,9 +143,7 @@
         "progress": "progress",
         "flow_feedback": "none"
       },
-      "given": {
-        "research_rounds": "within"
-      }
+      "given": {}
     }
   ],
   "D1": [
@@ -227,154 +169,87 @@
         "progress": "progress",
         "flow_feedback": "none"
       },
-      "given": {
-        "work": "implementation"
-      }
+      "given": {}
     },
     {
       "row": "done",
       "json": {
         "outcome": {
-          "measure": {
-            "verdict": "not_measured",
-            "why": "measure.why"
+          "owner_plan": "owner_plan",
+          "agent_plan": "agent_plan",
+          "acceptance": [
+            {
+              "by": "test",
+              "id": "acceptance.id",
+              "condition": "acceptance.condition"
+            }
+          ],
+          "split": {
+            "verdict": "whole"
           },
-          "design": {
-            "chosen": "design.chosen",
-            "why": "design.why",
-            "solution": "design.solution",
-            "where": "design.where",
-            "excluded": "design.excluded",
-            "pitfalls": "design.pitfalls",
-            "others": "design.others",
-            "decisions": [
-              {
-                "verdict": "departs",
-                "decision": "design.decisions.decision",
-                "why": "design.decisions.why"
-              }
-            ],
-            "articles": [
-              {
-                "article": "design.articles.article",
-                "how": "design.articles.how"
-              }
-            ],
-            "acceptance": [
-              {
-                "by": "test",
-                "id": "design.acceptance.id",
-                "condition": "design.acceptance.condition"
-              }
-            ],
-            "points": [
-              {
-                "point": "design.points.point",
-                "question": "design.points.question",
-                "options": [
-                  {
-                    "option": "design.points.options.option",
-                    "does": "design.points.options.does",
-                    "good": "design.points.options.good",
-                    "bad": "design.points.options.bad"
-                  },
-                  {
-                    "option": "design.points.options.option",
-                    "does": "design.points.options.does",
-                    "good": "design.points.options.good",
-                    "bad": "design.points.options.bad"
-                  }
-                ],
-                "recommended": "design.points.recommended",
-                "confidence": "design.points.confidence",
-                "uncertain": "design.points.uncertain"
-              }
-            ],
-            "estimate": "design.estimate"
-          }
+          "cards": []
         },
         "side_reports": [],
         "tell_owner": [],
         "progress": "progress",
         "flow_feedback": "none"
       },
-      "given": {
-        "work": "implementation"
-      }
-    }
-  ],
-  "D2": [
+      "given": {}
+    },
     {
-      "row": "done",
+      "row": "split",
       "json": {
         "outcome": {
-          "examined": [
+          "owner_plan": "owner_plan",
+          "agent_plan": "agent_plan",
+          "acceptance": [
             {
-              "verdict": "dead_end",
-              "premise": "p",
-              "broken": "b",
-              "dies": "d"
-            },
-            {
-              "verdict": "holds",
-              "premise": "q",
-              "broken": "b",
-              "why": "w"
+              "by": "test",
+              "id": "acceptance.id",
+              "condition": "acceptance.condition"
             }
           ],
-          "changed": "changed",
-          "design": {
-            "chosen": "design.chosen",
-            "why": "design.why",
-            "solution": "design.solution",
-            "where": "design.where",
-            "excluded": "design.excluded",
-            "pitfalls": "design.pitfalls",
-            "others": "design.others",
-            "decisions": [
-              {
-                "verdict": "departs",
-                "decision": "design.decisions.decision",
-                "why": "design.decisions.why"
-              }
-            ],
-            "articles": [
-              {
-                "article": "design.articles.article",
-                "how": "design.articles.how"
-              }
-            ],
-            "acceptance": [
-              {
-                "by": "test",
-                "id": "design.acceptance.id",
-                "condition": "design.acceptance.condition"
-              }
-            ],
-            "points": [
-              {
-                "point": "design.points.point",
-                "question": "design.points.question",
-                "options": [
-                  {
-                    "option": "design.points.options.option",
-                    "does": "design.points.options.does",
-                    "good": "design.points.options.good",
-                    "bad": "design.points.options.bad"
-                  },
-                  {
-                    "option": "design.points.options.option",
-                    "does": "design.points.options.does",
-                    "good": "design.points.options.good",
-                    "bad": "design.points.options.bad"
+          "cards": [
+            {
+              "key": "cards.key",
+              "question": "cards.question",
+              "options": [
+                {
+                  "option": "cards.options.option",
+                  "does": "cards.options.does",
+                  "cost": "cards.options.cost",
+                  "risks": "cards.options.risks",
+                  "tree": {
+                    "entry": "adds",
+                    "change": "cards.options.tree.change"
                   }
-                ],
-                "recommended": "design.points.recommended",
-                "confidence": "design.points.confidence",
-                "uncertain": "design.points.uncertain"
+                },
+                {
+                  "option": "cards.options.other",
+                  "does": "cards.options.does",
+                  "cost": "cards.options.cost",
+                  "risks": "cards.options.risks"
+                }
+              ],
+              "recommended": "cards.options.option",
+              "confidence": "3",
+              "sure_why": "cards.sure_why"
+            }
+          ],
+          "split": {
+            "verdict": "parts",
+            "parts": [
+              {
+                "part": "split.parts.part",
+                "covers": "split.parts.covers",
+                "after": "none"
+              },
+              {
+                "part": "split.parts.second",
+                "covers": "split.parts.covers",
+                "after": "split.parts.part"
               }
-            ],
-            "estimate": "design.estimate"
+            ]
           }
         },
         "side_reports": [],
@@ -383,6 +258,74 @@
         "flow_feedback": "none"
       },
       "given": {}
+    }
+  ],
+  "D2": [
+    {
+      "row": "done",
+      "json": {
+        "outcome": {
+          "weighed": "weighed"
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "reviewed": "no"
+      }
+    },
+    {
+      "row": "reviewed",
+      "json": {
+        "outcome": {
+          "owner_plan": "owner_plan",
+          "agent_plan": "agent_plan",
+          "acceptance": [
+            {
+              "by": "test",
+              "id": "acceptance.id",
+              "condition": "acceptance.condition"
+            }
+          ],
+          "weighed": "weighed",
+          "cards": [
+            {
+              "key": "cards.key",
+              "question": "cards.question",
+              "options": [
+                {
+                  "option": "cards.options.option",
+                  "does": "cards.options.does",
+                  "cost": "cards.options.cost",
+                  "risks": "cards.options.risks",
+                  "tree": {
+                    "entry": "adds",
+                    "change": "cards.options.tree.change"
+                  }
+                },
+                {
+                  "option": "cards.options.other",
+                  "does": "cards.options.does",
+                  "cost": "cards.options.cost",
+                  "risks": "cards.options.risks"
+                }
+              ],
+              "recommended": "cards.options.option",
+              "confidence": "3",
+              "sure_why": "cards.sure_why"
+            }
+          ]
+        },
+        "side_reports": [],
+        "tell_owner": [],
+        "progress": "progress",
+        "flow_feedback": "none"
+      },
+      "given": {
+        "reviewed": "yes"
+      }
     }
   ],
   "I1": [
@@ -529,7 +472,8 @@
           ],
           "holds": {
             "verdict": "no",
-            "where": "holds.where"
+            "where": "holds.where",
+            "back": "holds.back"
           },
           "departs": {
             "verdict": "no",
@@ -583,7 +527,8 @@
           ],
           "holds": {
             "verdict": "no",
-            "where": "holds.where"
+            "where": "holds.where",
+            "back": "holds.back"
           },
           "departs": {
             "verdict": "no",
@@ -642,7 +587,8 @@
           "departs": {
             "verdict": "yes",
             "decision": "departs.decision",
-            "why": "departs.why"
+            "why": "departs.why",
+            "back": "departs.back"
           }
         },
         "side_reports": [],

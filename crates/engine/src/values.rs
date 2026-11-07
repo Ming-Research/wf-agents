@@ -194,6 +194,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
             s(if all { "all_merged" } else { "waiting" })
         }
+        // draft for the audit: the cards are not recorded yet, so every plan's cards let it on; and the design is not
+        // put to the architect yet, so its review comes back at once.
+        "cards" => s("sure"),
+        "architect_review" => s("reviewed"),
         other => Err(format!("no such engine value: {other}")),
     }
 }

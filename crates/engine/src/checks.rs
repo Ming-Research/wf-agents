@@ -569,7 +569,12 @@ impl Ctx<'_> {
             return Ok(xs);
         }
         let mut written: Vec<(RoundId, Value)> = Vec::new();
-        for (cell, path) in [("D2", "design.acceptance"), ("R1", "can_start.acceptance")] {
+        // draft for the audit: deep research's acceptance, or its second look's where it handed one in again.
+        for (cell, path) in [
+            ("D2", "acceptance"),
+            ("D1", "acceptance"),
+            ("R1", "can_start.acceptance"),
+        ] {
             let returns = crate::inputs::returns_holding(self.e, self.w, self.g, cell, path)?;
             if let Some((round, conditions)) = returns.iter().find_map(|(r, x)| Some((*r, at_path(x, path)?))) {
                 written.push((round, conditions));

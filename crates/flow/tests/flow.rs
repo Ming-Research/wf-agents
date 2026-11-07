@@ -709,7 +709,8 @@ fn what_only_the_owner_wants_is_asked_of_the_owner_and_the_rest_goes_through_the
         .filter(|b| b.holders.iter().any(|h| h == "owner"))
         .map(|b| b.cell.as_str())
         .collect();
-    assert_eq!(held, ["A3", "M1"]);
+    // draft for the audit: and where the cards wait for the owner's choice before implementing.
+    assert_eq!(held, ["A3", "M1", "I0"]);
     let asking = g.cell("A2").unwrap();
     assert!(asking.rows.iter().all(|r| r.name != "to_owner"));
     let anomaly = [flow::format::Src::Place("@caller".into(), "next".into())];
@@ -1118,7 +1119,8 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
 }
 
 // Every agent's cell but the reader of the history's, whose task and rule `history` say all it does, is given the
-// general rules and the project's design goal; every engineer's cell and the advisor's are given the engineering standards; no cell has an
+// general rules; every agent's cell opens with the constitution and the project's AGENTS.md, and none is given the
+// design goal (draft for the audit); every engineer's cell and the advisor's are given the engineering standards; no cell has an
 // input that only says to read something itself; and the forms every return shares say how a return is written. A rule
 // given to a line cannot be named by a cell again.
 #[test]
@@ -1132,14 +1134,27 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
         let engineer = matches!(cell.line.as_deref(), Some("engineer" | "designer" | "advisor"));
         assert_eq!(rules.contains(&("engineering", true)), engineer, "{}", cell.id);
         assert!(
-            cell.inputs
-                .iter()
-                .any(|i| i.from == [flow::format::Src::Config("design_goal".into())]),
+            !cell.inputs.iter().any(|i| i.from == [flow::format::Src::Itself]),
+            "{}",
+            cell.id
+        );
+    }
+    for cell in g.cells.iter().filter(|x| x.kind == "agent") {
+        let opening: Vec<&flow::format::Src> = cell.inputs.iter().filter(|i| i.common).flat_map(|i| &i.from).collect();
+        assert_eq!(
+            opening[..2],
+            [
+                &flow::format::Src::Engine("constitution".into()),
+                &flow::format::Src::Engine("agents_md".into())
+            ],
             "{}",
             cell.id
         );
         assert!(
-            !cell.inputs.iter().any(|i| i.from == [flow::format::Src::Itself]),
+            !cell
+                .inputs
+                .iter()
+                .any(|i| i.from == [flow::format::Src::Config("design_goal".into())]),
             "{}",
             cell.id
         );
@@ -1156,11 +1171,11 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     );
 }
 
-// What every gatherer of history is told is one rule of the flow, which the reader's line gives to every cell of it and
-// the architect's look-up names: the contract is written once, and what a gatherer does with a path is in it.
+// What every gatherer of history is told is one rule of the flow, which the reader's line gives to every cell of it:
+// the contract is written once.
 #[test]
-fn what_every_gatherer_is_told_is_one_rule_with_the_check_of_paths() {
-    let opening = "You gather the history an agent needs before it works.";
+fn what_every_gatherer_is_told_is_one_rule() {
+    let opening = "You read; you change nothing.";
     assert_eq!(FLOW.matches(opening).count(), 1);
     let c = compiled();
     let g = c.graph("engineer").unwrap();
@@ -1169,7 +1184,6 @@ fn what_every_gatherer_is_told_is_one_rule_with_the_check_of_paths() {
     assert!(!cell.prompt.iter().any(|p| p.starts_with(opening)));
     let rule = g.rules.iter().find(|r| r.name == "history").unwrap();
     assert!(rule.text[0].starts_with(opening));
-    assert!(rule.text.iter().any(|t| t.contains("`(gone)`")));
 }
 
 // A field the flow lets a return leave out that the agent wrote as null is taken as left out, and the return fits; a
@@ -1272,22 +1286,16 @@ fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_di
         let given: Map<String, Value> = samples[cell][0]["given"].as_object().cloned().unwrap_or_default();
         g.take(cell, &x, &given).map(|r| r.name.clone())
     };
-    let design = &samples["D2"][0]["json"];
+    let design = &samples["D1"].iter().find(|s| s["row"] == "done").unwrap()["json"];
     let acceptance = |by: &str| {
         serde_json::json!([
             { "by": "test", "id": "A1", "condition": "It works." },
             { "by": by, "id": "A2", "condition": "The page passes its check." }
         ])
     };
-    assert_eq!(
-        fits("D2", design, "design.acceptance", acceptance("ci")).unwrap(),
-        "done"
-    );
-    assert_eq!(
-        fits("D2", design, "design.acceptance", acceptance("diff")).unwrap(),
-        "done"
-    );
-    let e = fits("D2", design, "design.acceptance", acceptance("by_hand")).unwrap_err();
+    assert_eq!(fits("D1", design, "acceptance", acceptance("ci")).unwrap(), "done");
+    assert_eq!(fits("D1", design, "acceptance", acceptance("diff")).unwrap(), "done");
+    let e = fits("D1", design, "acceptance", acceptance("by_hand")).unwrap_err();
     assert!(e.contains("does not fit the schema"), "{e}");
     // Of the conditions table, adversarial testing's and the engineer's alike.
     let sample = &samples["T1"][0]["json"];
@@ -1702,14 +1710,18 @@ fn a_work_moves_by_its_rows() {
     assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("R1", None));
     let wrong = g.cell("A5").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
     assert!(g.step(&p, wrong).is_err());
-    // The research goes straight to implement, or to deep research, whose design goes to its review while the work
-    // implements by it.
-    assert_eq!(take(&p, "start").at, "I1");
+    // The research goes on to implement once its cards let it, or to deep research, whose design goes to the
+    // architect's review and back to its second look before its cards let it on (draft for the audit).
+    let cards = take(&p, "start");
+    assert_eq!(cards.at, "I0");
+    assert_eq!(take(&cards, "sure").at, "I1");
     let deep = take(&p, "cannot_start");
     assert_eq!((deep.at.as_str(), deep.recorded["stage"].as_str()), ("D1", "design_on"));
     let p = take(&take(&deep, "done"), "done");
     assert_eq!(p.at, "D3");
-    let p = take(&p, "posted");
+    let p = take(&p, "reviewed");
+    assert_eq!((p.at.as_str(), p.recorded["reviewed"].as_str()), ("D2", "yes"));
+    let p = take(&take(&p, "reviewed"), "sure_designed");
     assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("I1", "code"));
     // A work that merged ends.
     let merged = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "merged").unwrap();
@@ -1745,9 +1757,10 @@ fn engine_step(given: &[(&str, &str)]) -> (Value, Map<String, Value>) {
     (serde_json::json!({}), given)
 }
 
-// A work whose research settles its approach goes straight to implement in the research's session; one whose research
-// cannot goes to deep research, whose design goes to its review while the work implements by it; then the review in two
-// passes, the merge gate, the merge queue and the end.
+// A work whose research settles its approach goes on to implement in the research's session once its cards let it; one
+// whose research cannot goes to deep research, whose design goes to the architect's review and back to its second look
+// before its cards let it on (draft for the audit); then the review in two passes, the merge gate, the merge queue and
+// the end.
 #[test]
 fn a_work_goes_straight_to_implement_or_through_deep_research_and_its_review() {
     let c = compiled();
@@ -1756,18 +1769,24 @@ fn a_work_goes_straight_to_implement_or_through_deep_research_and_its_review() {
         sampled("I1", "done", &[]),
         sampled("T2", "done", &[]),
         sampled("T3", "clear", &[]),
-        engine_step(&[("gates", "clear"), ("interjection", "no"), ("cancelled", "no")]),
+        engine_step(&[
+            ("gates", "clear"),
+            ("interjection", "no"),
+            ("cancelled", "no"),
+            ("designed", "no"),
+        ]),
         sampled("M2", "merged", &[]),
     ];
     let straight = [
         sampled("S1", "started", &[]),
         sampled("R0", "done", &[]),
         sampled("R1", "start", &[]),
+        engine_step(&[("cards", "sure"), ("designed", "no"), ("interjection", "no")]),
     ];
     let steps: Vec<_> = straight.iter().chain(&tail).cloned().collect();
     assert_eq!(
         walked(g, &steps),
-        ["S1", "R0", "R1", "I1", "T2", "T3", "M1", "M2", "E1"]
+        ["S1", "R0", "R1", "I0", "I1", "T2", "T3", "M1", "M2", "E1"]
     );
     let deep = [
         sampled("S1", "started", &[]),
@@ -1775,12 +1794,16 @@ fn a_work_goes_straight_to_implement_or_through_deep_research_and_its_review() {
         sampled("R1", "cannot_start", &[]),
         sampled("D1", "done", &[]),
         sampled("D2", "done", &[]),
-        engine_step(&[("interjection", "no")]),
+        engine_step(&[("architect_review", "reviewed"), ("interjection", "no")]),
+        sampled("D2", "reviewed", &[]),
+        engine_step(&[("cards", "sure"), ("designed", "yes"), ("interjection", "no")]),
     ];
     let steps: Vec<_> = deep.iter().chain(&tail).cloned().collect();
     assert_eq!(
         walked(g, &steps),
-        ["S1", "R0", "R1", "D1", "D2", "D3", "I1", "T2", "T3", "M1", "M2", "E1"]
+        [
+            "S1", "R0", "R1", "D1", "D2", "D3", "D2", "I0", "I1", "T2", "T3", "M1", "M2", "E1"
+        ]
     );
 }
 
@@ -1841,29 +1864,19 @@ fn written(id: &str) -> Value {
         .clone()
 }
 
-// Item #217, R231-21: a design that decided by reading the engine's records has an answer of its own, with a field that
-// says what it read, beside `not_measured` and `measured`; each answer takes its own field and no other's. And
-// R241-28, in the same compile of the flow, which is most of what the test costs: a test is written once, so that the
-// forms of implementing and of fixing take it so.
+// R241-28: a test is written once, so that the forms of implementing and of fixing take it so. Deep research hands in
+// no answer of how it measured any more (draft for the audit): a return that holds one does not fit.
 #[test]
-fn the_engineer_forms_take_the_answer_from_records_and_a_test_written_once() {
+fn the_engineer_forms_take_a_test_written_once() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     assert_a_test_is_written_once_and_the_forms_have_no_tables_of_it(g);
     let (first, given) = sample("D1", "done");
     assert_eq!(g.take("D1", &first, &given).unwrap().name, "done");
-    let measure = |x: Value| {
-        let mut ret = first.clone();
-        ret["outcome"]["measure"] = x;
-        g.take("D1", &ret, &given)
-    };
-    let read = serde_json::json!({ "verdict": "from_records", "read": "The rounds of the item in the database." });
-    assert_eq!(measure(read).unwrap().name, "done");
-    let not_measured = serde_json::json!({ "verdict": "not_measured", "why": "Nothing here is slow." });
-    assert_eq!(measure(not_measured).unwrap().name, "done");
-    // `from_records` has no `why`, and without its own `read` it is not an answer.
-    let e = measure(serde_json::json!({ "verdict": "from_records", "why": "x" })).unwrap_err();
-    assert!(e.contains("outcome.measure"), "{e}");
+    let mut measured = first.clone();
+    measured["outcome"]["measure"] = serde_json::json!({ "verdict": "not_measured", "why": "Nothing here is slow." });
+    let e = g.take("D1", &measured, &given).unwrap_err();
+    assert!(e.contains("measure"), "{e}");
 }
 
 // Item #217, R241-28: an engineer writes a test once, as a row of the test changes with its kind, or as an `extended`

@@ -1856,7 +1856,9 @@ impl Config {
             } else {
                 item_level.to_string()
             }
-        } else if line == "librarian" {
+        } else if line == "librarian" || line == "scribe" {
+            // draft for the audit: the small cell that takes out of the design tree what the owner did not keep runs at
+            // the reader's level too.
             self.librarian_level()
         } else {
             item_level.to_string()

@@ -57,7 +57,7 @@ fn the_rows_the_view_of_the_ways_works_went_reads_are_in_the_engineers_graph() {
             .find(|r| r.name == name)
             .unwrap_or_else(|| panic!("{cell} has no row {name}"))
     };
-    assert_eq!(row("R1", "start").to, "I1");
+    assert_eq!(row("R1", "start").to, "I0");
     assert_eq!(row("R1", "cannot_start").to, "D1");
     let turn = row("I1", "shallow_research");
     assert_eq!(turn.to, "R1");
