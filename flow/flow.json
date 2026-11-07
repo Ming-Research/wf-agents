@@ -5770,7 +5770,7 @@
             }
           ],
           "prompt": [
-            "You are the engineer of this work. This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs through ci and the implementation keeps it, and a probe there that showed nothing is taken out once run, its result noted in `research/`; a simple research leaves nothing but its conclusion.",
+            "You are the engineer of this work. This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs through ci and the implementation keeps it, and a probe there that showed nothing is taken out in the round that sees its result, which is noted in `research/`; a simple research leaves nothing but its conclusion.",
             "First read the item, the owner's words in it and the background given; the background gives addresses: follow those you need.",
             "Read the code concerned. Reproduce the problem first when you can, with ci, ci_before or measure; when you cannot, prove it another way, such as reasoning from the code or adding logs.",
             "A defect, though, is fixed only once seen to happen where it shows, as on the page in a real browser or in the program on its own data: by a test run there with ci or, where no test can show it, by a probe, a log or the owner's own run; a cause read from the code, or a test in a stand-in such as a simulated page, has not seen it. If, after looking as far as the tools reach, it is still seen nowhere, neither start nor hand it to deep research: ask the owner how to go on.",
@@ -6865,7 +6865,6 @@
             },
             {
               "name": "measured",
-              "title": "What was measured",
               "type": "list",
               "optional": true,
               "desc": "Only where the change can alter how much runs per event, round, work or request, or how that grows with the data: one row for each thing measured with measure. Leave it out otherwise",
@@ -6874,19 +6873,16 @@
                 "fields": [
                   {
                     "name": "what",
-                    "title": "What was measured",
                     "type": "text",
                     "desc": "What ran, on what data, at which sizes"
                   },
                   {
                     "name": "run",
-                    "title": "Measurement run",
                     "type": "text",
                     "desc": "The link to the run"
                   },
                   {
                     "name": "numbers",
-                    "title": "Numbers",
                     "type": "text",
                     "desc": "Before and after the change at each size, the run's noise, and the verdict: slower, faster or no change found"
                   }
@@ -7307,7 +7303,6 @@
               "maybe": true
             },
             {
-              "name": "What was measured",
               "what": "What the implementation measured where the change can alter how much runs: what, its run and the numbers; none when it measured nothing",
               "from": [
                 [
