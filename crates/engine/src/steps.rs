@@ -2088,7 +2088,7 @@ fn ask(
     let id =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
-            let id = db::ask(tx, round.work, round.n, &body)?;
+            let id = db::ask(tx, db::Sender::Engineer, round.work, round.n, &body)?;
             // The ask stands for the work's blocker before the owner while the owner holds it.
             if let Some(b) = crate::blockers::open(tx, w.id).map_err(db::Error::Abort)?
                 && b.holder == "owner"

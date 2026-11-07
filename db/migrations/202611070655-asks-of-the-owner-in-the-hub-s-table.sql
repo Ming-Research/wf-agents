@@ -1,6 +1,8 @@
 -- Takes a database to one whose asks of the owner are the hub's messages: each ask (owner_asks before) is a message of
--- the kind ask, put by its work's line in the round that put it, holding what is asked as it did and the answer once
--- given, and the engine's word of it, the matters and the blockers it holds, and the images of its answer name it.
+-- the kind ask, put in the round that put it by its work's line, or by the engine for what it asks the owner to approve
+-- (a change, a research's decision points, a design with its review, a policy), holding what is asked as it did and the
+-- answer once given; the engine's word of it, the matters it parks and whose answer it holds, the blockers it holds,
+-- and the images of its answer name it.
 -- Every ask keeps whether and how it was answered, and when the owner was told of it; it takes a number after the hub's
 -- other messages, which keep theirs, and the change log names it by that number. The messages, the architects'
 -- matters, the blockers and the images are made afresh with their rows, as SQLite cannot change what a column refers
@@ -11,7 +13,9 @@
 CREATE TABLE asks_before_the_hub AS
   SELECT a.id, a.work, a.round, a.body, a.answer,
     (SELECT coalesce(max(m.id), 0) FROM messages m) + row_number() OVER (ORDER BY a.id) AS message,
-    CASE WHEN w.graph = 'engineer' THEN 'engineer' ELSE 'architect' END AS sender,
+    CASE WHEN json_extract(a.body, '$.kind') IN ('change', 'points', 'design_review')
+           OR json_extract(a.body, '$.question') = 'Approve this policy? Reply exactly: approved' THEN 'engine'
+         WHEN w.graph = 'engineer' THEN 'engineer' ELSE 'architect' END AS sender,
     coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id),
              (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0) AS at
   FROM owner_asks a JOIN works w ON w.id = a.work;
@@ -51,8 +55,9 @@ CREATE TABLE messages (
   -- say, a saying, as a message is unless it asks; or ask, an ask of the owner.
   kind TEXT NOT NULL DEFAULT 'say' CHECK (kind IN ('say', 'ask')),
   -- Who sent it: owner (the owner's words), engineer (a line of an engineer's work), architect (a line of a project's
-  -- architect's work), or engine (what the engine tells of its own accord, and what it says to a line in the owner's
-  -- name, which agents are given as the owner's).
+  -- architect's work), or engine (what the engine tells of its own accord, what it says to a line in the owner's name,
+  -- which agents are given as the owner's, and what it asks the owner to approve: a change, a research's decision
+  -- points, a design with the architect's review of it, a policy).
   sender TEXT NOT NULL CHECK (sender IN ('owner', 'engineer', 'architect', 'engine')),
   -- The work it is about: an agent's to the owner, the work whose round handed it in; one to a line, the work whose
   -- line it is said to; the engine's, the work it tells of, NULL for one about no work.
@@ -89,9 +94,10 @@ CREATE TABLE messages (
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   -- When it was sent.
   at INTEGER NOT NULL,
-  CHECK (sender IN ('engineer', 'architect') OR round IS NULL),
+  CHECK (sender IN ('engineer', 'architect') OR kind = 'ask' OR round IS NULL),
   CHECK (sender <> 'engineer' OR round IS NOT NULL),
   CHECK (kind = 'say' OR round IS NOT NULL),
+  CHECK (kind = 'say' OR sender <> 'owner'),
   CHECK (kind = 'ask' OR answer IS NULL),
   CHECK (round IS NULL OR work IS NOT NULL),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
@@ -218,7 +224,10 @@ CREATE TABLE architect_matters (
 ) STRICT;
 
 INSERT INTO architect_matters (id, project, kind, detail, what, body, item, work, round, at, asked, resume_cell, goes_on_at, group_lead, reply, reply_held, handled_work, handled_round, withdrawn, logged, effects_held)
-  SELECT id, project, kind, detail, what, body, item, work, round, at, (SELECT a.message FROM asks_before_the_hub a WHERE a.id = m.asked), resume_cell, goes_on_at, group_lead, reply, reply_held, handled_work, handled_round, withdrawn, logged, effects_held
+  SELECT id, project, kind, detail, what, CASE WHEN json_extract(m.body, '$.owner_ask') IN (SELECT id FROM asks_before_the_hub)
+    THEN json_set(m.body, '$.owner_ask',
+      (SELECT a.message FROM asks_before_the_hub a WHERE a.id = json_extract(m.body, '$.owner_ask')))
+    ELSE m.body END, item, work, round, at, (SELECT a.message FROM asks_before_the_hub a WHERE a.id = m.asked), resume_cell, goes_on_at, group_lead, reply, reply_held, handled_work, handled_round, withdrawn, logged, effects_held
   FROM architect_matters_before_the_asks m ORDER BY m.id;
 DROP TABLE architect_matters_before_the_asks;
 
@@ -329,7 +338,8 @@ INSERT INTO attachments (id, message, matter, ask, position, media_type, size, h
   FROM attachments_before_the_asks x ORDER BY x.id;
 DROP TABLE attachments_before_the_asks;
 -- The change log names each ask by the number it takes: the rows of the messages, the blockers and the images that
--- name an ask, and those of the architects' matters, name it so, and the asks' own rows are rows of the messages.
+-- name an ask, and those of the architects' matters, in the ask it parks and the ask whose answer its body holds,
+-- name it so, and the asks' own rows are rows of the messages.
 UPDATE changes SET
   old_row = CASE WHEN json_extract(old_row, '$.ask') IN (SELECT id FROM asks_before_the_hub)
     THEN json_set(old_row, '$.ask',
@@ -351,6 +361,16 @@ UPDATE changes SET
     ELSE new_row END
 WHERE table_name = 'architect_matters';
 UPDATE changes SET
+  old_row = CASE WHEN json_extract(old_row, '$.body.owner_ask') IN (SELECT id FROM asks_before_the_hub)
+    THEN json_set(old_row, '$.body.owner_ask',
+      (SELECT a.message FROM asks_before_the_hub a WHERE a.id = json_extract(changes.old_row, '$.body.owner_ask')))
+    ELSE old_row END,
+  new_row = CASE WHEN json_extract(new_row, '$.body.owner_ask') IN (SELECT id FROM asks_before_the_hub)
+    THEN json_set(new_row, '$.body.owner_ask',
+      (SELECT a.message FROM asks_before_the_hub a WHERE a.id = json_extract(changes.new_row, '$.body.owner_ask')))
+    ELSE new_row END
+WHERE table_name = 'architect_matters';
+UPDATE changes SET
   table_name = 'messages',
   row_key = CASE WHEN json_extract(row_key, '$.id') IN (SELECT id FROM asks_before_the_hub)
     THEN json_set(row_key, '$.id',
@@ -368,6 +388,7 @@ WHERE table_name = 'owner_asks' AND json_extract(row_key, '$.id') IN (SELECT id 
 DROP TABLE asks_before_the_hub;
 
 CREATE INDEX messages_by_work ON messages (work, round);
+CREATE INDEX messages_open_asks ON messages (work) WHERE kind = 'ask' AND answer IS NULL;
 CREATE INDEX messages_by_ask ON messages (ask);
 CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE handled_round IS NULL;
 CREATE INDEX architect_matters_by_kind ON architect_matters (kind, at);

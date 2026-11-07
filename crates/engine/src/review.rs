@@ -231,7 +231,7 @@ fn put_owner_ask(tx: &Transaction<'_>, work: i64, item: i64, title: &str, n: i64
         ],
         "design_link": reviewed["link"],
     });
-    let id = db::ask(tx, work, n, &body).map_err(sql)?;
+    let id = db::ask(tx, db::Sender::Engine, work, n, &body).map_err(sql)?;
     let said = comments["text"]
         .as_str()
         .map(|t| format!(" The architect said: {}", db::one_sentence(t)))

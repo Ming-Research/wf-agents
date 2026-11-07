@@ -141,7 +141,7 @@ mod tests {
                     "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at) VALUES (1, 3, 'gh', '{}', 1, 1)",
                     [],
                 )?;
-                db::ask(tx, 1, 3, &serde_json::json!({}))?;
+                db::ask(tx, db::Sender::Engineer, 1, 3, &serde_json::json!({}))?;
                 Ok(())
             })
             .unwrap();

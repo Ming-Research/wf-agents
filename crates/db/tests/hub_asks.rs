@@ -56,11 +56,12 @@ fn int(n: i64) -> Value {
 }
 
 // A database with asks of every kind (an engineer's question, answered, which the engine told the owner of, holding a
-// blocker and with an image to its answer; a question of the architect, open, which parks a matter; an ask of decision
-// points, with no question in words) beside the hub's other messages, with the change log of them, takes the
-// migration: each ask is a message of the kind ask after the others, sent by its work's line in its round, its text the
-// question it holds, keeping its answer and when the owner was told of it; the engine's word of it, the matter, the
-// blocker, the image and the change log name it by its number; and the views read the asks as they read them before.
+// blocker, the answer to a matter's question and an image of its answer; a question of the architect, open, which parks
+// a matter; the engine's ask of decision points, with no question in words) beside the hub's other messages, with the
+// change log of them, takes the migration: each ask is a message of the kind ask after the others, sent in its round by
+// its work's line or by the engine, its text the question it holds, keeping its answer and when the owner was told of
+// it; the engine's word of it, the matters, the blocker, the image and the change log name it by its number; and the
+// views read the asks as they read them before.
 #[test]
 fn the_migration_makes_every_ask_a_message_and_renames_it_everywhere() {
     let dir = temp("hub-asks");
@@ -85,7 +86,9 @@ fn the_migration_makes_every_ask_a_message_and_renames_it_everywhere() {
                         (2, 'owner', 1, NULL, 'Go on.', NULL, NULL, 50);
                INSERT INTO deliveries (id, message, recipient, line) VALUES (1, 1, 'owner', NULL), (2, 2, 'line', 'engineer');
                INSERT INTO architect_matters (id, project, kind, what, body, at, asked, resume_cell)
-                 VALUES (1, 'p', 'open_question', 'Which?', '{}', 38, 2, 'H8');
+                 VALUES (1, 'p', 'open_question', 'Which?', '{}', 38, 2, 'H8'),
+                        (2, 'p', 'open_question', 'Which one?', '{"answered_by":"owner","owner_ask":1}', 61, NULL,
+                         NULL);
                INSERT INTO blockers (id, work, cell, round, kind, what, holder, ask, at, since)
                  VALUES (1, 1, 'A3', 2, 'owner_ask', 'Which one?', 'owner', 1, 31, 31);
                INSERT INTO attachments (id, ask, position, media_type, size, hash, bytes)
@@ -96,7 +99,9 @@ fn the_migration_makes_every_ask_a_message_and_renames_it_everywhere() {
                  (3, 38, 'engine', 'architect_matters', '{"id":1}', NULL, '{"id":1,"asked":2}'),
                  (4, 60, 'owner', 'owner_asks', '{"id":1}', '{"id":1,"answer":null}', '{"id":1,"answer":"x"}'),
                  (5, 60, 'owner', 'blockers', '{"id":1}', '{"id":1,"ask":1,"ended":null}',
-                  '{"id":1,"ask":1,"ended":"resolved"}');"#,
+                  '{"id":1,"ask":1,"ended":"resolved"}'),
+                 (6, 61, 'engine', 'architect_matters', '{"id":2}', '{"id":2,"body":{"answered_by":"architect"}}',
+                  '{"id":2,"body":{"answered_by":"owner","owner_ask":1}}');"#,
         )
         .unwrap();
     }
@@ -128,7 +133,7 @@ fn the_migration_makes_every_ask_a_message_and_renames_it_everywhere() {
                 Value::Null,
                 int(40)
             ],
-            vec![int(5), text("engineer"), int(1), int(2), text(""), Value::Null, int(30)],
+            vec![int(5), text("engine"), int(1), int(2), text(""), Value::Null, int(30)],
         ]
     );
     assert_eq!(
@@ -143,7 +148,13 @@ fn the_migration_makes_every_ask_a_message_and_renames_it_everywhere() {
     );
     // An ask goes to no recipient: the owner answers it where it is.
     assert!(rows(conn, "SELECT id FROM deliveries WHERE message >= 3").is_empty());
-    assert_eq!(rows(conn, "SELECT asked FROM architect_matters"), [vec![int(4)]]);
+    assert_eq!(
+        rows(
+            conn,
+            "SELECT asked, json_extract(body, '$.owner_ask') FROM architect_matters ORDER BY id"
+        ),
+        [vec![int(4), Value::Null], vec![Value::Null, int(3)]]
+    );
     assert_eq!(rows(conn, "SELECT ask FROM blockers"), [vec![int(3)]]);
     assert_eq!(rows(conn, "SELECT ask FROM attachments"), [vec![int(3)]]);
     // The views read the asks as they read them before.
@@ -207,6 +218,12 @@ fn the_migration_makes_every_ask_a_message_and_renames_it_everywhere() {
                 text(r#"{"id":1}"#),
                 text(r#"{"id":1,"ask":3,"ended":null}"#),
                 text(r#"{"id":1,"ask":3,"ended":"resolved"}"#)
+            ],
+            vec![
+                text("architect_matters"),
+                text(r#"{"id":2}"#),
+                text(r#"{"id":2,"body":{"answered_by":"architect"}}"#),
+                text(r#"{"id":2,"body":{"answered_by":"owner","owner_ask":3}}"#)
             ],
         ]
     );

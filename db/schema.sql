@@ -233,8 +233,9 @@ CREATE TABLE messages (
   -- say, a saying, as a message is unless it asks; or ask, an ask of the owner.
   kind TEXT NOT NULL DEFAULT 'say' CHECK (kind IN ('say', 'ask')),
   -- Who sent it: owner (the owner's words), engineer (a line of an engineer's work), architect (a line of a project's
-  -- architect's work), or engine (what the engine tells of its own accord, and what it says to a line in the owner's
-  -- name, which agents are given as the owner's).
+  -- architect's work), or engine (what the engine tells of its own accord, what it says to a line in the owner's name,
+  -- which agents are given as the owner's, and what it asks the owner to approve: a change, a research's decision
+  -- points, a design with the architect's review of it, a policy).
   sender TEXT NOT NULL CHECK (sender IN ('owner', 'engineer', 'architect', 'engine')),
   -- The work it is about: an agent's to the owner, the work whose round handed it in; one to a line, the work whose
   -- line it is said to; the engine's, the work it tells of, NULL for one about no work.
@@ -271,9 +272,10 @@ CREATE TABLE messages (
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   -- When it was sent.
   at INTEGER NOT NULL,
-  CHECK (sender IN ('engineer', 'architect') OR round IS NULL),
+  CHECK (sender IN ('engineer', 'architect') OR kind = 'ask' OR round IS NULL),
   CHECK (sender <> 'engineer' OR round IS NOT NULL),
   CHECK (kind = 'say' OR round IS NOT NULL),
+  CHECK (kind = 'say' OR sender <> 'owner'),
   CHECK (kind = 'ask' OR answer IS NULL),
   CHECK (round IS NULL OR work IS NOT NULL),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
@@ -1271,6 +1273,8 @@ CREATE INDEX design_cards_by_round ON design_cards (work, round);
 CREATE UNIQUE INDEX design_cards_current ON design_cards (work, key) WHERE status IN ('open', 'ruled');
 -- The messages of a work, and those its rounds handed in, by round.
 CREATE INDEX messages_by_work ON messages (work, round);
+-- The asks still waiting for an answer, by work.
+CREATE INDEX messages_open_asks ON messages (work) WHERE kind = 'ask' AND answer IS NULL;
 -- The recipients of each message.
 CREATE INDEX deliveries_by_message ON deliveries (message);
 -- The messages a matter came as or holds: the owner's words said in a work's group, those of a talk, a fault.

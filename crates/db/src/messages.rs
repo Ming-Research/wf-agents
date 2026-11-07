@@ -212,21 +212,16 @@ pub fn untake(tx: &Transaction<'_>, work: i64, round: i64) -> Result<usize> {
 
 /// Puts an ask of the owner: put by round `round` of `work`, asking what `body` holds (whom it asks, the work and item,
 /// and what the asking cell handed in), whose question in words, where it has one (`question`), is the message's text.
-/// Who asks is the work's line, an engineer's or an architect's. The one way an ask is made, whoever makes it: the
-/// engine's approvals as much as an agent's questions. Gives the ask.
-pub fn ask(tx: &Transaction<'_>, work: i64, round: i64, body: &Value) -> Result<i64> {
-    let graph: Option<String> = tx
-        .query_row("SELECT graph FROM works WHERE id = ?1", [work], |r| r.get(0))
-        .optional()?;
-    let Some(graph) = graph else {
-        return Err(Error::Abort(format!("there is no work {work} to ask the owner")));
-    };
+/// Who asks (`sender`) is the work's line, an engineer's or an architect's, for an agent's question, or the engine, for
+/// what it asks the owner to approve. The one way an ask is made, whoever makes it. Gives the ask.
+pub fn ask(tx: &Transaction<'_>, sender: Sender, work: i64, round: i64, body: &Value) -> Result<i64> {
+    if sender == Sender::Owner {
+        return Err(Error::Abort(
+            "an ask is put by a line of a work or by the engine, never by the owner".into(),
+        ));
+    }
     let m = Message {
-        sender: if graph == "engineer" {
-            Sender::Engineer
-        } else {
-            Sender::Architect
-        },
+        sender,
         work: Some(work),
         round: Some(round),
         text: body["question"].as_str().unwrap_or_default(),

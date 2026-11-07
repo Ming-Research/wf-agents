@@ -219,7 +219,7 @@ fn put_change_ask(ctx: &Ctx, tx: &Transaction<'_>) -> Result<i64, String> {
         "title": item.title,
         "asked": [{ "what": "The change to approve before it merges", "value": change }],
     });
-    let id = db::ask(tx, w.id, ctx.round.n, &body).map_err(sql)?;
+    let id = db::ask(tx, db::Sender::Engine, w.id, ctx.round.n, &body).map_err(sql)?;
     let compare = change["pull_request"]
         .as_str()
         .map(|u| format!(" Compare them with main: {u}."))
@@ -275,7 +275,7 @@ pub fn ask_points(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
         "asked": asked,
         "research_link": link,
     });
-    let id = db::ask(tx, w.id, ctx.round.n, &body).map_err(sql)?;
+    let id = db::ask(tx, db::Sender::Engine, w.id, ctx.round.n, &body).map_err(sql)?;
     let text = format!(
         "The research of work {} on item {} ({}) left you to choose: choose an option for each decision point and rule \
          on each departure, or reply exactly {APPROVED} to take what it recommends. The work implements by the \

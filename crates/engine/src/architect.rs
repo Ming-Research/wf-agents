@@ -884,7 +884,7 @@ pub fn ask_owner(
     let (round, id) =
         e.db.write(Actor::Engine, |tx| {
             let round = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
-            let id = db::ask(tx, round.work, round.n, &body)?;
+            let id = db::ask(tx, db::Sender::Architect, round.work, round.n, &body)?;
             crate::hub::tell_of_ask(tx, w.id, id, &format!("{notice} (ask {id})")).map_err(db::Error::Abort)?;
             // The matter the ask holds waits for the answer out of the queue, and goes back to the cell that takes it.
             if let (Some(m), Some(c)) = (holds, &resume) {
@@ -2242,7 +2242,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 "from": "architect", "project": project, "work": w, "cell": ctx.cell.id, "kind": "question",
                 "question": APPROVAL, "holds": [m],
             });
-            let ask = db::ask(tx, ctx.round.work, ctx.round.n, &body).map_err(sql)?;
+            let ask = db::ask(tx, db::Sender::Engine, ctx.round.work, ctx.round.n, &body).map_err(sql)?;
             tx.execute(
                 "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, goes_on_at = NULL WHERE id = ?1",
                 params![m, ask, ctx.cell.id],
