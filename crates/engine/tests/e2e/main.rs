@@ -1135,18 +1135,15 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             )
         }),
     );
-    // A work that goes to deep research measures nothing, and its design keeps that acceptance.
+    // A work that goes to deep research keeps that acceptance in its design, and its second look leaves the design as
+    // it stands (draft for the audit).
     s.insert(
         "D1",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.measure", "not_measured")], Vec::new())),
-    );
-    s.insert(
-        "D2",
         Box::new(|_: &Request, _: usize| {
             (
                 Vec::new(),
                 vec![(
-                    "outcome.design.acceptance",
+                    "outcome.acceptance",
                     json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
                 )],
             )

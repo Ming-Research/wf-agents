@@ -2378,8 +2378,9 @@ display tokens of that colour: `--display-<colour>-borderColor-emphasis` a cell'
 cell's fill and a bubble's, `-borderColor-muted` a bubble's edge and `-bgColor-emphasis` an avatar's circle. The
 engineer is blue, the deep research plum, the review teal, the adversarial testing auburn, the advisor pink, the
 architect purple, the review of
-the architect's batch indigo, the reader of a work's history green and the pick of the
-architect's next matter cyan; orange (the owner's cells), yellow (the tools') and red (danger) are kept from roles, and
+the architect's batch indigo, the reader of a work's history green, the pick of the
+architect's next matter cyan and, in the draft of the audit, the cell that takes out of the design tree what the owner
+did not keep brown; orange (the owner's cells), yellow (the tools') and red (danger) are kept from roles, and
 grey is the engine's own steps'; an agent with no colour of its own is the neutral grey of the engine's own steps, as a
 box.
 

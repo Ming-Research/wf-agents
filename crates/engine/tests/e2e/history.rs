@@ -10,7 +10,15 @@ fn the_history_is_gathered_by_the_reader_of_the_line_librarian() {
     let mut agents = scripts();
     agents.insert(
         "R0",
-        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!("The problem's history."))])),
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.lessons",
+                    json!([{ "lesson": "The problem's history.", "address": "#1" }]),
+                )],
+            )
+        }),
     );
     let (mut e, said, item) = start(&s, agents);
     step_to(&mut e, item, "I1");
@@ -42,7 +50,13 @@ fn the_gatherer_s_git_runs_in_its_round_s_directory() {
         "R0",
         Box::new(move |r: &Request, _: usize| {
             *seen.lock().unwrap() = Some(r.worktree.clone());
-            (Vec::new(), vec![("outcome.brief", json!("The problem's history."))])
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.lessons",
+                    json!([{ "lesson": "The problem's history.", "address": "#1" }]),
+                )],
+            )
         }),
     );
     let (mut e, said, item) = start(&s, agents);

@@ -74,13 +74,13 @@ fn input<'a>(v: &'a mut Value, id: &str, at: &str, path: &str) -> &'a mut Value 
         .unwrap()
 }
 
-/// The flow with a gate, `G9`, between the research and the implementation, as flows before had gates: the flow has
-/// none now, and a flow at an older commit, which the flow page shows, may still have them.
+/// The flow with a gate, `G9`, between the research and the cards' cell before the implementation, as flows before had
+/// gates: the flow has none now, and a flow at an older commit, which the flow page shows, may still have them.
 fn gated(v: &mut Value) {
     row(v, "R1", "start")["to"] = json!("G9");
     graph(v)["nodes"].as_array_mut().unwrap().push(json!({
         "id": "G9", "kind": "gate", "title": "Whether it stands", "effort": "medium",
-        "question": "Judge whether this work stands.", "to": "I1", "shown": ["answer"],
+        "question": "Judge whether this work stands.", "to": "I0", "shown": ["answer"],
         "inputs": [{ "what": "How this work is understood", "from": [["R1", "can_start"]] }],
         "outcomes": { "on": ["stands", "It stands"], "problem": ["does_not_stand", "It does not stand"] }
     }));
@@ -97,7 +97,7 @@ fn gated(v: &mut Value) {
 fn by_rows(v: &mut Value) {
     let g = node(v, "G9");
     obj(g).remove("to");
-    g["rows"] = json!([{ "name": "stands", "if": [], "to": "I1", "main": true }]);
+    g["rows"] = json!([{ "name": "stands", "if": [], "to": "I0", "main": true }]);
 }
 
 /// The flow with one edit fails, and one of its problems says `want`.
@@ -654,8 +654,8 @@ case!(a_row_no_return_takes, "never taken", |v| {
         .push(json!(["is", "must_fix.verdict", ["yes"]]));
 });
 case!(a_value_no_way_records, "never taken", |v| {
-    obj(row(v, "R1", "start")).remove("sets");
-    obj(row(v, "D3", "posted")).remove("sets");
+    obj(row(v, "I0", "sure")).remove("sets");
+    obj(row(v, "I0", "sure_designed")).remove("sets");
 });
 case!(a_cell_asked_again_while_it_waits, "asked again", |v| {
     node(v, "A1")["out"][0]["fields"].as_array_mut().unwrap().push(json!({
@@ -797,11 +797,11 @@ case!(
 );
 case!(
     a_return_field_with_a_title,
-    "flows.engineer.nodes.R1.out.understanding.fields.grounds.item.branches.verified.fields.where.title: text that \
-     reaches no agent and shows on no chart: remove it",
+    "flows.engineer.nodes.R1.out.can_start.branches.no.fields.stuck.title: text that reaches no agent and shows on \
+     no chart: remove it",
     |v| {
-        let grounds = &mut node(v, "R1")["out"][0]["fields"][4];
-        grounds["item"]["branches"][0]["fields"][1]["title"] = json!("Where checked");
+        let can_start = &mut node(v, "R1")["out"][0];
+        can_start["branches"][1]["fields"][0]["title"] = json!("Where stuck");
     }
 );
 case!(a_numbered_table_not_read_from_returns, "numbered with a prefix", |v| {
@@ -883,7 +883,7 @@ case!(
 // Nothing missing.
 // The design, which the implementation straight from the research has not, is taken as one it always has.
 case!(an_input_missing_on_some_way, "missing", |v| {
-    obj(input(v, "I1", "D2", "design")).remove("maybe");
+    obj(&mut node(v, "I1")["inputs"][0]).remove("maybe");
 });
 case!(an_input_marked_maybe_that_is_always_there, "marked maybe", |v| {
     input(v, "T3", "T2", "findings")["maybe"] = json!(true);

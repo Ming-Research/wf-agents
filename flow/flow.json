@@ -4503,9 +4503,9 @@
           "name": "design",
           "nodes": [
             "D1",
+            "D4",
             "D2",
-            "D3",
-            "D4"
+            "D3"
           ],
           "entries": [
             "D1"
@@ -4678,9 +4678,9 @@
             "name": "design",
             "nodes": [
               "D1",
+              "D4",
               "D2",
-              "D3",
-              "D4"
+              "D3"
             ]
           },
           {
@@ -5960,6 +5960,189 @@
           ]
         },
         {
+          "id": "D4",
+          "kind": "engine",
+          "title": "The split put to the architect",
+          "step": "put_split",
+          "inputs": [
+            {
+              "what": "The parts deep research would split the design into, in the order they are done",
+              "from": [
+                [
+                  "D1",
+                  "split[parts].parts"
+                ]
+              ]
+            },
+            {
+              "what": "Interjections for the engineer that came while the work stood here, and are not delivered yet; none if there are none",
+              "from": [
+                {
+                  "db": "waiting_interjections",
+                  "by": "work"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "out": [
+            {
+              "name": "answer",
+              "type": "union",
+              "by": "verdict",
+              "desc": "The architect's answer to the split",
+              "branches": [
+                {
+                  "value": "waiting",
+                  "desc": "The architect has not answered yet",
+                  "fields": []
+                },
+                {
+                  "value": "goal",
+                  "desc": "The item became a goal with the parts as its sub-items",
+                  "fields": []
+                },
+                {
+                  "value": "first_part",
+                  "desc": "The work keeps the first part, and the other parts became sub-items",
+                  "fields": []
+                },
+                {
+                  "value": "declined",
+                  "desc": "The architect declined the split",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "type": "text",
+                      "desc": "Why the architect declined it"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "waits",
+              "if": [
+                [
+                  "is",
+                  "answer.verdict",
+                  [
+                    "waiting"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "D4",
+              "waits": true,
+              "do": [
+                "raise_blocker"
+              ],
+              "note": "Until the architect answers, holding no slot, whatever anyone's confidence."
+            },
+            {
+              "name": "goal",
+              "if": [
+                [
+                  "is",
+                  "answer.verdict",
+                  [
+                    "goal"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "E1",
+              "do": [
+                "resolve_blocker"
+              ],
+              "note": "The item is a goal now, with the parts as its sub-items: this work ends."
+            },
+            {
+              "name": "first_part",
+              "if": [
+                [
+                  "is",
+                  "answer.verdict",
+                  [
+                    "first_part"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "D2",
+              "do": [
+                "resolve_blocker"
+              ],
+              "note": "The work keeps the first part and goes on to the second look with it; the other parts are sub-items."
+            },
+            {
+              "name": "declined",
+              "if": [
+                [
+                  "is",
+                  "answer.verdict",
+                  [
+                    "declined"
+                  ]
+                ],
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "D1",
+              "do": [
+                "resolve_blocker"
+              ],
+              "note": "Deep research takes the design again, in its session, with why the architect declined the split."
+            },
+            {
+              "name": "interjection",
+              "if": [
+                [
+                  "inp",
+                  "interjection",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "A4",
+              "do": [
+                "withdraw_blocker"
+              ],
+              "counts": "interjections",
+              "interject": true
+            }
+          ],
+          "inenums": {
+            "interjection": "interjection_state"
+          }
+        },
+        {
           "id": "D2",
           "kind": "agent",
           "title": "Is there a better design",
@@ -6304,189 +6487,6 @@
                 "The architect's review of the design came back"
               ]
             ],
-            "interjection": "interjection_state"
-          }
-        },
-        {
-          "id": "D4",
-          "kind": "engine",
-          "title": "The split put to the architect",
-          "step": "put_split",
-          "inputs": [
-            {
-              "what": "The parts deep research would split the design into, in the order they are done",
-              "from": [
-                [
-                  "D1",
-                  "split[parts].parts"
-                ]
-              ]
-            },
-            {
-              "what": "Interjections for the engineer that came while the work stood here, and are not delivered yet; none if there are none",
-              "from": [
-                {
-                  "db": "waiting_interjections",
-                  "by": "work"
-                }
-              ],
-              "maybe": true
-            }
-          ],
-          "out": [
-            {
-              "name": "answer",
-              "type": "union",
-              "by": "verdict",
-              "desc": "The architect's answer to the split",
-              "branches": [
-                {
-                  "value": "waiting",
-                  "desc": "The architect has not answered yet",
-                  "fields": []
-                },
-                {
-                  "value": "goal",
-                  "desc": "The item became a goal with the parts as its sub-items",
-                  "fields": []
-                },
-                {
-                  "value": "first_part",
-                  "desc": "The work keeps the first part, and the other parts became sub-items",
-                  "fields": []
-                },
-                {
-                  "value": "declined",
-                  "desc": "The architect declined the split",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "type": "text",
-                      "desc": "Why the architect declined it"
-                    }
-                  ]
-                }
-              ]
-            }
-          ],
-          "cases": [
-            {
-              "name": "waits",
-              "if": [
-                [
-                  "is",
-                  "answer.verdict",
-                  [
-                    "waiting"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "D4",
-              "waits": true,
-              "do": [
-                "raise_blocker"
-              ],
-              "note": "Until the architect answers, holding no slot, whatever anyone's confidence."
-            },
-            {
-              "name": "goal",
-              "if": [
-                [
-                  "is",
-                  "answer.verdict",
-                  [
-                    "goal"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "E1",
-              "do": [
-                "resolve_blocker"
-              ],
-              "note": "The item is a goal now, with the parts as its sub-items: this work ends."
-            },
-            {
-              "name": "first_part",
-              "if": [
-                [
-                  "is",
-                  "answer.verdict",
-                  [
-                    "first_part"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "D2",
-              "do": [
-                "resolve_blocker"
-              ],
-              "note": "The work keeps the first part and goes on to the second look with it; the other parts are sub-items."
-            },
-            {
-              "name": "declined",
-              "if": [
-                [
-                  "is",
-                  "answer.verdict",
-                  [
-                    "declined"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "D1",
-              "do": [
-                "resolve_blocker"
-              ],
-              "note": "Deep research takes the design again, in its session, with why the architect declined the split."
-            },
-            {
-              "name": "interjection",
-              "if": [
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "yes"
-                  ]
-                ]
-              ],
-              "to": "A4",
-              "do": [
-                "withdraw_blocker"
-              ],
-              "counts": "interjections",
-              "interject": true
-            }
-          ],
-          "inenums": {
             "interjection": "interjection_state"
           }
         },
