@@ -1,6 +1,6 @@
 # The reviews and implementing replayed with what the reviews check told first
 
-For: the owner, who approves the change to cells T2, T3 and I1 (and the inputs of T6 and A1) at the merge, and its
+For: the owner, who approves the change to cells T2, T3, I1 and T6 (and the inputs of T1 and A1) at the merge, and its
 reviewer.
 Kept: until that change merges or is dropped; then deleted, git keeping it.
 Written: 2026-11-07, on the branch `reviewers-and-conformance`, from the trial database as it stood that day.
@@ -18,13 +18,16 @@ Two problems of the engineer's flow, as `engineer-problems` numbers them:
 
 With the reviews given the CI on the head and the checks the engineer says it changes, T2 told to check the code against
 the design and the decisions first, and implementing told first to solve the item's problem as the design says and to
-write a decision the design does not record into it (`design_written`), does the reviews' lookup of the CI go, does T2
-check the three points without raising what implementing already wrote into the design, and does implementing amend the
-design or fix the code instead of declaring?
+write a decision the design does not record into it (`design_written`, named `design_updates` after the review), does
+the reviews' lookup of the CI go, does T2 check the three points without raising what implementing already wrote into
+the design, and does implementing amend the design or fix the code instead of declaring? And, after the review: does T2
+judge what was written into the design as design, and does the fix write into it too?
 
 ## 2. What changed in the message
 
-As `flow/flow.json` on the branch words it; every other word is the recorded round's.
+As `flow/flow.json` on the branch first worded it; every other word is the recorded round's. Sections 4 to 6 ran with
+this first wording, in which the field was `design_written`, T2 was not told to judge the passages and the fix kept
+its departures; section 9 gives what the review changed and the rounds run on that.
 
 - T2 and T3: input "What implementing handed in" reads `design_written` and `checks_changed` of I1 in place of
   `deviations`; a new input after the review base, "The CI on the head under review", from the engine's `head_ci`: each
@@ -65,7 +68,7 @@ under the same conditions; the original return is given beside them. Further:
   reported it or, for one they never reported, passed. W344's old variant noticed that a `ci_before` answered so passed
   where it should have failed and said so; no return below rests on such a result otherwise.
 
-Cost of all replays: about 25 USD.
+Cost of all replays, both rounds: about 28 USD.
 
 ## 4. The reviews
 
@@ -195,3 +198,58 @@ details review is referred to it). T2's new first check finds what the item asks
 what implementing wrote into the design alone. Implementing writes the decisions it makes into the design and fixes what
 is wrong instead of declaring departures. The replays of implementing ran as fresh sessions at the hand-in, which made
 both variants review and extend the branch; the comparison holds between the variants, not against the original rounds.
+
+## 9. After the review: the passages judged, and the fix writing into the design too
+
+What changed, as `flow/flow.json` now words it:
+
+- The field is `design_updates`, the design as updated while implementing or fixing, a shape the fix (T6) hands in too in
+  place of its departures, which go from the flow. Each hand-in carries every passage its cell has written in the work,
+  earlier rounds' included: an input reads a cell's newest return only, so a passage left out of a later return would be
+  lost to the cells after it. The field's description ends "The reviews judge these passages with the design".
+- T2's first check judges each passage implementing changed or added as it would the design: a detail the item's
+  problem needs, within the design's direction, with a reason that holds; a short cut, another method or more than the
+  work needs is a finding, and a change of direction should have gone back to research.
+- T6 gets the line I1 has (follow the design; a decision it does not record goes into `design_updates` with why; a
+  design wrong in its direction is asked about, as the fix has no way back to research of its own; a workaround outside
+  the work is a side report), and its hand-in line no longer says "as when implementing ... where this round departed".
+- T1 (adversarial testing), T6 and A1 (the advisor) read both cells' passages with the design; A1's input of departures
+  goes.
+- I1's first line ("Change the code by the plan or the design ...") and its line on following the design are one.
+
+### W318, #270 (an old-behaviour test that cannot be built before the change), sonnet: a passage that changes direction
+
+No past case had a passage that is only a short cut, but W318's is one and more. Its implementation built the research's
+plan instead of the deep research's design, leaving out the design's changes to T3 and T4, and declared it as a
+`design_changed` with a reason (the owner had said to start; the adversarial tester's rows have no reason field). The new
+variant gives that row as a passage of `design_updates`, with I1's two `checks_changed`; the old variant is the recorded
+message. Both ran in a new session.
+
+| Run | T2 |
+| --- | --- |
+| Original R318-32, -34 | queried `checks_changed` and `work_ci` first; then U1 (the design's T3 and T4 changes not made, though four texts say the review judges the reason), U2 (the adversarial tester's `cannot_run` let through, which the design kept sending back) |
+| Old | the same two (U1, U2) and a stale doc comment (U3); no lookup |
+| New | U1 the rule on a missing reason holds nowhere on the adversarial way (what the design's table asked and the code does not do); U2 judges the passage itself: its reason does not hold (the old rule had the tester fix its test, not write a reason), letting the tester's `cannot_run` through is more than the problem needs, and the design kept it sent back; U3 the same stale comment; no lookup |
+
+The new T2 judged the passage as design and raised it, citing the reason the passage gave and the rule that more than
+the work needs is a finding. It did not say in so many words that the work should have gone back to research; it said the
+design kept the rule and asked that the code follow it.
+
+### W319, #15, the fix (T6) at its hand-in, sonnet: a departure the fix declared
+
+The original R319-24 answered five rows `fixed` and declared one `design_changed`: the hook now records what the round's
+message gave as delivered, which the research had left unrecorded until the round ends, after adversarial testing found
+the owner's page showing words the engineer had read as not taken up. As for I1, the round ran as a fresh session with
+every input given and the recorded run of ci on the head.
+
+| Run | What it did |
+| --- | --- |
+| Old | changed the code again and asked for ci on a new head (stopped there: ci is not run in these replays) |
+| New | handed in at once: the same five rows `fixed`, the head as recorded, and one passage of `design_updates` saying the original's `design_changed` (the hook records what the message gave as delivered, before the round ends, with why) |
+
+### Judgment
+
+T2 now judges a passage as design: W318's, a change of direction written as a passage, was raised for its reason and for
+being more than the problem needed. The fix writes its decision into the design as implementing does (W319). The
+item page draws the passages inside the design block; that part was not replayed, being the page's, and is held by the
+page's tests.
