@@ -1444,14 +1444,14 @@ fn what_a_field_was_earlier_is_carried_and_never_handed_in_now() {
 // A return that does not fit in several places says every place at once, each on a line of its own after a first line
 // that counts them, where a return with one place says it as ever, on the one line: four `surprise` rows with `why`,
 // a missing field the answer requires and a value its field may not take are six places. Each of them is reached through
-// the alternative the return picks (the answer of `I1`, the kind of a row, the change of a test).
+// the alternative the return picks (the answer of `T6`, the kind of a row, the change of a test).
 #[test]
 fn a_return_that_does_not_fit_in_several_places_says_every_place() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let done = samples["I1"][2]["json"].clone();
-    assert_eq!(g.take("I1", &done, &Map::new()).unwrap().name, "done");
+    let done = samples["T6"][0]["json"].clone();
+    assert_eq!(g.take("T6", &done, &Map::new()).unwrap().name, "done");
     let mut ret = done.clone();
     ret["outcome"].as_object_mut().unwrap().shift_remove("head");
     ret["outcome"]["test_changes"][0]["change"] = "bogus".into();
@@ -1460,9 +1460,9 @@ fn a_return_that_does_not_fit_in_several_places_says_every_place() {
             .map(|i| serde_json::json!({ "kind": "surprise", "what": format!("W{i}"), "why": "Y" }))
             .collect(),
     );
-    let e = g.take("I1", &ret, &Map::new()).unwrap_err();
+    let e = g.take("T6", &ret, &Map::new()).unwrap_err();
     let expected = [
-        "the return does not fit the schema of I1 in 6 places:",
+        "the return does not fit the schema of T6 in 6 places:",
         "outcome has no head",
         r#"outcome.test_changes[0].change is "bogus", and must be one of "added", "extended", "removed", "skipped", "relaxed""#,
         "outcome.deviations[0] has why, which is not one of its fields: kind, what",
@@ -1475,12 +1475,12 @@ fn a_return_that_does_not_fit_in_several_places_says_every_place() {
     let mut one = done.clone();
     one["outcome"]["deviations"] = serde_json::json!([{ "kind": "surprise", "what": "W", "why": "Y" }]);
     assert_eq!(
-        g.take("I1", &one, &Map::new()).unwrap_err(),
-        "the return does not fit the schema of I1: outcome.deviations[0] has why, which is not one of its fields: \
+        g.take("T6", &one, &Map::new()).unwrap_err(),
+        "the return does not fit the schema of T6: outcome.deviations[0] has why, which is not one of its fields: \
          kind, what"
     );
     // A return that fits has no place.
-    let schema = g.cell("I1").unwrap().schema.clone().unwrap();
+    let schema = g.cell("T6").unwrap().schema.clone().unwrap();
     assert_eq!(flow::misfits(&schema, &done, ""), Vec::<String>::new());
 }
 

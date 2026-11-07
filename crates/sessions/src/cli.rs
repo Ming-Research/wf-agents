@@ -2165,9 +2165,9 @@ mod tests {
         serde_json::from_str(include_str!("../../flow/tests/samples.json")).unwrap()
     }
 
-    /// The engineer's `I1` return that is done, with its deviations as given.
+    /// The engineer's return of the fix (`T6`) that is done, with its deviations as given.
     fn done_with(deviations: Value) -> Value {
-        let mut ret = samples()["I1"][2]["json"].clone();
+        let mut ret = samples()["T6"][0]["json"].clone();
         ret["outcome"]["deviations"] = deviations;
         ret
     }
@@ -2182,7 +2182,7 @@ mod tests {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("engineer"));
-        let schema = g.cell("I1").unwrap().schema.clone().unwrap();
+        let schema = g.cell("T6").unwrap().schema.clone().unwrap();
         let row = |kind: &str, why: Option<&str>| {
             let mut r = json!({ "kind": kind, "what": "A thing" });
             if let Some(w) = why {
@@ -2259,7 +2259,7 @@ mod tests {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("engineer"));
-        let schema = g.cell("I1").unwrap().schema.clone().unwrap();
+        let schema = g.cell("T6").unwrap().schema.clone().unwrap();
         let mut surprise = done_with(json!([{ "kind": "surprise", "what": "A thing", "why": null }]));
         assert!(refused(&s, &surprise, "").is_some_and(|r| r.contains("'why'")));
         assert!(!flow::valid(&schema, &surprise));
@@ -2291,7 +2291,7 @@ mod tests {
         );
         assert!(!flow::valid(&brief_schema, &only));
         // A field the form may leave out is taken by the command line as null, left out by the engine, and not told.
-        let mut optional = samples()["I1"][2]["json"].clone();
+        let mut optional = samples()["T6"][0]["json"].clone();
         optional["outcome"]["followup"] = Value::Null;
         assert_eq!(refused(&s, &optional, ""), None);
         assert!(!flow::valid(&schema, &optional));
