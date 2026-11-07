@@ -229,14 +229,12 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
             );
             let row: Option<Row> = conn
                 .query_row(
-                    "SELECT j.speaker, j.text, j.matter, w.project, i.project,
-                       (SELECT min(c.at) FROM changes c
-                        WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),
+                    "SELECT j.speaker, j.text, j.matter, w.project, i.project, j.at,
                        (SELECT json_extract(m.body, '$.speaker') FROM architect_matters m WHERE m.id = j.matter),
                        j.declared,
                        (SELECT json_extract(m.body, '$.relayed') FROM architect_matters m WHERE m.id = j.matter),
                        j.relayed
-                     FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
+                     FROM line_sayings j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
                      WHERE j.id = ?1",
                     [id],
                     |r| {
@@ -747,21 +745,35 @@ mod tests {
                 "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}', ?1)",
                 [format!(r#"{{"by":"owner","at":{day},"text":"Approved. Go on.","speaker":"delegate","relayed":["Go on."]}}"#)],
             )?;
-            tx.execute(
-                "INSERT INTO interjections (work, speaker, declared, text) VALUES
-                 (1, 'owner', 'delegate', 'Say it to the engineer.'), (1, 'owner', NULL, 'Old words to the engineer.')",
-                [],
+            fn owner(text: &str) -> db::ToLine<'_> {
+                db::ToLine::new(db::Sender::Owner, 1, "engineer", text)
+            }
+            db::say_to_line(
+                tx,
+                &db::ToLine {
+                    speaker: Some("delegate"),
+                    ..owner("Say it to the engineer.")
+                },
+                None,
             )?;
+            db::say_to_line(tx, &owner("Old words to the engineer."), None)?;
             // Interjection 3 is said to the engineer alone with a part declared; 4 is the copy of matter 13's words.
-            tx.execute(
-                "INSERT INTO interjections (work, speaker, declared, relayed, text) VALUES
-                 (1, 'owner', 'delegate', '[\"Hold it.\"]', 'Fine. Hold it. Wait.')",
-                [],
+            db::say_to_line(
+                tx,
+                &db::ToLine {
+                    speaker: Some("delegate"),
+                    relayed: Some(json!(["Hold it."])),
+                    ..owner("Fine. Hold it. Wait.")
+                },
+                None,
             )?;
-            tx.execute(
-                "INSERT INTO interjections (work, speaker, text, informs, matter) VALUES
-                 (1, 'owner', 'Said to the architect, for you to know: Hold the merge. Then ask me.', 1, 13)",
-                [],
+            db::say_to_line(
+                tx,
+                &db::ToLine {
+                    informs: true,
+                    ..owner("Said to the architect, for you to know: Hold the merge. Then ask me.")
+                },
+                Some(13),
             )?;
             Ok(())
         })
@@ -962,24 +974,6 @@ mod tests {
         };
         assert!(refused("matter", 10, "Yes.").contains("has no recorded time of its answer"));
         assert!(refused("ask", 2, "No time.").contains("has no recorded time"));
-        // An interjection no change of the record of changes tells the time of has none.
-        let db = {
-            let mut db = records();
-            db.write(Actor::Engine, |tx| {
-                tx.execute("DELETE FROM changes WHERE table_name = 'interjections'", [])?;
-                Ok(())
-            })
-            .unwrap();
-            db
-        };
-        let none = resolve(
-            db.conn(),
-            "p",
-            &decision(&[("interjection", 1, "to the engineer")]),
-            "architect",
-            None,
-        );
-        assert!(none.unwrap_err().join("\n").contains("has no recorded time"));
     }
 
     // The words written are the record's, and the line is the engine's: the date is the latest of the words, each quote

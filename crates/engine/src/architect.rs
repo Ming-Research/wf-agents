@@ -706,7 +706,7 @@ fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
         "SELECT c.at, c.sender, c.recipient, c.text,
                 CASE c.source
                   WHEN 'words' THEN (SELECT count(*) FROM attachments x WHERE x.matter = c.id)
-                  WHEN 'interjection' THEN (SELECT count(*) FROM attachments x WHERE x.interjection = c.id)
+                  WHEN 'interjection' THEN (SELECT count(*) FROM attachments x WHERE x.message = c.id)
                   WHEN 'ask' THEN (SELECT count(*) FROM attachments x WHERE x.ask = c.id)
                   ELSE 0 END AS images,
                 json_extract(a.answer, '$.text') AS answer, json_extract(a.answer, '$.at') AS answered_at,
@@ -1264,11 +1264,8 @@ fn act_now(ctx: &Ctx, tx: &Transaction<'_>, project: &str, a: &Value) -> Result<
             let Some((work, _, _)) = running_work(tx, item)? else {
                 return Ok(());
             };
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
-                params![work, text(&a["say"])],
-            )
-            .map_err(sql)?;
+            let said = db::ToLine::new(db::Sender::Architect, work, "engineer", text(&a["say"]));
+            db::say_to_line(tx, &said, None).map_err(sql)?;
             Ok(())
         }
         // The merge that made main red is reverted by a PR the engine opens and merges first, ahead of the queue.
@@ -1513,9 +1510,10 @@ fn say_unavoidable(tx: &Transaction<'_>, c: &Value) -> Result<(), String> {
         "The architect changed this work's item #{item}: {what}. Why the work must change: {why}. Decide where in the \
          flow to go back to, keeping what you did."
     );
-    tx.execute(
-        "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
-        params![work, said],
+    db::say_to_line(
+        tx,
+        &db::ToLine::new(db::Sender::Architect, work, "engineer", &said),
+        None,
     )
     .map_err(sql)?;
     Ok(())
@@ -2032,11 +2030,11 @@ fn answer(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<(), Stri
         db::without_final_terminal(&said),
         parts.join("; ")
     );
-    tx.execute(
-        "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (?1, 'engineer', 'architect', ?2, 1)",
-        params![r.work, line],
-    )
-    .map_err(sql)?;
+    let told = db::ToLine {
+        informs: true,
+        ..db::ToLine::new(db::Sender::Architect, r.work, "engineer", &line)
+    };
+    db::say_to_line(tx, &told, None).map_err(sql)?;
     Ok(())
 }
 
@@ -2672,7 +2670,8 @@ fn owner_words(conn: &Connection, work: i64) -> Result<Vec<String>, String> {
          WHERE w.project = x.project AND w.graph IN ('architect', 'policy') AND a.answer IS NOT NULL
          UNION ALL SELECT json_extract(body, '$.text') FROM architect_matters WHERE kind = 'owner_words'
          UNION ALL SELECT json_extract(body, '$.answer') FROM architect_matters WHERE kind = 'owner_words'
-         UNION ALL SELECT text FROM talk_entries",
+         UNION ALL SELECT e.text FROM messages e JOIN deliveries d ON d.message = e.id
+         WHERE d.recipient = 'architect' AND e.sender = 'owner'",
         &[&work],
         10_000,
     )?;

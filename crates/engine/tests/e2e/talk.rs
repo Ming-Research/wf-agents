@@ -285,21 +285,23 @@ fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session
             .unwrap();
     e.db.write(Actor::Engine, |tx| {
         let matter: i64 = tx.query_row("SELECT min(id) FROM architect_matters", [], |r| r.get(0))?;
+        // The entries of a talk a flow version before held: the owner's messages to the architect, naming the talk.
         for (text, at) in [("TALKOLD", cut - 1_000), ("TALKNEW", cut + 1_000)] {
             tx.execute(
-                "INSERT INTO talk_entries (matter, text, at) VALUES (?1, ?2, ?3)",
-                params![matter, text, at],
+                "INSERT INTO messages (sender, text, at) VALUES ('owner', ?1, ?2)",
+                params![text, at],
+            )?;
+            tx.execute(
+                "INSERT INTO deliveries (message, recipient, matter) VALUES (?1, 'architect', ?2)",
+                params![tx.last_insert_rowid(), matter],
             )?;
         }
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text, delivered_round)
-             VALUES (?1, 'architect', 'owner', 'INTERJECTEND', 1)",
-            [one],
-        )?;
-        let id = tx.last_insert_rowid();
+        let said = db::ToLine::new(db::Sender::Owner, one, "architect", "INTERJECTEND");
+        let id = db::say_to_line(tx, &said, None)?;
+        db::take(tx, id, one, 1)?;
         for position in 1..=3 {
             tx.execute(
-                "INSERT INTO attachments (interjection, position, media_type, size, hash, bytes)
+                "INSERT INTO attachments (message, position, media_type, size, hash, bytes)
                  VALUES (?1, ?2, 'image/png', 4, 'h', zeroblob(4))",
                 params![id, position],
             )?;

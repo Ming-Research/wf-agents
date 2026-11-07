@@ -1,6 +1,6 @@
 //! Interjections handed to a round that runs: the command line's hook after each tool use asks the session manager for
-//! the interjections waiting for the round's line, which it hands in to the round and records as delivered in it, and
-//! the command line adds them to the session before the agent goes on. Those still waiting when the round ends go at
+//! what is said to the round's line and waits (the hub's messages to the line, `line_sayings`), which it hands in to
+//! the round and records as taken in it, and the command line adds them to the session before the agent goes on. Those still waiting when the round ends go at
 //! the top of the next round's message. What the owner said with images waits for that message too: the hook adds text
 //! only, and the images go to the agent with their words.
 //!
@@ -42,9 +42,9 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
                         j.id IN (SELECT g.value FROM rounds r, json_each(r.input, '$.engine.interjections') g
                                  WHERE r.work = ?1 AND r.n = ?3) AS given,
                         EXISTS (SELECT 1 FROM attachments a
-                                WHERE a.interjection = j.id OR a.matter = j.matter) AS imaged
-                 FROM interjections j LEFT JOIN design_cards c ON c.id = j.design_card
-                 WHERE j.work = ?1 AND j.line = ?2 AND j.delivered_round IS NULL
+                                WHERE a.message = j.id OR a.matter = j.matter) AS imaged
+                 FROM line_sayings j LEFT JOIN design_cards c ON c.id = j.design_card
+                 WHERE j.work = ?1 AND j.line = ?2 AND j.taken_round IS NULL
                  ORDER BY j.id",
             )?;
             // What the round's message gave, images included, the agent has: it is recorded as delivered and not
@@ -76,10 +76,7 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
                 }
             }
             for id in &recorded {
-                tx.execute(
-                    "UPDATE interjections SET delivered_round = ?2 WHERE id = ?1",
-                    params![id, round],
-                )?;
+                db::take(tx, *id, work, round)?;
             }
             Ok(handed)
         })
@@ -112,8 +109,8 @@ pub fn delivered_during(db: &Db, work: i64, round: i64, given: &[i64]) -> Result
     let mut st = db
         .conn()
         .prepare(
-            "SELECT j.work, j.id, j.line, j.speaker, j.text, j.design_card, c.key FROM interjections j
-             LEFT JOIN design_cards c ON c.id = j.design_card WHERE j.work = ?1 AND j.delivered_round = ?2
+            "SELECT j.work, j.id, j.line, j.speaker, j.text, j.design_card, c.key FROM line_sayings j
+             LEFT JOIN design_cards c ON c.id = j.design_card WHERE j.work = ?1 AND j.taken_round = ?2
              ORDER BY j.id",
         )
         .map_err(|e| e.to_string())?;
@@ -157,20 +154,18 @@ mod tests {
                 "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'R1', '{}', 'c', 1)",
                 [],
             )?;
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text)
-                 VALUES (1, 'engineer', 'owner', 'Look at the log.'), (1, 'review', 'owner', 'Not yours.')",
-                [],
-            )?;
+            let owner = db::Sender::Owner;
+            db::say_to_line(tx, &db::ToLine::new(owner, 1, "engineer", "Look at the log."), None)?;
+            db::say_to_line(tx, &db::ToLine::new(owner, 1, "review", "Not yours."), None)?;
             tx.execute(
                 "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'cache-size', '{}', 'open')",
                 [],
             )?;
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text, design_card)
-                 VALUES (1, 'engineer', 'owner', 'Why this size?', 1)",
-                [],
-            )?;
+            let about_card = db::ToLine {
+                design_card: Some(1),
+                ..db::ToLine::new(owner, 1, "engineer", "Why this size?")
+            };
+            db::say_to_line(tx, &about_card, None)?;
             Ok(())
         })
         .unwrap();
@@ -218,19 +213,13 @@ mod tests {
                 "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'R1', '{}', 'c', 1)",
                 [],
             )?;
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (1, 'engineer', 'owner', 'See this.')",
-                [],
-            )?;
+            let see = db::say_to_line(tx, &db::ToLine::new(db::Sender::Owner, 1, "engineer", "See this."), None)?;
             let image = db::attachments::Image {
                 media_type: "image/png".into(),
                 bytes: b"\x89PNG\r\n\x1a\n".to_vec(),
             };
-            db::attachments::attach(tx, db::attachments::Words::Interjection(1), &[image])?;
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (1, 'engineer', 'owner', 'And this.')",
-                [],
-            )?;
+            db::attachments::attach(tx, db::attachments::Words::Message(see), &[image])?;
+            db::say_to_line(tx, &db::ToLine::new(db::Sender::Owner, 1, "engineer", "And this."), None)?;
             Ok(())
         })
         .unwrap();
@@ -238,11 +227,9 @@ mod tests {
         assert!(out.contains("ij:2") && !out.contains("ij:1"), "{out}");
         let waiting: i64 = db
             .conn()
-            .query_row(
-                "SELECT count(*) FROM interjections WHERE delivered_round IS NULL",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT count(*) FROM line_sayings WHERE taken_round IS NULL", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(waiting, 1);
     }

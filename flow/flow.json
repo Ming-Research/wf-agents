@@ -3911,7 +3911,6 @@
         "desc": "What waits for the project's architect, each matter with what became of it, its record and the replies to engineers",
         "relations": [
           "architect_matters",
-          "talk_entries",
           "architect_queue",
           "work_handled"
         ],
@@ -4044,7 +4043,7 @@
         "layer": "work",
         "desc": "What the owner or the architect said to a running work, and when each was handed in",
         "relations": [
-          "interjections",
+          "line_sayings",
           "waiting_interjections",
           "work_owner_words"
         ],

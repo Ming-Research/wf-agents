@@ -33,7 +33,7 @@ pub use matters::{
     Appended, BASE_BUILT, Declared, Matter, Speaker, appended_since, base_built_at, lift_pause, one_sentence,
     plan_written_at, project_of_item, queue_matter, say_to_architect, without_final_terminal,
 };
-pub use messages::{FAULT, Message, Recipient, Sender, mark_read, pass_on, send};
+pub use messages::{FAULT, Message, Recipient, Sender, ToLine, mark_read, pass_on, say_to_line, send, take, untake};
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
 pub use start_over::{
@@ -2457,7 +2457,7 @@ mod tests {
         assert_eq!(answered(2), None);
         let said: (String, Option<String>) = old
             .conn()
-            .query_row("SELECT text, declared FROM interjections", [], |r| {
+            .query_row("SELECT text, declared FROM line_sayings", [], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .unwrap();
@@ -2515,15 +2515,16 @@ mod tests {
                     params![body, at],
                 )?;
             }
-            tx.execute(
-                "INSERT INTO interjections (work, speaker, text, matter) VALUES (1, 'owner', 'Held by a matter.', 1)",
-                [],
-            )?;
-            tx.execute(
-                "INSERT INTO interjections (work, speaker, declared, relayed, text)
-                 VALUES (1, 'owner', 'delegate', '[\"To the\"]', 'To the engineer.')",
-                [],
-            )?;
+            fn owner(text: &str) -> ToLine<'_> {
+                ToLine::new(Sender::Owner, 1, "engineer", text)
+            }
+            say_to_line(tx, &owner("Held by a matter."), Some(1))?;
+            let alone = ToLine {
+                speaker: Some("delegate"),
+                relayed: Some(serde_json::json!(["To the"])),
+                ..owner("To the engineer.")
+            };
+            say_to_line(tx, &alone, None)?;
             // The owner's answer to an engineer's question is the reply of its matter; the architect's reply is not.
             tx.execute(
                 "INSERT INTO architect_matters (project, kind, what, body, work, round, at, reply) VALUES
@@ -2532,7 +2533,7 @@ mod tests {
                  ('p', 'engineer_question', 'w', '{}', 1, 1, 8, '{\"by\":\"architect\",\"at\":9,\"text\":\"No.\"}')",
                 [],
             )?;
-            tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'architect', 'Not the owner.')", [])?;
+            say_to_line(tx, &ToLine::new(Sender::Architect, 1, "engineer", "Not the owner."), None)?;
             tx.execute(
                 "INSERT INTO owner_asks (work, round, body, answer) VALUES
                  (1, 1, '{}', '{\"by\":\"owner\",\"at\":9,\"text\":\"Yes.\",\"speaker\":\"owner\"}'),
@@ -2916,7 +2917,7 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         // A table made afresh for its description has the description the schema writes, which agents read.
-        for table in ["items", "architect_matters", "start_order", "interjections", "rounds"] {
+        for table in ["items", "architect_matters", "start_order", "messages", "rounds"] {
             let definition = |db: &Db| -> String {
                 db.conn()
                     .query_row("SELECT sql FROM sqlite_schema WHERE name = ?1", [table], |r| r.get(0))
@@ -2937,7 +2938,7 @@ mod tests {
         let pair = |q: &str| -> (i64, i64) { old.conn().query_row(q, [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap() };
         assert_eq!(pair("SELECT work, round FROM tool_runs"), (1, 2));
         assert_eq!(pair("SELECT acceptance_work, acceptance_round FROM items"), (1, 2));
-        assert_eq!(pair("SELECT work, delivered_round FROM interjections"), (2, 1));
+        assert_eq!(pair("SELECT work, taken_round FROM line_sayings"), (2, 1));
         assert_eq!(pair("SELECT work, round FROM design_cards"), (1, 1));
         // Design cards and asks of the owner are apart, with their ids; the ask a failed run raised is closed, and
         // its work goes on.

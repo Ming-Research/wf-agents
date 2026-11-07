@@ -560,11 +560,11 @@ pub fn basis_problems(verdicts: &[Value], conditions: &[Value], at: i64, runs: &
     problems
 }
 
-/// The statement `words_given` runs: the interjections of the work delivered after its last merge.
+/// The statement `words_given` runs: what was said to the work's lines that its rounds took after its last merge.
 pub(crate) fn words_given_sql() -> String {
     format!(
-        "SELECT count(*) FROM interjections
-         WHERE work = ?1 AND delivered_round > coalesce(
+        "SELECT count(*) FROM deliveries
+         WHERE recipient = 'line' AND taken_work = ?1 AND taken_round > coalesce(
            (SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {} AND transition = 'merged'), 0)",
         db::cells_sql(ENGINEER, &[MERGE])
     )
@@ -693,12 +693,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn words_given_reads_interjections_by_work_delivered() {
+    fn words_given_reads_the_deliveries_by_the_round_that_took_them() {
         let database = db::Db::in_memory().unwrap();
         let steps = db::query_plan(database.conn(), &words_given_sql()).unwrap();
         assert!(
-            steps.contains("interjections_by_work_delivered"),
-            "the plan does not read by interjections_by_work_delivered:\n{steps}"
+            steps.contains("deliveries_taken"),
+            "the plan does not read by deliveries_taken:\n{steps}"
         );
     }
 

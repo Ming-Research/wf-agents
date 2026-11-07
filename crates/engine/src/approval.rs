@@ -326,10 +326,11 @@ pub fn relay(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let declared = answer["speaker"]
         .as_str()
         .filter(|s| matches!(*s, "owner" | "delegate"));
-    tx.execute(
-        "INSERT INTO interjections (work, line, speaker, declared, text) VALUES (?1, 'engineer', 'owner', ?2, ?3)",
-        params![w.id, declared, format!("{} {text}", db::RELAY_APPROVAL)],
-    )
-    .map_err(sql)?;
+    let relayed = format!("{} {text}", db::RELAY_APPROVAL);
+    let relay = db::ToLine {
+        speaker: declared,
+        ..db::ToLine::new(db::Sender::Owner, w.id, "engineer", &relayed)
+    };
+    db::say_to_line(tx, &relay, None).map_err(sql)?;
     Ok(())
 }

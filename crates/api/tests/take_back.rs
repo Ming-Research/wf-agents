@@ -3,7 +3,7 @@
 
 use api::{ConversationEntry, Retract, TakeBack, Talks};
 use db::attachments::{self, Image, Words};
-use db::rusqlite::{Connection, ToSql};
+use db::rusqlite::{Connection, ToSql, Transaction, params};
 use db::{Actor, Db};
 
 /// A PNG's signature and a few bytes, which the images of the owner's words are checked against.
@@ -50,14 +50,48 @@ fn world() -> Db {
     db
 }
 
-/// Says something as the owner would, with the rows the owner's write makes: an interjection to the engineer line.
+/// Puts in words said to work 1's engineer line by their number, as the hub keeps them: a message from `speaker` with
+/// what more it says (`body`), its delivery to the line, and, for words the architect has too, its delivery to the
+/// architect as `matter`.
+fn to_line(
+    tx: &Transaction<'_>,
+    id: i64,
+    speaker: &str,
+    text: &str,
+    body: Option<&str>,
+    matter: Option<i64>,
+) -> db::rusqlite::Result<()> {
+    tx.execute(
+        "INSERT INTO messages (id, sender, work, text, body, at) VALUES (?1, ?2, 1, ?3, ?4, 1)",
+        params![id, speaker, text, body],
+    )?;
+    tx.execute(
+        "INSERT INTO deliveries (message, recipient, line) VALUES (?1, 'line', 'engineer')",
+        [id],
+    )?;
+    if let Some(m) = matter {
+        tx.execute(
+            "INSERT INTO deliveries (message, recipient, matter) VALUES (?1, 'architect', ?2)",
+            [id, m],
+        )?;
+    }
+    Ok(())
+}
+
+/// Records that round 1 of work 1 took words said to its line.
+fn taken(db: &mut Db, id: i64) {
+    db.write(Actor::Engine, |tx| {
+        db::take(tx, id, 1, 1)?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Says something as the owner would, with the rows the owner's write makes: a message to the engineer line.
 fn said(db: &mut Db, id: i64, text: &str, informs: i64, matter: Option<i64>) {
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (id, work, line, speaker, text, informs, matter)
-             VALUES (?1, 1, 'engineer', 'owner', ?2, ?3, ?4)",
-            db::rusqlite::params![id, text, informs, matter],
-        )?;
+        let body = (informs == 1).then_some(r#"{"informs":1}"#);
+        to_line(tx, id, "owner", text, body, matter)?;
         Ok(())
     })
     .unwrap();
@@ -126,7 +160,7 @@ fn words_no_agent_has_come_back_whole_and_leave_no_row_for_an_agent() {
     db.write(Actor::Owner, |tx| {
         attachments::attach(
             tx,
-            Words::Interjection(1),
+            Words::Message(1),
             &[Image {
                 media_type: "image/png".into(),
                 bytes: PNG.to_vec(),
@@ -152,13 +186,13 @@ fn words_no_agent_has_come_back_whole_and_leave_no_row_for_an_agent() {
     assert_eq!(back.images[0].media_type, "image/png");
     assert_eq!(attachments::from_base64(&back.images[0].data).unwrap(), PNG);
     assert_eq!(count(db.conn(), "SELECT count(*) FROM waiting_interjections"), 0);
-    assert_eq!(count(db.conn(), "SELECT count(*) FROM interjections WHERE id = 1"), 0);
+    assert_eq!(count(db.conn(), "SELECT count(*) FROM messages WHERE id = 1"), 0);
     assert_eq!(count(db.conn(), "SELECT count(*) FROM attachments"), 0);
     assert_eq!(page(&db, "work:1", "interjection", 1), None);
     assert_eq!(
         count(
             db.conn(),
-            "SELECT count(*) FROM changes WHERE table_name = 'interjections' AND actor = 'owner'
+            "SELECT count(*) FROM changes WHERE table_name = 'messages' AND actor = 'owner'
                AND old_row IS NOT NULL AND new_row IS NULL"
         ),
         1
@@ -183,14 +217,11 @@ fn words_an_agent_has_are_not_taken_back_and_nothing_is_deleted() {
         None,
     );
     db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (id, work, line, speaker, text) VALUES (5, 1, 'engineer', 'architect', 'Mine.')",
-            [],
-        )?;
-        tx.execute("UPDATE interjections SET delivered_round = 1 WHERE id = 3", [])?;
+        to_line(tx, 5, "architect", "Mine.", None, None)?;
         Ok(())
     })
     .unwrap();
+    taken(&mut db, 3);
 
     // Round 1 is running and its message gave interjection 2: the page still says not taken up, and says it is given.
     assert_eq!(page(&db, "work:1", "interjection", 2), Some((true, Retract::Given)));
@@ -200,11 +231,11 @@ fn words_an_agent_has_are_not_taken_back_and_nothing_is_deleted() {
     for id in 2..=5 {
         assert!(take(&mut db, "interjection", id).is_err(), "interjection {id}");
     }
-    assert_eq!(count(db.conn(), "SELECT count(*) FROM interjections"), 4);
+    assert_eq!(count(db.conn(), "SELECT count(*) FROM messages"), 4);
     assert_eq!(
         count(
             db.conn(),
-            "SELECT count(*) FROM changes WHERE table_name = 'interjections' AND new_row IS NULL"
+            "SELECT count(*) FROM changes WHERE table_name = 'messages' AND new_row IS NULL"
         ),
         0
     );
@@ -212,7 +243,7 @@ fn words_an_agent_has_are_not_taken_back_and_nothing_is_deleted() {
     // The round ends: words its message gave are handed in and recorded so, and the round is over.
     db.write(Actor::Engine, |tx| {
         tx.execute("UPDATE rounds SET ended_at = 60 WHERE work = 1 AND n = 1", [])?;
-        tx.execute("UPDATE interjections SET delivered_round = 1 WHERE id = 2", [])?;
+        db::take(tx, 2, 1, 1)?;
         Ok(())
     })
     .unwrap();
@@ -246,18 +277,14 @@ fn words_said_in_a_work_s_group_to_the_architect_come_back_with_the_matter() {
         count(db.conn(), "SELECT count(*) FROM architect_matters WHERE id = 10"),
         0
     );
-    assert_eq!(count(db.conn(), "SELECT count(*) FROM interjections WHERE id = 6"), 0);
+    assert_eq!(count(db.conn(), "SELECT count(*) FROM messages WHERE id = 6"), 0);
     assert_eq!(
         count(db.conn(), "SELECT count(*) FROM architect_queue WHERE matter = 10"),
         0
     );
 
     // The engineer has the words to both, though the architect has not picked them: the architect's half stays.
-    db.write(Actor::Engine, |tx| {
-        tx.execute("UPDATE interjections SET delivered_round = 1 WHERE id = 7", [])?;
-        Ok(())
-    })
-    .unwrap();
+    taken(&mut db, 7);
     assert_eq!(
         page(&db, "work:1", "interjection", 7).map(|p| p.1),
         Some(Retract::Given)
@@ -411,15 +438,14 @@ fn words_about_a_decision_card_and_a_copy_without_its_matter_are_not_taken_back(
             "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'card-1', '[]', 'open')",
             [],
         )?;
-        tx.execute(
-            "INSERT INTO interjections (id, work, line, speaker, text, design_card)
-             VALUES (20, 1, 'engineer', 'owner', 'About the card.', 1)",
-            [],
-        )?;
-        tx.execute(
-            "INSERT INTO interjections (id, work, line, speaker, text, informs)
-             VALUES (21, 1, 'engineer', 'owner', 'Said to the architect, for you to know: nothing.', 1)",
-            [],
+        to_line(tx, 20, "owner", "About the card.", Some(r#"{"design_card":1}"#), None)?;
+        to_line(
+            tx,
+            21,
+            "owner",
+            "Said to the architect, for you to know: nothing.",
+            Some(r#"{"informs":1}"#),
+            None,
         )?;
         Ok(())
     })
@@ -428,7 +454,7 @@ fn words_about_a_decision_card_and_a_copy_without_its_matter_are_not_taken_back(
         assert!(take(&mut db, "interjection", id).is_err(), "interjection {id}");
     }
     assert_eq!(
-        count(db.conn(), "SELECT count(*) FROM interjections WHERE id IN (20, 21)"),
+        count(db.conn(), "SELECT count(*) FROM messages WHERE id IN (20, 21)"),
         2
     );
 }

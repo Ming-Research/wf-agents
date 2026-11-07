@@ -50,8 +50,10 @@ pub fn question_waited_on(conn: &Connection, project: &str, wait_ms: i64, now: i
     let said: i64 = conn.query_row(
         "SELECT (SELECT count(*) FROM architect_matters
                  WHERE project = ?1 AND kind = 'owner_words' AND json_extract(body, '$.where') = 'page' AND at > ?2)
-              + (SELECT count(*) FROM talk_entries e JOIN architect_matters m ON m.id = e.matter
-                 WHERE m.project = ?1 AND e.at > ?2)
+              + (SELECT count(*) FROM deliveries d JOIN messages e ON e.id = d.message
+                   JOIN architect_matters m ON m.id = d.matter
+                 WHERE d.recipient = 'architect' AND e.sender = 'owner' AND m.project = ?1 AND e.at > ?2
+                   AND NOT EXISTS (SELECT 1 FROM deliveries x WHERE x.message = e.id AND x.recipient = 'line'))
               + (SELECT count(*) FROM owner_asks a JOIN works w ON w.id = a.work
                  WHERE w.graph = 'architect' AND w.project = ?1 AND json_extract(a.answer, '$.at') > ?2)",
         rusqlite::params![project, at],

@@ -232,31 +232,44 @@ CREATE TABLE owner_asks (
 ) STRICT;
 
 CREATE TABLE messages (
-  -- Every message the hub carries to the owner, the flow's keeper or an architect, written once and never changed: a
-  -- saying, which needs no answer. An agent's is what it tells the owner in a return, its answer to what the owner said
-  -- to its work, or the architect's reply to the owner's words; the engine's is what it tells of its own accord: a work
-  -- stopped, or gone back in a new flow version, every work halted until a usage limit resets, a limit passed, an ask of
-  -- the owner put, a fault of wf-agents. Whom each went to, and what became of it there, is in deliveries. Agents do
-  -- not read it: what a cell needs of it reaches the cell as an input (the architect's talk with the owner), and the
-  -- faults of wf-agents among it are the flow's keeper's, which no project's agents act on.
+  -- Every message the hub carries, written once and never changed: a saying, which needs no answer. To the owner: what
+  -- an agent tells the owner in a return, its answer to what the owner said to its work, the architect's reply to the
+  -- owner's words, and what the engine tells of its own accord (a work stopped, or gone back in a new flow version,
+  -- every work halted until a usage limit resets, a limit passed, an ask of the owner put); to the flow's keeper, a
+  -- fault of wf-agents; to a line of a work, what the owner says to it, what the architect says to it, and what the
+  -- engine says in the owner's name (a ruling on a decision card, an answer of the owner's relayed, the notice that an
+  -- item depended on was cancelled). Whom each went to, and what became of it there, is in deliveries. Words to a line
+  -- that no agent has taken up yet are deleted when the owner takes them back. Agents do not read it: what a cell needs
+  -- of it reaches the cell as an input (what is said to its line, the architect's talk with the owner), and the faults
+  -- of wf-agents among it are the flow's keeper's, which no project's agents act on.
   -- Hidden from agents.
-  -- Read by: the owner's interface, which shows each in its conversation (conversation_entries); the engine, which adds
-  -- a further cache miss to the message of a fault still open, and hands a fault passed on to an architect to it.
+  -- Read by: the owner's interface, which shows each in its conversation (conversation_entries); the engine, which
+  -- gives each line what is said to it (line_sayings), adds a further cache miss to the message of a fault still open,
+  -- and hands a fault passed on to an architect to it.
   id INTEGER PRIMARY KEY,
-  -- Who sent it: engineer (a line of an engineer's work), architect (a line of a project's architect's work), or engine.
-  sender TEXT NOT NULL CHECK (sender IN ('engineer', 'architect', 'engine')),
-  -- The work it is about: an agent's, the work whose round handed it in; the engine's, the work it tells of, NULL for
-  -- one about no work.
+  -- Who sent it: owner (the owner's words, and what the engine says to a line in the owner's name), engineer (a line of
+  -- an engineer's work), architect (a line of a project's architect's work), or engine.
+  sender TEXT NOT NULL CHECK (sender IN ('owner', 'engineer', 'architect', 'engine')),
+  -- The work it is about: an agent's to the owner, the work whose round handed it in; one to a line, the work whose
+  -- line it is said to; the engine's, the work it tells of, NULL for one about no work.
   work INTEGER REFERENCES works(id),
-  -- An agent's: the round whose return holds it, by its number in the work; NULL for the engine's.
+  -- An agent's to the owner: the round whose return holds it, by its number in the work; NULL for any other.
   round INTEGER,
   -- The message, as its sender wrote it.
   text TEXT NOT NULL,
   -- What more it says, JSON; NULL when nothing. For a fault of wf-agents, its kind (`kind`): cache_miss, rounds that
   -- missed their session's prompt cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a row
   -- counting a flow anomaly, where the way on an engineer chose did not fit the situation. For an agent's answer to the
-  -- owner's question about a decision card, that card (`design_card`), which the work's group shows it as a reply to.
-  -- Read by: the owner's interface; the engine.
+  -- owner's question about a decision card, or the owner's question about one, that card (`design_card`), which the
+  -- work's group shows the one as a reply to and the engineer is given with the other. For the owner's words to a line:
+  -- who the caller declared to speak (`speaker`, owner, or delegate for a session that speaks for the owner; none for
+  -- what the engine says in the owner's name, and for words kept before it was declared), and the parts a delegate
+  -- declared to be the owner's own words (`relayed`, each found letter for letter in the text). For a word to a line
+  -- that needs no answer and changes no way on, as the owner confirming every decision of a design card or the words
+  -- said in a work's group to its architect alone (`informs`, 1): the line's next round is given it, and a work
+  -- standing at an engine step is not taken by it to choose the way on. For the notice that an item the work's item
+  -- depended on was cancelled, that item (`cancelled_item`): the cells where the work waits (`A2`, `A6`, `M1`) take
+  -- such a notice to choose the way on by a row of their own. Read by: the owner's interface; the engine.
   body TEXT CHECK (body IS NULL OR json_valid(body)),
   -- For the engine's word of an ask of the owner put: that ask, which the owner's conversations date the ask by and
   -- link to; NULL for any other message. Read by: the owner's interface; the engine, which hands an architect the ask
@@ -264,32 +277,48 @@ CREATE TABLE messages (
   ask INTEGER REFERENCES owner_asks(id),
   -- When it was sent.
   at INTEGER NOT NULL,
-  CHECK ((sender = 'engine') = (round IS NULL)),
+  CHECK (sender IN ('engineer', 'architect') OR round IS NULL),
+  CHECK (sender <> 'engineer' OR round IS NOT NULL),
   CHECK (round IS NULL OR work IS NOT NULL),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
 
 CREATE TABLE deliveries (
   -- Each recipient a message went to, and what became of it there: the owner; the flow's keeper, a queue for
-  -- wf-agents' own faults, which the owner and the assistant work; or a project's architect, to whose queue a fault of
-  -- wf-agents was passed on. A fault goes to the keeper, and every other message to the owner. Agents do not read
-  -- it: what was read and where a fault went is the owner's bookkeeping.
+  -- wf-agents' own faults, which the owner and the assistant work; a project's architect, to whose queue a fault of
+  -- wf-agents was passed on, or that the owner's words said in a work's group came to as well; or a line of a work
+  -- (line: an engineer's, or one of the work's helpers; the architect's in a flow version before), which takes what is
+  -- said to it at its next round, or during a round after a tool use. A fault goes to the keeper; what is said to a
+  -- line, to that line; every other message to the owner. Agents do not read it: what was read, where a fault went
+  -- and which round took what is the owner's and the engine's bookkeeping.
   -- Hidden from agents.
-  -- Read by: the owner's interface, which shows what is unread and where each fault went; the engine, which hands an
-  -- architect the fault its matter is.
+  -- Read by: the owner's interface, which shows what is unread, where each fault went and what no agent took up yet;
+  -- the engine, which hands each line what is said to it and records the round that took it, and hands an architect
+  -- the fault its matter is.
   id INTEGER PRIMARY KEY,
   -- The message delivered.
   message INTEGER NOT NULL REFERENCES messages(id),
-  -- owner, keeper or architect.
-  recipient TEXT NOT NULL CHECK (recipient IN ('owner', 'keeper', 'architect')),
-  -- For an architect: the matter of its queue the message came as, which names the project; NULL for another
-  -- recipient.
+  -- owner, keeper, architect or line.
+  recipient TEXT NOT NULL CHECK (recipient IN ('owner', 'keeper', 'architect', 'line')),
+  -- For a line: which of the message's work's lines it is said to (engineer, review, ...); NULL for another recipient.
+  line TEXT,
+  -- For an architect: the matter of its queue the message came as, or, for the owner's words of a talk with the
+  -- architect as a flow version before held one, the matter of the words that started the talk; it names the project.
+  -- NULL for another recipient.
   matter INTEGER REFERENCES architect_matters(id),
   -- For the owner and the keeper: when it was marked read, or passed on to an architect; NULL while it is unread, and
-  -- for an architect, whose matter says what became of it.
+  -- for an agent.
   read_at INTEGER,
+  -- For an agent: the round that took it, by its work and its number in the work; NULL until then. Read by: the
+  -- engine, to find what is still to hand in; the owner's interface, for what no agent took up yet.
+  taken_work INTEGER,
+  taken_round INTEGER,
   CHECK ((recipient = 'architect') = (matter IS NOT NULL)),
-  CHECK (recipient <> 'architect' OR read_at IS NULL)
+  CHECK ((recipient = 'line') = (line IS NOT NULL)),
+  CHECK (recipient IN ('owner', 'keeper') OR read_at IS NULL),
+  CHECK (recipient IN ('architect', 'line') OR taken_round IS NULL),
+  CHECK ((taken_work IS NULL) = (taken_round IS NULL)),
+  FOREIGN KEY (taken_work, taken_round) REFERENCES rounds (work, n)
 ) STRICT;
 
 CREATE TABLE reminders (
@@ -776,52 +805,6 @@ CREATE TABLE reverts (
   at INTEGER NOT NULL
 ) STRICT;
 
-CREATE TABLE interjections (
-  -- What the owner or the architect says to a running work. The engine hands each one to the line it is for: during a
-  -- round after the agent's next tool use, or at the front of the next round's input. Rulings on design cards arrive
-  -- this way too. Replies are in the output of the round that answered.
-  -- Read by: every agent cell; cells `T7`, `M1` and `E1` when the work stands at them.
-  id INTEGER PRIMARY KEY,
-  work INTEGER NOT NULL REFERENCES works(id),
-  -- The line it is for.
-  line TEXT NOT NULL DEFAULT 'engineer',
-  -- Who said it. When the owner and the architect disagree, the owner's word holds.
-  speaker TEXT NOT NULL CHECK (speaker IN ('owner', 'architect')),
-  -- For what the owner said to the engineer alone: who the caller declared to speak, owner, or delegate for a session
-  -- that speaks for the owner; NULL for what the architect said, for what the engine wrote in the owner's name (a
-  -- ruling on a design card) and for words kept before it was declared. Read by: the engine, which tells who decided a
-  -- decision that quotes the words.
-  declared TEXT CHECK (declared IN ('owner', 'delegate')),
-  -- For what a delegate said to the engineer alone and declared to hold the owner's own words: those parts, a JSON array
-  -- of strings, each found letter for letter in the words (text); NULL when none was declared. Read by: the engine,
-  -- which tells a decision that quotes one of the parts as the owner's, relayed by the delegate, not checked.
-  relayed TEXT CHECK (relayed IS NULL OR (json_valid(relayed) AND declared = 'delegate')),
-  -- Their words as said.
-  text TEXT NOT NULL,
-  -- The round of the work it was handed in, by its number in the work; NULL until then. Read by: the engine, to find
-  -- what is still to hand in.
-  delivered_round INTEGER,
-  -- For the notice that an item this work's item depended on was cancelled: that item; NULL for anything else said.
-  -- The cells where the work waits (`A2`, `A6`, `M1`) take such a notice to choose the way on by a row of their own,
-  -- as an item they waited for that will never deliver, when it is for the line the work stands on: a question asked
-  -- from another line is not withdrawn for it, since the cell the work goes back to would not hear it. Read by: the
-  -- engine's values `cancelled` and `held`.
-  cancelled_item INTEGER REFERENCES items(id),
-  -- 1 for a word that needs no answer and changes no way on, as the owner confirming every decision of a design card:
-  -- the line's next round is given it, and a work standing at an engine step is not taken by it to choose the way on.
-  -- Read by: the engine's values `interjection`, `cancelled` and `held`, which leave such words out.
-  informs INTEGER NOT NULL DEFAULT 0 CHECK (informs IN (0, 1)),
-  -- For what the owner said in the work's group to its project's architect: that architect's matter, which holds the
-  -- words. Said to the architect alone, the engineer is given it as a word that needs no answer (informs); said to
-  -- both, as said to it. NULL for anything said to the engineer alone. Read by: the owner's interface, which shows the
-  -- words once, to whom they were said.
-  matter INTEGER REFERENCES architect_matters(id),
-  -- For the owner's question about a decision card, asked on the card in the work's group: that card, which the
-  -- engineer is given with the words, and the group shows them as a reply to. NULL for anything else said.
-  design_card INTEGER REFERENCES design_cards(id),
-  FOREIGN KEY (work, delivered_round) REFERENCES rounds (work, n)
-) STRICT;
-
 CREATE TABLE known_red_checks (
   -- CI checks known to fail for a reason outside any one work, so full CI and the merge queue do not hold them against
   -- the work. Added while works run, which is why this is a table and not configuration. A row is removed when its
@@ -985,27 +968,6 @@ CREATE TABLE architect_matters (
   CHECK ((asked IS NULL) = (resume_cell IS NULL)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n),
   FOREIGN KEY (handled_work, handled_round) REFERENCES rounds (work, n)
-) STRICT;
-
-CREATE TABLE talk_entries (
-  -- What the owner said to a project's architect in their one-to-one while a talk with the owner was open, as a flow
-  -- version before held one (the architect answering at cell `H8` or waiting for the owner's reply at `H11`, or the
-  -- talk held out of the queue and not ended): an entry of that talk, after the owner's words that started it, and no
-  -- matter of its own. Nothing writes it now: every word the owner says to the architect is a matter of its own.
-  -- Read by: the owner's interface, which shows them in the one-to-one; the check of a policy, which quotes none of the
-  -- owner's words.
-  id INTEGER PRIMARY KEY,
-  -- The talk: the matter of the owner's words that started it.
-  matter INTEGER NOT NULL REFERENCES architect_matters(id),
-  -- What the owner said.
-  text TEXT NOT NULL,
-  -- When the owner said it.
-  at INTEGER NOT NULL,
-  -- The architect's turn of the talk that took it, by its work and round; NULL while no turn took it.
-  taken_work INTEGER,
-  taken_round INTEGER,
-  CHECK ((taken_work IS NULL) = (taken_round IS NULL)),
-  FOREIGN KEY (taken_work, taken_round) REFERENCES rounds (work, n)
 ) STRICT;
 
 CREATE TABLE blockers (
@@ -1261,10 +1223,10 @@ CREATE TABLE attachments (
   -- Read by: the engine, which gives each image with its words; the owner's interface, which shows the images under
   -- the owner's words and in the round that was given them.
   id INTEGER PRIMARY KEY,
-  -- The words it came with, exactly one of: what the owner said to a work's line (an interjection); the owner's words
-  -- an architect's matter holds (the words of a matter of the kind owner_words, or the owner's reply to an engineer's
+  -- The words it came with, exactly one of: what the owner said to a work's line (a message); the owner's words an
+  -- architect's matter holds (the words of a matter of the kind owner_words, or the owner's reply to an engineer's
   -- question a matter holds); or the owner's answer to an ask.
-  interjection INTEGER REFERENCES interjections(id),
+  message INTEGER REFERENCES messages(id),
   matter INTEGER REFERENCES architect_matters(id),
   ask INTEGER REFERENCES owner_asks(id),
   -- Its place among the images of its words, from 1, in the order the owner added them.
@@ -1277,7 +1239,7 @@ CREATE TABLE attachments (
   hash TEXT NOT NULL,
   -- The image itself.
   bytes BLOB NOT NULL CHECK (length(bytes) = size),
-  CHECK ((interjection IS NOT NULL) + (matter IS NOT NULL) + (ask IS NOT NULL) = 1)
+  CHECK ((message IS NOT NULL) + (matter IS NOT NULL) + (ask IS NOT NULL) = 1)
 ) STRICT;
 
 -- Indexes for the reads every step makes.
@@ -1319,10 +1281,8 @@ CREATE INDEX owner_asks_by_round ON owner_asks (work, round);
 CREATE INDEX messages_by_work ON messages (work, round);
 -- The recipients of each message.
 CREATE INDEX deliveries_by_message ON deliveries (message);
--- The message each matter it came as is: one at most.
-CREATE UNIQUE INDEX deliveries_by_matter ON deliveries (matter) WHERE matter IS NOT NULL;
--- Interjections still to hand in to a work.
-CREATE INDEX interjections_waiting ON interjections (work) WHERE delivered_round IS NULL;
+-- The messages a matter came as or holds: the owner's words said in a work's group, those of a talk, a fault.
+CREATE INDEX deliveries_by_matter ON deliveries (matter) WHERE matter IS NOT NULL;
 -- The history of one row.
 CREATE INDEX changes_by_row ON changes (table_name, row_key);
 -- The changes to a table within a time, which the health numbers read a period by.
@@ -1335,8 +1295,6 @@ CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE hand
 CREATE INDEX architect_matters_by_kind ON architect_matters (kind, at);
 -- The matters a round handled, which the health numbers read from the rounds that ended within a time.
 CREATE INDEX architect_matters_by_handling ON architect_matters (handled_work, handled_round);
--- The entries of each talk with the owner.
-CREATE INDEX talk_entries_by_talk ON talk_entries (matter);
 -- The open blocker of each task: one at most.
 CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
 -- The blockers raised within a time, and those that ended after a time, which the health numbers read a period by.
@@ -1351,7 +1309,7 @@ CREATE INDEX observations_by_project ON observations (project);
 -- A project's architect's notebook, by its sections.
 CREATE INDEX notebook_edits_by_section ON notebook_edits (project, section);
 -- The images each of the owner's words came with, in order: one in each place.
-CREATE UNIQUE INDEX attachments_of_interjection ON attachments (interjection, position) WHERE interjection IS NOT NULL;
+CREATE UNIQUE INDEX attachments_of_message ON attachments (message, position) WHERE message IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_matter ON attachments (matter, position) WHERE matter IS NOT NULL;
 CREATE UNIQUE INDEX attachments_of_ask ON attachments (ask, position) WHERE ask IS NOT NULL;
 -- The largest transaction number in the change log: `Db::write` reads it on every write, under the write lock.
@@ -1362,10 +1320,8 @@ CREATE INDEX sessions_by_cli_session ON sessions (cli_session);
 CREATE INDEX rounds_by_session ON rounds (session);
 -- The rounds of a cell in any work: an architect's rounds at the cell of a matter.
 CREATE INDEX rounds_by_cell ON rounds (cell);
--- The interjections a matter holds the owner's words of, said in a work's group.
-CREATE INDEX interjections_by_matter ON interjections (matter);
--- The interjections of a work delivered after a round: the words given since a merge.
-CREATE INDEX interjections_by_work_delivered ON interjections (work, delivered_round);
+-- What a work's rounds took after a round: the words given since a merge.
+CREATE INDEX deliveries_taken ON deliveries (taken_work, taken_round);
 -- The matters of a work of a kind: the questions an engineer asked the architect, the reports of its line.
 CREATE INDEX architect_matters_by_work ON architect_matters (work, kind);
 -- The matter an owner's ask put to the architect.
@@ -1772,7 +1728,9 @@ CREATE VIEW work_owner_words AS
   -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
   -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
   -- kept before it was declared. relayed is, for words a delegate said, the parts of them it declared to be the owner's
-  -- own words, a JSON array; none when it declared none. Read by: cell `L2`.
+  -- own words, a JSON array; none when it declared none. Cell `L2` is given it as its input.
+  -- Hidden from agents, as the hub's tables it reads are.
+  -- Read by: cell `L2`.
   SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
     json_extract(m.body, '$.speaker') AS speaker,
     coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at,
@@ -1785,12 +1743,9 @@ CREATE VIEW work_owner_words AS
   FROM architect_matters m
   WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
   UNION ALL
-  SELECT j.work, 'interjection', j.id, j.declared, j.text,
-    coalesce((SELECT max(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
-                AND c.old_row IS NULL), 0), j.relayed
-  FROM interjections j
-  WHERE j.speaker = 'owner' AND j.matter IS NULL AND j.cancelled_item IS NULL
+  SELECT s.work, 'interjection', s.id, s.declared, s.text, s.at, s.relayed
+  FROM line_sayings s
+  WHERE s.speaker = 'owner' AND s.matter IS NULL AND s.cancelled_item IS NULL
   UNION ALL
   SELECT a.work, 'ask', a.id, json_extract(a.answer, '$.speaker'), json_extract(a.answer, '$.text'),
     coalesce(json_extract(a.answer, '$.at'), 0), json_extract(a.answer, '$.relayed')
@@ -1839,12 +1794,35 @@ CREATE VIEW waited_items AS
      ORDER BY r.work DESC, r.n DESC LIMIT 1) AS merged
   FROM works w JOIN item_links l ON l.item = w.item JOIN items d ON d.id = l.depends_on;
 
+CREATE VIEW line_sayings AS
+  -- Each message said to a line of a work, one row for each, with the columns the words said to a line have had: who
+  -- said it (speaker, owner or architect), the work and the line, the words, who the caller declared to speak
+  -- (declared) and the parts a delegate relayed as the owner's own (relayed), whether it needs no answer (informs), the
+  -- decision card it asks about, the item whose cancellation it tells of, the architect's matter that holds the same
+  -- words when they were said in the work's group to the architect too, when it was said, and the round of the work
+  -- that took it (taken_round), none until one did.
+  -- Hidden from agents, as the hub's tables it reads are.
+  -- Read by: the engine, which gives each line what waits for it, and judges a decision by the words it cites; the
+  -- owner's interface, which shows them and offers to take back what no agent took up yet; the views
+  -- waiting_interjections, work_owner_words and conversation_entries.
+  SELECT m.id, m.work, d.line, m.sender AS speaker, m.text, json_extract(m.body, '$.speaker') AS declared,
+    json_extract(m.body, '$.relayed') AS relayed, coalesce(json_extract(m.body, '$.informs'), 0) AS informs,
+    json_extract(m.body, '$.design_card') AS design_card, json_extract(m.body, '$.cancelled_item') AS cancelled_item,
+    (SELECT a.matter FROM deliveries a WHERE a.message = m.id AND a.recipient = 'architect') AS matter, m.at,
+    d.taken_round
+  FROM deliveries d JOIN messages m ON m.id = d.message
+  WHERE d.recipient = 'line';
+
 CREATE VIEW waiting_interjections AS
   -- Interjections not yet handed in, in the order they came, each with the decision card it asks about, by its number
-  -- and key, if it does. Read by: every agent cell; cells `T7`, `M1` and `E1`.
-  SELECT j.work, j.id AS interjection, j.line, j.speaker, j.text, j.design_card, c.key AS card_key
-  FROM interjections j LEFT JOIN design_cards c ON c.id = j.design_card
-  WHERE j.delivered_round IS NULL;
+  -- and key, if it does: the messages said to a work's lines that no round took yet (line_sayings). Each cell is given
+  -- what waits for its line as its input.
+  -- Hidden from agents, as the hub's tables it reads are.
+  -- Read by: every agent cell; cells `T7`, `M1` and `E1`.
+  SELECT s.work, s.id AS interjection, s.line, s.speaker, s.text, s.design_card, c.key AS card_key
+  FROM line_sayings s LEFT JOIN design_cards c ON c.id = s.design_card
+  WHERE s.taken_round IS NULL
+  ORDER BY s.id;
 
 CREATE VIEW merge_queue AS
   -- Each project's merge queue: the works at the merge cell, in the order they came to it; a work that left it and
@@ -2154,19 +2132,15 @@ CREATE VIEW conversation_entries AS
     coalesce(w.project, i.project), 'interjection', j.id, j.speaker,
     CASE WHEN j.matter IS NULL THEN j.line WHEN j.informs = 1 THEN 'architect' ELSE 'both' END,
     coalesce((SELECT json_extract(x.body, '$.text') FROM architect_matters x WHERE x.id = j.matter), j.text),
-    coalesce((SELECT max(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)
-                AND c.old_row IS NULL),
-             (SELECT min(x.started_at) FROM rounds x WHERE x.work = j.work), 0),
-    j.work, j.delivered_round, NULL, j.design_card, j.matter, NULL, 0,
-    j.speaker = 'owner' AND ((j.informs = 0 AND j.delivered_round IS NULL AND w.ended IS NULL
+    j.at, j.work, j.taken_round, NULL, j.design_card, j.matter, NULL, 0,
+    j.speaker = 'owner' AND ((j.informs = 0 AND j.taken_round IS NULL AND w.ended IS NULL
         AND w.at NOT IN (CASE WHEN w.graph = 'architect' THEN 'R1' ELSE 'E1' END, 'E2', '20', 'end'))
       OR EXISTS (SELECT 1 FROM architect_matters x
                  WHERE x.id = j.matter AND x.handled_round IS NULL AND x.withdrawn IS NULL)),
-    j.speaker = 'owner' AND j.informs = 0 AND j.delivered_round IS NULL
+    j.speaker = 'owner' AND j.informs = 0 AND j.taken_round IS NULL
       AND (w.ended IS NOT NULL OR w.at IN (CASE WHEN w.graph = 'architect' THEN 'R1' ELSE 'E1' END, 'E2', '20', 'end')),
     0, NULL
-  FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
+  FROM line_sayings j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
   WHERE j.text NOT LIKE 'Ruling on design card %'
     AND j.text NOT LIKE 'The owner confirmed every decision of design card %'
     AND j.text NOT LIKE 'Ruling on decision card %'
@@ -2180,12 +2154,15 @@ CREATE VIEW conversation_entries AS
     m.handled_round IS NULL AND m.withdrawn IS NULL, 0, 0, NULL
   FROM architect_matters m LEFT JOIN works y ON y.id = json_extract(m.body, '$.work')
   WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.text') IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM interjections j WHERE j.matter = m.id)
+    AND NOT EXISTS (SELECT 1 FROM deliveries a JOIN deliveries e ON e.message = a.message AND e.recipient = 'line'
+                    WHERE a.matter = m.id)
     AND (json_extract(m.body, '$.where') IS NOT 'projects' OR json_extract(m.body, '$.to[0]') = m.project)
   UNION ALL
   SELECT 'architect:' || m.project, m.project, 'talk', e.id, 'owner', 'architect', e.text, e.at, NULL, NULL, NULL,
-    NULL, e.matter, NULL, 0, e.taken_round IS NULL AND m.handled_round IS NULL AND m.withdrawn IS NULL, 0, 0, NULL
-  FROM talk_entries e JOIN architect_matters m ON m.id = e.matter
+    NULL, m.id, NULL, 0, d.taken_round IS NULL AND m.handled_round IS NULL AND m.withdrawn IS NULL, 0, 0, NULL
+  FROM deliveries d JOIN messages e ON e.id = d.message JOIN architect_matters m ON m.id = d.matter
+  WHERE d.recipient = 'architect' AND e.sender = 'owner'
+    AND NOT EXISTS (SELECT 1 FROM deliveries x WHERE x.message = e.id AND x.recipient = 'line')
   UNION ALL
   SELECT 'work:' || m.work, m.project, CASE WHEN m.kind = 'report' THEN 'report' ELSE 'question' END, m.id,
     coalesce((SELECT s.line FROM rounds x JOIN sessions s ON s.id = x.session

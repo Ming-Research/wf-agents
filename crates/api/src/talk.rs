@@ -527,7 +527,8 @@ fn words_now(conn: &Connection, architects: &mut HashMap<String, WithWords>, mat
     };
     let chart = now.filter(|_| state == "replying").map(|h| (h.1, h.2, h.3.clone()));
     let last_entry: Option<i64> = conn.query_row(
-        "SELECT max(id) FROM talk_entries WHERE matter = ?1 AND taken_round IS NOT NULL",
+        "SELECT max(e.id) FROM deliveries d JOIN messages e ON e.id = d.message
+         WHERE d.matter = ?1 AND d.recipient = 'architect' AND d.taken_round IS NOT NULL AND e.sender = 'owner'",
         [matter],
         |r| r.get(0),
     )?;

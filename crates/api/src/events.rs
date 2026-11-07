@@ -20,6 +20,26 @@ fn round(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
     .ok()
 }
 
+/// The event of a message, found by `sql` from a row's rowid: the work's, for what is said to one of its lines; the
+/// owner's message's, for any other.
+fn said(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
+    let message = one(conn, sql, rowid)?;
+    conn.query_row(
+        "SELECT m.work, EXISTS (SELECT 1 FROM deliveries d WHERE d.message = m.id AND d.recipient = 'line')
+         FROM messages m WHERE m.id = ?1",
+        [message],
+        |r| {
+            let work: Option<i64> = r.get(0)?;
+            let to_line: bool = r.get(1)?;
+            Ok(match (to_line, work) {
+                (true, Some(work)) => Event::Work { work },
+                _ => Event::OwnerMessage { message, work },
+            })
+        },
+    )
+    .ok()
+}
+
 /// Whether a work is a work of the architect, whose tab shows it.
 fn is_architect_work(conn: &Connection, work: i64) -> bool {
     conn.query_row(
@@ -45,9 +65,6 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
             "tool_runs" => round(conn, "SELECT work, round FROM tool_runs WHERE id = ?1", id),
             "guard_events" => round(conn, "SELECT work, round FROM guard_events WHERE id = ?1", id),
             "works" => Some(Event::Work { work: id }),
-            "interjections" => {
-                one(conn, "SELECT work FROM interjections WHERE id = ?1", id).map(|work| Event::Work { work })
-            }
             "design_cards" => Some(Event::DesignCard {
                 design_card: id,
                 work: one(conn, "SELECT work FROM design_cards WHERE id = ?1", id),
@@ -56,23 +73,10 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 ask: id,
                 work: one(conn, "SELECT work FROM owner_asks WHERE id = ?1", id),
             }),
-            "messages" => Some(Event::OwnerMessage {
-                message: id,
-                work: one(conn, "SELECT work FROM messages WHERE id = ?1", id),
-            }),
-            // A message read or passed on.
-            "deliveries" => conn
-                .query_row(
-                    "SELECT m.id, m.work FROM deliveries d JOIN messages m ON m.id = d.message WHERE d.id = ?1",
-                    [id],
-                    |r| {
-                        Ok(Event::OwnerMessage {
-                            message: r.get(0)?,
-                            work: r.get(1)?,
-                        })
-                    },
-                )
-                .ok(),
+            // What is said to a work's line is the work's; any other message is the owner's to read.
+            "messages" => said(conn, "SELECT id FROM messages WHERE id = ?1", id),
+            // A message read, passed on, or taken by a round.
+            "deliveries" => said(conn, "SELECT message FROM deliveries WHERE id = ?1", id),
             // A cache miss added to a message changes what the message holds; one the engine expects is in no message.
             "cache_misses" => conn
                 .query_row(
@@ -93,9 +97,7 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 item: one(conn, "SELECT item FROM item_links WHERE rowid = ?1", id),
             }),
             "flow_versions" => Some(Event::Flow { version: id }),
-            "architect_matters" | "talk_entries" | "dispatch_holds" | "architect_item_changes" => {
-                Some(Event::Architect)
-            }
+            "architect_matters" | "dispatch_holds" | "architect_item_changes" => Some(Event::Architect),
             "observations" => Some(Event::Observations),
             _ => None,
         };

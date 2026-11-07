@@ -9,7 +9,11 @@ const WORDS: &str = "Make it blue instead.";
 /// message and recording the round: when the engineer line has no session going on, the engine opens one in a write of
 /// its own in between.
 const TAKES_BACK: &str = "CREATE TRIGGER the_owner_takes_back AFTER INSERT ON sessions WHEN NEW.line = 'engineer'
-    BEGIN DELETE FROM interjections WHERE work = NEW.work AND text = 'Make it blue instead.'; END;";
+    BEGIN
+        DELETE FROM deliveries WHERE message IN
+            (SELECT id FROM messages WHERE work = NEW.work AND text = 'Make it blue instead.');
+        DELETE FROM messages WHERE work = NEW.work AND text = 'Make it blue instead.';
+    END;";
 
 /// How many rounds a work has had.
 fn rounds_of(e: &Engine, work: i64) -> i64 {
@@ -28,10 +32,7 @@ fn words_taken_back_after_the_message_was_built_do_not_start_the_round() {
     step_to(&mut e, item, "R1");
     let (work, _, _) = state(&e, item).unwrap();
     e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-            params![work, WORDS],
-        )?;
+        db::say_to_line(tx, &db::ToLine::new(db::Sender::Owner, work, "engineer", WORDS), None)?;
         tx.execute(
             "UPDATE sessions SET ended = 1 WHERE work = ?1 AND line = 'engineer' AND ended IS NULL",
             [work],
@@ -46,7 +47,7 @@ fn words_taken_back_after_the_message_was_built_do_not_start_the_round() {
     e.step(None).unwrap();
 
     let log = said.lock().unwrap().join("\n");
-    let left: i64 = number(&e, "SELECT count(*) FROM interjections");
+    let left: i64 = number(&e, "SELECT count(*) FROM line_sayings");
     assert_eq!(left, 0, "the words were not taken back in the gap:\n{log}");
     assert_eq!((rounds_of(&e, work), state(&e, item)), before, "{log}");
 
@@ -69,9 +70,11 @@ fn words_taken_back_after_the_message_was_built_do_not_start_the_round() {
 const TAKES_BACK_WITH_IMAGE: &str = "CREATE TRIGGER the_owner_takes_back_an_image AFTER INSERT ON sessions
     WHEN NEW.line = 'engineer'
     BEGIN
-        DELETE FROM attachments WHERE interjection IN
-            (SELECT id FROM interjections WHERE work = NEW.work AND text LIKE 'Make it blue instead.%');
-        DELETE FROM interjections WHERE work = NEW.work AND text LIKE 'Make it blue instead.%';
+        DELETE FROM attachments WHERE message IN
+            (SELECT id FROM messages WHERE work = NEW.work AND text LIKE 'Make it blue instead.%');
+        DELETE FROM deliveries WHERE message IN
+            (SELECT id FROM messages WHERE work = NEW.work AND text LIKE 'Make it blue instead.%');
+        DELETE FROM messages WHERE work = NEW.work AND text LIKE 'Make it blue instead.%';
     END;";
 
 // Words that came with an image, taken back after the engine built the message and before it read the image, are the
@@ -106,7 +109,7 @@ fn words_with_an_image_taken_back_after_the_message_was_built_do_not_stop_the_wo
     // The pass that built the message with the words and their image, and found both gone.
     let stepped = e.step(None);
     let log = said.lock().unwrap().join("\n");
-    let left: i64 = number(&e, "SELECT count(*) FROM interjections");
+    let left: i64 = number(&e, "SELECT count(*) FROM line_sayings");
     assert_eq!(left, 0, "the words were not taken back in the gap:\n{log}");
     stepped.unwrap_or_else(|x| panic!("the pass failed on the image taken back with its words: {x}\n{log}"));
     assert_eq!((rounds_of(&e, work), state(&e, item)), before, "{log}");
@@ -130,10 +133,7 @@ fn old_words_whose_number_new_words_took_are_not_given() {
     step_to(&mut e, item, "R1");
     let (work, _, _) = state(&e, item).unwrap();
     e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-            params![work, WORDS],
-        )?;
+        db::say_to_line(tx, &db::ToLine::new(db::Sender::Owner, work, "engineer", WORDS), None)?;
         tx.execute(
             "UPDATE sessions SET ended = 1 WHERE work = ?1 AND line = 'engineer' AND ended IS NULL",
             [work],
@@ -141,15 +141,17 @@ fn old_words_whose_number_new_words_took_are_not_given() {
         Ok(())
     })
     .unwrap();
-    let id: i64 = number(&e, "SELECT id FROM interjections");
+    let id: i64 = number(&e, "SELECT id FROM line_sayings");
     // The owner takes the words back and says others, which take the number the first had.
     e.db.conn()
         .execute_batch(&format!(
             "CREATE TRIGGER the_owner_changes_their_mind AFTER INSERT ON sessions WHEN NEW.line = 'engineer'
              BEGIN
-                 DELETE FROM interjections WHERE id = {id};
-                 INSERT INTO interjections (id, work, line, speaker, text)
-                     VALUES ({id}, NEW.work, 'engineer', 'owner', 'Make it green instead.');
+                 DELETE FROM deliveries WHERE message = {id};
+                 DELETE FROM messages WHERE id = {id};
+                 INSERT INTO messages (id, sender, work, text, at)
+                     VALUES ({id}, 'owner', NEW.work, 'Make it green instead.', 1);
+                 INSERT INTO deliveries (message, recipient, line) VALUES ({id}, 'line', 'engineer');
              END;"
         ))
         .unwrap();

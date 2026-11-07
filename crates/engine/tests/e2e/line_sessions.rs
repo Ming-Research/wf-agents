@@ -385,9 +385,10 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
             // What the hook does after a tool use, while the owner interjects.
             let mut db = engine::database::open(&data).unwrap();
             db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', 'Why?')",
-                    [r.work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine::new(db::Sender::Owner, r.work, "engineer", "Why?"),
+                    None,
                 )?;
                 Ok(())
             })
@@ -419,7 +420,7 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     let (transition, delivered): (Option<String>, Option<i64>) =
         e.db.conn()
             .query_row(
-                "SELECT r.transition, (SELECT i.delivered_round FROM interjections i WHERE i.work = r.work)
+                "SELECT r.transition, (SELECT i.taken_round FROM line_sayings i WHERE i.work = r.work)
                  FROM rounds r WHERE r.work = ?1 AND 'R' || r.work || '-' || r.n = ?2",
                 params![work, id],
                 |x| Ok((x.get(0)?, x.get(1)?)),
@@ -447,19 +448,27 @@ fn an_interjection_is_given_once_and_asks_for_an_answer_only_where_one_may_be_ne
         Box::new(move |r: &Request, n: usize| {
             let mut db = engine::database::open(&data).unwrap();
             db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, informs)
-                     VALUES (?1, 'engineer', 'owner', 'Why this size?', 0)",
-                    [r.work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine::new(db::Sender::Owner, r.work, "engineer", "Why this size?"),
+                    None,
                 )?;
                 Ok(())
             })
             .unwrap();
             db.write(Actor::Architect, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, informs)
-                     VALUES (?1, 'engineer', 'architect', 'Your question became an item.', 1)",
-                    [r.work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine {
+                        informs: true,
+                        ..db::ToLine::new(
+                            db::Sender::Architect,
+                            r.work,
+                            "engineer",
+                            "Your question became an item.",
+                        )
+                    },
+                    None,
                 )?;
                 Ok(())
             })
@@ -488,11 +497,18 @@ fn an_interjection_is_given_once_and_asks_for_an_answer_only_where_one_may_be_ne
             };
             hook(&mut db);
             db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, informs) VALUES
-                     (?1, 'engineer', 'architect', 'Nothing changes for you.', 1),
-                     (?1, 'engineer', 'owner', 'Look at the log.', 0)",
-                    [r.work],
+                db::say_to_line(
+                    tx,
+                    &db::ToLine {
+                        informs: true,
+                        ..db::ToLine::new(db::Sender::Architect, r.work, "engineer", "Nothing changes for you.")
+                    },
+                    None,
+                )?;
+                db::say_to_line(
+                    tx,
+                    &db::ToLine::new(db::Sender::Owner, r.work, "engineer", "Look at the log."),
+                    None,
                 )?;
                 Ok(())
             })
@@ -512,7 +528,7 @@ fn an_interjection_is_given_once_and_asks_for_an_answer_only_where_one_may_be_ne
     let log = said.lock().unwrap().join("\n");
     let id = |text: &str| -> i64 {
         e.db.conn()
-            .query_row("SELECT id FROM interjections WHERE text = ?1", [text], |r| r.get(0))
+            .query_row("SELECT id FROM line_sayings WHERE text = ?1", [text], |r| r.get(0))
             .unwrap()
     };
     let (asked, told, later_told, later_asked) = (
@@ -567,9 +583,7 @@ fn an_interjection_is_given_once_and_asks_for_an_answer_only_where_one_may_be_ne
         .iter()
         .map(|j| {
             e.db.conn()
-                .query_row("SELECT delivered_round FROM interjections WHERE id = ?1", [j], |r| {
-                    r.get(0)
-                })
+                .query_row("SELECT taken_round FROM line_sayings WHERE id = ?1", [j], |r| r.get(0))
                 .unwrap()
         })
         .collect();
@@ -651,12 +665,12 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
     let j: i64 =
         e.db.conn()
             .query_row(
-                "SELECT id FROM interjections WHERE text = 'Look at these two.'",
+                "SELECT id FROM line_sayings WHERE text = 'Look at these two.'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-    let ids = db::attachments::of(e.db.conn(), db::attachments::Words::Interjection(j)).unwrap();
+    let ids = db::attachments::of(e.db.conn(), db::attachments::Words::Message(j)).unwrap();
     let a = image_addresses(&ids);
     assert_eq!(a.len(), 2);
     let sent = sent.lock().unwrap();

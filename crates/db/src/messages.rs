@@ -1,8 +1,9 @@
 //! The message hub's tables: `messages`, each message written once, and `deliveries`, each recipient it went to and
-//! what became of it there. A fault of wf-agents goes to the flow's keeper and every other message to the owner; a
-//! fault is passed on from the keeper to a project's architect as a matter of its queue. The engine writes what it and
-//! the agents' returns say, each in the transaction of what made it; the owner's operations mark what the owner read
-//! and pass faults on.
+//! what became of it there. A fault of wf-agents goes to the flow's keeper; what is said to a line of a work, to that
+//! line, which a round of the work takes; every other message to the owner. A fault is passed on from the keeper to a
+//! project's architect as a matter of its queue. The engine writes what it and the agents' returns say, and the owner's
+//! operations what the owner says, each in the transaction of what made it; the owner's operations mark what the owner
+//! read and pass faults on.
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::Value;
@@ -16,6 +17,8 @@ pub const FAULT: &str = "fault";
 /// Who sends a message, as `messages.sender` names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sender {
+    /// The owner's words, and what the engine says to a line in the owner's name.
+    Owner,
     /// A line of an engineer's work.
     Engineer,
     /// A line of a project's architect's work.
@@ -26,6 +29,7 @@ pub enum Sender {
 impl Sender {
     pub fn as_str(self) -> &'static str {
         match self {
+            Sender::Owner => "owner",
             Sender::Engineer => "engineer",
             Sender::Architect => "architect",
             Sender::Engine => "engine",
@@ -81,6 +85,109 @@ pub fn send(tx: &Transaction<'_>, m: &Message<'_>, to: Recipient) -> Result<i64>
         params![id, to.as_str()],
     )?;
     Ok(id)
+}
+
+/// What is said to a line of a work: by the owner (the owner's words, or the engine's in the owner's name: a ruling on
+/// a decision card, an answer of the owner's relayed, the notice that an item depended on was cancelled) or by the
+/// architect; the work and its line; the words; and what more it says (`messages.body`): who the caller declared to
+/// speak and the parts a delegate relayed as the owner's own, whether it needs no answer, the decision card it asks
+/// about and the item whose cancellation it tells of.
+#[derive(Debug, Clone)]
+pub struct ToLine<'a> {
+    pub sender: Sender,
+    pub work: i64,
+    pub line: &'a str,
+    pub text: &'a str,
+    pub speaker: Option<&'a str>,
+    pub relayed: Option<Value>,
+    pub informs: bool,
+    pub design_card: Option<i64>,
+    pub cancelled_item: Option<i64>,
+}
+
+impl<'a> ToLine<'a> {
+    /// Words to a line that say no more than themselves.
+    pub fn new(sender: Sender, work: i64, line: &'a str, text: &'a str) -> ToLine<'a> {
+        ToLine {
+            sender,
+            work,
+            line,
+            text,
+            speaker: None,
+            relayed: None,
+            informs: false,
+            design_card: None,
+            cancelled_item: None,
+        }
+    }
+
+    /// What more it says, as `messages.body` keeps it; none when nothing.
+    fn body(&self) -> Option<Value> {
+        let mut b = serde_json::Map::new();
+        if let Some(s) = self.speaker {
+            b.insert("speaker".into(), Value::from(s));
+        }
+        if let Some(r) = &self.relayed {
+            b.insert("relayed".into(), r.clone());
+        }
+        if self.informs {
+            b.insert("informs".into(), Value::from(1));
+        }
+        if let Some(c) = self.design_card {
+            b.insert("design_card".into(), Value::from(c));
+        }
+        if let Some(i) = self.cancelled_item {
+            b.insert("cancelled_item".into(), Value::from(i));
+        }
+        (!b.is_empty()).then_some(Value::Object(b))
+    }
+}
+
+/// Says something to a line of a work now: a message delivered to the line, which its next round takes, or a round
+/// that runs after its next tool use; and, for the owner's words said in a work's group to its architect too, delivered
+/// to the architect as `matter`, the matter of its queue that holds them. Gives the message.
+pub fn say_to_line(tx: &Transaction<'_>, s: &ToLine<'_>, matter: Option<i64>) -> Result<i64> {
+    tx.execute(
+        "INSERT INTO messages (sender, work, text, body, at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            s.sender.as_str(),
+            s.work,
+            s.text,
+            s.body().as_ref().map(Value::to_string),
+            now()
+        ],
+    )?;
+    let id = tx.last_insert_rowid();
+    tx.execute(
+        "INSERT INTO deliveries (message, recipient, line) VALUES (?1, 'line', ?2)",
+        params![id, s.line],
+    )?;
+    if let Some(m) = matter {
+        tx.execute(
+            "INSERT INTO deliveries (message, recipient, matter) VALUES (?1, 'architect', ?2)",
+            params![id, m],
+        )?;
+    }
+    Ok(id)
+}
+
+/// Records that round `round` of `work` took a message said to one of its lines; gives whether it was still to take.
+pub fn take(tx: &Transaction<'_>, message: i64, work: i64, round: i64) -> Result<bool> {
+    let n = tx.execute(
+        "UPDATE deliveries SET taken_work = ?2, taken_round = ?3
+         WHERE message = ?1 AND recipient = 'line' AND taken_round IS NULL",
+        params![message, work, round],
+    )?;
+    Ok(n > 0)
+}
+
+/// Gives back what round `round` of `work` took, to be taken again: the round failed before its agent had it.
+pub fn untake(tx: &Transaction<'_>, work: i64, round: i64) -> Result<usize> {
+    Ok(tx.execute(
+        "UPDATE deliveries SET taken_work = NULL, taken_round = NULL
+         WHERE recipient = 'line' AND taken_work = ?1 AND taken_round = ?2",
+        params![work, round],
+    )?)
 }
 
 /// Passes a fault of wf-agents, a message the flow's keeper received, on to a project's architect, as the owner: a

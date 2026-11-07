@@ -1016,7 +1016,7 @@ fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Ow
 
 fn interjections(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Interjection>> {
     let mut st = conn.prepare(&format!(
-        "SELECT id, work, line, speaker, text, delivered_round FROM interjections {filter} ORDER BY id"
+        "SELECT id, work, line, speaker, text, taken_round FROM line_sayings {filter} ORDER BY id"
     ))?;
     let rows = st.query_map(params_from_iter(args), |r| {
         Ok(Interjection {
@@ -1362,7 +1362,7 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
         tool_runs: tool_runs(conn, data, work, n)?,
         design_cards: design_cards(conn, flows, "WHERE c.work = ?1 AND c.round = ?2", &[work, n])?,
         asks: asks(conn, "WHERE a.work = ?1 AND a.round = ?2", &[work, n])?,
-        interjections: interjections(conn, "WHERE work = ?1 AND delivered_round = ?2", &[work, n])?,
+        interjections: interjections(conn, "WHERE work = ?1 AND taken_round = ?2", &[work, n])?,
         round: summary,
     })
 }
@@ -4627,11 +4627,11 @@ mod tests {
                 "UPDATE architect_matters SET handled_work = 5, handled_round = 1 WHERE id IN (11, 13)",
                 &[],
             )?;
-            run(
-                "INSERT INTO interjections (work, line, speaker, text, informs, matter)
-                 VALUES (1, 'engineer', 'owner', 'Mind the cache.', 1, 13)",
-                &[],
-            )?;
+            let told = db::ToLine {
+                informs: true,
+                ..db::ToLine::new(db::Sender::Owner, 1, "engineer", "Mind the cache.")
+            };
+            db::say_to_line(tx, &told, Some(13))?;
             Ok(())
         })
         .unwrap();
