@@ -230,8 +230,8 @@ export function OptionBoxes(props: {
 }
 
 /// How an acceptance condition was met, as the work said at its end: by which tests, by which measurement, by which
-/// jobs and commands of the CI, by reading which part of the change, or where the report answers it; or that it is
-/// checked after the merge, once the change is in effect.
+/// jobs and commands of the CI, by reading which part of the change, or where the report answers it; or, in an older
+/// return, that it is checked after the merge, once the change is in effect.
 export type Met = Obj;
 
 /// The strings a list of the row holds, as the row says them.

@@ -964,8 +964,8 @@ mod tests {
             ran(2, "D2", "done", sample("D2", "done")),
             ran(3, "M2", "merged", sample("M2", "merged")),
         ];
-        // An answer from before the merge that no longer fits, the understanding or the design the engine reads, moves
-        // the work: the cells before its merge are never done again, and later ones read those answers as they are.
+        // An answer from before the merge that no longer fits, the understanding or the design Z1 reads, moves the work:
+        // the cells before its merge are never done again, and later ones read those answers as they are.
         let mut r1 = old.clone();
         needs_after(&mut r1, "R1", "understanding");
         assert_eq!(plan(&old, &r1, &at("Z1"), &rounds), Plan::Move);

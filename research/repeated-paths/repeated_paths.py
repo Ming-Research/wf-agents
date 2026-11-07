@@ -984,10 +984,6 @@ def build_paths():
     add("engine.round.asked_matters", "engine", "review::asked: the work's matters, found by a scan of architect_matters",
         sql_path("SELECT id, reply, withdrawn IS NOT NULL FROM architect_matters WHERE work = :w_eng "
                  "AND kind = 'engineer_question' AND detail = 'x' AND round > 0 ORDER BY id DESC LIMIT 1"))
-    add("engine.round.interjections_words", "engine", "verification::words_given: the work's interjections",
-        sql_path("SELECT count(*) FROM interjections WHERE work = :w_eng AND delivered_round > "
-                 "coalesce((SELECT max(n) FROM rounds WHERE work = :w_eng AND cell IN ('M2') "
-                 "AND transition = 'merged'), 0)"))
     add("engine.round.rounds_of_matter", "engine", "work::rounds_of_matter: the architect's rounds at a cell, "
         "found without an index", sql_path(
             "SELECT %s FROM rounds r WHERE r.cell = 'H1' AND (r.session IN (SELECT id FROM sessions "
