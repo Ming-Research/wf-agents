@@ -236,12 +236,10 @@ CREATE TABLE messages (
   -- saying, which needs no answer. An agent's is what it tells the owner in a return, its answer to what the owner said
   -- to its work, or the architect's reply to the owner's words; the engine's is what it tells of its own accord: a work
   -- stopped, or gone back in a new flow version, every work halted until a usage limit resets, a limit passed, an ask of
-  -- the owner put, a fault of wf-agents. Whom each went to, and what became of it there, is in deliveries. Agents do
-  -- not read it: what a cell needs of it reaches the cell as an input (the architect's talk with the owner), and the
-  -- faults of wf-agents among it are the flow's keeper's, which no project's agents act on.
-  -- Hidden from agents.
-  -- Read by: the owner's interface, which shows each in its conversation (conversation_entries); the engine, which adds
-  -- a further cache miss to the message of a fault still open, and hands a fault passed on to an architect to it.
+  -- the owner put, a fault of wf-agents. Whom each went to, and what became of it there, is in deliveries.
+  -- Read by: agents, who look up what was told the owner with the query tool; the owner's interface, which shows each
+  -- in its conversation (conversation_entries); the engine, which adds a further cache miss to the message of a fault
+  -- still open, and hands a fault passed on to an architect to it.
   id INTEGER PRIMARY KEY,
   -- Who sent it: engineer (a line of an engineer's work), architect (a line of a project's architect's work), or engine.
   sender TEXT NOT NULL CHECK (sender IN ('engineer', 'architect', 'engine')),
