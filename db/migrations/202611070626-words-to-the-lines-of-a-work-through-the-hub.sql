@@ -35,13 +35,11 @@ CREATE TABLE messages (
   -- fault of wf-agents; to a line of a work, what the owner says to it, what the architect says to it, and what the
   -- engine says in the owner's name (a ruling on a decision card, an answer of the owner's relayed, the notice that an
   -- item depended on was cancelled). Whom each went to, and what became of it there, is in deliveries. Words to a line
-  -- that no agent has taken up yet are deleted when the owner takes them back. Agents do not read it: what a cell needs
-  -- of it reaches the cell as an input (what is said to its line, the architect's talk with the owner), and the faults
-  -- of wf-agents among it are the flow's keeper's, which no project's agents act on.
-  -- Hidden from agents.
-  -- Read by: the owner's interface, which shows each in its conversation (conversation_entries); the engine, which
-  -- gives each line what is said to it (line_sayings), adds a further cache miss to the message of a fault still open,
-  -- and hands a fault passed on to an architect to it.
+  -- that no agent has taken up yet are deleted when the owner takes them back.
+  -- Read by: agents, who look up with the query tool what was told the owner and what was said to a work; the owner's
+  -- interface, which shows each in its conversation (conversation_entries); the engine, which gives each line what is
+  -- said to it (line_sayings), adds a further cache miss to the message of a fault still open, and hands a fault passed
+  -- on to an architect to it.
   id INTEGER PRIMARY KEY,
   -- Who sent it: owner (the owner's words, and what the engine says to a line in the owner's name), engineer (a line of
   -- an engineer's work), architect (a line of a project's architect's work), or engine.
@@ -85,12 +83,11 @@ CREATE TABLE deliveries (
   -- wf-agents was passed on, or that the owner's words said in a work's group came to as well; or a line of a work
   -- (line: an engineer's, or one of the work's helpers; the architect's in a flow version before), which takes what is
   -- said to it at its next round, or during a round after a tool use. A fault goes to the keeper; what is said to a
-  -- line, to that line; every other message to the owner. Agents do not read it: what was read, where a fault went
-  -- and which round took what is the owner's and the engine's bookkeeping.
-  -- Hidden from agents.
-  -- Read by: the owner's interface, which shows what is unread, where each fault went and what no agent took up yet;
-  -- the engine, which hands each line what is said to it and records the round that took it, and hands an architect
-  -- the fault its matter is.
+  -- line, to that line; every other message to the owner.
+  -- Read by: agents, who look up with the query tool which line a word was said to and which round took it, as they
+  -- read the words said to a work before; the owner's interface, which shows what is unread, where each fault went and
+  -- what no agent took up yet; the engine, which hands each line what is said to it and records the round that took
+  -- it, and hands an architect the fault its matter is.
   id INTEGER PRIMARY KEY,
   -- The message delivered.
   message INTEGER NOT NULL REFERENCES messages(id),
@@ -212,8 +209,6 @@ CREATE VIEW work_owner_words AS
   -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
   -- kept before it was declared. relayed is, for words a delegate said, the parts of them it declared to be the owner's
   -- own words, a JSON array; none when it declared none. Cell `L2` is given it as its input.
-  -- It reads the hub's tables, which agents do not read.
-  -- Hidden from agents.
   -- Read by: cell `L2`.
   SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
     json_extract(m.body, '$.speaker') AS speaker,
@@ -243,8 +238,6 @@ CREATE VIEW line_sayings AS
   -- decision card it asks about, the item whose cancellation it tells of, the architect's matter that holds the same
   -- words when they were said in the work's group to the architect too, when it was said, and the round of the work
   -- that took it (taken_round), none until one did.
-  -- It reads the hub's tables, which agents do not read.
-  -- Hidden from agents.
   -- Read by: the engine, which gives each line what waits for it, and judges a decision by the words it cites; the
   -- owner's interface, which shows them and offers to take back what no agent took up yet; the views
   -- waiting_interjections, work_owner_words and conversation_entries.
@@ -260,8 +253,6 @@ CREATE VIEW waiting_interjections AS
   -- Interjections not yet handed in, in the order they came, each with the decision card it asks about, by its number
   -- and key, if it does: the messages said to a work's lines that no round took yet (line_sayings). Each cell is given
   -- what waits for its line as its input.
-  -- It reads the hub's tables, which agents do not read.
-  -- Hidden from agents.
   -- Read by: every agent cell; cells `T7`, `M1` and `E1`.
   SELECT s.work, s.id AS interjection, s.line, s.speaker, s.text, s.design_card, c.key AS card_key
   FROM line_sayings s LEFT JOIN design_cards c ON c.id = s.design_card
