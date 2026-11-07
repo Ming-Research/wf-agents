@@ -38,7 +38,6 @@ mod flow_versions;
 mod guard;
 mod history;
 mod holds;
-mod in_effect;
 mod interjection_hook;
 mod line_sessions;
 mod lock_update;

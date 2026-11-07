@@ -145,22 +145,15 @@ fn an_item_at_the_merge_does_not_come_to_depend_on_an_open_item() {
     assert_eq!(links(&db), 0);
 }
 
-// After the merge the work goes to the end without passing the gate again: at the cells it goes through, and at a cell
-// that asks, runs tools, chooses the way on or brings it to a new flow version for one of them, which takes it back
-// there, the item is as done.
+// At a cell that asks for the merge, or brings the work to a new flow version to go back to it, the work merges
+// without passing the gate again, as at the merge itself: the item is as done.
 #[test]
-fn an_item_whose_work_merged_does_not_come_to_depend_on_an_open_item() {
+fn an_item_whose_work_asks_from_the_merge_does_not_come_to_depend_on_an_open_item() {
     let mut db = setup();
     let places = [
-        // Writing what was learned, and waiting for the change to take effect.
-        (6, "L2", None, "[]"),
-        (7, "V1", None, "[]"),
-        // Asking the architect from the check with real runs, and running tools for the writing of what was learned.
-        (8, "A2", Some("V2"), "[\"V2\"]"),
-        (9, "X1", None, "[\"L2\"]"),
-        // Choosing the way on after an interjection to the check, and brought to a new version to wait again.
-        (10, "A4", Some("V2"), "[]"),
-        (11, "Y1", Some("V1"), "[]"),
+        // Asking the architect when the merge's step did not run, and brought to a new version to merge again.
+        (6, "A2", Some("M2"), "[\"M2\"]"),
+        (7, "Y1", Some("M2"), "[]"),
     ];
     for (item, at, stopped, waiting) in places {
         items(&mut db, &[(item, true, false)]);

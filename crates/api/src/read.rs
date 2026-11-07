@@ -4103,7 +4103,7 @@ mod tests {
             let clean = json!({ "progress": "No findings.", "outcome": {
                 "rows": [{ "id": "F1", "verdict": "holds" }], "brought": { "verdict": "none" } } });
             let said = |p: &str| json!({ "progress": p });
-            let rounds: [GroupRound; 24] = [
+            let rounds: [GroupRound; 23] = [
                 (2, 1, "S1", None, "started", json!({}), 100, 101),
                 (2, 2, "R0", Some(6), "done", said("Gathered the background."), 102, 109),
                 (2, 3, "R1", Some(2), "decision_point", said("It carries a decision point."), 110, 130),
@@ -4125,8 +4125,7 @@ mod tests {
                 (2, 19, "M1", None, "wait", json!({}), 251, 252),
                 (3, 1, "M1", None, "clear", json!({}), 300, 300),
                 (3, 2, "M2", None, "merged", json!({ "result": { "kind": "merged", "merge_commit": "abc123" } }), 301, 310),
-                (3, 3, "L2", None, "done", said("Wrote what was learned."), 311, 320),
-                (3, 4, "E1", None, "done", json!({}), 321, 321),
+                (3, 3, "E1", None, "done", json!({}), 321, 321),
                 (4, 1, "R1", Some(5), "tools", said("Started reading."), 400, 410),
             ];
             for (work, n, cell, session, row, output, started, ended) in rounds {
@@ -4233,7 +4232,7 @@ mod tests {
         assert!(stage(0).events.is_empty() && stage(1).events.is_empty());
         let now = stage(6);
         assert!(now.current && now.ended_at.is_none() && now.outcome.is_none());
-        // A merge says its pull request and commit; writing what was learned follows it.
+        // A merge says its pull request and commit.
         let merged = group(3);
         let ends: Vec<Ended> = merged
             .entries
@@ -4241,13 +4240,7 @@ mod tests {
             .filter_map(|e| e.stage.as_ref())
             .map(|s| (s.stage.as_str(), s.outcome.as_deref(), s.pr, s.commit.as_deref()))
             .collect();
-        assert_eq!(
-            ends,
-            [
-                ("merge", Some("merged"), Some(9), Some("abc123")),
-                ("learn", Some("done"), None, None)
-            ]
-        );
+        assert_eq!(ends, [("merge", Some("merged"), Some(9), Some("abc123"))]);
         // A work taken over ends its last bubble with why, and the work that took it over.
         let over = group(4);
         let last = over

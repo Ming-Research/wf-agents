@@ -690,7 +690,7 @@ fn a_merged_work_the_version_can_take_on_nowhere_is_offered_only_the_start_and_a
     quiet(&mut e);
     let item = a_ready_item(&mut e, "Merged");
     let v = older(&mut e, &[], |g| {
-        let mut c = g.cell("L2").unwrap().clone();
+        let mut c = g.cell("T2").unwrap().clone();
         c.id = "Z1".into();
         g.cells.push(c);
     });

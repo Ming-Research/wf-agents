@@ -92,9 +92,6 @@ pub const KINDS: [(&str, &str); 10] = [
     (CHECK, "P1"),
 ];
 
-/// The detail of a report that says what became of a work's check after its change took effect.
-pub const VERIFICATION: &str = "verification";
-
 /// The cells of a matter's session that hand in what a second eye may check, and that the second eye sends it back to.
 const HANDING_IN: [&str; 4] = [HANDLE, "M2", "P1", "P2"];
 
@@ -1854,9 +1851,9 @@ struct Reporter {
 }
 
 /// The work a matter came from that is told what became of it: for a side report, and for an engineer's question; none
-/// for any other matter (what to do next after a report, an answer, flow feedback, a fault, a check after a change took
-/// effect, the side reports a migration put in one matter), nor when the work no longer runs, since nothing can be said
-/// to a work that ended or is at its end.
+/// for any other matter (what to do next after a report, an answer, flow feedback, a fault, the side reports a migration
+/// put in one matter), nor when the work no longer runs, since nothing can be said to a work that ended or is at its
+/// end.
 fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, String> {
     let (kind, detail, work, body): (String, Option<String>, Option<i64>, String) = tx
         .query_row(
@@ -1868,7 +1865,7 @@ fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, Strin
     let Some(work) = work else { return Ok(None) };
     let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     let (called, cell, said) = match (kind.as_str(), detail.as_deref()) {
-        ("report", Some("followup" | "answer" | "flow_feedback" | db::FAULT | VERIFICATION)) => return Ok(None),
+        ("report", Some("followup" | "answer" | "flow_feedback" | db::FAULT)) => return Ok(None),
         ("report", _) if body["report"].is_object() => (
             "side report",
             text(&body["cell"]).to_string(),
@@ -3194,19 +3191,6 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, v: Option<&Value>) -> Result<(), P
             .into_result()
         }
         "decision_words_hold" => decisions_hold(c, v),
-        "learned_holds_no_decision" => {
-            let text = v.and_then(Value::as_str).unwrap_or_default();
-            let lines: Vec<&str> = text.lines().filter(|l| decisions::is_line(l)).collect();
-            if lines.is_empty() {
-                return Ok(());
-            }
-            checks::fail(format!(
-                "learned holds {} line(s) that start a decision, such as \"{}\": a decision goes in decisions, from the \
-                 records it quotes, and the engine makes its line; learned holds only Fact ( and Dropped ( lines",
-                lines.len(),
-                lines[0].trim()
-            ))
-        }
         "holds_needs_policy" => {
             if v.is_none_or(|x| x["verdict"] != "holds") {
                 return Ok(());

@@ -22,7 +22,9 @@
 //! When the codes came to follow the names of their stages, the architect's next took N0 and N2, its base B1 and B2, its
 //! main M1 and M2, its check C1 and C2, its record R1, its ended E1, its policy's last cell P3, the engineer's verify V1
 //! and V2, and the cell that brings a work to a new version Y1; a round of a version before at B1, B2, M1, C1 or C2 of the
-//! batch or of the answers reads as the cell with that code now.
+//! batch or of the answers reads as the cell with that code now. When a merged work came to end at its merge, the writing
+//! of what was learned (L2) and the check after the change took effect (V1, V2) left the flow; they keep their rows, so
+//! that a round there still reads as itself.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.

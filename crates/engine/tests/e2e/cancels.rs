@@ -290,7 +290,7 @@ fn a_pull_request_merged_on_github_before_the_merge_step_is_recorded_without_mer
             .unwrap();
     assert_eq!(tries, 1, "{log}");
     assert_eq!(s.merging.came(), 0, "{log}");
-    assert!(!transitions_at(&e, work, "L2").is_empty(), "{log}");
+    assert!(!transitions_at(&e, work, "E1").is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -353,7 +353,7 @@ fn a_cancel_during_the_merge_call(name: &str, by: &str) -> (Setup, Engine, i64) 
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
-    assert!(!transitions_at(&e, work, "L2").is_empty(), "{log}");
+    assert!(!transitions_at(&e, work, "E1").is_empty(), "{log}");
     assert_eq!(ended_why(&e, work), None, "{log}");
     assert_eq!(notices(&e, "is not cancelled"), 1, "{log}");
     let closing: i64 =
@@ -377,9 +377,8 @@ fn reports_of_a_merge_first(e: &Engine, item: i64) -> i64 {
 }
 
 // A cancel that comes while the merge call is under way comes too late: the database says merged as GitHub does, the
-// merged pull request is not closed, nothing says the item cancelled, the work writes what it learned as after any
-// merge, and the
-// owner is told. The cancel's request stands in the outbox until the merge is known, so no one was told otherwise.
+// merged pull request is not closed, nothing says the item cancelled, the work ends as after any merge, and the owner
+// is told. The cancel's request stands in the outbox until the merge is known, so no one was told otherwise.
 #[test]
 fn a_merge_under_way_outruns_the_owner_s_cancel() {
     let (s, e, item) = a_cancel_during_the_merge_call("owner-cancel-in-merge", "owner");
@@ -456,7 +455,7 @@ fn a_start_over_during_the_merge_s_full_ci_stops_the_merge() {
 }
 
 // A start over that comes while the merge call is under way comes too late: no new work takes the item over, the work
-// writes what it learned as after any merge, and whoever asked is told.
+// ends as after any merge, and whoever asked is told.
 #[test]
 fn a_merge_under_way_outruns_a_start_over() {
     let (s, mut e, said, item, work) = at_the_merge("start-over-in-merge");
@@ -468,21 +467,20 @@ fn a_merge_under_way_outruns_a_start_over() {
     assert_eq!(ended_why(&e, work), None, "{log}");
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
     assert_eq!(notices(&e, "is not started over"), 1, "{log}");
-    assert!(!transitions_at(&e, work, "L2").is_empty(), "{log}");
+    assert!(!transitions_at(&e, work, "E1").is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Once its merge stands on main, an item is not cancelled nor its work started over, whether the work writes what it
-// learned or
-// is done; whoever asks is told, and nothing waits in the outbox.
+// Once its merge stands on main, an item is not cancelled nor its work started over, whether the work is at its end or
+// done; whoever asks is told, and nothing waits in the outbox.
 #[test]
 fn an_item_whose_merge_stands_on_main_is_not_cancelled() {
     let (s, mut e, said, item, work) = at_the_merge("cancel-after-merge");
     held_at_the_merge_call(&mut e, &s, &said);
     s.merging.open();
-    let learning = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "L2"));
+    let ending = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "E1"));
     let log = said.lock().unwrap().join("\n");
-    assert!(learning, "{log}");
+    assert!(ending, "{log}");
     cancel(&mut e, item, "owner");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(stopping(&e), Vec::<i64>::new(), "{log}");
