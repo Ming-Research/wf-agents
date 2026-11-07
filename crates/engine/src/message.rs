@@ -459,9 +459,7 @@ impl Context<'_> {
         self.e
             .db
             .conn()
-            .query_row("SELECT informs = 1 FROM interjections WHERE id = ?1", [id], |r| {
-                r.get(0)
-            })
+            .query_row("SELECT informs = 1 FROM line_sayings WHERE id = ?1", [id], |r| r.get(0))
             .unwrap_or(false)
     }
 

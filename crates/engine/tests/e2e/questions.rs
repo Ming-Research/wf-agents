@@ -91,7 +91,7 @@ fn an_engineer_s_question_is_answered_in_one_round() {
 fn delivered_at(e: &Engine, work: i64, text: &str) -> Option<String> {
     e.db.conn()
         .query_row(
-            "SELECT r.cell FROM interjections j JOIN rounds r ON r.work = j.work AND r.n = j.delivered_round
+            "SELECT r.cell FROM line_sayings j JOIN rounds r ON r.work = j.work AND r.n = j.taken_round
              WHERE j.work = ?1 AND j.text = ?2",
             params![work, text],
             |r| r.get(0),
@@ -158,9 +158,10 @@ fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the
         e.db.write(Actor::Engine, |tx| {
             // The architect's answer to an open question of the design, as it reaches the engineer's line: not the
             // owner's word, which would be a matter of its own for the architect.
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
-                params![work, text],
+            db::say_to_line(
+                tx,
+                &db::ToLine::new(db::Sender::Architect, work, "engineer", text),
+                None,
             )?;
             // The item the notice names as cancelled, on which no work starts.
             tx.execute(
@@ -169,10 +170,13 @@ fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the
                 [],
             )?;
             let cancelled = tx.last_insert_rowid();
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text, cancelled_item)
-                 VALUES (?1, 'engineer', 'architect', ?2, ?3)",
-                params![work, notice, cancelled],
+            db::say_to_line(
+                tx,
+                &db::ToLine {
+                    cancelled_item: Some(cancelled),
+                    ..db::ToLine::new(db::Sender::Architect, work, "engineer", notice)
+                },
+                None,
             )?;
             Ok(())
         })
@@ -209,9 +213,10 @@ fn a_question_asked_from_another_line_is_withdrawn_when_its_architect_is_gone_th
     let text = "Keep the page's tests out of this change.";
     let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
         e.db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
-                params![work, text],
+            db::say_to_line(
+                tx,
+                &db::ToLine::new(db::Sender::Architect, work, "engineer", text),
+                None,
             )?;
             Ok(())
         })
@@ -294,9 +299,10 @@ fn a_question_asked_by_a_tool_cell_is_not_withdrawn_for_words_waiting_for_the_en
              VALUES (?1, 'T2', 'question', 'The full CI did not run.', 'architect', ?2, ?3, ?3)",
             params![work, project, db::now()],
         )?;
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
-            params![work, text],
+        db::say_to_line(
+            tx,
+            &db::ToLine::new(db::Sender::Architect, work, "engineer", text),
+            None,
         )?;
         Ok(())
     })

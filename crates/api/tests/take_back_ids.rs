@@ -33,29 +33,26 @@ fn world() -> Db {
     db
 }
 
-/// Says something to the work's engineer as the owner would: the row the owner's write makes; gives its number.
+/// Says something to the work's engineer as the owner would: the message the owner's write makes; gives its number.
 fn say(db: &mut Db, text: &str) -> i64 {
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (1, 'engineer', 'owner', ?1)",
-            [text],
-        )?;
-        Ok(tx.last_insert_rowid())
+        db::say_to_line(tx, &db::ToLine::new(db::Sender::Owner, 1, "engineer", text), None)
     })
     .unwrap()
 }
 
-// The time the owner said words is the time of the change that wrote their row, found by the row's number: words said
-// after other words were taken back are shown from the time they were said, not from the time of the deleted words that
-// had the same number.
+// The time the owner said words is the time their message keeps: words said after other words were taken back are
+// shown from the time they were said, not from the time of the deleted words that had the same number.
 #[test]
 fn words_said_after_others_were_taken_back_are_shown_from_the_time_they_were_said() {
     let mut db = world();
     let first = say(&mut db, "Make it blue.");
     // That was long ago.
-    db.conn()
-        .execute("UPDATE changes SET at = 1000 WHERE table_name = 'interjections'", [])
-        .unwrap();
+    db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE messages SET at = 1000 WHERE id = ?1", [first])?;
+        Ok(())
+    })
+    .unwrap();
     api::take_back(
         &mut db,
         &TakeBack {
@@ -64,9 +61,6 @@ fn words_said_after_others_were_taken_back_are_shown_from_the_time_they_were_sai
         },
     )
     .unwrap();
-    db.conn()
-        .execute("UPDATE changes SET at = 1000 WHERE table_name = 'interjections'", [])
-        .unwrap();
 
     let second = say(&mut db, "Make it red.");
 

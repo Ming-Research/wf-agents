@@ -420,7 +420,7 @@ pub fn status(data: &Path) -> Result<String, String> {
                 (SELECT group_concat(a.id) FROM owner_asks a WHERE a.work = w.id AND a.answer IS NULL) AS open_asks,
                 (SELECT group_concat(c.id) FROM design_cards c
                  WHERE c.work = w.id AND c.status = 'open') AS open_design_cards,
-                (SELECT count(*) FROM interjections x WHERE x.work = w.id AND x.delivered_round IS NULL) AS waiting_says,
+                (SELECT count(*) FROM line_sayings x WHERE x.work = w.id AND x.taken_round IS NULL) AS waiting_says,
                 (SELECT 'R' || r.work || '-' || r.n || ' ' || r.cell || ' '
                         || coalesce(r.transition, CASE WHEN r.rejected IS NOT NULL THEN 'sent back' ELSE 'running' END)
                  FROM rounds r WHERE r.work = w.id ORDER BY r.n DESC LIMIT 1) AS last

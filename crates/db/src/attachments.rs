@@ -74,8 +74,8 @@ pub fn check(images: &[Image]) -> std::result::Result<(), String> {
 /// The words a message's images came with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Words {
-    /// What the owner said to a work's line.
-    Interjection(i64),
+    /// What the owner said to a work's line: its message.
+    Message(i64),
     /// The owner's words a matter of an architect holds: an owner_words matter's words, or the owner's reply to the
     /// engineer's question a matter holds.
     Matter(i64),
@@ -86,7 +86,7 @@ pub enum Words {
 impl Words {
     fn column(self) -> (&'static str, i64) {
         match self {
-            Words::Interjection(id) => ("interjection", id),
+            Words::Message(id) => ("message", id),
             Words::Matter(id) => ("matter", id),
             Words::Ask(id) => ("ask", id),
         }
@@ -137,8 +137,8 @@ pub fn of(conn: &Connection, words: Words) -> rusqlite::Result<Vec<i64>> {
 /// told too, the matter's.
 pub fn of_interjection(conn: &Connection, interjection: i64) -> rusqlite::Result<Vec<i64>> {
     let mut st = conn.prepare(
-        "SELECT a.id FROM attachments a JOIN interjections j ON j.id = ?1
-         WHERE a.interjection = j.id OR a.matter = j.matter ORDER BY a.position",
+        "SELECT a.id FROM attachments a JOIN line_sayings j ON j.id = ?1
+         WHERE a.message = j.id OR a.matter = j.matter ORDER BY a.position",
     )?;
     st.query_map([interjection], |r| r.get(0))?.collect()
 }
@@ -403,18 +403,18 @@ mod tests {
                     [],
                 )?;
                 let m = tx.last_insert_rowid();
-                tx.execute(
-                    "INSERT INTO interjections (work, speaker, text, matter) VALUES (1, 'owner', 'Look.', ?1)",
-                    [m],
+                let j = crate::say_to_line(
+                    tx,
+                    &crate::ToLine::new(crate::Sender::Owner, 1, "engineer", "Look."),
+                    Some(m),
                 )?;
-                let j = tx.last_insert_rowid();
                 let ids = attach(tx, Words::Matter(m), &[png(), jpeg.clone()])?;
                 Ok((j, m, ids))
             })
             .unwrap();
         assert_eq!(of(db.conn(), Words::Matter(m)).unwrap(), ids);
         assert_eq!(of_interjection(db.conn(), j).unwrap(), ids);
-        assert!(of(db.conn(), Words::Interjection(j)).unwrap().is_empty());
+        assert!(of(db.conn(), Words::Message(j)).unwrap().is_empty());
         let k = kept(db.conn(), ids[1]).unwrap().unwrap();
         assert_eq!((k.media_type.as_str(), k.size), ("image/jpeg", jpeg.bytes.len() as i64));
         assert_eq!(k.hash, hash(&jpeg.bytes));

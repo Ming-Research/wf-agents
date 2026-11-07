@@ -414,11 +414,17 @@ fn cancel_now(
                 );
                 // The notice names the item cancelled: the cells where the work waits take it to choose the way on
                 // by a row of their own (the engine's value `cancelled`).
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text, cancelled_item) VALUES (?1, 'engineer', ?2, ?3, ?4)",
-                    params![w, by, text, item],
-                )
-                .map_err(sql)?;
+                // The architect's cancellation is told in its name, the owner's by the engine in the owner's.
+                let sender = if by == "architect" {
+                    db::Sender::Architect
+                } else {
+                    db::Sender::Engine
+                };
+                let told = db::ToLine {
+                    cancelled_item: Some(item),
+                    ..db::ToLine::new(sender, w, "engineer", &text)
+                };
+                crate::hub::say_to_line(tx, &told)?;
             }
             None => {
                 let what = format!(
@@ -880,7 +886,7 @@ mod tests {
             let links: i64 = tx.query_row("SELECT count(*) FROM item_links", [], |r| r.get(0))?;
             assert_eq!(links, 0);
             let (speaker, text): (String, String) = tx.query_row(
-                "SELECT speaker, text FROM interjections WHERE work = ?1 AND line = 'engineer'",
+                "SELECT speaker, text FROM line_sayings WHERE work = ?1 AND line = 'engineer'",
                 [w],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
