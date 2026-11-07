@@ -15,11 +15,13 @@ fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// The engine's message, sent to `to` and written to the notifications log; gives the message.
+/// The engine's message, about a work and an ask of the owner when it is of one, sent to `to` and written to the
+/// notifications log; gives the message.
 fn engine_says(
     tx: &Transaction<'_>,
     work: Option<i64>,
     body: Option<serde_json::Value>,
+    ask: Option<i64>,
     to: Recipient,
     text: &str,
 ) -> Result<i64, String> {
@@ -29,6 +31,7 @@ fn engine_says(
         round: None,
         text,
         body,
+        ask,
     };
     let id = db::send(tx, &m, to).map_err(sql)?;
     outbox(tx, work, "notify", &json!({ "text": text }))?;
@@ -37,24 +40,38 @@ fn engine_says(
 
 /// Tells the owner something, about a work or about none.
 pub fn tell(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(), String> {
-    engine_says(tx, work, None, Recipient::Owner, text).map(|_| ())
+    engine_says(tx, work, None, None, Recipient::Owner, text).map(|_| ())
 }
 
 /// Tells the owner of a new ask of the owner, the message naming the ask for the owner's interface to link to.
 pub fn tell_of_ask(tx: &Transaction<'_>, work: i64, ask: i64, text: &str) -> Result<(), String> {
-    engine_says(tx, Some(work), Some(json!({ "ask": ask })), Recipient::Owner, text).map(|_| ())
+    engine_says(tx, Some(work), None, Some(ask), Recipient::Owner, text).map(|_| ())
 }
 
 /// Tells the flow's keeper of a fault of wf-agents, the message naming its kind; gives the message.
 pub fn fault(tx: &Transaction<'_>, work: i64, kind: &str, text: &str) -> Result<i64, String> {
-    engine_says(tx, Some(work), Some(json!({ "kind": kind })), Recipient::Keeper, text)
+    engine_says(
+        tx,
+        Some(work),
+        Some(json!({ "kind": kind })),
+        None,
+        Recipient::Keeper,
+        text,
+    )
 }
 
 /// Tells the flow's keeper of a new ask of the owner that reports a fault of wf-agents, the message naming the kind of
 /// fault and the ask.
 pub fn fault_ask(tx: &Transaction<'_>, work: i64, ask: i64, kind: &str, text: &str) -> Result<(), String> {
-    let body = json!({ "kind": kind, "ask": ask });
-    engine_says(tx, Some(work), Some(body), Recipient::Keeper, text).map(|_| ())
+    engine_says(
+        tx,
+        Some(work),
+        Some(json!({ "kind": kind })),
+        Some(ask),
+        Recipient::Keeper,
+        text,
+    )
+    .map(|_| ())
 }
 
 /// Reminds the owner of the asks waiting for the owner's answer, at `at`: no message, but a reminder kept, from which
@@ -81,6 +98,7 @@ pub fn agent_tells(
         round: Some(round.n),
         text,
         body: design_card.map(|c| json!({ "design_card": c })),
+        ask: None,
     };
     db::send(tx, &m, Recipient::Owner).map_err(sql)
 }

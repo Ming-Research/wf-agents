@@ -931,7 +931,7 @@ pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args:
 /// the start of the round that put it, as the owner's conversations date it; and the graph of the work that put it,
 /// whose cell says its buttons.
 const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer,
-       coalesce((SELECT min(n.at) FROM messages n WHERE json_extract(n.body, '$.ask') = a.id),
+       coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id),
                 (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0), w.graph
 FROM owner_asks a JOIN works w ON w.id = a.work";
 
@@ -987,7 +987,7 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
 }
 
 /// The engine's message to the owner or to the flow's keeper, and whether whoever received it read it.
-const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, d.read_at, json_extract(n.body, '$.ask'),
+const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, d.read_at, n.ask,
        CASE WHEN w.graph IN ('architect', 'policy') THEN w.project END
 FROM messages n JOIN deliveries d ON d.message = n.id AND d.recipient IN ('owner', 'keeper')
 LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item";

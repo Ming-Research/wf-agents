@@ -92,7 +92,7 @@ fn the_migration_carries_every_saying_over_as_it_stood() {
     assert_eq!(
         rows(
             conn,
-            "SELECT m.id, m.sender, m.work, m.round, m.text, m.body, m.at, d.recipient, d.read_at
+            "SELECT m.id, m.sender, m.work, m.round, m.text, m.body, m.ask, m.at, d.recipient, d.read_at
              FROM messages m JOIN deliveries d ON d.message = m.id AND d.recipient <> 'architect' ORDER BY m.id"
         ),
         [
@@ -102,6 +102,7 @@ fn the_migration_carries_every_saying_over_as_it_stood() {
                 Value::Integer(1),
                 Value::Null,
                 text("Work 1 stopped."),
+                Value::Null,
                 Value::Null,
                 Value::Integer(10),
                 text("owner"),
@@ -114,6 +115,7 @@ fn the_migration_carries_every_saying_over_as_it_stood() {
                 Value::Integer(1),
                 text("Look at the log."),
                 Value::Null,
+                Value::Null,
                 Value::Integer(20),
                 text("owner"),
                 Value::Null
@@ -125,6 +127,7 @@ fn the_migration_carries_every_saying_over_as_it_stood() {
                 Value::Null,
                 text("R1-1 missed its cache."),
                 text(r#"{"kind":"cache_miss"}"#),
+                Value::Null,
                 Value::Integer(25),
                 text("keeper"),
                 Value::Integer(26)
@@ -135,7 +138,8 @@ fn the_migration_carries_every_saying_over_as_it_stood() {
                 Value::Integer(1),
                 Value::Null,
                 text("The engineer asks you."),
-                text(r#"{"ask":1}"#),
+                Value::Null,
+                Value::Integer(1),
                 Value::Integer(27),
                 text("owner"),
                 Value::Null
@@ -146,6 +150,7 @@ fn the_migration_carries_every_saying_over_as_it_stood() {
                 Value::Integer(2),
                 Value::Integer(1),
                 text("Done."),
+                Value::Null,
                 Value::Null,
                 Value::Integer(30),
                 text("owner"),

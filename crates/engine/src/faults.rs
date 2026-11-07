@@ -67,8 +67,7 @@ pub fn forwarded(conn: &Connection, matter: i64) -> Result<Option<Value>, String
     type Found = (i64, Option<String>, String, i64, Option<i64>, Option<String>);
     let found: Option<Found> = conn
         .query_row(
-            "SELECT n.id, json_extract(n.body, '$.kind'), n.text, n.at, json_extract(n.body, '$.ask'),
-                    json_extract(m.body, '$.by')
+            "SELECT n.id, json_extract(n.body, '$.kind'), n.text, n.at, n.ask, json_extract(m.body, '$.by')
              FROM deliveries d JOIN messages n ON n.id = d.message JOIN architect_matters m ON m.id = d.matter
              WHERE d.matter = ?1",
             [matter],

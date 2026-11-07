@@ -34,10 +34,14 @@ CREATE TABLE messages (
   text TEXT NOT NULL,
   -- What more it says, JSON; NULL when nothing. For a fault of wf-agents, its kind (`kind`): cache_miss, rounds that
   -- missed their session's prompt cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a row
-  -- counting a flow anomaly, where the way on an engineer chose did not fit the situation. For the engine's word of an
-  -- ask of the owner put, that ask (`ask`). For an agent's answer to the owner's question about a decision card, that
-  -- card (`design_card`), which the work's group shows it as a reply to. Read by: the owner's interface; the engine.
+  -- counting a flow anomaly, where the way on an engineer chose did not fit the situation. For an agent's answer to the
+  -- owner's question about a decision card, that card (`design_card`), which the work's group shows it as a reply to.
+  -- Read by: the owner's interface; the engine.
   body TEXT CHECK (body IS NULL OR json_valid(body)),
+  -- For the engine's word of an ask of the owner put: that ask, which the owner's conversations date the ask by and
+  -- link to; NULL for any other message. Read by: the owner's interface; the engine, which hands an architect the ask
+  -- of a flow anomaly passed on to it.
+  ask INTEGER REFERENCES owner_asks(id),
   -- When it was sent.
   at INTEGER NOT NULL,
   CHECK ((sender = 'engine') = (round IS NULL)),
@@ -80,25 +84,23 @@ CREATE TABLE reminders (
 
 -- Each saying, the agents' and the engine's but its reminders, with the id it takes: in the order sent.
 CREATE TABLE sayings_before_the_hub AS
-  SELECT row_number() OVER (ORDER BY at, source, old) AS id, source, old, sender, work, round, text, body, at, read_at,
-    recipient
+  SELECT row_number() OVER (ORDER BY at, source, old) AS id, source, old, sender, work, round, text, body, ask, at,
+    read_at, recipient
   FROM (
     SELECT 'message' AS source, m.id AS old,
       CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect' ELSE 'engineer' END AS sender, m.work AS work,
       m.round AS round, m.text AS text,
-      CASE WHEN m.design_card IS NOT NULL THEN json_object('design_card', m.design_card) END AS body,
+      CASE WHEN m.design_card IS NOT NULL THEN json_object('design_card', m.design_card) END AS body, NULL AS ask,
       coalesce(r.ended_at, r.started_at) AS at, m.read_at AS read_at, 'owner' AS recipient
     FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
     UNION ALL
     SELECT 'notice', n.id, 'engine', n.work, NULL, n.text,
-      CASE WHEN n.fault IS NOT NULL AND n.ask IS NOT NULL THEN json_object('kind', n.fault, 'ask', n.ask)
-           WHEN n.fault IS NOT NULL THEN json_object('kind', n.fault)
-           WHEN n.ask IS NOT NULL THEN json_object('ask', n.ask) END,
-      n.at, n.read_at, CASE WHEN n.fault IS NOT NULL THEN 'keeper' ELSE 'owner' END
+      CASE WHEN n.fault IS NOT NULL THEN json_object('kind', n.fault) END, n.ask, n.at, n.read_at,
+      CASE WHEN n.fault IS NOT NULL THEN 'keeper' ELSE 'owner' END
     FROM engine_notices n WHERE n.reminder = 0);
 
-INSERT INTO messages (id, sender, work, round, text, body, at)
-  SELECT id, sender, work, round, text, body, at FROM sayings_before_the_hub ORDER BY id;
+INSERT INTO messages (id, sender, work, round, text, body, ask, at)
+  SELECT id, sender, work, round, text, body, ask, at FROM sayings_before_the_hub ORDER BY id;
 INSERT INTO deliveries (message, recipient, read_at)
   SELECT id, recipient, read_at FROM sayings_before_the_hub ORDER BY id;
 INSERT INTO reminders (at, text) SELECT at, text FROM engine_notices WHERE reminder = 1 ORDER BY id;
@@ -287,7 +289,7 @@ CREATE INDEX architect_matters_by_kind ON architect_matters (kind, at);
 CREATE INDEX architect_matters_by_handling ON architect_matters (handled_work, handled_round);
 CREATE INDEX architect_matters_by_work ON architect_matters (work, kind);
 CREATE INDEX architect_matters_by_asked ON architect_matters (asked);
-CREATE INDEX messages_by_ask ON messages (json_extract(body, '$.ask'));
+CREATE INDEX messages_by_ask ON messages (ask);
 
 CREATE VIEW conversation_entries AS
   -- Every entry of the owner's conversations, gathered from the tables that hold them: a group for each engineer's
@@ -353,11 +355,11 @@ CREATE VIEW conversation_entries AS
               WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     CASE WHEN d.recipient = 'owner' THEN coalesce(w.project, i.project) END, 'notice', n.id,
     CASE WHEN d.recipient = 'owner' THEN 'engine' ELSE 'wf-agents' END, 'owner', n.text, n.at, n.work, NULL,
-    json_extract(n.body, '$.ask'), NULL, NULL, d.read_at, d.recipient = 'keeper' AND d.read_at IS NULL, 0, 0, 0,
+    n.ask, NULL, NULL, d.read_at, d.recipient = 'keeper' AND d.read_at IS NULL, 0, 0, 0,
     CASE WHEN d.recipient = 'keeper' THEN json_extract(n.body, '$.kind') END
   FROM messages n JOIN deliveries d ON d.message = n.id AND d.recipient IN ('owner', 'keeper')
   LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
-  WHERE n.sender = 'engine' AND (json_extract(n.body, '$.ask') IS NULL OR d.recipient = 'keeper')
+  WHERE n.sender = 'engine' AND (n.ask IS NULL OR d.recipient = 'keeper')
   UNION ALL
   SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     coalesce(w.project, i.project), 'ask', a.id,
@@ -368,8 +370,8 @@ CREATE VIEW conversation_entries AS
     coalesce(json_extract(a.body, '$.question'),
              (SELECT group_concat(json_extract(p.value, '$.what'), char(10))
               FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
-             (SELECT n.text FROM messages n WHERE json_extract(n.body, '$.ask') = a.id ORDER BY n.id LIMIT 1), ''),
-    coalesce((SELECT min(n.at) FROM messages n WHERE json_extract(n.body, '$.ask') = a.id), r.started_at), a.work, a.round, a.id, NULL,
+             (SELECT n.text FROM messages n WHERE n.ask = a.id ORDER BY n.id LIMIT 1), ''),
+    coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id), r.started_at), a.work, a.round, a.id, NULL,
     NULL, NULL,
     a.answer IS NULL AND (
       (w.graph = 'architect' AND EXISTS (

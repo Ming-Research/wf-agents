@@ -942,7 +942,7 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
     };
     let mut st = conn.prepare(
         "SELECT m.text, m.at FROM messages m JOIN deliveries d ON d.message = m.id AND d.recipient = 'owner'
-         WHERE m.work = ?1 AND m.sender = 'engine' AND json_extract(m.body, '$.ask') IS NULL ORDER BY m.id",
+         WHERE m.work = ?1 AND m.sender = 'engine' AND m.ask IS NULL ORDER BY m.id",
     )?;
     let notices: Vec<(String, i64)> = st
         .query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))?

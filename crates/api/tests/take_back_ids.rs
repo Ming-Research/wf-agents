@@ -74,6 +74,7 @@ fn words_said_after_others_were_taken_back_are_shown_from_the_time_they_were_sai
         projects: vec!["p".into()],
         sets: vec![],
         reply_wait: 0,
+        wf_agents: None,
     };
     let page = api::conversation(
         db.conn(),

@@ -186,6 +186,7 @@ mod tests {
                 round: None,
                 text: "Work 1 stopped.",
                 body: None,
+                ask: None,
             };
             db::send(tx, &m, db::Recipient::Owner)?;
             Ok(())

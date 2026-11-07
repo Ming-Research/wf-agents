@@ -165,8 +165,8 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
             let id = tx.last_insert_rowid();
             // An ask is asked when the engine's message of it says so.
             tx.execute(
-                "INSERT INTO messages (sender, work, text, body, at) VALUES ('engine', ?1, 'An ask.', ?3, ?2)",
-                params![one, asked, json!({ "ask": id }).to_string()],
+                "INSERT INTO messages (sender, work, text, ask, at) VALUES ('engine', ?1, 'An ask.', ?3, ?2)",
+                params![one, asked, id],
             )?;
             tx.execute(
                 "INSERT INTO deliveries (message, recipient) VALUES (?1, 'owner')",

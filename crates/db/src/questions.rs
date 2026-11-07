@@ -14,7 +14,7 @@ use crate::Result;
 /// matter it parked.
 pub const QUESTIONS_PENDING: &str = "SELECT a.id AS question, json_extract(a.body, '$.question') AS text,
         m.resume_cell AS cell,
-        coalesce((SELECT min(n.at) FROM messages n WHERE json_extract(n.body, '$.ask') = a.id), r.started_at) AS at,
+        coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id), r.started_at) AS at,
         m.id AS matter, m.what AS about
  FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
  JOIN architect_matters m ON m.asked = a.id

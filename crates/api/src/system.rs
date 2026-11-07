@@ -274,7 +274,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
             asks: waiting(
                 conn,
                 "SELECT count(*),
-                   min(coalesce((SELECT min(n.at) FROM messages n WHERE json_extract(n.body, '$.ask') = a.id),
+                   min(coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id),
                      r.started_at))
                  FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.answer IS NULL",
             )?,

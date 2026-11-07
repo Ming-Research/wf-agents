@@ -50,7 +50,7 @@ impl Recipient {
 }
 
 /// A message to send: who sends it, the work it is about and, for an agent's, the round whose return holds it; its
-/// text, and what more it says (`messages.body`).
+/// text, what more it says (`messages.body`), and for the engine's word of an ask of the owner put, that ask.
 #[derive(Debug, Clone)]
 pub struct Message<'a> {
     pub sender: Sender,
@@ -58,18 +58,20 @@ pub struct Message<'a> {
     pub round: Option<i64>,
     pub text: &'a str,
     pub body: Option<Value>,
+    pub ask: Option<i64>,
 }
 
 /// Sends a message now: written once, and delivered to `to`. Gives the message.
 pub fn send(tx: &Transaction<'_>, m: &Message<'_>, to: Recipient) -> Result<i64> {
     tx.execute(
-        "INSERT INTO messages (sender, work, round, text, body, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO messages (sender, work, round, text, body, ask, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             m.sender.as_str(),
             m.work,
             m.round,
             m.text,
             m.body.as_ref().map(Value::to_string),
+            m.ask,
             now()
         ],
     )?;
@@ -201,6 +203,7 @@ mod tests {
                 round: Some(1),
                 text: "Look at the log.",
                 body: None,
+                ask: None,
             };
             send(tx, &told, Recipient::Owner)?;
             let fault = Message {
@@ -209,6 +212,7 @@ mod tests {
                 round: None,
                 text: "R1-1 missed its session's prompt cache.",
                 body: Some(serde_json::json!({ "kind": "cache_miss" })),
+                ask: None,
             };
             send(tx, &fault, Recipient::Keeper)?;
             Ok(())
@@ -233,6 +237,7 @@ mod tests {
                 round: Some(1),
                 text: "x",
                 body: None,
+                ask: None,
             };
             send(tx, &m, Recipient::Owner)
         });
@@ -253,6 +258,7 @@ mod tests {
                     round: Some(1),
                     text: "Look at the log.",
                     body: None,
+                    ask: None,
                 };
                 let fault = Message {
                     sender: Sender::Engine,
@@ -260,6 +266,7 @@ mod tests {
                     round: None,
                     text: "R1-1 missed its session's prompt cache. It wrote 90% again.",
                     body: Some(serde_json::json!({ "kind": "cache_miss" })),
+                    ask: None,
                 };
                 Ok((send(tx, &told, Recipient::Owner)?, send(tx, &fault, Recipient::Keeper)?))
             })
@@ -300,6 +307,7 @@ mod tests {
                     round: Some(1),
                     text: t,
                     body: None,
+                    ask: None,
                 };
                 send(tx, &m, Recipient::Owner)?;
             }

@@ -77,6 +77,7 @@ mod tests {
                     round: Some(1),
                     text: t,
                     body: None,
+                    ask: None,
                 };
                 db::send(tx, &m, db::Recipient::Owner)?;
             }
@@ -86,6 +87,7 @@ mod tests {
                 round: None,
                 text: "Work 1 stopped.",
                 body: None,
+                ask: None,
             };
             db::send(tx, &stopped, db::Recipient::Owner)?;
             let fault = db::Message {
@@ -94,6 +96,7 @@ mod tests {
                 round: None,
                 text: "Missed.",
                 body: Some(serde_json::json!({ "kind": "cache_miss" })),
+                ask: None,
             };
             db::send(tx, &fault, db::Recipient::Keeper)?;
             Ok(())
