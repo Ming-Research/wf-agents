@@ -30,7 +30,7 @@
 - When report work reaches its end and has written next steps, a matter that is not urgent is queued for the architect,
   with the item, the report's path and merge commit, and the next steps as written. The architect opens a follow-up,
   sets a later look, declines with a reason, or tells the owner. By the end the report is merged and its next steps are
-  final; earlier, a review could still send it back.
+  final; earlier, it could still be sent back.
 
 - A change to items that could lose something (cancelling, merging, splitting, changing an acceptance, touching an item
   being worked on) is checked at once by a second look, a session of its own, and problems go back to that matter to

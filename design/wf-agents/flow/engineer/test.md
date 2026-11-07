@@ -1,12 +1,21 @@
 - A reviewer has one chance and lists every problem at once; the re-check after the fix looks only at what was fixed,
   and ends if nothing is wrong. That keeps the rounds of review under control.
 
+- A finding the re-check still insists on, and the fix disputes, goes to the advisor by a row drawn from the fix, not by
+  an ask: an ask names only what it is about, and the hub decides who answers, while the advisor is part of the work's
+  own review.
+
 - A reviewer's ability and knowledge are no less than the engineer's: it knows the background and the decisions the
   engineer knows. Engineers mostly do what a review says, so a wrong request turns good code bad.
 
-- Code review checks the code against the design, and catches the design changed on one's own while writing: a short
-  cut, laziness, another method, something different from the design or more than it. A design only partly done is no
-  problem. This is the most important part of such a review, and partly done code is still faithful to the design.
+- Code review checks the code against the design and the design tree: that the item's problem is solved as the design
+  says and to the tree's standard; that the code holds no decision the design and the tree do not record, since a
+  decision hidden in the code is asked nowhere; and that the code the work changed breaks no decision of the tree,
+  wherever it stands, since a change can break a decision it never set out to touch, though where the code was behind
+  the tree before the work, that holds no merge. It catches the design changed on one's own while writing: a short cut,
+  laziness, another method, something different from the design or more than it; this is the most important part of such
+  a review. A design is done when the item's problem is solved: what a principle it changed brings to do elsewhere is
+  not this work's, since one change of a principle may call for many works.
 
 - A migration, or a design done in steps, is not reported by review, including code written on a way about to be
   replaced, provided what departs is kept track of by a comment or a document, so a reviewer can see it is temporary.

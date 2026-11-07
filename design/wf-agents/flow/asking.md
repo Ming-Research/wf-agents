@@ -27,11 +27,12 @@
   notion of a topic to file messages under was not needed.
 
 - An ask is a yes-or-no question or a choice of one or more options, with the answer the asker recommends and how sure
-  it is, from 1 to 5. A no carries its reason, a yes needs none, and a choice may carry one. Only an answer given on the
-  ask answers it: words beside it are sayings. An ask the engine makes judges nothing and carries no recommendation: an
-  approval the flow requires, such as of a change to the flow, is answered yes or no, and a fault only a person can
-  clear, such as a failed login, is answered by its clearing, with nothing to write. Questions in free words could not
-  be answered quickly, and words beside a question, taken as its answer, could not be told from discussion.
+  it is, from 1 to 5: 1 the least sure, 2 not very sure, 3 either way, 4 very sure, 5 wholly sure. A no carries its
+  reason, a yes needs none, and a choice may carry one. Only an answer given on the ask answers it: words beside it are
+  sayings. An ask the engine makes judges nothing and carries no recommendation: an approval the flow requires, such as
+  of a change to the flow, is answered yes or no, and a fault only a person can clear, such as a failed login, is
+  answered by its clearing, with nothing to write. Questions in free words could not be answered quickly, and words
+  beside a question, taken as its answer, could not be told from discussion.
 
 - The one asked may ask about an ask instead of answering: the question goes to the asker, an engineer taking it at its
   next step and an architect's held matter coming back first in its queue, and the asker answers by a saying or by
@@ -39,11 +40,11 @@
   confidence decides where it holds the work from where the work then stands. An ask once answered is not changed; a new
   one is asked. The asker may also withdraw its ask.
 
-- An ask still unanswered holds its work: at the cell that asked when the asker is less than four sure, at the merge
-  gate when four or more. Both are drawn: the asking cell goes out through one engine cell that waits there or lets the
-  work go on, and the merge gate waits for the asks its work still has. Nothing merges on an answer that was only
-  recommended: once merged, the items that depend on it go on, and a wrong answer spreads. Asks that all stopped the
-  work spent the owner's attention on what the asker was sure of.
+- An ask still unanswered holds its work: at the cell that asked when the asker is less than four sure or the entry
+  calling for the ask says so, at the merge gate otherwise. Both are drawn: the asking cell goes out through one engine
+  cell that waits there or lets the work go on, and the merge gate waits for the asks its work still has. Nothing merges
+  on an answer that was only recommended: once merged, the items that depend on it go on, and a wrong answer spreads.
+  Asks that all stopped the work spent the owner's attention on what the asker was sure of.
 
 - An architect's ask holds the matter it was asked in, whatever the architect's confidence, and not the architect: a
   matter has no merge gate to wait at, and what it would do to items on a guess may not be undone.
@@ -70,10 +71,17 @@
   person can solve; of the architect, what concerns other items or the project's progress. The rest it decides itself.
   Asked whenever the engineer was unsure, the owner had more to answer than attention for it.
 
-- Anyone may propose a change to the design tree, by an ask carrying its background and the change's exact words. An
-  engineer's change goes in with its work; another's, once the owner says yes, becomes an item the architect makes, so
-  that it passes the same checks as everything else. The one asking reads the decisions the change touches itself, as
-  its prompt tells it; a cell of its own is added only if that proves not enough.
+- Anyone may propose a change to the design tree, by an ask carrying its background and the change's exact words, every
+  entry it adds, rewrites or deletes. Before it is asked, a reviewer called in checks those words against the decisions
+  they touch wherever they stand in the tree, the cell that consults the tree finding them; what it finds goes back to
+  the one proposing, who changes the text or disputes the finding, as any review may be disputed, and only a text that
+  contradicts and repeats none, or carries its dispute, is asked. A yes approves that text and it is written word for
+  word; a text changed after the yes, by anyone or because a decision it touches changed before it was written, is a new
+  ask. An engineer's change goes in with its work; another's, once the owner says yes, the assistant writes as
+  confirmed; and a change the assistant puts to the owner in its chat, not by an ask, passes the same review first. The
+  one who writes a change reads it as it meant it, and changes checked only by their writer left contradictions that a
+  separate review found; a yes given to one text while another is written approves nothing (Article 2). Only changes to
+  the tree pass the review, so no other work pays for it (Article 3).
 
 - An engineer's question to the owner stands in the item's design where it belongs, the background written into the
   design around it, and reaches the owner as soon as it is asked; the owner sees by the marked passages where the design

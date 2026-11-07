@@ -67,8 +67,11 @@ engineer, in its work, those the owner answered yes to on its ask; what needs re
 chat. It records only what is implemented or going to be. Before the tree changes, the decisions the change touches are
 found and read: a cheap model may narrow where to look, quoting what it finds, and the one changing the tree judges;
 where that is too much work, a deep research is opened and nothing is written yet. Changes made without that left
-contradictions for later reviews to find. Changing means rewriting and not wanting means deleting, the commit saying
-why; the past is in git.
+contradictions for later reviews to find, and so did changes checked only by their writer: a review in a session other
+than the writer's then checks the change against those decisions, changes agreed in one discussion being gathered and
+reviewed together, and only the reviewed text is put to the owner; what the owner confirms is written word for word, and
+a text changed after that, by anyone or because a decision it touches changed, is put to the owner again. Changing means
+rewriting and not wanting means deleting, the commit saying why; the past is in git.
 
 A decision is a cause and what follows from it, in a short paragraph: because of what, what is done, with the paths that
 failed. Its reasons go back to the constitution where they can, and where they cannot they are still given, so that a

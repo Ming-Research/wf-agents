@@ -1,8 +1,8 @@
 - There is no separate web page for reviewing the state machine: the flow page in the service is made good to use. With
   a separate page, one must still go and look at the flow page after reviewing and changing.
 
-- The flow page shows one graph at a time, engineer and architect apart, switched beside the version's drop-down. Drawn
-  together the chart is too large.
+- The flow page shows one graph at a time, each apart, switched beside the version's drop-down. Drawn together the chart
+  is too large.
 
 - The flow chart follows the design system in looks and not in drawing: layout, cell shapes, lines and stage frames are
   drawn by its own logic; text, borders, backgrounds and category colours take Primer's values, and what Primer lacks is
@@ -81,5 +81,5 @@
   project, item or work, with dashed and solid lines and the arrow's direction showing reads and writes, and a click
   going to the main block. Long arrows only mess up the chart.
 
-- Line colours need only differ within a graph, and may repeat between engineer and architect; where lines of different
-  graphs meet in a session, a slight difference is enough. The two graphs are viewed apart.
+- Line colours need only differ within a graph, and may repeat between graphs; where lines of different graphs meet in a
+  session, a slight difference is enough. The graphs are viewed apart.

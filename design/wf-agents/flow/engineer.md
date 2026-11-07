@@ -29,5 +29,12 @@
 - Research does not only reason down from the decisions in force: where one must change or the work cannot be done, it
   proposes changing it. Reasoning down from a decision cannot find that.
 
+- The implementation and the fix keep the design true instead of declaring departures from it: a decision the design and
+  the tree do not record is written into the design's passage with why, a design wrong in its direction goes back to
+  research, and a workaround for a problem outside the work is reported and marked in the code. A departure only
+  declared, left for the review to challenge, was one the agent knew of and neither fixed nor recorded, and cost the
+  review a round (Article 3). The code review judges each passage so written as a design is reviewed, not only as the
+  standard it checks the code against.
+
 - A defect found in passing, or something that should be improved, is reported only when it is worth a real item. The
   architect's time is to be used sparingly, and every small matter reported takes some of it.
