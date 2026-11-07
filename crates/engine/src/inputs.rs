@@ -883,6 +883,15 @@ pub fn engine_input(
             }
             None => None,
         },
+        // The CI on the head under review: each run of ci on the head last pushed, newest first, as the check that the
+        // head is green reads them, but a run that ran nothing; none before anything was pushed.
+        "head_ci" => {
+            let runs: Vec<Value> = crate::checks::head_pushes_of(e, w)?
+                .into_iter()
+                .filter(|p| p["run"] != "none")
+                .collect();
+            (!runs.is_empty()).then_some(Value::Array(runs))
+        }
         // What the branch did since adversarial testing last answered; none before its first answer.
         "since_adversarial" => match wt {
             Some(wt) => since_adversarial(e, w, g, wt, &main)?,

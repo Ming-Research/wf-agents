@@ -1110,9 +1110,13 @@ read only and saying where it is ruled, its work's group, then, folded, why this
 first, because the owner reads a design to see what it is; while the approaches compared wait for a choice, it says
 plainly that none is chosen, where the engineer stands on them as its latest round said it, and what the choice waits
 for, and an approach is marked chosen only by a choice made after the approaches it chose among, instead of six boxes
-with no word on whether one was chosen, or a choice matched by its name to approaches compared again after it. The
-checklist has one line per cell the work has been at, in the order it first got there, ticked, a cell reached again
-staying one line that counts how many times; the cell it is at, with what it waits for and its latest progress note; and
+with no word on whether one was chosen, or a choice matched by its name to approaches compared again after it. After
+the design come its passages as updated while implementing and fixing, open, each with its decision, why and the round
+it first came from, oldest first, a passage handed in again by a later round shown once, only the passages of the work
+of the design or plan shown, instead of among the other things the works found, because they are the design as the
+code follows it; a work that came straight from its research has them alone in the block. The checklist has one line
+per cell the work has been at, in the order it first got there, ticked, a cell reached again staying one line that
+counts how many times; the cell it is at, with what it waits for and its latest progress note; and
 the cells ahead on the main path as the chart marks it, since a loop cannot be foreseen; the engine's steps that only
 route the work on have no line, and the rounds of a cell that serves another, such as the tools, count under the cell
 that asked; each line opens to its progress notes.
