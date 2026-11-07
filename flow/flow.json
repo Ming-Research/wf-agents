@@ -7688,6 +7688,7 @@
             "deviations",
             "followup",
             "conditions",
+            "measured",
             "decisions_written",
             "acceptance_changed",
             "holds",
