@@ -2335,8 +2335,8 @@ say why, in a sentence that names the file and the commit, and the rest of the p
 ### Passing a fault on
 
 A fault of wf-agents in wf-agents' own conversation is the flow's keeper's, and the owner passes it on only to the
-architect of the project wf-agents is built from: while it went nowhere its entry has a small button, "Pass on to the
-architect of p", and that architect then has the fault in its queue as its next matter, of the kind `report` with the
+architect of the project wf-agents is built from: until the fault went to that architect its entry has a small button,
+"Pass on to the architect of p", and that architect then has the fault in its queue as its next matter, of the kind `report` with the
 detail `fault`, the fault then read; under the fault's words a line says where it went and how it stands there, "Passed
 on to the architect of p | in the queue", then "Passed on to the architect of p | handled in R12-4", the round a link to
 it on that architect's chart, and a fault the setting that forwarded each new fault sent before says "Forwarded

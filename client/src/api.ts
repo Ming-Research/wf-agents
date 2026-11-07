@@ -1043,10 +1043,10 @@ export type ReadTo = { key: string, at: number, };
 export type MarkRead = { ids: Array<number>, all: boolean, };
 
 /**
- * What the owner sends to pass a message on: the project whose architect takes it. A fault of wf-agents goes on only
- * to the architect of the project wf-agents is built from.
+ * What the owner sends to pass a message on: to whom (`to`), the project whose architect takes it. A fault of wf-agents
+ * goes on only to the architect of the project wf-agents is built from.
  */
-export type Pass = { project: string, };
+export type Pass = { to: string, };
 
 /**
  * What the owner sends to hold a project's new starts: why, in the owner's words.

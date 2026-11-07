@@ -4,7 +4,8 @@
 //! waited, not one for each ask. A reminder is no message of the hub: it goes to the notifications log, and is kept
 //! (`reminders`) for the next to be timed from.
 
-use db::rusqlite::{Connection, OptionalExtension};
+use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde_json::json;
 
 /// The reminder due at `now`, reminders being `interval_ms` apart, and none when the interval is 0: due when an ask
 /// waits for the owner's answer, as the owner's conversations count what waits, the oldest has waited an interval
@@ -31,6 +32,14 @@ pub fn due(conn: &Connection, now: i64, interval_ms: i64) -> Result<Option<Strin
     Ok(oldest
         .filter(|(_, since, _)| now - since >= interval_ms)
         .map(|(ask, since, n)| text(n, ask, now - since)))
+}
+
+/// Reminds the owner of the asks waiting for the owner's answer, at `at`: no message of the hub, but a reminder kept,
+/// from which the next is timed, and written to the notifications log through the outbox.
+pub fn remind(tx: &Transaction<'_>, at: i64, text: &str) -> Result<(), String> {
+    tx.execute("INSERT INTO reminders (at, text) VALUES (?1, ?2)", params![at, text])
+        .map_err(|e| e.to_string())?;
+    crate::actions::outbox(tx, None, "notify", &json!({ "text": text }))
 }
 
 /// What the reminder says: how many asks wait for the owner's answer, and the oldest by its number with how long it
@@ -108,10 +117,8 @@ mod tests {
     /// Reminds at `now` when a reminder is due, as the engine does; gives what it said.
     fn remind(db: &mut db::Db, now: i64, interval: i64) -> Option<String> {
         let text = due(db.conn(), now, interval).unwrap()?;
-        db.write(Actor::Engine, |tx| {
-            crate::hub::remind(tx, now, &text).map_err(db::Error::Abort)
-        })
-        .unwrap();
+        db.write(Actor::Engine, |tx| remind(tx, now, &text).map_err(db::Error::Abort))
+            .unwrap();
         Some(text)
     }
 

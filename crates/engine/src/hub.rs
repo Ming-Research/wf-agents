@@ -4,7 +4,7 @@
 //! notifications log too, through the outbox; an agent's are logged by the action that sends them, in words that say
 //! who said them.
 
-use db::rusqlite::{Transaction, params};
+use db::rusqlite::Transaction;
 use db::{Message, Recipient, Sender};
 use serde_json::json;
 
@@ -72,14 +72,6 @@ pub fn fault_ask(tx: &Transaction<'_>, work: i64, ask: i64, kind: &str, text: &s
         text,
     )
     .map(|_| ())
-}
-
-/// Reminds the owner of the asks waiting for the owner's answer, at `at`: no message, but a reminder kept, from which
-/// the next is timed, and written to the notifications log through the outbox.
-pub fn remind(tx: &Transaction<'_>, at: i64, text: &str) -> Result<(), String> {
-    tx.execute("INSERT INTO reminders (at, text) VALUES (?1, ?2)", params![at, text])
-        .map_err(sql)?;
-    outbox(tx, None, "notify", &json!({ "text": text }))
 }
 
 /// What an agent's return tells the owner, as the message of the round that holds it, from the line of an engineer's

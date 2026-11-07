@@ -236,7 +236,10 @@ CREATE TABLE messages (
   -- saying, which needs no answer. An agent's is what it tells the owner in a return, its answer to what the owner said
   -- to its work, or the architect's reply to the owner's words; the engine's is what it tells of its own accord: a work
   -- stopped, or gone back in a new flow version, every work halted until a usage limit resets, a limit passed, an ask of
-  -- the owner put, a fault of wf-agents. Whom each went to, and what became of it there, is in deliveries.
+  -- the owner put, a fault of wf-agents. Whom each went to, and what became of it there, is in deliveries. Agents do
+  -- not read it: what a cell needs of it reaches the cell as an input (the architect's talk with the owner), and the
+  -- faults of wf-agents among it are the flow's keeper's, which no project's agents act on.
+  -- Hidden from agents.
   -- Read by: the owner's interface, which shows each in its conversation (conversation_entries); the engine, which adds
   -- a further cache miss to the message of a fault still open, and hands a fault passed on to an architect to it.
   id INTEGER PRIMARY KEY,
@@ -269,7 +272,9 @@ CREATE TABLE messages (
 CREATE TABLE deliveries (
   -- Each recipient a message went to, and what became of it there: the owner; the flow's keeper, a queue for
   -- wf-agents' own faults, which the owner and the assistant work; or a project's architect, to whose queue a fault of
-  -- wf-agents was passed on. A fault goes to the keeper, and every other message to the owner.
+  -- wf-agents was passed on. A fault goes to the keeper, and every other message to the owner. Agents do not read
+  -- it: what was read and where a fault went is the owner's bookkeeping.
+  -- Hidden from agents.
   -- Read by: the owner's interface, which shows what is unread and where each fault went; the engine, which hands an
   -- architect the fault its matter is.
   id INTEGER PRIMARY KEY,

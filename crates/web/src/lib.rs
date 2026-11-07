@@ -986,12 +986,7 @@ async fn pass_on(
     Path(id): Path<i64>,
     Json(p): Json<api::Pass>,
 ) -> Result<Json<api::Done>, Fail> {
-    let (project, c) = project_of(
-        &app,
-        &OfProject {
-            project: Some(p.project),
-        },
-    )?;
+    let (project, c) = project_of(&app, &OfProject { project: Some(p.to) })?;
     let wf_agents = c.wf_agents_project();
     decide(&app, move |db| api::pass_on(db, id, &project, wf_agents.as_deref())).await
 }

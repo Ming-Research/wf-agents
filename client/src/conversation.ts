@@ -462,6 +462,12 @@ export function newlyWaiting(before: ReadonlyMap<string, number> | null, now: Co
 /// What waits in each conversation, by its key, for the next comparison.
 export const waitingByKey = (list: Conversation[]): Map<string, number> => new Map(list.map((c) => [c.key, c.waiting]));
 
+/// Whether a fault can be passed on, to the architect of the project wf-agents is built from (`passTo`, none when the
+/// configuration has no such project): until it went to that architect, as it goes to each once.
+export function canPass(e: ConversationEntry, passTo: string | null): boolean {
+  return e.fault !== null && passTo !== null && !e.passed.some((f) => f.project === passTo);
+}
+
 /// What a fault's entry says of one place it went: to whose architect, passed on by the owner or, before, by the
 /// setting that forwarded each new fault, and how it stands there, in the queue or handled in a round, which the page
 /// links to.

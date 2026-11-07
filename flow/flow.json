@@ -4061,7 +4061,8 @@
           "cache_misses"
         ],
         "inputs": [
-          "matter"
+          "matter",
+          "owner_talk"
         ],
         "owner": "passes a fault of wf-agents on to the architect of the project wf-agents is built from"
       },

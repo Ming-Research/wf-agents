@@ -78,6 +78,7 @@ import { parse as parseMarkdown } from './markdown';
 import { anchored } from './item/Shapes';
 import { askedTo, cardOfKey, cardRuling, currentCard, firstSentence } from './pages/Decide';
 import {
+  canPass,
   closedWhy,
   conversationTitle,
   latestAt,
@@ -2772,6 +2773,25 @@ describe("the owner's conversations", () => {
     // One the setting that forwarded each new fault sent, before a fault went on only to the architect of wf-agents.
     expect(passedWords(passed({ by: 'setting' }))).toBe('Forwarded automatically to the architect of wf | in the queue');
     expect(t('fault_pass', { project: 'wf' })).toBe('Pass on to the architect of wf');
+  });
+
+  it("offers to pass a fault on to wf-agents' architect until it went there", () => {
+    const fault = (passed: Passed[]): ConversationEntry => entry('notice', { fault: 'cache_miss', passed });
+    const there: Passed = {
+      project: 'wf',
+      by: 'owner',
+      matter: 7,
+      state: 'queued',
+      handled_work: null,
+      handled_round: null,
+    };
+    expect(canPass(fault([]), 'wf')).toBe(true);
+    expect(canPass(fault([there]), 'wf')).toBe(false);
+    // One the setting that forwarded each new fault sent to another architect still goes to wf-agents' once.
+    expect(canPass(fault([{ ...there, project: 'p', by: 'setting' }]), 'wf')).toBe(true);
+    // With no project that is wf-agents, and for anything but a fault, nothing is offered.
+    expect(canPass(fault([]), null)).toBe(false);
+    expect(canPass(entry('notice'), 'wf')).toBe(false);
   });
 
   it('tells of what newly waits for the owner, and of nothing the first time', () => {

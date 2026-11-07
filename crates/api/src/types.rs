@@ -574,11 +574,11 @@ pub struct Passed {
     pub handled_round: Option<i64>,
 }
 
-/// What the owner sends to pass a message on: the project whose architect takes it. A fault of wf-agents goes on only
-/// to the architect of the project wf-agents is built from.
+/// What the owner sends to pass a message on: to whom (`to`), the project whose architect takes it. A fault of wf-agents
+/// goes on only to the architect of the project wf-agents is built from.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Pass {
-    pub project: String,
+    pub to: String,
 }
 
 /// What the owner sends to hold a project's new starts: why, in the owner's words.

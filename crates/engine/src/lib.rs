@@ -1013,7 +1013,7 @@ impl Engine {
         };
         self.db
             .write(Actor::Engine, |tx| {
-                crate::hub::remind(tx, now, &text).map_err(db::Error::Abort)
+                reminders::remind(tx, now, &text).map_err(db::Error::Abort)
             })
             .map_err(|e| e.to_string())?;
         actions::run_outbox(self)?;

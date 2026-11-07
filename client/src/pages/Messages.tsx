@@ -108,6 +108,7 @@ import {
   architectAsk,
   asksApproval,
   boxDraftKey,
+  canPass,
   cardTalk,
   closedWhy,
   CONVERSATION_WINDOW,
@@ -657,7 +658,7 @@ function PassButton({ message, project, failed }: { message: number; project: st
   const [busy, setBusy] = useState(false);
   const pass = () => {
     setBusy(true);
-    postJson(`/api/v1/messages/${message}/pass`, { project }).then(
+    postJson(`/api/v1/messages/${message}/pass`, { to: project }).then(
       () => {
         setBusy(false);
         reread('messages', 'architect');
@@ -718,8 +719,8 @@ function PassedLine({ f }: { f: Passed }) {
 }
 
 /// A fault of wf-agents: what the engine said, how many misses it holds, where it was passed on and how it stands
-/// there; unread, Mark read; and, while it went nowhere, Pass on, to the architect of the project wf-agents is built
-/// from.
+/// there; unread, Mark read; and, until it went to the architect of the project wf-agents is built from, Pass on, to
+/// that architect.
 function Fault({ e, passTo }: { e: ConversationEntry; passTo: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const failed = (x: unknown) => setError(x instanceof Error ? x.message : String(x));
@@ -740,9 +741,7 @@ function Fault({ e, passTo }: { e: ConversationEntry; passTo: string | null }) {
             {t('message_mark_read')}
           </Button>
         ) : null}
-        {passTo !== null && !e.passed.some((f) => f.project === passTo) ? (
-          <PassButton message={e.id} project={passTo} failed={failed} />
-        ) : null}
+        {passTo !== null && canPass(e, passTo) ? <PassButton message={e.id} project={passTo} failed={failed} /> : null}
       </div>
       <Markdown text={e.text} />
       {e.misses !== null ? <MissesLine m={e.misses} /> : null}
