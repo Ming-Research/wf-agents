@@ -259,11 +259,13 @@ fn changed(old: &CompiledGraph, new: &CompiledGraph, id: &str) -> Option<&'stati
     let (Some(was), Some(is)) = (old.cell(id), new.cell(id)) else {
         return Some("is gone");
     };
-    let inputs = |c: &CompiledCell| -> Vec<(Option<String>, Option<String>, Vec<flow::format::Src>)> {
+    // An input of the cell's own is the one it was by its id and its sources: a name such an input had in a version
+    // stored before was the owner's page's, and never reached the session.
+    let inputs = |c: &CompiledCell| -> Vec<(Option<String>, Vec<flow::format::Src>)> {
         c.inputs
             .iter()
             .filter(|x| !x.common)
-            .map(|x| (x.id.clone(), x.name.clone(), x.from.clone()))
+            .map(|x| (x.id.clone(), x.from.clone()))
             .collect()
     };
     if was.kind != is.kind {
@@ -657,6 +659,22 @@ mod tests {
                 };
                 assert_eq!(plan(&old, &new, &pos, &rounds), want, "{name}: {what}");
             }
+        }
+    }
+
+    // A name an input of a cell's own had in a version stored before was the owner's page's and reached no session: a
+    // version without it moves the work where it stands, wherever that is.
+    #[test]
+    fn a_work_moves_when_the_version_takes_the_names_off_its_cells_inputs() {
+        let new = engineer();
+        let mut old = new.clone();
+        for c in &mut old.cells {
+            for x in c.inputs.iter_mut().filter(|x| !x.common) {
+                x.name = Some(x.what.clone());
+            }
+        }
+        for (name, pos, rounds, _) in positions() {
+            assert_eq!(plan(&old, &new, &pos, &rounds), Plan::Move, "{name}");
         }
     }
 

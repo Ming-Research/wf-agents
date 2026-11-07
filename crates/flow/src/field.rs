@@ -15,8 +15,6 @@ const ABSENT: &str = "absent";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Field {
     pub name: String,
-    /// What the owner's page heads the field with; no agent is sent it.
-    pub title: String,
     pub kind: Kind,
     pub desc: String,
     pub optional: bool,
@@ -76,7 +74,6 @@ impl Shapes<'_> {
             x = RawField {
                 shape: b.shape,
                 name: x.name.or(b.name),
-                title: x.title.or(b.title),
                 kind: x.kind.or(b.kind),
                 desc: x.desc.or(b.desc),
                 optional: x.optional.or(b.optional),
@@ -182,7 +179,6 @@ impl Shapes<'_> {
             ));
         }
         let f = Field {
-            title: x.title.clone().unwrap_or_default(),
             kind,
             desc: x.desc.clone().unwrap_or_default(),
             optional: x.optional.unwrap_or(false),

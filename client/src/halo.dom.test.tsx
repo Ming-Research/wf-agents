@@ -95,7 +95,7 @@ const engine: EngineNames = {
   reads: {},
 };
 
-const colours = coloursOf([{ graph: 'engineer', lines: [{ name: 'engineer', desc: 'The engineer', colour: 'blue' }] }]);
+const colours = coloursOf([{ graph: 'engineer', lines: [{ name: 'engineer', colour: 'blue' }] }]);
 const model = chart(graph, view, engine);
 const measured = sizes(graph, model, engine);
 const laid: Laid = {

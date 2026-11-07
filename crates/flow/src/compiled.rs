@@ -104,8 +104,8 @@ pub struct CompiledInterject {
 pub struct CompiledInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    /// What the input is called, as the owner's page heads it; none in a flow version stored before every input had
-    /// a name, where only an input every agent's cell has had one.
+    /// What an input every agent's cell has is called, as the agents know it; none for any other input. A flow
+    /// version stored while every input had a name for the owner's page holds one for each.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// An input every agent's cell has: the agent knows it by its name. A cell's list of what its inputs are names
@@ -259,10 +259,6 @@ pub struct CompiledCell {
     pub read_by: Vec<ReadBy>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inenums: BTreeMap<String, Vec<(String, String)>>,
-    /// Each field of the return by its path (`understanding.grounds[verified].claim`), with the title the owner's
-    /// page heads it with. No agent is sent these.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub titles: BTreeMap<String, String>,
 }
 
 impl CompiledCell {
@@ -1090,40 +1086,6 @@ fn described(cell: &str, f: &Field, path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Each field's title by its path, as the owner's page finds a field (`understanding.grounds[verified].claim`): a
-/// list's item is followed, the fields every branch of a union has are under the union, and a branch's own under the
-/// union with the branch's value in brackets. The owner's page heads every field with its title, so every field with
-/// a name has one.
-fn titled(cell: &str, fs: &[Field], prefix: &str, out: &mut BTreeMap<String, String>) -> Result<(), String> {
-    for f in fs {
-        let path = if prefix.is_empty() {
-            f.name.clone()
-        } else {
-            format!("{prefix}.{}", f.name)
-        };
-        ensure!(
-            !f.title.trim().is_empty(),
-            "a return field with no title: {cell} {path}"
-        );
-        out.insert(path.clone(), f.title.clone());
-        titled_under(cell, f, &path, out)?;
-    }
-    Ok(())
-}
-
-/// The titles of what a field holds, under its path.
-fn titled_under(cell: &str, f: &Field, path: &str, out: &mut BTreeMap<String, String>) -> Result<(), String> {
-    titled(cell, &f.fields, path, out)?;
-    if let Some(i) = &f.item {
-        titled_under(cell, i, path, out)?;
-    }
-    titled(cell, &f.common, path, out)?;
-    for b in &f.branches {
-        titled(cell, &b.fields, &format!("{path}[{}]", b.value), out)?;
-    }
-    Ok(())
-}
-
 /// The schema of an agent's cell's own answer, the form of its return that holds no field of the forms every return
 /// shares; none for a cell that is no agent's.
 pub fn own_answer<'c>(cell: &'c CompiledCell, within: &str) -> Option<&'c Value> {
@@ -1157,8 +1119,6 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                 described(&c.id, f, &f.name)?;
             }
         }
-        let mut titles = BTreeMap::new();
-        titled(&c.id, &c.out, "", &mut titles)?;
         let schema = schemas.cell(g, c);
         let carried = carrying.cell(g, c).filter(|s| Some(s) != schema.as_ref());
         cells.push(CompiledCell {
@@ -1274,7 +1234,6 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             shown: c.shown.clone(),
             read_by: c.read_by.clone(),
             inenums: c.inenums.clone(),
-            titles,
         });
     }
     let f = g.flow;

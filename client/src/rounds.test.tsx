@@ -32,8 +32,8 @@ vi.mock('./live', async (importOriginal) => ({
     {
       graph: 'architect',
       lines: [
-        { name: 'architect', desc: 'The architect', colour: 'purple' },
-        { name: 'architect_review', desc: 'The review of its batch', colour: 'indigo' },
+        { name: 'architect', colour: 'purple' },
+        { name: 'architect_review', colour: 'indigo' },
       ],
     },
   ],

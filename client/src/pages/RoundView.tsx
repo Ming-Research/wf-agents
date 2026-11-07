@@ -36,7 +36,6 @@ import {
   type Shown,
   type ShownField,
   spent,
-  titleOf,
 } from '../round';
 import { t, tn } from '../text';
 import {
@@ -205,9 +204,6 @@ function SaidRows({ rows }: { rows: ReactNode[] }) {
   );
 }
 
-/// A field's name inside a box: its title, or its key where the schema does not describe it.
-const fieldName = (f: ShownField) => f.title ?? f.key;
-
 /// An object's values inside a row of a box: the kinds as Labels and the short values by their names on its first
 /// line, its first text as the row's text, and each other value under its name.
 function RowValues({ fields }: { fields: ShownField[] }) {
@@ -225,7 +221,7 @@ function RowValues({ fields }: { fields: ShownField[] }) {
               </Label>
             ) : (
               <span key={x.key}>
-                <InnerName>{fieldName(x)}</InnerName> <Name>{x.value.kind === 'plain' ? x.value.text : ''}</Name>
+                <InnerName>{x.key}</InnerName> <Name>{x.value.kind === 'plain' ? x.value.text : ''}</Name>
               </span>
             ),
           )}
@@ -234,7 +230,7 @@ function RowValues({ fields }: { fields: ShownField[] }) {
       {text !== undefined && text.value.kind === 'text' ? <SaidText text={text.value.text} /> : null}
       {rest.map((x) => (
         <div key={x.key} className="said-sub">
-          <InnerName>{fieldName(x)}</InnerName>
+          <InnerName>{x.key}</InnerName>
           <Inside v={x.value} />
         </div>
       ))}
@@ -315,13 +311,13 @@ function Value({ v, level }: { v: Shown; level: number }) {
   }
 }
 
-/// A field of what was handed back: its title as a sub-heading, its code after it, its count, and its value.
+/// A field of what was handed back: its key as a sub-heading, its count, and its value.
 function FieldValue({ f, level }: { f: ShownField; level: number }) {
   const as = `h${Math.min(level, 6)}` as 'h3' | 'h4' | 'h5' | 'h6';
   const n = f.value.kind === 'list' ? f.value.items.length : undefined;
   return (
     <div className="pp-part">
-      <Named title={f.title ?? <Name>{f.key}</Name>} code={f.title !== null ? f.key : undefined} n={n} as={as} />
+      <Named title={<Name>{f.key}</Name>} n={n} as={as} />
       <Value v={f.value} level={level} />
     </div>
   );
@@ -668,13 +664,13 @@ function AgentGiven({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSumma
 /// What an agent's round handed back, word for word, as JSON in the box of what an agent handed back, as its panel
 /// shows it, for the panel and for a place that shows it outside the panel (a helper's thread with the engineer), a key
 /// saying on hovering what the flow says of its place; that it handed back nothing, or nothing yet.
-export function HandedBack({ d, cell, within }: { d: RoundDetail; cell: CompiledCell | undefined; within: string }) {
+export function HandedBack({ d, cell }: { d: RoundDetail; cell: CompiledCell | undefined }) {
   if (d.output === null) {
     return <p className="pp-note">{d.round.outcome === 'running' ? t('rp_running') : t('returned_nothing')}</p>;
   }
   return (
     <Said mono>
-      <Json value={d.output} schema={cell?.schema} titles={cell?.titles} within={within} />
+      <Json value={d.output} schema={cell?.schema} />
     </Said>
   );
 }
@@ -683,12 +679,7 @@ export function HandedBack({ d, cell, within }: { d: RoundDetail; cell: Compiled
 /// talk shows: its progress note, what it said it did, as a text an agent wrote, and under it its whole return as its
 /// panel shows it, folded at first in small muted words and read only once opened; a return with no progress note says
 /// so over the fold, and a round still running that it runs, with nothing yet to fold.
-export function RoundTold({ work, r, cell, within }: {
-  work: number;
-  r: RoundSummary;
-  cell: CompiledCell | undefined;
-  within: string;
-}) {
+export function RoundTold({ work, r, cell }: { work: number; r: RoundSummary; cell: CompiledCell | undefined }) {
   const [open, setOpen] = useState(false);
   if (r.outcome === 'running') return <p className="pp-note">{t('rp_running')}</p>;
   const progress = r.progress ?? '';
@@ -696,23 +687,23 @@ export function RoundTold({ work, r, cell, within }: {
     <>
       {progress.trim() !== '' ? <Markdown text={progress} /> : <p className="pp-note">{t('told_no_progress')}</p>}
       <Fold className="told-return" summary={t('told_return')} onToggle={setOpen}>
-        {open ? <ReturnRead work={work} n={r.n} cell={cell} within={within} /> : null}
+        {open ? <ReturnRead work={work} n={r.n} cell={cell} /> : null}
       </Fold>
     </>
   );
 }
 
 /// A round's return, read when it is first shown, as its panel shows it.
-function ReturnRead({ work, n, cell, within }: { work: number; n: number; cell: CompiledCell | undefined; within: string }) {
+function ReturnRead({ work, n, cell }: { work: number; n: number; cell: CompiledCell | undefined }) {
   const d = useResource<RoundDetail>(`round:${work}-${n}`, roundUrl(work, n));
-  return <Loaded r={d}>{(x) => <HandedBack d={x} cell={cell} within={within} />}</Loaded>;
+  return <Loaded r={d}>{(x) => <HandedBack d={x} cell={cell} />}</Loaded>;
 }
 
 /// What came out of a round, as JSON: an agent's return as it handed it back, the tools' results in the sheet of what
 /// is sent to the agent that asked, an engine's step's in the page's own words; while it runs, or when nothing came
 /// out, so.
-function Out({ d, cell, f }: { d: RoundDetail; cell: CompiledCell | undefined; f: Flow | null }) {
-  if (d.message !== null) return <HandedBack d={d} cell={cell} within={f?.g.within ?? 'outcome'} />;
+function Out({ d, cell }: { d: RoundDetail; cell: CompiledCell | undefined }) {
+  if (d.message !== null) return <HandedBack d={d} cell={cell} />;
   if (d.output === null) {
     return <p className="pp-note">{d.round.outcome === 'running' ? t('rp_running') : t('returned_nothing')}</p>;
   }
@@ -723,12 +714,12 @@ function Out({ d, cell, f }: { d: RoundDetail; cell: CompiledCell | undefined; f
       </Sheet>
     );
   }
-  return <Json value={d.output} schema={cell?.schema} titles={cell?.titles} />;
+  return <Json value={d.output} schema={cell?.schema} />;
 }
 
 /// What a tool was asked, as the agent that asked handed it back: its one text as it is, else each of its values
 /// under its name.
-function Asked({ args, titles, tool }: { args: JsonValue; titles: Record<string, string> | undefined; tool: string }) {
+function Asked({ args, tool }: { args: JsonValue; tool: string }) {
   if (typeof args === 'string') return <Said mono>{args}</Said>;
   if (isObj(args)) {
     // The tool asked for is the heading already.
@@ -738,7 +729,7 @@ function Asked({ args, titles, tool }: { args: JsonValue; titles: Record<string,
       <Said mono>
         {entries.map(([k, v]) => (
           <div key={k}>
-            <InnerName>{titleOf(titles, `tools[${tool}].${k}`, k)}</InnerName> {typeof v === 'string' ? v : JSON.stringify(v)}
+            <InnerName>{k}</InnerName> {typeof v === 'string' ? v : JSON.stringify(v)}
           </div>
         ))}
       </Said>
@@ -848,7 +839,7 @@ function KeptFiles({ runs }: { runs: ToolRun[] }) {
 
 /// Each tool's question, one tool under another; for the tools an engine's step ran, its answer and the files it kept
 /// under it (`answers`).
-function Tools({ runs, asker, answers }: { runs: ToolRun[]; asker: CompiledCell | undefined; answers: boolean }) {
+function Tools({ runs, answers }: { runs: ToolRun[]; answers: boolean }) {
   return (
     <>
       {runs.map((run, i) => {
@@ -867,7 +858,7 @@ function Tools({ runs, asker, answers }: { runs: ToolRun[]; asker: CompiledCell 
             </div>
             <div className="pp-tool-pair">
               {answers ? <span className="pp-over">{t('tool_asked')}</span> : null}
-              <Asked args={run.args} titles={asker?.titles} tool={run.tool} />
+              <Asked args={run.args} tool={run.tool} />
             </div>
             {answers ? (
               <div className="pp-tool-pair">
@@ -910,7 +901,7 @@ function PageValue({ v }: { v: Shown }) {
         <dl className="overview">
           {v.fields.map((x) => (
             <div key={x.key} className="overview-row">
-              <dt>{x.title ?? x.key}</dt>
+              <dt>{x.key}</dt>
               <dd>
                 <PageValue v={x.value} />
               </dd>
@@ -937,13 +928,13 @@ function PageValue({ v }: { v: Shown }) {
 /// The schema an input of a step that is not an agent's is read by: that of the place of the return it comes from,
 /// in the return format of the cell that gave it (the cell the work came from, for `@caller` and `@from`); none for
 /// what the engine, the configuration or the database gives.
-function inputSchema(x: RoundDetail['inputs'][number], before: RoundSummary | undefined, f: Flow | null): { schema: Obj | null; agent: boolean; titles?: Record<string, string>; path: string } {
+function inputSchema(x: RoundDetail['inputs'][number], before: RoundSummary | undefined, f: Flow | null): { schema: Obj | null; agent: boolean; path: string } {
   const src = x.from[0];
   if (!Array.isArray(src)) return { schema: null, agent: false, path: '' };
   const [at, path] = src;
   const id = at.startsWith('@') ? before?.cell : at;
   const c = id != null ? f?.cell(id) : undefined;
-  return { schema: placeSchema(c?.schema, path), agent: c?.kind === 'agent', titles: c?.titles, path };
+  return { schema: placeSchema(c?.schema, path), agent: c?.kind === 'agent', path };
 }
 
 /// The name of an input of a step, as its cell names it, by what it is.
@@ -990,7 +981,6 @@ function takenBy(d: RoundDetail, rounds: RoundSummary[], f: Flow | null, cell: C
 /// What the tools were asked: what an agent handed back that they run after, such as the architect's reply to a
 /// failure, and each tool's question.
 function ToolsAsked({ d, f, cell, before }: { d: RoundDetail; f: Flow | null; cell: CompiledCell | undefined; before: RoundSummary | undefined }) {
-  const asker = before?.cell != null ? f?.cell(before.cell) : undefined;
   return (
     <>
       {d.inputs
@@ -1000,11 +990,11 @@ function ToolsAsked({ d, f, cell, before }: { d: RoundDetail; f: Flow | null; ce
           return (
             <div key={i} className="pp-part">
               <Named title={stepInputName(x, cell)} />
-              <Value v={shape(x.value, s.schema, { titles: s.titles })} level={3} />
+              <Value v={shape(x.value, s.schema)} level={3} />
             </div>
           );
         })}
-      <Tools runs={d.tool_runs} asker={asker} answers={false} />
+      <Tools runs={d.tool_runs} answers={false} />
     </>
   );
 }
@@ -1017,7 +1007,7 @@ function StepRead({ d, f, cell, before }: { d: RoundDetail; f: Flow | null; cell
     <>
       {d.inputs.map((x, i) => {
         const s = inputSchema(x, before, f);
-        const v = shape(x.value, s.schema, { titles: s.titles });
+        const v = shape(x.value, s.schema);
         return (
           <div key={i} className="pp-part">
             <Named title={stepInputName(x, cell)} />
@@ -1064,11 +1054,11 @@ function Detail({ d, rounds, first }: { d: RoundDetail; rounds: RoundSummary[]; 
             facts: json !== null ? charCount(chars(json)) : undefined,
             body: (
               <>
-                <Out d={d} cell={cell} f={f} />
+                <Out d={d} cell={cell} />
                 {tool ? <KeptFiles runs={d.tool_runs} /> : null}
                 {!agent && !tool && d.tool_runs.length > 0 ? (
                   <Part title={t('rp_step_tools')}>
-                    <Tools runs={d.tool_runs} asker={undefined} answers />
+                    <Tools runs={d.tool_runs} answers />
                   </Part>
                 ) : null}
                 {!agent && !tool ? d.asks.map((a) => <AskView key={a.id} a={a} />) : null}

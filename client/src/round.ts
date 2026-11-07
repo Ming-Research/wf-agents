@@ -1,12 +1,12 @@
 // What a round's panel reads from a round, apart from how it draws it: the message as sent, cut at its headings, a
 // long part folded with its size and its share of the message; a value given or handed back, laid out by the JSON
-// Schema of where it belongs, each field under the title the flow gives it, found by the place's path, a value the
-// schema fixes (a kind) apart, and by its JSON type wherever the schema says nothing of it; where an agent's round
-// spent its tokens and its cost; and what a list of rounds says of each: the row it took, or that it ended the work,
-// whether it is not the usual course, and whether and why it started a new session.
+// Schema of where it belongs, each field under its key, a value the schema fixes (a kind) apart, and by its JSON type
+// wherever the schema says nothing of it; where an agent's round spent its tokens and its cost; and what a list of
+// rounds says of each: the row it took, or that it ended the work, whether it is not the usual course, and whether
+// and why it started a new session.
 
 import type { JsonValue, RoundOutcome, RoundSummary, RoundTokens } from './api';
-import { isObj, type Obj, words } from './labelled';
+import { isObj, type Obj } from './labelled';
 import { t, tn } from './text';
 
 /// A part of a message as sent: a heading line, or the lines between two headings, exactly as they are.
@@ -49,18 +49,6 @@ export function shareWords(n: number, total: number, task: boolean): string {
   return t(task ? 'long_share_task' : 'long_share', { share: share(n, total) });
 }
 
-/// A field's title, as the flow gives it by the field's path (`understanding.grounds[verified].claim`), or that of
-/// the same path with its branches taken out; for a flow version stored before fields had titles, its key in words.
-export function titleOf(titles: Record<string, string> | undefined, path: string, key: string): string {
-  const own = titles?.[path];
-  if (own !== undefined) return own;
-  const bare = (p: string) => p.replace(/\[[^\]]*\]/g, '');
-  const want = bare(path);
-  for (const [p, title] of Object.entries(titles ?? {})) if (bare(p) === want) return title;
-  const w = words(key);
-  return w.charAt(0).toUpperCase() + w.slice(1);
-}
-
 /// A value laid out by its schema: a text; a number, a boolean or null as JSON writes it; a value the schema fixes
 /// (a const, or one of an enum's values), which is a kind; an empty list or object; an object by its fields in its
 /// own order; a list by its items in order.
@@ -72,16 +60,8 @@ export type Shown =
   | { kind: 'fields'; fields: ShownField[] }
   | { kind: 'list'; items: Shown[] };
 
-/// A field of an object with its value: its key and the title the flow gives the place, none where the schema does
-/// not describe the key, which is then shown by its key alone.
-export type ShownField = { key: string; title: string | null; value: Shown };
-
-export type ShapeOptions = {
-  /// The key of an agent's return that holds exactly one of its forms: the form's fields are at the places' root.
-  within?: string;
-  /// The titles of the places of the return, by their paths.
-  titles?: Record<string, string>;
-};
+/// A field of an object with its value, by its key.
+export type ShownField = { key: string; value: Shown };
 
 /// The fields an object's schema names, by their keys.
 export const props = (s: Obj): Obj => (isObj(s.properties) ? s.properties : {});
@@ -167,14 +147,11 @@ export function brief(text: string): string {
 
 /// A value, laid out by the schema of where it belongs; with no schema, or where the value is not what the schema
 /// describes, by its JSON type alone.
-export function shape(value: JsonValue, schema: JsonValue | null | undefined, o: ShapeOptions = {}): Shown {
-  return shapeAt(value, isObj(schema) ? schema : null, o, '', 0);
+export function shape(value: JsonValue, schema: JsonValue | null | undefined): Shown {
+  return shapeAt(value, isObj(schema) ? schema : null);
 }
 
-/// The path of a place under a branch: the branch's fixed value in brackets.
-export const under = (path: string, r: { value?: string } | null) => (r?.value !== undefined ? `${path}[${r.value}]` : path);
-
-function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, path: string, depth: number): Shown {
+function shapeAt(v: JsonValue, s: Obj | null): Shown {
   if (typeof v === 'string') {
     const fixed = s !== null && ('const' in s || Array.isArray(s.enum));
     return { kind: fixed ? 'fixed' : 'text', text: v };
@@ -185,10 +162,7 @@ function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, path: string, dep
     const items = s !== null && isObj(s.items) ? s.items : null;
     return {
       kind: 'list',
-      items: v.map((x) => {
-        const r = resolve(items, x);
-        return shapeAt(x, r?.schema ?? null, o, under(path, r), depth + 1);
-      }),
+      items: v.map((x) => shapeAt(x, resolve(items, x)?.schema ?? null)),
     };
   }
   const keys = Object.keys(v);
@@ -199,13 +173,7 @@ function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, path: string, dep
     fields: keys.map((k) => {
       const own = p[k];
       const ks = isObj(own) ? own : null;
-      const x = v[k];
-      const r = resolve(ks, x);
-      // The forms of an agent's return are at the places' root: their fields are named as the cell's own.
-      const form = depth === 0 && k === o.within;
-      const at = form ? '' : path === '' ? k : `${path}.${k}`;
-      const title = ks === null || form ? null : titleOf(o.titles, at, k);
-      return { key: k, title, value: shapeAt(x, r?.schema ?? null, o, form ? '' : under(at, r), depth + 1) };
+      return { key: k, value: shapeAt(v[k], resolve(ks, v[k])?.schema ?? null) };
     }),
   };
 }

@@ -16,7 +16,6 @@ fn the_plan_given_numbers(e: &mut Engine) {
         .and_then(|ns| ns.iter_mut().find(|n| n["id"] == "B2"))
         .unwrap();
     plan["inputs"].as_array_mut().unwrap().push(json!({
-        "name": "Numbers",
         "what": "The numbers the engine measures",
         "from": [{ "engine": "numbers" }]
     }));
