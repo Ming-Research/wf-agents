@@ -451,10 +451,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "deviations": [
+          "design_updates": [
             {
-              "kind": "surprise",
-              "what": "deviations.what"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -504,10 +505,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "deviations": [
+          "design_updates": [
             {
-              "kind": "surprise",
-              "what": "deviations.what"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -557,10 +559,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "deviations": [
+          "design_updates": [
             {
-              "kind": "surprise",
-              "what": "deviations.what"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -610,10 +613,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "deviations": [
+          "design_updates": [
             {
-              "kind": "surprise",
-              "what": "deviations.what"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -977,7 +981,7 @@
               "worth": "outcome.test_changes.worth"
             }
           ],
-          "deviations": []
+          "design_updates": []
         },
         "side_reports": [],
         "tell_owner": [],

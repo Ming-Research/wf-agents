@@ -58,6 +58,7 @@ const DRAWN = new Set([
   'measure',
   'design',
   'design_tree',
+  'design_updates',
   'acceptance',
   'deviations',
   'followup',
@@ -286,13 +287,76 @@ function cardsInDesign(d: ItemDetail, shown: Map<string, Shown[]>): DesignCard[]
   });
 }
 
+/// A passage of the design as implementing or fixing updated it, with the round it first came from.
+export type Update = { passage: string; decision: string; why: string; from: Shown };
+
+/// The design as updated while implementing and fixing, oldest first: of the latest work that updated it, each cell's
+/// newest return holds every passage that cell has written, so its rows are those that stand; each is shown with the
+/// earliest round of that cell whose return held it word for word, so that a passage handed in again by later rounds
+/// is shown once, where it came from.
+export function designUpdates(list: Shown[] | undefined): Update[] {
+  const all = (list ?? []).filter((x) => Array.isArray(x.value));
+  if (all.length === 0) return [];
+  const work = Math.max(...all.map((x) => x.work));
+  const ofWork = all.filter((x) => x.work === work).sort((a, b) => a.round - b.round);
+  const same = (a: JsonValue, b: JsonValue) => JSON.stringify(a) === JSON.stringify(b);
+  const out: Update[] = [];
+  for (const cell of [...new Set(ofWork.map((x) => x.cell))]) {
+    const rounds = ofWork.filter((x) => x.cell === cell);
+    const now = rounds[rounds.length - 1];
+    for (const row of now.value as JsonValue[]) {
+      if (!isObj(row)) continue;
+      const first = rounds.find((x) => (x.value as JsonValue[]).some((r) => same(r, row))) ?? now;
+      out.push({ passage: str(row.passage), decision: str(row.decision), why: str(row.why), from: first });
+    }
+  }
+  return out.sort((a, b) => a.from.round - b.from.round);
+}
+
+/// The design as updated while implementing and fixing that stands under the design shown, from every value the item
+/// shows, an empty list included (a cell's newest return that holds none takes its passages back): only the passages of
+/// works no older than the work of the newest design or research plan, since a later work's design replaces what an
+/// earlier work wrote into its own, and until the later work hands in passages it has none. A research that could not
+/// settle the approach (`can_start` other than `yes`) wrote no plan, and does not count.
+export function standingUpdates(all: Shown[]): Update[] {
+  const plan = (x: Shown) => x.path === 'can_start' && isObj(x.value) && x.value.verdict === 'yes';
+  const designs = all.filter((x) => x.path === 'design' || plan(x));
+  const since = designs.length > 0 ? Math.max(...designs.map((x) => x.work)) : 0;
+  return designUpdates(all.filter((x) => x.path === 'design_updates' && x.work >= since));
+}
+
+/// The design as updated while implementing and fixing, after the design: each passage with its decision and why, and
+/// the round it came from.
+export function DesignUpdates({ updates }: { updates: Update[] }) {
+  if (updates.length === 0) return null;
+  return (
+    <Section title={t('design_updated')} n={updates.length} open>
+      {updates.map((u, i) => (
+        <div key={i} className="change">
+          <div className="change-head">
+            <SubHeading>
+              <MarkdownInline text={u.passage} />
+            </SubHeading>
+            <From x={u.from} />
+          </div>
+          <Markdown text={u.decision} />
+          <Field label={t('why')} value={u.why} />
+        </div>
+      ))}
+    </Section>
+  );
+}
+
 /// The design on the item: under its heading, as the rounds that wrote it handed it back, each decision card in it at
 /// its anchor, read only, saying where it is ruled; while no approach is chosen, where the engineer of its latest work
-/// stands and what the choice waits for.
+/// stands and what the choice waits for; then the design as updated while implementing and fixing, which a work that
+/// came straight from its research has alone.
 function DesignBlock({ shown, d }: { shown: Map<string, Shown[]>; d: ItemDetail }) {
   const marks = ['chosen', 'why', 'design', 'measure', 'options'].flatMap((p) => shown.get(p) ?? []);
-  if (marks.length === 0) return null;
-  const from = marks.reduce((a, b) => (after(b, a) ? b : a));
+  const updates = standingUpdates(d.shown);
+  const all = [...marks, ...updates.map((u) => u.from)];
+  if (all.length === 0) return null;
+  const from = all.reduce((a, b) => (after(b, a) ? b : a));
   const live = d.works.find((w) => w.state !== 'done' && w.state !== 'ended') ?? null;
   const work = newest(shown.get('design'))?.work ?? from.work;
   const at = (key: string): ReactNode => {
@@ -305,6 +369,7 @@ function DesignBlock({ shown, d }: { shown: Map<string, Shown[]>; d: ItemDetail 
         <CardsAtAnchors.Provider value={at}>
           <DesignParts shown={shown} leans={null} waits={live?.waits ?? null} />
         </CardsAtAnchors.Provider>
+        <DesignUpdates updates={updates} />
       </div>
     </Block>
   );
@@ -345,7 +410,8 @@ function AcceptanceBlock({ d, shown }: { d: ItemDetail; shown: Map<string, Shown
   );
 }
 
-/// What changed on the way: where the work departed from the design, newest first, and what to do next.
+/// What changed on the way: where the work departed from the design, newest first, and what to do next. The departures
+/// are kept for works on flow versions before `design_updates`, whose returns still hold them; none hands them in now.
 function Changes({ shown }: { shown: Map<string, Shown[]> }) {
   const deviations = (shown.get('deviations') ?? [])
     .flatMap((x) => (Array.isArray(x.value) ? x.value.map((v) => ({ x, v })) : [{ x, v: x.value }]))
