@@ -790,7 +790,7 @@ case!(an_input_every_cell_has_with_no_name, "goes by a name", |v| {
 // title of a field, reaches no agent and shows on no chart, and is refused where it is.
 case!(
     an_input_with_a_name,
-    "flows.engineer.nodes.S0.inputs[0].name: text that reaches no agent and shows on no chart",
+    "flows.engineer.nodes.S0.inputs[0].name: text that reaches no agent and shows on no chart: remove it",
     |v| {
         node(v, "S0")["inputs"][0]["name"] = json!("Start order");
     }
@@ -798,7 +798,7 @@ case!(
 case!(
     a_return_field_with_a_title,
     "flows.engineer.nodes.R1.out.understanding.fields.grounds.item.branches.verified.fields.where.title: text that \
-     reaches no agent and shows on no chart",
+     reaches no agent and shows on no chart: remove it",
     |v| {
         let grounds = &mut node(v, "R1")["out"][0]["fields"][4];
         grounds["item"]["branches"][0]["fields"][1]["title"] = json!("Where checked");

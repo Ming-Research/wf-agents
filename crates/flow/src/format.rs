@@ -5,12 +5,15 @@
 //! table of rows: the first row whose conditions hold on the output says where the work goes next, what the engine
 //! does on the way and what it records. The compiler (`crate::compile`) expands what cells share and checks the whole.
 //!
-//! Every text the format holds reaches an agent or the chart, and the compiled flow carries it there: the engine sends
-//! agents what the cells, the rules, the tools, the fields and the inputs say, and the flow page (the chart and the
-//! panels its parts open) draws the cells' and the stores' titles, the rows' notes, what the engine's names do and read,
-//! the counters and the rest of what the engine does. A field is known by its name and an input by what it is; only an
-//! input every agent's cell has goes by a name, which the agents know it by. Text that reaches no agent and shows on no
-//! chart is not kept, as a field nothing reads is not: the compiler refuses each kind of it a flow written before held
+//! Every text the format holds is carried by the compiled flow. Nearly all of it reaches an agent or the chart: the
+//! engine sends agents what the cells, the rules, the tools, the fields and the inputs say, and the flow page (the chart
+//! and the panels its parts open) draws the cells' and the stores' titles, the rows' notes, what the engine's names do
+//! and read, the counters and the ways a round ends with no return the cell takes. Six texts that say what the engine
+//! does as a whole reach no agent and are shown only in the flow page's comparison of two flow versions:
+//! `rounds.desc`, `rounds.record`, `rounds.environment`, `rounds.failed.desc`, `rounds.guard.desc` and
+//! `blockers.desc`. A field is known by its name and an input by what it is; only an input every agent's cell has goes
+//! by a name, which the agents know it by. Text the compiled flow does not carry reaches no agent and shows on no chart,
+//! and is not kept, as a field nothing reads is not: the compiler refuses each kind of it a flow written before held
 //! (`crate::texts::unread`), as it refuses a key the format does not know.
 
 use std::collections::{BTreeMap, BTreeSet};

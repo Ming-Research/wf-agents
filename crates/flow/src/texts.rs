@@ -87,12 +87,15 @@ pub(crate) fn unknown_cells(flow: &Value) -> Vec<String> {
 }
 
 /// Takes out of a flow every text that reaches no agent and shows on no chart, and says where each was. The compiled
-/// flow carries every text the format holds to an agent or to the chart (`crate::format`); these are the texts a flow
-/// written before held that it does not carry: a field's title and the titles of a gate's answer and of its why, which
-/// the owner's page headed them with; the name of an input that not every agent's cell has, which the page headed the
-/// input with; and what the sessions, the lines, the stages and the limits were, and the rules of the decision card,
-/// written for people reading the flow. A flow that runs holds none of them, and one only shown is read without them.
-/// Where each was is said as [`unknown_cells`] says where a text is.
+/// flow carries every text the format holds (`crate::format`); these are the texts a flow written before held that it
+/// does not carry: a field's title and the titles of a gate's answer and of its why, which the owner's page headed them
+/// with; the name of an input that not every agent's cell has, which the page headed the input with; and what the
+/// sessions, the lines, the stages and the limits were, and the rules of the decision card, written for people reading
+/// the flow. A flow that runs holds none of them, and one only shown is read without them. Where each was is said as
+/// [`unknown_cells`] says where a text is, an input by its id when it has one.
+///
+/// The list is of keys nothing reads: a key on it that comes to have a reader, an agent or the chart, is taken off it
+/// in the change that gives it one, and goes back into the format.
 pub(crate) fn unread(flow: &mut Value) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(Value::Object(shapes)) = flow.get_mut("shapes") {
@@ -172,14 +175,21 @@ fn place(at: &str, i: usize, x: &Value) -> String {
 /// Takes `key` out of an object, saying where it was.
 fn take(v: &mut Value, key: &str, at: &str, out: &mut Vec<String>) {
     if v.as_object_mut().and_then(|o| o.shift_remove(key)).is_some() {
-        out.push(format!("{at}.{key}: text that reaches no agent and shows on no chart"));
+        out.push(format!(
+            "{at}.{key}: text that reaches no agent and shows on no chart: remove it"
+        ));
     }
 }
 
-/// Takes the name out of each input of a list, each by its place, as the name it has is the text taken.
+/// Takes the name out of each input of a list, each by its id when it has one, else by its place, as the name it has
+/// is the text taken.
 fn names(inputs: Option<&mut Value>, at: &str, out: &mut Vec<String>) {
     for (i, x) in items(inputs) {
-        take(x, "name", &format!("{at}[{i}]"), out);
+        let at = match x.get("id").and_then(Value::as_str) {
+            Some(id) => format!("{at}.{id}"),
+            None => format!("{at}[{i}]"),
+        };
+        take(x, "name", &at, out);
     }
 }
 
@@ -273,13 +283,14 @@ mod tests {
     }
 
     /// What [`unread`] says after where a text was.
-    const UNREAD: &str = ": text that reaches no agent and shows on no chart";
+    const UNREAD: &str = ": text that reaches no agent and shows on no chart: remove it";
 
     // Each text that reaches no agent and shows on no chart is taken out of a flow and found, with where it was: a
     // field's title at any depth, in a shape, a tool, a role's question or a cell's return; the titles of a gate's answer
-    // and why; the name of an input of a cell or a gate; and what was written of the sessions, the lines, the stages,
-    // the limits and the decision card for people. What reaches an agent or the chart stays: a field's name, a cell's
-    // title, the name of an input every agent's cell has, a button's title and what it does.
+    // and why; the name of an input of a cell or a gate, by its id where it has one; and what was written of the
+    // sessions, the lines, the stages, the limits and the decision card for people. What reaches an agent or the chart
+    // stays: a field's name, a cell's title, the name of an input every agent's cell has, a button's title and what it
+    // does.
     #[test]
     fn a_text_that_reaches_no_agent_and_shows_on_no_chart_is_taken_out_and_found() {
         let mut flow = serde_json::json!({
@@ -297,7 +308,9 @@ mod tests {
                                  "out": [{ "name": "ask", "title": "Ask", "type": "text" }] },
                 "asking": { "roles": [{ "name": "advisor", "fields": [{ "name": "q", "title": "Q", "type": "text" }] }] },
                 "nodes": [{
-                    "id": "R1", "title": "Read", "inputs": [{ "name": "Cell's", "what": "What it is." }],
+                    "id": "R1", "title": "Read",
+                    "inputs": [{ "name": "Cell's", "what": "What it is." },
+                               { "id": "seen", "name": "Read by id", "what": "What it is." }],
                     "choices": [{ "value": "on", "title": "Go on", "desc": "It goes on." }],
                     "out": [{ "name": "u", "title": "U", "type": "list", "item": { "type": "union", "by": "v", "branches": [
                         { "value": "b", "fields": [{ "name": "c", "title": "C", "type": "text",
@@ -329,6 +342,7 @@ mod tests {
                 "flows.one.agentCommon.out.ask.title",
                 "flows.one.asking.roles.advisor.fields.q.title",
                 "flows.one.nodes.R1.inputs[0].name",
+                "flows.one.nodes.R1.inputs.seen.name",
                 "flows.one.nodes.R1.out.u.title",
                 "flows.one.nodes.R1.out.u.item.branches.b.fields.c.title",
                 "flows.one.nodes.R1.out.u.item.branches.b.fields.c.earlier.title",
@@ -347,7 +361,8 @@ mod tests {
                                  "out": [{ "name": "ask", "type": "text" }] },
                 "asking": { "roles": [{ "name": "advisor", "fields": [{ "name": "q", "type": "text" }] }] },
                 "nodes": [{
-                    "id": "R1", "title": "Read", "inputs": [{ "what": "What it is." }],
+                    "id": "R1", "title": "Read",
+                    "inputs": [{ "what": "What it is." }, { "id": "seen", "what": "What it is." }],
                     "choices": [{ "value": "on", "title": "Go on", "desc": "It goes on." }],
                     "out": [{ "name": "u", "type": "list", "item": { "type": "union", "by": "v", "branches": [
                         { "value": "b", "fields": [{ "name": "c", "type": "text", "earlier": { "type": "text" } }] }

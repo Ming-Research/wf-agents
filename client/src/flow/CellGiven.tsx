@@ -35,9 +35,10 @@ export function numbered(c: CompiledCell): Array<{ x: CompiledInput; i: number; 
 }
 
 /// An input's name: that of an input every agent's cell has, as the agents know it; for any other, which the flow does
-/// not name, the first clause of what the agent is told it is.
+/// not name, the first clause of what the agent is told it is, also in a flow version stored while every input had a
+/// name for the owner's page.
 export function inputName(x: CompiledInput): string {
-  if (x.name) return x.name;
+  if (x.common && x.name) return x.name;
   const m = /^(.{8,}?)(?:[,.:;](?=\s|$)| \()/.exec(x.what);
   return m !== null ? m[1].trim() : x.what;
 }

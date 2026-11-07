@@ -13,8 +13,9 @@
 //! - every row from one block into another goes to one of that block's entries;
 //! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is;
 //! - every cell a text of the flow names, as cell `name`, is a cell of its graph ([`cells_named`]);
-//! - every text reaches an agent or the chart: a flow that runs holds none of the texts a flow written before held that
-//!   the compiled flow does not carry, such as a field's title, which a flow compiled only to be shown is read without;
+//! - no text the compiled flow does not carry, which reaches no agent and shows on no chart: a flow that runs holds none
+//!   of those a flow written before held, such as a field's title, which a flow compiled only to be shown is read
+//!   without;
 //! - every line has a colour, which no other line has; a flow compiled only to be shown ([`compile_shown`]), such as
 //!   one written before lines had colours, may have lines with none;
 //! - no ask carries a kind: a flow that runs has no kinds of question and no gate that names one, which a flow
@@ -135,8 +136,8 @@ fn fail(p: impl Into<String>) -> Error {
 const BY: [&str; 4] = ["item", "work", "project", "matter"];
 
 /// Compiles and checks a flow that runs or will run: the flow built into the program, `wf-agents flow check`'s and
-/// the flow's tests'. Every line of it has a colour, no ask of it carries a kind, and every text of it reaches an agent
-/// or the chart.
+/// the flow's tests'. Every line of it has a colour, no ask of it carries a kind, and it holds no text the compiled
+/// flow does not carry.
 pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
     build(text, cx, Purpose::Run)
 }

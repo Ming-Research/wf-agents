@@ -923,9 +923,20 @@ with it, and every round and cell in it, all links, was left out of the copy.
 ### A code of the flow in a sentence
 
 A code the flow names a thing by (a cell's code, a row, a node's path) in a sentence of the page's is
-`--fontStack-monospace` at `--text-codeInline-size` in the colour of the text round it, with no background and no
-weight of its own (ours, as GitHub writes a commit's hash), while code an agent wrote inline keeps the markdown code's
-background, because a cell's code beside its title is a name, not code to copy.
+`--fontStack-monospace` at `--text-codeInline-size` in the colour of the text round it (after a thing's name heading
+what the owner reads it is small and muted, below), with no background and no weight of its own (ours, as GitHub writes
+a commit's hash), while code an agent wrote inline keeps the markdown code's background, because a cell's code beside
+its title is a name, not code to copy.
+
+### Rows that open
+
+A thing the flow names, where its name heads what the owner reads (an input, a field, a form, a tool), is its name in
+the step of the heading it is, then its code in `--fontStack-monospace` at `--text-body-size-small` in
+`--fgColor-muted`, then its type and flags as body small `--fgColor-muted` words joined by a bar, with no border and no
+background, a mark the owner looks for (the main path) a secondary `Label`; a list of such things that each open (the
+inputs, the rules and formats, what a session held) is rows `--base-size-2` apart, each a `Details` whose summary is the
+chevron, its number if it has one, its name, its code and its facts, wrapping under the name, its content indented by
+the chevron's width.
 
 ### Label and value pairs
 

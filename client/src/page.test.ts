@@ -1840,8 +1840,10 @@ describe("a cell's panel", () => {
   });
 
   it('heads an input every cell has by its name, and any other by the first words of what it is', () => {
-    const x = (what: string, name?: string) => ({ id: null, name, what, from: [], maybe: false });
-    expect(inputName(x('The item itself: its problem, why', 'The item itself'))).toBe('The item itself');
+    const x = (what: string, name?: string, common = false) => ({ id: null, name, common, what, from: [], maybe: false });
+    expect(inputName(x('The tools you asked for and their results, as they ran', 'Tool results', true))).toBe('Tool results');
+    // A version stored while every input had a name for the owner's page: the name of a cell's own input is not shown.
+    expect(inputName(x('The item itself: its problem, why', 'The item as written'))).toBe('The item itself');
     expect(inputName(x("The project's AGENTS.md, and the index of the design tree"))).toBe("The project's AGENTS.md");
     expect(inputName(x('What already exists for this item, when it was worked on before'))).toBe('What already exists for this item');
     expect(inputName(x('The results of the tools you asked for'))).toBe('The results of the tools you asked for');
