@@ -5,7 +5,7 @@
 use db::Actor;
 
 use crate::work::Work;
-use crate::{Engine, VERSION, actions, lock};
+use crate::{Engine, VERSION, lock};
 
 impl Engine {
     /// Records that the engine's loop starts: the commit it was built from, the configuration commit it starts with and
@@ -85,7 +85,7 @@ impl Engine {
                     && let Err(y) = self
                         .db
                         .write(Actor::Engine, |tx| {
-                            actions::notify(tx, None, &text).map_err(db::Error::Abort)
+                            crate::hub::tell(tx, None, &text).map_err(db::Error::Abort)
                         })
                         .map_err(|e| e.to_string())
                 {

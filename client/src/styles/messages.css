@@ -163,8 +163,7 @@
 }
 
 .talk-head-controls,
-.talk-head-tier,
-.talk-head-choice {
+.talk-head-tier {
   display: inline-flex;
   align-items: center;
   gap: var(--base-size-4);

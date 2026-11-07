@@ -603,7 +603,7 @@ pub fn tell_wait(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
          work waits again.",
         ctx.about()
     );
-    crate::actions::notify(tx, Some(ctx.work.id), &text)
+    crate::hub::tell(tx, Some(ctx.work.id), &text)
 }
 
 /// What a report says of a look or a limit, in a sentence: a verdict with what it rests on.

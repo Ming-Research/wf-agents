@@ -19,7 +19,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use engine::git::{catch_up, create_worktree, git, head, is_clean};
-use engine::hub::{delete_ref, push};
+use engine::github::{delete_ref, push};
 
 /// Git as a person runs it, with nothing of the engine's settings, and the host's own configuration out of the way: the
 /// system and global files of the machine the test runs on are not read, and no question is asked on a terminal.

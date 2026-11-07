@@ -49,7 +49,8 @@ fn a_work_the_loop_cannot_read_is_paused_and_the_other_works_go_on() {
     let notices: i64 =
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM engine_notices WHERE work = ?1 AND text LIKE '%is paused: the engine''s loop failed%'",
+                "SELECT count(*) FROM messages
+                 WHERE sender = 'engine' AND work = ?1 AND text LIKE '%is paused: the engine''s loop failed%'",
                 [a],
                 |r| r.get(0),
             )
@@ -172,7 +173,7 @@ fn a_work_the_owner_paused_keeps_its_pause_when_the_loop_cannot_read_it() {
     let told: i64 =
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM engine_notices WHERE text LIKE '%the engine''s loop failed%'",
+                "SELECT count(*) FROM messages WHERE sender = 'engine' AND text LIKE '%the engine''s loop failed%'",
                 [],
                 |r| r.get(0),
             )

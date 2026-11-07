@@ -119,7 +119,7 @@ const entry = (id: number, extra: Partial<ConversationEntry> = {}): Conversation
   words_state: null,
   policy: null,
   plan: null,
-  forwards: [],
+  passed: [],
   images: [],
   retract: 'no',
   ...extra,
@@ -132,7 +132,7 @@ const detail = (key: string, entries: ConversationEntry[]): ConversationDetail =
   design_cards: [],
   questions: [],
   waits_on: null,
-  forwarding: null,
+  pass_to: null,
   // Everything is read, so that opening it posts nothing but what the owner sends.
   read_to: 1_000_000,
   gaps: [],

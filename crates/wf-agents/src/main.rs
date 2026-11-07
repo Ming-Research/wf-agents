@@ -928,7 +928,7 @@ fn took(e: &engine::Engine, control: &api::Control, last: &mut Option<api::StepT
 /// read, so no flow version is recorded, no work stopped and none started, beside an engine that may be running.
 fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
-    let github = engine::hub::Gh::new(d.join("logs"));
+    let github = engine::github::Gh::new(d.join("logs"));
     let mut e = engine::Engine::reading(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
     let m = engine::next_message(&mut e, work)?;
     if json {
@@ -961,7 +961,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     // a database the command fails as the others do, and the lock file is not made.
     engine::database::require(d)?;
     let lock = engine::Lock::acquire(d).map_err(|e| e.to_string())?;
-    let github = Box::new(engine::hub::Gh::new(d.join("logs")));
+    let github = Box::new(engine::github::Gh::new(d.join("logs")));
     let agents = Box::new(engine::agent::Claude);
     let said = engine::Hooks {
         say: Arc::new(|s: &str| eprintln!("{} {s}", db::now() / 1000)),

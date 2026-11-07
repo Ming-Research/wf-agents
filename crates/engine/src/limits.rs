@@ -8,8 +8,8 @@ use db::Actor;
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::json;
 
+use crate::Engine;
 use crate::work::Work;
-use crate::{Engine, actions};
 
 /// The counter that is the work's total time, measured in minutes.
 pub const TOTAL_TIME: &str = "total_time";
@@ -182,7 +182,7 @@ pub fn tell_past(e: &mut Engine, w: &Work, counter: &str) -> Result<(), String> 
         w.id
     );
     e.db.write(Actor::Engine, |tx| {
-        actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
+        crate::hub::tell(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)
 }

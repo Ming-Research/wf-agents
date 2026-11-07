@@ -43,7 +43,8 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let notices: i64 =
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM engine_notices WHERE work = ?1 AND text LIKE '%is paused: cell I1: the message%'",
+                "SELECT count(*) FROM messages
+                 WHERE sender = 'engine' AND work = ?1 AND text LIKE '%is paused: cell I1: the message%'",
                 [work],
                 |r| r.get(0),
             )

@@ -1,6 +1,6 @@
 //! How a workflow run by hand that fails is told apart, over the real gh command.
 
-use engine::hub::{Gh, GitHub};
+use engine::github::{Gh, GitHub};
 
 // What gh says of a failed command begins with the command line, which holds the inputs the engineer gave. A dispatch
 // that fails for a reason other than GitHub refusing the request (here the repository does not exist, or GitHub cannot

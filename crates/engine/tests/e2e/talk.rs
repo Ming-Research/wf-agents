@@ -163,10 +163,14 @@ fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_
                 ],
             )?;
             let id = tx.last_insert_rowid();
-            // An ask is asked when its notice says so.
+            // An ask is asked when the engine's message of it says so.
             tx.execute(
-                "INSERT INTO engine_notices (work, text, at, ask) VALUES (?1, 'An ask.', ?2, ?3)",
+                "INSERT INTO messages (sender, work, text, ask, at) VALUES ('engine', ?1, 'An ask.', ?3, ?2)",
                 params![one, asked, id],
+            )?;
+            tx.execute(
+                "INSERT INTO deliveries (message, recipient) VALUES (?1, 'owner')",
+                [tx.last_insert_rowid()],
             )?;
             for position in 1..=images {
                 tx.execute(

@@ -13,7 +13,8 @@ use crate::Result;
 /// question, the cell that asked, when it was put (when the owner was told of it, else when its round started) and the
 /// matter it parked.
 pub const QUESTIONS_PENDING: &str = "SELECT a.id AS question, json_extract(a.body, '$.question') AS text,
-        m.resume_cell AS cell, coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at) AS at,
+        m.resume_cell AS cell,
+        coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id), r.started_at) AS at,
         m.id AS matter, m.what AS about
  FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
  JOIN architect_matters m ON m.asked = a.id

@@ -253,7 +253,7 @@ pub fn check(e: &Engine, project: &config::Project, wt: &Path, base: &str) -> Re
     let printed = if printed.trim().is_empty() {
         "It printed nothing.".to_string()
     } else {
-        crate::hub::tail(&printed, 200)
+        crate::github::tail(&printed, 200)
     };
     let verdict = if out.status.success() { "green" } else { "red" };
     Ok(json!({ "check": { "verdict": verdict, "printed": printed } }))
