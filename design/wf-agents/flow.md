@@ -74,6 +74,12 @@
   itself, or what it does badly even when told. One line of prompt settles most things. Mechanical checks and another
   pair of eyes cost much, and with rules alone a model keeps only some of them.
 
+- A cell's prompt, inputs or outputs change only to solve a problem that can be named, and only after the changed cell
+  has run on several real past cases and its inputs and returns have been set beside those of the cell as it was, case
+  for case; a part of the flow with no serious problem is left as it is. Changes reasoned out alone left cells worse
+  than before, and a change to a cell that works risks what it already does well (Article 4: what solves no named
+  problem is not added). Judgment comes from what the cell really returns (Article 2).
+
 - A solution chosen for a problem must itself be challenged: is this the fittest way, is there a better? This reasoning
   matters more than listing. Without it, the work goes back to solving problems while making others, with no
   convergence.
