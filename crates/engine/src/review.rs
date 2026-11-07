@@ -247,7 +247,7 @@ fn put_owner_ask(tx: &Transaction<'_>, work: i64, item: i64, title: &str, n: i64
          merges once you answered. The design: {}.{said} (ask {id})",
         reviewed["link"].as_str().unwrap_or_default()
     );
-    crate::actions::notify_ask(tx, work, id, &text)?;
+    crate::hub::tell_of_ask(tx, work, id, &text)?;
     Ok(id)
 }
 

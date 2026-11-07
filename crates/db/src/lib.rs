@@ -21,6 +21,7 @@ mod cells;
 mod engine_runs;
 mod holds;
 mod matters;
+mod messages;
 mod questions;
 mod slots;
 mod start_over;
@@ -29,10 +30,10 @@ pub use cells::{cells_sql, code_of, is_cell};
 pub use engine_runs::{start_engine_run, stop_engine_run};
 pub use holds::{HoldReason, hold_starts, holds_of, release_starts};
 pub use matters::{
-    Appended, BASE_BUILT, Declared, FAULT, Forwarder, Matter, Speaker, appended_since, base_built_at, fault_forwarding,
-    forward_fault, forward_new_fault, lift_pause, one_sentence, plan_written_at, project_of_item, queue_matter,
-    say_to_architect, set_fault_forwarding, without_final_terminal,
+    Appended, BASE_BUILT, Declared, Matter, Speaker, appended_since, base_built_at, lift_pause, one_sentence,
+    plan_written_at, project_of_item, queue_matter, say_to_architect, without_final_terminal,
 };
+pub use messages::{FAULT, Message, Recipient, Sender, mark_read, pass_on, send};
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use slots::{SlotWaitEnd, close_slot_wait, open_slot_wait, slot_waiting};
 pub use start_over::{
@@ -89,7 +90,7 @@ pub fn query_plan(conn: &Connection, sql: &str) -> rusqlite::Result<String> {
 }
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 16] = [
+const UNTRACKED: [&str; 17] = [
     "migrations",
     "rounds",
     "tool_runs",
@@ -106,6 +107,7 @@ const UNTRACKED: [&str; 16] = [
     "attachments",
     "slot_waits",
     "engine_runs",
+    "reminders",
 ];
 
 /// The line a table's description has when agents may not read it.

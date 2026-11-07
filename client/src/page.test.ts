@@ -15,7 +15,7 @@ import type {
   Conversation,
   ConversationDetail,
   ConversationEntry,
-  Forwarded,
+  Passed,
   RoundSummary,
   RoundTokens,
   Settings,
@@ -80,16 +80,14 @@ import { askedTo, cardOfKey, cardRuling, currentCard, firstSentence } from './pa
 import {
   closedWhy,
   conversationTitle,
-  forwardMenu,
-  forwardNewChoices,
-  forwardParts,
-  forwardWords,
   latestAt,
   listParts,
   mention,
   mentions,
   newlyWaiting,
   party,
+  passedParts,
+  passedWords,
   pendingWords,
   sayTo,
   sayToTicked,
@@ -2624,7 +2622,7 @@ describe("the owner's conversations", () => {
     answerable: false,
     fault: null,
     misses: null,
-    forwards: [],
+    passed: [],
     ask_detail: null,
     stage: null,
     matter_card: null,
@@ -2709,7 +2707,7 @@ describe("the owner's conversations", () => {
       questions: [],
       waits_on: null,
       read_to: null,
-      forwarding: null,
+      pass_to: null,
       gaps: [],
     };
     expect(d.entries.map((e) => voiceOf(e))).toEqual([
@@ -2757,8 +2755,8 @@ describe("the owner's conversations", () => {
     expect(closedWhy(talk('work:5'), null)).toBeNull();
   });
 
-  it("offers a fault to every project's architect, marking those it went to, and says where it went and how it stands", () => {
-    const forwarded = (extra: Partial<Forwarded> = {}): Forwarded => ({
+  it('says where a fault was passed on and how it stands there', () => {
+    const passed = (extra: Partial<Passed> = {}): Passed => ({
       project: 'wf',
       by: 'owner',
       matter: 7,
@@ -2767,26 +2765,13 @@ describe("the owner's conversations", () => {
       handled_round: null,
       ...extra,
     });
-    expect(forwardMenu(['p', 'wf'], [forwarded()])).toEqual([
-      { project: 'p', label: 'The architect of p', sent: false },
-      { project: 'wf', label: 'The architect of wf', sent: true },
-    ]);
-    expect(forwardMenu(['p'], [])).toEqual([{ project: 'p', label: 'The architect of p', sent: false }]);
-    expect(forwardWords(forwarded())).toBe('Forwarded to the architect of wf | in the queue');
-    const handled = forwarded({ state: 'handled', handled_work: 12, handled_round: 4 });
-    expect(forwardWords(handled)).toBe('Forwarded to the architect of wf | handled in R12-4');
-    expect(forwardParts(handled)).toEqual({ lead: 'Forwarded to the architect of wf', state: 'handled in', round: 'R12-4' });
-    expect(forwardWords(forwarded({ by: 'setting' }))).toBe('Forwarded automatically to the architect of wf | in the queue');
-    // Where each new fault goes: nobody first, as at first, then every project's architect, and the one set even when
-    // the configuration no longer has it.
-    expect(forwardNewChoices({ projects: ['p', 'wf'], auto: null })).toEqual([
-      { value: '', label: 'Nobody' },
-      { value: 'p', label: 'The architect of p' },
-      { value: 'wf', label: 'The architect of wf' },
-    ]);
-    expect(forwardNewChoices({ projects: ['p'], auto: 'gone' }).map((c) => c.value)).toEqual(['', 'p', 'gone']);
-    expect(t('fault_forward')).toBe('Forward to…');
-    expect(t('fault_forward_new')).toBe('Forward new faults to');
+    expect(passedWords(passed())).toBe('Passed on to the architect of wf | in the queue');
+    const handled = passed({ state: 'handled', handled_work: 12, handled_round: 4 });
+    expect(passedWords(handled)).toBe('Passed on to the architect of wf | handled in R12-4');
+    expect(passedParts(handled)).toEqual({ lead: 'Passed on to the architect of wf', state: 'handled in', round: 'R12-4' });
+    // One the setting that forwarded each new fault sent, before a fault went on only to the architect of wf-agents.
+    expect(passedWords(passed({ by: 'setting' }))).toBe('Forwarded automatically to the architect of wf | in the queue');
+    expect(t('fault_pass', { project: 'wf' })).toBe('Pass on to the architect of wf');
   });
 
   it('tells of what newly waits for the owner, and of nothing the first time', () => {

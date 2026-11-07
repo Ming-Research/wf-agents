@@ -231,59 +231,68 @@ CREATE TABLE owner_asks (
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
 
-CREATE TABLE owner_messages (
-  -- What an agent tells the owner in a return, one row for each message: something the owner should know that needs
-  -- no decision and no answer. The work goes on. It belongs to the round whose return holds it; its item is found
-  -- through the round's work. Read by: the owner's interface, which shows those unread.
+CREATE TABLE messages (
+  -- Every message the hub carries to the owner, the flow's keeper or an architect, written once and never changed: a
+  -- saying, which needs no answer. An agent's is what it tells the owner in a return, its answer to what the owner said
+  -- to its work, or the architect's reply to the owner's words; the engine's is what it tells of its own accord: a work
+  -- stopped, or gone back in a new flow version, every work halted until a usage limit resets, a limit passed, an ask of
+  -- the owner put, a fault of wf-agents. Whom each went to, and what became of it there, is in deliveries.
+  -- Read by: the owner's interface, which shows each in its conversation (conversation_entries); the engine, which adds
+  -- a further cache miss to the message of a fault still open, and hands a fault passed on to an architect to it.
   id INTEGER PRIMARY KEY,
-  -- The round whose return holds it: its work, and its number in the work.
-  work INTEGER NOT NULL,
-  round INTEGER NOT NULL,
-  -- The message, copied from that round's return, which never changes.
+  -- Who sent it: engineer (a line of an engineer's work), architect (a line of a project's architect's work), or engine.
+  sender TEXT NOT NULL CHECK (sender IN ('engineer', 'architect', 'engine')),
+  -- The work it is about: an agent's, the work whose round handed it in; the engine's, the work it tells of, NULL for
+  -- one about no work.
+  work INTEGER REFERENCES works(id),
+  -- An agent's: the round whose return holds it, by its number in the work; NULL for the engine's.
+  round INTEGER,
+  -- The message, as its sender wrote it.
   text TEXT NOT NULL,
-  -- When the owner marked it read; NULL while it is unread. Read by: the owner's interface.
-  read_at INTEGER,
-  -- For the answer to the owner's question about a decision card: that card, which the group shows the answer as a
-  -- reply to. NULL for anything else.
-  design_card INTEGER REFERENCES design_cards(id),
+  -- What more it says, JSON; NULL when nothing. For a fault of wf-agents, its kind (`kind`): cache_miss, rounds that
+  -- missed their session's prompt cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a row
+  -- counting a flow anomaly, where the way on an engineer chose did not fit the situation. For the engine's word of an
+  -- ask of the owner put, that ask (`ask`). For an agent's answer to the owner's question about a decision card, that
+  -- card (`design_card`), which the work's group shows it as a reply to. Read by: the owner's interface; the engine.
+  body TEXT CHECK (body IS NULL OR json_valid(body)),
+  -- When it was sent.
+  at INTEGER NOT NULL,
+  CHECK ((sender = 'engine') = (round IS NULL)),
+  CHECK (round IS NULL OR work IS NOT NULL),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
 
-CREATE TABLE engine_notices (
-  -- What the engine tells the owner of its own accord, one row for each notice: a work stopped by a new flow version,
-  -- every work halted until a usage limit resets, a limit passed, a fault of wf-agents, the asks still waiting for the
-  -- owner's answer, and the like. It needs no answer. The same text goes to the notifications log, which alone also
-  -- says what the page shows in a place of its own (a design card waiting, a work ready to merge but held).
-  -- Hidden from agents.
-  -- Read by: the owner's interface, which shows a fault in wf-agents' own conversation and what else is about no work
-  -- there too, and says what is about a work on the bubble of the stage it was at, never as an entry of a work's group;
-  -- the engine, for a fault of wf-agents (fault) and for when it last reminded the owner of the asks waiting
-  -- (reminder).
+CREATE TABLE deliveries (
+  -- Each recipient a message went to, and what became of it there: the owner; the flow's keeper, a queue for
+  -- wf-agents' own faults, which the owner and the assistant work; or a project's architect, to whose queue a fault of
+  -- wf-agents was passed on. A fault goes to the keeper, and every other message to the owner.
+  -- Read by: the owner's interface, which shows what is unread and where each fault went; the engine, which hands an
+  -- architect the fault its matter is.
   id INTEGER PRIMARY KEY,
-  -- The work it is about; NULL for one about no work.
-  work INTEGER REFERENCES works(id),
-  -- The notice, as the engine wrote it.
-  text TEXT NOT NULL,
-  -- When the engine wrote it.
-  at INTEGER NOT NULL,
-  -- When the owner marked it read, or forwarded the fault it reports to an architect, by hand or by the owner's
-  -- setting; NULL while it is unread. Read by: the owner's interface.
+  -- The message delivered.
+  message INTEGER NOT NULL REFERENCES messages(id),
+  -- owner, keeper or architect.
+  recipient TEXT NOT NULL CHECK (recipient IN ('owner', 'keeper', 'architect')),
+  -- For an architect: the matter of its queue the message came as, which names the project; NULL for another
+  -- recipient.
+  matter INTEGER REFERENCES architect_matters(id),
+  -- For the owner and the keeper: when it was marked read, or passed on to an architect; NULL while it is unread, and
+  -- for an architect, whose matter says what became of it.
   read_at INTEGER,
-  -- When the notice is of a new ask of the owner: that ask, for the owner's interface to link to. Read by: the
-  -- owner's interface; the engine, which hands a flow anomaly's ask to the architect it is forwarded to.
-  ask INTEGER REFERENCES owner_asks(id),
-  -- When the notice reports a fault of wf-agents, its kind: cache_miss, rounds that missed their session's prompt
-  -- cache, each kept in cache_misses; flow_anomaly, an ask of the owner that came of a row counting a flow anomaly,
-  -- where the way on an engineer chose did not fit the situation. wf-agents runs other projects too, and such a fault
-  -- is its own, to be fixed in wf-agents whichever project it came up in. NULL for another notice. Read by: the
-  -- owner's interface, which sets such a notice apart and forwards it to the architects the owner picks, each as a
-  -- matter of its queue; the engine, which forwards a new one to the architect the owner's setting names
-  -- (owner_choices), and hands an architect the notice of a fault forwarded to it.
-  fault TEXT,
-  -- Whether the notice reminds the owner of the asks waiting for the owner's answer, which the engine does once an
-  -- interval of the installation's setting while any waits: 1 for such a reminder, 0 for another notice.
-  -- Read by: the engine, which reminds again an interval after the last reminder.
-  reminder INTEGER NOT NULL DEFAULT 0 CHECK (reminder IN (0, 1))
+  CHECK ((recipient = 'architect') = (matter IS NOT NULL)),
+  CHECK (recipient <> 'architect' OR read_at IS NULL)
+) STRICT;
+
+CREATE TABLE reminders (
+  -- Each reminder the engine gave the owner, through the notifications log, of the asks waiting for the owner's
+  -- answer: one for all of them, once an interval of the installation's setting while any waits.
+  -- Hidden from agents.
+  -- Read by: the engine, which reminds again an interval after the last; people looking back at what the owner was
+  -- reminded of.
+  -- When it was given.
+  at INTEGER NOT NULL,
+  -- What it said: how many asks waited, and the oldest with how long it had waited.
+  text TEXT NOT NULL
 ) STRICT;
 
 CREATE TABLE contents (
@@ -475,15 +484,15 @@ CREATE TABLE cache_misses (
   -- Each round that missed its session's prompt cache: it resumed the session within the cache's lifetime since the
   -- session's last call, a round's or a keep-warm ping's, and its first call still read from the cache less than half
   -- of what the session held, the last prompt of its round before as recorded. A miss is a fault of wf-agents,
-  -- whichever project it came up in: the engine tells the owner in a notice of the fault, and a further miss with the
-  -- same cause on the same line of the same project, while that notice is unread or a matter forwarded from it waits
-  -- in an architect's queue, adds to it instead of making a new one. A miss after what comes before the session's
+  -- whichever project it came up in: the engine tells the flow's keeper in a message of the fault, and a further miss
+  -- with the same cause on the same line of the same project, while that message is unread or a matter it was passed
+  -- on as waits in an architect's queue, adds to it instead of making a new one. A miss after what comes before the session's
   -- messages in the prompt changed since its round before (the model, the tools the envelope's schema is given with,
   -- the command line's own version), as when a work moved to a new flow version, is the command line writing the
-  -- session again by design: no fault, kept for what it cost, with no notice. Written once, never changed.
+  -- session again by design: no fault, kept for what it cost, with no message. Written once, never changed.
   -- Hidden from agents.
-  -- Read by: the engine, which finds the notice a miss adds to, and hands the misses of a fault forwarded to an
-  -- architect to it; the owner's interface, which shows with each notice how many misses it holds, the tokens they
+  -- Read by: the engine, which finds the message a miss adds to, and hands the misses of a fault passed on to an
+  -- architect to it; the owner's interface, which shows with each message how many misses it holds, the tokens they
   -- wrote again and what they cost, and counts the misses that are faults among what was spent for nothing.
   -- The round that missed: its work, and its number in the work.
   work INTEGER NOT NULL,
@@ -503,8 +512,8 @@ CREATE TABLE cache_misses (
   -- What writing them again cost beyond reading them, in US dollars, priced from what the round cost; NULL when its
   -- record does not tell.
   cost_usd REAL,
-  -- The notice that tells the owner of it; NULL for a miss the engine expects, which is no fault.
-  notice INTEGER REFERENCES engine_notices(id),
+  -- The message that tells the flow's keeper of it; NULL for a miss the engine expects, which is no fault.
+  message INTEGER REFERENCES messages(id),
   PRIMARY KEY (work, round),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -520,19 +529,6 @@ CREATE TABLE owner_switches (
   name TEXT PRIMARY KEY CHECK (name IN ('keep_warm_paused')),
   -- Whether it is on.
   value INTEGER NOT NULL CHECK (value IN (0, 1))
-) STRICT;
-
-CREATE TABLE owner_choices (
-  -- The owner's settings on the page that hold across restarts of the engine and pick one of several, which a switch
-  -- (owner_switches) cannot hold: one row for each the owner set; a setting with no row is as it is at first. Who set
-  -- one, and when, is in changes, a setting put back as it is at first being its row deleted.
-  -- Hidden from agents.
-  -- Read by: the engine; the owner's interface.
-  -- forward_faults: the project whose architect each new fault of wf-agents is forwarded to as it comes, as a matter
-  -- of its queue, the notice then read; with no row, nobody's, and the owner forwards a fault by hand or not at all.
-  name TEXT PRIMARY KEY CHECK (name IN ('forward_faults')),
-  -- What the owner picked: for forward_faults, a project of the configuration.
-  value TEXT NOT NULL
 ) STRICT;
 
 CREATE TABLE rounds (
@@ -874,7 +870,7 @@ CREATE TABLE outbox (
 ) STRICT;
 
 CREATE TABLE architect_matters (
-  -- A matter for a project's architect: an engineer's question, a report, a fault of wf-agents forwarded to it, a
+  -- A matter for a project's architect: an engineer's question, a report, a fault of wf-agents passed on to it, a
   -- design card to look at, a failure, the owner's words, a message from another project's architect, slots free with
   -- nothing of the project ready, main's CI red, a place its plan of what to do next found to set straight, or the
   -- check of its policy. The project's queue is its matters not handled; the engine takes them in a fixed order, by
@@ -903,8 +899,9 @@ CREATE TABLE architect_matters (
   kind TEXT NOT NULL,
   -- What more its kind says: an engineer's question's own kind (split, duplicate, ...); a report's (a side report's
   -- kind, followup for a report's what to do next, answer for an engineer's answer to what the architect said to its
-  -- work, flow_feedback for what agents said was wrong with their cells, or fault for a fault of wf-agents forwarded
-  -- to it, by the owner or by the owner's setting, which starts a work of it as a report does); a failure's
+  -- work, flow_feedback for what agents said was wrong with their cells, or fault for a fault of wf-agents passed on
+  -- to it, by the owner or, before, by the owner's setting, which starts a work of it as a report does, its message
+  -- being the one delivered to it as this matter); a failure's
   -- (tool_failed, environment_changed); the owner's words' (said, answer, release, approved_changes); a message's
   -- (message, reply, or flow_feedback for flow feedback another project's architect forwarded); the kind of a place to
   -- set straight. NULL when there is nothing more. Read by: the engine, for the matter's material and whether it starts a work of
@@ -915,9 +912,9 @@ CREATE TABLE architect_matters (
   -- Its material, JSON: what the asking cell handed in, the side report, a report's what to do next with its paths and
   -- the commit merged, the design card, the tool that failed, the owner's words (with where they were said, and who
   -- the caller declared to speak: `speaker`, owner or delegate; none for words kept before it was declared), the
-  -- message, the place to set straight; for a fault forwarded, who forwarded it (by: owner, or setting for the owner's
-  -- setting), the fault itself being read from its notice when the matter is handled. Read by: the engine, for the
-  -- matter's material.
+  -- message, the place to set straight; for a fault passed on, who passed it on (by: owner, or setting for the setting
+  -- that forwarded each new fault before), the fault itself being read from its message when the matter is handled.
+  -- Read by: the engine, for the matter's material.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The item it concerns; NULL when it concerns none.
   item INTEGER REFERENCES items(id),
@@ -925,12 +922,6 @@ CREATE TABLE architect_matters (
   -- design card, an architect's round; NULL for one the owner or the engine raised.
   work INTEGER,
   round INTEGER,
-  -- For a fault of wf-agents forwarded to it: the engine's notice that reports the fault, which goes to each
-  -- project's architect once; NULL for any other matter. Read by: the engine, which hands the architect the notice
-  -- and the engine's evidence of the fault as they stand when the matter is handled, and adds a further cache miss to
-  -- a notice forwarded while its matter waits; the owner's interface, which shows where each fault went and how it
-  -- stands there.
-  notice INTEGER REFERENCES engine_notices(id),
   -- When it came. Read by: the queue, for how long it waited.
   at INTEGER NOT NULL,
   -- The ask of the owner a cell on its path put about it, which holds it while the owner has not answered: it is then
@@ -1290,8 +1281,8 @@ CREATE INDEX works_by_item ON works (item);
 CREATE UNIQUE INDEX sessions_going_on ON sessions (work, line) WHERE ended IS NULL;
 -- The keep-warm pings of a session.
 CREATE INDEX pings_by_session ON pings (session);
--- The cache misses a notice tells of.
-CREATE INDEX cache_misses_by_notice ON cache_misses (notice);
+-- The cache misses a message tells of.
+CREATE INDEX cache_misses_by_message ON cache_misses (message);
 -- The rounds of a work in order, which every input that names a returned field and the history read, are the
 -- primary key of rounds.
 -- The rounds of a work that counted something, by the counter, held in the index alone: the views of counters read
@@ -1315,8 +1306,12 @@ CREATE INDEX design_cards_by_round ON design_cards (work, round);
 CREATE UNIQUE INDEX design_cards_current ON design_cards (work, key) WHERE status IN ('open', 'ruled');
 -- The ask of the owner a round put.
 CREATE INDEX owner_asks_by_round ON owner_asks (work, round);
--- The messages to the owner still unread.
-CREATE INDEX owner_messages_unread ON owner_messages (id) WHERE read_at IS NULL;
+-- The messages of a work, and those its rounds handed in, by round.
+CREATE INDEX messages_by_work ON messages (work, round);
+-- The recipients of each message.
+CREATE INDEX deliveries_by_message ON deliveries (message);
+-- The message each matter it came as is: one at most.
+CREATE UNIQUE INDEX deliveries_by_matter ON deliveries (matter) WHERE matter IS NOT NULL;
 -- Interjections still to hand in to a work.
 CREATE INDEX interjections_waiting ON interjections (work) WHERE delivered_round IS NULL;
 -- The history of one row.
@@ -1331,8 +1326,6 @@ CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE hand
 CREATE INDEX architect_matters_by_kind ON architect_matters (kind, at);
 -- The matters a round handled, which the health numbers read from the rounds that ended within a time.
 CREATE INDEX architect_matters_by_handling ON architect_matters (handled_work, handled_round);
--- Where each fault of wf-agents was forwarded: to each project's architect once.
-CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, project) WHERE notice IS NOT NULL;
 -- The entries of each talk with the owner.
 CREATE INDEX talk_entries_by_talk ON talk_entries (matter);
 -- The open blocker of each task: one at most.
@@ -1368,8 +1361,8 @@ CREATE INDEX interjections_by_work_delivered ON interjections (work, delivered_r
 CREATE INDEX architect_matters_by_work ON architect_matters (work, kind);
 -- The matter an owner's ask put to the architect.
 CREATE INDEX architect_matters_by_asked ON architect_matters (asked);
--- The notices about an owner's ask.
-CREATE INDEX engine_notices_by_ask ON engine_notices (ask);
+-- The engine's messages about an owner's ask.
+CREATE INDEX messages_by_ask ON messages (json_extract(body, '$.ask'));
 -- The blockers an owner's ask holds.
 CREATE INDEX blockers_by_ask ON blockers (ask);
 -- The blocker a matter of the architect's queue stands for.
@@ -2111,19 +2104,22 @@ CREATE VIEW conversation_entries AS
     coalesce(w.project, i.project) AS project, 'message' AS source, m.id AS id,
     CASE WHEN w.graph NOT IN ('architect', 'policy') THEN coalesce(s.line, 'engineer')
          WHEN s.line IS NULL OR s.line IN ('architect', 'matter') THEN 'architect' ELSE s.line END AS sender,
-    'owner' AS recipient, m.text AS text, coalesce(r.ended_at, r.started_at) AS at, m.work AS work, m.round AS round,
-    NULL AS ask, m.design_card AS design_card, NULL AS matter, m.read_at AS read_at, 0 AS waiting, 0 AS pending,
-    0 AS undelivered, 0 AS answerable, NULL AS fault
-  FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
+    'owner' AS recipient, m.text AS text, m.at AS at, m.work AS work, m.round AS round, NULL AS ask,
+    json_extract(m.body, '$.design_card') AS design_card, NULL AS matter, d.read_at AS read_at, 0 AS waiting,
+    0 AS pending, 0 AS undelivered, 0 AS answerable, NULL AS fault
+  FROM messages m JOIN deliveries d ON d.message = m.id AND d.recipient = 'owner'
+  JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
   LEFT JOIN items i ON i.id = w.item LEFT JOIN sessions s ON s.id = r.session
   UNION ALL
-  SELECT CASE WHEN n.fault IS NOT NULL OR w.id IS NULL THEN 'wf-agents'
+  SELECT CASE WHEN d.recipient = 'keeper' OR w.id IS NULL THEN 'wf-agents'
               WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
-    CASE WHEN n.fault IS NULL THEN coalesce(w.project, i.project) END, 'notice', n.id,
-    CASE WHEN n.fault IS NULL THEN 'engine' ELSE 'wf-agents' END, 'owner', n.text, n.at, n.work, NULL, n.ask, NULL,
-    NULL, n.read_at, n.fault IS NOT NULL AND n.read_at IS NULL, 0, 0, 0, n.fault
-  FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
-  WHERE n.ask IS NULL OR n.fault IS NOT NULL
+    CASE WHEN d.recipient = 'owner' THEN coalesce(w.project, i.project) END, 'notice', n.id,
+    CASE WHEN d.recipient = 'owner' THEN 'engine' ELSE 'wf-agents' END, 'owner', n.text, n.at, n.work, NULL,
+    json_extract(n.body, '$.ask'), NULL, NULL, d.read_at, d.recipient = 'keeper' AND d.read_at IS NULL, 0, 0, 0,
+    CASE WHEN d.recipient = 'keeper' THEN json_extract(n.body, '$.kind') END
+  FROM messages n JOIN deliveries d ON d.message = n.id AND d.recipient IN ('owner', 'keeper')
+  LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
+  WHERE n.sender = 'engine' AND (json_extract(n.body, '$.ask') IS NULL OR d.recipient = 'keeper')
   UNION ALL
   SELECT CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect:' || w.project ELSE 'work:' || w.id END,
     coalesce(w.project, i.project), 'ask', a.id,
@@ -2134,8 +2130,8 @@ CREATE VIEW conversation_entries AS
     coalesce(json_extract(a.body, '$.question'),
              (SELECT group_concat(json_extract(p.value, '$.what'), char(10))
               FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
-             (SELECT n.text FROM engine_notices n WHERE n.ask = a.id ORDER BY n.id LIMIT 1), ''),
-    coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at), a.work, a.round, a.id, NULL,
+             (SELECT n.text FROM messages n WHERE json_extract(n.body, '$.ask') = a.id ORDER BY n.id LIMIT 1), ''),
+    coalesce((SELECT min(n.at) FROM messages n WHERE json_extract(n.body, '$.ask') = a.id), r.started_at), a.work, a.round, a.id, NULL,
     NULL, NULL,
     a.answer IS NULL AND (
       (w.graph = 'architect' AND EXISTS (

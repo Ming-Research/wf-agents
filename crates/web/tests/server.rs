@@ -478,13 +478,11 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
             "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'T4', '{}', 'c', 1)",
             [],
         )?;
-        tx.execute(
-            "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, 'first'), (1, 1, 'second')",
-            [],
-        )?;
-        tx.execute(
-            "INSERT INTO engine_notices (work, text, at) VALUES (1, 'Work 1 stopped.', 5)",
-            [],
+        tx.execute_batch(
+            "INSERT INTO messages (sender, work, round, text, at)
+               VALUES ('engineer', 1, 1, 'first', 1), ('engineer', 1, 1, 'second', 1);
+             INSERT INTO messages (sender, work, text, at) VALUES ('engine', 1, 'Work 1 stopped.', 5);
+             INSERT INTO deliveries (message, recipient) SELECT id, 'owner' FROM messages ORDER BY id;",
         )?;
         Ok(())
     })
@@ -591,8 +589,12 @@ fn a_conversation_is_read_in_the_window_the_request_names() {
         )?;
         for i in 0..12 {
             tx.execute(
-                "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, ?1)",
+                "INSERT INTO messages (sender, work, round, text, at) VALUES ('engineer', 1, 1, ?1, 1)",
                 [format!("m{i:02}")],
+            )?;
+            tx.execute(
+                "INSERT INTO deliveries (message, recipient) SELECT max(id), 'owner' FROM messages",
+                [],
             )?;
         }
         Ok(())

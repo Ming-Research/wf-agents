@@ -140,7 +140,7 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
     // The owner is told the first time too.
     let notices = number(
         &e,
-        "SELECT count(*) FROM engine_notices WHERE text LIKE '%the run guard stopped%'",
+        "SELECT count(*) FROM messages WHERE sender = 'engine' AND text LIKE '%the run guard stopped%'",
     );
     assert_eq!(notices, 1, "{log}");
     // Its usage comes from its calls, marked so; it is in no history, and the round after it is.
@@ -357,7 +357,10 @@ fn a_round_run_again_and_stopped_after_a_passing_failure_still_pauses_the_work()
     assert_eq!(at, "R0", "{log}");
     let why = paused.unwrap_or_default();
     assert!(why.contains("the run guard stopped"), "{why}\n{log}");
-    let told = number(&e, "SELECT count(*) FROM engine_notices WHERE text LIKE '%is paused%'");
+    let told = number(
+        &e,
+        "SELECT count(*) FROM messages WHERE sender = 'engine' AND text LIKE '%is paused%'",
+    );
     assert_eq!(told, 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

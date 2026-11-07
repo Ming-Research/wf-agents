@@ -10,7 +10,7 @@ fn conversation_entries_reads_each_table_by_its_index() {
     let steps = query_plan(db.conn(), "SELECT * FROM conversation_entries").unwrap();
     for index in [
         "interjections_by_matter",
-        "engine_notices_by_ask",
+        "messages_by_ask",
         "architect_matters_by_asked",
         "blockers_by_ask",
         "blockers_by_matter",

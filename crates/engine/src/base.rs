@@ -112,7 +112,7 @@ pub fn fork_of(e: &Engine, w: &Work, cell: &CompiledCell, can_fork: bool) -> Res
 /// Where a matter of the queue comes in the engine's fixed order, by what waits on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Class {
-    /// The owner's words, a matter back with the owner's reply, a fault the owner forwarded by hand: the owner waits.
+    /// The owner's words, a matter back with the owner's reply, a fault the owner passed on: the owner waits.
     Owner,
     /// Main's CI red: the merge queue is stopped.
     MainRed,
@@ -272,7 +272,7 @@ fn appended(conn: &Connection, project: &str, since: i64) -> Result<Option<Strin
     let lines: Vec<String> = entries
         .iter()
         .map(|x| {
-            // What the owner said stays whole; what the architect said is on the owner's page and in `owner_messages`.
+            // What the owner said stays whole; what the architect said is on the owner's page and in `messages`.
             let said = match x.text.split_once(OWNER_ANSWERED) {
                 _ if x.who.starts_with("owner") => x.text.clone(),
                 Some((asked, answer)) => format!("{}{OWNER_ANSWERED}{answer}", flow::cut(asked, SAID_MOST)),
@@ -355,7 +355,7 @@ mod tests {
 
     // The engine's order takes what waits by fact: the owner first, then main red, then a work stopped at its question,
     // and the rest of the queue after; a side report that causes loss now is taken as a work waiting, and a fault the
-    // owner forwarded by hand as the owner's.
+    // owner passed on as the owner's.
     #[test]
     fn a_matter_s_class_is_what_waits_on_it() {
         let none = Value::Null;

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use engine::git::{catch_up, create_worktree, head};
-use engine::hub::{delete_ref, push};
+use engine::github::{delete_ref, push};
 
 /// The hooks written: each one records its own name in the markers directory and succeeds, as a program that does what
 /// it likes and leaves the exit code alone would. Together they cover what the engine's commands start: a push, an

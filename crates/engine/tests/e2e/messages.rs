@@ -32,7 +32,7 @@ fn building_a_message_writes_nothing() {
             n("SELECT count(*) FROM works WHERE ended IS NOT NULL"),
             n("SELECT count(*) FROM rounds"),
             n("SELECT count(*) FROM changes"),
-            n("SELECT count(*) FROM engine_notices"),
+            n("SELECT count(*) FROM messages WHERE sender = 'engine'"),
             n("SELECT count(*) FROM outbox"),
         ]
     };
@@ -41,7 +41,7 @@ fn building_a_message_writes_nothing() {
         scripts: scripts(),
         rounds: Mutex::new(BTreeMap::new()),
     };
-    let hub = FakeHub {
+    let github = FakeGitHub {
         origin: s.origin.clone(),
         scratch: s.root.clone(),
         prs: s.prs.clone(),
@@ -52,7 +52,7 @@ fn building_a_message_writes_nothing() {
         watch_main: s.watch_main.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
-    let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
+    let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(github)).unwrap();
     let m = engine::next_message(&mut r, work).unwrap();
     assert!(m.text.contains("cell I1"), "{}", m.text);
     drop(r);

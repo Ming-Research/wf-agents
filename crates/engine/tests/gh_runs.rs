@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use engine::hub::{Gh, GitHub};
+use engine::github::{Gh, GitHub};
 
 /// The stand-in for gh. It finds the repository in the command line (`-R owner/name`, or the path of `gh api`), logs the
 /// command line as tab-separated words, counts how many commands of each kind it was asked, and answers the n-th of a

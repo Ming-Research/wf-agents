@@ -109,7 +109,7 @@ fn the_architect_starts_a_work_over() {
     let notice: String =
         e.db.conn()
             .query_row(
-                "SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                "SELECT text FROM messages WHERE sender = 'engine' AND work = ?1 ORDER BY id DESC LIMIT 1",
                 [work],
                 |r| r.get(0),
             )

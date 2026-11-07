@@ -10,8 +10,8 @@
 // engine's notices are grey lines, and its stage cards, one for each stretch of the work at a stage, updated in place,
 // the design's with the design folded and the decision card to rule on. The one-to-one holds the owner's words, what the
 // architect tells and asks, a card for each of its matters and the policy as it took effect, under its queue.
-// wf-agents' own holds its faults, each of which the owner forwards to any project's architect, once to each, and says
-// where it went and how it stands there; its head sets where each new fault goes as it comes, nobody at first. What
+// wf-agents' own holds its faults, each of which the owner may pass on, once, to the architect of the project wf-agents
+// is built from, and says where it went and how it stands there. What
 // waits for the owner stays where it came in the stream and is answered there, and a bar of one line under the head
 // pins it, as a chat app pins a message: the decision card a work waits on to be ruled, in its stage's bubble; each ask
 // of the owner from a work, as the asking agent's bubble, its options picked on their boxes in its card, the one
@@ -70,10 +70,9 @@ import type {
   Conversation,
   ConversationDetail,
   ConversationEntry,
-  Forwarded,
-  Forwarding,
   Misses,
   OwnerAsk,
+  Passed,
   PolicyDraft,
   Status,
   TakenBack,
@@ -115,9 +114,6 @@ import {
   CONVERSATION_WINDOW_MOST,
   conversationTitle,
   DRAFT_APPROVED,
-  type ForwardChoice,
-  forwardMenu,
-  forwardParts,
   gapsInStream,
   isQuestion,
   latestAt,
@@ -127,6 +123,7 @@ import {
   mentions,
   ownerReplies,
   party,
+  passedParts,
   pendingWords,
   pinnedQuestions,
   pinsOf,
@@ -160,12 +157,12 @@ import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble, BubbleHead } from './Bubble';
 import { AskView } from './Decide';
-import { ArchitectHead, PlainHead, WfAgentsHead, WorkGroupName, WorkHead } from './TalkHead';
+import { ArchitectHead, PlainHead, WorkGroupName, WorkHead } from './TalkHead';
 import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
 
 /// Marks a fault of wf-agents read, where it shows.
 async function markFault(id: number): Promise<void> {
-  await postJson('/api/v1/messages/read', { ids: [], notices: [id] });
+  await postJson('/api/v1/messages/read', { ids: [id] });
   reread('messages');
 }
 
@@ -654,13 +651,13 @@ function SystemLine({ e }: { e: ConversationEntry }) {
   );
 }
 
-/// A fault's Forward to…: a menu of every project's architect. Picking one forwards the fault there, as a matter of its
-/// queue, and marks the fault read; one it went to already is marked and cannot be picked again.
-function ForwardMenu({ notice, choices, failed }: { notice: number; choices: ForwardChoice[]; failed: (x: unknown) => void }) {
+/// A fault's Pass on: to the architect of the project wf-agents is built from, the one a fault of wf-agents may go
+/// to, as a matter of its queue; it marks the fault read.
+function PassButton({ message, project, failed }: { message: number; project: string; failed: (x: unknown) => void }) {
   const [busy, setBusy] = useState(false);
-  const forward = (project: string) => {
+  const pass = () => {
     setBusy(true);
-    postJson(`/api/v1/faults/${notice}/forward`, { project }).then(
+    postJson(`/api/v1/messages/${message}/pass`, { project }).then(
       () => {
         setBusy(false);
         reread('messages', 'architect');
@@ -672,21 +669,9 @@ function ForwardMenu({ notice, choices, failed }: { notice: number; choices: For
     );
   };
   return (
-    <ActionMenu>
-      <ActionMenu.Button size="small" disabled={busy}>
-        {t('fault_forward')}
-      </ActionMenu.Button>
-      <ActionMenu.Overlay width="auto">
-        <ActionList aria-label={t('fault_forward')}>
-          {choices.map((c) => (
-            <ActionList.Item key={c.project} disabled={c.sent} onSelect={() => forward(c.project)}>
-              {c.label}
-              {c.sent ? <ActionList.TrailingVisual>{t('fault_forward_sent')}</ActionList.TrailingVisual> : null}
-            </ActionList.Item>
-          ))}
-        </ActionList>
-      </ActionMenu.Overlay>
-    </ActionMenu>
+    <Button size="small" disabled={busy} onClick={pass}>
+      {t('fault_pass', { project })}
+    </Button>
   );
 }
 
@@ -715,8 +700,8 @@ function WordsLine({ w }: { w: WordsState }) {
 
 /// One place a fault went, and how it stands there: in the queue, or handled in a round, which leads to that round on
 /// the architect's chart.
-function ForwardLine({ f }: { f: Forwarded }) {
-  const p = forwardParts(f);
+function PassedLine({ f }: { f: Passed }) {
+  const p = passedParts(f);
   return (
     <p className="talk-line-more">
       {joinedWords([p.lead, p.state])}
@@ -732,9 +717,10 @@ function ForwardLine({ f }: { f: Forwarded }) {
   );
 }
 
-/// A fault of wf-agents: what the engine said, how many misses it holds, where it was forwarded and how it stands
-/// there; unread, Mark read; and Forward to…, to a project's architect.
-function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding | null }) {
+/// A fault of wf-agents: what the engine said, how many misses it holds, where it was passed on and how it stands
+/// there; unread, Mark read; and, while it went nowhere, Pass on, to the architect of the project wf-agents is built
+/// from.
+function Fault({ e, passTo }: { e: ConversationEntry; passTo: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const failed = (x: unknown) => setError(x instanceof Error ? x.message : String(x));
   return (
@@ -754,14 +740,14 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
             {t('message_mark_read')}
           </Button>
         ) : null}
-        {forwarding !== null && forwarding.projects.length > 0 ? (
-          <ForwardMenu notice={e.id} choices={forwardMenu(forwarding.projects, e.forwards)} failed={failed} />
+        {passTo !== null && !e.passed.some((f) => f.project === passTo) ? (
+          <PassButton message={e.id} project={passTo} failed={failed} />
         ) : null}
       </div>
       <Markdown text={e.text} />
       {e.misses !== null ? <MissesLine m={e.misses} /> : null}
-      {e.forwards.map((f) => (
-        <ForwardLine key={f.matter} f={f} />
+      {e.passed.map((f) => (
+        <PassedLine key={f.matter} f={f} />
       ))}
       {error !== null ? <p className="bad">{t('request_failed', { error })}</p> : null}
     </Flash>
@@ -782,8 +768,8 @@ type EntryProps = {
   stageWork: WorkSummary | null;
   /// How the architect's work goes on, for the bubble of the matter it has in hand; none for any other.
   matterWork: WorkSummary | null;
-  /// Where a fault of wf-agents can go, for the fault; none for any other.
-  forwarding: Forwarding | null;
+  /// The project whose architect a fault of wf-agents may be passed on to, for the fault; none for any other.
+  passTo: string | null;
   /// Whether it is the question whether the draft of a new policy that waits is approved.
   approval: boolean;
   /// The owner's answer to the question of an engineer's it is, once given; none for any other.
@@ -809,7 +795,7 @@ const Entry = memo(function Entry({
   project,
   stageWork,
   matterWork,
-  forwarding,
+  passTo,
   approval,
   reply,
   waits,
@@ -825,7 +811,7 @@ const Entry = memo(function Entry({
     return null;
   }
   if (voice === 'system') return <SystemLine e={e} />;
-  if (voice === 'fault') return <Fault e={e} forwarding={forwarding} />;
+  if (voice === 'fault') return <Fault e={e} passTo={passTo} />;
   if (voice === 'none') return null;
   return (
     <Message
@@ -1262,7 +1248,7 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
                 project={c.project}
                 stageWork={e.stage !== null && e.stage.current ? w : null}
                 matterWork={e.matter_card !== null && e.matter_card.state === 'working' ? aw : null}
-                forwarding={voiceOf(e) === 'fault' ? d.forwarding : null}
+                passTo={voiceOf(e) === 'fault' ? d.pass_to : null}
                 approval={asksApproval(e, draft)}
                 reply={e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null}
                 waits={e.source === 'ask' && questions.has(e.id)}
@@ -1378,8 +1364,6 @@ export function Open({ c, works, side }:{ c: Conversation; works: WorkSummary[] 
           sideShown ? null : over ? () => navigate(sideHref(project ?? '', 'notebook')) : () => setSideOpen(true)
         }
       />
-    ) : c.kind === 'wf_agents' ? (
-      <WfAgentsHead title={conversationTitle(c)} forwarding={d?.forwarding ?? null} />
     ) : (
       <PlainHead title={conversationTitle(c)} />
     );

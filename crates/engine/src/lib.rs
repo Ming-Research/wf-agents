@@ -24,7 +24,7 @@ pub mod database;
 pub mod ending;
 pub mod flow_cost;
 pub mod git;
-pub mod hub;
+pub mod github;
 pub mod limits;
 pub mod lock;
 
@@ -41,6 +41,7 @@ mod decisions;
 mod dependency_sources;
 mod failed;
 mod faults;
+mod hub;
 mod inputs;
 mod lock_update;
 mod loops;
@@ -90,7 +91,7 @@ pub use warm::GlobalPause;
 pub use work::{Counted, Item, Round, RoundId, Work, json_col, query_json, query_json_counted};
 
 use agent::Agents;
-use hub::GitHub;
+use github::GitHub;
 
 /// The graph works on items run.
 pub const ENGINEER: &str = "engineer";
@@ -736,7 +737,7 @@ impl Engine {
         self.db
             .write(Actor::Engine, |tx| {
                 ending::end(tx, id, ending::End::TakenOver(&stopped), &projects).map_err(db::Error::Abort)?;
-                actions::notify(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
+                crate::hub::tell(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
                 Ok(())
             })
             .map_err(|e| e.to_string())?;
@@ -1001,7 +1002,7 @@ impl Engine {
     }
 
     /// Reminds the owner of the asks waiting for the owner's answer when a reminder is due at `now`, the installation's
-    /// interval after the oldest was put and after the last reminder ([`reminders::due`]): one notice for all of them,
+    /// interval after the oldest was put and after the last reminder ([`reminders::due`]): one reminder for all of them,
     /// whatever the works do, then carries out the outbox, which writes it to the notifications log. Gives whether it
     /// reminded.
     pub fn remind(&mut self, now: i64) -> Result<bool, String> {
@@ -1012,7 +1013,7 @@ impl Engine {
         };
         self.db
             .write(Actor::Engine, |tx| {
-                actions::remind(tx, now, &text).map_err(db::Error::Abort)
+                crate::hub::remind(tx, now, &text).map_err(db::Error::Abort)
             })
             .map_err(|e| e.to_string())?;
         actions::run_outbox(self)?;
@@ -1316,7 +1317,7 @@ impl Engine {
             );
             self.db
                 .write(Actor::Engine, |tx| {
-                    actions::notify(tx, Some(id), &text).map_err(db::Error::Abort)
+                    crate::hub::tell(tx, Some(id), &text).map_err(db::Error::Abort)
                 })
                 .map_err(|e| e.to_string())?;
         }
@@ -1359,7 +1360,7 @@ impl Engine {
                     params![id, why],
                 )?;
                 db::withdraw_resume(tx, id)?;
-                actions::notify(tx, Some(id), &text).map_err(db::Error::Abort)?;
+                crate::hub::tell(tx, Some(id), &text).map_err(db::Error::Abort)?;
                 Ok(())
             })
             .map_err(|e| e.to_string())

@@ -11,7 +11,7 @@ use db::rusqlite::params;
 use db::{Actor, Matter, queue_matter};
 use serde_json::{Value, json};
 
-use crate::hub::CheckRun;
+use crate::github::CheckRun;
 use crate::work::{RoundId, Work};
 use crate::{ARCHITECT, Engine, git, tools};
 

@@ -509,12 +509,12 @@ asked_at: number, };
  */
 export type OwnerMessage = { id: number,
 /**
- * Whether the engine wrote it: then `id` is the engine's notice's, and it has no round.
+ * Whether the engine wrote it: then it has no round.
  */
 engine: boolean,
 /**
- * The round whose return holds it, by its number in the work, its cell and line, and when it ended; for the
- * engine's notice, when it was written.
+ * The round whose return holds it, by its number in the work, its cell and line, and when it was sent; for the
+ * engine's, when it was sent.
  */
 round: number | null, cell: string | null, line: string | null, at: number | null, work: number | null, item: number | null, title: string | null, text: string,
 /**
@@ -522,28 +522,29 @@ round: number | null, cell: string | null, line: string | null, at: number | nul
  */
 read_at: number | null,
 /**
- * For the engine's notice of a new ask of the owner: that ask.
+ * For the engine's word of a new ask of the owner: that ask.
  */
 ask: number | null,
 /**
- * For one that came of a work of an architect, told by one of its rounds or the engine's notice of one: the
- * architect's project; none otherwise.
+ * For one that came of a work of an architect, told by one of its rounds or by the engine of one: the architect's
+ * project; none otherwise.
  */
 architect: string | null, };
 
 /**
- * The cache misses a notice tells of: how many, the tokens they wrote to the cache again, what that cost beyond
- * reading the cache, and when the latest came.
+ * The cache misses a message of a fault tells of: how many, the tokens they wrote to the cache again, what that cost
+ * beyond reading the cache, and when the latest came.
  */
 export type Misses = { count: number, written: number, cost_usd: number, last_at: number | null, };
 
 /**
- * Where a fault of wf-agents went: the project whose architect it was forwarded to, who forwarded it, and how the
+ * Where a fault of wf-agents went: the project whose architect it was passed on to, who passed it on, and how the
  * matter it became stands there.
  */
-export type Forwarded = { project: string,
+export type Passed = { project: string,
 /**
- * `owner`, forwarded by hand; `setting`, by the owner's setting that forwards each new fault as it comes.
+ * `owner`, passed on by the owner; `setting`, by the setting that forwarded each new fault as it came, before a
+ * fault went on only to the architect of the project wf-agents is built from.
  */
 by: string,
 /**
@@ -555,13 +556,6 @@ matter: number,
  * and its number; `withdrawn`.
  */
 state: string, handled_work: number | null, handled_round: number | null, };
-
-/**
- * Where the faults of wf-agents can go, for wf-agents' own conversation: the projects whose architects a fault may
- * be forwarded to, every project of the configuration in its order, and the one whose architect the owner's setting
- * forwards each new fault to as it comes, none for nobody.
- */
-export type Forwarding = { projects: Array<string>, auto: string | null, };
 
 /**
  * One of the owner's conversations, as their list shows it.
@@ -654,19 +648,19 @@ undelivered: boolean,
  */
 answerable: boolean,
 /**
- * For a notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its kind:
- * cache_miss or flow_anomaly.
+ * For a message of a fault of wf-agents, to the flow's keeper, to be fixed in wf-agents whichever project it came
+ * up in, its kind: cache_miss or flow_anomaly.
  */
 fault: string | null,
 /**
- * For a notice of cache misses: the misses it tells of, the first and those added to it since.
+ * For a message of cache misses: the misses it tells of, the first and those added to it since.
  */
 misses: Misses | null,
 /**
- * For a notice of a fault of wf-agents: the architects it was forwarded to, in the order it went; none for
+ * For a message of a fault of wf-agents: the architects it was passed on to, in the order it went; none for
  * another entry.
  */
-forwards: Array<Forwarded>,
+passed: Array<Passed>,
 /**
  * The images the owner sent with the owner's words it holds, by their ids, in order; each is read at
  * `/api/v1/attachments/<id>`. Empty for anything else.
@@ -911,9 +905,10 @@ waits_on: number | null,
  */
 read_to: number | null,
 /**
- * For wf-agents' own conversation: where its faults can go; none for another.
+ * For wf-agents' own conversation: the project whose architect its faults may be passed on to, the project
+ * wf-agents is built from; none for another conversation, or when the configuration has no such project.
  */
-forwarding: Forwarding | null,
+pass_to: string | null,
 /**
  * What `entries` leaves out: the runs of entries not given, each by the entry it comes before; empty when every
  * entry is given.
@@ -1043,21 +1038,15 @@ data: string, };
 export type ReadTo = { key: string, at: number, };
 
 /**
- * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
- * `notices`), or every one unread.
+ * Which messages to the owner or the flow's keeper the owner marks read: those named, or every one unread.
  */
-export type MarkRead = { ids: Array<number>, notices: Array<number>, all: boolean, };
+export type MarkRead = { ids: Array<number>, all: boolean, };
 
 /**
- * What the owner sends to forward a fault of wf-agents: the project whose architect takes it.
+ * What the owner sends to pass a message on: the project whose architect takes it. A fault of wf-agents goes on only
+ * to the architect of the project wf-agents is built from.
  */
-export type ForwardFault = { project: string, };
-
-/**
- * What the owner sends to set where each new fault of wf-agents goes as it comes: a project, whose architect takes
- * it, or none for nobody.
- */
-export type ForwardNew = { project: string | null, };
+export type Pass = { project: string, };
 
 /**
  * What the owner sends to hold a project's new starts: why, in the owner's words.

@@ -125,7 +125,7 @@ pub enum Event {
     DesignCard { design_card: i64, work: Option<i64> },
     /// An ask of the owner was put or answered.
     Ask { ask: i64, work: Option<i64> },
-    /// An agent told the owner something, or the owner marked it read.
+    /// An agent or the engine told the owner or the flow's keeper something, or it was marked read or passed on.
     OwnerMessage { message: i64, work: Option<i64> },
     /// An item or its dependencies changed; no item when which one is no longer known.
     Item { item: Option<i64> },
@@ -526,10 +526,10 @@ pub struct OwnerAsk {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct OwnerMessage {
     pub id: i64,
-    /// Whether the engine wrote it: then `id` is the engine's notice's, and it has no round.
+    /// Whether the engine wrote it: then it has no round.
     pub engine: bool,
-    /// The round whose return holds it, by its number in the work, its cell and line, and when it ended; for the
-    /// engine's notice, when it was written.
+    /// The round whose return holds it, by its number in the work, its cell and line, and when it was sent; for the
+    /// engine's, when it was sent.
     pub round: Option<i64>,
     pub cell: Option<String>,
     pub line: Option<String>,
@@ -540,15 +540,15 @@ pub struct OwnerMessage {
     pub text: String,
     /// When the owner marked it read; none while it is unread.
     pub read_at: Option<i64>,
-    /// For the engine's notice of a new ask of the owner: that ask.
+    /// For the engine's word of a new ask of the owner: that ask.
     pub ask: Option<i64>,
-    /// For one that came of a work of an architect, told by one of its rounds or the engine's notice of one: the
-    /// architect's project; none otherwise.
+    /// For one that came of a work of an architect, told by one of its rounds or by the engine of one: the architect's
+    /// project; none otherwise.
     pub architect: Option<String>,
 }
 
-/// The cache misses a notice tells of: how many, the tokens they wrote to the cache again, what that cost beyond
-/// reading the cache, and when the latest came.
+/// The cache misses a message of a fault tells of: how many, the tokens they wrote to the cache again, what that cost
+/// beyond reading the cache, and when the latest came.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Misses {
     pub count: i64,
@@ -557,12 +557,13 @@ pub struct Misses {
     pub last_at: Option<i64>,
 }
 
-/// Where a fault of wf-agents went: the project whose architect it was forwarded to, who forwarded it, and how the
+/// Where a fault of wf-agents went: the project whose architect it was passed on to, who passed it on, and how the
 /// matter it became stands there.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Forwarded {
+pub struct Passed {
     pub project: String,
-    /// `owner`, forwarded by hand; `setting`, by the owner's setting that forwards each new fault as it comes.
+    /// `owner`, passed on by the owner; `setting`, by the setting that forwarded each new fault as it came, before a
+    /// fault went on only to the architect of the project wf-agents is built from.
     pub by: String,
     /// The matter it is in that architect's queue.
     pub matter: i64,
@@ -573,18 +574,10 @@ pub struct Forwarded {
     pub handled_round: Option<i64>,
 }
 
-/// Where the faults of wf-agents can go, for wf-agents' own conversation: the projects whose architects a fault may
-/// be forwarded to, every project of the configuration in its order, and the one whose architect the owner's setting
-/// forwards each new fault to as it comes, none for nobody.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Forwarding {
-    pub projects: Vec<String>,
-    pub auto: Option<String>,
-}
-
-/// What the owner sends to forward a fault of wf-agents: the project whose architect takes it.
+/// What the owner sends to pass a message on: the project whose architect takes it. A fault of wf-agents goes on only
+/// to the architect of the project wf-agents is built from.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
-pub struct ForwardFault {
+pub struct Pass {
     pub project: String,
 }
 
@@ -601,21 +594,11 @@ pub struct ReleaseHold {
     pub reason: String,
 }
 
-/// What the owner sends to set where each new fault of wf-agents goes as it comes: a project, whose architect takes
-/// it, or none for nobody.
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
-pub struct ForwardNew {
-    pub project: Option<String>,
-}
-
-/// Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
-/// `notices`), or every one unread.
+/// Which messages to the owner or the flow's keeper the owner marks read: those named, or every one unread.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct MarkRead {
     #[serde(default)]
     pub ids: Vec<i64>,
-    #[serde(default)]
-    pub notices: Vec<i64>,
     #[serde(default)]
     pub all: bool,
 }
@@ -1302,14 +1285,14 @@ pub struct ConversationEntry {
     pub undelivered: bool,
     /// Whether it is an engineer's question the architect holds now, which the owner may answer in the group.
     pub answerable: bool,
-    /// For a notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its kind:
-    /// cache_miss or flow_anomaly.
+    /// For a message of a fault of wf-agents, to the flow's keeper, to be fixed in wf-agents whichever project it came
+    /// up in, its kind: cache_miss or flow_anomaly.
     pub fault: Option<String>,
-    /// For a notice of cache misses: the misses it tells of, the first and those added to it since.
+    /// For a message of cache misses: the misses it tells of, the first and those added to it since.
     pub misses: Option<Misses>,
-    /// For a notice of a fault of wf-agents: the architects it was forwarded to, in the order it went; none for
+    /// For a message of a fault of wf-agents: the architects it was passed on to, in the order it went; none for
     /// another entry.
-    pub forwards: Vec<Forwarded>,
+    pub passed: Vec<Passed>,
     /// The images the owner sent with the owner's words it holds, by their ids, in order; each is read at
     /// `/api/v1/attachments/<id>`. Empty for anything else.
     pub images: Vec<i64>,
@@ -1527,8 +1510,9 @@ pub struct ConversationDetail {
     pub waits_on: Option<i64>,
     /// The time of the latest entry the owner read; none before the first.
     pub read_to: Option<i64>,
-    /// For wf-agents' own conversation: where its faults can go; none for another.
-    pub forwarding: Option<Forwarding>,
+    /// For wf-agents' own conversation: the project whose architect its faults may be passed on to, the project
+    /// wf-agents is built from; none for another conversation, or when the configuration has no such project.
+    pub pass_to: Option<String>,
     /// What `entries` leaves out: the runs of entries not given, each by the entry it comes before; empty when every
     /// entry is given.
     pub gaps: Vec<Gap>,

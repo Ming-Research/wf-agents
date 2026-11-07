@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::Engine;
 use crate::command::run_command;
-use crate::hub::Failure;
+use crate::github::Failure;
 use crate::tools::{attempts, inline_or_saved};
 use crate::work::{RoundId, Work};
 

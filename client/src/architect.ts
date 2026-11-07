@@ -69,7 +69,7 @@ const FAILURES: Record<string, Key> = {
 /// place to set straight and of a failure. An engineer's question carries no kind; one queued with a kind before asks
 /// lost their kinds is named without it.
 export function matterKind(kind: string, detail: string | null): string {
-  // A fault of wf-agents the owner forwarded comes as a report, and is looked into rather than gone through.
+  // A fault of wf-agents the owner passed on comes as a report, and is looked into rather than gone through.
   if (kind === 'report' && detail === 'fault') return t('matter_kind_fault');
   const key = MATTER_KINDS[kind];
   const name = key !== undefined ? t(key) : words(kind);
