@@ -276,7 +276,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
                 "SELECT count(*),
                    min(coalesce((SELECT min(n.at) FROM messages n WHERE n.ask = a.id),
                      r.started_at))
-                 FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.answer IS NULL",
+                 FROM work_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.answer IS NULL",
             )?,
             // A decision card waits from the end of the round that handed it in.
             design_cards: waiting(
@@ -1154,7 +1154,7 @@ mod tests {
                  VALUES (1, 2, 'engineer', '[{\"part\":\"--json-schema\"}]', 90, 100, 0.5, NULL)",
                 &[],
             )?;
-            run("INSERT INTO owner_asks (work, round, body) VALUES (1, 2, '{}')", &[])?;
+            run("INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 1, 2, '', '{}', 0)", &[])?;
             run(
                 "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'owner_words', 'Look', '{}', ?1)",
                 &[&at(1)],

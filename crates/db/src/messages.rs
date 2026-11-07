@@ -1,9 +1,10 @@
 //! The message hub's tables: `messages`, each message written once, and `deliveries`, each recipient it went to and
 //! what became of it there. A fault of wf-agents goes to the flow's keeper; what is said to a line of a work, to that
 //! line, which a round of the work takes; every other message to the owner. A fault is passed on from the keeper to a
-//! project's architect as a matter of its queue. The engine writes what it and the agents' returns say, and the owner's
-//! operations what the owner says, each in the transaction of what made it; the owner's operations mark what the owner
-//! read and pass faults on.
+//! project's architect as a matter of its queue. An ask of the owner is a message too, which waits for its answer. The
+//! engine writes what it and the agents' returns say and ask, and the owner's operations what the owner says and
+//! answers, each in the transaction of what made it, all through this module; the owner's operations mark what the
+//! owner read and pass faults on.
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::Value;
@@ -66,11 +67,18 @@ pub struct Message<'a> {
     pub ask: Option<i64>,
 }
 
-/// Writes a message once, now, as every saying is written; gives it. Its deliveries are the caller's.
-fn write(tx: &Transaction<'_>, m: &Message<'_>) -> Result<i64> {
+/// The kind of a message that says something, needing no answer (`messages.kind`).
+const SAY: &str = "say";
+/// The kind of a message that asks the owner, waiting for an answer.
+const ASK: &str = "ask";
+
+/// Writes a message of `kind` once, now, as every saying and every ask is written; gives it. Its deliveries are the
+/// caller's.
+fn write(tx: &Transaction<'_>, kind: &str, m: &Message<'_>) -> Result<i64> {
     tx.execute(
-        "INSERT INTO messages (sender, work, round, text, body, ask, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO messages (kind, sender, work, round, text, body, ask, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
+            kind,
             m.sender.as_str(),
             m.work,
             m.round,
@@ -85,7 +93,7 @@ fn write(tx: &Transaction<'_>, m: &Message<'_>) -> Result<i64> {
 
 /// Sends a message now: written once, and delivered to `to`. Gives the message.
 pub fn send(tx: &Transaction<'_>, m: &Message<'_>, to: Recipient) -> Result<i64> {
-    let id = write(tx, m)?;
+    let id = write(tx, SAY, m)?;
     tx.execute(
         "INSERT INTO deliveries (message, recipient) VALUES (?1, ?2)",
         params![id, to.as_str()],
@@ -161,7 +169,7 @@ pub fn say_to_line(tx: &Transaction<'_>, s: &ToLine<'_>, matter: Option<i64>) ->
         body: s.body(),
         ask: None,
     };
-    let id = write(tx, &m)?;
+    let id = write(tx, SAY, &m)?;
     tx.execute(
         "INSERT INTO deliveries (message, recipient, line) VALUES (?1, 'line', ?2)",
         params![id, s.line],
@@ -200,6 +208,70 @@ pub fn untake(tx: &Transaction<'_>, work: i64, round: i64) -> Result<usize> {
          WHERE recipient = 'line' AND taken_work = ?1 AND taken_round = ?2",
         params![work, round],
     )?)
+}
+
+/// Puts an ask of the owner: put by round `round` of `work`, asking what `body` holds (whom it asks, the work and item,
+/// and what the asking cell handed in), whose question in words, where it has one (`question`), is the message's text.
+/// Who asks is the work's line, an engineer's or an architect's. The one way an ask is made, whoever makes it: the
+/// engine's approvals as much as an agent's questions. Gives the ask.
+pub fn ask(tx: &Transaction<'_>, work: i64, round: i64, body: &Value) -> Result<i64> {
+    let graph: Option<String> = tx
+        .query_row("SELECT graph FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .optional()?;
+    let Some(graph) = graph else {
+        return Err(Error::Abort(format!("there is no work {work} to ask the owner")));
+    };
+    let m = Message {
+        sender: if graph == "engineer" {
+            Sender::Engineer
+        } else {
+            Sender::Architect
+        },
+        work: Some(work),
+        round: Some(round),
+        text: body["question"].as_str().unwrap_or_default(),
+        body: Some(body.clone()),
+        ask: None,
+    };
+    write(tx, ASK, &m)
+}
+
+/// Gives an ask its answer, as whoever answers it wrote it (`messages.answer`); gives whether there was such an ask.
+pub fn answer(tx: &Transaction<'_>, ask: i64, answer: &Value) -> Result<bool> {
+    let n = tx.execute(
+        "UPDATE messages SET answer = ?2 WHERE id = ?1 AND kind = 'ask'",
+        params![ask, answer.to_string()],
+    )?;
+    Ok(n > 0)
+}
+
+/// Gives an ask its answer while it has none; gives whether it had none.
+pub fn answer_if_open(tx: &Transaction<'_>, ask: i64, answer: &Value) -> Result<bool> {
+    let n = tx.execute(
+        "UPDATE messages SET answer = ?2 WHERE id = ?1 AND kind = 'ask' AND answer IS NULL",
+        params![ask, answer.to_string()],
+    )?;
+    Ok(n > 0)
+}
+
+/// Gives every ask that `work` put, or that its round `round` put, and that has no answer, the same answer, as the
+/// engine closes the asks of a work that ended or of a round it cut; gives how many it answered.
+pub fn answer_open_asks(tx: &Transaction<'_>, work: i64, round: Option<i64>, answer: &Value) -> Result<usize> {
+    Ok(tx.execute(
+        "UPDATE messages SET answer = ?3
+         WHERE kind = 'ask' AND work = ?1 AND (?2 IS NULL OR round = ?2) AND answer IS NULL",
+        params![work, round, answer.to_string()],
+    )?)
+}
+
+/// Marks in an ask that its answer was relayed to its work's engineer, at `at` (`relayed` in its body), so that the
+/// answer is relayed once.
+pub fn relayed(tx: &Transaction<'_>, ask: i64, at: i64) -> Result<()> {
+    tx.execute(
+        "UPDATE messages SET body = json_set(body, '$.relayed', ?2) WHERE id = ?1 AND kind = 'ask'",
+        params![ask, at],
+    )?;
+    Ok(())
 }
 
 /// Passes a fault of wf-agents, a message the flow's keeper received, on to a project's architect, as the owner: a

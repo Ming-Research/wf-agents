@@ -3981,8 +3981,8 @@
         "layer": "round",
         "desc": "What a round asked the owner, and the answer",
         "relations": [
-          "owner_asks",
-          "item_asks"
+          "item_asks",
+          "work_asks"
         ],
         "inputs": [
           "owner_answer"

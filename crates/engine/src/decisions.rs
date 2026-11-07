@@ -184,7 +184,7 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
         "ask" => {
             let row: Option<(Option<String>, Option<String>, Option<String>)> = conn
                 .query_row(
-                    "SELECT a.answer, w.project, i.project FROM owner_asks a JOIN works w ON w.id = a.work
+                    "SELECT a.answer, w.project, i.project FROM work_asks a JOIN works w ON w.id = a.work
                      LEFT JOIN items i ON i.id = w.item WHERE a.id = ?1",
                     [id],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -675,8 +675,9 @@ mod tests {
     /// A database with a project's records a decision may quote: matter 1 the owner's words said at the page, 2 the same
     /// said by a delegate, 3 words kept before who speaks was declared, 4 the answer to an open question, 5 the words
     /// of another project, 6 words of the engine's note, 7 to 10 questions of an engineer or an open question (see
-    /// below), ask 1 answered by the owner with an item's work, ask 2 answered with no time kept, and interjections 1
-    /// and 2 said to that work's engineer alone, by a delegate and with no speaker kept.
+    /// below), ask 1 answered by the owner with an item's work, ask 2 answered with no time kept, and interjections 4
+    /// and 5 said to that work's engineer alone, by a delegate and with no speaker kept: the hub numbers its asks and
+    /// the words said to a line as one.
     fn records() -> Db {
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Engine, |tx| {
@@ -703,7 +704,7 @@ mod tests {
             matter("p", "open_question", "", r#"{"question":"Which?","answer":"Yes."}"#, day)?;
             // 11: words a delegate said, one part of them declared the owner's own; 12: an engineer's question the
             // owner answered through a delegate, with a part declared; 13: the words a delegate said to the architect,
-            // which interjection 4 copies to the engineer.
+            // which interjection 7 copies to the engineer.
             matter("p", "owner_words", "said", r#"{"text":"Yes. Keep the parser small. Then ship it.","where":"page","speaker":"delegate","relayed":["Keep the parser small."]}"#, day)?;
             matter("p", "engineer_question", "split", "{}", day)?;
             matter("p", "owner_words", "said", r#"{"text":"Hold the merge. Then ask me.","where":"work","work":1,"speaker":"delegate","relayed":["Hold the merge."]}"#, day)?;
@@ -730,16 +731,16 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}', ?1)",
+                "INSERT INTO messages (kind, sender, work, round, text, body, answer, at) VALUES ('ask', 'engineer', 1, 1, '', '{}', ?1, 0)",
                 [format!(r#"{{"by":"owner","at":{day},"text":"Keep the old name.","speaker":"owner"}}"#)],
             )?;
-            // Ask 2 has no time kept; interjection 1 was said by a delegate to the engineer alone, 2 with no speaker kept.
+            // Ask 2 has no time kept; interjection 4 was said by a delegate to the engineer alone, 5 with no speaker kept.
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}', ?1)",
+                "INSERT INTO messages (kind, sender, work, round, text, body, answer, at) VALUES ('ask', 'engineer', 1, 1, '', '{}', ?1, 0)",
                 [r#"{"by":"owner","text":"No time.","speaker":"owner"}"#],
             )?;
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}', ?1)",
+                "INSERT INTO messages (kind, sender, work, round, text, body, answer, at) VALUES ('ask', 'engineer', 1, 1, '', '{}', ?1, 0)",
                 [format!(r#"{{"by":"owner","at":{day},"text":"Approved. Go on.","speaker":"delegate","relayed":["Go on."]}}"#)],
             )?;
             fn owner(text: &str) -> db::ToLine<'_> {
@@ -754,7 +755,7 @@ mod tests {
                 None,
             )?;
             db::say_to_line(tx, &owner("Old words to the engineer."), None)?;
-            // Interjection 3 is said to the engineer alone with a part declared; 4 is the copy of matter 13's words.
+            // Interjection 6 is said to the engineer alone with a part declared; 7 is the copy of matter 13's words.
             db::say_to_line(
                 tx,
                 &db::ToLine {
@@ -843,8 +844,8 @@ mod tests {
             resolve(db.conn(), "p", &decision(&[(from, id, quote)]), "architect", None).map(|r| head_source(&r))
         };
         assert_eq!(who("matter", 7, "in two"), Ok("delegate"));
-        assert_eq!(who("interjection", 1, "to the engineer"), Ok("delegate"));
-        assert_eq!(who("interjection", 2, "Old words"), Ok("unrecorded"));
+        assert_eq!(who("interjection", 4, "to the engineer"), Ok("delegate"));
+        assert_eq!(who("interjection", 5, "Old words"), Ok("unrecorded"));
         let refused = |from: &str, id: i64| {
             resolve(db.conn(), "p", &decision(&[(from, id, "x")]), "architect", None)
                 .unwrap_err()
@@ -895,10 +896,10 @@ mod tests {
         assert_eq!(sources(&[("matter", 12, "Split it.")]), ["delegate"]);
         assert_eq!(sources(&[("ask", 3, "Go on.")]), [relayed]);
         assert_eq!(sources(&[("ask", 3, "Approved.")]), ["delegate"]);
-        assert_eq!(sources(&[("interjection", 3, "Hold it.")]), [relayed]);
-        assert_eq!(sources(&[("interjection", 3, "Fine.")]), ["delegate"]);
-        assert_eq!(sources(&[("interjection", 4, "Hold the merge.")]), [relayed]);
-        assert_eq!(sources(&[("interjection", 4, "Then ask me.")]), ["delegate"]);
+        assert_eq!(sources(&[("interjection", 6, "Hold it.")]), [relayed]);
+        assert_eq!(sources(&[("interjection", 6, "Fine.")]), ["delegate"]);
+        assert_eq!(sources(&[("interjection", 7, "Hold the merge.")]), [relayed]);
+        assert_eq!(sources(&[("interjection", 7, "Then ask me.")]), ["delegate"]);
         // Words nobody declared a delegate's own, the owner's at the page and words kept before who spoke was declared
         // have no relayed part, whatever they hold.
         let owner = Record {

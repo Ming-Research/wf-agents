@@ -419,7 +419,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
     assert_eq!(question_took(&e, work), None, "{log}");
     let asks: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
+            .query_row("SELECT count(*) FROM work_asks WHERE work = ?1", [work], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0, "{log}");
     let detail: Option<String> =
@@ -481,7 +481,7 @@ fn a_choice_only_the_owner_can_make_is_an_open_question_and_the_work_goes_on() {
     assert_eq!(paused_by(&e, work), None, "{log}");
     let asks: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
+            .query_row("SELECT count(*) FROM work_asks WHERE work = ?1", [work], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -571,7 +571,7 @@ fn a_flow_anomaly_at_choosing_the_way_on_reaches_the_architect() {
     assert_eq!((cell.as_str(), holder.as_str()), ("A4", "architect"), "{log}");
     let asks: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
+            .query_row("SELECT count(*) FROM work_asks WHERE work = ?1", [work], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);

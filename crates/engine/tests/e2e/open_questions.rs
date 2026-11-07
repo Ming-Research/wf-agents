@@ -25,7 +25,7 @@ fn an_engineer_s_question_cannot_be_pinned_for_the_owner() {
     assert!(sent_back[0].contains("cannot be parked for the owner"), "{sent_back:?}");
     let asks: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
+            .query_row("SELECT count(*) FROM work_asks", [], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0, "{log}");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");

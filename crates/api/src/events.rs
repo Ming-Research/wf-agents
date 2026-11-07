@@ -20,19 +20,22 @@ fn round(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
     .ok()
 }
 
-/// The event of a message, found by `sql` from a row's rowid: the work's, for what is said to one of its lines; the
-/// owner's message's, for any other.
+/// The event of a message, found by `sql` from a row's rowid: the ask's, for an ask of the owner, put or answered;
+/// the work's, for what is said to one of its lines; the owner's message's, for any other.
 fn said(conn: &Connection, sql: &str, rowid: i64) -> Option<Event> {
     let message = one(conn, sql, rowid)?;
     conn.query_row(
-        "SELECT m.work, EXISTS (SELECT 1 FROM deliveries d WHERE d.message = m.id AND d.recipient = 'line')
+        "SELECT m.work, m.kind = 'ask',
+                EXISTS (SELECT 1 FROM deliveries d WHERE d.message = m.id AND d.recipient = 'line')
          FROM messages m WHERE m.id = ?1",
         [message],
         |r| {
             let work: Option<i64> = r.get(0)?;
-            let to_line: bool = r.get(1)?;
-            Ok(match (to_line, work) {
-                (true, Some(work)) => Event::Work { work },
+            let ask: bool = r.get(1)?;
+            let to_line: bool = r.get(2)?;
+            Ok(match (ask, to_line, work) {
+                (true, _, _) => Event::Ask { ask: message, work },
+                (_, true, Some(work)) => Event::Work { work },
                 _ => Event::OwnerMessage { message, work },
             })
         },
@@ -69,11 +72,7 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 design_card: id,
                 work: one(conn, "SELECT work FROM design_cards WHERE id = ?1", id),
             }),
-            "owner_asks" => Some(Event::Ask {
-                ask: id,
-                work: one(conn, "SELECT work FROM owner_asks WHERE id = ?1", id),
-            }),
-            // What is said to a work's line is the work's; any other message is the owner's to read.
+            // An ask is the ask's; what is said to a work's line is the work's; any other message is the owner's.
             "messages" => said(conn, "SELECT id FROM messages WHERE id = ?1", id),
             // A message read, passed on, or taken by a round.
             "deliveries" => said(conn, "SELECT message FROM deliveries WHERE id = ?1", id),
@@ -142,7 +141,7 @@ mod tests {
                     "INSERT INTO tool_runs (work, round, tool, args, attempt, queued_at) VALUES (1, 3, 'gh', '{}', 1, 1)",
                     [],
                 )?;
-                tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (1, 3, '{}')", [])?;
+                db::ask(tx, 1, 3, &serde_json::json!({}))?;
                 Ok(())
             })
             .unwrap();
@@ -155,7 +154,7 @@ mod tests {
             touched("rounds", 1),
             touched("tool_runs", 1),
             touched("works", 1),
-            touched("owner_asks", 1),
+            touched("messages", 1),
             touched("items", 1),
             touched("flow_versions", 1),
             touched("outbox", 1),

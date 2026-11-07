@@ -258,13 +258,18 @@ fn withdraw_superseded(tx: &Transaction<'_>, design: RoundId) -> Result<Vec<Stri
     }
     for a in stale.iter().filter_map(|(_, a)| *a) {
         let answer = json!({ "by": "engine", "at": db::now(), "text": format!("No answer is needed: {why}.") });
-        tx.execute(
-            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1 AND answer IS NULL AND NOT EXISTS (
-               SELECT 1 FROM architect_matters m WHERE m.asked = ?1
-                 AND json_extract(m.body, '$.answer') IS NULL AND m.withdrawn IS NULL)",
-            params![a, answer.to_string()],
-        )
-        .map_err(sql)?;
+        // An ask another open question still waits on stays open.
+        let awaited: bool = tx
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM architect_matters m WHERE m.asked = ?1
+                   AND json_extract(m.body, '$.answer') IS NULL AND m.withdrawn IS NULL)",
+                [a],
+                |r| r.get(0),
+            )
+            .map_err(sql)?;
+        if !awaited {
+            db::answer_if_open(tx, a, &answer).map_err(sql)?;
+        }
     }
     Ok(stale.iter().map(|(m, _)| m.to_string()).collect())
 }
@@ -415,7 +420,7 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
         .map_err(sql)?;
     let owner: Option<(i64, String)> = tx
         .query_row(
-            "SELECT a.id, coalesce(json_extract(a.answer, '$.text'), '') FROM owner_asks a
+            "SELECT a.id, coalesce(json_extract(a.answer, '$.text'), '') FROM work_asks a
              WHERE a.answer IS NOT NULL AND json_extract(a.body, '$.kind') = 'question'
                AND EXISTS (SELECT 1 FROM json_each(a.body, '$.holds') h WHERE h.value = ?1)
              ORDER BY a.id DESC LIMIT 1",

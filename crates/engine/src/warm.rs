@@ -126,7 +126,7 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
             let open = work::open_round(conn, w.id)?.map(|r| r.id);
             let ask: Option<i64> = open.and_then(|r| {
                 conn.query_row(
-                    "SELECT id FROM owner_asks WHERE work = ?1 AND round = ?2",
+                    "SELECT id FROM work_asks WHERE work = ?1 AND round = ?2",
                     params![r.work, r.n],
                     |x| x.get(0),
                 )

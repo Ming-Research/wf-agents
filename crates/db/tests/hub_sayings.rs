@@ -139,7 +139,8 @@ fn the_migration_carries_every_saying_over_as_it_stood() {
                 Value::Null,
                 text("The engineer asks you."),
                 Value::Null,
-                Value::Integer(1),
+                // The ask, by the number it took among the hub's messages once asks became messages.
+                Value::Integer(6),
                 Value::Integer(27),
                 text("owner"),
                 Value::Null

@@ -417,7 +417,7 @@ pub fn status(data: &Path) -> Result<String, String> {
     show(
         data,
         "SELECT w.id AS work, w.item, i.title, w.at, w.pr, w.paused, w.ended,
-                (SELECT group_concat(a.id) FROM owner_asks a WHERE a.work = w.id AND a.answer IS NULL) AS open_asks,
+                (SELECT group_concat(a.id) FROM work_asks a WHERE a.work = w.id AND a.answer IS NULL) AS open_asks,
                 (SELECT group_concat(c.id) FROM design_cards c
                  WHERE c.work = w.id AND c.status = 'open') AS open_design_cards,
                 (SELECT count(*) FROM line_sayings x WHERE x.work = w.id AND x.taken_round IS NULL) AS waiting_says,
@@ -433,7 +433,7 @@ pub fn status(data: &Path) -> Result<String, String> {
 pub fn asks(data: &Path, all: bool) -> Result<String, String> {
     let q = format!(
         "SELECT a.id AS ask, a.work, 'R' || a.work || '-' || a.round AS round, w.item, r.cell, a.body, a.answer
-         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work {}
+         FROM work_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work {}
          ORDER BY a.id",
         if all { "" } else { "WHERE a.answer IS NULL" }
     );
@@ -445,7 +445,7 @@ pub fn ask(data: &Path, id: i64) -> Result<String, String> {
     let rows = query_json(
         db.conn(),
         "SELECT a.id AS ask, a.work, 'R' || a.work || '-' || a.round AS round, r.cell, a.body, a.answer
-         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.id = ?1",
+         FROM work_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.id = ?1",
         &[&id],
         1,
     )?;

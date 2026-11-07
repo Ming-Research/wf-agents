@@ -532,7 +532,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
             e.db.write(Actor::Engine, |tx| {
                 let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [arch], |r| r.get(0))?;
                 tx.execute(
-                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                    "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', ?1, ?2, '', '{\"to\":\"owner\"}', 0)",
                     [arch, round],
                 )?;
                 Ok(tx.last_insert_rowid())
@@ -569,7 +569,7 @@ fn an_architect_work_brought_up_at_the_second_eye_makes_its_changes_and_keeps_it
         assert!(cancelled.is_some(), "{log}");
         let answer: Option<String> =
             e.db.conn()
-                .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+                .query_row("SELECT answer FROM work_asks WHERE id = ?1", [ask], |r| r.get(0))
                 .unwrap();
         assert_eq!(answer, None, "{log}");
         let answer = api::Answer {
@@ -828,7 +828,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
         e.db.write(Actor::Engine, |tx| {
             let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [arch], |r| r.get(0))?;
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', ?1, ?2, '', '{\"to\":\"owner\"}', 0)",
                 [arch, round],
             )?;
             Ok(tx.last_insert_rowid())
@@ -906,7 +906,7 @@ fn an_architect_work_the_version_can_take_on_nowhere_ends_and_a_new_one_takes_it
     );
     let answer: Option<String> =
         e.db.conn()
-            .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
+            .query_row("SELECT answer FROM work_asks WHERE id = ?1", [ask], |r| r.get(0))
             .unwrap();
     assert_eq!(answer, None, "{log}");
     // A new work of the architect takes it and handles it: the item is cancelled, once.
@@ -1328,7 +1328,7 @@ fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes
             let mut asks = Vec::new();
             for _ in 0..2 {
                 tx.execute(
-                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\": \"owner\"}')",
+                    "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', ?1, ?2, '', '{\"to\": \"owner\"}', 0)",
                     [old, round],
                 )?;
                 asks.push(tx.last_insert_rowid());
@@ -1385,7 +1385,7 @@ fn a_new_flow_version_moves_a_work_whose_cell_changed_its_rows_when_it_next_goes
     let by = |e: &Engine, ask: i64| -> Option<String> {
         e.db.conn()
             .query_row(
-                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                "SELECT json_extract(answer, '$.by') FROM work_asks WHERE id = ?1",
                 [ask],
                 |r| r.get(0),
             )
@@ -1439,7 +1439,7 @@ fn a_work_at_a_cell_the_version_lacks_goes_back_through_v1_to_where_it_stopped()
                 [work, round],
             )?;
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', ?1, ?2, '', '{\"to\":\"owner\"}', 0)",
                 [work, round],
             )?;
             Ok(tx.last_insert_rowid())
@@ -1462,7 +1462,7 @@ fn a_work_at_a_cell_the_version_lacks_goes_back_through_v1_to_where_it_stopped()
     let (by, text): (Option<String>, Option<String>) =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(answer, '$.by'), json_extract(answer, '$.text') FROM owner_asks WHERE id = ?1",
+                "SELECT json_extract(answer, '$.by'), json_extract(answer, '$.text') FROM work_asks WHERE id = ?1",
                 [ask],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )

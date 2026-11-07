@@ -275,7 +275,7 @@ fn an_expired_login_stops_every_work_until_a_round_runs_again() {
     assert_eq!(sent_back(&e), 0);
     let asks: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
+            .query_row("SELECT count(*) FROM work_asks", [], |r| r.get(0))
             .unwrap();
     assert_eq!(asks, 0);
     let _ = std::fs::remove_dir_all(&s.root);

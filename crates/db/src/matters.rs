@@ -93,7 +93,7 @@ pub fn appended_since(conn: &Connection, project: &str, since: i64) -> rusqlite:
     }
     let mut st = conn.prepare(
         "SELECT c.at, c.sender, c.recipient, c.text, json_extract(a.answer, '$.text'), json_extract(a.answer, '$.at')
-         FROM conversation_shown c LEFT JOIN owner_asks a ON c.source = 'ask' AND a.id = c.id
+         FROM conversation_shown c LEFT JOIN work_asks a ON c.source = 'ask' AND a.id = c.id
          WHERE (c.conversation = 'architect:' || ?1
                 OR (c.conversation LIKE 'work:%' AND c.project = ?1
                     AND (c.sender = 'owner' OR (c.sender = 'architect' AND c.recipient = 'owner'))))

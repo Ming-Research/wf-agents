@@ -394,7 +394,7 @@ pub fn reply_to_question(
     let asked: Option<(String, Option<String>, String, Option<String>)> = db
         .conn()
         .query_row(
-            "SELECT a.body, a.answer, w.graph, w.project FROM owner_asks a JOIN works w ON w.id = a.work
+            "SELECT a.body, a.answer, w.graph, w.project FROM work_asks a JOIN works w ON w.id = a.work
              WHERE a.id = ?1",
             [ask],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
@@ -428,10 +428,7 @@ pub fn reply_to_question(
         text,
     )?;
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
-            params![ask, answer.to_string()],
-        )?;
+        db::answer(tx, ask, &answer)?;
         attachments::attach(tx, Words::Ask(ask), images)?;
         if parked.is_none() {
             let m = Matter {
@@ -505,10 +502,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
             };
             let said = speaker.record(json!({ "ask": asked, "answer": text, "owner_ask": ask }), text)?;
             db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
-                    params![ask, answer.to_string()],
-                )?;
+                db::answer(tx, ask, &answer)?;
                 attachments::attach(tx, Words::Ask(ask), images)?;
                 if open {
                     let project = match body["project"].as_str() {
@@ -542,7 +536,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
 pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     let asked: Option<(String, Option<String>)> = db
         .conn()
-        .query_row("SELECT body, answer FROM owner_asks WHERE id = ?1", [ask], |r| {
+        .query_row("SELECT body, answer FROM work_asks WHERE id = ?1", [ask], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })
         .optional()
@@ -581,10 +575,7 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     }
     let relay = relayed_words(db.conn(), ask, &body, &a.text)?;
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
-            params![ask, answer.to_string()],
-        )?;
+        db::answer(tx, ask, &answer)?;
         attachments::attach(tx, Words::Ask(ask), &images)?;
         if let Some((work, text)) = &relay {
             let declared = answer["speaker"]
@@ -595,10 +586,7 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
                 ..db::ToLine::new(db::Sender::Engine, *work, "engineer", text)
             };
             db::say_to_line(tx, &relay, None)?;
-            tx.execute(
-                "UPDATE owner_asks SET body = json_set(body, '$.relayed', ?2) WHERE id = ?1",
-                params![ask, db::now()],
-            )?;
+            db::relayed(tx, ask, db::now())?;
         }
         Ok(())
     })
@@ -1111,7 +1099,7 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"to\": \"owner\"}')",
+                "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 1, 1, '', '{\"to\": \"owner\"}', 0)",
                 [],
             )?;
             tx.execute(
@@ -1593,7 +1581,7 @@ mod tests {
         assert_eq!(answer(&mut db, 1, &a).unwrap(), "ask 1 answered");
         let got: String = db
             .conn()
-            .query_row("SELECT answer FROM owner_asks WHERE id = 1", [], |r| r.get(0))
+            .query_row("SELECT answer FROM work_asks WHERE id = 1", [], |r| r.get(0))
             .unwrap();
         let got: Value = serde_json::from_str(&got).unwrap();
         assert_eq!(
@@ -1795,7 +1783,7 @@ mod tests {
                     [],
                 )?;
             }
-            tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (9, 1, ?1)", [body.to_string()])?;
+            tx.execute("INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 9, 1, '', ?1, 0)", [body.to_string()])?;
             Ok(tx.last_insert_rowid())
         })
         .unwrap()
@@ -1950,9 +1938,9 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES
-                 (2, 1, '{\"from\":\"architect\",\"project\":\"p\",\"kind\":\"question\",\"question\":\"Which?\"}'),
-                 (2, 1, '{\"from\":\"architect\",\"project\":\"p\",\"kind\":\"open\",\"choice\":\"Which?\"}')",
+                "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES
+                 ('ask', 'engineer', 2, 1, '', '{\"from\":\"architect\",\"project\":\"p\",\"kind\":\"question\",\"question\":\"Which?\"}', 0),
+                 ('ask', 'engineer', 2, 1, '', '{\"from\":\"architect\",\"project\":\"p\",\"kind\":\"open\",\"choice\":\"Which?\"}', 0)",
                 [],
             )?;
             Ok(())
@@ -2039,7 +2027,7 @@ mod tests {
             [Some("delegate".to_string()), Some("owner".to_string())]
         );
         assert_eq!(
-            one("SELECT json_extract(answer, '$.speaker') FROM owner_asks ORDER BY id"),
+            one("SELECT json_extract(answer, '$.speaker') FROM work_asks ORDER BY id"),
             [
                 Some("delegate".to_string()),
                 Some("delegate".to_string()),
@@ -2098,7 +2086,7 @@ mod tests {
         assert_eq!(kept, r#"["Keep it."] ["Go."] ["Stop."] ["Done."]"#);
         let alone = "SELECT relayed FROM line_sayings WHERE matter IS NULL ORDER BY id";
         assert_eq!(one(&db, alone), r#"["Hold it."]"#);
-        let asks = "SELECT json_extract(answer, '$.relayed') FROM owner_asks ORDER BY id";
+        let asks = "SELECT json_extract(answer, '$.relayed') FROM work_asks ORDER BY id";
         assert_eq!(one(&db, asks), r#"["Do it."] ["Stop."] ["Done."]"#);
         // A part the words do not hold, or one the owner declares, is refused wherever the words go, and nothing is kept.
         let wrong = said("architect", "Fine. Keep it.", &["Keep that."]);

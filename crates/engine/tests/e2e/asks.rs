@@ -110,7 +110,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let pinned: (String, String) =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(body, '$.kind'), json_extract(body, '$.question') FROM owner_asks WHERE id = ?1",
+                "SELECT json_extract(body, '$.kind'), json_extract(body, '$.question') FROM work_asks WHERE id = ?1",
                 [ask],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -284,7 +284,7 @@ fn a_question_parks_its_matter_and_a_reply_to_a_closed_question_is_the_owner_s_w
     let pending = |e: &Engine| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM owner_asks a JOIN architect_matters m ON m.asked = a.id
+                "SELECT count(*) FROM work_asks a JOIN architect_matters m ON m.asked = a.id
                  WHERE a.answer IS NULL AND m.handled_round IS NULL AND m.withdrawn IS NULL",
                 [],
                 |r| r.get(0),

@@ -339,7 +339,7 @@ fn words_in_the_architect_s_queue_come_back_until_it_picks_them() {
             [],
         )?;
         tx.execute(
-            "INSERT INTO owner_asks (id, work, round, body) VALUES (1, 2, 1, '{}')",
+            "INSERT INTO messages (kind, sender, work, round, text, body, at) VALUES ('ask', 'engineer', 2, 1, '', '{}', 0)",
             [],
         )?;
         tx.execute(

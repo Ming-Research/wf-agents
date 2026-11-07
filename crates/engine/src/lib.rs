@@ -642,10 +642,7 @@ impl Engine {
                         let answer = serde_json::json!({
                             "by": "engine", "at": db::now(), "text": format!("No answer is needed: {left}."),
                         });
-                        tx.execute(
-                            "UPDATE owner_asks SET answer = ?3 WHERE work = ?1 AND round = ?2 AND answer IS NULL",
-                            params![id, r.id.n, answer.to_string()],
-                        )?;
+                        db::answer_open_asks(tx, id, Some(r.id.n), &answer)?;
                     }
                 }
                 blockers::end_of(tx, id, &left).map_err(db::Error::Abort)?;

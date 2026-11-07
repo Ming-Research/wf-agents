@@ -173,7 +173,7 @@ fn what_is_asked_of_the_owner_and_answered_is_read_after_the_base() {
     );
     let ask: i64 =
         e.db.conn()
-            .query_row("SELECT id FROM owner_asks WHERE answer IS NULL", [], |r| r.get(0))
+            .query_row("SELECT id FROM work_asks WHERE answer IS NULL", [], |r| r.get(0))
             .unwrap();
     api::reply_to_question(&mut e.db, "p", ask, "Yes. ANSWERWORDS", &[], db::Speaker::Owner).unwrap();
     let again = e.step(None).unwrap().work.unwrap();

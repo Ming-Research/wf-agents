@@ -280,11 +280,7 @@ pub fn withdraw(tx: &Transaction<'_>, id: i64, why: &str) -> Result<(), String> 
     }
     if let Some(a) = b.ask {
         let answer = json!({ "by": "engine", "at": db::now(), "text": format!("No answer is needed: {why}.") });
-        tx.execute(
-            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1 AND answer IS NULL",
-            params![a, answer.to_string()],
-        )
-        .map_err(sql)?;
+        db::answer_if_open(tx, a, &answer).map_err(sql)?;
     }
     Ok(())
 }

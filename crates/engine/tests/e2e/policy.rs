@@ -6,7 +6,7 @@ use super::*;
 fn question_now(e: &Engine) -> (i64, String) {
     e.db.conn()
         .query_row(
-            "SELECT id, json_extract(body, '$.question') FROM owner_asks WHERE answer IS NULL ORDER BY id DESC LIMIT 1",
+            "SELECT id, json_extract(body, '$.question') FROM work_asks WHERE answer IS NULL ORDER BY id DESC LIMIT 1",
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -64,7 +64,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     assert_eq!(text, "Approve this policy? Reply exactly: approved");
     let pinned: Value =
         e.db.conn()
-            .query_row("SELECT body FROM owner_asks WHERE id = ?1", [approval], |r| {
+            .query_row("SELECT body FROM work_asks WHERE id = ?1", [approval], |r| {
                 r.get::<_, String>(0)
             })
             .map(|b| serde_json::from_str(&b).unwrap())

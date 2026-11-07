@@ -129,7 +129,7 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
     // unread until the owner reads it: what the members say to each other is no news the owner must come to.
     let mut st = conn.prepare(
         "SELECT conversation, at, sender, waiting, fault IS NOT NULL,
-                source = 'ask' AND id IN (SELECT id FROM owner_asks WHERE answer IS NOT NULL), recipient = 'owner'
+                source = 'ask' AND id IN (SELECT id FROM work_asks WHERE answer IS NOT NULL), recipient = 'owner'
          FROM conversation_shown",
     )?;
     let rows = st.query_map([], |r| {
@@ -493,7 +493,7 @@ fn words_now(conn: &Connection, architects: &mut HashMap<String, WithWords>, mat
         .query_row(
             "SELECT m.project, m.handled_round IS NOT NULL, m.withdrawn IS NOT NULL,
                m.asked IS NOT NULL
-                 AND NOT EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
+                 AND NOT EXISTS (SELECT 1 FROM work_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
              FROM architect_matters m WHERE m.id = ?1 AND m.kind = 'owner_words'",
             [matter],
             |r| {
@@ -1159,7 +1159,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
          SELECT * FROM (
            SELECT m.id, m.kind, m.detail, m.what, m.item, m.withdrawn, m.asked, m.handled_round IS NOT NULL,
              m.asked IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL),
+               AND NOT EXISTS (SELECT 1 FROM work_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL),
              (SELECT w.id FROM works w WHERE w.graph = 'engineer'
                 AND w.id = coalesce(m.work, CAST(json_extract(m.body, '$.work') AS INTEGER))),
              CASE WHEN m.kind = 'set_straight' THEN json_extract(m.body, '$.fix') END,
@@ -1170,7 +1170,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
                  (SELECT min(c.at) FROM changes c
                   WHERE c.table_name = 'architect_matters' AND c.row_key = json_object('id', m.id)
                     AND json_extract(c.new_row, '$.withdrawn') IS NOT NULL), m.at) END,
-               (SELECT coalesce(r.ended_at, r.started_at) FROM owner_asks a
+               (SELECT coalesce(r.ended_at, r.started_at) FROM work_asks a
                 JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.id = m.asked),
                t.at) AS shown,
              t.at
