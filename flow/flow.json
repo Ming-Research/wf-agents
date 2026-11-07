@@ -718,56 +718,27 @@
       "optional": true,
       "desc": "Only when the design chose no dedicated adversarial testing; not when the design chose some. When the implementation is done, one row per acceptance condition, naming the test, measurement, CI job or reading of the diff that meets it, none left out; after a fix, only the rows that changed: the engine merges them into the previous ones"
     },
-    "deviations": {
-      "name": "deviations",
+    "design_updates": {
+      "name": "design_updates",
       "type": "list",
-      "desc": "Where this round departed from the design, one per row, in three kinds; an empty list if nowhere. Report facts only, no conclusions. The engine accumulates them over the rounds",
+      "desc": "The design as updated while implementing or fixing: each decision the code makes that neither the plan or the design nor the decisions in force record, or a detail of the design it got wrong, written as a passage of the design, one per row; every passage this cell has written in this work, earlier rounds' included, as it stands now. The reviews judge these passages with the design. An empty list when there is none",
       "item": {
-        "type": "union",
-        "by": "kind",
-        "branches": [
+        "type": "obj",
+        "fields": [
           {
-            "value": "surprise",
-            "desc": "Something differed from what the item or the research expected, without changing the approach",
-            "fields": [
-              {
-                "name": "what",
-                "type": "text",
-                "desc": "What differed"
-              }
-            ]
+            "name": "passage",
+            "type": "text",
+            "desc": "The part or step of the plan or the design it belongs to"
           },
           {
-            "value": "workaround",
-            "desc": "To make it work, you did something the design did not say",
-            "fields": [
-              {
-                "name": "what",
-                "type": "text",
-                "desc": "What you did"
-              },
-              {
-                "name": "why",
-                "type": "text",
-                "desc": "Why you had to"
-              }
-            ]
+            "name": "decision",
+            "type": "text",
+            "desc": "What the design says there now, the decision the code makes; where it said otherwise, what it said"
           },
           {
-            "value": "design_changed",
-            "desc": "The chosen approach stays, the acceptance is untouched and nothing came up that you must ask about: you changed the design yourself",
-            "fields": [
-              {
-                "name": "what",
-                "type": "text",
-                "desc": "What changed: what the design said, and what you do now"
-              },
-              {
-                "name": "why",
-                "type": "text",
-                "desc": "Why you changed it"
-              }
-            ]
+            "name": "why",
+            "type": "text",
+            "desc": "Why it is decided so"
           }
         ]
       }
@@ -6824,10 +6795,9 @@
             }
           ],
           "prompt": [
-            "Change the code by the plan or the design; change only what this work needs, nothing on the side.",
+            "Solve the item's problem as the plan or the design says, changing only what this work needs, nothing on the side. A decision the code makes that neither the plan or the design nor the decisions in force record, such as how to meet a case it did not foresee or a detail it got wrong, you write into the design in design_updates, with why; none is left in the code alone. Where the plan or the design is wrong in its direction, do not work around it: say where it does not hold, and the work goes back to research. A workaround for a problem outside this work is a side report, with a comment in the code where it stands.",
             "For behaviour that is wrong, first write a test that reproduces it, see it red on the code before the change with ci_before, then change the code until ci runs it green; a test the research left is that test, its run of ci_before, if the research made one, counting while its files are unchanged; where it cannot be reproduced, use the other evidence the research named.",
             "Every acceptance condition has a test, which the conditions name, but one written in_effect: it has none, is checked after the merge, and its row says `how: in_effect`.",
-            "Solve the item's problem as the plan or the design says: the code follows it. A decision the code makes that neither it nor the decisions in force record, such as how to meet a case it did not foresee or a detail it got wrong, you write into the design in design_written, with why; none is left in the code alone. Where the plan or the design is wrong in its direction, do not work around it: say where it does not hold, and the work goes back to research. A workaround for a problem outside this work is a side report, with a comment in the code where it stands.",
             "Before handing in, merge the latest main into the branch, resolve any conflict yourself, and run ci again: hand in only once it is green. To run CI or a measurement, commit locally and use ci or measure.",
             "Where something does not apply, write that it does not apply; do not fill it for the sake of it.",
             "Write each option the owner chose for a decision point into the project's directory of decisions, one Markdown file for each decision, in English, saying: what is done now; why, what it is for and the reasons; each option not chosen, and why not; and one line for each challenge considered and turned down: when, what change was proposed, and why it was not made. It merges with this work's pull request. Name each file in decisions_written. A decision the owner overturned is rewritten in its file, and one withdrawn deleted, the commit message saying what changed and why.",
@@ -6854,29 +6824,7 @@
               "$ref": "test_changes"
             },
             {
-              "name": "design_written",
-              "type": "list",
-              "desc": "Each decision the code makes that neither the plan or the design nor the decisions in force record, written into the design, one per row: the reviews read the design with these passages in it. An empty list when there is none",
-              "item": {
-                "type": "obj",
-                "fields": [
-                  {
-                    "name": "passage",
-                    "type": "text",
-                    "desc": "The part or step of the plan or the design it belongs to"
-                  },
-                  {
-                    "name": "decision",
-                    "type": "text",
-                    "desc": "What the design says there now, the decision the code makes; where it said otherwise, what it said"
-                  },
-                  {
-                    "name": "why",
-                    "type": "text",
-                    "desc": "Why it is decided so"
-                  }
-                ]
-              }
+              "$ref": "design_updates"
             },
             {
               "$ref": "conditions"
@@ -7122,7 +7070,7 @@
             }
           ],
           "shown": [
-            "design_written",
+            "design_updates",
             "followup",
             "conditions",
             "decisions_written",
@@ -7252,7 +7200,7 @@
               "maybe": true
             },
             {
-              "what": "What the implementation handed in: the conditions met, the passages it wrote into the design, the test changes, the decisions written and the engine checks it says the change changes",
+              "what": "What the implementation handed in: the conditions met, the design as updated while implementing: each passage implementing changed or added, with why, the test changes, the decisions written and the engine checks it says the change changes",
               "from": [
                 [
                   "I1",
@@ -7260,7 +7208,7 @@
                 ],
                 [
                   "I1",
-                  "design_written"
+                  "design_updates"
                 ],
                 [
                   "I1",
@@ -7315,7 +7263,7 @@
           ],
           "prompt": [
             "You review this work's change in two passes in this session: this one looks at the upper level, the next at the details. You are given what its engineer was given. Change no file.",
-            "This pass checks the code first against the design and the decisions in force. Does it solve the item's problem as the plan or the design says, with the passages implementing wrote into it (design_written), and to the standard the decisions in force set? The work is done once that problem is solved: what a principle it changes would call for elsewhere is not this work's. Does the code hold a decision that neither the design nor the decisions in force record? Does the code this work changed break a decision in force, wherever the decision stands, not only one the work touched? Old code elsewhere that lags behind a decision is no finding of this work's.",
+            "This pass checks the code first against the design and the decisions in force. Does it solve the item's problem as the plan or the design says, as updated while implementing (design_updates), and to the standard the decisions in force set? The work is done once that problem is solved: what a principle it changes would call for elsewhere is not this work's. Judge each passage implementing changed or added as you would the design: it must be a detail the item's problem needs, within the design's direction, with a reason that holds; a short cut, another method or more than the work needs is a finding, and a change of direction should have gone back to research. Does the code hold a decision that neither the design nor the decisions in force record? Does the code this work changed break a decision in force, wherever the decision stands, not only one the work touched? Old code elsewhere that lags behind a decision is no finding of this work's.",
             "Then: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history."
           ],
@@ -7442,7 +7390,7 @@
               "maybe": true
             },
             {
-              "what": "What the implementation handed in: the conditions met, the passages it wrote into the design, the test changes, the decisions written and the engine checks it says the change changes",
+              "what": "What the implementation handed in: the conditions met, the design as updated while implementing: each passage implementing changed or added, with why, the test changes, the decisions written and the engine checks it says the change changes",
               "from": [
                 [
                   "I1",
@@ -7450,7 +7398,7 @@
                 ],
                 [
                   "I1",
-                  "design_written"
+                  "design_updates"
                 ],
                 [
                   "I1",
@@ -7707,11 +7655,19 @@
           ],
           "inputs": [
             {
-              "what": "The design the owner approved at the review; none when the work came straight from the research",
+              "what": "The design the owner approved at the review, none when the work came straight from the research; and the design as updated while implementing and fixing: each passage changed or added, with why",
               "from": [
                 [
                   "D2",
                   "design"
+                ],
+                [
+                  "I1",
+                  "design_updates"
+                ],
+                [
+                  "T6",
+                  "design_updates"
                 ]
               ],
               "maybe": true
@@ -8169,7 +8125,7 @@
               "maybe": true
             },
             {
-              "what": "What implementing and fixing handed in: the conditions met, the passages implementing wrote into the design, the fixes' departures from it and the test changes (accumulated)",
+              "what": "What implementing and fixing handed in: the conditions met, the design as updated while implementing and fixing: each passage changed or added, with why, and the test changes",
               "from": [
                 [
                   "I1",
@@ -8177,7 +8133,7 @@
                 ],
                 [
                   "I1",
-                  "design_written"
+                  "design_updates"
                 ],
                 [
                   "I1",
@@ -8189,7 +8145,7 @@
                 ],
                 [
                   "T6",
-                  "deviations"
+                  "design_updates"
                 ],
                 [
                   "T6",
@@ -8408,7 +8364,7 @@
               "$ref": "test_changes"
             },
             {
-              "$ref": "deviations"
+              "$ref": "design_updates"
             },
             {
               "$ref": "done_conditions"
@@ -8479,7 +8435,7 @@
             }
           ],
           "shown": [
-            "deviations",
+            "design_updates",
             "followup",
             "conditions",
             "acceptance_changed"
@@ -8494,7 +8450,8 @@
             "- A change to the code an interjection asked for, as the way on chose it: make it, with the test that shows it, and answer fixed; when it turns out to need the design or the acceptance changed, ask.",
             "- A fix of any of these rows that is in no commit, such as a pull request description to correct: make it (for the description, hand in ci with pr and no tests) and answer fixed_outside_commit with where it is; do not answer fixed with the head as its commit. The side that raised the row looks at it again.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
-            "Before handing in, your last commit must have run with ci and the fast CI must be green: name the tests the fix touches, and for a red lint only the lint; the full CI runs once more in the merge queue, not before every problem is fixed. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; and the rows of the acceptance table that changed. The engine reads the results of each test added or extended from the runs of ci and ci_before."
+            "Fix as the plan or the design says, changing only what the rows need. A decision the fix makes that neither the plan or the design nor the decisions in force record, such as how to meet a case it did not foresee or a detail it got wrong, you write into the design in design_updates, with why; none is left in the code alone. Where the plan or the design is wrong in its direction, do not work around it: ask. A workaround for a problem outside this work is a side report, with a comment in the code where it stands.",
+            "Before handing in, your last commit must have run with ci and the fast CI must be green: name the tests the fix touches, and for a red lint only the lint; the full CI runs once more in the merge queue, not before every problem is fixed. Hand in the head, what changed in tests and checks, and the rows of the acceptance table that changed. The engine reads the results of each test added or extended from the runs of ci and ci_before."
           ],
           "always": [
             {
@@ -10962,7 +10919,7 @@
               ]
             },
             {
-              "what": "How the research understood the work, and the plan or the design so far, with the passages implementing wrote into it",
+              "what": "How the research understood the work, and the plan or the design so far, and the design as updated while implementing and fixing: each passage changed or added, with why",
               "from": [
                 [
                   "R1",
@@ -10978,17 +10935,11 @@
                 ],
                 [
                   "I1",
-                  "design_written"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "what": "Where a fix departed from the plan (the engine accumulates them over the rounds); none unless coming from a fix",
-              "from": [
+                  "design_updates"
+                ],
                 [
                   "T6",
-                  "deviations"
+                  "design_updates"
                 ]
               ],
               "maybe": true

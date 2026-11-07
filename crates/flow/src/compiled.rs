@@ -765,7 +765,7 @@ fn a_kind(t: &str) -> String {
 /// that is not null (a value whose fields are all null is no alternative's, whichever has them): the agent wrote
 /// null for a field of a form it did not hand in, as `ask: null` beside `brief`. A null in a field the alternative the
 /// value is requires stays. Returns the paths of the fields left out for being another alternative's, as
-/// `outcome.deviations[3].why`, which the round records; a field left out for being one the schema lets the value
+/// `outcome.rows[3].why`, which the round records; a field left out for being one the schema lets the value
 /// leave out is not among them.
 pub fn without_null_options(s: &Value, x: &mut Value) -> Vec<String> {
     let mut foreign = Vec::new();

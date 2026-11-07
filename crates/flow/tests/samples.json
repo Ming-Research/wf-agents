@@ -451,11 +451,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "design_written": [
+          "design_updates": [
             {
-              "passage": "design_written.passage",
-              "decision": "design_written.decision",
-              "why": "design_written.why"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -505,11 +505,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "design_written": [
+          "design_updates": [
             {
-              "passage": "design_written.passage",
-              "decision": "design_written.decision",
-              "why": "design_written.why"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -559,11 +559,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "design_written": [
+          "design_updates": [
             {
-              "passage": "design_written.passage",
-              "decision": "design_written.decision",
-              "why": "design_written.why"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -613,11 +613,11 @@
               "kind": "new_behaviour"
             }
           ],
-          "design_written": [
+          "design_updates": [
             {
-              "passage": "design_written.passage",
-              "decision": "design_written.decision",
-              "why": "design_written.why"
+              "passage": "design_updates.passage",
+              "decision": "design_updates.decision",
+              "why": "design_updates.why"
             }
           ],
           "conditions": [
@@ -981,7 +981,7 @@
               "worth": "outcome.test_changes.worth"
             }
           ],
-          "deviations": []
+          "design_updates": []
         },
         "side_reports": [],
         "tell_owner": [],

@@ -978,6 +978,7 @@ const messages = {
   ground_confirm: 'How it will be confirmed',
   item_as_written: 'The item as written',
   design_title: 'The design',
+  design_updated: 'Updated while implementing',
   design_why: 'Why this one, not the others',
   design_where: 'Where it changes',
   design_excluded: 'What it leaves out',

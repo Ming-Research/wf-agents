@@ -1442,9 +1442,9 @@ fn what_a_field_was_earlier_is_carried_and_never_handed_in_now() {
 }
 
 // A return that does not fit in several places says every place at once, each on a line of its own after a first line
-// that counts them, where a return with one place says it as ever, on the one line: four `surprise` rows with `why`,
-// a missing field the answer requires and a value its field may not take are six places. Each of them is reached through
-// the alternative the return picks (the answer of `T6`, the kind of a row, the change of a test).
+// that counts them, where a return with one place says it as ever, on the one line: four rows answered `fixed` with
+// `why`, a missing field the answer requires and a value its field may not take are six places. Each of them is reached
+// through the alternative the return picks (the answer of `T6`, the answer of a row, the change of a test).
 #[test]
 fn a_return_that_does_not_fit_in_several_places_says_every_place() {
     let c = compiled();
@@ -1455,29 +1455,29 @@ fn a_return_that_does_not_fit_in_several_places_says_every_place() {
     let mut ret = done.clone();
     ret["outcome"].as_object_mut().unwrap().shift_remove("head");
     ret["outcome"]["test_changes"][0]["change"] = "bogus".into();
-    ret["outcome"]["deviations"] = Value::Array(
+    ret["outcome"]["rows"] = Value::Array(
         (0..4)
-            .map(|i| serde_json::json!({ "kind": "surprise", "what": format!("W{i}"), "why": "Y" }))
+            .map(|i| serde_json::json!({ "answer": "fixed", "id": format!("F{i}"), "commit": "c", "why": "Y" }))
             .collect(),
     );
     let e = g.take("T6", &ret, &Map::new()).unwrap_err();
     let expected = [
         "the return does not fit the schema of T6 in 6 places:",
         "outcome has no head",
+        "outcome.rows[0] has why, which is not one of its fields: answer, id, commit",
+        "outcome.rows[1] has why, which is not one of its fields: answer, id, commit",
+        "outcome.rows[2] has why, which is not one of its fields: answer, id, commit",
+        "outcome.rows[3] has why, which is not one of its fields: answer, id, commit",
         r#"outcome.test_changes[0].change is "bogus", and must be one of "added", "extended", "removed", "skipped", "relaxed""#,
-        "outcome.deviations[0] has why, which is not one of its fields: kind, what",
-        "outcome.deviations[1] has why, which is not one of its fields: kind, what",
-        "outcome.deviations[2] has why, which is not one of its fields: kind, what",
-        "outcome.deviations[3] has why, which is not one of its fields: kind, what",
     ];
     assert_eq!(e.lines().collect::<Vec<_>>(), expected, "{e}");
     // One place is told on one line, as before.
     let mut one = done.clone();
-    one["outcome"]["deviations"] = serde_json::json!([{ "kind": "surprise", "what": "W", "why": "Y" }]);
+    one["outcome"]["rows"] = serde_json::json!([{ "answer": "fixed", "id": "F1", "commit": "c", "why": "Y" }]);
     assert_eq!(
         g.take("T6", &one, &Map::new()).unwrap_err(),
-        "the return does not fit the schema of T6: outcome.deviations[0] has why, which is not one of its fields: \
-         kind, what"
+        "the return does not fit the schema of T6: outcome.rows[0] has why, which is not one of its fields: \
+         answer, id, commit"
     );
     // A return that fits has no place.
     let schema = g.cell("T6").unwrap().schema.clone().unwrap();
