@@ -5812,7 +5812,7 @@
                 {
                   "name": "cause",
                   "type": "text",
-                  "desc": "Why the problem exists: for a defect its root, its like cases and what keeps it from coming back, which the change covers; for a new capability which part is missing; for an investigation why it is not known yet; and whether it is one corner of a more basic problem elsewhere; the like problems in other code or projects, each with how to handle it, those this work does not take going into side reports. If the cause is inferred, say so and how it will be confirmed"
+                  "desc": "Why the problem exists: for a defect its root, and what keeps its kind from coming back; for a new capability which part is missing; for an investigation why it is not known yet. Whether it is one corner of a more basic problem elsewhere, and its like problems, the same mistake or the same kind of hole in this code or in other code or projects: for a defect the change covers them, and each this work does not take goes into side reports, saying why; otherwise each with how to handle it, those this work does not take going into side reports. If the cause is inferred, say so and how it will be confirmed"
                 },
                 {
                   "name": "vs_item",
