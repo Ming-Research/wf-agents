@@ -5638,13 +5638,13 @@
             }
           ],
           "prompt": [
-            "This round gathers the background of this item for its research: the earlier works on it and on the items around it, the observations it took in, the decisions in force that bear on it (the files of `decisions/`), and what the owner decided before in like cases. Give the address of each, not its text: the research reads what it needs."
+            "This round gathers the history of this item, so that its work learns what was learned before and does not take again a path that failed: the earlier works on it and on the items around it, and how each went; the approaches dropped, with why; the decisions overturned, with what replaced them, the git history of the project's decision files among them; the observations it took in; the decisions in force that bear on it (the files of `decisions/`); and what the owner decided before in like cases. Give the address of each with the lesson it holds, not its text: the research reads what it needs."
           ],
           "out": [
             {
               "name": "brief",
               "type": "text",
-              "desc": "At most 500 words; count them. Sections, each entry one line: what it is, and its address (#item, R<work>-<n>, a commit, or a file of `decisions/`), which the reader follows with the query tool or git: the decisions in force that bear on it; what the owner decided in like cases; earlier works and the approaches they dropped; related items. No quotations: the research reads what it needs. End with one line on what you searched."
+              "desc": "At most 500 words; count them. Sections, each entry one line: the lesson it holds or what it is, and its address (#item, R<work>-<n>, a commit, or a file of `decisions/`), which the reader follows with the query tool or git: paths that failed or were dropped, with why; decisions overturned, with what replaced them; the decisions in force that bear on it; what the owner decided in like cases; related items. No quotations: the research reads what it needs. End with one line on what you searched."
             }
           ],
           "shown": [
@@ -5738,7 +5738,7 @@
             }
           ],
           "prompt": [
-            "You are the engineer of this work. This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs through ci and the implementation keeps it, and a probe there that showed nothing is taken out once run, its result noted in `research/`; a simple research leaves nothing but its conclusion.",
+            "You are the engineer of this work. This round researches. What you make for the problem, data, code, probes and notes, goes in `research/` and nowhere else, committed locally; a test that reproduces the problem goes where the project's tests are, so that it runs through ci and the implementation keeps it, and a probe there that showed nothing is taken out in the round that sees its result, its result noted in `research/`; a simple research leaves nothing but its conclusion.",
             "First read the item, the owner's words in it and the background given; the background gives addresses: follow those you need.",
             "Read the code concerned. Reproduce the problem first when you can, with ci, ci_before or measure; when you cannot, prove it another way, such as reasoning from the code or adding logs.",
             "A defect, though, is fixed only once seen to happen where it shows, as on the page in a real browser or in the program on its own data: by a test run there with ci or, where no test can show it, by a probe, a log or the owner's own run; a cause read from the code, or a test in a stand-in such as a simulated page, has not seen it. If, after looking as far as the tools reach, it is still seen nowhere, neither start nor hand it to deep research: ask the owner how to go on.",
@@ -5780,7 +5780,7 @@
                 {
                   "name": "cause",
                   "type": "text",
-                  "desc": "Why the problem exists: for a defect its root, for a new capability which part is missing, for an investigation why it is not known yet; and whether it is one corner of a more basic problem elsewhere; the like problems in other code or projects, each with how to handle it, those this work does not take going into side reports. If the cause is inferred, say so and how it will be confirmed"
+                  "desc": "Why the problem exists: for a defect its root, and what keeps its kind from coming back; for a new capability which part is missing; for an investigation why it is not known yet. Whether it is one corner of a more basic problem elsewhere, and its like problems, the same mistake or the same kind of hole, here or in other projects: for a defect the change covers those in this project's code, and those it does not take, and those in other projects, go into side reports, saying why; otherwise each with how to handle it, those this work does not take going into side reports. If the cause is inferred, say so and how it will be confirmed"
                 },
                 {
                   "name": "vs_item",
@@ -5856,7 +5856,7 @@
                     {
                       "name": "change",
                       "type": "text",
-                      "desc": "What changes where, in a few sentences"
+                      "desc": "What changes where, in a few sentences; for a defect, covering the like cases the cause says it covers, and what keeps the kind from coming back"
                     },
                     {
                       "name": "verify",
@@ -6803,6 +6803,7 @@
             "cases": {
               "implementation": [
                 "This work delivers a change: change the code by the design. If the branch has no change against main, you may not hand in done: ask, saying why no change is needed, such as another PR having fixed it already.",
+                "Where the change can alter how much runs per operation or request, or how that grows with the data, measure with measure what it can make slower as well as what it is for, before and after the change, at the size the data has and at a larger one.",
                 "When the change changes one of the engine's own checks of returns (the flow's `engine.checks`), name each such check in checks_changed: until the change is installed, the engine running this work still judges it by the check as it was, and what only those checks find in this work's returns is then set aside for the review to judge, not sent back."
               ],
               "report": [
@@ -7253,12 +7254,30 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "what": "What this work measured: every measurement the engine recorded, with what it asked, what it compared, what would pass or overturn, the head and the run, and its results",
+              "from": [
+                {
+                  "db": "work_measurements",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "what": "The measurement workflows the project lists; none when it lists none, and then no measurement is missing",
+              "from": [
+                {
+                  "config": "measure"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
             "You review this work's change in two passes in this session: this one looks at the upper level, the next at the details. You are given what its engineer was given. Change no file.",
             "This pass checks the code first against the design and the decisions in force. Does it solve the item's problem as the plan or the design says, as updated while implementing (design_updates), and to the standard the decisions in force set? The work is done once that problem is solved: what a principle it changes would call for elsewhere is not this work's. Judge each passage implementing changed or added as you would the design: it must be a detail the item's problem needs, within the design's direction, with a reason that holds; a short cut, another method or more than the work needs is a finding, and a change of direction should have gone back to research. Does the code hold a decision that neither the design nor the decisions in force record? Does the code this work changed break a decision in force, wherever the decision stands, not only one the work touched? Old code elsewhere that lags behind a decision is no finding of this work's.",
-            "Then: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written.",
+            "Then: does the change keep the architecture's requirements and principles, and the constitution; is the code's structure sound; is the change under control, no larger than the work needs; are the lines it adds and removes good practice; when the work says it changes some of the engine's checks (checks_changed), does the diff change each of them as it says; is each acceptance condition written in_effect one that nothing on the branch could show, and is its command one that real runs can answer as written; where the change can alter how much runs per operation or request, or how that grows with the data, was what it can make slower measured as well as what it is for: a measurement missing there, or a slowdown measured that the design or the owner did not accept, is a finding.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history."
           ],
           "out": [
@@ -7476,7 +7495,7 @@
             }
           ],
           "prompt": [
-            "This pass looks at the details: whether what was said is done, and done right; whether each acceptance condition has a test that ran green on the head, but one written in_effect, which has none and whose row says `how: in_effect`, as it is checked after the merge; for each old-behaviour test of the engineer's that could not be built before the change (cannot_run) or was not run there (not_run), whether the reason it gives in not_before (in the test changes) holds by the diff, that is, whether the old behaviour is shown unchanged some other way, such as old code moved as it was, and a finding when it is not; whether the owner's decisions and the options chosen were followed; whether the conditions to merge are met. Raise again none of the first pass's findings.",
+            "This pass looks at the details: whether what was said is done, and done right; for a defect, whether the change covers the like cases the cause, or the design where there is one, says it covers, and what keeps the kind from coming back; whether each acceptance condition has a test that ran green on the head, but one written in_effect, which has none and whose row says `how: in_effect`, as it is checked after the merge; for each old-behaviour test of the engineer's that could not be built before the change (cannot_run) or was not run there (not_run), whether the reason it gives in not_before (in the test changes) holds by the diff, that is, whether the old behaviour is shown unchanged some other way, such as old code moved as it was, and a finding when it is not; whether the owner's decisions and the options chosen were followed; whether the conditions to merge are met. Raise again none of the first pass's findings.",
             "You have this one chance: list every problem at once, missing none; for each, write its impact and what it rests on. Where you are not sure a change would be better, do not ask for it; leave out what is only a preference: the engineer fixes nearly everything a review raises, so a wrong finding makes good code worse. To learn why the code is as it is, read its history as you need: with an address yourself, else hand in history.",
             "Judge each finding set aside you are given, in set_aside, by the diff: old_rule when the check as the branch changes it would not report it, saying why; real when it is a problem all the same, which you then also write as a finding and must fix.",
             "Then answer two questions. Must anything be fixed before it can merge: yes when you or the first pass found anything. Is this change of the kinds that go wrong silently, where only an adversary's tests find the error: a compiler, a checker, a runtime, a data format, concurrency, security, parsing? When the project's standard for adversarial testing is given, answer this one by that standard alone, read against the diff: yes when the diff does what it names, no otherwise, adding no reason of your own for or against."
