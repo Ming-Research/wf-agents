@@ -4287,7 +4287,7 @@
       "turn": "Whether the work is first in its project's merge queue.",
       "waited": "Whether every item waited for is merged.",
       "work": "What the work changes: the implementation, the records only, or a report.",
-      "research_rounds": "Whether the initial research has run the project's bound of rounds (6 unless `limits.research_rounds` sets it) since it last handed in its answer.",
+      "research_rounds": "Whether the initial research has run the project's bound of rounds (10 unless `limits.research_rounds` sets it) since it last handed in its answer.",
       "merge_failures": "Whether this failure in the merge queue is the third in a row since the work last went to the architect for them.",
       "second_eye": "Whether what the matter's session handed in holds a change of a kind a second eye checks.",
       "verifies": "Whether the item's acceptance holds a condition written in_effect, which a real run checks once the change takes effect.",
@@ -6575,7 +6575,7 @@
             "research_rounds": [
               [
                 "within",
-                "The research has run fewer rounds than the project's bound (6 unless the configuration sets `limits.research_rounds`) since it last handed in its answer"
+                "The research has run fewer rounds than the project's bound (10 unless the configuration sets `limits.research_rounds`) since it last handed in its answer"
               ],
               [
                 "past",
