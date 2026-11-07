@@ -68,7 +68,7 @@ under the same conditions; the original return is given beside them. Further:
   reported it or, for one they never reported, passed. W344's old variant noticed that a `ci_before` answered so passed
   where it should have failed and said so; no return below rests on such a result otherwise.
 
-Cost of all replays, both rounds: about 28 USD.
+Cost of all replays, every round: about 29 USD.
 
 ## 4. The reviews
 
@@ -256,8 +256,8 @@ page's tests.
 
 ## 10. After the re-check: no passage unjudged, none left standing once taken back
 
-Three changes after the review's re-check, not replayed (each one sentence, closing a gap the earlier rounds show
-rather than changing what a cell was seen to do):
+Three changes after the review's re-check; the first is replayed below, the other two are not (each one sentence,
+closing a gap the earlier rounds show rather than changing what a cell was seen to do):
 
 - The re-check (T4), the only review after the fix, is given the passages the fix wrote (`design_updates` of T6) and judges
   each as the first review judges implementing's: a short cut, another method or more than the row needs is a problem
@@ -266,3 +266,25 @@ rather than changing what a cell was seen to do):
   back (taken back: what the design says there). Implementing does not run again, and its newest return keeps listing
   the passage; the fix's later row is the one that stands, as the page orders passages by round.
 - The fix asks the advisor, by name, when the design is wrong in its direction.
+
+### W319, the re-check (T4) after R319-24, sonnet: the fix's passage judged
+
+The re-check that came after the fix of section 9 (round R319-25), as a fresh session gets it: the recorded message,
+with what the review's session held (the project's guide, the worktree, the constitution) given in full. The new variant
+also has the input of the fix's passages, holding the one passage the W319 fix replay wrote (the hook records what the
+round's message gave as delivered before the round ends, with why), and the sentence on judging it. Both asked first for
+`ci` on the head to run adversarial testing's tests again, as the original did; it was answered from the work's recorded
+runs, every test passing.
+
+| Run | Rows F1 to F5 | Brought in | Cost |
+| --- | --- | --- | --- |
+| Original R319-25, -27 | all hold | D1: four comments the fix rewrote run past 120 columns | |
+| Old | all hold | none | 0.36 USD |
+| New | all hold | none | 0.41 USD |
+
+The new re-check took the passage as sound and raised nothing on it: the passage is the change adversarial testing asked
+for, within the design's direction, with a reason that holds. It did not review the change again: like the old variant,
+it ran the adversarial tests, answered the five rows and found nothing the fix brought in, in the same number of turns.
+Its return has no place to say a passage was accepted (a passage is not a row of the table), so the acceptance shows
+only as nothing raised; its reasoning is not in the stream to read. Neither variant raised the original's D1, the same
+variance as the reviews of section 4.

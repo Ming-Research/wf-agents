@@ -45,8 +45,17 @@ describe('the design as updated while implementing', () => {
   it("shows no earlier work's passages under a later work's design or plan until that work hands in its own", () => {
     const earlier = shown(1, 9, 'I1', [passage('of the work before')]);
     const design = (work: number, path: string): Shown => ({ work, round: 3, cell: 'D2', path, value: { chosen: 'x' } });
+    const plan = (work: number, verdict: string): Shown => ({
+      work,
+      round: 3,
+      cell: 'R1',
+      path: 'can_start',
+      value: { verdict, change: 'c' },
+    });
     expect(standingUpdates([earlier, design(2, 'design')])).toEqual([]);
-    expect(standingUpdates([earlier, design(2, 'can_start')])).toEqual([]);
+    expect(standingUpdates([earlier, plan(2, 'yes')])).toEqual([]);
+    // A research that could not settle the approach wrote no plan: the earlier work's passages still stand under it.
+    expect(standingUpdates([earlier, plan(2, 'no')]).map((u) => u.passage)).toEqual(['of the work before']);
     const own = shown(2, 12, 'I1', [passage('its own')]);
     expect(standingUpdates([earlier, design(2, 'design'), own]).map((u) => u.passage)).toEqual(['its own']);
     expect(standingUpdates([design(1, 'design'), earlier]).map((u) => u.passage)).toEqual(['of the work before']);

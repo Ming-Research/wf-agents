@@ -316,9 +316,11 @@ export function designUpdates(list: Shown[] | undefined): Update[] {
 /// The design as updated while implementing and fixing that stands under the design shown, from every value the item
 /// shows, an empty list included (a cell's newest return that holds none takes its passages back): only the passages of
 /// works no older than the work of the newest design or research plan, since a later work's design replaces what an
-/// earlier work wrote into its own, and until the later work hands in passages it has none.
+/// earlier work wrote into its own, and until the later work hands in passages it has none. A research that could not
+/// settle the approach (`can_start` other than `yes`) wrote no plan, and does not count.
 export function standingUpdates(all: Shown[]): Update[] {
-  const designs = all.filter((x) => x.path === 'design' || x.path === 'can_start');
+  const plan = (x: Shown) => x.path === 'can_start' && isObj(x.value) && x.value.verdict === 'yes';
+  const designs = all.filter((x) => x.path === 'design' || plan(x));
   const since = designs.length > 0 ? Math.max(...designs.map((x) => x.work)) : 0;
   return designUpdates(all.filter((x) => x.path === 'design_updates' && x.work >= since));
 }
