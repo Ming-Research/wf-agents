@@ -84,9 +84,9 @@ written yet. Changes made without that left contradictions for later reviews to 
 their writer: a review in a session other than the writer's then checks the change against those decisions. The
 assistant has the changes agreed in one discussion reviewed together, puts only the reviewed text to the owner and
 writes what the owner confirms word for word; a text changed after that, by anyone or because a decision it touches
-changed, is put to the owner again. An engineer's change is put to the owner on a design card, in plain words, before it
-is reviewed, and its work's code review checks it (design/wf-agents/flow/design-cards.md). Changing means rewriting and
-not wanting means deleting, the commit saying why; the past is in git.
+changed, is put to the owner again. An engineer's change is put to the owner as a question on its item, in plain words,
+before it is reviewed, and its work's code review checks it (design/wf-agents/flow/questions.md). Changing means
+rewriting and not wanting means deleting, the commit saying why; the past is in git.
 
 A decision is a cause and what follows from it, in a short paragraph: because of what, what is done, with the paths that
 failed. Its reasons go back to the constitution where they can, and where they cannot they are still given, so that a
