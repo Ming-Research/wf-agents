@@ -1,16 +1,16 @@
-// The check of the page against its UI spec (client/ui-spec.md), which `npm run check:ui` runs in CI: in the page's CSS
-// and in the inline styles of its code, every colour, font size, font, weight, spacing, radius and border width is a
-// var() of a Primer token or of the page's own token file, and no rule makes muted text bold. What the check cannot see, such as whether a thing uses the part the spec maps it to, a
-// reviewer checks.
+// The check of the page against its design system (design/wf-agents/frontend/design-system.md), which
+// `npm run check:ui` runs in CI: in the page's CSS and in the inline styles of its code, every colour, font size, font,
+// weight, spacing, radius and border width is a var() of a Primer token or of the page's own token file, and no rule
+// makes muted text bold. What the check cannot see, a reviewer checks.
 
-/// Something the check refuses: where, which rule of the spec, and the text that breaks it.
+/// Something the check refuses: where, which rule of the design system, and the text that breaks it.
 export type Finding = { file: string; line: number; rule: string; text: string };
 
 /// The page's own tokens, for the values Primer has none for: the one place raw values are written.
 export const TOKEN_FILE = 'styles/tokens.css';
 
 /// What the check leaves alone, each with why: a whole file (no `text`) or one value in it. The list only shrinks: a
-/// view converted to the spec takes its file off it, and the check refuses an entry that matches nothing.
+/// view converted to the design system takes its file off it, and the check refuses an entry that matches nothing.
 export const EXCEPTIONS: Array<{ file: string; text?: string; why: string }> = [];
 
 const COLOUR_FUNCTION = /\b(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color-mix|color)\(/;
@@ -38,7 +38,7 @@ function bare(value: string): string {
 
 const KEYWORD = /^(inherit|initial|unset|revert)$/;
 
-/// What a declaration breaks, if anything: the rule of the spec it breaks, by its property and its value.
+/// What a declaration breaks, if anything: the rule of the design system it breaks, by its property and its value.
 function declaration(prop: string, value: string): string | null {
   const p = prop.toLowerCase();
   const raw = bare(value).trim();

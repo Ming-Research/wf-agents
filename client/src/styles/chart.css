@@ -1,8 +1,8 @@
-/* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the spec's rules draw them,
-   its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every place a work can
-   stand at (an agent's a box, every other rounded), have colours, each named once by what it marks: an agent's round
-   its role's, the colour the flow gives its line, through the one lookup every place that shows a role draws it by
-   (roles.css), and an agent's cell with no colour of its own (on no line, a session of its own every round, or on a
+/* A flow's chart, drawn as design/wf-agents/frontend/charts.md says a chart is: its layout, shapes and lines by its own
+   logic, its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every place a
+   work can stand at (an agent's a box, every other rounded), have colours, each named once by what it marks: an agent's
+   round its role's, the colour the flow gives its line, through the one lookup every place that shows a role draws it
+   by (roles.css), and an agent's cell with no colour of its own (on no line, a session of its own every round, or on a
    line the flow no longer has) the page's neutral grey; the engine's own step the same grey, rounded; a tool the
    engine runs a quiet yellow; the owner orange; every cell's edge solid. A circle that names a cell takes that cell's
    colours. Everything else (the actions on a line or every time a cell returns, a rule, the interjection, a

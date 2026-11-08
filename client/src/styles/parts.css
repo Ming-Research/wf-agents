@@ -1,5 +1,5 @@
 /* The parts the page shows like things with (parts.tsx, labelled.tsx, markdown.tsx, components.tsx), one look wherever
-   they are, as the UI spec draws them. */
+   they are, as design/wf-agents/frontend/design-system.md draws them. */
 
 /* A sub-heading: the name of a part inside a section, in the default colour and semibold at the body's size. The
    views not yet converted still call it decision-label. */

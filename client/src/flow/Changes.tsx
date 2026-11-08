@@ -81,8 +81,9 @@ function side(part: Part, v: JsonValue | null, known: Set<string>): string[] {
   return [JSON.stringify(v, null, 1)];
 }
 
-/// The colour of a change, as the UI spec gives each state its meaning: added is new and done, removed is gone, changed
-/// is to check.
+/// The colour of a change, as the design system gives each state its meaning
+/// (design/wf-agents/frontend/design-system.md, "A state's colour is that of its meaning"): added is new and done,
+/// removed is gone, changed is to check.
 const TONE: Record<'added' | 'removed' | 'changed', LabelColorOptions> = {
   added: 'success',
   removed: 'danger',

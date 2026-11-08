@@ -1,5 +1,5 @@
-- A reviewer has one chance and lists every problem at once; the re-check after the fix looks only at what was fixed,
-  and ends if nothing is wrong. That keeps the rounds of review under control.
+- A reviewer has one chance (wf-agents.md, "A check reports every problem it finds at once"); the re-check after the fix
+  looks only at what was fixed, and ends if nothing is wrong. That keeps the rounds of review under control.
 
 - A finding the re-check still insists on, and the fix disputes, goes to the advisor by a row drawn from the fix, not by
   an ask: an ask names only what it is about, and the hub decides who answers, while the advisor is part of the work's

@@ -47,6 +47,6 @@
   reached its end. An item has works one after another, at most one going on at a time, and the item's state does not
   repeat theirs.
 
-- An observation records only what it is, why it is worth doing and what happens if not, its tags, source, times
-  reported and references, with no condition and no event. A condition is one sentence no mechanism checks, and events
-  are too few in kind to use.
+- An observation records only its title, what it is, why it is worth doing and what happens if not, its tags, source,
+  times reported and references, with no condition and no event. A condition is one sentence no mechanism checks, and
+  events are too few in kind to use.

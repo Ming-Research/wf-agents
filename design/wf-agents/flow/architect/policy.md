@@ -1,5 +1,5 @@
 - The policy records what is near: where the project goes in the near and middle term, and the principles for judging
-  what weighs more and comes first. It does not cover the constitution, the owner's rulings, the flow's definition and
+  what weighs more and comes first. It does not cover the constitution, the owner's choices, the flow's definition and
   rules, or other projects. Design decisions are about the project's design and the policy about how it is pushed
   forward, which are different in nature, and the notebook is what the architect thinks out from it.
 

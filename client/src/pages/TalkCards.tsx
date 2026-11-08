@@ -59,7 +59,8 @@ import { BubbleHead, LiveBubble } from "./Bubble";
 import { DesignCardView } from "./Decide";
 import { DesignShown } from "./Item";
 
-/// What an agent said, word for word, in the box the UI spec gives what an agent handed back.
+/// What an agent said, word for word, in the box the design system gives what an agent handed back
+/// (design/wf-agents/frontend/design-system.md, "What the page writes for the owner").
 function Said({ text }: { text: string }) {
   return (
     <div className="agent-box">

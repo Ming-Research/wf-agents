@@ -19,8 +19,7 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - A new crate goes under `crates/` and takes its version, edition and lints from the workspace.
 - A change to the database changes `db/schema.sql` and adds the migration in the same pull request, a file of
   `db/migrations/` named by the minute it was written and what it does.
-- A change to the owner's page passes its check, `npm run check:ui` in `client/`. [client/ui-spec.md](client/ui-spec.md)
-  holds the page's details; where it differs from the design tree, the tree holds.
+- A change to the owner's page passes its check, `npm run check:ui` in `client/`.
 - The page's tests are three Vitest projects (`client/vite.config.ts`): `unit` (Node, or happy-dom for a file that says
   so), `ui` and `browser`. What depends on a real browser's layout, pointer, focus or keys (the graph's viewer in
   `client/src/graph/` above all) is tested in a file named `*.browser.test.tsx`, which draws the page in Chromium;

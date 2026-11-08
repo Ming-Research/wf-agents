@@ -1,11 +1,12 @@
-/* The messages view, the one place the owner acts, as the UI spec draws it: Primer's PageLayout filling the window
-   under the bar, the conversations a NavList in its pane, the one open on the right as a chat. Its head says what the
-   conversation is about and holds the owner's controls; what waits for the owner, the decision card a work waits on and
-   each ask that waits, is pinned under it; the stream scrolls; the questions an architect pinned are
-   over the one box at the bottom, in the same look as what is pinned under the head. In the stream, the page's three
-   voices each have their look: the engine's cards and lines are the page's own words, with no frame; an agent's
-   message is the box of what an agent handed back, beside its avatar, in its role's colour (roles.css), holding what
-   answers it and the owner's answer once given; the owner's is the sheet of what is sent to an agent, on the right. */
+/* The messages view, the one place the owner acts, as design/wf-agents/frontend/conversations.md draws it: Primer's
+   PageLayout filling the window under the bar, the conversations a NavList in its pane, the one open on the right as a
+   chat. Its head says what the conversation is about and holds the owner's controls; what waits for the owner, the
+   decision card a work waits on and each ask that waits, is pinned under it; the stream scrolls; the questions an
+   architect pinned are over the one box at the bottom, in the same look as what is pinned under the head. In the
+   stream, the page's three voices each have their look: the engine's cards and lines are the page's own words, with no
+   frame; an agent's message is the box of what an agent handed back, beside its avatar, in its role's colour
+   (roles.css), holding what answers it and the owner's answer once given; the owner's is the sheet of what is sent to
+   an agent, on the right. */
 
 .talks {
   flex: 1;

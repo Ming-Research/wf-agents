@@ -12,3 +12,13 @@
 
 - Too many send-backs in a row stop the work and tell the flow's keeper. Otherwise a cell could keep being sent back,
   rerun and spending.
+
+- Each return sent back is recorded on its round, in the same write that ends the round, and the work does not wait for
+  its cause to be looked for: the cell runs again at once. Each cause is to be found once and mended (Article 4), and a
+  look afterwards loses nothing, the problems being kept on the round, while a work that paused at every return sent
+  back kept agents idle for it (Article 3). The record is sent to no one as a message, since every return sent back
+  would then reach the flow's keeper; how many are sent back is watched as the system's other measures are
+  (backend/engine/health.md, "Running safely is made the whole system's state control"; frontend/system.md, "The system
+  page is all the metrics"). Recording only the return that pauses the work was rejected, since causes that never reach
+  the limit would never be looked at; so was recording at the pause or at the next step, which a pause and a start
+  between them can lose.

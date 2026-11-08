@@ -1,10 +1,10 @@
-// The settings, a reading page of the UI spec: its header, then a section for the installation and one for each
-// project. Each holds first what the owner changes there, as form controls, then what is changed only in the
-// configuration's files, as label and value pairs, and for a project the rule texts its agents are given, folded, each
-// a sheet; its constitution is named by its path, its text being the project's own. Save, the one action the form
-// exists for, writes what changed into the configuration's files, their comments kept, and commits it; the engine
-// takes it from its next round. A value the configuration would refuse is refused before anything is written: here
-// what the page can tell, and on saving what only the configuration can. The agents' login account, under the
+// The settings (design/wf-agents/frontend/settings.md), a reading page: its header, then a section for the installation
+// and one for each project. Each holds first what the owner changes there, as form controls, then what is changed only
+// in the configuration's files, as label and value pairs, and for a project the rule texts its agents are given,
+// folded, each a sheet; its constitution is named by its path, its text being the project's own. Save, the one action
+// the form exists for, writes what changed into the configuration's files, their comments kept, and commits it; the
+// engine takes it from its next round. A value the configuration would refuse is refused before anything is written:
+// here what the page can tell, and on saving what only the configuration can. The agents' login account, under the
 // installation, is switched by itself, after a warning, and a new one is signed in by hand with the command the page
 // shows, the page reading the accounts again until it is.
 

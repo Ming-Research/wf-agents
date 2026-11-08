@@ -4,6 +4,12 @@
   lets the context change midway. A separate kind for what the agent reads itself differs nothing from always, and a
   division by origin means nothing, since what an agent wrote itself is in the old session and not the new.
 
+- What the engine gives an agent from a project's repository, its constitution and its AGENTS.md, is read as the
+  project's main has it at one commit pinned for the round, never from a worktree's files, so that nothing a work's
+  branch or worktree holds changes it. The cell that consults the design tree (flow.md, "A cheap model's cell finds and
+  reads the decisions") reads, for an engineer, its work's branch instead, since the changes to the tree this work has
+  already written for its design cards must be seen by the cells after it.
+
 - Every round tells the agent what this round is for: its title, why, and what to hand in. The task's full text, like
   the rules, is given only as an address once the session has it. The next round's input is all the engine gives and the
   only thing that steers a session, and without this the agent does not know what the round is for. A session per round

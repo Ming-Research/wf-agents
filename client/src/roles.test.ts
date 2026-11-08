@@ -6,11 +6,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import spec from '../ui-spec.md?raw';
 import type { Colour, GraphLines } from './api';
 import { Bubble } from './pages/Bubble';
 import { coloursOf, readColours, roleClass } from './roles';
-import stored from './stored-flow.json?raw';
 import chartCss from './styles/chart.css?raw';
 import rolesCss from './styles/roles.css?raw';
 
@@ -84,21 +82,6 @@ describe("a role's colour", () => {
         '--role-mark': `var(--display-${name}-bgColor-emphasis)`,
         '--role-text': `var(--display-${name}-fgColor)`,
       });
-    }
-  });
-
-  // The UI spec names the colour of each line of the flow, in the sentence that begins with the engineer: the colours it
-  // names are those of the flow's lines, and a colour the page has dropped is named nowhere in it.
-  it("is named in the UI spec for each line of the flow, and for no other", () => {
-    const { lines } = JSON.parse(stored) as { lines: GraphLines[] };
-    const given = new Set(lines.flatMap((g) => g.lines.map((l) => l.colour)));
-    const sentence = /The engineer is [^;]*;/.exec(spec.replace(/\s+/g, ' '))?.[0] ?? '';
-    expect(sentence).not.toBe('');
-    const named = Object.keys(KNOWN).filter((c) => new RegExp(`\\b${c}\\b`).test(sentence));
-    expect(new Set(named)).toEqual(given);
-    expect(given.size).toBe(lines.flatMap((g) => g.lines).length);
-    for (const dropped of ['olive', 'lime']) {
-      expect(spec, dropped).not.toMatch(new RegExp(`\\b${dropped}\\b`));
     }
   });
 

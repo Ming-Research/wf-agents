@@ -4,9 +4,10 @@
 // waits in them), and how the engine stands: running, paused (saying which works the owner started run meanwhile), pausing while
 // the last round finishes, or waiting for what stops every work, with the switch that pauses every work or starts them
 // all, the switch that keeps waiting sessions warm while every work is paused, and the slots in use. The engine starts
-// with every work paused. Drawn as the UI spec's bar: the views an UnderlineNav, the engine's state a dot and words,
-// its switch a Button and keep-warm a ToggleSwitch; what the window's width leaves no room for, views in the nav's
-// "More" and parts of the engine behind a button of its own, so that the bar is never wider than the window.
+// with every work paused. Drawn as design/wf-agents/frontend/layout.md lays out the bar: the views an UnderlineNav, the
+// engine's state a dot and words, its switch a Button and keep-warm a ToggleSwitch; what the window's width leaves no
+// room for, views in the nav's "More" and parts of the engine behind a button of its own, so that the bar is never
+// wider than the window.
 
 import { DotFillIcon, KebabHorizontalIcon } from '@primer/octicons-react';
 import {

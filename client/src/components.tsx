@@ -231,9 +231,10 @@ export function heldWords(c: Course, why: string | null): string {
   return why !== null && why !== PAUSED_BY_OWNER ? t('course_paused_why', { why }) : t('course_paused');
 }
 
-/// The colour of a state's chip, as the UI spec gives each state its meaning: going on (accent), done (success), waiting
-/// for someone (attention), gone wrong (danger), or none of these (neutral, grey); `done` is Primer's purple, for a
-/// state Primer's own parts mark so.
+/// The colour of a state's chip, as the design system gives each state its meaning
+/// (design/wf-agents/frontend/design-system.md, "A state's colour is that of its meaning"): going on (accent), done
+/// (success), waiting for someone (attention), gone wrong (danger), or none of these (neutral, grey); `done` is
+/// Primer's purple, for a state Primer's own parts mark so.
 export type Tone = 'accent' | 'success' | 'attention' | 'danger' | 'done' | 'neutral';
 
 /// The Label variant a tone is drawn in: a state of no meaning of its own takes Primer's primary variant, which the page
@@ -285,10 +286,11 @@ export const WORK_TONE: Record<WorkState, Tone> = {
 };
 
 /// The Octicon of each state of a work but running, whose mark is the running halo: the one map for every place that
-/// shows a work's state as an icon, as the UI spec names it. Ready is a ring at rest, the running halo's ring still;
-/// asking a question; waiting a clock; waiting for a free slot an hourglass; paused two bars; halted by the engine for
-/// a problem GitHub's mark of an alert, red; stopping a no-entry sign; done a tick in a ring; ended GitHub's mark of a
-/// run stopped before its end, grey as GitHub draws a run cancelled.
+/// shows a work's state as an icon (design/wf-agents/frontend/design-system.md, "A work's state is worked out once").
+/// Ready is a ring at rest, the running halo's ring still; asking a question; waiting a clock; waiting for a free slot
+/// an hourglass; paused two bars; halted by the engine for a problem GitHub's mark of an alert, red; stopping a
+/// no-entry sign; done a tick in a ring; ended GitHub's mark of a run stopped before its end, grey as GitHub draws a
+/// run cancelled.
 export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
   ready: CircleIcon,
   asking: QuestionIcon,
@@ -301,10 +303,10 @@ export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
   ended: StopIcon,
 };
 
-/// The Octicon of each state of an item, the one map for every place that shows an item's state as an icon, as the UI
-/// spec names it, none of them a work's mark of another meaning: open GitHub's mark of an issue open; done the tick in a
-/// ring of a work done, since an item is done once a work of it reached its end; cancelled GitHub's mark of an issue
-/// closed as not planned. What its work does has the work's own marks.
+/// The Octicon of each state of an item, the one map for every place that shows an item's state as an icon, none of
+/// them a work's mark of another meaning: open GitHub's mark of an issue open; done the tick in a ring of a work done,
+/// since an item is done once a work of it reached its end; cancelled GitHub's mark of an issue closed as not planned.
+/// What its work does has the work's own marks.
 export const ITEM_MARK: Record<ItemState, Icon> = {
   open: IssueOpenedIcon,
   done: CheckCircleIcon,

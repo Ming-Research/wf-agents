@@ -1,13 +1,12 @@
 // A diagram fitted to its box and enlarged: the styles that keep a wide diagram from scrolling in its box, when a diagram
 // counts as scaled down, which buttons stand in its corner, the enlarged view holding the one drawing under an id of its
-// own, the view it opens at, and the spec saying all this. The tests have no DOM, so what only a browser lays out (the
-// drawing shrinking in proportion, the dialog's size, the gestures inside it) is confirmed on the page itself.
+// own, and the view it opens at. The tests have no DOM, so what only a browser lays out (the drawing shrinking in
+// proportion, the dialog's size, the gestures inside it) is confirmed on the page itself.
 
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import spec from '../ui-spec.md?raw';
 import { DiagramTools, Enlarged, isClick, isScaled, under, type Drawn } from './diagram';
 import { DRAG_LIMIT, fitView, seenOf } from './graph/Viewer';
 import parts from './styles/parts.css?raw';
@@ -138,16 +137,5 @@ describe('a click on the scaled drawing', () => {
     // Just beyond it, along an axis and along a diagonal, is a drag: selecting text does not open the window.
     expect(isClick(at(100, 100), at(100 + DRAG_LIMIT + 0.5, 100))).toBe(false);
     expect(isClick(at(100, 100), at(105, 105))).toBe(false);
-  });
-});
-
-describe('the UI spec on diagrams', () => {
-  it('tells of the scaling down and the enlarged view, not of scrolling in the box', () => {
-    const section = spec.slice(spec.indexOf('### Diagrams'), spec.indexOf('### An item named by its number'));
-    expect(section.length).toBeGreaterThan(1000);
-    expect(section).toContain('scaled down to the width of its box');
-    expect(section).toContain('opens enlarged');
-    expect(section).not.toMatch(/scrolling inside its box|scrolls inside its box/);
-    expect(section).toContain('a drag over the diagram does not open it');
   });
 });

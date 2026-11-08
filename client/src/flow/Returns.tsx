@@ -1,12 +1,12 @@
-// What comes out of a cell, in the one JSON look both panels draw it in (the UI spec). On a round, the return as it was
-// handed back, pretty-printed: its keys, its texts and its other values each in their syntax colour, a text's line
-// breaks kept and a text over 1,000 characters folded to its first lines, each object and list folding at its opening
-// line, and a key saying on hovering what the flow says of its place. On a cell, the pattern of what it hands back, in
-// the same look, what each round fills in as a placeholder: for an agent's cell the forms its return may hold, one at
-// a time, in the field that holds one, beside the fields every return holds; a field of fixed values those values; a
-// field that may be left out, or that a return handed in on an earlier flow version may hold otherwise, saying so after
-// it; a key saying on hovering what the agent is told it is and what reads it. Under an agent cell's pattern, the checks the
-// engine makes on a return before it takes a row.
+// What comes out of a cell, in the one JSON look both panels draw it in (design/wf-agents/frontend/panels.md). On a
+// round, the return as it was handed back, pretty-printed: its keys, its texts and its other values each in their
+// syntax colour, a text's line breaks kept and a text over 1,000 characters folded to its first lines, each object and
+// list folding at its opening line, and a key saying on hovering what the flow says of its place. On a cell, the
+// pattern of what it hands back, in the same look, what each round fills in as a placeholder: for an agent's cell the
+// forms its return may hold, one at a time, in the field that holds one, beside the fields every return holds; a field
+// of fixed values those values; a field that may be left out, or that a return handed in on an earlier flow version may
+// hold otherwise, saying so after it; a key saying on hovering what the agent is told it is and what reads it. Under an
+// agent cell's pattern, the checks the engine makes on a return before it takes a row.
 
 import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
 import { type ReactNode, useState } from 'react';

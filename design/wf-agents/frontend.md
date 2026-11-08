@@ -15,3 +15,14 @@
   frame up to 150 ms as nodes came into view. Nodes in HTML were not taken, since scaling each one makes the browser lay
   out and rasterise its text again every frame; three.js, an engine for 3D, is more than a flat tree needs. What opens
   from a node holds text to select and copy, Markdown and answers to type, which only HTML does well.
+
+- Every box of the page that takes words keeps what was typed and not sent, across leaving the page, opening something
+  else, a reload or the browser dropping a tab, written at every change with no timer, since a browser that drops a tab
+  does not promise to run anything on leaving. Losing what the owner typed is a serious fault. Kept only while the box
+  was shown, the words were lost when it went away, and keeping every page shown is what the page was made lighter to
+  stop doing.
+
+- A draft is kept under what its box belongs to, never under where it stands or a title, so that one box never shows
+  another's words. What is not words, such as the option picked or whom a reply answers, is not kept, since kept it
+  could turn into something else unseen. When the browser is full, images give way to words, the oldest draft's first,
+  since images could otherwise crowd out the words of any box.

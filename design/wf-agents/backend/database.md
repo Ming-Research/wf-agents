@@ -4,6 +4,15 @@
   every change would start over. Another format generating SQL would be one more layer of translation, with views as
   strings.
 
+- The database is made by one command alone, and every other command, the engine included, fails when there is none, so
+  that a wrong data directory is an error and not an empty view.
+
+- Every change to the database's state is kept as a record of that change. A work's opening step brings its history,
+  the paths dropped and the decisions overturned, from the records (flow/history.md, "Every work opens with a step that
+  brings its history"), and the architect's notebook can be turned back to earlier versions
+  (frontend/conversations/architect.md, "The architect's notebook can be turned back"); neither can without each change
+  recorded.
+
 - What is stored is controlled, with no large repeats, or the size soon explodes.
 
 - Text written for people is only in the flow's version, each round recording only values, and the page looks it up in

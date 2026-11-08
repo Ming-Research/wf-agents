@@ -1,6 +1,6 @@
-/* The bar, as the UI spec draws it: one row as tall as Primer's UnderlineNav, on the inset background, the name at
-   the left, the views, and the engine at the right end. The nav draws its own line under it; the name and the engine
-   draw the same line under them, so that it runs the bar's width once. */
+/* The bar, as design/wf-agents/frontend/layout.md lays it out: one row as tall as Primer's UnderlineNav, on the inset
+   background, the name at the left, the views, and the engine at the right end. The nav draws its own line under it;
+   the name and the engine draw the same line under them, so that it runs the bar's width once. */
 
 .topbar {
   position: sticky;

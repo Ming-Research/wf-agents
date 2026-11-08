@@ -1,8 +1,8 @@
 // The owner's hold on a project's new works, in the architect's title row, which is the one place that says what stops
-// a project's new works from starting (client/ui-spec.md, "What stops new works"): the button that holds them, and,
-// on each hold, the button that releases it. Each asks first, in a small form under the row: holding, why and what
-// follows from it; releasing, what it lets happen. Holding is a rule on one project's new works, kept in the database,
-// and is another thing from the top bar's Pause all, which stops every work and is not kept.
+// a project's new works from starting (design/wf-agents/frontend/conversations/architect.md): the button that holds
+// them, and, on each hold, the button that releases it. Each asks first, in a small form under the row: holding, why
+// and what follows from it; releasing, what it lets happen. Holding is a rule on one project's new works, kept in the
+// database, and is another thing from the top bar's Pause all, which stops every work and is not kept.
 
 import { Button } from '@primer/react';
 import { useState } from 'react';

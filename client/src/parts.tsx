@@ -1,10 +1,10 @@
-// The parts the page shows like things with, each with one look wherever the page shows it, as the UI spec maps them
-// to Primer: a round, by its name; a round at a cell; who wrote something (who to whom), its round at its cell, and
-// when; what an agent wrote, as a block, its head and who wrote it over its text; a section under its heading and how
-// many it holds, folded or open, and a sub-heading inside it; an item, by its number and title; a pull request, by its
-// number; the words the owner writes beside the button that sends them, with the images that go with them; the images
-// the owner sent, as thumbnails; the form that answers or says something, its words and the button that sends them;
-// and a list beside what is open from it.
+// The parts the page shows like things with, each with one look wherever the page shows it: a round, by its name; a
+// round at a cell; who wrote something (who to whom), its round at its cell, and when; what an agent wrote, as a block,
+// its head and who wrote it over its text; a section under its heading and how many it holds, folded or open, and a
+// sub-heading inside it; an item, by its number and title; a pull request, by its number; the words the owner writes
+// beside the button that sends them, with the images that go with them; the images the owner sent, as thumbnails; the
+// form that answers or says something, its words and the button that sends them; and a list beside what is open from
+// it.
 
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, PaperclipIcon, XIcon } from '@primer/octicons-react';
 import {
@@ -171,8 +171,9 @@ export function Block({ id, head, by, tone, children }: {
   );
 }
 
-/// The level the next heading takes where it stands: a page converted to the UI spec gives its sections 2, and each
-/// section gives what it holds one more. Elsewhere a section's heading is a sub-heading.
+/// The level the next heading takes where it stands: a page converted to the design system
+/// (design/wf-agents/frontend/design-system.md) gives its sections 2, and each section gives what it holds one more.
+/// Elsewhere a section's heading is a sub-heading.
 export const HeadingLevel = createContext(3);
 
 /// A sub-heading: the name of a part inside a section, at the level it stands at, in the sub-heading's step.

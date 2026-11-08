@@ -7,9 +7,11 @@
 - What is good is judged by the owner's taste and use, with no user research or study of design guidelines, since
   wf-agents serves the owner. Only a product for the general public needs research and guidelines to reason from.
 
-- A problem found is turned into a patch in the system by a means that converges, so that it does not happen again.
-  Someone typing it into a chat each time does not scale, and a new cell on the graph for each patch does not converge
-  either.
+- A problem found is turned into a patch in the system by a means that converges, so that it does not happen again: a
+  kind of problem ends only in an item that fixes it, its acceptance with the reason recorded, or a check that catches
+  it, and a kind that comes back after its fix is a finding about the fix. Telling one instance to someone ends nothing:
+  someone typing it into a chat each time does not scale, and a new cell on the graph for each patch does not converge
+  either (Article 4).
 
 - Managing the project well is one of wf-agents' aims: using what AI can do to remove the bottleneck of traditional
   project management, and raising how much development runs at once by an order of magnitude. Once the flow that writes
@@ -40,6 +42,9 @@
   checks, and does nothing that needs judgment. Judgment belongs to the agents and the owner, and tools only execute and
   never choose the route. Judgment needs someone who can give reasons and be reviewed, and each step of the engine must
   be predictable from the flow.
+
+- A check reports every problem it finds at once, returning early only where a later test presupposes that an earlier
+  one holds: each problem found alone costs one more round of fixing and checking.
 
 - A thing is named for what it is, and has one name everywhere. A name for what it is needs no explaining; a name of its
   own, or a second name beside the first, is one more thing each reader must learn and tell apart.

@@ -10,10 +10,18 @@
   hand is done, with no cell of their own. When the owner speaks while the architect works, it is a higher priority
   question or instruction; when the owner has just decided, the owner is waiting for the result.
 
+- After a new base when one is due and the owner's words and answers (flow/architect/matters.md, "The owner's words, and
+  matters the owner has answered, come first"), the architect takes main's red CI, then a matter a stopped work waits
+  on, then the rest of its queue, oldest first: a red main holds every merge of the project (backend/tools/ci.md, "The
+  engine watches each project's main"), and a stopped work spends its time waiting.
+
 - Each matter must be handled fast enough, since the owner's words wait for the one in hand.
 
 - A report enters the architect's queue as soon as it comes, and an architect not running starts; nothing is saved up,
   and an urgent one reaches it while it runs. Starting when needed costs no more than saving up for an hour.
+
+- While every work is paused, no architect is given a matter for free slots with no item to start, since no new work can
+  start.
 
 - Receipts and other small matters are cut at the source, not filtered by another agent. What must shrink is the small
   matters in the architect's hands, and not sending them saves running one more agent.

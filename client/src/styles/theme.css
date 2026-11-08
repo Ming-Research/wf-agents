@@ -1,8 +1,8 @@
-/* The page's own palette, as the UI spec says (client/ui-spec.md): the values the page gives Primer's colour tokens of
-   the states' roles, for the light theme and the dark, in place of Primer's, which the owner found too heavy and dark
-   for the light, cheerful, low-saturated look the owner asked for. Every part of the page and every Primer component
-   that draws in a role's colour reads these tokens, so this file is the one place the palette is set. It holds tokens
-   only, whose raw values the UI check lets through, as in tokens.css.
+/* The page's own palette, as its design system says (design/wf-agents/frontend/design-system.md): the values the page
+   gives Primer's colour tokens of the states' roles, for the light theme and the dark, in place of Primer's, which the
+   owner found too heavy and dark for the light, cheerful, low-saturated look the owner asked for. Every part of the
+   page and every Primer component that draws in a role's colour reads these tokens, so this file is the one place the
+   palette is set. It holds tokens only, whose raw values the UI check lets through, as in tokens.css.
 
    One colour to a role, the same in both themes, for a state's fill, its edge and its mark alike, white words on it:
    accent #3b87ff, attention #f29a1f, neutral #8d9bb3 (a slate with a little blue), danger #f45d58, success #24b574.

@@ -67,9 +67,9 @@ runs:
       working-directory: client
       run: npm run lint
       shell: bash
-    # Every colour, size and spacing in the page's styles is a token, as its UI spec says (client/ui-spec.md); the
-    # tests of the next step leave this to it.
-    - name: Check the page against its UI spec
+    # Every colour, size and spacing in the page's styles is a token, as its design system says
+    # (design/wf-agents/frontend/design-system.md); the tests of the next step leave this to it.
+    - name: Check the page's styles against its design system
       if: steps.page.outputs.passed != 'true'
       working-directory: client
       run: npm run check:ui

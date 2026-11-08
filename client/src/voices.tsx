@@ -1,10 +1,11 @@
-// The three voices a panel's texts are in, each in one look wherever the page shows it (the UI spec): the page's own
-// words, plain; what is sent to an agent, a sheet, filled, with a thick edge at its left; what an agent handed back, a
-// box with a thin border. Inside a sheet or a box the page adds only names, numbers and controls: a name small and
-// muted, what each round fills in as a dashed placeholder, and the control that opens a text over 1,000 characters,
-// which shows its first three lines until then. And the parts a panel about one thing is laid out with: its overview
-// of label and value pairs, its sections folded at first, the parts inside a section, and rows that open, each headed
-// by a name in words with its code small and muted after it.
+// The three voices a panel's texts are in, each in one look wherever the page shows it
+// (design/wf-agents/frontend/design-system.md, "What the page writes for the owner"): the page's own words, plain; what
+// is sent to an agent, a sheet, filled, with a thick edge at its left; what an agent handed back, a box with a thin
+// border. Inside a sheet or a box the page adds only names, numbers and controls: a name small and muted, what each
+// round fills in as a dashed placeholder, and the control that opens a text over 1,000 characters, which shows its
+// first three lines until then. And the parts a panel about one thing is laid out with: its overview of label and value
+// pairs, its sections folded at first, the parts inside a section, and rows that open, each headed by a name in words
+// with its code small and muted after it.
 
 import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon } from '@primer/octicons-react';
 import { CounterLabel, Details, Heading } from '@primer/react';

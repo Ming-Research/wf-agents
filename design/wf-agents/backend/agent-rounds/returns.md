@@ -15,10 +15,18 @@
   work once went around the check by asking the advisor, at seven more rounds against two. Splitting the change to the
   check into an item merged and installed first costs an item, a whole graph and an installation each time, and cannot
   split a work whose change is the check itself. Running the checks in CI cannot work, since a check reads the live
-  database, the worktree and the configuration.
+  database, the worktree and the configuration. Installing new builds promptly was no answer either: no installation,
+  however prompt, holds a change that is only on the work's branch.
 
-- A check of an agent's return reports every problem it can find in that return at once, because each send-back costs a
-  round. It returns early only when a later test presupposes that an earlier one holds.
+- The checks that judge a work's declaration of the checks it changes, and that hold the reviews to answering each
+  finding set aside, can never be declared themselves, and what they find is never set aside: they are what makes a
+  declaration no exemption, the one judging it and the other holding the reviews to answer each finding.
+
+- A finding set aside from the re-check's own return goes to the fix and the re-check again, since no review comes after
+  the re-check to judge it. The second time the same check is set aside from it, the fix takes it to the advisor, which
+  judges whether the re-check can write a return the installed check takes, and where it cannot, the architect has the
+  work wait for the installation or changes the item: the re-check is given the installed prompt, so such a finding
+  shows the installed check disagreeing with that prompt, which the engineer cannot mend.
 
 - The agent's command line runs with partial output on, and each failure to parse a return keeps that return's full text
   in the round's record. A log of the first 2,048 characters does not show the real cause; with the full text the next

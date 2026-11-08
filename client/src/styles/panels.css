@@ -1,8 +1,8 @@
 /* The panels about one thing beside a chart (a cell, a round, a rule, a store) and the three voices their texts are in
-   (voices.tsx), as the UI spec draws them: the page's words plain; what is sent to an agent a sheet, filled, with a
-   thick edge at its left; what an agent handed back a box with a thin border; a round's head of label and value
-   pairs, the four sections In, Out, From and To, what comes out as JSON and the two tables of rows, the parts inside
-   the sections and the rows that open. */
+   (voices.tsx), as design/wf-agents/frontend/panels.md draws the panels and design/wf-agents/frontend/design-system.md
+   the voices: the page's words plain; what is sent to an agent a sheet, filled, with a thick edge at its left; what an
+   agent handed back a box with a thin border; a round's head of label and value pairs, the four sections In, Out, From
+   and To, what comes out as JSON and the two tables of rows, the parts inside the sections and the rows that open. */
 
 /* ---- The two voices that are not the page's. */
 

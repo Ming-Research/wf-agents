@@ -71,10 +71,10 @@ function stackOf(token: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
 }
 
-/// The fonts the chart's text is drawn and measured in, as the UI spec gives the chart its type: a cell's title body
-/// large semibold, its code monospace at that size and weight, a stage's name title small, the notes, the arrows'
-/// labels and the nodes beside the cells body medium, the stores beside a cell body small, the corner badges at the
-/// badges' own small size.
+/// The fonts the chart's text is drawn and measured in, as design/wf-agents/frontend/charts.md gives the chart its
+/// type: a cell's title body large semibold, its code monospace at that size and weight, a stage's name title small,
+/// the notes, the arrows' labels and the nodes beside the cells body medium, the stores beside a cell body small, the
+/// corner badges at the badges' own small size.
 export type ChartFonts = { title: string; code: string; stage: string; note: string; small: string; badge: string };
 
 let fonts: ChartFonts | null = null;

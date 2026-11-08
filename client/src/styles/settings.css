@@ -1,5 +1,5 @@
-/* The settings, as the UI spec lays out a reading page: one column, its header, a section for the installation and one
-   for each project, each part in them its sub-heading over what it holds, then Save. */
+/* The settings, laid out as a reading page: one column, its header, a section for the installation and one for each
+   project, each part in them its sub-heading over what it holds, then Save. */
 
 .settings-page {
   width: 100%;

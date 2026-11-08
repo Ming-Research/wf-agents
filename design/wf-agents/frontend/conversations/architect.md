@@ -25,3 +25,7 @@
 - Holding new works is a button on the page, which the assistant and the architect can also use, with its notice at the
   right of the status line, apart in look from the current node. That line has much empty room at its right. Setting the
   parallel count to zero to stop slowly was rejected: waiting works would get no slot and could not go on.
+
+- Holding new works asks why in a row under the title row, not in the dialog other commands that reach past what they
+  name ask in (frontend/design-system.md, "A command whose effect reaches past what it names"): the owner decides by
+  that row and the architect's state beside it, which a dialog would hide.

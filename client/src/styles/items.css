@@ -72,9 +72,10 @@
 }
 
 /* The button that shows or hides a state's items, its state's mark and its count with no words, a fill and no edge, as
-   every chip and button in a colour is (the UI spec), so that whether its items show is told by the fill alone: the
-   state's colour, its mark white and its count on a white translucent pill, while they show; the state's tint, its
-   mark and count in the state's colour, while they hide. */
+   every chip and button in a colour is (design/wf-agents/frontend/design-system.md, "A coloured button or label has
+   white letters"), so that whether its items show is told by the fill alone: the state's colour, its mark white and its
+   count on a white translucent pill, while they show; the state's tint, its mark and count in the state's colour, while
+   they hide. */
 .tree-states .tree-state,
 .tree-states .tree-state:hover {
   border-color: transparent;

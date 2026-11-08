@@ -1,5 +1,6 @@
-// The page against its UI spec (client/ui-spec.md): every CSS file and every file of code, as ui-check.ts checks them,
-// the exceptions each still matching something, and the check itself on what it must refuse and let through.
+// The page against its design system (design/wf-agents/frontend/design-system.md): every CSS file and every file of
+// code, as ui-check.ts checks them, the exceptions each still matching something, and the check itself on what it must
+// refuse and let through.
 // `npm run check:ui` runs this file alone, as CI does; `npm test` leaves it to that step.
 
 import { describe, expect, it } from 'vitest';
@@ -27,27 +28,7 @@ const code = Object.fromEntries(
 
 const said = (f: Finding) => `${f.file}:${f.line}: ${f.rule}: ${f.text}`;
 
-// The spec itself, read as written.
-const spec = Object.values(import.meta.glob<string>('../ui-spec.md', { query: '?raw', import: 'default', eager: true }))[0] ?? '';
-
-describe('the UI spec', () => {
-  it("states the principle of the screen's space and says nothing the works view made false", () => {
-    expect(spec).toContain("### Spend the screen's space reasonably");
-    expect(spec).toContain("### A project's head");
-    // The sentences of the spec before the architect was a row of the works and the buttons stood in the head.
-    for (const stale of [
-      "bar's Architect",
-      'Buttons over each project',
-      'no heading of its own',
-      'The two lists of works',
-      'under it the buttons that show or hide',
-    ]) {
-      expect(spec, stale).not.toContain(stale);
-    }
-  });
-});
-
-describe('the page against its UI spec', () => {
+describe('the page against its design system', () => {
   it('writes every colour, size and spacing as a token, and never makes muted text bold', () => {
     // The check reads the page's styles and code where they are, as they are written.
     expect(Object.keys(css)).toEqual(expect.arrayContaining(['styles/panels.css', 'styles/base.css', 'styles/item.css']));

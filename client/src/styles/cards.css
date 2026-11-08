@@ -366,7 +366,8 @@ details.dc:not([open]) > summary > .fold-open,
 }
 
 /* A button of markup that does not use Primer's Button yet, drawn as Primer's small Button, the one set as its
-   primary; the views drop the class for the Button as each is converted to the UI spec. */
+   primary; the views drop the class for the Button as each is converted to the design system
+   (design/wf-agents/frontend/design-system.md). */
 .decide-button {
   height: var(--control-small-size);
   padding: 0 var(--control-small-paddingInline-condensed);

@@ -1,8 +1,8 @@
-// The page at every width, as the UI spec lays it out: the bar never wider than the window, what of the engine it has
-// no room for in its overflow, Start all or Pause all always in sight; and a split below the narrow breakpoint showing
-// one side at a time, the whole width, the list until something is picked and what is picked under the way back to
-// the list, the panel beside the one-to-one with an architect over the conversation, in its place, wherever the list,
-// the conversation and the panel do not fit side by side.
+// The page at every width, as design/wf-agents/frontend/layout.md lays it out: the bar never wider than the window,
+// what of the engine it has no room for in its overflow, Start all or Pause all always in sight; and a split below the
+// narrow breakpoint showing one side at a time, the whole width, the list until something is picked and what is picked
+// under the way back to the list, the panel beside the one-to-one with an architect over the conversation, in its
+// place, wherever the list, the conversation and the panel do not fit side by side.
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';

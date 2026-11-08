@@ -5,7 +5,8 @@
 // The page's tests are three Vitest projects, so that each file runs where it needs to and the browser starts only for
 // the files that need it:
 //   unit     - the tests in Node, and in happy-dom for a file that says so (`// @vitest-environment happy-dom`);
-//   ui       - the check of the page against its UI spec, which CI runs as its own step (`npm run check:ui`);
+//   ui       - the check of the page against its design system (design/wf-agents/frontend/design-system.md), which CI
+//              runs as its own step (`npm run check:ui`);
 //   browser  - the tests in `*.browser.test.tsx`, which draw the page in a real Chromium: layout, the pointer and the
 //              keyboard are the browser's own, which happy-dom does not have.
 import { playwright } from '@vitest/browser-playwright';

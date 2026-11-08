@@ -22,13 +22,11 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
   them), the reads that fill them, the bus its live events go through, and what the owner asks of the running engine.
 - `crates/web`: the interface as `wf-agents run` serves it on the loopback address: HTTP and JSON under `/api/v1`, the
   event stream, and the page built into the binary.
-- `client/`: the owner's page, in TypeScript with React and Vite; `client/src/api.ts` is generated, not written, and
-  `client/ui-spec.md` is its UI spec.
+- `client/`: the owner's page, in TypeScript with React and Vite; `client/src/api.ts` is generated, not written.
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `constitution.md`: the lasting values designs are judged by, which the owner sets.
-- `decisions/`: the decisions in force for wf-agents' design, one file each, which the owner chose; its README.md says
-  how one is written.
+- `design/`: the design tree, wf-agents' design decisions by category, from `design/wf-agents.md` down.
 - `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
 - `.github/workflows/ci.yml`: the full CI, every check, which each push to main runs and a work's head runs once, at
   the merge; `.github/workflows/fast.yml`: the fast CI the engine runs by hand on a work's branch, with the tests to
@@ -43,7 +41,7 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 
 The full CI, `ci`, runs on each push to main, and on a work's branch when the engine runs it by hand: rustfmt, clippy
 with warnings as errors, and the tests, on the toolchain
-`rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
+`rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check of its styles (`npm run check:ui`), tests and
 build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
 flow as the engine stores it, which the page's tests read and git leaves out). The page's tests in files named
@@ -224,7 +222,8 @@ A project keeps the decisions in force for its design in its own repository, one
 file names as `decisions` (`decisions` unless it names another). The engine's input `decisions` gives a cell every file
 of that directory but a README.md, each by its path with its text, as the project's main has them at the commit the
 round is pinned to, as it gives the constitution; none when the directory is not there or holds nothing else. The
-history of one is its file's in git, a withdrawn decision's included. wf-agents' own are in `decisions/`, whose README.md says how one is written.
+history of one is its file's in git, a withdrawn decision's included. wf-agents keeps its own in the design tree, `design/`, and has no
+directory of decisions.
 
 ## A project's dependency sources
 
@@ -261,7 +260,7 @@ tells every fault of the tables at once.
 
 A project's file that has these tables is refused by an engine that does not include the tool (a field it does not know
 is an error): install the engine that includes it first, then add the tables. The tables are the owner's, in the data
-directory; the decision behind the tool is `decisions/engine-runs-outside-commands.md`.
+directory; the decisions behind the tool are in `design/wf-agents/backend/tools.md`.
 
 ## Updating a project's lock files
 
@@ -298,8 +297,7 @@ engine that includes it first, then add the tables. The tables are the owner's, 
 
 A command the engine runs does not go through the agent's permission check, runs on the owner's machine with the engine's
 whole environment, and reads a worktree an agent wrote. What such a command can take from the files an agent writes is not
-settled: #284. Until its report, wf-agents' own file lists no lock file for this tool
-(`decisions/lock-updates-wait-for-the-report.md`).
+settled: #284. Until its report, wf-agents' own file lists no lock file for this tool.
 
 ## How the engine runs git
 
