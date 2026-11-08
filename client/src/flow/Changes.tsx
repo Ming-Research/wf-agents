@@ -82,7 +82,7 @@ function side(part: Part, v: JsonValue | null, known: Set<string>): string[] {
 }
 
 /// The colour of a change, as the design system gives each state its meaning
-/// (design/wf-agents/frontend/design-system.md, "A state's colour is that of its meaning"): added is new and done,
+/// (design/wf-agents/frontend/design-system.md, "状态的颜色就是其含义的颜色"): added is new and done,
 /// removed is gone, changed is to check.
 const TONE: Record<'added' | 'removed' | 'changed', LabelColorOptions> = {
   added: 'success',

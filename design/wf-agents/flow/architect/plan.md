@@ -1,14 +1,12 @@
-- Planning gets the last plan and the records since, and updates it. The architect's behaviour varies, the same prompt
-  giving different results, and not knowing the earlier thinking and plan, the plan keeps changing or breaks up.
+- 做计划时拿到上一份计划和此后的记录，并在此基础上更新。架构师的行为有波动，同一个 prompt 会给出不同的结果；
+  不知道之前的思考和计划，计划就会不停地变，或者支离破碎。
 
-- Planning's input does not grow with the number of items: the last plan, the records since, and a few small numbers;
-  what is on hand it looks up itself. Items may run to thousands and cannot all be read each time.
+- 做计划的输入不随条目的数量增长：上一份计划、此后的记录和几个小数字；手头有什么，它自己去查。条目可能多达数千，
+  不可能每次都全部读一遍。
 
-- What the owner wants kept for long the architect, having understood it, writes as a line of the plan with why, in no
-  chapter of its own, with no quote or date; it stays until done or withdrawn. Otherwise rewriting the plan may quietly
-  lose it, and a quote, or counting a second saying as a principle, would make the owner's words a decree.
+- owner 希望长期保持的东西，架构师理解之后，把它连同原因写成计划中的一行，不单独成章，不加引文或日期；它一直保留，
+  直到完成或被撤回。否则重写计划时可能悄悄丢掉它；而引用原话，或把第二次说的话算作原则，会让 owner 的话变成圣旨。
 
-- How the architect handles an item, which comes first and which is held back for now, is the architect's plan, kept
-  apart from the item where the engine reads it, with why in the architect's notebook. It is the architect's business,
-  as reading the project and planning are. Kept on the item, the plan made the item's state say what the architect
-  meant to do with it, and every reordering rewrote every item of the project.
+- 架构师如何处理一个条目，哪个先做、哪个暂缓，是架构师的计划，与条目分开存放在引擎读取的地方，原因写在架构师的笔记里。
+  这是架构师自己的事，就像读项目和做计划一样。计划放在条目上时，条目的状态就要表达架构师打算拿它怎么办，
+  每次重新排序都会改写项目的每一个条目。

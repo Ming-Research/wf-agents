@@ -1,166 +1,131 @@
-- The flow's chart is laid out by elkjs and drawn as SVG by the page's own components, each node a component. A node
-  carries overlays, such as the cell a work is at and how many rounds it ran; the chart draws what a graph library does
-  not (stage boxes round their cells, arrows at right angles with rounded bends and an arch where two cross, circles for
-  rows to another part, rules and actions beside their cells, the stores) and must move and zoom as the other charts do,
-  which a library's own handling of the wheel and keys does not allow. Mermaid gives only a fixed picture, so it draws
-  no flow chart, and a library such as React Flow was rejected.
+- 流程的图由 elkjs 布局，由页面自己的组件画成 SVG，每个节点是一个组件。节点上叠加着信息，比如工作所在的格子、
+  它跑了多少轮；这张图要画出图形库画不了的东西（围住各自格子的阶段框，走直角、拐弯处为圆角、两条交叉处带一个拱的箭头，
+  通向另一部分的行所画的圆圈，格子旁的规则和动作，以及存储），还必须像其他图一样移动和缩放，
+  而库自己对滚轮和按键的处理做不到这一点。Mermaid 只能给出一张固定的图片，所以不用它画流程图；
+  React Flow 这类库也被否决。
 
-- There is no separate web page for reviewing the state machine: the flow page in the service is made good to use. With
-  a separate page, one must still go and look at the flow page after reviewing and changing.
+- 不另做一个专门审查状态机的网页：把服务里的流程页面做得好用。如果另有一个页面，审查、修改之后还得再去看流程页面。
 
-- Comparing with a flow read at a git ref shows, above what changed, what installing it would do with each work going
-  on, grouped by what happens to it, those that cost something open; it is read once as the comparison opens and not
-  kept current, so that the list does not move under the owner's eyes; and a flow that cannot be judged says why and
-  what judges it instead, since a missing cost must not read as no cost. The owner approves a change to the flow with
-  its cost before it, which only the command line gave.
+- 与在某个 git ref 上读到的流程作比较时，在改动内容的上方显示安装它会对每个进行中的工作做什么，按工作会遇到的情况分组，
+  有代价的那些展开显示；这份结果在比较打开时读取一次，之后不再更新，这样列表不会在 owner 眼前变动；
+  无法评估的流程要说明原因，以及改由什么来评估，因为缺失的代价不能被读成没有代价。owner 批准对流程的改动时，
+  代价就摆在面前，而以前只有命令行能给出这些。
 
-- The flow page shows one graph at a time, each apart, switched beside the version's drop-down. Drawn together the chart
-  is too large.
+- 流程页面一次只显示一张图，各图分开，在版本下拉菜单旁切换。画在一起，图就太大了。
 
-- The flow chart follows the design system in looks and not in drawing: layout, cell shapes, lines and stage frames are
-  drawn by its own logic; text, borders, backgrounds and category colours take Primer's values. Primer has no flow chart
-  component.
+- 流程图在外观上遵循设计系统，在绘制上则不：布局、格子形状、连线和阶段框按它自己的逻辑绘制；文字、边框、
+  背景和类别颜色取 Primer 的值。Primer 没有流程图组件。
 
-- For layout a cell and its attachments (the circles back to it, its rule box, actions and interjection mark) go to the
-  layout engine as one whole, placed inside by the page's own code, the same for every cell. Attachments then sit the
-  same on every cell, and the layout engine has far fewer things and lines to lay out. Nested groups in the layout
-  engine were rejected: stage frames are a layer of groups already, three levels handle lines across layers badly, and
-  inside each group it would decide differently. Attachments as small nodes of their own were pulled far away, since it
-  does not know whom they belong to.
+- 布局时，格子和它的附件（指回它的圆圈、它的规则框、动作和插话标记）作为一个整体交给布局引擎，
+  整体内部由页面自己的代码摆放，每个格子都一样。这样每个格子上的附件位置都一致，布局引擎要排的东西和连线也少得多。
+  在布局引擎里用嵌套分组的做法被否决：阶段框已经是一层分组，三层嵌套处理跨层的连线很糟，
+  而且它在每个分组内部会作出不同的安排。把附件作为单独的小节点，结果被拉得很远，因为布局引擎不知道它们属于谁。
 
-- A row to a node above its cell leaves the cell's top and one from below enters its bottom, running only up or only
-  down, the layout given a row that runs up already turned round. A row the layout turned round itself to break a loop
-  came out of the cell's bottom, round the cell and up in a tangle.
+- 通向其格子上方节点的行从格子顶部出发，来自下方的行从格子底部进入，只往上或只往下走；
+  向上走的行在交给布局时就已经反转过来。由布局自己为打破环路而反转的行，从格子底部出来，绕过格子再往上，缠成一团。
 
-- Only agent cells are square, and the square's colour tells its session, one colour to a session. A coloured square
-  reads as an agent cell of its own, so a tool cell drawn so cannot be understood.
+- 只有 agent 格子是方形，方块的颜色表示它的 session，一个 session 一种颜色。有色的方块本身就会被读成一个 agent 格子，
+  所以画成这样的工具格子没法理解。
 
-- A cell a work waits on, an agent's or a tool's, has a colour, and an engine cell is grey: a work stays a while on a
-  cell that waits, so such a cell shows wherever where a work stands is shown, such as the stage bar, while an engine
-  cell is a judgement made in an instant, on which no work stays, and shows on the chart alone. The engine is no role,
-  hence a neutral grey.
+- 工作要在上面等待的格子，无论是 agent 的还是工具的，都有颜色，引擎格子则是灰色：工作会在等待的格子上停留一阵，
+  所以凡是显示工作所在位置的地方都会显示这种格子，比如阶段条；而引擎格子是瞬间作出的判断，没有工作停在上面，
+  只在图上显示。引擎不是角色，所以用中性的灰色。
 
-- A tool cell, coloured since a work waits on it, has round corners and one fixed quiet yellow, and purple is kept for
-  the architect: an agent cell is square in its session's colour, and a tool cell waits on the outside, may fail and
-  records output, unlike an agent's round.
+- 工具格子因为有工作在上面等待而有颜色，它是圆角的，用一种固定的柔和黄色，紫色留给架构师：agent 格子是方形、
+  用其 session 的颜色，而工具格子等待的是外部，可能失败，还会记录输出，这些都与 agent 的轮不同。
 
-- Colour goes only to the numbered cells the flow passes through, tool cells included; what sits on lines and
-  attachments such as rules, and the stage boxes, are a light grey, the stage boxes rather than the palest warm colour,
-  so that the cells stand out on them. Otherwise the chart is too busy.
+- 只有流程经过的编号格子才上色，工具格子也算在内；连线上的东西、规则这类附件以及阶段框都用浅灰色，
+  阶段框用浅灰而不用最淡的暖色，好让格子在上面突出。否则图就太杂乱了。
 
-- The numbered cells the flow really reaches have thick borders and bold titles, and the other shapes around them thin
-  ones. Otherwise the formal cells and those around them look too alike.
+- 流程真正到达的编号格子用粗边框和粗体标题，周围的其他图形用细边框。否则正式的格子和它们周围的东西看起来太像。
 
-- A rounded cell's corners are no rounder than the half-circle ends of a cell of one line, so that every line of its
-  text lies inside it: drawn with half-circle ends, a tall cell's text ran out past them.
+- 圆角格子的圆角不比单行格子的半圆端更圆，这样它的每一行文字都在格子里面：画成半圆端时，高格子的文字跑到了半圆端外面。
 
-- A cell that opens a new session every time shows it by a badge, not by a dotted or dashed border, and dashes are kept
-  for more important marks. Dotted and dashed borders are hard to see, and tool and engine cells cannot have an agent
-  and differ in colour anyway.
+- 每次都开新 session 的格子用一个徽标来表示，而不用点线或虚线边框，虚线留给更重要的标记。点线和虚线边框不容易看清；
+  而且工具格子和引擎格子不可能有 agent，颜色本来也不同。
 
-- The badge of reasoning effort at a cell's top left has a background for each level: low green, medium blue, high
-  orange, xhigh red, max purple, with white letters, except high in the text colour, since white does not read on it in
-  the light theme. One purple in shades with dark letters was a black blur, and high and xhigh must be told apart at a
-  glance.
+- 格子左上角的推理强度徽标，每个级别有自己的背景色：low 绿色，medium 蓝色，high 橙色，xhigh 红色，max 紫色，都是白字，
+  只有 high 用正文颜色，因为在浅色主题下，白字在它上面读不清。同一种紫色分深浅、配深色文字时，糊成了一团黑；
+  而 high 和 xhigh 必须一眼就能分清。
 
-- Text in a box is two sizes larger, with little padding. That reads far better with the box hardly larger, and the
-  layout is sparse and has room.
+- 框里的文字大两号，内边距很小。这样读起来好得多，框却几乎没有变大，而且布局稀疏，有地方。
 
-- A stage's name is a step larger than the titles of the cells in it, so that it stands apart from them: at the same
-  size it did not.
+- 阶段的名字比其中格子的标题大一档，这样才能和它们区分开：字号相同时区分不开。
 
-- Lines are not thick and black, which is ugly; arrows do not cross circles, are of moderate size, and do not join
-  sideways when the line is very near its target.
+- 连线不要又粗又黑，那样很难看；箭头不穿过圆圈，大小适中，连线离目标很近时也不从侧面接入。
 
-- One colour to a meaning on a chart (frontend/design-system.md, "The palette is bright"): the main path is blue at an
-  arrow's width rather than a heavier grey; the rows into the cell picked are green and out of it red, the page's
-  success and danger colours, their labels filled in those colours with white letters; and the row pointed at is only
-  heavier, keeping its colour, so that a row lit green or red stays green or red. A work's chart mutes what it never
-  took, so the blue of the main path does not meet the blue of the rows a work took. A heavier grey main path and an
-  orange row pointed at were the paths that failed.
+- 图上一种含义一种颜色 (frontend/design-system.md, "配色明亮：一种含义一种颜色")：主路径用蓝色，粗细与箭头相同，
+  而不是更粗的灰色；进入选中格子的行为绿色，离开它的行为红色，即页面的成功色和危险色，它们的标签用这两种颜色填充、
+  配白字；指针指着的行只是加粗，保留原色，这样亮成绿色或红色的行仍是绿色或红色。工作的图会弱化它从未走过的部分，
+  所以主路径的蓝色不会和工作走过的行的蓝色碰在一起。更粗的灰色主路径和橙色的被指向行，是走不通的路。
 
-- The main path is drawn along a cell's own answers alone, never a move such as a search, though its row is marked main,
-  since a move is on no cell's way through the flow.
+- 主路径只沿格子自己的回答画，从不沿搜索这类走法画，即使走法的行标记为主路径也一样，因为走法不在任何格子穿过流程的路上。
 
-- The label on a line carries the name of the way out with no number. Opening a cell shows only the way's name, so a
-  number on the chart means nothing.
+- 连线上的标签写出路的名字，不带编号。打开格子时只显示出路的名字，所以图上的编号没有意义。
 
-- A label on a line stays near the line's start. The owner generally reads these when looking at a cell's ways out, and
-  a label in the middle of a long line runs off the screen.
+- 连线上的标签放在连线起点附近。owner 一般在查看一个格子的出路时读这些标签，而长连线中间的标签会跑出屏幕。
 
-- A line clicked stays lit, not persisted, and is gone on reload. It helps to follow a long arrow.
+- 点击过的连线保持高亮，不持久保存，重新加载后就没了。这有助于追踪一条长箭头。
 
-- A row drawn into several cells lights only where it is pointed at: a line is lit to follow it (frontend/charts.md, "A
-  line clicked stays lit"), and a row lit in every cell it reaches could not be followed.
+- 画进多个格子的行，只在指针指着的地方高亮：高亮连线是为了追踪它 (frontend/charts.md, "点击过的连线保持高亮")，
+  而一条在它到达的每个格子里都亮起来的行没法追踪。
 
-- The cell picked, or the cell under the pointer, lights its rows in and out, a row through actions or a circle lit
-  whole, and the arrows of rules and of what the cell does every time not lit; another cell hovered shows its own rows
-  alone, so that two cells' rows never mix, and a click on the background leaves the cell picked, its panel staying
-  open. The owner follows a cell's ways in and out across the chart.
+- 选中的格子或指针下的格子，会高亮它进出的行，经过动作或圆圈的行整条高亮，规则的箭头和格子每次都做的事的箭头不高亮；
+  悬停在另一个格子上时只显示它自己的行，这样两个格子的行永远不会混在一起；点击背景时，选中的格子仍保持选中，
+  面板也保持打开。owner 会在整张图上追踪一个格子的进出路径。
 
-- A round chosen lights the arrow it came in by in green and the one it left by in red, flowing the way the work went:
-  the arrows a work took again and again are many and alike, and the owner could not tell which a round went by.
+- 选中的轮会把它进来的箭头亮成绿色、离开的箭头亮成红色，并沿工作走的方向流动：工作反复走过的箭头又多又相似，
+  owner 分不清某一轮走的是哪一条。
 
-- On a chart showing the route taken, what was not reached greys as a whole, with what hangs beside it. Greying only a
-  part looks odd.
+- 在显示所走路线的图上，没到达的部分连同挂在它旁边的东西整体变灰。只灰掉一部分看起来很怪。
 
-- A work is drawn on its own flow version, its rounds placed on their cells, since a work runs only on the version it
-  stands on and the current flow may no longer have its cells.
+- 工作画在它自己的流程版本上，它的各轮放在各自的格子上，因为工作只在它所处的版本上运行，
+  而当前的流程可能已经没有它的那些格子了。
 
-- On a work's chart the rows it took flow the way it went, and every motion on the charts moves whatever the browser's
-  setting for less motion: the owner follows the path a work took and wants it to move.
+- 工作的图上，它走过的行沿它走的方向流动；不管浏览器的减少动效设置如何，图上的所有动效都照样动：
+  owner 要跟着看工作走过的路径，希望它动起来。
 
-- A work's chart opens at full size centred on the cell the work is at, and centres again only when a stage starts to
-  work at another cell, never when the page reads the work again: the owner opens a work to read where it is, and a
-  chart opened too small hides it; watching, the owner follows where it works.
+- 工作的图以原始大小打开，并以工作所在的格子为中心；只有某个阶段开始在另一个格子上运行时才重新居中，
+  页面重新读取该工作时绝不重新居中：owner 打开一个工作是为了看它在哪里，打开时太小的图会把这一点藏起来；观看时，
+  owner 跟着它运行的地方走。
 
-- A running cell has a large, coloured, moving glow, on cells without an agent such as tools as well; it stays on the
-  current cell, turning, does not flash, and does not jump back and forth on changing cells; a paused cell has a mark. A
-  background animation was too inconspicuous.
+- 运行中的格子有一圈大的、有颜色的、流动的光晕，工具这类没有 agent 的格子也一样；光晕停在当前格子上旋转，不闪烁，
+  换格子时也不来回跳；暂停的格子有一个标记。背景动画太不显眼。
 
-- Where no stage works at the cell a work is at, a still tag beside it says in a few words why it waits, in full on
-  hovering, in place of two bars; a round too short to be seen is shown by the arrow taken and the count at its cell,
-  not by a glow. A work standing on a tool cell for half a minute with no sign of why left the owner guessing.
+- 工作所在的格子上没有阶段在运行时，旁边一个静止的标签用几个字说明它为什么在等，悬停时显示完整原因，代替两道竖条；
+  短到看不见的一轮，用走过的箭头和它所在格子上的计数来表示，而不用光晕。一个工作停在工具格子上半分钟，却看不出任何原因，
+  让 owner 只能去猜。
 
-- Every extra mark on the chart, badge, boldness, colour or text, is explained. The legend's question mark keeps its
-  place when opened, the legend shows above it, and pressing again or elsewhere closes it. Unexplained, the owner cannot
-  read those marks.
+- 图上每一种额外的标记，徽标、粗体、颜色或文字，都有说明。图例的问号在打开后位置不变，图例显示在它上方，
+  再按一次或按别处就关闭。不加说明，owner 读不懂这些标记。
 
-- The legend is no taller than the chart's room under the tools in its corner and scrolls inside: a legend that grew
-  upward past the window's top could not be read from its start.
+- 图例的高度不超过图在其角落工具栏下方的空间，超出时在内部滚动：一个向上长出窗口顶部的图例，没法从开头读起。
 
-- The controls over a chart are one floating surface, with the chart's map under it in the same corner, since the chart
-  is read under them and a group of controls is one thing to the eye; each stage's box on the map carries its stage's
-  letter, since boxes of one grey alone do not let a stage be found at a glance.
+- 图上的控件是同一块浮动的区域，图的小地图在同一个角落、位于它的下方，因为图要在这些控件下面读，
+  而一组控件在眼里是一个东西；小地图上每个阶段的框都带着该阶段的字母，因为单靠同一种灰色的框，没法一眼找到某个阶段。
 
-- Every chart has a small map in its top left corner: the whole chart in its cells' colours with no text and no arrows,
-  the part in view framed, a click or drag moving the chart, the work's cell ringed and what it never reached muted; it
-  hides while the whole chart is in view, and the zoom shows under it or in its place. The owner wants to see where the
-  view is on the whole chart and go to another part at once. Finding a part only by showing the whole and going back was
-  the path that failed, and arrows on the map run a few pixels between cells at that scale.
+- 每张图的左上角都有一张小地图：用格子的颜色画出整张图，没有文字也没有箭头，当前视野内的部分加框，点击或拖动会移动图，
+  工作所在的格子加圈，它从未到达的部分弱化；整张图都在视野内时小地图隐藏，缩放比例显示在它下方或它的位置上。
+  owner 想看到当前视野在整张图上的位置，并能立刻转到另一部分。只能靠先显示全图再回去来找到某一部分，是走不通的路；
+  而在那个比例下，小地图上格子之间的箭头只有几个像素长。
 
-- An action the engine does on a line is drawn as a node on the line just above the cell the line goes into, shared by
-  the lines with the same actions into that cell, whose hover says what it does; what every cell of a line does is in
-  the legend, naming the line. If the engine's logic cannot be seen, the flow is hard to understand; actions in the
-  middle of a line were read as part of another line, and the same action beside each of a line's cells made the chart
-  busy and told nothing new.
+- 引擎在一条连线上做的动作，画成连线上的一个节点，紧挨在连线进入的格子上方，进入该格子、动作相同的几条连线共用这个节点，
+  悬停时说明它做什么；一条线的每个格子都做的事写在图例里，注明是哪条线。看不到引擎的逻辑，流程就很难理解；
+  放在连线中间的动作被读成了另一条连线的一部分，而在一条线的每个格子旁都画同一个动作，让图很杂乱，又没有提供任何新信息。
 
-- Opening a new session at a fixed place is a node on the line like other actions, and a session changed on occasion is
-  explained in that round's record. A sentence on each cell would only repeat, and only what is special needs marking.
+- 在固定位置开新 session，和其他动作一样是连线上的一个节点；偶尔换了 session 的，在那一轮的记录里说明。
+  每个格子上都写一句话只会重复，只有特别的才需要标出。
 
-- The engine's fallback is not drawn on the chart; it is listed apart in the table of ways out. It is the same for every
-  cell, so drawn it says nothing.
+- 引擎的兜底不画在图上，而是单独列在出路表里。它对每个格子都一样，画出来什么也说明不了。
 
-- What agent cells can do for themselves is drawn by how many can: what all can is only in the legend; what most can,
-  the legend says except, with a small mark on the exceptions; what few can, a line from each to where it goes. An
-  ability every cell has need not be drawn on each, and one only a few have should be a real line. A line from each cell
-  to a common node, and a circle beside each, were rejected.
+- agent 格子能自己做的事，按有多少格子能做来画：所有格子都能做的，只写在图例里；大多数能做的，图例写明除了哪些，
+  并在例外的格子上加一个小标记；只有少数能做的，从每个这样的格子画一条连线到它去的地方。
+  每个格子都有的能力不必在每个格子上画，只有少数格子有的能力应该是一条真正的连线。从每个格子连到一个公共节点的连线，
+  以及在每个格子旁画一个圆圈，都被否决。
 
-- No long arrows go to the stores: what a cell reads and writes is beside it, as small grey rounded blocks saying
-  project, item or work, with dashed and solid lines and the arrow's direction showing reads and writes, and a click
-  going to the main block. The stores are drawn beside the graphs in three boxes by what they belong to, and pointing at
-  a cell, the actions on a line or a store marks the stores it reads or writes, since the owner could not see from the
-  chart where what the engine writes is kept. Long arrows only mess up the chart.
+- 不画通向存储的长箭头：格子读写的东西放在它旁边，画成灰色的圆角小块，写着项目、条目或工作，用虚线、
+  实线和箭头方向表示读和写，点击会跳到主块。存储按所属画在各图旁边的三个框里；指向一个格子、
+  一条连线上的动作或一个存储时，会标出它读或写的存储，因为 owner 从图上看不出引擎写的东西存在哪里。长箭头只会把图弄乱。
 
-- Line colours need only differ within a graph, and may repeat between graphs; where lines of different graphs meet in a
-  session, a slight difference is enough. The graphs are viewed apart.
+- 线的颜色只需在一张图内互不相同，不同的图之间可以重复；不同图的线在同一个 session 里相遇时，稍有区别就够了。
+  各张图是分开看的。

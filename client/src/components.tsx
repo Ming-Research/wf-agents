@@ -232,7 +232,7 @@ export function heldWords(c: Course, why: string | null): string {
 }
 
 /// The colour of a state's chip, as the design system gives each state its meaning
-/// (design/wf-agents/frontend/design-system.md, "A state's colour is that of its meaning"): going on (accent), done
+/// (design/wf-agents/frontend/design-system.md, "状态的颜色就是其含义的颜色"): going on (accent), done
 /// (success), waiting for someone (attention), gone wrong (danger), or none of these (neutral, grey); `done` is
 /// Primer's purple, for a state Primer's own parts mark so.
 export type Tone = 'accent' | 'success' | 'attention' | 'danger' | 'done' | 'neutral';
@@ -286,7 +286,7 @@ export const WORK_TONE: Record<WorkState, Tone> = {
 };
 
 /// The Octicon of each state of a work but running, whose mark is the running halo: the one map for every place that
-/// shows a work's state as an icon (design/wf-agents/frontend/design-system.md, "A work's state is worked out once").
+/// shows a work's state as an icon (design/wf-agents/frontend/design-system.md, "工作的状态只算一次").
 /// Ready is a ring at rest, the running halo's ring still; asking a question; waiting a clock; waiting for a free slot
 /// an hourglass; paused two bars; halted by the engine for a problem GitHub's mark of an alert, red; stopping a
 /// no-entry sign; done a tick in a ring; ended GitHub's mark of a run stopped before its end, grey as GitHub draws a

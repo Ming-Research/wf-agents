@@ -1,20 +1,15 @@
-- The owner's input has one entry, all through the queue, taken up at the loop's dispatch, and the architect takes no
-  interjection while handling a matter. A discussion inserted during a matter muddles its context, with two lines on top
-  of each other. Also rejected: interjection and queue side by side; and a cell that blocks the architect to talk with
-  the owner or waits for a reply, where it is unclear when the talk ends and what becomes of the matter.
+- owner 的输入只有一个入口，全部经过队列，在循环分派时接手；架构师处理事项期间不接受插话。事项进行中插入讨论，
+  会搅乱它的 context，两条线索叠在一起。同样被否决的还有：插话与队列并存；以及一个让架构师停下来与 owner 交谈、
+  或等待回复的格子，那样不清楚谈话何时结束，事项又会怎样。
 
-- A question to the owner says in its first sentence what is to be decided and what it affects, in no internal names,
-  with each option's consequence and a recommendation and the details behind a link; short, and expanded only if not
-  understood. Otherwise the owner reads through all that led to it every time, and written well it needs no one's help
-  to decide whether to approve.
+- 给 owner 的问题，第一句就说明要决定什么、影响什么，不用内部名称，附上每个选项的后果和一个推荐，细节放在链接后面；
+  要简短，看不懂时才展开。否则 owner 每次都得把来龙去脉通读一遍；写得好的问题，不需要任何人帮忙，就能决定是否批准。
 
-- An architect that sees the owner's words beside its question are really an answer tells the owner to answer on the
-  question, and does not take them as one (flow/asking.md, "An ask is a yes-or-no question").
+- 架构师若看出 owner 在它的问题旁边说的话其实是回答，就请 owner 在问题上作答，而不把这些话当作回答
+  (flow/asking.md, "ask 是一个是/否问题")。
 
-- The owner gets no Done button to end a talk with the architect, not knowing when to press it or what it would mean.
+- owner 没有用来结束与架构师谈话的 Done 按钮，因为 owner 不知道何时该按，也不知道按了意味着什么。
 
-- No parallel session of the architect is opened for talking with the owner: the two would repeat most duties and need
-  to coordinate.
+- 不为与 owner 交谈另开架构师的并行 session：两者会重复大部分职责，还需要互相协调。
 
-- The architect looks up history when it feels the need, not before each of the owner's messages. Running that for every
-  everyday message is unrealistic.
+- 架构师在觉得需要时才查历史，而不是在 owner 的每条消息之前都查。为每条日常消息都跑一遍不现实。

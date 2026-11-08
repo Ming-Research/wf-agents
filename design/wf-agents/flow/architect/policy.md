@@ -1,45 +1,38 @@
-- The policy records what is near: where the project goes in the near and middle term, and the principles for judging
-  what weighs more and comes first. It does not cover the constitution, the owner's choices, the flow's definition and
-  rules, or other projects. Design decisions are about the project's design and the policy about how it is pushed
-  forward, which are different in nature, and the notebook is what the architect thinks out from it.
+- policy 记录近处的事：项目在近期和中期往哪里走，以及判断孰轻孰重、孰先孰后的原则。它不涉及宪法、owner 的选择、
+  流程定义和规则，也不涉及其他项目。设计决定关乎项目的设计，policy 关乎如何推进项目，两者性质不同；
+  笔记则是架构师据 policy 想出来的东西。
 
-- The policy guides conduct: it gives direction and principles of judgment, not the results of thinking or particular
-  tasks. With the next few tasks written in it, the architect need not think or look at items again; that is a plan.
+- policy 指导行为：它给出方向和判断的原则，而不是思考的结果或具体的任务。若把接下来的几个任务写进去，
+  架构师就不必再思考，也不必再看条目了；那是计划。
 
-- What the policy may govern is a fixed rule in the flow, not written in the policy, and every round that judges by the
-  policy is given it; the round that reads the project judges none and is not. Written in the policy it would govern
-  itself, and could be removed one day. Given only to the round that writes it, those using the policy would not see the
-  bounds.
+- policy 可以管什么，是流程中的一条固定规则，不写在 policy 里；每个依据 policy 判断的轮都会收到这条规则；
+  读项目那一轮什么也不判断，就不给。写进 policy，它就会管到自己头上，某天可能被删掉。只给写 policy 的那一轮，
+  使用 policy 的各轮就看不到边界。
 
-- Setting the policy is part of the architect's flow, with no graph or line of its own and no session of its own. It is
-  the architect's own policy, which it plainly knows, and a session opened at the limit loads the policy as well.
+- 制定 policy 是架构师流程的一部分，没有自己的图或线，也没有自己的 session。这是架构师自己的 policy，它自然清楚；
+  到上限时新开的 session 也会载入 policy。
 
-- Researching and settling the policy are one round, done at once. A simple update needs no complex flow, and two rounds
-  each awaiting approval were too much.
+- 研究和确定 policy 是同一轮，一次完成。简单的更新不需要复杂的流程，两轮各等一次批准太多了。
 
-- Setting the policy has no stage of verifying: no other agent reads it, judges a reading, changes the wording or counts
-  readings. Rounds testing it by agent take too long, and the owner is there while it is set.
+- 制定 policy 没有验证阶段：没有别的 agent 去读它、评判一种解读、改措辞或统计解读。用 agent 一轮轮测试它太耗时，
+  而制定时 owner 就在场。
 
-- Setting the policy may cost more, and its flow should be thorough. Once set it lasts a long time and does not keep
-  changing.
+- 制定 policy 可以多花一些，它的流程应当周全。一旦定下，它会持续很长时间，不会一直变。
 
-- The policy is checked only when something bearing on it happens, not at each reading of the project. Queuing a check
-  at every reading never ran in practice, and what was queued was handled by no one.
+- 只有发生了与 policy 相关的事，才检查 policy，而不是每次读项目时都检查。每次读项目都排一个检查，
+  在实践中从未执行过，排进去的也没人处理。
 
-- The owner may ask to update the policy directly and start there; a mere question about the policy is only answered and
-  does not go back to rewriting. Discussing the policy is not wanting it changed, or each question would mean a rewrite.
+- owner 可以直接要求更新 policy，并从那里开始；仅仅是关于 policy 的问题只作回答，不回到重写。讨论 policy 不等于想改它，
+  否则每个问题都意味着一次重写。
 
-- An architect doubting the policy first asks the owner whether to research; while that is open it handles other things
-  as usual, filters no matters and holds no starts. There is no state of a policy being set: the owner is there then,
-  generally for a quarter of an hour or so, and the filtering was not needed.
+- 架构师怀疑 policy 时，先问 owner 是否要研究；在这个问题未决期间，它照常处理其他事情，不过滤事项，也不扣住启动。
+  没有“正在制定 policy”这种状态：那时 owner 在场，一般也就一刻钟左右，过滤并不需要。
 
-- A policy, once written, takes effect only when the owner answers yes on the ask to approve it, and a no goes back with
-  its reason to the round that writes it. That is the simplest rule.
+- policy 写好后，只有当 owner 在请求批准它的 ask 上答“是”才生效；
+  答“否”则连同理由回到写它的那一轮。这是最简单的规则。
 
-- When the architect asks whether to set the policy and the owner answers to leave it, this check is closed on that
-  answer, with no draft and no further asking for approval. Otherwise any answer could only lead to a draft, even a
-  request to leave it alone.
+- 架构师问是否要制定 policy，而 owner 回答保持不变时，这次检查就以这个回答结束，不起草，也不再请求批准。
+  否则任何回答都只能导向一份草稿，哪怕是要求别动它。
 
-- An architect that keeps finding the policy wrong should update it, and the engine does not record the owner's
-  refusals. The same doubt coming back means the policy has a problem or the architect lacks what it needs to judge; an
-  attitude belongs in the policy itself, and recording refusals only adds a place to remember.
+- 架构师若一再发现 policy 有错，就应当更新它，引擎也不记录 owner 的拒绝。同样的疑问反复出现，说明 policy 有问题，
+  或者架构师缺少判断所需的东西；态度应当写进 policy 本身，记录拒绝只会多出一个要记住的地方。

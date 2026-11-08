@@ -1,13 +1,10 @@
-- Observations have a main tab of their own: they far outnumber items, and would crowd the items page.
+- 观察有自己的主标签页：它们远多于条目，会挤满条目页面。
 
-- Observations belong to the project, not to the architect's page, which shows the architect's flow; they would not
-  change with the round chosen.
+- 观察属于项目，不属于架构师页面，后者显示的是架构师的流程；观察不会随选中的轮而变。
 
-- Observations are filtered by picking tags and open or handled: every observation shows until something is picked, a
-  row matching any pick within a group and every group's, and a clear takes every pick back. There will be many, each
-  carrying the project's tags, and the owner starts from everything and narrows it by a few picks. Every tag shown at
-  first with the handled hidden, and a choice of one tag with a search, were rejected.
+- 观察靠选标签、选待处理或已处理来筛选：什么都没选时显示所有观察；一行匹配某个组内所选项中的任何一项，
+  并满足每个组的选择，就显示；清除会撤回所有选择。观察会很多，每条都带着项目的标签，owner 从全部出发，选几项来缩小范围。
+  一开始列出每个标签并隐藏已处理的，以及配合搜索只选一个标签，都被否决了。
 
-- An observation's row leads with its title, its content under it cut to a few lines, and rows are parted by a line; one
-  recorded without a title keeps the start of its text and is given none it was not written with. A row's first words
-  cut to one line left the owner to open each to know what it was, and dense rows were hard to tell apart.
+- 观察的行以标题打头，下面是截成几行的内容，行与行之间用一条线隔开；记录时没有标题的，保留其文字的开头，
+  不给它补上记录时没有的标题。一行只显示开头几个字、截成一行时，owner 得逐个打开才知道是什么；排得很密的行也难以分辨。

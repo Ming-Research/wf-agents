@@ -1,50 +1,40 @@
-- A reviewer has one chance (wf-agents.md, "A check reports every problem it finds at once"); the re-check after the fix
-  looks only at what was fixed, and ends if nothing is wrong. That keeps the rounds of review under control.
+- 审查者只有一次机会 (wf-agents.md, "检查一次报出它发现的所有问题")；修复之后的复查只看修了的地方，没有问题就结束。
+  这让审查的轮数保持可控。
 
-- A finding the re-check still insists on, and the fix disputes, goes to the advisor by a row drawn from the fix, not by
-  an ask: an ask names only what it is about, and the hub decides who answers, while the advisor is part of the work's
-  own review.
+- 复查仍然坚持、而修复有异议的审查发现，经由从修复画出的一行交给顾问，而不是通过 ask：ask 只说明它关于什么，
+  由消息中心决定谁来回答，而顾问是这个工作自身审查的一部分。
 
-- A reviewer's ability and knowledge are no less than the engineer's: it knows the background and the decisions the
-  engineer knows. Engineers mostly do what a review says, so a wrong request turns good code bad.
+- 审查者的能力和知识不低于工程师：工程师知道的背景和决定，它都知道。工程师大多照审查说的做，
+  所以一个错误的要求会把好代码改坏。
 
-- Code review checks the code against the design, its design cards and the design tree: that the item's problem is
-  solved as the design says and to the tree's standard; that the code holds no decision that neither the design, the
-  tree nor a card the owner kept out of the tree records, since a decision hidden in the code is asked nowhere; and that
-  the code the work changed breaks no decision of the tree, wherever it stands, since a change can break a decision it
-  never set out to touch, though where the code was behind the tree before the work, that holds no merge. It catches the
-  design changed on one's own while writing: a short cut, laziness, another method, something different from the design
-  or more than it; this is the most important part of such a review.
+- 代码审查对照设计、它的设计卡和设计树检查代码：条目的问题是否按设计所说、并以设计树的标准解决了；代码里是否含有设计、
+  设计树、以及 owner 未纳入设计树的设计卡都没有记录的决定，因为藏在代码里的决定在哪里都不会被问到；
+  以及工作改动的代码是否违反了设计树的任何决定，无论它位于何处，因为改动可能破坏一个它根本没打算碰的决定，
+  不过若代码在这个工作之前就落后于设计树，这不扣住合并。它要抓住写代码时擅自改动设计的情况：抄近路、偷懒、换了方法、
+  与设计不同或超出设计；这是这类审查最重要的部分。
 
-- Code review checks a work's change to the design tree as every change to the tree is reviewed, in a session other than
-  its writer's: that what the work wrote into the tree says what each card says, entry by entry, and that each card's
-  change agrees with the whole tree; a card that should be none is a finding, and the fix withdraws it. This is done
-  once, here, after the owner has seen the cards, and not before each showing, which was too heavy.
+- 代码审查像审查对设计树的每一次改动那样，在不同于作者的 session 中审查工作对设计树的改动：
+  工作写进设计树的内容是否逐条与每张设计卡所说的一致，以及每张卡的改动是否与整棵设计树一致；
+  本不该存在的卡算一条审查发现，由修复撤回它。这只在这里做一次，在 owner 看过设计卡之后，
+  而不是每次展示之前都做，那样太重了。
 
-- A design is done when the item's problem is solved: what a principle it changed brings to do elsewhere is not this
-  work's, since one change of a principle may call for many works.
+- 条目的问题解决了，设计就完成了：它改变的原则在别处带来的工作不属于这个工作，因为一项原则的改变可能需要很多个工作。
 
-- A migration, or a design done in steps, is not reported by review, including code written on a way about to be
-  replaced, provided what departs is kept track of by a comment or a document, so a reviewer can see it is temporary.
-  What is removed with no explanation is reported. These do not depart from the design's direction; what is left with no
-  comment or document is the problem.
+- 迁移，或分步完成的设计，审查不将其报为问题，包括按即将被替换的方式写的代码，前提是偏离之处由注释或文档跟踪，
+  让审查者能看出这是临时的。没有任何解释就删掉的东西要报告。这些并不偏离设计的方向；没有注释或文档就留下的东西才是问题。
 
-- Review of an implementation looks at problems such as the effect on performance, in general words, with no fixed check
-  for one project. wf-agents is not only for itself.
+- 对实现的审查用通用的说法关注诸如对性能的影响之类的问题，不为某一个项目设固定的检查。wf-agents 不只为它自己服务。
 
-- Each new test says how long it takes and why that is worth it, and the review challenges it (Article 3); what adds up
-  over many tests the system watches by itself (backend/engine/health.md, "Running safely is made the whole system's
-  state control").
+- 每个新测试都要说明它耗时多久、为什么值得，审查对此提出质疑（第 3 条）；许多测试累积起来的部分由系统自己监视
+  (backend/engine/health.md, "安全运行被做成整个系统的状态控制")。
 
-- Whether a work must pass the adversarial test is set by a bar in the project's settings, written once by the owner and
-  the assistant, polished and then left, changed only on trouble. A project's bar hardly keeps changing. Written by the
-  architect it takes time each time, a later change undoes the polish, and it does not come out clear. A review
-  answering whether it could quietly fail, or naming a particular bug, was too broad or a matter of luck; and the policy
-  is about what is near, while this is a gate for the whole project.
+- 工作是否必须通过对抗测试，由项目设置中的一个门槛决定；门槛由 owner 和助理写一次，打磨好之后就不再动，
+  只在出问题时修改。一个项目的门槛几乎不会一直变。由架构师来写，每次都要花时间，之后的改动会毁掉打磨的成果，
+  而且写不清楚。让审查回答它是否可能悄悄失败，或者点出某个具体的 bug，要么太宽泛，要么全凭运气；而 policy 关乎近处的事，
+  这却是整个项目的关口。
 
-- A fix in a fresh session is given the item, the acceptance, the design and what the implementation handed in: it is
-  checked against the acceptance, must not leave the design, and must know how things were done.
+- 在新 session 中的修复会收到条目、验收标准、设计以及实现交上来的东西：它要对照验收标准检查，不能偏离设计，
+  还必须知道事情是怎么做的。
 
-- An interjection that asks only for a code change, with the design and the acceptance unchanged, goes straight to the
-  fix, which is re-checked as usual; only if the design or the acceptance must really change is the design redone. A
-  small fix is tested and reviewed anyway, and needs no rewriting of a whole design and acceptance.
+- 只要求改代码、设计和验收标准都不变的插话，直接交给修复，修复后照常复查；只有设计或验收标准确实必须改变时，才重做设计。
+  小的修复反正也要测试和审查，不需要重写整个设计和验收标准。

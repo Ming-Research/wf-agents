@@ -1,5 +1,3 @@
-- A snapshot is compressed and uploaded as a Release attachment to the data directory's own private repository, with
-  only the latest N kept locally and remotely. Git does not suit large binaries, and Release attachments allow large
-  files that can later be removed. The database holds everything and all talk and must be private, as that repository
-  already is. Committing to git would keep each snapshot for ever and is refused over 100 MB, Git LFS has limits on
-  volume and traffic, and another private repository would be needless.
+- 快照压缩后，作为 Release 附件上传到数据目录自己的私有仓库，本地和远程都只保留最新的 N 份。Git 不适合大的二进制文件，
+  而 Release 附件允许大文件，之后还能删除。数据库保存着一切，包括所有对话，必须保密，那个仓库本来就是私有的。
+  commit 进 git 会让每份快照永久保留，超过 100 MB 还会被拒；Git LFS 有容量和流量限制；再开一个私有仓库没有必要。

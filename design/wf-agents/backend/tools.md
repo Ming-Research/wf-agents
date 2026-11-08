@@ -1,47 +1,38 @@
-- An agent that must query the database or run a tool does so by returning, the engine running it, and going on from the
-  last round, never in mid-round; such a return need not carry progress. To the model both are one tool call, with the
-  same in its context and the same count, and querying mid-round saves about three seconds each.
+- agent 要查询数据库或运行工具时，靠返回来做：由引擎去运行，agent 再从上一轮接着往下走，从不在一轮中途进行；
+  这样的返回不必带上进度。对模型来说，两者都是一次工具调用，context 里的内容一样，次数也一样，
+  而在一轮中途查询每次约省三秒。
 
-- How to query is in the tool, and the database's whole structure is not put into an agent's context: at over 20K that
-  is very costly.
+- 怎样查询写在工具里，数据库的整个结构不放进 agent 的 context：它超过 20K，非常昂贵。
 
-- Every lookup in the database goes through one general query tool. A tool for each kind of lookup was dropped: what
-  such tools read, the general query and git read too, and each was one more piece of schema.
+- 数据库中的每次查找都通过一个通用的查询工具。每种查找一个工具的做法被放弃了：这类工具读的东西，通用查询和 git 也能读，
+  而且每个工具都多一份 schema。
 
-- No tool opens a page in a browser or takes screenshots; searching and fetching the web are another matter. A project's
-  page is tested with a browser in CI, and an agent needs none on its machine.
+- 没有任何工具在浏览器里打开页面或截图；搜索和抓取网页则是另一回事。项目的页面在 CI 里用浏览器测试，
+  agent 在自己的机器上不需要浏览器。
 
-- An engineer can take generated files back from CI. Unable to compile locally and unable to get generated files right
-  by hand, an item would stop to wait for someone.
+- 工程师可以从 CI 取回生成的文件。既不能在本地编译，又没法手工把生成的文件写对，条目就会停下来等人。
 
-- A command an agent needs that reaches the network or writes files beside its change to the code is run by the engine
-  as a tool drawn on the flow, never in the agent's own shell: the project's configuration names the command, and the
-  agent asks for the tool by name. Letting one exact command through is a feature of one agent's command line, and a
-  command in an agent's shell is on no chart and in none of the engine's records. The price is one more round for each
-  request, about five seconds at the median beside the command's own time. Rejected: the agent running the configured
-  command itself; the engine fetching on every round whether needed or not; fetching one package at a time, which is
-  tied to a language; and reading a package's repository or the machine's cache, which lack what is published or depend
-  on the machine.
+- agent 需要的命令，若会访问网络，或会在它对代码的改动之外写文件，就由引擎作为画在流程上的工具来运行，绝不在 agent
+  自己的 shell 里运行：项目的配置写明命令，agent 按名字请求这个工具。只放行一条确切的命令，是某一种 agent 命令行才有的
+  功能；而在 agent 的 shell 里运行的命令，不在任何图上，也不在引擎的任何记录里。代价是每次请求多一轮，
+  除命令本身的时间外，中位数约五秒。被否决的有：agent 自己运行配置的命令；引擎每轮都去抓取，不管需不需要；
+  一次抓取一个包，这与具体语言绑定；读取包的仓库或本机的缓存，前者缺少已发布的内容，后者依赖机器。
 
-- The directory a command run for an agent fills must be one the project's git ignores, which the engine checks before
-  running anything, refusing otherwise, so that what the command writes never shows as a change of the work.
+- 为 agent 运行的命令所写入的目录，必须是项目的 git 会忽略的目录；引擎在运行任何东西之前检查这一点，不满足就拒绝，
+  这样命令写下的东西永远不会显示为工作的改动。
 
-- A command the engine runs for an agent passes no permission check of the agent's command line and runs as the engine,
-  with its whole environment and credentials, over a worktree the agent wrote; so it only fetches or writes what it is
-  for: it compiles nothing, runs no code of a package, writes only its own directory or the lock file, moves nothing the
-  manifest does not ask for, and the engine sets no environment for it. What such a command can still take from an
-  agent's files is a known gap.
+- 引擎为 agent 运行的命令，不经过 agent 命令行的任何权限检查，而以引擎的身份、带着引擎的全部环境和凭据，在 agent 写过的
+  worktree 上运行；所以它只抓取或写入它本来要处理的东西：不编译任何东西，不运行任何包的代码，只写它自己的目录或
+  lock 文件，不变动 manifest 没有要求的任何东西，引擎也不为它设置任何环境。这类命令仍可能从 agent 的文件中取用的东西，
+  是一个已知缺口。
 
-- A configured command is split into words and run without a shell, in a process group of its own, under a time limit
-  that stops it and all it started, leaving nothing running; one that needs a shell says so itself. The commands come
-  from configuration and run with no one watching: through a shell an argument can be read as another command, and a
-  command that hangs, or children it forked, would outlive it and stall the work.
+- 配置的命令被拆成单词，不经 shell 直接运行，放在它自己的进程组里，并有时间限制，到时就停掉它和它启动的一切，
+  不留下任何还在运行的东西；需要 shell 的命令自己写明。这些命令来自配置，运行时没人看着：经过 shell，
+  一个参数可能被当成另一条命令来读；而挂住的命令，或它 fork 出的子进程，会残留下来，卡住工作。
 
-- An agent that researches, designs, implements, reviews, tests or advises can read the source and the types of the
-  dependencies that a lock file the project's configuration lists locks, as published at the locked version, without
-  compiling anything: every cell that judges a design or a change must be able to read what a dependency does (Article
-  2), rather than write it as inferred or put the question to the architect.
+- 做研究、设计、实现、审查、测试或担任顾问的 agent，可以读取项目配置所列的 lock 文件所锁定的依赖的源码和类型，
+  即其锁定版本发布时的样子，无需编译任何东西：每个评判设计或改动的格子，都必须能读到一个依赖实际做什么（第 2 条），
+  而不是把它写成推测出来的，或把问题抛给架构师。
 
-- A measurement times a command on the code compared, on a twin of it and on the code measured, in rotating pairs, and
-  keeps the raw times: the machine's noise drifts over time, rotating pairs cancel the drift, and the raw times can be
-  analysed again.
+- 一次测量在对照的代码、它的一个孪生副本和被测的代码上，以轮换配对的方式为一条命令计时，并保留原始耗时：
+  机器的噪声随时间漂移，轮换配对能抵消漂移，原始耗时也可以重新分析。

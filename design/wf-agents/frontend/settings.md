@@ -1,16 +1,12 @@
-- The settings page changes what the owner sets by watching what the agents spend, such as the levels' models, the
-  architect's level, the session size, each machine's slots and each project's limits, tags and whether its agents
-  report on the flow, and shows what only the files change. Editing the configuration by hand and the database by
-  command was the path that failed.
+- 设置页面用来修改 owner 看着 agent 的花费来设定的东西，如各级别的模型、架构师的级别、session 大小、每台机器的槽位，
+  以及每个项目的限额、标签和它的 agent 是否就流程作报告；只有文件能改的东西，页面只做显示。手工编辑配置、
+  用命令修改数据库，是走不通的路。
 
-- The slots are set on the settings page and nowhere else, since each thing has one place (Article 8).
+- 槽位只在设置页面上设定，别处都不设，因为每样东西只有一个位置（第 8 条）。
 
-- Each section of the settings holds first what the page changes, then what only the files change, and a project's
-  constitution is named by its path, its text being the project's own: the owner keeps the whole configuration from one
-  place and must see at a glance what the page can change and what only the file can. A page of the levels alone was
-  rejected.
+- 设置的每一节先放页面能改的，再放只有文件能改的；项目的宪法只写出它的路径，因为其文本属于项目自己：
+  owner 在一个地方掌管整个配置，必须一眼看出哪些是页面能改的、哪些只有文件能改。只放级别的单独页面被否决了。
 
-- A command the owner must run outside the page, such as signing a new account in, which the agent's command line does
-  only in its own terminal, is shown to copy, with what to do with it, an exception to the page holding all the owner
-  uses (frontend.md, "Everything the owner uses is on the web"): a command copied whole is not mistyped. A sign-in flow
-  on the page was rejected.
+- owner 必须在页面之外运行的命令，如登录一个新账号（agent 的命令行只在它自己的终端里做这件事），会显示出来供复制，
+  并说明拿它做什么；这是页面容纳 owner 所用一切的一个例外 (frontend.md, "owner 用到的一切都在网页上")：
+  整条复制的命令不会打错。在页面上做登录流程被否决了。

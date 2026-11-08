@@ -4,7 +4,8 @@ What an agent needs to know for this repository, beyond the rules every agent is
 [README.md](README.md).
 
 - [constitution.md](constitution.md) decides between designs; read it before designing.
-- Everything in the repository is written in English.
+- Everything in the repository is written in English, but the design tree, which is written in the owner's language
+  (`owner.language` in the configuration), its technical terms kept in English.
 - The code is Rust, edition 2024, on the toolchain `rust-toolchain.toml` pins. It is formatted by rustfmt
   (`rustfmt.toml`), passes clippy with warnings as errors, and uses no `unsafe`; the root `Cargo.toml` sets these
   for every crate.

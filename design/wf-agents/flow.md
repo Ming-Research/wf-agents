@@ -1,136 +1,107 @@
-- The flow puts guard rails on the models. A model is reliable most of the time, and when it is not it also makes very
-  basic mistakes.
+- 流程给模型装上护栏。模型多数时候可靠，不可靠时也会犯非常基础的错误。
 
-- There is one flow, compiled into the program. Every project runs it and it says nothing about any project, whose
-  differences are all in its configuration. The same flow must run any project, wf-agents included. A flow for each
-  project would bring switches on the page, batch updates of near-identical flows and versions that branch.
+- 流程只有一个，编译进程序里。每个项目都跑它，它不提任何项目，项目之间的差别全在各自的配置里。
+  同一个流程必须能跑任何项目，wf-agents 自己也在内。每个项目一个流程，会带来页面上的开关、对几乎相同的多个流程的
+  批量更新，以及分叉的版本。
 
-- The flow is compiled before it runs. The compiler walks every state the engine can be in: every cell is reached, every
-  return takes exactly one row, every recorded value is read, every loop passes a count or a wait, every input has a
-  source. A flow that fails this never reaches a running work, since finding the fault halfway through a work costs far
-  more than a failure at compile time.
+- 流程在运行之前编译。编译器走遍引擎可能处于的每个状态：每个格子都能到达，每个返回恰好走一行，每个记下的值都有人读，
+  每个循环都经过一个计数或一次等待，每个输入都有来源。通不过这一关的流程永远到不了正在运行的工作，
+  因为在工作进行到一半时才发现错误，代价远高于编译时失败。
 
-- The flow has three graphs, the engineer's, the report's and the architect's, which meet only through the database:
-  what the hub sends the architect from an engineer enters the architect's queue, and the architect acts on works
-  through its returns. One graph, or a row from one graph into another, was not taken: an architect runs for a long time
-  over every work of its project, while each work runs on its own, and the compiler can then check each graph apart.
+- 流程有三张图：工程师的、报告的和架构师的，它们只通过数据库相交：消息中心从工程师那里发给架构师的东西进入架构师的队列，
+  架构师则通过自己的返回作用于各个工作。只用一张图，或从一张图通往另一张图的行，都没有采用：架构师要长时间运行，
+  照看其项目的每个工作，而每个工作各自独立运行；这样编译器也能分开检查每张图。
 
-- A work that delivers only a report runs a graph of its own: the step that brings its history and one research, both as
-  an engineer's work has them, then a review of its change to the design tree when it makes one, the full CI, the merge,
-  the end. A report settles how to do something very uncertain at first, or whether to do it at all; the architect
-  creates an item for one, for an item that uncertain or for what the owner wants studied. What a work delivers is set
-  when its item is made, unlike how hard it is, which shows only as it is done, so this is no light road beside a heavy
-  one. A conclusion that decides the project's design goes on a design card (flow/design-cards.md, "A technical choice
-  for the owner"); the research writes the change of the option chosen, and the review, in a session of its own, checks
-  it against the whole tree. Beyond that it changes only the research folder, which conflicts with nothing, so it needs
-  no implementation, code review or merge queue, though it waits at the merge gate as every work does. Run through the
-  engineer's graph, it took every cell made for a change to the code (Article 3).
+- 只交付一份报告的工作跑它自己的图：先是带来其历史的那一步和一次研究，两者都与工程师的工作中的一样；然后，
+  若它改了设计树，是对这一改动的审查；再是完整 CI、合并、结束。报告要解决的是一件起初非常不确定的事该怎么做，
+  或者到底该不该做；架构师为此创建一个报告条目，针对不确定到这种程度的条目，或 owner 想要研究的东西。
+  一个工作交付什么，在其条目创建时就定了，不像它有多难要到做的时候才显出来，所以这不是重路旁边的一条轻路。
+  决定项目设计的结论放在设计卡上 (flow/design-cards.md, "留给 owner 的技术选择")；研究写下所选选项的改动，审查则在自己的
+  session 里对照整棵树检查它。除此之外，它只改研究目录，与任何东西都不冲突，所以不需要实现、代码审查或合并队列，
+  不过它也像每个工作一样在合并关口等待。放在工程师的图上跑时，它经过了为改代码而设的每一个格子（第 3 条）。
 
-- Where an agent decides which way a work goes, each fork is one yes/no question asked by the cell just before it, and
-  the way on depends on that answer alone, with no labels to route on later. A label compresses the information, so that
-  judging by it later distorts, and it hides steps no one can see. "When unsure, take the heavier way" is not used: the
-  heavier way costs much, so the question is answered as the facts stand. Where an ask holds its work is no fork: the
-  work's way stays the same, and only when it may go on changes.
+- 在由 agent 决定工作往哪走的地方，每个岔路口都是紧挨在它前面的格子所问的一个是/否问题，往下怎么走只取决于这一个回答，
+  不留供之后路由用的标签。标签压缩了信息，事后据它判断就会失真，而且它藏起了谁也看不见的步骤。“拿不准就走更重的路”
+  这一做法不用：更重的路代价大，所以问题按事实如何就如何回答。ask 扣住其工作的地方不是岔路口：工作的路线不变，
+  变的只是它何时可以继续。
 
-- What an engineer puts to the owner, an ask or a design card, stands in the item where it belongs, in its design where
-  it has one, with the background written around it; the owner sees by the marked passages where it changed and where a
-  question stands. Taken out on its own, a question had no background and no place in the design.
+- 工程师提给 owner 的东西，无论是 ask 还是设计卡，都放在条目中它所属的位置，条目有设计时放在设计里，周围写着它的背景；
+  owner 通过标记的段落看出哪里改了、哪里有待答的问题。单独拿出来时，问题既没有背景，在设计里也没有位置。
 
-- The owner is shown one count of what waits on them, the asks to the owner or the flow's keeper holding a work or a
-  matter now and the design cards holding a work, and everything else as unread; only the first notifies, as each comes,
-  and once an hour while any stays. A design card the work went on past shows as to be confirmed, and reminds of nothing
-  until the merge waits for it. Several counts with different meanings disagreed and were not trusted.
+- owner 看到的是一个计数，计的是等着 owner 的东西：此刻正扣住某个工作或事项的、发给 owner 或流程维护者的 ask，
+  以及正扣住某个工作的设计卡；其余一切都显示为未读。只有前者会发通知：每来一个通知一次，只要还有剩下的，
+  每小时再通知一次。工作已经越过它继续往下走的设计卡显示为待确认，在合并等它之前不作任何提醒。几个含义不同的
+  计数彼此对不上，没人信。
 
-- Cells share tools and output forms wherever they can, with no second copy for the same thing. A cell may have an
-  ability of its own, never a second one of what another cell has. Every cell of a line carries the line's whole schema
-  in every round, so what one cell writes for itself enlarges the input of all.
+- 格子之间尽可能共用工具和输出格式，同一样东西不做第二份。一个格子可以有自己独有的能力，但绝不另做一份别的格子已有的
+  能力。一条线的每个格子在每一轮都带着这条线的整个 schema，所以一个格子为自己写的东西会增大所有格子的输入。
 
-- A cell that continues another's session has what that cell found, so what the earlier cell hands on is only what a
-  cell outside the session or the owner reads, and nothing is written twice for the one that follows. Every way the work
-  can go keeps it so: where the session may not continue, as when it is restarted for its size or the next cell runs in
-  a session of its own, that cell is given what the earlier one wrote (flow/inputs.md, "A cell's inputs are of two
-  kinds"), so a restart loses no more than what was never written. Output costs the most of a round, and every field
-  rides in every round of its line (flow.md, "Cells share tools and output forms wherever they can").
+- 延续另一个格子的 session 的格子，已经有那个格子的发现，所以前一个格子交下去的，只是 session 之外的格子或 owner
+  要读的东西，不为后面的格子再写一遍。工作可能走的每条路都保持这一点：在 session 可能无法延续的地方，比如 session
+  因过大而重启，或下一个格子在自己的 session 里跑，就把前一个格子写下的东西交给那个格子 (flow/inputs.md,
+  "格子的输入分两种")，所以重启丢掉的，不会多于从未写下的东西。输出是一轮中最贵的部分，
+  而且每个字段都随它所在线的每一轮一起发送 (flow.md, "格子之间尽可能共用工具和输出格式")。
 
-- The flow's definition holds what agents are told and what the chart shows of what the flow does; why it is so is in
-  the design tree, and an instruction does not carry its reasons. Text that reaches no agent and shows on no chart is
-  not kept, and the compiler refuses it, as it refuses a field nothing reads. Reasons kept in the definition were sent
-  to agents every round and drifted from the tree's.
+- 流程定义里放的是告诉 agent 的话，以及图上展示的流程所做的事；为什么如此，写在设计树里，指令不附带它的理由。
+  既到不了任何 agent、也不显示在任何图上的文字不保留，编译器会拒绝它，就像拒绝一个没有东西读的字段。
+  以前放在定义里的理由每一轮都发给 agent，并且与树里的理由渐渐偏离。
 
-- A cell keeps no state: a stage is not made a small state machine that stops in several places and pieces state
-  together by various means, and such a problem is met by changing the state machine itself. Greying a button or an
-  input while a talk goes on only goes around it, and what is unreasonable in the machine remains.
+- 格子不保存状态：不把一个阶段做成在好几处停下、用各种手段拼凑状态的小状态机，遇到这类问题就改状态机本身。
+  在对话进行时把按钮或输入框置灰，只是绕开了问题，状态机里不合理的地方依然存在。
 
-- A cheap model's cell finds and reads the decisions a question touches, for an engineer, an architect or the assistant,
-  quoting them and judging nothing. Reading the whole tree each time costs too much, and a model that judged would put
-  its reading in place of the decisions.
+- 便宜的模型跑的格子找出并阅读一个问题涉及的决定，供工程师、架构师或助理使用，只引用它们，不作任何判断。
+  每次都读整棵树代价太大，而一个会判断的模型会拿自己的解读顶替这些决定。
 
-- To understand something, an agent reads both the code and the design tree's decisions on it: the code holds what is
-  done, the tree why it is so and where it is going, ahead of the code. Either alone misleads: the code gives no
-  reasons, and the tree does not say how far the code has got (Article 2).
+- 要理解某样东西，agent 既读代码，也读设计树中关于它的决定：代码记着做了什么，树记着为什么这样、往哪里去，走在代码前面。
+  只看其中之一都会误导：代码不给理由，树也不说代码走到了哪一步（第 2 条）。
 
-- Every review can be disputed, and a dispute that holds goes up. A review is not always right.
+- 每个审查都可以被提出异议，站得住的异议往上提。审查并不总是对的。
 
-- What a review will check, the cell that does the work is told first and, where it applies, hands in done, such as a
-  measurement of a change's effect on performance, or a defect's like cases and what keeps it from coming back: the
-  review then finds what was told and not done, and is not the first to ask. A review that is the first to ask for
-  something sends the work back a round every time, for what the agent would have done in the round before had it been
-  told (Article 3).
+- 审查将要检查的东西，先告诉干活的格子，适用时由它做好后一并交上，比如测量一项改动对性能的影响，或一个缺陷的
+  同类情况以及防止它再次出现的手段：这样审查找出的是告诉了却没做的，而不是由它第一个提出要求。第一个提出某项要求的审查，
+  每次都让工作退回一轮，去做 agent 若早被告知、在上一轮就会做的事（第 3 条）。
 
-- The flow's design must converge, getting nearer the goal with each polish, and needs a way to model this complexity
-  rather than going through the cases cell by cell. The possibilities diverge as cells grow, and considering each case
-  of each cell soon grows past handling.
+- 流程的设计必须收敛，每打磨一次都离目标更近，并且需要一种为这种复杂性建模的办法，而不是一个格子一个格子地过各种情况。
+  格子一多，可能性就发散，逐个考虑每个格子的每种情况，很快就超出能处理的范围。
 
-- Going through the flow or adding to it uses one standard. A problem is first placed: whether every work meets it or
-  only a kind of work, and whether that kind is what the cell it would go in serves; a cell that serves every work
-  demands of none an answer only some works have, such as whether a defect was seen to happen or whether the work should
-  be split. What is to be stopped is then mapped onto a means that can be used, weighed against its cost: a line of a
-  prompt costs little, a question an answer from every work it is asked of, a cell a round in every work that passes it;
-  one is taken only where what it stops is worth that (Articles 3 and 4). Its consequences are looked at too: whether it
-  makes small things large or large things small, or leaves an agent unable to do what it could, or forced to go around;
-  they are worse than flow bugs such as an endless loop. Most cells do stop errors and what lacked was one standard;
-  additions made where a problem showed, each reasonable alone, together made most of the flow's problems.
+- 审视流程和往流程里添加东西用同一个标准。先给问题定位：是每个工作都会遇到，还是只有某类工作会遇到，
+  以及那类工作是否正是它要放进去的格子所服务的；服务于每个工作的格子，不向任何工作索要只有部分工作才有的回答，
+  比如缺陷是否已被看到发生，或工作是否该拆分。然后把要拦住的东西对应到一种可用的手段上，并与其代价相权衡：prompt
+  里的一行代价很小，一个问题的代价是每个被问到的工作都要给出回答，一个格子的代价是每个经过它的工作都要多一轮；
+  只有在它所拦住的东西值这个代价时才采用（第 3 条和第 4 条）。还要看它的后果：它是否把小事变大、把大事变小，是否让 agent
+  做不了原本能做的事，或被迫绕路；这些比无限循环之类的流程 bug 更糟。多数格子确实拦住了错误，缺的是一个统一的标准；
+  在问题露头之处加上的东西，单独看个个合理，合在一起却造成了流程的大部分问题。
 
-- A problem is solved first by writing it in a cell's input, and only if that is not enough by a tool of the flow: what
-  prompting alone cannot do, needing another pair of eyes, a CI check, adversarial testing an agent cannot do for
-  itself, or what it does badly even when told. One line of prompt settles most things. Mechanical checks and another
-  pair of eyes cost much, and with rules alone a model keeps only some of them.
+- 解决问题先靠把它写进格子的输入，只有这还不够时才动用流程的工具：用于光靠 prompt 做不到、需要另一双眼睛、
+  一项 CI 检查或 agent 无法自己做的对抗测试的事，或 agent 即使被告知也做不好的事。一行 prompt 能解决大多数事。
+  机械检查和另一双眼睛代价很高，而只靠规则，模型只会遵守其中一部分。
 
-- A cell's prompt, inputs or outputs change only to solve a problem that can be named, and only after the changed cell
-  has run on several real past cases and its inputs and returns have been set beside those of the cell as it was, case
-  for case; a part of the flow with no serious problem is left as it is. Changes reasoned out alone left cells worse
-  than before, and a change to a cell that works risks what it already does well (Article 4: what solves no named
-  problem is not added). Judgment comes from what the cell really returns (Article 2).
+- 格子的 prompt、输入或输出只为解决一个能指明的问题而改，而且要在改过的格子已经在几个真实的过往案例上跑过、
+  并把它的输入和返回与原来格子的逐个案例并排对照之后；没有严重问题的流程部分保持原样。光靠推理得出的
+  改动让格子比以前更糟，而改动一个好用的格子，会危及它已经做好的事（第 4 条：解决不了任何指明问题的，不加）。
+  判断来自格子实际返回的东西（第 2 条）。
 
-- The flow is audited cell by cell from time to time, the agent cells above all, starting from the problem each cell
-  controls and the ideal cell, the cell as it is and its recorded rounds serving only as evidence. Each input is judged
-  for its order (wf-agents.md, "What an agent is sent is ordered by how widely it is the same"), for whether a session
-  is sent again what it has (flow/inputs.md, "A cell's inputs are of two kinds"), its tokens, its content and size, and
-  whether everything the cell needs is there and nothing else; each output for whether it does what the inputs mean it
-  to and has a reader (flow/returns.md, "Every field of a return must have a reader"). The evidence is the recorded
-  rounds, with each input's size, the cache read and written, what the agents' reports on the flow asked for and the
-  returns sent back, and runs of the changed cell on made inputs as well as real past ones (flow.md, "A cell's prompt,
-  inputs or outputs change only to solve a problem that can be named"). Every cell is settled before any is changed and
-  the settled cells are made into a new definition; a cell is fixed only once the owner has reviewed it there, on its
-  chart, and changes after that only by the owner's yes. Cells added one at a time, each reasonable alone, drifted
-  apart, and only a pass over all of them showed it; and cells settled in drafts and fixed there came out otherwise in
-  the definition made from them.
+- 流程会不时被逐个格子地审计，尤其是 agent 格子，出发点是每个格子所控制的问题和理想中的格子，
+  现有的格子及其记录下的轮只用作证据。每个输入都要评判：它的顺序 (wf-agents.md, "发给 agent
+  的内容按相同的范围由广到窄排列")，是否把 session 已有的东西又发了一遍 (flow/inputs.md, "格子的输入分两种")，它的
+  token、内容和大小，以及格子需要的是否都在、且没有别的；每个输出都要评判：它是否做到了输入要它做的，是否有读者
+  (flow/returns.md, "返回的每个字段都必须有读者")。证据是记录下的轮，包括每个输入的大小、缓存的读与写、agent
+  关于流程的报告所要求的东西和被退回的返回，以及改过的格子在构造的输入和真实过往输入上的运行 (flow.md, "格子的
+  prompt")。在改动任何格子之前，先把每个格子都定下来，再把定下的格子做成一份新的定义；一个格子只有在 owner 在新定义中、
+  在它的图上审查过之后才固定，此后只凭 owner 的同意才改。一次加一个、单看都合理的格子渐渐彼此背离，
+  只有把全部格子过一遍才显出来；而在草稿里定下并在草稿里固定的格子，到了据此做出的定义里却成了另一个样子。
 
-- A solution chosen for a problem must itself be challenged: is this the fittest way, is there a better? This reasoning
-  matters more than listing. Without it, the work goes back to solving problems while making others, with no
-  convergence.
+- 为问题选定的方案本身也必须受到质疑：这是最合适的办法吗，有没有更好的？这种推理比罗列更重要。没有它，
+  事情就又回到一边解决问题、一边制造别的问题，无法收敛。
 
-- A judgment needing research and focus, such as whether something is a design flaw, is asked as a step of its own, not
-  as a side task in another prompt, and not every time; this forbids no agent elsewhere from making it. Asked in passing
-  it is not thought through. Telling others only to report signs and not to judge limits them for no reason.
+- 需要研究和专注的判断，比如某样东西是否是设计缺陷，作为单独的一步来问，不作为另一个 prompt 里的附带任务，
+  也不是每次都问；这并不禁止别处的 agent 作出这种判断。顺带着问，就想不透。叫别的 agent 只报告迹象、不作判断，
+  是无缘无故地限制它们。
 
-- A problem costly to guard against, which may stop happening as models get stronger, must be weighed for whether it
-  deserves a guard rail. Concluding without reading the code is one, and the flow does not check for it. Models keep
-  improving, and such guards weaken with time.
+- 防范代价高、又可能随模型变强而不再发生的问题，必须权衡它是否值得一道护栏。不读代码就下结论便是其一，流程不为它设检查。
+  模型在不断进步，这类防范的作用会随时间减弱。
 
-- Each cell says what problem it solves, how, why by this tool and at what cost. That gives iteration its basis: taking
-  an ability from a cell shows which problem must then be solved elsewhere, and a new problem can find its place and
-  tool.
+- 每个格子都说明它解决什么问题、怎么解决、为什么用这个工具、代价多大。这为迭代提供了依据：从格子拿走一种能力时，
+  能看出哪个问题随之必须在别处解决；新问题也能找到它的位置和工具。
 
-- The flow's tests are a formal matter, not one trial run. The flow only runs once live, and the next upgrade would
-  again meet what never ran.
+- 流程的测试是正式的事，不是试跑一次。那样流程只在线上跑一次，下次升级又会碰上从没跑过的东西。

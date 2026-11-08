@@ -1,34 +1,27 @@
-- The architect handles what belongs to the project: it understands the project's plan, direction and near goals, keeps
-  the items by them, and decides what is next. These belong to the whole project, and an engineer generally need not
-  know them.
+- 架构师处理属于项目的事：它理解项目的计划、方向和近期目标，据此维护条目，并决定下一步做什么。这些属于整个项目，
+  工程师一般不需要知道。
 
-- The architect's duty is everything about items and observations: creating, deleting, changing, merging, splitting and
-  ordering them and their dependencies, starting and pausing their works, which item a report worth an item goes into,
-  answering engineers' asks about other items or the project's progress, whether to open an item or revert when main is
-  red, the policy and the plan; it judges by its plan's priorities, the constitution, the design decisions and the
-  policy, and what it cannot settle within that goes to the owner. That takes the pressure of a global queue off it, so
-  it can give itself to its own duties.
+- 架构师的职责是与条目和观察有关的一切：创建、删除、修改、合并、拆分和排序它们及其依赖，启动和暂停它们的工作，
+  值得立条目的报告归入哪个条目，回答工程师关于其他条目或项目进展的 ask，main 变红时是开条目还是回滚，
+  以及 policy 和计划；它依据计划的优先级、宪法、设计决定和 policy 来判断，在此范围内定不了的交给 owner。
+  这样它就卸下了全局队列的压力，可以专心履行自己的职责。
 
-- Problems are not escalated to the architect: it solves only what is in its function, and what is not goes to the
-  owner. Architect and engineer differ by function, and the architect is no stronger than the engineer. Going up to the
-  architect first, and to the owner only if it cannot decide, was rejected: it is no level above, and a matter it is not
-  good at will not be solved by handing it there.
+- 问题不升级给架构师：它只解决自己职能之内的事，职能之外的交给 owner。架构师和工程师的区别在于职能，
+  架构师并不比工程师强。先交给架构师、它定不了再交给 owner 的做法被否决了：架构师不是上一级，
+  它不擅长的事交给它也解决不了。
 
-- Reading the project, judging the policy and deciding what is next are three separate steps. The policy judges only
-  whether the direction still holds, and is reset with the owner only if not; what is next is thought about apart and
-  not written in the policy. Reading the project comes before judging the policy, and thinking about what is next needs
-  a place of its own.
+- 读项目、评判 policy 和决定下一步做什么是三个分开的步骤。评判 policy 只看方向是否仍然成立，
+  不成立时才与 owner 重新制定；下一步做什么单独考虑，不写进 policy。读项目在评判 policy 之前，
+  而考虑下一步需要一个自己的位置。
 
-- Each project has one architect, and dependencies between items of different projects are settled by the architects
-  talking. One architect would not scale as projects grow.
+- 每个项目有一个架构师，不同项目的条目之间的依赖由架构师们相互沟通来解决。只有一个架构师，项目一多就撑不住。
 
-- Architects message each other freely: a saying in no fixed form, which would only make it harder to talk, and an ask
-  in the form every ask has, so that it holds and releases as any other.
+- 架构师之间自由地发消息：告知不拘格式，固定的格式只会让交流更难；ask 则用每个 ask 都有的格式，
+  这样它就像其他 ask 一样扣住和放行。
 
-- An architect's start is like an engineer's: some event starts the flow at some cell, and one start is one work, with
-  no separate notion of waking. Waking is no concept of the model's; it was made up for the architect, and events that
-  start a flow were already there. Calling it going through its queue was not needed either, since a work is enough.
+- 架构师的启动和工程师的一样：某个事件让流程从某个格子开始，一次启动就是一个工作，没有单独的“唤醒”概念。
+  唤醒不是模型里的概念，是专为架构师编出来的，而启动流程的事件本来就有。
+  把它叫作“过一遍队列”也没有必要，因为“工作”就够了。
 
-- The architect's start cell is a waiting cell, as the engineer's is: it belongs to no work and runs no round, and what
-  starts a work is drawn as its ways out. The end cell only ends that work, which then returns to waiting. Written in
-  the engine's code, the conditions for starting could not be seen on the chart.
+- 架构师的起始格子和工程师的一样，是一个等待格子：它不属于任何工作，也不运行任何轮，什么会启动一个工作，就画成它的出路。
+  结束格子只结束那个工作，之后回到等待。启动的条件若写在引擎的代码里，就无法在图上看到。

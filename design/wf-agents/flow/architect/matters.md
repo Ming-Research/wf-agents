@@ -1,50 +1,41 @@
-- The architect's flow is a loop: every step that may ask the owner is dispatched as a matter in the queue, wanting to
-  check the policy again is putting a matter in the queue, and no line jumps there from another cell. A step that may
-  ask must be a matter, so that there is something to hang when asking. A straight line into the loop, through reading,
-  checking the policy and planning, had nothing to hang, and an answer would not know where to go.
+- 架构师的流程是一个循环：每个可能向 owner 发 ask 的步骤，都作为队列中的一个事项来分派；想再检查一次 policy，
+  就是往队列里放一个事项；没有连线从别的格子跳到那里。可能发 ask 的步骤必须是一个事项，这样发 ask 时才有东西可挂起。
+  一条经过读项目、检查 policy 和做计划而进入循环的直线，没有东西可挂起，回答也不知道该去哪里。
 
-- The architect handles matters one at a time: when the next begins, the last is done and recorded, or is hanging on the
-  owner's answer. The wait costs little, since a matter generally takes a few minutes.
+- 架构师一次处理一个事项：下一个开始时，上一个要么已处理完并记录下来，要么挂起等 owner 的回答。等待的代价很小，
+  因为一个事项一般只要几分钟。
 
-- The owner's words, and matters the owner has answered, come first in the queue and are taken up as soon as the one in
-  hand is done, with no cell of their own. When the owner speaks while the architect works, it is a higher priority
-  question or instruction; when the owner has just decided, the owner is waiting for the result.
+- owner 说的话和回答过的事项排在队列最前，手头的事项一完成就处理，没有自己的格子。owner 在架构师工作时开口，
+  说的是优先级更高的问题或指示；owner 刚做完决定时，正在等结果。
 
-- After a new base when one is due and the owner's words and answers (flow/architect/matters.md, "The owner's words, and
-  matters the owner has answered, come first"), the architect takes main's red CI, then a matter a stopped work waits
-  on, then the rest of its queue, oldest first: a red main holds every merge of the project (backend/tools/ci.md, "The
-  engine watches each project's main"), and a stopped work spends its time waiting.
+- 在需要时建好新 base、处理完 owner 的话和回答 (flow/architect/matters.md, "owner 说的话和回答过的事项排在队列最前")
+  之后，架构师先处理 main 上变红的 CI，再处理停下的工作所等的事项，然后从旧到新处理队列里的其余事项：
+  main 变红会扣住项目的每一次合并 (backend/tools/ci.md, "引擎监视每个项目的 main")，而停下的工作只是在等待中耗费时间。
 
-- Each matter must be handled fast enough, since the owner's words wait for the one in hand.
+- 每个事项都必须处理得足够快，因为 owner 的话要等手头的事项处理完。
 
-- A report enters the architect's queue as soon as it comes, and an architect not running starts; nothing is saved up,
-  and an urgent one reaches it while it runs. Starting when needed costs no more than saving up for an hour.
+- 报告一来就进入架构师的队列，没在运行的架构师随即启动；什么都不攒着，紧急的报告在它运行时也能送到。需要时就启动，
+  花费并不比攒上一个小时再处理多。
 
-- While every work is paused, no architect is given a matter for free slots with no item to start, since no new work can
-  start.
+- 所有工作都暂停时，不会因为有空闲槽位却无条目可启动，就给任何架构师派一个事项，因为新工作反正启动不了。
 
-- Receipts and other small matters are cut at the source, not filtered by another agent. What must shrink is the small
-  matters in the architect's hands, and not sending them saves running one more agent.
+- 回执和其他小事项在源头就砍掉，而不是由另一个 agent 过滤。要减少的是架构师手上的小事项，
+  不发出来还省得多运行一个 agent。
 
-- What is reported is first made clear, then matched to existing items, and merged where one can take it; only where
-  none can and it is urgent is an item created, and otherwise it is considered as an observation. What arrives is not
-  always an item and often takes research, and creating by urgency first leaves duplicates once an existing item turns
-  out able to take it.
+- 报上来的东西先弄清楚，再与已有条目比对，有条目能容纳就并进去；只有没有条目能容纳且情况紧急时，才创建条目，
+  否则把它当作一条观察来考虑。送来的不一定是条目，常常需要研究；先按紧急程度创建，
+  一旦发现已有条目能容纳它，就留下了重复。
 
-- The architect judges reports itself, with no cheap model sorting them, and so too whether something falls within an
-  existing item. Judging that a matter is nothing needs all the architect's context, which a model sorting mechanically
-  does not have.
+- 架构师亲自判断报告，不用便宜的模型来分拣；某件事是否落在已有条目之内，也由它判断。判断一个事项无关紧要，
+  需要架构师的全部 context，而机械分拣的模型没有这些。
 
-- When report work reaches its end and has written next steps, a matter that is not urgent is queued for the architect,
-  with the item, the report's path and merge commit, and the next steps as written. The architect opens a follow-up,
-  sets a later look, declines with a reason, or tells the owner. By the end the report is merged and its next steps are
-  final; earlier, it could still be sent back.
+- 只交付报告的工作走到终点、并且写了下一步时，会给架构师排入一个不紧急的事项，附上条目、报告的路径和合并 commit，
+  以及原样的下一步。架构师开一个后续条目、安排以后再看、附理由拒绝，或者告诉 owner。到终点时，报告已经合并，
+  下一步也已定稿；更早的话，它还可能被打回。
 
-- A change to items that could lose something (cancelling, merging, splitting, changing an acceptance, touching an item
-  being worked on) is checked at once by a second look, a session of its own, and problems go back to that matter to
-  fix; other changes take effect after the engine's checks. There is no batch review, no cell for revising, and no
-  question at the end of a batch whether to plan again. The engine can check only form, not whether a change is
-  reasonable. A second look at every change would cost a fork each, and creating an item wrongly loses nothing.
+- 可能丢失东西的条目改动（取消、合并、拆分、修改验收标准、动正有工作在进行的条目）立即由第二眼检查，
+  第二眼是一个单独的 session，发现的问题回到那个事项去修；其他改动在通过引擎的检查后生效。没有批量审查，
+  没有用于修订的格子，也没有在一批结束时问是否重新做计划。引擎只能检查形式，不能检查改动是否合理。每个改动都过第二眼，
+  每次要花一个 fork；而错误地创建一个条目不会丢失任何东西。
 
-- An architect's work ends when the queue is empty, with no closing round. Records are left as it goes, so that round
-  would be needless and cost money.
+- 架构师的工作在队列清空时结束，没有收尾的一轮。记录是边做边留的，所以收尾那一轮多余，还要花钱。

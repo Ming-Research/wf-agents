@@ -1,12 +1,9 @@
-- Running safely is made the whole system's state control: the system itself watches what grows little by little, such
-  as cost, compile time and test time. Such growth is fine each time and a problem added up, and the owner cannot keep
-  sending agents to look.
+- 安全运行被做成整个系统的状态控制：系统自己监控那些一点点增长的量，比如费用、编译时间和测试时间。
+  这种增长每次看都没问题，累积起来就成了问题，而 owner 不可能一直派 agent 去看。
 
-- Each measure of the system's health is defined once, in one registry, its series computed over any period at any step
-  from the records, or from samples the engine takes each minute of what no record holds: with one definition, the page
-  and the watch agree.
+- 系统健康的每项指标只定义一次，放在一个注册表里，它的序列可以按任意时段、任意步长计算，依据的是记录，
+  或是引擎每分钟对没有记录可依的东西所取的采样：只有一个定义，页面和监控就会一致。
 
-- The engine judges each round while it runs: it reads and keeps each of the agent's calls to the model and holds the
-  round against lines computed from the rounds before it, as the system watches itself (backend/engine/health.md,
-  "Running safely is made the whole system's state control"), so that no line is a setting; a round it stops takes a way
-  out every agent cell has. Judged only at its end, a long and costly round would have spent its money already.
+- 引擎在每一轮运行时就评判它：读取并保存 agent 对模型的每次调用，用由之前各轮算出的界线来衡量这一轮，
+  就像系统监控自己那样 (backend/engine/health.md, "安全运行被做成整个系统的状态控制")，因此没有哪条界线是一项设置；
+  被它叫停的一轮，走每个 agent 格子都有的一条出路。若只在结束时评判，一个又长又贵的轮早已把钱花掉了。

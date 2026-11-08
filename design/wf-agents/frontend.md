@@ -1,28 +1,23 @@
-- Everything the owner uses is on the web, not the command line, which the owner does not like to use.
+- owner 用到的一切都在网页上，而不在命令行里，因为 owner 不喜欢用命令行。
 
-- The page's places and the strength of its marks are scarce and graded: the strongest marks, such as a whole
-  background, colour and motion, and the first places go to what matters most; weaker marks and later places to lesser
-  things. A strong mark spent on something minor leaves the important nothing to stand out with, and where everything
-  is loud nothing is.
+- 页面上的位置和标记的强弱都是稀缺的，且分等级：最强的标记，如整块背景、颜色和动效，以及最靠前的位置，留给最重要的东西；
+  较弱的标记和靠后的位置留给次要的东西。强标记花在小事上，重要的东西就没有什么可用来突出了；处处都抢眼，
+  也就没有一处抢眼。
 
-- Every text of the page itself is in English, from one message catalog. The owner reads the interface in English, and
-  one catalog keeps the names of the flow's parts the same wherever the page shows them.
+- 页面本身的所有文字都是英文，出自同一份文案目录。owner 用英文读界面，
+  而一份目录让流程各部分的名字无论在页面上哪里显示都相同。
 
-- The console's tree is drawn in WebGL by PixiJS, and what opens from a node is HTML. Each node moves, scales and
-  animates on its own, and many must be drawn at 60 frames a second: on the owner's machine about 300 nodes in view,
-  all scaling at once, took 3 to 5 ms a frame whatever the tree's size, from 2,000 to 20,000 items, once only the nodes
-  in view were attached and titles came from one shared atlas of glyphs; a texture of its own for each title stalled a
-  frame up to 150 ms as nodes came into view. Nodes in HTML were not taken, since scaling each one makes the browser lay
-  out and rasterise its text again every frame; three.js, an engine for 3D, is more than a flat tree needs. What opens
-  from a node holds text to select and copy, Markdown and answers to type, which only HTML does well.
+- console 的树由 PixiJS 用 WebGL 绘制，从节点打开的内容是 HTML。每个节点各自移动、缩放和做动画，
+  而且很多节点必须以每秒 60 帧绘制：在 owner 的机器上，只挂载视野内的节点、标题都取自一张共享的字形图集之后，
+  视野内约 300 个节点同时缩放，每帧耗时 3 到 5 ms，与树的大小无关，从 2,000 到 20,000 个条目都是如此；
+  每个标题各用一张自己的纹理时，节点进入视野会让一帧卡住长达 150 ms。没有采用 HTML 节点，
+  因为缩放每个节点都会让浏览器每帧重新排版并栅格化它的文字；three.js 是一个 3D 引擎，超出了一棵平面的树所需。
+  从节点打开的内容包含要选中和复制的文字、Markdown 和要输入的回答，这些只有 HTML 做得好。
 
-- Every box of the page that takes words keeps what was typed and not sent, across leaving the page, opening something
-  else, a reload or the browser dropping a tab, written at every change with no timer, since a browser that drops a tab
-  does not promise to run anything on leaving. Losing what the owner typed is a serious fault. Kept only while the box
-  was shown, the words were lost when it went away, and keeping every page shown is what the page was made lighter to
-  stop doing.
+- 页面上每个接受文字的框，都会保留已输入而未发送的内容，在离开页面、打开别的东西、刷新或浏览器丢弃标签页之后依然保留；
+  每次改动即写入，不用定时器，因为会丢弃标签页的浏览器并不保证离开时运行任何东西。丢失 owner 输入的内容是严重的缺陷。
+  只在框显示期间保留时，框一消失文字就丢了；而让每个页面都一直显示着，正是页面为了变轻而不再做的事。
 
-- A draft is kept under what its box belongs to, never under where it stands or a title, so that one box never shows
-  another's words. What is not words, such as the option picked or whom a reply answers, is not kept, since kept it
-  could turn into something else unseen. When the browser is full, images give way to words, the oldest draft's first,
-  since images could otherwise crowd out the words of any box.
+- 草稿按它的框所属的对象保存，从不按它所在的位置或某个标题保存，这样一个框永远不会显示另一个框的文字。不是文字的东西，
+  如选中的选项或回复针对的是谁，不保存，因为一旦保存，它可能在没人察觉时变成别的东西。浏览器存储满时，图片给文字让路，
+  最旧草稿的图片最先让，否则图片可能挤掉任何一个框的文字。

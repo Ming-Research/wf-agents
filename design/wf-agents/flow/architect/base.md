@@ -1,66 +1,52 @@
-- The architect does not work from a long session's unbroken memory: all it receives is stored, and another session can
-  take over at any time. That holds down the size of its context and keeps the cache hitting.
+- 架构师不靠一个长 session 不间断的记忆来工作：它收到的一切都存下来，另一个 session 随时可以接手。
+  这能压住它 context 的大小，并让缓存保持命中。
 
-- After what every cell shares (wf-agents.md, "What an agent is sent is ordered by how widely it is the same"), an
-  architect's context has three layers, in this order: its understanding of the project, the policy, and what to do
-  next. The first two do not change with the matter in hand, and only the last changes, by increments, so that the cache
-  is filled around it.
+- 在所有格子共享的内容之后 (wf-agents.md, "发给 agent 的内容按相同的范围由广到窄排列")，架构师的 context 分三层，
+  依次是：对项目的理解、policy、下一步做什么。前两层不随手头的事项变化，只有最后一层变化，而且是增量地变，
+  这样缓存就围绕它填满。
 
-- The base is only a means of saving tokens: once it is built, a record is added for each matter handled, no judgment
-  rests on it, and no judging logic sits on it. The architect could work without it, by letting the agent compact or by
-  reading the project again past the limit, at a difference only in tokens. A short session for each matter was
-  rejected: it knows nothing of the project's structure and must learn it each time. So were eight triggers for
-  replanning or rebuilding, a rebuild each day, and a rebuild whose reading round decides by a mark whether to plan: all
-  logic added on top. A rebuild when what was added grows too large stands, since it is about tokens and judges nothing.
+- base 只是节省 token 的手段：建好之后，每处理一个事项就添一条记录，没有任何判断依赖它，也没有判断逻辑架在它上面。
+  没有它，架构师也能工作，办法是让 agent 自行压缩，或在超过上限时重新读项目，差别只在 token。
+  每个事项开一个短 session 的做法被否决了：它对项目的结构一无所知，每次都得重新了解。同样被否决的还有：
+  重新做计划或重建的八个触发条件、每天重建一次、以及由读项目那一轮凭一个标记决定是否做计划的重建：
+  这些都是叠加在上面的逻辑。追加的内容过大时重建，这一条保留，因为它关乎 token，不做任何判断。
 
-- Base with session forks, one session the agent compacts itself, and starting over past the limit can be compared and
-  swapped. The architect does not change models, and changing models is no reason to rebuild. With piles of logic on
-  top, they could not be swapped.
+- 带 session fork 的 base、由 agent 自行压缩的单个 session、超过上限就从头开始，这几种方式可以比较和互换。
+  架构师不换模型，换模型也不是重建的理由。若在上面堆满逻辑，它们就无法互换了。
 
-- Every matter the architect handles runs in a session fork, with no exception: from leaving the wait until the queue is
-  empty is one run, the run's matters share one fork, and the next run takes another. A matter the owner answered joins
-  the fork running, not its old one. All forks or none, or it cannot be kept in hand. The base only saves tokens, so
-  nothing calls for a fork per matter; sharing one, fixed inputs are not sent again, what the last matter looked up need
-  not be looked up again, and several reports on one thing pass quickly, though none of this is measured. The price is
-  that a wrong judgment may carry to later matters in the run.
+- 架构师处理的每个事项都在 session fork 中运行，没有例外：从离开等待到队列清空是一次运行，这次运行的事项共用一个 fork，
+  下一次运行另取一个。owner 回答过的事项加入正在运行的 fork，而不是它原来的那个。要么全用 fork，要么全不用，
+  否则就掌控不住。base 只用来省 token，所以没有什么要求每个事项一个 fork；共用一个 fork，固定的输入不必再发，
+  上一个事项查过的不必再查，关于同一件事的几条报告也能很快过完，不过这些都没有测量过。
+  代价是一个错误的判断可能带到这次运行中后面的事项。
 
-- A record is left for each matter handled, and a session fork is given all records since the base. Otherwise a fork is
-  memory going backwards: an item was just opened for the last matter, a similar report comes, and not knowing, it does
-  it again.
+- 每处理一个事项都留一条记录，session fork 会拿到自 base 以来的全部记录。否则 fork 就是倒退的记忆：
+  刚为上一个事项开了一个条目，又来一条类似的报告，它不知情，就又开一次。
 
-- The records include the talk with the owner, both ways. The architect must know what the owner said before, and with
-  only the owner's words the agents after it would take the owner's questions for never answered.
+- 记录包括与 owner 的双向对话。架构师必须知道 owner 以前说过什么；若只记 owner 的话，
+  之后的 agent 会以为 owner 的问题从未得到回答。
 
-- A round forked from the base should take in under 10K characters, and a few K is best. The whole context is limited to
-  500K, and even 10K to 20K is no small part of it.
+- 从 base fork 出来的一轮，输入应在 10K 字符以下，几 K 最好。整个 context 的上限是 500K，
+  即便 10K 到 20K 也占了不小的一部分。
 
-- The project is read only when the base is built: starting on an existing session or fork does not read it again. Items
-  do not change while the architect is not running, apart from work finishing, and what was read is still in context, so
-  reading at each start is money wasted.
+- 项目只在构建 base 时才读：在已有的 session 或 fork 上启动时不再重读。架构师不运行时，除了工作完成，条目不会变化，
+  读过的内容也还在 context 里，所以每次启动都读是浪费钱。
 
-- Reading the project and planning are done in one session. The reading is there to leave context for the planning and
-  the rounds after it, which written text cannot carry.
+- 读项目和做计划在同一个 session 中完成。读项目是为了给做计划和之后的各轮留下 context，而这是写下来的文字承载不了的。
 
-- An architect taking on a project first reads it to understand it: this round prepares the reasoning context for those
-  after it, and what it is asked to write only forces it to read and think. Held against the constitution with no
-  reading of the code, it could not judge, and what it writes is not used later.
+- 接手项目的架构师先读项目，以理解它：这一轮为之后的各轮准备推理用的 context，要求它写的东西只是逼它去读、去想。
+  只拿宪法来对照而不读代码，它无法判断；它写下的东西之后也不会被用到。
 
-- The reading round answers what an architect should understand: the architecture, whether its design is reasonable, the
-  state of the code, where to go. It does not count open tasks and numbers: a count of the present is mostly no use, and
-  numbers go stale once written. An incoming architect should grasp how the project came to be, and there must be a
-  means of forcing it to find out.
+- 读项目那一轮回答架构师应当理解的东西：架构、它的设计是否合理、代码的状态、往哪里走。它不清点未完成的任务和数字：
+  对现状的清点大多没用，数字一写下就过时。新接手的架构师应当了解项目是怎么走到今天的，而且必须有办法逼它去弄清楚。
 
-- What the reading round writes is short, about 1K characters, and the writing of its task makes sure it really
-  understood, with no limit enforced. What is written has no value, and writing less was tried, once, with no harm to
-  understanding.
+- 读项目那一轮写的东西很短，约 1K 字符；靠任务的写法确保它真正理解了，不强制限制长度。写下的东西本身没有价值；
+  少写试过一次，没有损害理解。
 
-- Reading the project is mainly reading the constitution, the design tree and the code as it stands, with the database
-  as an aid. The items in the database are what the architect must keep by its own judgment.
+- 读项目主要是读宪法、设计树和现有的代码，以数据库为辅。数据库里的条目是架构师必须凭自己的判断来维护的。
 
-- The reading round's message holds only what is needed to understand the project, with no descriptions of its inputs:
-  leaving them out was tried with no effect on understanding.
+- 读项目那一轮的消息只包含理解项目所需的内容，不含对其输入的描述：去掉这些描述试过，对理解没有影响。
 
-- The reading round always writes from nothing, seeing no old understanding, old plan or records of matters, but what
-  the owner and the architect said. When the main policy has changed it must not be led by the old, and given the old it
-  does not really understand the project. Assumed, not established: what they said is kept because it would otherwise be
-  lost when the base is rebuilt.
+- 读项目那一轮总是从零开始写：看不到旧的理解、旧的计划或事项的记录，只看得到 owner 和架构师说过的话。
+  主要的 policy 变了时，它不能被旧的牵着走；给了它旧的，它也不会真正理解项目。这是假设，未经证实：保留他们说过的话，
+  是因为否则重建 base 时这些话就会丢失。

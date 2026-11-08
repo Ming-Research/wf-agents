@@ -1,50 +1,41 @@
-- All conversations are on the messages page: each project's groups and the owner's one-to-one with the architect, with
-  what engineers ask the owner or the architect, the architect's answers and what architects say to each other. The
-  architect's page has no way into a talk. There will be several architects and the owner also talks with running
-  engineers, and a talk on the architect's page would spoil its look.
+- 所有对话都在消息页面上：各项目的群组，以及 owner 与架构师的单聊，里面有工程师问 owner 或架构师的问题、架构师的回答，
+  以及架构师之间说的话。架构师页面上没有进入对话的入口。架构师会有好几个，owner 也会和运行中的工程师交谈，
+  而放在架构师页面上的对话会破坏它的观感。
 
-- Helpers such as advisors and reviewers are not in the group: the owner does not talk to them and cannot interject into
-  a line not running, and they talk only with the engineer. The owner has no need to, and they are mostly not running.
+- 顾问、审查者这类协助者不在群组里：owner 不和它们交谈，也无法插话到没在运行的线里，它们只和工程师交谈。
+  owner 没有这个需要，而且它们大多不在运行。
 
-- A work's group is for the owner to see the work's progress, and that decides what is posted and how. Otherwise the
-  window is a muddle that says nothing.
+- 工作的群组是给 owner 看工作进度的，这决定了发什么、怎么发。否则这个窗口就是一团乱麻，什么也说明不了。
 
-- Each message window is only a chat, all bubbles, and each bubble is the speaker's; a stage's or a matter's bubble
-  counts as that agent's. The owner reads it as a chat.
+- 每个消息窗口都只是一个聊天，全是气泡，每个气泡都属于说话的一方；阶段或事项的气泡算作那个 agent 的。
+  owner 把它当聊天来读。
 
-- Every bubble's first line is written the same: who said it, to whom, about what, the time and the round, by one
-  component in all three places. Starting some with who and others with a stage's name read as a muddle.
+- 每个气泡的第一行写法都相同：谁说的、对谁说、关于什么、时间和轮，三处都由同一个组件来写。有的以说话者开头、
+  有的以阶段名开头，读起来一团乱。
 
-- An engineer posts one bubble per stage, updated as the work moves through its cells and written like the item page's
-  progress. One per cell is too many.
+- 工程师每个阶段发一个气泡，随工作走过该阶段的格子而更新，写法与条目页上的进度一样。每个格子一个就太多了。
 
-- A conversation reads from top to bottom, new at the bottom, and a bubble moves to the newest place as soon as it is
-  updated. Once updated its news is the newest, and left where it began the newest would stay in the middle.
+- 对话从上往下读，新的在底部，气泡一更新就移到最新的位置。更新之后它的动态就是最新的，留在原处的话，
+  最新的动态就会停在中间。
 
-- A finished design is shown in the conversation, folded by default. The owner looks at a work mainly to see the design
-  and understand how it is done, and then at the progress.
+- 完成的设计显示在对话里，默认折叠。owner 看一个工作，主要是为了看设计、理解它是怎么做的，其次才看进度。
 
-- What the owner must handle sits at a fixed place in its own conversation, with no summary across conversations. It is
-  surely in some conversation, where it may otherwise scroll away.
+- owner 必须处理的东西放在它所在对话中的固定位置，不做跨对话的汇总。它一定在某个对话里，不固定的话，在那里可能会被滚走。
 
-- A pinned thing follows other chat software: a pinned line under the head, which jumps to its bubble, answered in the
-  bubble, with no block fixed at half the screen. Such a block cut the conversation and the card as if by force, with no
-  clear border between them. The question and input pinned together was rejected, since the input fills the width, and a
-  question kept at the bottom on another ground, since pinning to top or bottom in that way was unnatural.
+- 置顶的东西照其他聊天软件的做法：头部下方一条置顶行，点击跳到它的气泡，在气泡里回答，没有固定占半个屏幕的区块。
+  那样的区块像是硬生生把对话和卡片切开，两者之间又没有清楚的边界。把问题和输入框一起置顶被否决了，因为输入框占满宽度；
+  把问题留在底部、换一种底色，也被否决了，因为以那种方式固定在顶部或底部都不自然。
 
-- A work's start, pause, step and item level are at the top of its group, for every work, and the architect's at the top
-  of its one-to-one. In the top bar they could be pressed from other pages, and with several works running one did not
-  know what was stepped; starting and stopping each alone helps debugging.
+- 每个工作的启动、暂停、单步和条目级别都放在它的群组顶部，所有工作都如此，架构师的则放在它的单聊顶部。放在顶栏时，
+  它们可以从别的页面按下，几个工作同时运行时也不知道单步的是哪个；逐个单独启停有助于调试。
 
-- On start and step the owner can choose a new session or going on in the old. Debugging needs it.
+- 启动和单步时，owner 可以选择开新 session，或在旧 session 里继续。调试需要这个。
 
-- The list of conversations is grouped by project, to hold several projects.
+- 对话列表按项目分组，以容纳多个项目。
 
-- The list on the left keeps its order, and what needs attention only gets a mark. A list should not change under the
-  owner's hand.
+- 左侧的列表保持顺序不变，需要关注的只加一个标记。列表不应该在 owner 手底下变动。
 
-- The options of a question can themselves be chosen: a click selects, another clears, and once answered they are read
-  only; below them are only the text box and the reply button. A row of short forms below the options had to be matched
-  with them and was easily misclicked, and radio buttons below them said everything twice.
+- 问题的选项本身就可以选：点一下选中，再点一下取消，回答后变为只读；选项下方只有文本框和回复按钮。在选项下方放一排简称，
+  得和选项逐一对应，也容易点错；在选项下方放单选按钮，则把每样都说了两遍。
 
-- A question carries no banner for its state, which would only repeat the label beside its title.
+- 问题不带表示其状态的横幅，那只会重复标题旁的状态标签。

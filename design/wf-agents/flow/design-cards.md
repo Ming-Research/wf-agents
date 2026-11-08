@@ -1,57 +1,44 @@
-- A technical choice for the owner and a change the design tree needs are put on a design card, which belongs to the
-  item (flow.md, "What an engineer puts to the owner"); every later cell is given the design with its cards. A card is
-  part of the design, not a message: its record is the item's, with its versions and the owner's choices, and the
-  owner's count reads its state. On asks, a design's choices left with the hub once answered and did not follow the
-  design as it changed, and an ask made to carry options, confidence and changes to the tree grew too heavy for what is
-  not technical.
+- 留给 owner 的技术选择，以及设计树需要的改动，都放在设计卡上，设计卡属于条目 (flow.md, "工程师提给 owner 的东西")；
+  之后的每个格子拿到的设计都带着它的卡。卡是设计的一部分，不是消息：它的记录属于条目，包括它的各个版本和 owner 的选择，
+  owner 的计数读取它的状态。用 ask 时，设计的选择一经回答就留在了消息中心，不随设计的改动而变；而让 ask 携带选项、
+  信心和对树的改动，对非技术的事来说又太重了。
 
-- A card is put only where two or more approaches could each work, no fact that can be checked settles it, and choosing
-  wrong costs much or is hard to undo; or where a decision of the design tree must change or go, the card then having
-  one option, the change. A choice a fact settles, one cheap to change later, or a local detail is the agent's own and
-  goes on no card; and a new entry of the tree comes only on a card for a real choice, where it sets a rule later works
-  must keep, never to record what the work did. No number of cards is expected, since it differs by project, and none is
-  counted, since the owner sees them every day. Cards once ran to five for one item, nearly all new entries recording
-  what a work did.
+- 只在以下情况放卡：两种或更多方案都可行，没有可核查的事实能定夺，且选错代价大或难以撤销；或者设计树的
+  某条决定必须改或删，这时卡只有一个选项，即那个改动。由事实定夺的选择、以后改起来便宜的选择或局部细节，都由 agent
+  自己决定，不上卡；树的新决定只随真正的选择上卡，在那里立下之后的工作必须遵守的规则，绝不用来记录这个工作做了什么。
+  不预期卡的数量，因为它因项目而异；也不计数，因为 owner 每天都看得到卡。曾有一个条目的卡多达五张，
+  几乎全是记录一个工作做了什么的新决定。
 
-- A card holds its question; its options, each with what it does, its cost and its risks and, where choosing it changes
-  the design tree, that change in plain words, marked as changing, deleting or adding an entry, written in full for
-  every option, so that whichever the owner picks the card already says what changes; the option recommended; and how
-  sure its author is, 1 to 5 (1 the least sure, 2 not very sure, 3 either way, 4 very sure, 5 wholly sure), with why.
+- 一张卡包含：它的问题；它的各个选项，每个选项写明做什么、代价和风险，若选它会改动设计树，还要用平实的话写出那个改动，
+  标明是改、删还是加一条决定，每个选项都完整写出，这样无论 owner 选哪个，卡上都已写明改什么；推荐的选项；
+  以及作者有多确定，1 到 5（1 最不确定，2 不太确定，3 两可，4 很确定，5 完全确定），并说明原因。
 
-- A card keeps one key within its item: handed in again under its key it is a revision, under a new key a new card. A
-  revision is shown again, voiding the owner's choice, only when its question, an option, the recommendation or a change
-  to the tree changed; one changed only in its wording keeps the choice. A card whose change no longer applies as
-  written, main's tree having moved under it, is revised so. A card a later design leaves out is withdrawn and shown so,
-  with the design's sentence on why the question is gone (Article 2). A card once popped again at every revision.
+- 一张卡在其条目内保持一个键：用原来的键再次提交是修订，用新键提交是新卡。只有当问题、某个选项、
+  推荐或对树的改动变了时，修订才再次展示，并作废 owner 的选择；只改了措辞的修订保留原选择。main 上的树已在卡下面变了、
+  卡上写的改动不再按原样适用时，就相应地修订这张卡。后来的设计不再包含的卡被撤回，并显示为已撤回，
+  附上设计中说明这个问题为何不复存在的那句话（第 2 条）。曾经每次修订，卡都会再弹出来一次。
 
-- A work goes on from its design to implementing while every card is four or five sure, and otherwise waits there for
-  the owner, the hold drawn as one engine cell after the design; whatever the confidence, it merges only once the owner
-  has chosen on every card, and waits at the merge for any not chosen. Holding the work for every card spent the owner's
-  attention on what the author was sure of, and a merge on a recommendation the owner never saw spreads a wrong answer
-  to the items that depend on it.
+- 当每张卡的确定程度都是 4 或 5 时，工作从设计继续走到实现，否则就在那里等 owner，这一扣住画成设计之后的一个引擎格子；
+  不论信心如何，只有 owner 在每张卡上都作了选择，工作才合并，有未选的卡就在合并处等。为每张卡都扣住工作，把 owner
+  的注意力花在了作者有把握的事上；而按 owner 从未看过的推荐合并，会把错误的答案扩散到依赖它的条目上。
 
-- On the design path the design and its cards are shown only once the look for a better design is done, as the design
-  then stands, since until then the first design may yet be replaced.
+- 在设计路径上，设计和它的卡要等寻找更好设计的那一步做完后才展示，展示的是那时的设计，因为在此之前，
+  第一版设计还可能被替换。
 
-- The owner choosing the option recommended lets the work go on; another option, or none will do in the owner's words,
-  takes it back to the research that wrote the design, given the choice, since the design was built on the option
-  recommended. That research thinks every card through again: a card that then changes is shown again, and one whose
-  recommendation is now the owner's choice keeps it. The owner may change a choice until the merge; after it a new item
-  is needed.
+- owner 选了推荐的选项，工作就继续；选了别的选项，或 owner 用自己的话表示哪个都不行，工作就带着这一选择回到写出设计的
+  那次研究，因为设计是在推荐选项上建起来的。那次研究把每张卡都重新想一遍：因此而变的卡再次展示，推荐现在就是 owner
+  所选的卡则保留这一选择。合并之前 owner 都可以改选择；合并之后就需要一个新条目。
 
-- Implementing writes into the design tree the change of each card's option chosen, or recommended while the owner has
-  not chosen, since the work goes on meanwhile and the merge waits for the choice; it may revise a card or put a new
-  one.
+- 实现把每张卡所选选项的改动写进设计树，owner 还没选时就写推荐选项的改动，因为工作在此期间照常继续，合并会等这个选择；
+  实现可以修订一张卡，或放一张新卡。
 
-- The engine refuses a branch whose change touches the design tree while the item has no card whose option, chosen or
-  recommended, carries a change to the tree, and a decision in the code that the tree does not record is the review's
-  (flow/engineer/test.md, "Code review checks the code against the design"): it takes the design and the review both
-  failing for one to slip through.
+- 若一个 branch 的改动触及设计树，而条目上没有哪张卡的选项（已选的或推荐的）带有对树的改动，引擎就拒绝这个 branch；
+  代码里有而树没记录的决定，则归审查负责 (flow/engineer/test.md, "代码审查对照设计")：要设计和审查都失手，
+  这样的东西才会漏过去。
 
-- An option that adds an entry to the tree carries a box, ticked by default, to write it in, which the owner unticks
-  when the decision is not worth keeping; before the merge a cell on a small model takes those entries out. It does so
-  quickly and needs nothing more, where taking them out by the commit that wrote each needed a record of which commit
-  wrote which entry.
+- 给树添加一条决定的选项带有一个默认勾选的勾选框，表示把这条决定写进树，owner 在这条决定不值得保留时取消勾选；
+  合并之前，一个跑在小模型上的格子把这些决定删去。这样做很快，也不需要别的；而按写入每条决定的 commit 去删，
+  就需要记录哪个 commit 写了哪条决定。
 
-- A card that bears on one part of an item split by its design goes with that part's item; one that bears on several
-  stays on the item split, where the parts read it, and is chosen once rather than once for each part.
+- 条目被它的设计拆分时，只关系到其中一部分的卡跟着那部分的条目走；关系到多个部分的卡留在被拆分的条目上，
+  各部分在那里读它，它只选一次，而不是每部分各选一次。

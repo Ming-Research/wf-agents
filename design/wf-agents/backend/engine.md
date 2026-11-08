@@ -1,31 +1,25 @@
-- A running work can be stopped and started over by taking over: a new work takes its branch, working directory and pull
-  request, starting a branch from main only where there is none, walks from the first cell, and is told what exists and
-  the owner's answers and choices before. What was made is not wasted. Clearing everything would lose the old work, and
-  if really needed the new work can rewrite it.
+- 运行中的工作可以通过接管来停下并重新开始：一个新工作接过它的 branch、工作目录和 PR，只在没有 branch 时才从 main
+  新开一个，从第一个格子走起，并被告知已有哪些东西，以及 owner 之前的回答和选择。已经做出的东西不会浪费。
+  全部清掉会丢掉旧工作，真有需要时，新工作可以重写它。
 
-- Starting a work over does not wait for the round under way to hand in: the round is cut off, and the new work begins
-  once its agent's process has ended, since what a round of a work being started over hands in is of no use.
+- 重新开始一个工作时，不等正在进行的那一轮提交：这一轮被打断，等它的 agent 进程结束，新工作就开始，
+  因为一个正被重新开始的工作，其一轮所提交的东西已经没有用处。
 
-- Stopping the engine on request dispatches nothing more and waits for the rounds under way, and a pause, of one work or
-  of all, takes effect at the end of the round under way, since what a round under way has already spent is not thrown
-  away. Ending the engine any other way, an interrupt or a closed terminal included, stops the agents it was running
-  with it: left running, an agent would meet the next engine running its round again, two agents in one worktree, as
-  with two engines on one data directory (backend/engine.md, "One engine runs on a data directory").
+- 按请求停止引擎时，不再派发任何东西，并等待正在进行的各轮结束；暂停，无论是一个工作还是全部，
+  都在正在进行的那一轮结束时生效，因为正在进行的一轮已经花掉的不扔掉。以其他任何方式结束引擎，包括中断和关掉终端，
+  都会连同停掉它正在运行的 agent：若任其继续运行，agent 会碰上下一个引擎把它那一轮再跑一遍，一个 worktree 里就有两个
+  agent，就像一个数据目录上跑两个引擎一样 (backend/engine.md, "一个数据目录上只运行一个引擎")。
 
-- One engine runs on a data directory: it takes an operating-system lock before it opens or writes anything, and the
-  lock goes with its process however it ends. Two engines would take the same work, running its round twice, with two
-  agents in one worktree and two pushes; and a lock held by the process leaves nothing to clear by hand after a crash or
-  a kill.
+- 一个数据目录上只运行一个引擎：引擎在打开或写入任何东西之前，先拿一把操作系统锁，无论进程怎样结束，锁都随进程而去。
+  两个引擎会接手同一个工作，把它的一轮跑两遍，一个 worktree 里有两个 agent，还会 push 两次；而由进程持有的锁，
+  在崩溃或被 kill 之后，不留下任何需要手工清理的东西。
 
-- The engine's git runs no program that a configuration an agent can write names. The worktrees of a checkout share one
-  git configuration, which an agent's own git can write, and git runs the programs it names as the engine's user with
-  the engine's credentials. So the engine's git ignores every setting that names a program (hooks, the file-system
-  monitor, signing, credential helpers and prompts, its ssh command, remote helpers) and reads no attributes at all,
-  since an attribute names a filter or a driver by any word, which cannot be listed and shut one by one. A remote the
-  engine reaches then needs no password, and what it checks out and merges has none of the project's end-of-line
-  conversion, merge drivers or large-file filters; an agent's own git is not affected.
+- 引擎的 git 不运行任何由 agent 可写的配置所指定的程序。一个 checkout 的各个 worktree 共用一份 git 配置，agent 自己的
+  git 可以写它，而 git 会以引擎的用户身份、用引擎的凭据运行其中指定的程序。所以引擎的 git 忽略一切指定程序的设置（hook、
+  文件系统监视器、签名、凭据助手和凭据提示程序、它的 ssh 命令、远程助手），并且完全不读属性，
+  因为属性可以用任意一个词指定过滤器或驱动，这无法一一列出、逐个关掉。这样，引擎访问的远程仓库就得不需要密码，
+  它检出和合并的内容也不带项目的行尾转换、合并驱动或大文件过滤器；agent 自己的 git 不受影响。
 
-- The engine's git still reads the machine's global and system git files for what names no program, such as URL rewrites
-  and proxies the owner keeps there, since reading neither would drop them. What those files, the repository's own
-  attributes file and ssh's own configuration can still name is a known gap: a write to any of them is a write outside
-  the agent's worktree.
+- 引擎的 git 仍会读取本机全局和系统级的 git 配置文件中不指定程序的设置，比如 owner 放在那里的 URL 重写和代理，
+  因为两者都不读就会丢掉这些设置。这些文件、仓库自己的属性文件和 ssh 自己的配置仍可能指定的东西，是一个已知缺口：
+  写入其中任何一个，都是在 agent 的 worktree 之外写入。

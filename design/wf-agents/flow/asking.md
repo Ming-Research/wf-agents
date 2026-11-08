@@ -1,95 +1,75 @@
-- Messages are asynchronous: no session waits on a reply. What blocks is the problem itself, asking someone is one way
-  to solve it, and the system blocks only where the problem is, which each ask names. With each question a way of its
-  own out of the flow and back, a chain of questions may lose control of the state, and going back may not run through.
+- 消息是异步的：没有 session 等着回复。阻塞的是问题本身，问人只是解决它的一种办法，系统只在问题所在之处阻塞，而每个 ask
+  都会指明那个地方。如果每个问题都有一条自己的、离开流程再回来的路，一连串问题就可能让状态失控，回去的路也可能走不通。
 
-- Every message between the owner, the assistant, the architects, the engineers and the flow's keeper passes through one
-  hub, which delivers it, keeps its state and applies the rules below; no one writes into another's input directly. The
-  owner's inbox, what the assistant may read and what each agent is given in a round all come from it. Separate
-  channels, each with its own state, read marks and counts, disagreed with one another, and left some messages with no
-  way to answer and some counts with no way to clear.
+- owner、助理、架构师、工程师和流程维护者之间的每条消息都经过同一个消息中心，由它投递、保存消息的状态并执行下面的规则；
+  谁都不直接往别人的输入里写。owner 的收件箱、助理可以读的东西、每个 agent 在一轮中拿到的东西，都来自它。各自带有状态、
+  已读标记和计数的独立渠道彼此对不上，让有些消息无从回答，有些计数无法清零。
 
-- A message either says something, needing no answer, or asks, needing one. Side reports, what an agent tells the owner,
-  agents' reports on the flow, the engine's notices and the owner's words to an engineer are all sayings; questions and
-  approvals are asks. Each channel had grown its own mechanism for one of these two things.
+- 一条消息要么是告知，无需回答，要么是 ask，需要回答。附带报告、agent 告诉 owner 的话、agent 关于流程的报告、引擎的
+  通知，以及 owner 对工程师说的话，都是告知；问题和审批都是 ask。过去每个渠道都为这两种东西之一长出了自己的一套机制。
 
-- A sender says what a message is about by answering yes or no: whether only a person can solve it, such as a permission
-  or a quota; whether it concerns other items or the project's progress, a defect worth an item among them; whether it
-  is a fault of the flow or of wf-agents itself. The hub's rules, in the flow's definition and drawn on its chart, send
-  it by the first that holds: the first to the owner, the second to the project's architect, the last to the flow's
-  keeper; what the architect cannot settle within its duty goes on to the owner. A sender that had to know who handles
-  what had its graph redrawn whenever a kind of matter moved to another handler. Kinds of question that each changed the
-  handling were dropped: the one asked judges a question by what it says, and these answers only choose a queue.
+- 发送者通过回答是或否来说明一条消息关于什么：是否只有人能解决，比如权限或额度；是否涉及其他条目或项目的进度，
+  值得立条目的缺陷也在其中；是否是流程或 wf-agents 本身的故障。消息中心的规则写在流程定义里，也画在流程的图上，
+  按第一个成立的回答投递：第一个成立就发给 owner，第二个发给项目的架构师，最后一个发给流程维护者；
+  架构师在其职责之内解决不了的，再转给 owner。以前发送者必须知道谁处理什么，于是每当某类事情改由别人处理，
+  它的图就得重画。各自会改变处理方式的问题种类被去掉了：被问者凭问题本身说的内容来判断它，而这些回答只用来选队列。
 
-- An engineer asks only what the hub sends to someone: of the owner, what only a person can solve; of the architect,
-  what concerns other items or the project's progress. A technical choice it cannot make alone goes on a design card
-  (flow/design-cards.md, "A technical choice for the owner"), and the rest it decides itself. Asked whenever the
-  engineer was unsure, the owner had more to answer than attention for it.
+- 工程师只问消息中心会送到某个人那里的事：问 owner 的，是只有人能解决的事；问架构师的，是涉及其他条目或项目进度的事。
+  它独自做不了的技术选择放在设计卡上 (flow/design-cards.md, "留给 owner 的技术选择")，其余的由它自己决定。
+  以前工程师一拿不准就问，owner 要回答的多到顾不过来。
 
-- A message carries what it is about from where it is made: one an engineer sends, the item, its work and the cell; one
-  the architect sends, the matter and the items it names; one the owner writes under an item, the item. It is shown with
-  that item, withdrawn with its work or matter, and handed to the one who receives it with that context. A separate
-  notion of a topic to file messages under was not needed.
+- 消息从产生之处带上它关于什么：工程师发的，带条目、其工作和格子；架构师发的，带事项和它提到的条目；owner
+  在某个条目下写的，带这个条目。消息与那个条目一起显示，随其工作或事项一起撤回，并连同这个 context 交给接收者。
+  不需要另设一个用来归档消息的主题概念。
 
-- A message that came to the wrong queue, or belongs to another project's architect, is passed on by whoever received
-  it: the owner, the assistant or an architect. An ask passed on keeps its asker and its hold, and the answer goes back
-  to the asker. A message of the flow's keeper goes on only as its own entry allows. The hub cannot always place a
-  message right, and an architect cannot handle another project's.
+- 进错了队列、或属于另一个项目的架构师的消息，由收到它的人转交：owner、助理或某个架构师。转交的 ask
+  保留原提问者，原先扣住的也仍然扣住，回答回到原提问者那里。流程维护者的消息只按它自己那条决定所允许的方式转交。
+  消息中心不可能总把消息放对，而架构师处理不了别的项目的消息。
 
-- The flow's keeper is a queue for wf-agents' own flow and engine: agents' reports on the flow, the flow's anomalies,
-  wf-agents' own faults such as the cache failing, the engine's notices of them, and a work the engine paused for one of
-  them, which is started again once the cause is seen. The owner and the assistant work it, since the flow is theirs to
-  design; the assistant may pass one on to the architect of the project the engine is built from, never to another. Run
-  on other projects, wf-agents must still get its faults fixed in wf-agents, and sent on by themselves they would reach
-  architects that must never touch it; naming one project in the rule would bind the flow to it.
+- 流程维护者是一个面向 wf-agents 自身流程和引擎的队列：agent 关于流程的报告、流程的异常、wf-agents
+  自身的故障（比如缓存失效）、引擎关于这些故障的通知，以及引擎因其中某项而暂停的工作，这种工作在原因查明后重新启动。
+  owner 和助理处理这个队列，因为设计流程是他们的事；助理可以把其中一件转给构建引擎所用的那个项目的架构师，
+  绝不转给别的架构师。跑在别的项目上时，wf-agents 的故障仍须在 wf-agents 里修好；若让它们自己转出去，就会到达绝不能碰
+  wf-agents 的架构师那里；而在规则里点名一个项目，又会把流程绑定在这个项目上。
 
-- The assistant is the owner's other self: it may read everything sent to the owner, by looking, with nothing pushed to
-  it, and does what the owner tells it, with wide rights the owner gives it and no engineer has. No one answers in the
-  owner's stead unless the owner tells the assistant to; until then an ask holds only what it names. Pushed to it as
-  they came, messages would break into what it is discussing with the owner, whose context must stay on that.
+- 助理是 owner 的另一个自己：它可以读发给 owner 的一切，靠自己去看，没有任何东西推送给它；它照 owner 的吩咐做事，
+  拥有 owner 给它的、任何工程师都没有的广泛权限。除非 owner 让助理代答，否则没有人代替 owner 回答；在那之前，ask
+  只扣住它指明的东西。若消息一来就推送给助理，就会打断它正与 owner 讨论的事，而它的 context 必须留在那件事上。
 
-- The owner's words under an item go to its engineer while a work of it goes on; otherwise, and to reach anyone else,
-  the owner names the architect or the assistant. Words to an engineer are sayings, taken at its next step whether it
-  works or waits on an ask; they neither answer nor withdraw an ask. Words for the architect enter its queue as the
-  owner's words. The owner steers a work in passing, and an engineer waiting on an ask must still take words that change
-  its matter; with no work going on there is no one to assume, and the architect and the assistant do different things.
+- owner 在条目下写的话，在该条目有工作进行时发给它的工程师；否则，或要让别人收到，owner 就点名架构师或助理。
+  对工程师说的话是告知，工程师在下一步收下，无论它是在干活还是在等一个 ask；这些话既不回答也不撤回 ask。
+  给架构师的话作为 owner 的话进入它的队列。owner 是顺带着引导工作的，而正在等 ask 的工程师也必须收下改变它手上之事的话；
+  没有工作在进行时，就没有可默认的接收者，而架构师和助理做的是不同的事。
 
-- An ask is a yes-or-no question or a choice of one or more options, with the answer the asker recommends. A no carries
-  its reason, a yes needs none, and a choice may carry one. Only an answer given on the ask answers it: words beside it
-  are sayings. An ask the engine makes judges nothing and carries no recommendation: an approval the flow requires, such
-  as of a change to the flow, is answered yes or no, and a fault only a person can clear, such as a failed login, is
-  answered by its clearing, with nothing to write. Questions in free words could not be answered quickly, and words
-  beside a question, taken as its answer, could not be told from discussion.
+- ask 是一个是/否问题，或在若干选项中选一个或多个，附有提问者推荐的回答。答“否”要附理由，答“是”不用，
+  选择可以附理由。只有在 ask 上给出的回答才算回答了它：旁边的话都是告知。引擎发出的 ask 不作判断，也不附推荐：
+  流程要求的审批，比如对流程改动的审批，用是或否回答；只有人能清除的故障，比如登录失败，以清除它作为回答，
+  不需要写任何东西。用自由文字写的问题没法快速回答，而问题旁边的话若被当作它的回答，就无法与讨论区分开。
 
-- The one asked may ask about an ask instead of answering: the question goes to the asker, an engineer taking it at its
-  next step and an architect's held matter coming back first in its queue, and the asker answers by a saying or by
-  changing the ask. A changed ask is a new version: an answer to an earlier one does not carry over. An ask once
-  answered is not changed; a new one is asked. The asker may also withdraw its ask.
+- 被问者可以不回答，而是就这个 ask 提问：这个问题发给提问者，工程师在下一步收下它，架构师那边被扣住的
+  事项会排到队列最前面回来；提问者用一条告知或修改 ask 来回答。改过的 ask 是一个新版本：对旧版本的回答不沿用。已经回答的
+  ask 不再修改，而是另问一个新的。提问者也可以撤回自己的 ask。
 
-- An ask still unanswered holds its work at the cell that asked, which goes out through one engine cell that waits
-  there. What an ask is about, what only a person can solve or what concerns other items, the work cannot settle by
-  going on, its technical choices going on design cards instead (flow/design-cards.md, "A technical choice for the
-  owner"); a hold by the asker's confidence let an agent decide whether a stop that must happen happens.
+- 尚未回答的 ask 把它的工作扣在提问的格子上，这个格子经由一个在那里等待的引擎格子出去。ask 所关于的事，
+  即只有人能解决的事或涉及其他条目的事，工作无法靠继续往下走来解决，工作的技术选择则改放在设计卡上
+  (flow/design-cards.md, "留给 owner 的技术选择")；曾按提问者的信心决定扣不扣住，这等于让 agent
+  决定一次必须发生的停下是否发生。
 
-- An architect's ask holds the matter it was asked in, and not the architect, which takes the next matter meanwhile
-  (flow/architect/matters.md, "The architect handles matters one at a time").
+- 架构师的 ask 扣住提出它的那个事项，而不扣住架构师本身，架构师在此期间去处理下一个事项 (flow/architect/matters.md,
+  "架构师一次处理一个事项")。
 
-- An ask the owner has not answered has no deadline: it stays open until it is answered, changed or withdrawn. Deadlines
-  and lapsing by themselves are too complicated.
+- owner 没有回答的 ask 没有期限：它一直开着，直到被回答、修改或撤回。期限和自动失效都太复杂。
 
-- Before an ask goes out, the hub finds mechanically the open asks like it and gives them to the asker, which joins one
-  or asks apart; one answer then releases every work waiting on it. A shared cause otherwise reaches the one asked once
-  from every work. A small model joining asks by itself was not taken: whether two are the same takes judgment, which
-  belongs to an agent on the chart, and the asker knows its ask best.
+- ask 发出之前，消息中心机械地找出与它相似的未决 ask，交给提问者，由提问者加入其中一个或单独提问；
+  这样一个回答就放行所有等着它的工作。否则，同一个原因会从每个工作各到被问者那里一次。由一个小模型自行合并 ask
+  的做法没有采用：两个 ask 是否相同需要判断，而判断属于图上的 agent，提问者也最了解自己的 ask。
 
-- An ask no one waits on any longer is withdrawn by the hub, with why: an engineer's whose work ended, was cancelled or
-  went back before the cell that asked; an architect's whose matter was handled or withdrawn. An architect's ask
-  outlives the architect's work, which ends whenever its queue is empty. Left open, such asks counted as waiting with no
-  way to clear them, and asked the owner to decide what no longer mattered.
+- 不再有人等的 ask 由消息中心撤回，并说明原因：工程师的 ask，若其工作已结束、被取消，或退回到提问的格子之前；架构师的
+  ask，若其事项已处理或已撤回。架构师的 ask 比架构师的工作活得长，架构师的工作在其队列空了时就结束。这样的 ask
+  若一直开着，就被算作等待中，却无法清掉，还要 owner 去决定已经无关紧要的事。
 
-- When the flow changes, an ask holds its work at the cell the new version takes its cell to; where the new version has
-  none, the ask is withdrawn with why and asked again if still needed. An architect's asks outlive a work that ends for
-  a new version, the matters they hold coming back with the answer.
+- 流程改变时，ask 把它的工作扣在新版本把原格子对应过去的那个格子上；新版本没有对应的格子时，ask 被撤回并说明原因，
+  若仍需要就重新提问。架构师的 ask 比因新版本而结束的工作活得长，它们扣住的事项会随回答一起回来。
 
-- There is no mechanism against asking again what was answered: a round that can ask sees its own work's questions open,
-  and the asks like its own, and both sides can judge, so it does not go back and forth for ever. Such a mechanism would
-  only waste tokens, as would a rule against asking twice sent with each batch.
+- 没有防止重复问已回答问题的机制：能提问的一轮看得到它自己工作里未决的问题，以及与它的问题相似的 ask，双方都能判断，
+  所以不会没完没了地来回。这种机制只会浪费 token，随每一批都附上一条禁止重复提问的规则也一样。

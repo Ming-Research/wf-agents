@@ -1,26 +1,20 @@
-- A stage has a short name, and a cell's number is the stage's initial and a digit, following the order of running with
-  no exception; the name stays as a title. A short number is far easier to type than a full name, a full name alone does
-  not show its part, and a letter unrelated to the stage's name cannot be read.
+- 阶段有一个简短的名字，格子的编号是阶段名的首字母加一个数字，毫无例外地按运行顺序编排；名字保留作标题。
+  短编号比全名好打得多，单有全名看不出它属于哪一部分，而与阶段名无关的字母无法读懂。
 
-- A check's answer may be yes or no; the row out is named for the result, and the title is a neutral topic. A negative
-  question answered No has two readings in English, easily misread by those reading the chart and by the model, and
-  turning titles into negative questions only moves the ambiguity.
+- 检查的回答可以是“是”或“否”；出去的行按结果命名，标题是一个中性的主题。以 No 回答的否定问句在英语里有两种读法，
+  读图的人和模型都容易读错；把标题改成否定问句只是把歧义挪了个地方。
 
-- A cell's ways out are listed in three kinds: answers on the main path; going out to come back, by tool, question,
-  redirect, pause or answering an interjection, each with an engine cell; and the engine's fallback for an abnormal
-  return. Active behaviour is at heart a turn through the engine back to itself, whether or not it is drawn as a step,
-  so pausing and answering an interjection were not drawn as going straight back.
+- 格子的出路分三类列出：主路径上的回答；出去再回来，经由工具、提问、重定向、暂停或回应插话，
+  各有一个引擎格子；以及引擎对异常返回的兜底。主动的行为本质上是经过引擎回到自身的一圈，不论它是否被画成一步，
+  所以暂停和回应插话没有画成直接返回。
 
-- The way back to a cell that asked, carrying the answer, has a name that can be understood and a line of note. Without
-  that layer showing, a dispatch cell looks like two ways to pick freely.
+- 带着回答回到提问格子的路，有一个看得懂的名字和一行说明。不显示这一层，分派格子看上去就像两条可以随意挑的路。
 
-- The flow gives each role a colour, written beside its line, which the helper list, the avatars and its cells on the
-  chart all take, so that a role looks the same everywhere: a new line gets its colour where it is made, the page knows
-  no role by name, and a work on any version of the flow shows its roles in the colours the flow gives them now; two
-  colour systems that disagreed made a role's colour mean nothing. A colour that already means something on the page,
-  such as a state's colour (frontend/design-system.md, "A state's colour is that of its meaning"), is given to no role:
-  one colour to a meaning (frontend/design-system.md, "The palette is bright").
+- 流程给每个角色一种颜色，写在它的线旁边，协助者列表、头像和它在图上的格子都用这种颜色，让一个角色在哪里看起来都一样：
+  新的线在创建它的地方得到颜色，页面不按名字认识任何角色，跑在任何版本流程上的工作，都以流程现在给的颜色显示其角色；
+  两套互相不一致的颜色体系曾让角色的颜色毫无意义。页面上已经有含义的颜色，比如状态的颜色 (frontend/design-system.md,
+  "状态的颜色就是其含义的颜色")，不给任何角色：一种颜色对应一种含义 (frontend/design-system.md, "配色明亮：
+  一种含义一种颜色")。
 
-- A choice of the way the engine makes for the flow is drawn as a branch cell on the chart; no condition hangs on a cell
-  or a row to make a way vanish in some cases. A way resting on a condition cannot be seen on the chart, and is a hidden
-  switch.
+- 引擎为流程所做的选路，在图上画成一个分支格子；不在格子或行上挂条件，让某条路在某些情况下消失。
+  依赖条件的路在图上看不见，是一个隐藏的开关。

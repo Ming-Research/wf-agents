@@ -1,6 +1,5 @@
-- A work whose change touches a path its project's configuration names for the owner, such as the flow's definition or a
-  specification, waits at the merge for the owner's yes and a change to those paths after the yes is asked again. The
-  engine sees the paths touched and asks at the merge gate, with no agent asking, showing the change, and for the flow's
-  definition the flow page drawn from the branch beside main's, so it rests on no one's memory (Article 7); which paths
-  is for each project's configuration to say, the flow naming none (Article 1). A rule in the project's AGENTS.md alone,
-  kept by the engineer and the review, was rejected: when both miss it, the change merges.
+- 工作的改动若触及项目配置为 owner 指定的路径，比如流程定义或规格，就在合并处等 owner 答“是”；
+  答“是”之后再改这些路径，要重新问。引擎看到被触及的路径，就在合并关口发 ask，不靠任何 agent 去问，并展示改动；
+  对流程定义，还把由该 branch 画出的流程页面与 main 的并排展示，所以这不依赖任何人的记忆（第 7 条）；
+  哪些路径由各项目的配置来定，流程一个也不指定（第 1 条）。只在项目的 AGENTS.md 里写一条规则、
+  由工程师和审查来遵守的做法被否决了：两者都漏掉时，改动就合并了。

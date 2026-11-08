@@ -1,12 +1,9 @@
-- There is no automatic deployment: the engine is changed by hand. That the system can carry out a need, run on a test
-  system and pass acceptance is enough, and this one step can be manual.
+- 没有自动部署：引擎靠手动更换。系统能实现需求、在测试系统上运行并通过验收，就已足够，这一步可以手动。
 
-- The compiled flow is stored in the database with the version in force then, and the page draws from there, so it
-  depends neither on git nor on today's compiler; each time costs one more stored flow. Compiling from a commit when
-  opened was rejected: the commit may be cleaned up once the branch is merged and deleted, and a later compiler's format
-  may not compile an old flow.
+- 编译后的流程连同当时生效的版本一起存进数据库，页面从那里画图，因此既不依赖 git，也不依赖今天的编译器；
+  代价是每次多存一份流程。打开时再从 commit 编译，被否决了：branch 合并并删除后，那个 commit 可能会被清理掉，
+  而且后来的编译器的格式可能编译不了旧的流程。
 
-- When the flow changes, a running work neither ends nor starts over: it goes on where it stands if it can, goes back to
-  the cell it must do again if not, and where it cannot go back, as past a merge, it stops for the flow's keeper.
-  Starting over wastes what was done, and holding a work in a state the new flow lacks goes wrong. A work whose graph
-  the new flow lacks altogether still ends.
+- 流程改变时，运行中的工作既不结束，也不重新开始：能的话就在原处继续；不能的话，就回到必须重做的那个格子；无法回退时，
+  比如已经过了合并，就停下来交给流程维护者。重新开始会浪费已经做的事，而让工作停在新流程没有的状态里会出错。
+  新流程里完全没有其图的工作，仍然会结束。

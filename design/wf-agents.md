@@ -1,62 +1,48 @@
-- wf-agents is for agents and the owner working together to try, explore and push a piece of software forward at scale.
-  It is a tool for two, the owner and the assistant: they discuss the design freely and watch the work, and the system
-  carries forward what they decide. One chat cannot push several tasks at once. A system that both ran the work and
-  talked with the owner in place of that chat was tried: the side that talks became as busy as the architect, with no
-  time left to discuss.
+- wf-agents 供 agent 与 owner 协作，大规模地尝试、探索并推进一个软件。它是 owner 和助理两方的工具：他们自由讨论设计、
+  观察工作，系统则把他们的决定推进下去。一个聊天没法同时推进几项任务。曾试过让一个系统既运行工作、又代替那个聊天与 owner
+  对话：负责对话的一方变得和架构师一样忙，再没有时间讨论。
 
-- What is good is judged by the owner's taste and use, with no user research or study of design guidelines, since
-  wf-agents serves the owner. Only a product for the general public needs research and guidelines to reason from.
+- 好坏由 owner 的品味和使用来判断，不做用户研究，也不研究设计规范，因为 wf-agents 服务的是 owner。只有面向大众的产品，
+  才需要以研究和规范为推理依据。
 
-- A problem found is turned into a patch in the system by a means that converges, so that it does not happen again: a
-  kind of problem ends only in an item that fixes it, its acceptance with the reason recorded, or a check that catches
-  it, and a kind that comes back after its fix is a finding about the fix. Telling one instance to someone ends nothing:
-  someone typing it into a chat each time does not scale, and a new cell on the graph for each patch does not converge
-  either (Article 4).
+- 发现的问题，要用一种会收敛的手段变成系统里的补丁，使它不再发生：一类问题的结局只能是修复它的条目、
+  记下理由后对它的接受，或能抓住它的检查；修复后又回来的一类问题，是关于这次修复的一个发现。把某一次的情况告诉某个人，
+  什么也终结不了：每次都要有人把它敲进聊天里，这无法扩展；每打一个补丁就在图上加一个新格子，也一样不收敛（第 4 条）。
 
-- Managing the project well is one of wf-agents' aims: using what AI can do to remove the bottleneck of traditional
-  project management, and raising how much development runs at once by an order of magnitude. Once the flow that writes
-  code runs, project management is where the work backs up. Periodic grooming of a backlog was not copied: even every
-  two weeks it is tiring and inefficient.
+- 管好项目是 wf-agents 的目标之一：用 AI 的能力消除传统项目管理的瓶颈，把同时进行的开发量提高一个数量级。
+  写代码的流程一旦跑起来，工作就会积压在项目管理上。没有照搬定期整理待办列表的做法：哪怕两周一次，也累人且低效。
 
-- wf-agents is only the harness: the engine, the flow, the database's structure and the command line. A project's
-  configuration, the rules it gives its agents and its data live in the owner's private data directory, split by project
-  with the shared parts together; a project's design tree lives in the project's own repository. The harness must say
-  nothing about any project, and the owner's projects share most of their settings, which are best kept together.
-  Keeping them in this repository would put a project's content in the harness; keeping them in each project's
-  repository would copy the shared settings many times.
+- wf-agents 只是 harness：引擎、流程、数据库的结构和命令行。项目的配置、它给 agent 的规则和它的数据，放在 owner
+  的私有数据目录里，按项目分开，共用的部分放在一起；项目的设计树放在项目自己的仓库里。harness 不得涉及任何项目，而 owner
+  的各个项目大部分设置是共用的，这些设置最好放在一起。放进本仓库，会让 harness 里有项目的内容；放进各项目的仓库，
+  会把共用的设置复制很多份。
 
-- A project's constitution sits at the root of its repository, its configuration names the path, and every agent that
-  judges is given it: it holds the values every agent judges by.
+- 项目的宪法放在其仓库的根目录，项目的配置写明它的路径，每个做判断的 agent 都会拿到它：它载有每个 agent 判断时所依据的
+  价值观。
 
-- What an agent is sent is ordered by how widely it is the same, since the prompt cache knows only a request's opening
-  bytes: the first to write them pays, and later requests that open alike read them. First what every cell of every line
-  shares, then what every cell of its line shares, its rules and its forms, then what is the same for every work of the
-  cell, its task and the list of its inputs, then what is the same within a work, then what changes each round. Every
-  cell then opens alike with what all cells share, the constitution first and the project's AGENTS.md after it, and any
-  input all cells come to share goes there too; a cell that judges nothing may leave that opening out. Whether the cache
-  holds is measured after each change of the order, from the cache read and written that real rounds record: an order
-  meant to be cached was found not to be for a detail no one had seen, and a part placed after one that changes is
-  written again by every work, which cost the first research a fifth of its price.
+- 发给 agent 的内容按相同的范围由广到窄排列，因为 prompt cache 只认请求开头的字节：第一个写入的请求付费，
+  之后开头相同的请求直接读取。最前面是所有线的所有格子共有的；然后是本线所有格子共有的，即这条线的规则和格式；
+  然后是这个格子每个工作都相同的，即它的任务和输入列表；然后是一个工作之内相同的；最后是每轮都变的。
+  这样每个格子都以所有格子共有的内容同样地开头，先是宪法，再是项目的 AGENTS.md，日后所有格子都共有的输入也放在这里；
+  什么都不判断的格子可以省去这段开头。每次调整顺序后，都要根据真实的轮所记录的缓存读取量和写入量，测量缓存是否命中：
+  曾发现一个本应被缓存的顺序，因为一个谁都没注意到的细节而没有被缓存；而放在会变部分之后的部分，每个工作都会再写入一遍，
+  这占了初步研究费用的五分之一。
 
-- The engine follows the compiled flow mechanically: it takes the row a return selects and runs the named actions and
-  checks, and does nothing that needs judgment. Judgment belongs to the agents and the owner, and tools only execute and
-  never choose the route. Judgment needs someone who can give reasons and be reviewed, and each step of the engine must
-  be predictable from the flow.
+- 引擎机械地执行编译后的流程：它走返回选中的那一行，运行其中写明的动作和检查，不做任何需要判断的事。判断属于 agent 和
+  owner，工具只执行，从不选择路线。判断需要一个能给出理由、能被审查的主体，而引擎的每一步都必须能从流程中预知。
 
-- A check reports every problem it finds at once, returning early only where a later test presupposes that an earlier
-  one holds: each problem found alone costs one more round of fixing and checking.
+- 检查一次报出它发现的所有问题，只在后面的检验以前面的检验成立为前提时才提前结束：每单独发现一个问题，
+  就要多一轮修复和检查。
 
-- A thing is named for what it is, and has one name everywhere. A name for what it is needs no explaining; a name of its
-  own, or a second name beside the first, is one more thing each reader must learn and tell apart.
+- 一样东西按它是什么来命名，并且在各处只有一个名字。按它是什么起的名字不需要解释；另起的专名，或第一个名字之外的
+  第二个名字，都是每个读者要多学、多分辨的一样东西。
 
-- The part of the program that carries the state machine is called the engine (wf-agents.md, "A thing is named for what
-  it is"). Calling it wf-agents would not tell it from the compiler and the session manager, which are in the program
-  too.
+- 程序中承载状态机的部分叫作引擎 (wf-agents.md, "一样东西按它是什么来命名")。叫它 wf-agents，就无法把它与编译器和
+  session 管理器区分开，而这两者也在这个程序里。
 
-- "Board" is no name: what means the data is called the database, and what means what the owner looks at, the owner's
-  page (wf-agents.md, "A thing is named for what it is").
+- “Board” 不是名字：指数据的，叫数据库；指 owner 所看的东西的，叫 owner 的页面
+  (wf-agents.md, "一样东西按它是什么来命名")。
 
-- Nothing is designed for the machine's lid closing or its sleeping: the machine that runs the engine stays on.
+- 不为机器合盖或休眠做任何设计：运行引擎的机器一直开着。
 
-- A technology is chosen as mature, mainstream and fit for the project's scale, with no item-by-item comparison of its
-  peers. Nobody would really make that comparison, and SQLite and React were not chosen that way.
+- 技术按成熟、主流、适合项目规模来选，不逐项比较同类技术。没有人真会去做那种比较，SQLite 和 React 也不是这样选出来的。

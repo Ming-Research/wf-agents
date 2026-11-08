@@ -1,20 +1,16 @@
-- The engine, the HTTP interface and the serving of the page run in one process. An owner's action, such as answering a
-  question, must wake the engine at once rather than wait for it to poll the database; live events come straight from
-  the engine; the engine's state in memory needs no table to report it; and there is one thing to start and to upgrade.
-  A separate process for the page would have to go the long way round for all of these.
+- 引擎、HTTP 接口和页面服务运行在同一个进程里。owner 的操作，比如回答一个问题，必须立刻唤醒引擎，
+  而不是等它去轮询数据库；实时事件直接来自引擎；引擎在内存中的状态不需要一张表来报告；要启动和升级的也只有一样东西。
+  页面若是单独的进程，这些都得绕远路。
 
-- The built page is part of the program itself, not files installed beside it. The page and the interface it calls then
-  always come from one build, and installing or upgrading is still one file.
+- 构建好的页面是程序本身的一部分，而不是安装在它旁边的文件。这样页面和它调用的接口总是出自同一次构建，
+  安装或升级也仍然只是一个文件。
 
-- The page's types are generated from the interface's own types, and CI holds the generated file to them. The page and
-  the interface are one build (backend.md, "The built page is part of the program itself"); written by hand on both
-  sides, their types drift apart, and the error shows only when the page runs.
+- 页面的类型由接口自身的类型生成，CI 要求生成的文件与它们一致。页面和接口是同一次构建
+  (backend.md, "构建好的页面是程序本身的一部分")；若两边都手写，类型会渐渐对不上，而错误要到页面运行时才暴露。
 
-- The page and its interface are served on the loopback address only: the page has no sign-in, yet it starts works and
-  spends money.
+- 页面及其接口只在回环地址上提供服务：页面没有登录，却能启动工作、花钱。
 
-- What the assistant reads from the system comes in looks as small as they can be, with nothing that matters lost: each
-  command's output has a limit held by a test, says what it left out and how to get it, and is never raw JSON. The
-  assistant's context must stay on what it discusses with the owner (flow/asking.md, "The assistant is the owner's other
-  self"), which a look that brings more than it needs fills (Article 3), and a look that leaves out what matters leaves
-  it guessing (Article 2).
+- 助理从系统读取的内容，每次查看都尽可能小，又不丢失任何要紧的东西：每个命令的输出都有由测试守住的上限，
+  会说明省略了什么、如何获取，且从不是原始 JSON。助理的 context 必须留在它与 owner 讨论的事上
+  (flow/asking.md, "助理是 owner 的另一个自己")，带回多于所需的查看会把它塞满（第 3 条），漏掉要紧内容的查看则让
+  它只能去猜（第 2 条）。

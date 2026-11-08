@@ -1,14 +1,11 @@
-- Every work opens with a step that brings its history, however small the work: the earlier works on it and on the items
-  around it, what the owner decided before in like cases, and the paths dropped and the decisions overturned, from the
-  records and from git, the design tree's own history included. It is there so that the work learns the lessons of what
-  was tried and does not repeat a path that failed: the design tree anyone can read, but its history and the earlier
-  works no one looks back at unasked. Skipped for a small work, it can miss the lesson that matters. A check of the
-  addresses it gives was not added: guarding a cheap model's slips by the engine costs more than the slips, which the
-  research reading them finds, and stronger models make fewer.
+- 每个工作都以带来其历史的一步开始，不论工作多小：这个条目及其周边条目上之前的工作，owner 以前在类似情况下的决定，
+  以及放弃的路和被推翻的决定，来源是记录和 git，设计树自身的历史也在内。这一步是为了让工作吸取已尝试之事的教训，
+  不重走走不通的路：设计树谁都能读，但它的历史和之前的工作，没人会主动回头去看。为小工作跳过这一步，就可能错过要紧的
+  教训。没有加上对它给出的地址的检查：由引擎防范便宜的模型的失误，代价比失误本身还高，读这些地址的研究自会发现失误，
+  而更强的模型失误更少。
 
-- An agent's look through history is a cell run by a cheap model, not a sub-agent of the command line. A cheap model
-  suits gathering data; a sub-agent is tied to one coding tool, which another may not have, its use and lifetime are
-  hard to manage, and a main agent running a cell costs little more in tokens.
+- agent 翻查历史是一个由便宜的模型跑的格子，而不是命令行的子 agent。便宜的模型适合收集数据；子 agent
+  绑定在某一种编码工具上，另一种编码工具可能没有它，它的使用和生命周期难以管理，而让主 agent 跑一个格子，
+  token 也多不了多少。
 
-- History is handed to an agent when needed, neither much nor little, and the agent can look further itself. Too much
-  fills the context, and too little loses what matters.
+- 历史在需要时交给 agent，不多也不少，agent 还能自己再往深处查。太多会塞满 context，太少会丢掉要紧的东西。

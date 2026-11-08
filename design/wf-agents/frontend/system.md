@@ -1,15 +1,11 @@
-- The system page shows the state of the whole system, not only spending, in parts: now, output, spend, waste and
-  efficiency. The owner wants to see all its aspects.
+- 系统页面分几部分显示整个系统的状态，而不只是花费：当前、产出、花费、浪费和效率。owner 想看到它的各个方面。
 
-- The rounds running now are listed with how large each one's context is and what it added and spent, beside the line
-  the engine judges it by while it runs (backend/engine/health.md, "The engine judges each round while it runs"), kept
-  current as they run: whether a round needs a look shows only against its own line, which a tile of totals does not
-  show.
+- 列出正在运行的轮，以及每个轮的 context 有多大、增加了什么、花了多少，旁边是引擎在它运行时用来评判它的界线
+  (backend/engine/health.md, "引擎在每一轮运行时就评判它")，并在运行期间保持更新：一个轮是否需要看一看，
+  只有对照它自己的界线才看得出来，汇总的指标卡显示不出这一点。
 
-- The system page is all the metrics, each curve with its own automatic watch, at the simplest a seven-day average and
-  spread, which alarms on a spike. An alarm is a saying to the flow's keeper, which passes on what is a project's. There
-  is no separate part for anomalies: the watches are on the curves, and a page where finding anything takes long is no
-  use.
+- 系统页面就是全部指标，每条曲线都有自己的自动监控，最简单的是七天的均值和离散度，出现尖峰就告警。
+  告警是发给流程维护者的一条告知，属于某个项目的，由流程维护者转交出去。没有单独的异常部分：监控就在曲线上，
+  而一个找什么都要很久的页面没有用。
 
-- The cost per item merged and what the merged works themselves cost are shown together, since two costs of a merge in
-  two parts read as one figure disagreeing with itself.
+- 每个已合并条目的成本和已合并工作本身的成本放在一起显示，因为一次合并的两种成本分在两部分，读起来就像一个数字自相矛盾。

@@ -1,85 +1,70 @@
-- Architect and works share one Works tab, with no permanent side list of groups. A permanent side list takes too much
-  screen, and charts need the screen. A tab of its own for the architect was not needed, since Works is split by project
-  anyway.
+- 架构师和工作共用一个 Works 标签页，没有常驻的分组侧边列表。常驻侧边列表占用太多屏幕，而图需要屏幕。
+  不需要给架构师单独一个标签页，因为 Works 本来就按项目划分。
 
-- The works view is one table, a group for each project, those ended hidden by the state buttons as in the other lists
-  and not by a fold or a table of their own; a work picked takes the whole window under the bar with its chart, and
-  going back returns to the table as it was. The owner reads every project's works at once and the chart over the whole
-  window. An area of its own that scrolls was rejected.
+- Works 视图是一张表，每个项目一个分组，已结束的像在其他列表中一样由状态按钮隐藏，而不是靠折叠或单独一张表；
+  选中的工作连同它的图占满顶栏下方的整个窗口，返回时表格恢复原样。owner 一次就读到所有项目的工作，看图时用整个窗口。
+  单独一块可滚动的区域被否决了。
 
-- The work page and the architect's page have one logic for what they share. A split screen once existed on the work
-  page and not on the architect's.
+- 工作页面和架构师页面共有的部分用同一套逻辑。曾经工作页面上有分屏，架构师页面上却没有。
 
-- Project names and the buttons at their right stand outside the table as each project's title, and the name folds it.
-  They are not part of the table, and there will be several projects.
+- 项目名和它右侧的按钮作为每个项目的标题，放在表格之外，点名字可折叠该项目。它们不属于表格，而且会有多个项目。
 
-- Where the window is narrower than the table, the table scrolls sideways and each project's head stays at the left, as
-  wide as the window, so that its buttons stay in sight.
+- 窗口比表格窄时，表格横向滚动，每个项目的头部停在左侧，与窗口同宽，这样它的按钮始终在视野内。
 
-- A work's number links to its conversation, followed by a conversation icon; the name goes to the item and the rest of
-  the row to the work page. A column for the conversation takes too much screen, the work column had no link, and this
-  way it is plain where each leads.
+- 工作的编号链接到它的对话，后面跟一个对话图标；名字通往条目，行的其余部分通往工作页面。为对话单设一列太占屏幕，
+  工作列原来又没有链接，而这样做每处通往哪里都很清楚。
 
-- Every cell of the works table stays on one line, cut where its column ends and whole on hovering, and the columns are
-  one across every group, their widths dragged and kept: the groups are read as one table, and a row that wraps makes it
-  slow to scan. A state's reason is not prefixed with the state its badge shows, and a work's item is not followed by
-  its project, which the group says: each would say it twice.
+- Works 表格的每个单元格都保持一行，在列的边界处截断，悬停时显示完整内容；所有分组共用一套列，列宽可拖动并会保留：
+  这些分组被当作一张表来读，而折行的行会让浏览变慢。状态的原因前面不再加上其徽标已显示的状态，
+  工作的条目后面也不跟它的项目，项目由分组说明：否则都会说两遍。
 
-- A work on an older flow version, or moved to the one the engine runs, says so on its line, since the owner wants to
-  tell a work an upgrade moved from one that started on the version it runs.
+- 运行在较旧流程版本上的工作，或已迁到引擎所运行版本的工作，会在它那一行注明，
+  因为 owner 想把被升级迁过来的工作和一开始就在其当前运行版本上启动的工作区分开。
 
-- At and Stage merge into one horizontal bar: a cell for each stage's letter, green when passed, the cells narrow, with
-  no text beside them. The owner wants progress from this column, and wider cells only take screen.
+- At 和 Stage 合并成一个横条：每个阶段的字母一小格，走过的为绿色，小格很窄，旁边不配文字。owner 要从这一列看进度，
+  更宽的小格只会占屏幕。
 
-- In the stage bar the stage where a cancelled work ends has no cell, being no step a work goes through, and the flow
-  version is a column of its number alone, so that versions are compared by eye.
+- 在阶段条里，已取消的工作所终止的阶段没有小格，因为它不是工作要经过的一步；流程版本单独一列，只写版本号，
+  这样可以用眼睛比较版本。
 
-- The Last activity and PR columns go, and Cost stays. The owner has no use for those two.
+- 去掉 Last activity 和 PR 两列，保留 Cost。owner 用不上那两列。
 
-- The screen saved goes to a time bar for each work, the same as Usage's where time went. The owner wants to see a
-  session's state at a glance.
+- 省下的屏幕用来给每个工作放一个时间条，与 Usage 里显示时间去向的条相同。owner 想一眼看到 session 的状态。
 
-- Each row's time bar holds the work's span cut into equal cells, saying on hovering how long models, tools and the
-  engine worked and how long nothing ran, since a list of every project's works cannot carry every round of every work.
+- 每行的时间条把工作的时间跨度切成等分的小格，悬停时说明模型、工具和引擎各工作了多久、多久什么都没运行，
+  因为一个列出所有项目工作的列表装不下每个工作的每一轮。
 
-- A work's run time is how long its agents and tools ran, waits left out: the owner judges from it whether a work ran
-  too long, which its start time does not tell.
+- 工作的运行时间是它的 agent 和工具运行了多久，不计等待：owner 据此判断一个工作是否运行太久，而开始时间说明不了这一点。
 
-- The marks in the rounds column for sent back and not finished have a text on hover, and a click lists only those
-  rounds. Without the text the owner cannot read them.
+- 轮数列里表示被退回和未完成的标记，悬停时有文字说明，点击则只列出这些轮。没有文字，owner 看不懂它们。
 
-- A work's Start, Pause, Step, the choice of a new session and Start over are small icon buttons drawn alike, the page's
-  own icons where the icon set has none, each saying on hovering what it does or why it cannot now: the five are one set
-  (Article 8).
+- 工作的 Start、Pause、Step、开新 session 的选项和 Start over 是画法一致的小图标按钮，图标集里没有的就用页面自己的图标，
+  每个在悬停时说明它做什么，或为什么此刻不能用：这五个是一套（第 8 条）。
 
-- The work page has no drop-down to other works, which is of no use.
+- 工作页面没有通往其他工作的下拉菜单，那没有用。
 
-- The work page shows the chart and the record of rounds with each round's input and output, and each round maps to its
-  cell on the chart, jumping there when clicked. The owner diagnoses problems by these.
+- 工作页面显示图和各轮的记录，包括每轮的输入和输出；每个轮对应图上它的格子，点击即跳过去。owner 靠这些诊断问题。
 
-- How a work goes on is said once, on the line over its chart, as its row in the list says it. A yellow box over a
-  work's rounds said again what that line says.
+- 工作如何往下进行只说一次，写在它的图上方那一行，说法与它在列表中的那一行一样。工作的各轮上方曾有一个黄色框，
+  把那一行说过的又说了一遍。
 
-- A work's panel is tabs: what would need scrolling to the bottom is a click away. What the owner answers and chooses
-  stays with the item page, not here, since the work page is for rounds and the chart.
+- 工作的面板由标签页组成：本要滚到底才能看到的，点一下就到。owner 要回答和选择的东西留在条目页，不放在这里，
+  因为工作页面是看轮和图的。
 
-- The work page cannot send messages; what the engineer and helpers such as advisors and reviewers say to each other is
-  in Helpers, not in the group, split by who talks with whom and shown both ways with context. One side's words alone
-  have no context and look odd.
+- 工作页面不能发消息；工程师与顾问、审查者这类协助者之间说的话放在 Helpers 里，而不在群组里，按谁和谁交谈分开，
+  双向显示并带上下文。只显示一方的话没有上下文，看起来很怪。
 
-- In Helpers each bubble's body is a paragraph, that round's account of progress, with the full JSON below in small
-  type, folded by default. Full JSON by default is unfriendly to the owner.
+- 在 Helpers 里，每个气泡的正文是一段话，即那一轮对进度的叙述，下方用小字放完整的 JSON，默认折叠。
+  默认显示完整 JSON 对 owner 不友好。
 
-- In a helper's thread a return sent back or a run that failed is said to no one: Helpers holds what the engineer and
-  the helpers say to each other (frontend/works.md, "The work page cannot send messages"), and neither of them says it.
+- 在与某个协助者的对话串里，被退回的返回或失败的运行不标为说给任何人：Helpers 放的是工程师和协助者之间说的话
+  (frontend/works.md, "工作页面不能发消息")，而这既不是工程师说的，也不是协助者说的。
 
-- The work page does not list recorded values. They are in every opened cell, and mean nothing to the owner.
+- 工作页面不列出记录的值。它们在每个打开的格子里都有，而且对 owner 没有意义。
 
-- On the timeline each gap shows its own length on hover. One number for two gaps of clearly different lengths says
-  nothing of either.
+- 时间线上每个间隙在悬停时显示它自己的长度。两个长度明显不同的间隙共用一个数字，对哪一个都说明不了什么。
 
-- A work's panel has a Usage tab drawn from its recorded rounds alone: its cost, time, rounds, tokens and cache share;
-  where time went as a bar and a timeline; each model at the level its rounds recorded, never as the configuration reads
-  when looked at; cost by kind of token and by cell; each session with why it started and its context round by round;
-  the keep-warm pings and their cost; how long each tool ran. A stretch with no round is one block. The owner wants to
-  see what a work spent, on which models and where.
+- 工作的面板有一个 Usage 标签页，只依据它记录下的轮绘制：它的成本、时间、轮数、token 和缓存占比；时间去向，
+  用一个条和一条时间线表示；每个模型按其轮记录的级别显示，绝不按查看时配置里的写法显示；按 token 种类和按格子分的成本；
+  每个 session 及其开启的原因和逐轮的 context；保温 ping 及其成本；每个工具运行了多久。没有轮的一段时间算作一个块。
+  owner 想看到一个工作花了什么、花在哪些模型上、花在哪里。

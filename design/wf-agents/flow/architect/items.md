@@ -1,25 +1,17 @@
-- Keeping and merging items is the architect's daily duty, done by a way of keeping all items and not by a periodic
-  step. Backlogs of thousands came from dropping problems into a list day by day, with no layers of dependency and no
-  means of bringing things back, and a separate tidying flow does not touch that source.
+- 维护和合并条目是架构师的日常职责，靠一种维护全部条目的方式来完成，而不是靠定期的步骤。数以千计的积压，
+  来自日复一日地把问题丢进一个列表，没有依赖的层次，也没有把事情重新捞回来的办法；单独的整理流程触及不到这个源头。
 
-- Items merge only where two things belong together anyway: much the same thing, one right after the other, or a change
-  to the same place. A good flow handles large and small alike, and the architect merging to save effort is no way to be
-  efficient; nor is folding small things into big ones, which saves a round of flow the same way.
+- 只有两件事本来就该放在一起时，条目才合并：几乎是同一件事、一件紧接着另一件，或者改的是同一个地方。
+  好的流程对大事小事一视同仁，架构师为了省力而合并不是提高效率的办法；把小事并进大事也不是，它同样只是省下一轮流程。
 
-- The rules on writing items keep only what changes the writing: a short title with no conditions, numbers or internal
-  names; one example for a problem; why as conclusions only; acceptance as checkable results and no method; on a merge,
-  a title for the common scope. Long passages reasoning or giving examples stay out, since the fewer the rules the
-  better.
+- 写条目的规则只保留会改变写法的内容：标题简短，不含条件、数字或内部名称；一个问题举一个例子；原因只写结论；
+  验收标准写成可检查的结果，不写方法；合并时，标题概括共同的范围。长篇的推理或举例不写进规则，因为规则越少越好。
 
-- An item's opening, or even its title, says what it is for, and its first paragraph says in plain words what the matter
-  is, why it is done, roughly how, and what led to it. Otherwise nothing on the item shows why it exists, and thousands
-  of characters of problem leave the reader none the wiser.
+- 条目的开头，甚至它的标题，就说明它是做什么的；第一段用平实的话说清这件事是什么、为什么做、大致怎么做、因何而起。
+  否则条目上没有任何东西说明它为何存在，几千字符的问题描述读下来，读者依然不明所以。
 
-- With slots free and no item to start, the architect judges by the policy in force, creates items if there is work, and
-  tells the owner if there is none, without reading the project again (flow/architect/base.md, "The project is read only
-  when the base is built"). The notes keep growing, the policy has not changed, and reading again would change nothing.
+- 有空闲槽位却没有可启动的条目时，架构师按现行的 policy 判断：有活就创建条目，没有就告诉 owner，
+  不重新读项目 (flow/architect/base.md, "项目只在构建 base 时才读")。笔记一直在增长，policy 没有变，重读也改变不了什么。
 
-- Before an item is created the engine looks among open items, those just opened included, for similar ones, and hands
-  them to the architect to judge whether to put it in one or really open another. The step is mechanical and does not
-  rest on the architect remembering, and it needs no more: a project has few items running, and finished ones need no
-  concern.
+- 创建条目之前，引擎在未关闭的条目中（包括刚开的）查找相似的，交给架构师判断是并入其中一个，还是真的另开一个。
+  这一步是机械的，不依赖架构师的记忆；也不需要更多：一个项目同时在跑的条目不多，已完成的不必操心。

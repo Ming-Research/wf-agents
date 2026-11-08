@@ -1,8 +1,6 @@
-- An item chooses only a level of difficulty, four of them answering to haiku, sonnet, opus and fable, set by the
-  architect on creating the item from its understanding of the matter; reasoning effort is set by each cell. The
-  description of levels speaks only of difficulty. Five levels of capability bound model and effort together, and
-  describing difficulty by whether decisions are needed misleads, since that has nothing to do with difficulty or with
-  assigning work.
+- 条目只选一个难度级别，共四级，分别对应 haiku、sonnet、opus 和 fable，由架构师在创建条目时根据它对事项的理解来设定；
+  推理强度由各个格子自己设定。对级别的描述只谈难度。五个能力级别曾把模型和推理强度绑在一起；
+  而用是否需要做决定来描述难度会误导，因为这与难度无关，也与分配任务无关。
 
-- Everyday development goes up to opus, and items do not use fable. The next level costs out of proportion to its gain.
-  This may be overturned when fable costs the same as opus, or a better version of it comes.
+- 日常开发最高用到 opus，条目不用 fable。再上一级的花费与收益不成比例。等 fable 的价格与 opus 相同，或它出了更好的版本，
+  这条决定可能被推翻。

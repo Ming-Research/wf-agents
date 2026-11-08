@@ -1,6 +1,5 @@
-- Rules that depend on no project are in the flow's definition, not with a project's own (wf-agents.md, "wf-agents is
-  only the harness"). They do not change by project, and roles such as engineer and reviewer are in the flow anyway.
+- 不依赖任何项目的规则放在流程定义里，不和项目自己的规则放在一起 (wf-agents.md, "wf-agents 只是 harness")。
+  它们不随项目而变，而且工程师、审查者这类角色本来就在流程里。
 
-- Rules do not say what the flow, tools or permissions already decide: who obeys whom, how often to check GitHub,
-  stopping to ask before acting. Roles are set by the flow, agents do not poll GitHub since the engine runs CI and hands
-  over its results, and what an agent can do is limited by permissions.
+- 规则不说流程、工具或权限已经决定的事：谁听谁的、多久查一次 GitHub、行动前先停下来问。角色由流程设定；agent 不轮询
+  GitHub，因为引擎跑 CI 并转交结果；agent 能做什么由权限限定。

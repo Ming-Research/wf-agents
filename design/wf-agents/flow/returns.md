@@ -1,22 +1,17 @@
-- What an agent writes for the owner to read is in the owner's language, as the installation sets it, and English where
-  it sets none, with technical terms in their English original. The owner reads it to judge.
+- agent 写给 owner 读的东西用 owner 的语言，以安装时的设定为准，没有设定时用英语，技术术语保留英文原文。
+  owner 读它是为了作判断。
 
-- The language a field of a return is written in is said in the return's schema and in no rule, since an agent writes a
-  field by its description.
+- 返回的字段用什么语言写，在返回的 schema 里说明，不写在任何规则里，因为 agent 是按字段的描述来写字段的。
 
-- Every field of a return must have a reader: another cell, a page the owner reads, or the hub, which delivers what it
-  carries; otherwise it is removed. A field shown on the item page carries a mark, the compiler counts it as used, and
-  the page shows by the mark. The check exists so that nothing unattended stays in a return, and a remark saying some
-  view reads a field, to pass the check, would defeat it.
+- 返回的每个字段都必须有读者：另一个格子、owner 读的某个页面，或投递其所载内容的消息中心；否则就删掉。显示在条目页上的
+  字段带一个标记，编译器把它算作已使用，页面按这个标记显示。这项检查的存在，是为了不让返回里留下无人照看的东西，
+  而为了通过检查写一句某个视图读这个字段的备注，会让检查落空。
 
-- A cell's output must solve the problem: what is not needed the agent says does not apply, with no fixed list of
-  questions forcing it to fill all. Questions it cannot answer force nonsense, and that nonsense becomes what later
-  steps act on.
+- 格子的输出必须解决问题：不需要的，agent 就说不适用，不用一份固定的问题清单逼它全部填上。答不了的问题会逼出胡话，
+  而这些胡话会成为后面步骤据以行动的东西。
 
-- Every return can carry sayings, each saying what it is about, which the hub delivers. A helper line's inner findings
-  do not go this way. A field on the return interrupts no work, while a tool for sending would end the round, since
-  running a tool is a return.
+- 每个返回都可以带若干条告知，每条告知说明它关于什么，由消息中心投递。协助者线内部的发现不走这条路。
+  返回上的字段不打断任何工作，而用来发送的工具会结束这一轮，因为运行工具就是一次返回。
 
-- An agent reports in its return what is wrong with the flow, by a standard written in the field's description, with no
-  debugging cell or review afterwards, and this stays on in real use too, until it has nothing of value to report. The
-  standard can go in the field without another model, and these reports improve the flow.
+- agent 在它的返回里报告流程的毛病，依据写在字段描述里的标准，之后没有调试格子或审查，而且这在实际使用中也一直开着，
+  直到它再没有任何有价值的东西可报告。标准不需另一个模型就能写进字段里，而这些报告改进了流程。

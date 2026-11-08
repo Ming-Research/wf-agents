@@ -1,26 +1,22 @@
-- What is sent each round is kept tight: apart from what a line's cells share (wf-agents.md, "What an agent is sent is
-  ordered by how widely it is the same"), nothing long, each place reviewed, and what means nothing removed. Wordiness
-  wastes tokens.
+- 每轮发送的内容保持精简：除了一条线的格子共有的部分 (wf-agents.md, "发给 agent 的内容按相同的范围由广到窄排列")，
+  不放任何长内容，每一处都经过审查，没有意义的就删掉。啰嗦浪费 token。
 
-- A message opens with the round's address, and what is given by session carries an address of a fixed form, with what
-  the session has referred to by that address; the working directory, branch, task and review table are of this kind.
-  What is referred to need not be something the engine gave and may be what the agent returned, and with no fixed form
-  of address it could not be referred to.
+- 消息以本轮的地址开头；按 session 给出的内容带有固定形式的地址，session 里已有的内容就用这个地址来指代；工作目录、
+  branch、任务和审查表都属于这一类。被指代的内容不必是引擎给的，也可以是 agent 返回的；没有固定形式的地址，
+  它就无法被指代。
 
-- Before a message goes out, it is checked that what the session has was not sent whole again; if so the work stops and
-  the flow's keeper is told. Sending again is a waste and a serious bug (flow/inputs.md, "A cell's inputs are of two
-  kinds"). This took the place of a threshold of fixed size.
+- 消息发出之前，先检查 session 已有的内容没有被整段再发一遍；若被重发，工作停下，并告诉流程维护者。重发既是浪费，
+  也是严重的 bug (flow/inputs.md, "格子的输入分两种")。这取代了一个固定大小的阈值。
 
-- The rules agents are given say how to read things, to reduce tokens. A small matter's token use looked too high.
+- 给 agent 的规则说明怎样读东西，以减少 token。曾有一个小事项的 token 用量显得太高。
 
-- The form of a return is shared by all projects and says only in the owner's language, and the engine fills in the
-  language on sending the form. The form is compiled from one flow, so it cannot name a language.
+- 返回的格式由所有项目共用，其中只写“用 owner 的语言”，由引擎在发送格式时填入具体的语言。格式是由同一个流程编译出来的，
+  所以不能写明某种语言。
 
-- Each line has one combined form of return, given to the agent's command line and shared by all the line's cells, each
-  using its own branch; a planning session and those forked from it share one, and the whole form goes only in the
-  planning session, once. The form is part of what the line's cells share (wf-agents.md, "What an agent is sent is
-  ordered by how widely it is the same"): with one for each cell, changing cell in a session would lose the cache; and a
-  fork continues the planning session and is no other line.
+- 每条线有一份合并的返回格式，交给 agent 的命令行，由这条线的所有格子共用，每个格子使用其中自己的分支；做计划的 session
+  和从它 fork 出的 session 共用一份，完整的格式只在做计划的 session 里给一次。格式是这条线的格子共有的部分
+  (wf-agents.md, "发给 agent 的内容按相同的范围由广到窄排列")：若每个格子各有一份，在一个 session 里换格子就会失去缓存；
+  而 fork 是做计划的 session 的延续，不是另一条线。
 
-- An image for an agent goes in as part of the message, not as a path in the prompt for it to read. That needs no
-  temporary files to store, no read permission to give, and no assuring that each kind of agent can read it.
+- 给 agent 的图片作为消息的一部分放进去，而不是在 prompt 里给出路径让它去读。这样既不用存临时文件，也不用授予读取权限，
+  也不用确保每种 agent 都能读它。

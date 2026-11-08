@@ -1,10 +1,7 @@
-- Agents' tools and commands are wide: search, web search and fetching, formatting, and light read-only commands; forms
-  that can execute, delete or write are refused. Unable to format or regenerate files, every item that changed an
-  interface type stopped to wait for someone.
+- agent 的工具和命令放得很宽：搜索、网页搜索与抓取、格式化，以及轻量的只读命令；能执行、删除或写入的命令形式一律拒绝。
+  由于不能格式化或重新生成文件，每个改了接口类型的条目都曾停下来等人。
 
-- The agents' command permissions refuse heavy work such as compiling and testing, which an agent might otherwise run
-  locally for convenience.
+- agent 的命令权限拒绝编译、测试这类重活，否则 agent 可能图方便在本地跑。
 
-- In each round an agent can read the data directory's tool output and logs, but cannot change them with its editing
-  tools. The engine hands it those paths, which it otherwise could not open. Shell commands can still move or remove
-  them, a known gap.
+- 每一轮里，agent 都能读取数据目录中的工具输出和日志，但不能用它的编辑工具修改它们。引擎把这些路径交给它，否则它打不开。
+  shell 命令仍然可以移动或删除它们，这是一个已知缺口。

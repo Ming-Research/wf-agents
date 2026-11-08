@@ -1,24 +1,18 @@
-- Failures from the network being down are treated alike: agents, the engine's own tools and git operations stop, the
-  engine probes every half minute, and when it is back each goes on from its cell, with no asking of the architect and
-  no pause. Retrying during an outage wrote the whole input into one session again and again, filling it; and with only
-  the agent's round waiting, a tool step would go to ask an architect who was paused, each waiting on the other.
+- 断网造成的失败一律同样处理：agent、引擎自己的工具和 git 操作都停下，引擎每半分钟探测一次，网络恢复后，
+  各自从所在的格子继续，不询问架构师，也不暂停。断网期间的重试，曾把整份输入一遍又一遍地写进同一个 session，把它塞满；
+  而若只让 agent 的轮等待，工具步骤就会去询问一个已暂停的架构师，双方互相等待。
 
-- A round that did not run for a reason such as a failed login asks the owner to write nothing: once the owner has
-  handled it, by logging in again, the work goes on.
+- 因登录失效之类的原因没有运行的一轮，不要求 owner 写任何东西：owner 处理好之后，即重新登录后，工作就继续。
 
-- Being stopped by the service's safety check is a fault of its own kind: the first retries in a new session, and a
-  second pauses the work and tells the flow's keeper. It more likely comes from a session full of repeats than from the
-  prompt's words, though this cannot be proved.
+- 被服务方的安全检查拦下，是一类单独的故障：第一次在新 session 里重试，第二次就暂停工作，并告诉流程维护者。
+  它更可能来自塞满重复内容的 session，而不是 prompt 的措辞，尽管这无法证明。
 
-- Too many send-backs in a row stop the work and tell the flow's keeper. Otherwise a cell could keep being sent back,
-  rerun and spending.
+- 连续被退回的次数过多时，工作停下，并告诉流程维护者。否则一个格子可能不停地被退回、重跑、花钱。
 
-- Each return sent back is recorded on its round, in the same write that ends the round, and the work does not wait for
-  its cause to be looked for: the cell runs again at once. Each cause is to be found once and mended (Article 4), and a
-  look afterwards loses nothing, the problems being kept on the round, while a work that paused at every return sent
-  back kept agents idle for it (Article 3). The record is sent to no one as a message, since every return sent back
-  would then reach the flow's keeper; how many are sent back is watched as the system's other measures are
-  (backend/engine/health.md, "Running safely is made the whole system's state control"; frontend/system.md, "The system
-  page is all the metrics"). Recording only the return that pauses the work was rejected, since causes that never reach
-  the limit would never be looked at; so was recording at the pause or at the next step, which a pause and a start
-  between them can lose.
+- 每个被退回的返回都记录在它所在的轮上，与结束这一轮的是同一次写入；工作不等待查找原因：格子立刻再跑一次。
+  每个原因都要找到一次并修好（第 4 条），事后再查不会丢失任何东西，因为问题都保存在轮上；反之，每遇到一个被退回的返回就
+  暂停的工作，曾让 agent 为此闲着（第 3 条）。这条记录不作为消息发给任何人，否则每个被退回的返回都会到达流程维护者；
+  退回的数量像系统的其他指标一样受到监控
+  (backend/engine/health.md, "安全运行被做成整个系统的状态控制"; frontend/system.md, "系统页面就是全部指标")。
+  只记录让工作暂停的那个返回，被否决了，因为从未达到上限的原因就永远没人去看；在暂停时或下一步时才记录，也被否决了，
+  因为中间的一次暂停和启动可能把它丢掉。

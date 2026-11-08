@@ -1,25 +1,21 @@
-- A work's branch runs a fast CI by hand that compiles and runs only the tests and checks named, in minutes, and can
-  never let a head merge; the full CI runs once, at the merge, on a head it has not run on, and what it finds red goes
-  back to the work, which fixes it with the fast CI. This is how the flow solves running everything for every work
-  (flow/engineer.md, "Running everything for every work"), as Article 3 asks. A project whose CI cannot be run by hand
-  has a push run its full CI, and the engine waits for it.
+- 工作的 branch 手动运行一个快速 CI，只编译并运行点名的测试和检查，几分钟内完成，并且永远不能让一个 head 合并；完整 CI
+  在合并时运行一次，跑在它没跑过的 head 上，它查出的红色结果交回给工作，由工作用快速 CI 修好。流程就是这样解决每个工作都
+  跑全部的问题的 (flow/engineer.md, "每个工作都跑全部东西")，正如第 3 条所要求。CI 无法手动运行的项目，由一次 push
+  运行它的完整 CI，引擎等它跑完。
 
-- CI run by hand on a work's branch runs with main's CI files, on a temporary branch that holds the work's head with
-  them, since GitHub runs a workflow by the file the branch holds, and refuses to on a branch made before main's file
-  took the request.
+- 在工作的 branch 上手动运行的 CI，用的是 main 的 CI 文件，跑在一个临时 branch 上，这个 branch 包含工作的 head
+  和这些文件，因为 GitHub 按 branch 里的文件来运行 workflow，而在 main 的文件能接受这种请求之前创建的 branch 上，
+  它会拒绝运行。
 
-- The engine watches each project's main: when the full CI of main's latest commit is red, it stops the merge queue and
-  runs the red checks again, and only a red that stays goes to the architect, as which merge made it red and whether to
-  fix or revert it. Merging on a red main, one could not tell which merge made it red, and a red that passes when run
-  again needs no architect.
+- 引擎监视每个项目的 main：main 最新 commit 的完整 CI 变红时，它停下合并队列，把红的检查重跑一遍；只有仍然红的才交给
+  架构师，交的是哪次合并让它变红，以及该修复还是 revert。在红的 main 上继续合并，就分不清是哪次合并让它变红的；
+  而重跑就通过的红，不需要架构师。
 
-- Test results are filled in by the engine from the JUnit artifacts CI uploads, with the project's configuration naming
-  the artifact and the test name's separators, not reported by the agent; other projects can join with little adapting.
-  An agent misreading results runs more, and when one unit does not compile the other tests have no results.
+- 测试结果由引擎根据 CI 上传的 JUnit artifact 填入，由项目的配置写明 artifact 和测试名的分隔符，而不是由 agent 报告；
+  其他项目只需少量适配就能接入。agent 读错结果会多跑，而一个单元编译不过时，其他测试就没有结果。
 
-- Where a round runs both CI and the comparison on the code before the change, they run together. The comparison needs
-  CI only to have pushed, not its result, which saves about three minutes a round, as measured.
+- 一轮若既要跑 CI，又要在改动前的代码上做对比，两者就同时进行。对比只需要 CI 已经 push，不需要它的结果，
+  实测每轮约省三分钟。
 
-- Where a project's CI takes no test name, the comparison still waits for the whole fast CI rather than refusing.
-  Otherwise such a project's adversarial tests have no evidence of red before and green after, and the system must not
-  serve wf-agents alone.
+- 项目的 CI 若不接受测试名，对比仍然等整个快速 CI 跑完，而不是拒绝。否则这类项目的对抗性测试就拿不出改动前红、
+  改动后绿的证据，而这个系统不能只为 wf-agents 服务。

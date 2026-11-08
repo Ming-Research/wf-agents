@@ -1,7 +1,5 @@
-- An implementation in a fresh session is given the item, the research's conclusion, and the chosen way with its
-  reasons; a session that goes on is sent none of it again (flow/inputs.md, "A cell's inputs are of two kinds"). What
-  was compared, the research's tool results, answers and interjections are already in the design.
+- 在新 session 中的实现会收到条目、研究的结论以及选定的方案和理由；延续下来的 session 不会再收到其中任何一项
+  (flow/inputs.md, "格子的输入分两种")。比较过的方案、研究的工具结果、回答和插话都已经在设计里了。
 
-- An implementation ends by merging the latest main and solving there whatever arises. Testing comes right after, so the
-  code is current by then. An engine check before the review on whether to merge main, with merging only in the merge
-  queue, was not as good.
+- 实现以合并最新的 main、并就地解决由此出现的任何问题结束。测试紧随其后，所以那时代码是最新的。
+  在审查之前由引擎检查是否要合并 main、只在合并队列中合并的做法，不如这样好。

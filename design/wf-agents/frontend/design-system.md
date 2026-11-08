@@ -1,241 +1,201 @@
-- The page follows GitHub's Primer design system: colours, type sizes, spacing and the like are its tokens, a few
-  colours keeping the token's name with another value, and controls and recurring parts are its React components. A look
-  the page made up view by view had no rule to hold the next change to, and small grey bold labels came to head a page.
-  Primer's CSS was not taken, since the React components carry behaviour such as focus, keyboard and overflow menus.
+- 页面遵循 GitHub 的 Primer 设计系统：颜色、字号、间距等都用它的 token，少数颜色保留 token 的名字而换用别的取值；
+  控件和反复出现的部件用它的 React 组件。页面逐个视图自创的外观，没有规则能约束下一次改动，
+  结果灰色小号的粗体标签成了页面的标题。没有采用 Primer 的 CSS，因为 React 组件自带焦点、键盘和溢出菜单等行为。
 
-- The page's styles write no raw value for colour, size or spacing, only those of the design system, and CI checks that.
-  A change then cannot get round it.
+- 页面的样式里不写颜色、尺寸或间距的原始值，只用设计系统的值，并由 CI 检查。这样改动就绕不开它。
 
-- Where Primer has no token, the page decides in Primer's spirit and names the value once, beside its reason, every use
-  taking it by that name, since a value written in two places drifts.
+- Primer 没有相应 token 的地方，页面按 Primer 的精神自行决定，并把这个值只命名一次，写在它的理由旁边，
+  每处使用都通过这个名字取用，因为写在两处的值会渐渐走样。
 
-- The page follows the system's light or dark appearance with Primer's two themes, with no switch of its own: the owner
-  sets the appearance once in the system, and one source of the mode keeps the colours, the components and what floats
-  over them in step.
+- 页面用 Primer 的两套主题跟随系统的浅色或深色外观，不设自己的切换开关：owner 只在系统里设一次外观，而模式只有一个来源，
+  颜色、组件以及其上的浮层才能步调一致。
 
-- The palette is bright: one colour to a meaning, of middle weight, with little grey, and the states can be told apart.
-  Primer's dark saturated blocks were too heavy, a greyer version looked dull, and several dark colours side by side
-  could not be told apart.
+- 配色明亮：一种含义一种颜色，深浅适中，少用灰色，各个状态能区分开。Primer 深而饱和的色块太重，更灰的版本显得沉闷，
+  几种深色并排时又分不清。
 
-- A fill, a mark or a line in a role's colour is the colour itself in both themes, so that a role's colour is one colour
-  in either; only words in it take a darker step of the same hue in the light theme, where the colour itself is too
-  light to read on white.
+- 用角色颜色画的填充、标记或线条，在两套主题里都是这个颜色本身，这样一个角色的颜色在两套主题里都是同一种颜色；
+  只有用这种颜色写的文字，在浅色主题里改用同一色相深一档的颜色，因为在白底上，颜色本身太浅，读不清。
 
-- A coloured button or label has white letters on a solid ground, with no border of another colour and no mixing with
-  outlined ones; a button that is on or off is filled in its colour while on and in its tint while off, so that on and
-  off differ by the fill alone, and an uncoloured button held pressed is drawn as the option picked. The owner does not
-  like a border differing from its ground, and found the filled and the outlined mixed; outlined while off and filled
-  while on was the path that failed.
+- 有颜色的按钮或标签是实心底色配白字，不加另一种颜色的边框，也不和描边样式的混用；有开有关的按钮，开时用它的颜色填充，
+  关时用它的浅色调填充，开和关只靠填充区分；无色的按钮保持按下时，画成被选中的选项。owner 不喜欢边框与底色不一样，
+  也挑出过填充和描边混用的问题；关时描边、开时填充是走不通的路。
 
-- A state is a coloured label, the same colour everywhere; tags and categories are outlined and unfilled. Links, text
-  and boxed states mixed in a line, in sizes big and small, grey and black, read strangely.
+- 状态是有颜色的标签，处处同一种颜色；标签和类别用描边、不填充。
+  链接、文字和加了框的状态混在一行里，字号有大有小，颜色有灰有黑，读起来很怪。
 
-- A state's colour is that of its meaning: going on blue; done, confirmed and merged green; waiting on someone or
-  something, paused and sent back yellow; failed, cut off, halted, cancelled and disagreed red; new, ready, ended and
-  every state with no meaning of its own grey, filled as every state's chip is and not outlined as a tag. The owner
-  learns a colour once and reads it on every view.
+- 状态的颜色就是其含义的颜色：进行中为蓝色；完成、已确认、已合并为绿色；在等某人或某事、已暂停、被退回为黄色；失败、
+  被打断、被叫停、已取消、有分歧为红色；新建、就绪、已结束以及所有没有自身含义的状态为灰色，
+  灰色的也和所有状态的标签一样填充，而不像标签那样描边。owner 学一次颜色，就能在每个视图上读懂。
 
-- A coloured and an uncoloured chip have one shape, height and corner, a rounded rectangle and not a pill, their words
-  the size of the line they stand in. How a chip looks is the owner's taste, by which what is good is judged
-  (wf-agents.md, "What is good is judged by the owner's taste and use").
+- 有色和无色的标签形状、高度和圆角都一样，是圆角矩形而不是胶囊形，文字与所在那一行的字号相同。标签长什么样，看的是
+  owner 的品味，而好坏正是按它来评判的 (wf-agents.md, "好坏由 owner 的品味和使用来判断")。
 
-- The page's own parts take Primer's corners, line widths and shadows, and the page casts no shadow except under what
-  floats over it: Primer's components already draw with these, and the page's parts beside them must not look like
-  another kit.
+- 页面自己的部件采用 Primer 的圆角、线宽和阴影，页面除了在浮层下方，不投任何阴影：Primer 的组件本来就是这样画的，
+  页面自己的部件放在它们旁边，不能看起来像另一套组件。
 
-- One line of text keeps to one size as far as it can. Big and small in a line looks bad.
+- 一行文字尽量只用一种字号。一行里有大有小很难看。
 
-- A title stands out, not smaller and paler than the text, and small grey text is not bold. A title is meant to show,
-  and small grey and bold contradict each other.
+- 标题要醒目，不能比正文小、比正文淡；灰色小字不加粗。标题本来就是要显眼的，而灰色小字和加粗互相矛盾。
 
-- The page's type has six steps and no others, from Primer's text tokens: the page's title, a section's heading, a
-  sub-heading, body text, small text and code; a chart's text, read at a distance, takes sizes of its own. A few steps
-  far enough apart read as an order at a glance, and Primer's are those GitHub's readers already know.
+- 页面的字号只有六档，没有别的，都取自 Primer 的文字 token：页面标题、节标题、小标题、正文、小字和代码；
+  图上的文字要隔着距离读，另有自己的字号。少数几档彼此拉开足够的距离，一眼就能读出层次，
+  而 Primer 的这几档正是 GitHub 的读者早已熟悉的。
 
-- Weight marks structure only: semibold for headings, a card's head, who says something at the head of what they wrote,
-  what an agent set strong in its text and the one current choice; everything else is normal, but for the chart's own
-  marks (frontend/charts.md, "The numbered cells the flow really reaches"). Weight spent on decoration stops marking
-  what is a heading.
+- 字重只用来标示结构：半粗体用于标题、卡片的头部、写在内容开头的说话人、agent 在文中加粗的部分，
+  以及当前唯一选中的那一项；其余一律用常规字重，图自己的标记除外 (frontend/charts.md,
+  "流程真正到达的编号格子用粗边框和粗体标题")。字重花在装饰上，就不再能标示什么是标题。
 
-- What agents and the owner wrote reads in the page's font, and only a message as sent, a file and what a tool printed
-  keep a fixed width: that text is prose, and a fixed width makes prose slower to read.
+- agent 和 owner 写的文字用页面的字体显示，只有原样发出的消息、文件和工具打印的内容保持等宽：agent 和 owner 写的是行文，
+  而等宽会让行文读得更慢。
 
-- What the page writes for the owner, the text sent to an agent, and what an agent hands back each have one fixed look;
-  sent text is shown as it is, in order, with no heading or note of the page's inside. The owner once took the first
-  line sent to an agent for a page title, and could not tell what was sent from what was for the owner. What is sent to
-  an agent is a filled sheet with a thick edge at its left and what came back an outlined box, so that they differ in
-  shape before a word is read, in either theme and for an eye that does not tell colours apart; a colour for each voice
-  was rejected, since the accent and success colours already mean a link, the place chosen and done. A blue line beside
-  the text meant little.
+- 页面写给 owner 的内容、发给 agent 的文本、agent 交回的内容，各有一种固定的样子；发出的文本按原样、按顺序显示，
+  中间不夹页面自己的标题或注释。owner 曾把发给 agent 的第一行当成了页面标题，也分不清哪些是发出去的、
+  哪些是给 owner 看的。发给 agent 的内容是一块左侧带粗边的填充底板，返回的内容是一个描边框，这样不读一个字，
+  单凭形状就能区分，在哪套主题里、对分不清颜色的眼睛都一样；每个发言方一种颜色的做法被否决，
+  因为强调色和成功色已经表示链接、选中的位置和完成。文字旁的一条蓝线意义不大。
 
-- What is wholly one document has no frame and is laid out like body text under a title, one document one look; a frame
-  is used only where an agent's words mix with the page's text. A frame around what an agent wrote entirely divides
-  nothing and only adds a line and space, and one document both framed and not looks odd.
+- 整体是一份文档的内容不加框，像正文一样排在标题下面，一份文档一种样子；
+  只有 agent 的文字和页面的文字混在一起的地方才用框。给完全由 agent 写的内容加框，什么也没隔开，只多了一条线和一块空白；
+  同一份文档有的加框、有的不加，看起来很怪。
 
-- A heading an agent wrote is drawn as a sub-heading whatever its level, since an agent's headings must not outrank the
-  page's own.
+- agent 写的标题，不论级别，一律画成小标题，因为 agent 的标题不能比页面自己的标题级别高。
 
-- The markdown agents write is drawn by a small renderer of the page's own, covering only the forms they use, and a
-  paragraph that is plainly code stays code. Raw markdown is hard to read, the page needs only these few forms, and
-  nothing an agent writes may become markup the page did not mean; a markdown library was rejected for that.
+- agent 写的 markdown 由页面自己的一个小渲染器绘制，只覆盖它们用到的格式；明显是代码的段落仍按代码显示。
+  原始 markdown 难读，页面只需要这几种格式，而且 agent 写的任何东西都不能变成页面没有打算要的 markup；
+  markdown 库因此被否决。
 
-- Every list in a document the owner reads is drawn alike, numbered, each item's lead set strong and each other part a
-  paragraph opening with its name, with no box inside it. The owner read two lists of one shape drawn two ways as
-  something set apart, and a box inside what an agent handed back says nothing more.
+- owner 读的文档里，所有列表都画成一个样子：带编号，每项的开头加粗，其余每部分是以其名称开头的一段，列表里不加框。
+  两个形状相同的列表画成了两种样子，owner 就把它们读成了刻意区分开的东西；agent 交回的内容里再套一个框，
+  也没有多说出什么。
 
-- A text of more than about a thousand characters in a sheet or a box shows its first lines and a button saying how much
-  it opens, a list of more than three rows shows three and the rest a click away, and a shorter text is never folded:
-  the owner reads a text's size before opening it.
+- 底板或框里的文本超过大约一千个字符时，只显示开头几行，外加一个说明展开后有多少内容的按钮；超过三行的列表显示三行，
+  其余的点一下才显示；更短的文本从不折叠：owner 在展开之前先看文本有多长。
 
-- A page's sections stand one under another with no box, each a line that folds holding its heading, its count and who
-  wrote it, parted from what came before by a line across the page with room on each side, and with no rule under its
-  heading; one part draws it on every page and panel. The owner reads a page as one document, and a page of boxes read
-  as a heap of separate things; a rule tight under a title did not say where one section ends and the next begins.
+- 页面的各节上下排列，不加框：每节有一行可折叠的标题行，含标题、计数和作者，与前面的内容之间隔一条横贯页面的线，
+  线的上下都留出空白，标题下不加横线；每个页面和面板上都由同一个部件来画。owner 把一个页面当作一份文档来读，
+  满是框的页面读起来像一堆互不相干的东西；紧贴在标题下的横线，也说明不了一节在哪里结束、下一节从哪里开始。
 
-- Where text is shown diagrams can be drawn, mermaid and others, not cut off at the right. Diagrams are key to the
-  owner's understanding of a design.
+- 凡是显示文本的地方都能绘制图示，mermaid 等都可以，右侧不会被截断。图示是 owner 理解一个设计的关键。
 
-- A diagram wider than its box is scaled down to the box, never scrolled sideways, and opens enlarged in a dialog, in
-  the viewer the charts are moved and zoomed in, where its words can be read. The owner read a diagram cut at the edge
-  as cut off, a scroll bar shown only once used does not say there is more, and a diagram is taken in whole before it is
-  read closely. Rejected: only scaling down, which leaves a wide diagram's words too small to read; a new tab, which
-  takes the owner away from the words round it; opening in place, where it stays as narrow as the text round it; drawing
-  it again narrower or turned, which changes what its author drew and holds for some kinds only.
+- 比所在框宽的图示缩小到框的宽度，从不横向滚动；它可以在对话框里放大打开，用的就是移动和缩放图的那个查看器，
+  在那里能读清图示里的文字。owner 把在边缘被切开的图示读成了内容不全；只在用过之后才出现的滚动条，
+  不会告诉人后面还有内容；而图示要先整体看一遍，再细读。被否决的有：只缩小，宽图示的文字会小得没法读；新标签页，
+  会把 owner 从图示周围的文字带走；原地展开，它仍和周围的文字一样窄；重新画得更窄或转个方向，会改变作者画的东西，
+  而且只对某些种类适用。
 
-- The libraries that draw diagrams load only when a diagram first comes near the screen, so that a page that shows no
-  diagram does not pay for them.
+- 绘制图示的库只在某个图示第一次接近屏幕时才加载，这样不显示图示的页面不必为它们付出代价。
 
-- A diagram is drawn from what an agent wrote, so it is drawn at the library's strict security level and its drawing
-  sanitised, with no script and no HTML of its own: the page's look and security stay closed to the diagram, as to the
-  markdown (frontend/design-system.md, "The markdown agents write is drawn by a small renderer").
+- 图示是按 agent 写的内容画出来的，所以用该库的 strict 安全级别绘制，画出的结果经过净化，不含脚本，也不含它自己的 HTML：
+  页面的外观和安全对图示保持封闭，与对 markdown 一样 (frontend/design-system.md, "agent 写的 markdown")。
 
-- A diagram that cannot be drawn shows its source with a note under it, never a blank space, and a drawn one can show
-  its source in its place: diagrams are key to the owner's understanding of a design (frontend/design-system.md, "Where
-  text is shown diagrams can be drawn"), and shown as its source, nothing of one is lost.
+- 画不出来的图示显示其源码，下方附一条说明，绝不留一块空白；画出来的图示也可以在原位显示源码：
+  图示是 owner 理解一个设计的关键 (frontend/design-system.md, "凡是显示文本的地方都能绘制图示")，以源码显示，
+  就什么都不会丢。
 
-- Numbers are written #n for an item alone, Wn for a work and On for an observation, by the page, agents and engine
-  alike; text already in the database stays; a group's title gives the item's number and name and, apart, the work's
-  number. One #9 could be an item or an observation, told only from the words before it.
+- 编号的写法是：#n 只用于条目，Wn 用于工作，On 用于观察，页面、agent 和引擎都一样；数据库里已有的文本不变；
+  群组的标题给出条目的编号和名称，并另外给出工作的编号。同一个 #9 可能是条目，也可能是观察，只能靠它前面的词来分辨。
 
-- An item's number in a text an agent or the owner wrote links to the item, with its title on hovering, since items are
-  named by their number and the owner reaches an item from wherever a text names it; a number in code, an address or a
-  path, joined to a word, after a word that names another numbered thing, or naming no item, stays as written.
+- agent 或 owner 写的文本里，条目的编号会链接到该条目，悬停时显示其标题，因为条目是用编号称呼的，
+  owner 从任何提到条目的文本都能直接到达它；而代码、地址或路径里的编号，与单词连在一起的编号，
+  跟在指称另一类带编号事物的词后面的编号，或者不指向任何条目的编号，都按原样保留。
 
-- Facts on one line are joined by a vertical bar, which reads as a separator, not by middle dots: on a line of muted
-  words and dots the owner could not tell which parts could be clicked.
+- 同一行上的几项信息用竖线隔开，竖线读起来就是分隔符，而不用中间点：在一行弱化的文字和圆点里，
+  owner 分不清哪些部分可以点击。
 
-- A link is in the link colour wherever it stands, never muted, also in small text and among facts; a round's name and
-  an item's title are such links, the item's number standing muted before its title. A link is recognised by its colour,
-  and a muted link among facts could not be told from them.
+- 链接无论出现在哪里都用链接色，从不弱化，在小字里、在信息项之间也是如此；轮的名字和条目的标题就是这样的链接，
+  条目编号以弱化色放在标题前面。链接是靠颜色认出来的，夹在信息项之间的弱化链接，没法和信息项区分开。
 
-- What is drawn as a link that opens something on the page can be selected and copied as text: the owner copies what the
-  page shows to say what is wrong with it, and every round and cell in a copied panel was left out.
+- 画成链接、用来在页面上打开某样东西的内容，可以作为文本选中和复制：owner 会复制页面显示的内容来说明哪里不对，
+  而复制出来的面板里，所有的轮和格子都漏掉了。
 
-- A code the flow names a thing by, in a sentence of the page's, is monospace in the colour of the text round it with no
-  background, while code an agent wrote keeps the code background: a cell's code beside its title is a name, not code to
-  copy.
+- 流程用来称呼某样东西的代号，出现在页面自己的句子里时，用等宽字体、与周围文字同色、不加底色；
+  而 agent 写的代码保留代码底色：格子标题旁的代号是一个名字，不是要复制的代码。
 
-- A byline is one line of small text: who, semibold, then the round at its cell as a link, then the time, muted. Who
-  wrote something is read before when and where, and the rest is checked only now and then.
+- 署名行是一行小字：先是谁，半粗体；然后是轮及其所在的格子，作为链接；最后是时间，弱化显示。是谁写的，要先于何时、
+  何地来读，其余的只是偶尔才查看。
 
-- A pause someone meant, by the owner, the architect or Pause all, is called paused, with two yellow bars, and says who
-  stopped it and why. It is one state with the bars in the list, and a state does not need two words.
+- 有人有意为之的暂停，不论来自 owner、架构师还是 Pause all，都称为已暂停，带两道黄色竖条，并写明是谁、为什么让它停下的。
+  在列表里，它就是一个带竖条的状态，一个状态用不着两个词。
 
-- The engine halting a work for a problem is a state of its own: red, with its own icon, looking the same in lists,
-  filter buttons (shown by default), heads and stage bubbles. In a list one tells at once what someone meant, in yellow,
-  from what went wrong and needs looking at, in red.
+- 引擎因为问题而叫停一个工作，是一个单独的状态：红色，有自己的图标，在列表、筛选按钮（默认显示）、
+  头部和阶段气泡里看起来都一样。这样在列表里一眼就能分清：黄色是有人有意为之，红色是出了问题、需要查看。
 
-- An ended work has a grey stop mark. The owner reads a red mark as broken.
+- 已结束的工作用灰色的停止标记。owner 会把红色标记读成出了故障。
 
-- A work both paused and waiting for the owner says in its head what really holds it. With one saying paused and
-  another waiting for the owner, one cannot tell what stopped it.
+- 既已暂停、又在等 owner 的工作，在头部写明真正让它停着的是什么。一处说已暂停、另一处说在等 owner，
+  就分不清是什么让它停下的。
 
-- A work's state does not say the answer came: that asks nothing of the owner, and the state before it already says
-  whether the next step runs.
+- 工作的状态不表示回答已经来了：这不要求 owner 做任何事，而它之前的状态已经说明了下一步会不会运行。
 
-- A work's state is worked out once, from what the work is doing now, and its icon, its words, the running mark in its
-  head and the glow on its chart all take it, never disagreeing; running's is the one state mark that moves, and shows
-  only what is at work. An icon worked out apart from the words drew a ring at rest for a work its words said was paused
-  by Pause all, and a running mark came on for every engine step that only looked at a waiting work.
+- 工作的状态只算一次，依据是工作此刻在做什么；它的图标、文字、头部的运行标记和图上的光晕都取这一个结果，从不互相矛盾；
+  运行中的标记是唯一会动的状态标记，只用于真正在干活的东西。一个与文字分开计算的图标，
+  曾给一个文字写着被 Pause all 暂停的工作画上静止的圆环；引擎每一步只是看了一眼某个等待中的工作，运行标记也会亮起来。
 
-- Ready is a work whose next step is due, that waits for nothing, and that the engine does not run, as while it is
-  stopped or out of reach, so that a still ring is a true sign the work does not move: a work waiting to run a failed
-  round again, or for a free slot, is waiting, not ready, and while the page cannot reach the engine no work is marked
-  as working.
+- 就绪指的是：工作的下一步已经该做了，它不在等任何东西，而引擎没有运行它，比如引擎停了或连不上的时候，
+  这样静止的圆环才确实表示工作没在动：等着重跑一个失败的轮、或者等空闲槽位的工作，是在等待，不是就绪；页面连不上引擎时，
+  任何工作都不会被标为正在运行。
 
-- A work whose wait is over, or whose pause was asked to be lifted, while its machine has no slot free, reads as waiting
-  for a free slot: the owner must see why a work whose answer came does not move, and a resume that does not show looks
-  as if it failed. It has Pause and no Start or Step, since it is on its way to going on and the owner's later word must
-  be able to keep it paused; Pause withdraws the request.
+- 等待已经结束、或已请求解除暂停的工作，若所在机器没有空闲槽位，显示为等待空闲槽位：
+  owner 必须能看出一个已经等到回答的工作为什么不动，而一次没有显示出来的恢复，看上去就像失败了。它有 Pause，
+  没有 Start 或 Step，因为它已经在继续运行的路上，而 owner 之后的指令必须能让它保持暂停；Pause 会撤回这个请求。
 
-- A work whose cancel or start over was asked, and that the engine has not yet stopped, reads as stopping, in place of
-  whatever state it was in, a state of its own the filters can show or hide; it shows no round timer and has no Start,
-  Pause, Step or Start over, none of which would change it. A work that looks as if it goes on after the owner cancelled
-  it reads as a cancel that failed.
+- 已请求取消或重新开始、而引擎还没让它停下来的工作，显示为停止中，取代它原来所处的任何状态，这是一个单独的状态，
+  筛选可以显示或隐藏它；它不显示轮的计时，也没有 Start、Pause、Step 或 Start over，这些都改变不了它。
+  owner 取消之后看上去仍在继续的工作，会被读成取消失败了。
 
-- While the engine itself stops, a work reads as running only while a step or a tool of it is under way, since running
-  says a round goes on; the rounds list reads a round left open the same way.
+- 引擎本身停下时，只有工作的某一步或某个工具确实还在进行，它才显示为运行中，因为运行中表示有一轮正在进行；
+  轮列表对一个仍未关闭的轮也同样处理。
 
-- State filter buttons have icons only, with no words such as asking, waiting or paused, which are too long to fit a
-  line.
+- 状态筛选按钮只有图标，不带 asking、waiting、paused 这类文字，这些词太长，一行放不下。
 
-- A list keeps in the browser the states the owner hid, not those shown, so that a state the page comes to have shows
-  until the owner hides it.
+- 列表在浏览器里记住的是 owner 隐藏了哪些状态，而不是显示了哪些，这样页面以后新有的状态会一直显示，直到 owner 把它隐藏。
 
-- Each list's state buttons are one part (Article 8), the list's choice one for all its projects and kept in the
-  browser; in a list the owner narrows by picks, as the observations, a picked button stays drawn at 0 so that the pick
-  can be taken back.
+- 每个列表的状态按钮都是同一个部件（第 8 条），一个列表的选择对它的所有项目只有一份，并保存在浏览器里；
+  在 owner 靠勾选来缩小范围的列表里，比如观察列表，已选中的按钮在数量为 0 时仍然画出来，这样选择才能撤回。
 
-- A mark is an icon, never a character such as a tick, a triangle or a circle: a character takes its size and weight
-  from the font round it, so one mark would differ from text to text.
+- 标记用图标，绝不用勾、三角、圆圈这类字符：字符的大小和粗细取决于它周围的字体，同一个标记在不同的文字里就会不一样。
 
-- What the page or the engine tells the owner about the view and says nowhere else, such as a request that failed or why
-  a return was sent back, is a band in the colour of its meaning; a hint beside a control is small muted text, and
-  loading is the word Loading. A notice about the page must not look like something an agent wrote.
+- 页面或引擎就当前视图告诉 owner、而别处都不说的事，比如一个请求失败了，或者一次返回为什么被退回，
+  用一条按其含义着色的横幅；控件旁的提示用弱化的小字；加载中就写 Loading 这个词。
+  关于页面的通知不能看起来像是 agent 写的东西。
 
-- A count standing alone is a counter, emphasised only for what waits for the owner, and a count in a sentence stays
-  words: a count in a pill is read apart from the words round it, and emphasis is kept for what the owner must act on.
+- 单独出现的计数用计数标签，只有等 owner 处理的才加强调；句子里的计数仍写成文字：胶囊里的计数会脱离周围的文字被单独读，
+  而强调要留给 owner 必须处理的事。
 
-- A number shown on its own is a tile with no border, since a border would make it read as the box of an agent's words
-  and an edge at its left as the sheet of what is sent.
+- 单独展示的数字是一个没有边框的指标卡，因为加了边框，它读起来就像 agent 文字的框，左侧加一条边又会像发出内容的底板。
 
-- The series of every chart of numbers take one order of hues (Article 8).
+- 所有数值图表的数据系列都按同一个色相顺序取色（第 8 条）。
 
-- Each agent has an avatar, its line's icon in a circle of its role's colour, telling the members apart at a glance, and
-  the owner has none: nobody on the page has a picture, and made-up pictures or initials would read as people the page
-  does not have.
+- 每个 agent 都有头像：它所在线的图标，放在它角色颜色的圆里，一眼就能分清各个成员；owner 没有头像：页面上谁都没有照片，
+  编造的图片或姓名首字母会被读成页面上并不存在的人。
 
-- A form or a view has one primary command, the one it exists for, and every other is plain: one primary button tells
-  the owner which action a form exists for.
+- 一个表单或视图只有一个主命令，即它为之存在的那个，其余的都用普通样式：
+  一个主按钮告诉 owner 这个表单是为哪个操作而存在的。
 
-- A command whose effect reaches past what it names, such as Start all, starting a work over, switching the agents'
-  login account or removing a dependency, asks first, in a dialog whose title is the question, whose body says what
-  follows and whose button is the command's verb: the owner must know what follows before it happens. Start all says
-  what goes on and how many works on an older flow version are brought up.
+- 效果超出其名称所指范围的命令，比如 Start all、让工作重新开始、切换 agent 的登录账号或移除一个依赖，要先问一句：
+  用一个对话框，标题就是问题，正文说明接下来会发生什么，按钮是该命令的动词：owner 必须在事情发生之前就知道后果。
+  Start all 会说明哪些会继续，以及有多少处在旧流程版本上的工作会被升到新版本。
 
-- A choice of what a view shows from a list that grows, such as the flow's stored versions, is a menu whose button names
-  what is shown, each entry's facts shown only in the menu and the one in use marked: the button reads as a name, and
-  the facts belong to the moment of choosing. A native select carrying the facts as characters was rejected.
+- 从一个会不断增长的列表里选择视图显示什么，比如流程存下的各个版本，用一个菜单：按钮上写出当前显示的是什么，
+  每一项的信息只在菜单里显示，正在使用的那一项加标记：按钮读起来是一个名字，而那些信息属于选择的那一刻。
+  把信息写成字符塞进原生下拉菜单的做法被否决。
 
-- The period a view counts over is one switch, the same on every view, its periods side by side as links, the one
-  counted marked and kept in the address: a period is read with the others beside it, and like things look alike
-  (Article 8).
+- 视图统计所用的时段是同一个切换器，在每个视图上都一样：各个时段作为链接并排，正在统计的那个加标记，并保存在地址里：
+  一个时段要和旁边的其他时段对照着读，而同类的东西看起来就该一样（第 8 条）。
 
-- In a form that one Save writes, nothing takes effect before Save, so a setting on or off there is a checkbox, not a
-  switch that acts at the click, and a list the owner edits row by row is a table, as a list of pairs reads.
+- 在由一个 Save 统一写入的表单里，Save 之前什么都不生效，所以那里可开可关的设置用复选框，而不是一点就生效的开关；
+  owner 逐行编辑的列表用表格，因为成对的列表读起来就是表格。
 
-- A box for the owner's words beside its send button is one line at rest, as tall as the button and level with it,
-  growing upwards with what is written to a limit and then scrolling, with no handle to drag. The owner found a box
-  taller than its button, the button hanging at its corner, ugly; a box two rows tall dragged to a size, with Send at
-  its corner, was the path that failed.
+- owner 输入文字的框挨着它的发送按钮，空闲时只有一行，与按钮同高、对齐；随着输入的内容向上增高，到上限后滚动，
+  没有可拖动的手柄。owner 觉得比按钮高、按钮挂在角上的输入框很难看；两行高、靠拖动调整大小、Send 放在角上的输入框，
+  是走不通的路。
 
-- The owner's words take images, picked or pasted, sent with the words as one message and shown with them and in the
-  rounds given them: a problem the owner sees can be shown to the agent as it is.
+- owner 的文字可以带图片，选取或粘贴都行，与文字作为一条消息一起发出，并和文字一起显示，也显示在收到它们的轮里：
+  owner 看到的问题，可以原样给 agent 看。
 
-- Images added to the owner's words wait over the words as thumbnails, each removable, with how many against the limit,
-  and what the box refuses is said file by file: a thumbnail with its cross is how the owner's chat apps show what waits
-  to be sent. A file area of the page's own beside the box, and images sent apart from the words, were rejected.
+- 加到 owner 文字里的图片，以缩略图的形式排在文字上方等待发送，每张都可以移除，并显示已有几张、上限几张；
+  输入框拒收的内容逐个文件说明：带叉号的缩略图，正是 owner 用的聊天软件显示待发内容的方式。
+  在输入框旁另设页面自己的文件区，以及把图片与文字分开发送，都被否决。
 
-- An image the owner sent shows as a thumbnail and opens in a new tab, since a tab is the simplest way to see an image
-  whole and at its own size, and the browser already zooms and saves it; a dialog holding it was rejected. A diagram
-  differs: the page draws it, in its theme, and opens it in a dialog.
+- owner 发出的图片显示为缩略图，在新标签页中打开，因为标签页是完整地、按原尺寸看一张图片最简单的方式，
+  浏览器本来也能缩放和保存它；放进对话框的做法被否决。图示不同：它由页面按其主题绘制，并在对话框里打开。

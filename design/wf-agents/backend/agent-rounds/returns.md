@@ -1,37 +1,28 @@
-- A return that cannot be parsed is repaired in order: the engine first closes missing brackets and moves things into
-  place; failing that, the cheapest model repairs it once, and the content is checked unchanged; failing that, the agent
-  hands it in again in its session; only then is the work paused and the flow's keeper told. The round is not rerun. A
-  cheap model costs little and lengthens no session. A cut-off return lacks a large part, and forcing it into valid JSON
-  would lose content, so a repair must not change content.
+- 无法解析的返回按顺序修复：引擎先补上缺失的括号，把错位的内容挪回原位；不行，就由最便宜的模型修一次，
+  并检查内容没有改变；还不行，就由 agent 在它的 session 里重新提交；到这时才暂停工作，并告诉流程维护者。这一轮不重跑。
+  便宜的模型花费很少，也不会拉长任何 session。被打断的返回缺了一大块，硬把它变成合法的 JSON 会丢失内容，
+  所以修复不能改变内容。
 
-- A return sent back gets a few words on what is wrong and to rewrite it; the task, basis and form are not sent again,
-  and the work is not redone. It only handed in the wrong thing, the work is done, and more words waste tokens.
+- 被退回的返回只附几句话，说明哪里不对、要求重写；任务、依据和格式都不再发送，已经做完的事也不重做。它只是交错了东西，
+  事情已经做完，多说话就是浪费 token。
 
-- A work that changes one of the engine's checks of returns is judged, until it is installed, by the check as it was,
-  and its own returns can be sent back by the very fault it mends. So it names each check it changes, with why the
-  installed check would send a right return back; what only those checks find is set aside and not sent back, while the
-  installed checks still run on every return; each finding set aside is judged by a review, the declaration is checked
-  against the diff, and none reaches the merge unjudged. Only the project the engine is built from can declare. Such a
-  work once went around the check by asking the advisor, at seven more rounds against two. Splitting the change to the
-  check into an item merged and installed first costs an item, a whole graph and an installation each time, and cannot
-  split a work whose change is the check itself. Running the checks in CI cannot work, since a check reads the live
-  database, the worktree and the configuration. Installing new builds promptly was no answer either: no installation,
-  however prompt, holds a change that is only on the work's branch.
+- 改动引擎某项返回检查的工作，在改动安装之前，仍由原来的检查评判，它自己的返回可能正因为它要修的那个毛病而被退回。
+  所以它要指明它改动的每一项检查，并说明为什么已安装的检查会把正确的返回退回；只有这些检查才发现的问题会被搁置而不退回，
+  同时已安装的检查仍对每个返回照常运行；每个被搁置的审查发现都由一次审查来评判，声明要对照 diff 核对，没有一个未经评判就
+  到达合并。只有构建出引擎的那个项目才能作此声明。这样的工作曾靠询问顾问绕过检查，多花了七轮，对比之下只需两轮。
+  把对检查的改动拆成一个先合并、先安装的条目，每次都要多花一个条目、一整张图和一次安装，而且当一个工作的改动本身就
+  是该检查时，也拆不开。在 CI 里运行这些检查行不通，因为检查要读运行中的数据库、worktree 和配置。
+  及时安装新构建也不是办法：无论安装多及时，都装不进只在该工作 branch 上的改动。
 
-- The checks that judge a work's declaration of the checks it changes, and that hold the reviews to answering each
-  finding set aside, can never be declared themselves, and what they find is never set aside: they are what makes a
-  declaration no exemption, the one judging it and the other holding the reviews to answer each finding.
+- 评判一个工作对其所改检查之声明的检查，以及要求审查逐一回应每个被搁置发现的检查，本身永远不能被声明，
+  它们发现的问题也永远不被搁置：正是它们使声明不成为豁免，前者评判声明，后者要求审查回应每个发现。
 
-- A finding set aside from the re-check's own return goes to the fix and the re-check again, since no review comes after
-  the re-check to judge it. The second time the same check is set aside from it, the fix takes it to the advisor, which
-  judges whether the re-check can write a return the installed check takes, and where it cannot, the architect has the
-  work wait for the installation or changes the item: the re-check is given the installed prompt, so such a finding
-  shows the installed check disagreeing with that prompt, which the engineer cannot mend.
+- 从复查自己的返回中搁置的审查发现，会再次交给修复和复查，因为复查之后没有审查来评判它。同一项检查第二次从复查的返回中被
+  搁置时，修复会把它带到顾问那里，由顾问判断复查能否写出已安装的检查会接受的返回；若不能，架构师就让工作等待安装，
+  或修改条目：复查拿到的是已安装的 prompt，所以这样的审查发现说明已安装的检查与那个 prompt 不一致，这是工程师修不了的。
 
-- The agent's command line runs with partial output on, and each failure to parse a return keeps that return's full text
-  in the round's record. A log of the first 2,048 characters does not show the real cause; with the full text the next
-  error shows where it broke, and automatic repair and testing a repair need it.
+- agent 的命令行开着部分输出，每次解析返回失败，都把该返回的全文保存在这一轮的记录里。只记前 2,048 个字符的
+  日志看不出真正的原因；有了全文，下次出错时就能看出断在哪里，自动修复和测试修复也都需要它。
 
-- Streaming of tool inputs as they are generated is off in the agent's command line, so that the service checks each
-  argument's JSON before passing it back. Bad JSON may be stopped or corrected at the source, and as nobody watches it
-  written out, waiting for it affects nothing.
+- agent 的命令行关闭了工具输入的边生成边流式传输，这样服务方会先检查每个参数的 JSON，再把它传回。坏的 JSON 可能在源头就
+  被拦下或纠正；而且没有人看着它写出来，等它写完不影响任何事。

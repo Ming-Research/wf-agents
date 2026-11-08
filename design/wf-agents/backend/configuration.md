@@ -1,12 +1,10 @@
-- The private directory is managed by git as a whole, with a private remote, and the database is not in git; the
-  configuration commit recorded with each round is a commit of that repository. SQLite is binary and changes all the
-  time, so git means nothing for it.
+- 私有目录整体由 git 管理，配有私有的远程仓库，数据库不进 git；每轮记录的配置 commit，就是这个仓库的 commit。
+  SQLite 是二进制的，又一直在变，git 对它没有意义。
 
-- No share of usage is reserved for the owner, and when the quota runs short the account is changed. The owner has
-  several accounts, and changing one is enough.
+- 不为 owner 预留任何用量份额，额度不够时就换账号。owner 有好几个账号，换一个就够了。
 
-- Tags are a fixed set to choose from, so that they do not grow into a mess.
+- 标签是一组固定的可选项，免得越长越乱。
 
 
-- A field the engine does not know in a project's file is an error, so the engine that knows a field is installed before
-  the field is added: a misspelt field silently ignored leaves the owner believing a setting is in force that is not.
+- 项目文件里有引擎不认识的字段，就是错误，所以要先装好认识该字段的引擎，再添加这个字段：拼错的字段若被悄悄忽略，
+  owner 就会以为某项设置已经生效，其实并没有。

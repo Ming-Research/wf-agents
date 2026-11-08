@@ -1,4 +1,3 @@
-- The engine starts an agent with a configuration directory of its own, loading none of the owner's global tools, memory
-  or settings, and the project's AGENTS.md is not read by the agent but given by the engine as an input. What an agent
-  sees is set only by the flow and the project's configuration; other tools take up context for nothing and may be
-  written to; and what an agent read for itself the engine could not then carry.
+- 引擎启动 agent 时给它一个专属的配置目录，不加载 owner 全局的任何工具、记忆或设置；项目的 AGENTS.md 也不由 agent
+  自己读，而是由引擎作为输入给出。agent 能看到什么，只由流程和项目的配置决定；其他工具白白占用 context，还可能被写入；
+  而 agent 自己读到的东西，引擎之后就无法带过去。

@@ -1,79 +1,61 @@
-- Before the first research, the deep research and the implementation each begin, the work's branch is brought up to the
-  latest main, so that no stage works on old code. A stage whose session goes on is given the files main changed, since
-  the session remembers the old ones and, listed, knows to read them again; a stage in a fresh session reads the code as
-  it now is and is given none.
+- 在初步研究、深度研究和实现各自开始之前，都先把工作的 branch 更新到最新的 main，使任何阶段都不在旧代码上工作。
+  session 延续下来的阶段会收到 main 改动过的文件，因为 session 记得旧版本，列出来它就知道要重读；
+  在新 session 中的阶段读的是代码现在的样子，不给它这些。
 
-- The first research may use CI and the tools. Without running things it cannot find a root cause.
+- 初步研究可以使用 CI 和各种工具。不实际运行，它找不到根因。
 
-- Research is held to researching by what it is asked, not by where it may write. What it makes for the problem, data,
-  code, probes and notes, goes in the research folder and is not left about elsewhere; a test that reproduces the
-  problem goes where the project's tests are, so that it runs where they run and the implementation keeps it. A simple
-  research leaves nothing but its conclusion, and a conclusion that sets a rule beyond this work goes on a design card
-  (flow/design-cards.md, "A card is put only where"). A limit of everything to the research folder, set to keep research
-  on its task, also kept a reproduction from running where the tests run, so a defect could not be seen to happen before
-  it was fixed.
+- 让研究只做研究的，是交给它的任务，而不是它可以写在哪里。它为问题做出来的东西，数据、代码、探针和笔记，放进研究目录，
+  不散落在别处；复现问题的测试放在项目的测试所在之处，这样它在那些测试运行的地方运行，实现也会保留它。
+  简单的研究只留下结论；确立了超出本工作的规则的结论，写在设计卡上 (flow/design-cards.md, "只在以下情况放卡")。
+  为了让研究守住本职而把一切都限制在研究目录里的做法，也让复现无法在测试运行的地方运行，
+  于是缺陷在修复之前无法被看到发生。
 
-- Where the first research can settle the way, it writes how to change it and goes straight to implementing; only where
-  it cannot does deep research follow. Most works settle there, and what needs more is a hard performance problem, a
-  feature to design or a stubborn defect. Two further cells asking for the root cause and whether it is a design flaw
-  were rejected: asked of most works, such as a missing line of CSS, they make no sense, and they overlap deep research.
+- 初步研究能定下方案时，就写明怎么改，直接进入实现；只有定不下来时，才接着做深度研究。大多数工作在这里就定了，
+  需要更多的是棘手的性能问题、要设计的功能或顽固的缺陷。另加两个格子分别追问根因、以及是否属于设计缺陷的做法被否决了：
+  对大多数工作（比如少了一行 CSS）问这些毫无意义，而且与深度研究重叠。
 
-- Only a work that really needs it takes deep research, never for the sake of an approval. Putting a thing up for
-  approval is enough, and a trip through deep research for it is waste.
+- 只有真正需要的工作才做深度研究，绝不为了求一个批准而做。把事情提交批准就够了，为此走一趟深度研究是浪费。
 
-- The first research has a way to stop rather than running on to a forced conclusion, and whether deep research follows
-  is decided by a principle the engineer can understand, not by a hard measure. Even a forced first research has a
-  conclusion, which it may not see does not hold, and a hard measure misses many cases.
+- 初步研究有办法停下来，而不是硬撑到一个勉强的结论；是否接着做深度研究，由工程师能理解的原则来决定，而不是由硬性指标。
+  即使是勉强完成的初步研究也有结论，它可能看不出这个结论站不住；硬性指标则会漏掉很多情况。
 
-- In doubt, the first research looks further rather than stopping to ask, and asks only at a defect it cannot see
-  happen, a real choice going on a design card (flow/design-cards.md, "A technical choice for the owner"). Asking the
-  architect brings little more, and stopping costs much.
+- 有疑问时，初步研究继续往下查，而不是停下来问；只在看不到缺陷发生时才问，真正的选择则写在设计卡上
+  (flow/design-cards.md, "留给 owner 的技术选择")。问架构师得不到多少额外的东西，而停下来代价很大。
 
-- A defect takes no design: the effort goes to how it came about, how to prevent it, whether the fix is sound, and
-  whether a flaw in the architecture caused it. A design is for setting a route for an uncertain need. How it came about
-  is traced to where it began and written in what the research hands on, since a defect understood at its source is
-  plainly fixed; it goes into no message of its own, since most defects are cases no test reached, which no step of the
-  flow would have stopped.
+- 缺陷不需要设计：力气花在它是怎么产生的、如何预防、修复是否可靠，以及是否由架构上的缺陷引起。
+  设计是为不确定的需求定路线的。它是怎么产生的，要追到源头，写进研究交接出去的内容里，因为在源头上弄明白的缺陷，
+  怎么修就一目了然；这不单独发消息，因为大多数缺陷都是测试没覆盖到的情况，流程中的哪一步都拦不住。
 
-- How deep research goes depends on the work: where a change reaches widely the agent first understands the system, and
-  a very local one may be changed with no look at the architecture. An agent has no memory of the owner's intent or of
-  what earlier agents thought, and changing things at once may break them; a local matter is not worth reading the
-  architecture for.
+- 深度研究做多深取决于工作：改动波及面广时，agent 先理解系统；非常局部的改动可以不看架构就改。
+  agent 不记得 owner 的意图，也不记得之前的 agent 想过什么，上来就改可能把东西改坏；局部的事情不值得为它去读架构。
 
-- A defect is fixed only after it has been seen to happen where it shows, as on the page in a real browser or in the
-  program on its own data. Where no test can be written for it, as for something that shows only now and then, none is
-  forced: a probe, a log or the owner's own run may show it instead. A defect still seen nowhere after looking as far as
-  the tools reach, whether the tools cannot reach where it shows or the state has since changed, stops the work at the
-  research it is in, with no deep research after it, by an ask of the owner of how to go on, as what only a person can
-  solve. Whether the tools fall short is not known then, and deep research has the same tools. A cause inferred and
-  fixed once passed its test in a stand-in for the browser while the defect stayed, and came back as a new item (Article
-  2).
+- 缺陷只有在它显现的地方被看到发生之后才修，比如在真实浏览器的页面上，或在程序用它自己的数据运行时。无法为它写测试时，
+  比如只偶尔出现的问题，就不强求：探针、日志或 owner 亲自运行都可能让它显现。查遍工具所及之处，
+  仍然在哪里都看不到的缺陷，不管是工具够不到它显现的地方，还是状态后来变了，都会让工作停在它所在的研究上，
+  之后不做深度研究，而是作为只有人才能解决的问题，向 owner 发 ask 问如何继续。那时并不知道是不是工具不够，
+  而深度研究的工具也一样。曾有一次，推断出的原因被修复后，在浏览器的替身里通过了测试，缺陷却还在，
+  后来又作为新条目回来了（第 2 条）。
 
-- When a work took over something half done, the first research gets pointers to look with, sees how far it got and then
-  researches as usual, and keeping or changing what is there is the engineer's judgment. Half-done work may come from
-  another flow or another agent with no same chart to compare, so skipping cells mechanically, because a definition and
-  its inputs did not change, goes wrong.
+- 工作接手做了一半的东西时，初步研究会拿到可供查看的线索，先看做到了哪一步，再照常研究；已有的东西是保留还是改动，
+  由工程师判断。做了一半的东西可能来自另一个流程或另一个 agent，没有同一张图可以对比，
+  所以因为定义及其输入没变就机械地跳过格子，会出错。
 
-- Deep research uses a model one level above the item's, as the advisor does, and few works take that way. At the item's
-  model a weaker agent may fix the surface and stop, hiding a larger problem, and what it overlooks the flow cannot find
-  again elsewhere.
+- 深度研究和顾问一样，使用比条目的模型高一个级别的模型，而走这条路的工作很少。用条目的模型，
+  较弱的 agent 可能修了表面就停下，掩盖了更大的问题，而它忽略的东西，流程在别处再也找不回来。
 
-- A design does not first make up several ways to compare: it understands the decisions above it, thinks of what is
-  reasonable for the problem, and compares only where another direction really exists. Some problems plainly have one
-  reasonable way, and a made-up comparison is empty.
+- 设计不先编出几种方案来比较：它理解上层的决定，想清楚对这个问题什么是合理的，只有真的存在另一个方向时才比较。
+  有些问题显然只有一种合理的做法，编出来的比较是空洞的。
 
-- When the design is done, it is looked at again for a better design (flow.md, "A solution chosen for a problem must
-  itself be challenged"): another way to the same end, or the same end reached more simply, at less cost or with less to
-  keep up, including a way the design tree rules out. Where one is worth its cost, the design is written again, whole,
-  in place of the first; otherwise the first stands. Pressing instead on where the design was not thought through rarely
-  broke a premise (two proposals in eighty-six), while asking for a better design found one in most designs.
+- 设计完成后，要再审视一遍，找更好的设计 (flow.md, "为问题选定的方案本身也必须受到质疑")：通往同一目的的另一条路，
+  或以更简单、成本更低、维护更少的方式达到同一目的，包括设计树排除的方式。若有值得其代价的，就把设计整个重写，
+  取代第一版；否则第一版不变。改为追问设计哪里没想透，很少能推翻前提（86 份方案中只有 2 份），而要求找更好的设计，
+  在大多数设计中都找到了。
 
-- After deep research there are no fork questions to answer one by one: its departures from the decisions in force are
-  on its design cards (flow/design-cards.md, "A technical choice for the owner"), and the rest is left to the review.
+- 深度研究之后，没有需要逐个回答的岔路口问题：它对现行决定的偏离写在它的设计卡上
+  (flow/design-cards.md, "留给 owner 的技术选择")，其余的留给审查。
 
-- A design too large for one work, falling into parts that can each be done and merged on their own, leaves deep
-  research by a way of its own: the engine puts the split to the architect through the hub and holds the work there
-  until the architect makes the item a goal over the parts, which ends the work, keeps the first part for the work and
-  makes the others items, or declines with why, which takes the work back to deep research. Splitting items is the
-  architect's duty (flow/architect.md, "The architect's duty"), and a stop that a cell's output calls for is drawn as a
-  way out, not left to an agent's ask (Article 7).
+- 一个工作装不下的设计，若能分成各自可以独立完成和合并的几部分，就经由专门的出路离开深度研究：
+  引擎通过消息中心把拆分交给架构师，并把工作扣在那里，直到架构师把该条目变成统领各部分的目标（这会结束该工作）、
+  把第一部分留给该工作并把其余部分建为条目，或说明原因后拒绝（这会让工作回到深度研究）。拆分条目是架构师的职责
+  (flow/architect.md, "架构师的职责是与条目和观察有关的一切")，格子的输出所要求的停顿画成一条出路，
+  而不是留给 agent 的 ask（第 7 条）。

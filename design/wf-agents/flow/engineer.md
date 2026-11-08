@@ -1,40 +1,28 @@
-- The flow bends to the work: a fix of a few lines goes through in minutes, and a heavy matter takes the full design.
-  Two hours for each work is too much, and a fix of a few lines that takes an hour of flow and four or five hours with
-  the queue is more than the owner can wait. The heavier the flow, the more it rests on the architect writing items
-  well.
+- 流程随工作伸缩：几行的修复几分钟就走完，重大的事走完整的设计。每个工作两小时太多了；几行的修复要花一小时走流程，
+  加上排队要四五个小时，owner 等不起。流程越重，就越依赖架构师把条目写好。
 
-- How heavy a work runs is decided as it is done, by how hard it really is, and the architect marks nothing beforehand.
-  Size and nature are tangled: a defect and a need come mixed, where the defect must be fixed first to build on, and
-  what looks simple can turn serious halfway. A mark by the architect on creating an item was tried: almost no item got
-  it and all took the heavy way. A separate light flow for bug fixes and small features was rejected, since flexible
-  does not mean one heavy road and one light; so was a half-made short cut in the engineer's graph, since what is in the
-  flow must be as good as it can be.
+- 一个工作跑多重，在做的时候按它实际有多难来定，架构师事先不作任何标记。规模和性质纠缠在一起：缺陷和需求混在一起来，
+  缺陷必须先修好，才能在其上继续构建，看似简单的事也可能做到一半变得严重。曾试过由架构师在创建条目时作标记：
+  几乎没有条目被标上，结果全都走了重路。为 bug 修复和小功能另设一个轻流程被否决了，因为灵活不等于一条重路加一条轻路；
+  在工程师的图里放一条半成品的捷径也被否决了，因为流程里的东西必须尽可能好。
 
-- The engineer's flow has no planning stages or budget, no cell that checks a plan or a budget, and no question of going
-  over plan. A change the design tree needs goes on a design card (flow/design-cards.md, "A technical choice for the
-  owner"), spending has a ceiling and a page of its own, and whether the direction is off is for the architect to judge
-  under the policy.
+- 工程师的流程没有规划阶段或预算，没有检查计划或预算的格子，也没有是否超出计划的问题。设计树需要的改动放在设计卡上
+  (flow/design-cards.md, "留给 owner 的技术选择")，花费有上限，也有自己的页面，方向是否偏了由架构师依据 policy 判断。
 
-- Running everything for every work, works fighting over CI, dependencies stretched out in time and retesting after
-  merge conflicts are solved in the flow, not treated as problems of version control. Works differ in size and in how
-  much they need testing, and this pattern, taken from human development, does not fit AI development.
+- 每个工作都跑全部东西、工作之间争抢 CI、依赖在时间上被拉长，以及合并冲突后的重新测试，都在流程里解决，
+  不当作版本控制的问题。工作的大小和需要测试的程度各不相同，这种从人类开发沿用过来的模式不适合 AI 开发。
 
-- Cell by cell, the flow makes sure the engineer does not miss the key steps; one free cell with a page of instructions
-  is not enough. Given a free cell, engineers often forget or skip key steps, do not read the code or understand the
-  problem well, and are too cautious one moment and too loose the next.
+- 流程一个格子一个格子地确保工程师不漏掉关键步骤；一个附一页说明的自由格子是不够的。给一个自由格子，
+  工程师常会忘记或跳过关键步骤，不好好读代码、不好好理解问题，一会儿过于谨慎，一会儿又过于随意。
 
-- The acceptance may change during a work. Locking it after the first design was too strict.
+- 验收标准可以在工作进行中改变。在第一版设计之后就锁定它太严了。
 
-- Research does not only reason down from the decisions in force: where one must change or the work cannot be done, it
-  proposes changing it (flow/design-cards.md, "A technical choice for the owner"). Reasoning down from a decision cannot
-  find that.
+- 研究不只是从现行的决定往下推理：某条决定必须改、否则工作就做不成时，研究提议改它 (flow/design-cards.md, "留给 owner
+  的技术选择")。从一条决定往下推理，发现不了这一点。
 
-- The implementation and the fix keep the design true instead of declaring departures from it: a decision the design and
-  the tree do not record is written into the design's passage with why, a design wrong in its direction goes back to
-  research, and a workaround for a problem outside the work is reported and marked in the code. What they change in the
-  design they change in place, so that it reads as one design. A departure only declared, left for the review to
-  challenge, was one the agent knew of and neither fixed nor recorded, and cost the review a round (Article 3). The code
-  review judges each passage so written as a design is reviewed, not only as the standard it checks the code against.
+- 实现和修复让设计保持真实，而不是声明对它的偏离：设计和树都没记录的决定，连同原因写进设计的相应段落；
+  方向错误的设计退回研究；针对工作之外问题的变通办法，要报告，并在代码里标出。它们对设计的修改都就地进行，
+  使设计读起来是一个整体。只声明、留给审查去质疑的偏离，是 agent 明知却既没修也没记录的，还让审查多花一轮（第 3 条）。
+  代码审查像审查设计那样评判这样写下的每个段落，而不只是把它当作检查代码所依据的标准。
 
-- A defect found in passing, or something that should be improved, is reported only when it is worth a real item. The
-  architect's time is to be used sparingly, and every small matter reported takes some of it.
+- 顺带发现的缺陷或应当改进的地方，只有值得立一个真正的条目时才报告。架构师的时间要省着用，每报告一件小事都会占用一些。

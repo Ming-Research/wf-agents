@@ -1,25 +1,20 @@
-- The database has one definition, one SQL file: the program builds from it, and changing a table means changing it,
-  with the migration in the same pull request; each table, field and view has a comment saying what it is, what it
-  solves and who reads it. Views are SQL anyway, as is what the database takes and agents read, and without this source
-  every change would start over. Another format generating SQL would be one more layer of translation, with views as
-  strings.
+- 数据库只有一个定义，即一个 SQL 文件：程序由它构建，改表就要改它，迁移放在同一个 PR 里；每张表、每个字段、
+  每个视图都有注释，说明它是什么、解决什么、谁会读它。视图本来就是 SQL，数据库接收的、agent 读取的也都是 SQL；
+  没有这个源头，每次改动都要从头开始。用另一种格式生成 SQL，会多一层转换，视图还得写成字符串。
 
-- The database is made by one command alone, and every other command, the engine included, fails when there is none, so
-  that a wrong data directory is an error and not an empty view.
+- 数据库只能由一个命令创建，其他每个命令，包括引擎，在没有数据库时都会失败，这样数据目录弄错就是一个错误，
+  而不是一个空的视图。
 
-- Every change to the database's state is kept as a record of that change. A work's opening step brings its history,
-  the paths dropped and the decisions overturned, from the records (flow/history.md, "Every work opens with a step that
-  brings its history"), and the architect's notebook can be turned back to earlier versions
-  (frontend/conversations/architect.md, "The architect's notebook can be turned back"); neither can without each change
-  recorded.
+- 数据库状态的每次变化，都作为该变化的一条记录保存下来。工作开头的一步从记录中带来它的历史，包括被放弃的路和被推翻的决定
+  (flow/history.md, "每个工作都以带来其历史的一步开始")；架构师的笔记可以翻回到更早的版本
+  (frontend/conversations/architect.md, "架构师的笔记可以翻回到更早的版本")；不把每次变化都记录下来，两者都做不到。
 
-- What is stored is controlled, with no large repeats, or the size soon explodes.
+- 存储的内容要受控，不存大段重复，否则体积很快就会爆炸。
 
-- Text written for people is only in the flow's version, each round recording only values, and the page looks it up in
-  the work's version. That does not store the same words again, and agents do not get them.
+- 写给人看的文字只存在流程的版本里，每轮只记录值，页面到该工作的版本里去查这些文字。这样不会把同样的文字再存一遍，
+  agent 也拿不到它们。
 
-- A round's identity is its work's number and its count in that work, with no global number, and tables pointing at
-  rounds use that pair. A global number interleaves across parallel works.
+- 一轮的标识是它所属工作的编号加上它在该工作中的序号，没有全局编号，指向轮的表都用这一对值。全局编号会在并行的
+  工作之间交错。
 
-- A work's counts are recorded at the end of each round and then read directly, by the flow of that time, unchanged by
-  upgrades of the flow. A view recomputing them each time is too slow.
+- 工作的各项计数在每轮结束时记录，之后直接读取；它们按当时的流程计算，不随流程升级而改变。每次重新计算的视图太慢。

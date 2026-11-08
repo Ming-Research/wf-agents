@@ -1,60 +1,48 @@
-- The bar is one row: the name, the views and the engine's state. The flow's chart fills the window under the bar, and a
-  second row would take its height; GitHub's header over its nav, two rows, was not copied.
+- 顶栏只有一行：名称、各视图和引擎的状态。流程的图占满顶栏下方的窗口，第二行会占用它的高度；GitHub 那种页头在导航之上、
+  共两行的做法没有照搬。
 
-- The bar holds only what governs every work (the engine's state in words, Pause all or Start all as a plain button,
-  keeping warm, the slots in use, which it only shows) and the count of what waits, and nothing of a view. A control
-  pressed from a view about something else did what the owner could not see, and a work's facts in the bar repeated its
-  row. A panel behind the engine's state that switched between running and holding was rejected: the owner did not find
-  it.
+- 顶栏只放管辖所有工作的东西（用文字表示的引擎状态、作为普通按钮的 Pause all 或 Start all、保温、在用的槽位，
+  后者只做显示），以及有多少东西在等待，不放任何属于某个视图的东西。在讲别的事情的视图里按下的控件，
+  做了 owner 看不到的事；顶栏里放某个工作的信息，又重复了它那一行。藏在引擎状态后面、
+  在运行和扣住之间切换的面板被否决了：owner 没找到它。
 
-- Beside Pause all is a one-click switch for keeping warm, on by default, with a short name. Without it, resuming a
-  session after an hour is very costly.
+- Pause all 旁边是一个一键切换的保温开关，默认开启，名字很短。没有它，一小时后恢复一个 session 代价很高。
 
-- The bar is never wider than the window: the views without room go into the nav's More; of the engine's parts, keeping
-  warm, set now and then, and the slots, read now and then, go first behind a menu at the bar's end, then the state's
-  words, its dot staying; Pause all or Start all, used often, stays at every width. At a phone's width the bar ran past
-  the window's edge and the page scrolled sideways, and at a tablet's every view went into More while keeping warm and
-  the slots kept their room.
+- 顶栏从不比窗口宽：放不下的视图收进导航的 More；引擎的各部分中，
+  偶尔才设置的保温和偶尔才看的槽位最先收进顶栏末端的菜单，然后是状态文字，其圆点保留；
+  常用的 Pause all 或 Start all 在任何宽度下都保留。曾经在手机宽度下顶栏超出窗口边缘，页面横向滚动；
+  在平板宽度下每个视图都收进了 More，保温和槽位却还占着位置。
 
-- The engine's state in the bar is a dot before its words in the colour of the state's chip (frontend/design-system.md,
-  "A state's colour is that of its meaning"), blue while the engine runs and yellow while it is paused, and a halt's
-  words are in the danger colour: the owner reads at a glance whether anything runs, and the colour says it before the
-  words.
+- 顶栏中的引擎状态是文字前的一个圆点，颜色与该状态的标签相同 (frontend/design-system.md, "状态的颜色就是其含义的颜色")，
+  引擎运行时为蓝色，暂停时为黄色，叫停时文字用危险色：owner 一眼就能看出有没有东西在运行，颜色先于文字说明这一点。
 
-- The halt of every work at the usage limit is shown in the bar, not on each work, since it is the engine's and lifts by
-  itself.
+- 到达用量上限时所有工作被叫停，这显示在顶栏里，而不显示在每个工作上，因为这是引擎的叫停，并会自行解除。
 
-- A page does not write a line with its name or a version. The top bar already names the page, and that line takes a
-  whole row of height for nothing.
+- 页面不写一行自己的名字或版本。顶栏已经标明了页面，而那一行白白占掉整整一行的高度。
 
-- Lists and page content fill the width. Space left empty is waste.
+- 列表和页面内容占满宽度。留着空白的地方就是浪费。
 
-- Every split between a list and what is picked from it, or between what is read and what is kept beside it, drags the
-  same way (Article 8), its width kept in the browser; while nothing is open the list fills the view, and opening
-  something keeps the list where it was scrolled and the width the owner gave it.
+- 列表与从中选中的内容之间、正在读的内容与放在旁边的内容之间的每个分栏，都以同样的方式拖动（第 8 条），
+  宽度保存在浏览器里；什么都没打开时列表占满视图，打开某样东西后，列表保持原来的滚动位置和 owner 给它的宽度。
 
-- At a phone's width the page shows one thing at a time, as the owner's chat apps do, and never scrolls sideways: a
-  split shows the list, or what is picked under a way back to the list, nothing opening by itself; a panel kept beside
-  something takes its place there, its close or fold the way back. A list stacked over what is open put what was picked
-  under the whole list, and in a view that fills the window the box for words out of reach.
+- 在手机宽度下，页面一次只显示一样东西，就像 owner 用的聊天应用那样，并且从不横向滚动：分栏要么显示列表，
+  要么显示选中的内容，上方有返回列表的入口，不会自行打开任何东西；原本放在某样东西旁边的面板在这里取而代之，
+  用它的关闭或折叠来返回。把列表叠在打开的内容上方时，选中的内容落到了整个列表下面，而在占满窗口的视图里，
+  输入文字的框也够不着了。
 
-- The filter buttons of Works and the message list sit on the project's title line, at the screen's right. Below the
-  title they would take another row.
+- Works 和消息列表的筛选按钮放在项目的标题行上，位于屏幕右侧。放在标题下方会再占一行。
 
-- In a project's head the name gives way first, cut with an ellipsis, and the buttons keep their width, wrapping onto a
-  row of their own only where they alone are wider than the row: they sit on the title line so as not to take another
-  row (frontend/layout.md, "The filter buttons of Works and the message list sit on the project's title line").
+- 在项目的头部，名字最先让位，以省略号截断，按钮保持宽度，只有按钮本身就比这一行宽时才换到单独的一行：它们放在标题行上，
+  就是为了不再占一行 (frontend/layout.md, "Works 和消息列表的筛选按钮放在项目的标题行上")。
 
-- On a page with a chart, the panel is a window floating to the chart's right, the same on the flow, work and architect
-  pages. It cannot be closed, only shrunk to one line at the top right, the row of its tabs, where a tab opens to itself
-  and the title shrinks or opens; it opens shrunk. Opening, shrinking and resizing do not move the chart: fixed as a
-  column, they all disturbed it. Tabs along the side had vertical letters, hard to read, and no room.
+- 在有图的页面上，面板是浮在图右侧的一个窗口，流程、工作和架构师页面都一样。它不能关闭，只能缩成右上角的一行，
+  即它的标签页那一行；在这一行上，点标签页会展开到该标签页，点标题则收起或展开；它一开始是收起的。展开、
+  收起和调整大小都不会挪动图：面板固定成一列时，这些操作都会扰动图。沿侧边排的标签页文字是竖排的，难读，也没有空间。
 
-- The window floating over a chart covers part of it, so wherever the chart centres on a cell it centres in the part the
-  window leaves, and panning brings every part out from under it.
+- 浮在图上的窗口会遮住图的一部分，所以无论图在哪里以某个格子居中，都在窗口留出的那部分里居中；
+  平移可以把每个部分都从窗口下面移出来。
 
-- A round or a cell clicked shows below the panel's list, split by a divider that can be dragged, and closing it gives
-  the list its room back. Replacing the list meant going back every time.
+- 点击的轮或格子显示在面板列表下方，中间用可拖动的分隔条隔开，关闭它后列表收回原来的空间。替换掉列表，
+  就意味着每次都得返回。
 
-- Tabs over a panel stay on one line, close together with their counts, and scroll sideways when they still do not fit:
-  tabs wrapping onto two lines took a line from what they show.
+- 面板上方的标签页保持在一行，连同计数紧凑排列，仍放不下时横向滚动：标签页折成两行时，从它们所显示的内容那里占去了一行。

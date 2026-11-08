@@ -1,44 +1,36 @@
-- Cell and round panels have one structure, four parts, In, Out, From and To, sharing their parts. In has the task
-  first on a cell's panel, Out has the JSON, and To has which branch of the return leads to which cell; the full text
-  sent and returned is in In and Out, foldable. A change of looks alone did not solve it: what was for the owner and
-  what was sent could not be told apart, and the text piled up. Rejected: the database's columns stacked, which could
-  not be read; where it came from and goes written at the top, already in the list and the table; a panel of tabs.
+- 格子面板和轮面板是同一种结构，分 In、Out、From 和 To 四部分，两者共用这些部分。In 在格子面板上先放任务，Out 放 JSON，
+  To 写明返回的哪个分支通往哪个格子；发送和返回的全文在 In 和 Out 里，可折叠。只改外观并没有解决问题：
+  给 owner 看的和发送出去的分不清，文字也越堆越多。被否决的有：把数据库的列堆叠起来，没法读；在顶部写明从哪里来、
+  到哪里去，而这在列表和表格里已经有了；由标签页组成的面板。
 
-- A cell's four sections start folded, and what the owner opens or folds stays so from cell to cell and from round to
-  round: the tables, open, ran long down the panel.
+- 格子的四个部分一开始都折叠，owner 展开或折叠的部分，换到别的格子、别的轮时仍保持原样：这些表格展开着时，
+  曾在面板上拉得很长。
 
-- A round's In holds first the inputs new in this round, apart from those its session already held, folded under their
-  count, then the messages sent, as they were sent: a cell's In opens with the task (frontend/panels.md, "Cell and round
-  panels have one structure"), which in a round is already in the messages sent. One list of a round's inputs, those
-  sent in bold and those held greyed, did not show what the agent got this round.
+- 轮的 In 先放本轮新增的输入，与其 session 已持有的分开，折叠在其数量之下，然后照原样放发出的消息：
+  格子的 In 以任务开头 (frontend/panels.md, "格子面板和轮面板是同一种结构")，而在轮里，任务已经在发出的消息之中。
+  把一个轮的输入列成一个列表，发出的加粗、已持有的置灰，并没有显示出 agent 这一轮得到了什么。
 
-- A return taken with problems set aside says so in the same warning as a return sent back, each problem on its own line
-  with its number, since it is what the checks would have sent back (Article 8).
+- 搁置问题而被接受的返回，用与被退回的返回相同的警告来说明，每个问题单独一行并带编号，
+  因为这正是检查本来会退回的东西（第 8 条）。
 
-- A row's condition is written whole, as the field of the return it is worked out from or the engine's value it reads,
-  and on a round the rows it came in and left by are marked and the rest greyed: the owner reads which branch of the
-  return makes a row, and which a round took.
+- 行的条件完整写出，写成它据以算出的返回字段，或它读取的引擎值；在一个轮上，标出它进入和离开所走的行，其余的置灰：
+  owner 由此读出返回的哪个分支构成一行，以及一个轮走了哪一行。
 
-- A line of From or To lights its arrows on the chart while pointed at, and a click keeps them lit, several at once,
-  until clicked again: the owner reads a row in the tables and follows its arrows across the chart.
+- 指针指向 From 或 To 中的一行时，它在图上的箭头会点亮；点击让它们保持点亮，可以同时点亮好几行，直到再次点击：
+  owner 在表格里读一行，就能顺着它的箭头穿过整张图。
 
-- A panel renders input and output by their own structure, with no translating, merging or picking of fields, and
-  nothing of a return left out. What goes in and out is already structured, and a page picking what it shows left out
-  what was of value, plain JSON being better.
+- 面板按输入和输出自身的结构渲染，不翻译、不合并、不挑选字段，也不漏掉返回的任何部分。进出的内容本来就有结构，
+  页面自行挑选显示什么时，漏掉了有价值的东西，直接显示 JSON 反而更好。
 
-- Keys and values in an output are visibly distinct, and each key's content stands apart. A why in the middle could not
-  be told apart.
+- 输出中的键和值在视觉上明显不同，每个键的内容各自分开。夹在中间的 why 曾经分辨不出来。
 
-- A cell's Out shows, for each field of its return's pattern, what earlier returns may lack or hold there, since a work
-  carrying a return written on an earlier flow version moves to the new version all the same, and the owner approves
-  that with the change to the flow.
+- 格子的 Out 针对其返回模式的每个字段，显示早先的返回在那里可能缺少什么、可能包含什么，
+  因为一个带着在较早流程版本上写出的返回的工作，照样会迁到新版本上，而 owner 在批准流程变更时一并批准这一点。
 
-- On a cell's panel the rules are no section of their own but part of the input, which has several kinds.
+- 在格子面板上，规则不单独成一部分，而是输入的一部分，输入有好几种。
 
-- A cell's panel does not list tools at its top: tools are part of the output schema.
+- 格子面板不在顶部列出工具：工具是输出 schema 的一部分。
 
-- A cell's panel has no small text under its title, the stage is in the title, and inner category words are not shown to
-  the owner. That line is mostly on the chart anyway.
+- 格子面板的标题下没有小字，阶段写在标题里，内部的分类用词不显示给 owner。那一行的内容大多本来就在图上。
 
-- Every panel open on a chart has its way back in the same place, over its title: a panel is a small page with a title,
-  and its way back is in one place on every one.
+- 图上打开的每个面板，返回入口都在同一个位置，即标题上方：面板是一个带标题的小页面，它的返回入口在每个面板上都在同一处。

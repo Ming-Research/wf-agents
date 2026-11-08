@@ -1,21 +1,18 @@
-- The engine advances works in parallel, and the architect's and engineers' state machines run at once. Otherwise it is
-  too slow.
+- 引擎并行推进各个工作，架构师和工程师的状态机同时运行。否则太慢。
 
-- The global switch and a single work's switch go by whichever was pressed last: a work paused alone is not released by
-  a global start and needs the owner's own start, and a single start's mark is cleared by a global pause. A work paused
-  alone usually has a problem and is being held; a single start is an exception during a global pause, and pressing
-  global pause again means all stop.
+- 全局开关和单个工作的开关，以最后按下的那个为准：单独暂停的工作不会因全局启动而放开，需要 owner 对它单独启动；
+  单个启动的标记会被全局暂停清除。单独暂停的工作通常有问题，正被扣住；单个启动是全局暂停期间的例外，再次按下全局暂停就
+  意味着全部停下。
 
-- The engine starts with every work paused, nothing running until the owner starts all or one: after an upgrade or a
-  restart from a fault, the owner sees the state before works spend money again.
+- 引擎启动时所有工作都处于暂停状态，在 owner 启动全部或其中一个之前，什么都不运行：升级之后，或因故障重启之后，
+  owner 能在工作再次花钱之前先看到状态。
 
-- The hold on a project's new works is kept across a restart, while Pause all is not, the engine starting with every
-  work paused (backend/engine/scheduling.md, "The engine starts with every work paused"); neither sets or lifts the
-  other. The hold is a standing decision about the project, Pause all a moment's.
+- 对项目新工作的扣住会在重启后保留，而 Pause all 不会，因为引擎启动时所有工作都处于暂停状态
+  (backend/engine/scheduling.md, "引擎启动时所有工作都处于暂停状态")；两者都不会设置或解除对方。扣住是对项目的长期决定，
+  Pause all 只是一时的决定。
 
-- The owner may release any hold on a project's new works, the architect's as well as its own. An architect's hold the
-  architect does not release would otherwise leave the project stopped, the owner's only way being to ask the architect,
-  one round later.
+- owner 可以解除对项目新工作的任何扣住，无论是架构师设的，还是 owner 自己设的。否则，架构师设下却不解除的扣住会让
+  项目一直停着，owner 唯一的办法是去问架构师，还要晚一轮。
 
-- The engine can step: one round at a time, after which the work stops as if paused by the owner, and the next runs once
-  this one looked fine. A hundred and one rounds in a row once missed a problem there from the first.
+- 引擎可以单步运行：一次一轮，之后工作就像被 owner 暂停一样停下，确认这一轮没问题后，才运行下一轮。
+  曾经连续跑了一百零一轮，漏掉了一个从第一轮就存在的问题。

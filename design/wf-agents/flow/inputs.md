@@ -1,29 +1,24 @@
-- A cell's inputs are of two kinds: always, given every time; and conditional, brought along if the session lacks them
-  and only referred to if it has them. They are not sorted by origin, and none is given only at the start. A session may
-  lack something for being new, for having changed context on filling up, or for having changed agent, and this division
-  lets the context change midway. A separate kind for what the agent reads itself differs nothing from always, and a
-  division by origin means nothing, since what an agent wrote itself is in the old session and not the new.
+- 格子的输入分两种：始终给的，每次都给；有条件的，session 没有时带上，已有时只引用。输入不按来源分类，
+  也没有哪一项只在开头给。session 可能因为是新的、因为满了而换过 context，或因为换了 agent，而缺少某样东西；
+  这种划分让 context 可以在中途更换。为 agent 自己读的东西另设一类，与始终给的毫无区别；按来源划分没有意义，因为 agent
+  自己写的东西在旧 session 里，而不在新 session 里。
 
-- What the engine gives an agent from a project's repository, its constitution and its AGENTS.md, is read as the
-  project's main has it at one commit pinned for the round, never from a worktree's files, so that nothing a work's
-  branch or worktree holds changes it. The cell that consults the design tree (flow.md, "A cheap model's cell finds and
-  reads the decisions") reads, for an engineer, its work's branch instead, since the changes to the tree this work has
-  already written for its design cards must be seen by the cells after it.
+- 引擎从项目仓库给 agent 的东西，即项目的宪法和 AGENTS.md，按项目 main 在为这一轮固定的一个 commit 上的内容读取，绝不读
+  worktree 里的文件，这样工作的 branch 或 worktree 里的任何东西都改变不了它。查阅设计树的格子 (flow.md,
+  "便宜的模型跑的格子找出并阅读一个问题涉及的决定") 为工程师查阅时，改读其工作的 branch，
+  因为这个工作已为它的设计卡写进树的改动，必须让它之后的格子看到。
 
-- Every round tells the agent what this round is for: its title, why, and what to hand in. The task's full text, like
-  the rules, is given only as an address once the session has it. The next round's input is all the engine gives and the
-  only thing that steers a session, and without this the agent does not know what the round is for. A session per round
-  with everything given is plainly not feasible.
+- 每一轮都告诉 agent 这一轮是做什么的：它的标题、原因，以及要交什么。任务的全文和规则一样，一旦 session 已有，
+  就只给一个地址。下一轮的输入是引擎给出的全部，也是唯一引导 session 的东西，没有这些，agent 就不知道这一轮是做什么的。
+  每轮一个 session、把一切都给上，显然行不通。
 
-- An agent called in, such as an advisor, a reviewer or the architect, is not on the engineer's line; what it needs from
-  that line it gets as named inputs, by the rule for all lines. Its session has not seen what the engineer did.
+- 被叫来的 agent，比如顾问、审查者或架构师，不在工程师的线上；它从那条线上需要的东西，按适用于所有线的规则，
+  作为具名输入获得。它的 session 没见过工程师做了什么。
 
-- No input copies all rounds' inputs and outputs to an agent as history. The general rule already delivers what each
-  cell needs, and more only repeats it and brings in the engine cells' inputs as well.
+- 没有哪个输入把所有轮的输入和输出当作历史抄给 agent。通用规则已经送达每个格子所需的东西，多给只会重复，
+  还会把引擎格子的输入也带进来。
 
-- A prompt has no warnings against what an agent would not do anyway. Left unsaid it would not do it, and saying it
-  wastes tokens.
+- prompt 里不写警告去防 agent 本来就不会做的事。不说它也不会做，说了浪费 token。
 
-- The flow sends no list of items anywhere: an agent that wants to see them uses the query tool, whose description must
-  serve every cell. More than one cell looks at items, and taking the list from the planning cell alone leaves forks
-  without the base's copy, so that the engine sends them the whole, which is worse.
+- 流程不把条目列表发到任何地方：想看条目的 agent 用查询工具，工具的描述必须适用于每个格子。看条目的格子不止一个，
+  只从规划格子里去掉这个列表，会让 fork 没有 base 里的那份副本，于是引擎把整个列表发给它们，那更糟。

@@ -1,18 +1,13 @@
-- The items page is organised by dependencies, not by category or as a flat list, borrowing from the earlier board's way
-  (a split that can be dragged, indented items, colours) with no need to match its looks. A flat list hides
-  dependencies, and copied looks would not fit the whole page.
+- 条目列表页按依赖关系组织，而不是按类别或平铺成列表，借鉴早先看板的做法（可拖动的分栏、缩进的条目、颜色），
+  但不必与它的外观一致。平铺的列表会掩盖依赖关系，照搬的外观也与整个页面不搭。
 
-- The items list adds no blue bar to a selected row, which already has a ground of its own.
+- 条目列表不给选中的行加蓝条，选中的行本来就有自己的底色。
 
-- The item page begins with a summary of the problem and one of the design, with progress, acceptance and the rest
-  folded; the first research and the design each produce a summary, the full text folded as detail. Reading thousands of
-  characters of problem and then as many of design is too much, and two dense paragraphs at the top say what the problem
-  is and how it is solved.
+- 条目页以问题摘要和设计摘要开头，进度、验收标准和其余内容折叠；初步研究和设计各产出一份摘要，全文作为细节折叠。
+  读几千字的问题、再读同样多的设计太多了，而顶部两段紧凑的文字就说清了问题是什么、怎么解决。
 
-- An item's content does not show raw JSON: markdown is rendered, content is sorted, and the acceptance is shown once.
-  Raw JSON and unrendered markdown can hardly be read.
+- 条目的内容不显示原始 JSON：markdown 要渲染，内容要排序，验收标准只显示一次。原始 JSON 和未渲染的 markdown 几乎没法读。
 
-- A design block shows the design itself first, not why it was chosen. The owner opens it to see what the design is.
+- 设计块先显示设计本身，而不是为什么选它。owner 打开它是为了看设计是什么。
 
-- An item's dependency can be removed on the page. An item done may otherwise be held at the merge by a dependency no
-  longer needed.
+- 条目的依赖可以在页面上移除。否则一个已完成的条目可能因为一个不再需要的依赖而卡在合并上。

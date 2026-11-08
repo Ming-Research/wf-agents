@@ -1,15 +1,11 @@
-- Observations are the architect's to keep (flow/architect.md, "The architect's duty is everything about items and
-  observations"), and it takes them into the items it makes. They hold what the project should one day do, as items do,
-  and one keeper keeps them in order; a work does not bring them in at its start, since what an observation holds
-  reaches a work through the item made of it.
+- 观察由架构师维护 (flow/architect.md, "架构师的职责是与条目和观察有关的一切")，它把观察纳入自己创建的条目。
+  观察和条目一样记录项目有朝一日该做的事，由同一个维护者打理才有条理；工作在开始时不引入观察，
+  因为观察的内容会通过由它而来的条目到达工作。
 
-- When creating an item, the architect looks up related observations by tag. The merge must come before research, and
-  items are the architect's to create; code is reworked and places move, while tags are steadier. Recalling by place in
-  the code when changing it comes too late, and places are unreliable.
+- 创建条目时，架构师按标签查找相关的观察。合并必须在研究之前，而条目由架构师创建；代码会被重写，位置会移动，
+  标签则更稳定。到修改代码时才按代码位置想起它们，为时已晚，而且位置不可靠。
 
-- Something reported that another need will naturally run into need not be recorded; what would be forgotten if not,
-  such as an error that harms no function but feels bad, is. Such things need no change, but piled up the project's
-  quality declines, and they may never be triggered.
+- 报上来的事情，如果别的需求自然会碰上，就不必记录；不记就会被遗忘的，比如不损害任何功能、却让人感觉不好的错误，要记录。
+  这类事不改也行，但堆积起来，项目的质量就会下降，而且它们可能永远不会被触发。
 
-- A change to observations takes no second look: an observation is a light record, a wrong change costs little, and the
-  owner can see and change it at any time.
+- 对观察的改动不经第二眼：观察是轻量的记录，改错了代价很小，owner 也可以随时查看和修改。

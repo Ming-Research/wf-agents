@@ -1,10 +1,9 @@
-- Being sent back and a round that did not run are rows shared by every agent cell, seen in the table of ways out.
-  Written only in descriptive text, they could not be seen with the cell's other ways.
+- 被退回和一轮没跑成，是每个 agent 格子共有的行，在出路表里看得到。以前只写在描述文字里，
+  它们无法与格子的其他出路一起看到。
 
-- Each cell's reasoning effort is in the flow's definition and changes by upgrading the flow, with no setting on the
-  page. Upgrading is no trouble when a change is really needed.
+- 每个格子的推理强度写在流程定义里，通过升级流程来改，页面上没有设置。真需要改时，升级并不麻烦。
 
-- A cheap model's cell for searching and judging does not get low effort: that model at low judges too poorly.
+- 便宜的模型跑的、用于搜索和判断的格子不用低推理强度：这种模型在低推理强度下判断太差。
 
-- The section on what happens every round holds only what the engine really does on receiving a return, each with when
-  it fires. Which view reads which field is how the database is queried, not what the engine does.
+- 讲每一轮发生什么的那一节，只写引擎收到返回时真正做的事，每件事都注明何时触发。哪个视图读哪个字段，
+  是数据库如何被查询的问题，不是引擎做的事。

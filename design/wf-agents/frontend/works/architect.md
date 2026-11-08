@@ -1,41 +1,34 @@
-- An architect's works are not rows of the works table: its one row stands for them all and opens its page, drawn on the
-  flow version its latest work runs on, and an address of one of its works opens that page on the round named. An
-  architect runs for a long time and belongs to no item, and the owner reads what it does as one thing.
+- 架构师的工作不是 Works 表格的行：它唯一的那一行代表全部这些工作，点开是它的页面，按它最新的工作所运行的流程版本绘制；
+  指向它某个工作的地址会打开该页面，并定位到地址所指的轮。架构师长期运行，不属于任何条目，
+  owner 把它做的事当作一件事来读。
 
-- An architect's row sums its works' rounds, run time and cost, has no stage bar, version or time bar, which are one
-  work's, and is left alone by the state buttons, which act on works: the row stands for all the architect's works,
-  which are no works of the table (frontend/works/architect.md, "An architect's works are not rows of the works table").
+- 架构师的那一行汇总其各工作的轮数、运行时间和成本，没有阶段条、版本或时间条，那些属于单个工作；状态按钮也不作用于它，
+  状态按钮作用的是工作：这一行代表架构师的全部工作，而它们不是表格里的工作
+  (frontend/works/architect.md, "架构师的工作不是 Works 表格的行")。
 
-- The page shows no notion of waking and no reason for it: to the owner the architect is always handling things, and
-  waking is a detail of how that is done.
+- 页面不显示唤醒的概念，也不显示唤醒的原因：在 owner 看来，架构师一直在处理事情，唤醒只是这件事怎么做的一个细节。
 
-- The architect's page has no Understanding tab. That was the architect's memory for itself, facts and not why it acts
-  so, and the owner reads nothing from it.
+- 架构师页面没有 Understanding 标签页。那是架构师给自己的记忆，记的是事实而不是它为什么这样做，owner 从中读不到什么。
 
-- The architect's page has no Log tab, and batch changes to items are seen in the item changes tab. The log only sorted
-  each round's progress again by time, with nothing useful to read.
+- 架构师页面没有 Log 标签页，对条目的批量修改在条目变更标签页里看。日志只是把每轮的进度按时间又排了一遍，
+  没有什么有用的可读。
 
-- Each tab of the architect's panel holds what one stage or set of cells produced, each part naming the cell and round
-  that wrote it: the owner finds a thing by the stage that made it, and reads it right only knowing which cell wrote it.
-  A tab that mixed the policy with the records of setting it read as a heap.
+- 架构师面板的每个标签页放一个阶段或一组格子的产出，每个部分都注明写下它的格子和轮：owner 按产出某样东西的阶段来找它，
+  并且只有知道是哪个格子写的，才能读对。曾有一个标签页把 policy 和制定它的记录混在一起，读起来像一堆杂物。
 
-- On the architect's page the panel, when opened, takes half the chart's width by default. The owner looks at the chart
-  to see where the flow has gone.
+- 在架构师页面上，面板打开时默认占图宽度的一半。owner 看图是为了知道流程走到了哪里。
 
-- The architect's page has no yellow banner, which said nothing clear in too many words.
+- 架构师页面没有黄色横幅，它用了太多字，却什么都没说清楚。
 
-- No line of information sits above the architect's chart: it carries little, and what is there can be seen elsewhere.
+- 架构师的图上方不放信息行：它承载的东西很少，而那里有的在别处都能看到。
 
-- The architect's rounds are one continuous list of a fixed number of rows, opening at the newest and extending on
-  reaching either end, not cut by runs. The architect may change session between runs, and cutting by run breaks that
-  link. Showing every round from the start is out of the question.
+- 架构师的轮是一个连续的列表，行数固定，打开时位于最新处，滚到任一端时继续延伸，不按运行切开。
+  架构师可能在两次运行之间换 session，按运行切开会断掉这种联系。从头显示每一轮是不可能的。
 
-- The architect's rounds list has a dividing line between two runs of work, so that the owner sees where a run goes from
-  and to.
+- 架构师的轮列表在两次工作运行之间有一条分隔线，这样 owner 能看出一次运行从哪里开始、到哪里结束。
 
-- What on the architect's panel has no window of rows is shown by a range of time, one day, six hours or one hour;
-  rounds are not, being windowed. Showing it all is too slow.
+- 架构师面板上没有行窗口的内容，按时间范围显示，即一天、六小时或一小时；轮则不按时间范围，因为它们按窗口读取。
+  全部显示太慢。
 
-- An architect's usage is read over a span of time, not a work, since it works on without end: its page has the same
-  Usage tab as a work's, counting its works' rounds, sessions and pings in the span as one, a session carried from one
-  work to the next counted once.
+- 架构师的用量按一段时间来看，而不是按一个工作，因为它会无休止地一直工作：它的页面有与工作相同的 Usage 标签页，
+  把这段时间内其各工作的轮、session 和 ping 合起来统计，从一个工作延续到下一个工作的 session 只算一次。

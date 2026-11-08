@@ -1,52 +1,40 @@
-- The two kinds of record are called items and observations, not commitments, since everything in the system says item
-  (wf-agents.md, "A thing is named for what it is").
+- 两类记录叫作条目和观察，而不叫承诺，因为系统里处处都说条目 (wf-agents.md, "一样东西按它是什么来命名")。
 
-- Items have only dependencies between them, and together form a directed acyclic graph: an item owns nothing, a
-  relation does not double as a category, and if A depends on B, A cannot finish before B. Relations that stood for both
-  dependency and category ended in a tangle, and items owning sub-items beside plan rows that ordered them gave two
-  relations to keep apart.
+- 条目之间只有依赖关系，合起来构成一个有向无环图：条目不拥有任何东西，关系不兼作分类；若 A 依赖 B，A 就不能先于 B 完成。
+  既表示依赖又表示分类的关系，最后缠成了一团；条目拥有子条目，旁边又有给它们排序的计划行，就有了两种要区分开的关系。
 
-- The items are laid out as a tree along their dependencies: if A depends on B, B is below A, directly or under items
-  below A. Reading down from an item then shows all it needs, and how far it has come is how far what is below it has
-  come. A tree drawn by anything else beside the dependencies would be a second relation to keep in step with them.
+- 条目沿着依赖关系排成一棵树：若 A 依赖 B，B 就在 A 之下，或直接在 A 下面，或在 A 之下的条目下面。这样从一个条目往下读，
+  就能看到它需要的一切；它进展到哪里，就是它下面的东西进展到哪里。在依赖之外再按别的东西画出的树，会成为第二种关系，
+  需要与依赖保持同步。
 
-- An item stands in one place, under the item whose dependency on it is its main one; below every other item that
-  depends on it, it is a line pointing to that place. Of the dependencies on an item, exactly one is main at all
-  times: the most fitting, the first made until another is chosen, and the earliest made of those left when it goes;
-  never that of an item that also depends on it through another, which would set it beside an item that needs it.
-  Shown in full in several places, an item would be counted, read and answered more than once, and each thing has one
-  place. The place is a mark on a dependency rather than on the item, so that an item never stands under one that does
-  not need it.
+- 一个条目只出现在一个位置：持有对它的主依赖的那个条目之下；在其他每个依赖它的条目之下，它只显示为指向那个位置的一行。
+  对一个条目的各条依赖中，任何时候都恰好有一条是主依赖：应是最合适的那条；在另选之前，是最早建立的那条；它被去掉时，
+  是余下依赖中最早建立的那条；绝不会是某个还经由另一个条目依赖它的条目的依赖，那会把它放到一个需要它的条目旁边。
+  若在多个位置完整显示，一个条目就会被计数、阅读和回答不止一次，而每样东西只有一个位置。位置是标在依赖上的记号，
+  而不是标在条目上，这样条目永远不会出现在一个不需要它的条目之下。
 
-- Items side by side under one item do not depend on one another and can be started at the same time. Where one must
-  be done before another can be, that is a dependency, which puts the one below the other; which of two free items
-  starts first when slots are few is only the order the architect's plan gives them.
+- 同一条目下并列的条目彼此不依赖，可以同时开始。若一个必须先完成，另一个才能完成，那就是依赖，它把前者放在后者之下；
+  槽位不够时，两个都可以开始的条目谁先开始，只是架构师的计划给它们排的顺序。
 
-- A goal other than a root has two items or more under it; with one, that item takes its place. A goal is done exactly
-  when what is under it is, so a goal over a single item adds a level and says nothing, as a group of one is no group. A
-  root, a project's direction, may stand alone until its items come.
+- 除根以外，目标下面至少有两个条目；只有一个时，由那个条目取代它。目标恰在它下面的一切都完成时完成，所以只盖着单个条目的
+  目标只是多了一层，什么也没说，正如只有一个成员的组不成其为组。根是项目的方向，在它的条目到来之前可以单独存在。
 
-- An item that is done never depends on one that is not: a dependency added to it is refused, and what is left goes to
-  a new item. A dependency is what must be done before the item can be, so a done item standing over an unfinished one
-  would say both. A goal, done only while all it depends on is, takes the dependency and is open again. An item whose
-  work has passed the merge gate counts as done here: the gate is the one place a work waits for what it depends on, so
-  a dependency added after it would be waited for by nothing, and the item would end done over it all the same.
+- 已完成的条目从不依赖未完成的条目：给它添加依赖会被拒绝，剩下的事交给一个新条目。依赖是条目完成之前必须先完成的东西，
+  所以一个立在未完成条目之上的已完成条目，就同时说了两件相互矛盾的事。目标只在它依赖的一切都完成时才算完成，
+  它接受这条依赖，重新变为未完成。工作已通过合并关口的条目在这里算作已完成：合并关口是工作等待其依赖的唯一地方，
+  之后添加的依赖不会有任何东西去等，而这个条目照样会立在它之上，以已完成告终。
 
-- An item with more than ten dependencies side by side has them gathered under items between, each delivering one part
-  of what it needs; the items gathered keep their own works. A long row under one item is the flat backlog the tree is
-  there to replace: it cannot be taken in at a glance, nor does it show how far each part has come.
+- 一个条目若有十个以上并列的依赖，就把它们归拢到中间的条目之下，每个中间条目交付它所需的一部分；被归拢的条目保留各自的
+  工作。一个条目下长长的一排，正是这棵树要取代的扁平待办列表：它没法一眼看完，也看不出每部分进展到哪里。
 
-- An item has three states: open, done and cancelled. It is done once a work of it reached the end of its graph, a goal
-  once all it depends on is done, and open otherwise, also when its last work ended before its end. What its work is
-  doing, what the architect's plan does with it and what it waits for are facts of the work, the plan and the
-  dependencies, never the item's state. One state that mixed them read one item five ways, its states contradicted one
-  another, and an item whose work stopped read as stopped though nothing was delivered or given up.
+- 条目有三种状态：未完成、已完成和已取消。条目的某个工作走到其图的终点时，它就已完成；目标在它依赖的一切都完成时已完成；
+  其余情况为未完成，包括它最后一个工作在走到终点前就结束的情况。它的工作在做什么、架构师的计划怎样安排它、它在等什么，
+  是工作、计划和依赖的事实，从来不是条目的状态。曾有一个混合了这些的单一状态，把一个条目读成五种样子，状态之间互相矛盾，
+  工作停下的条目被读成已停止，尽管它既没交付什么，也没被放弃。
 
-- A work has a state of its own: where it stands in the flow, and what it is doing there: running; waiting, and for
-  what, such as the owner's answer, another item, a slot or a retry; paused, and by whom; or ended, and whether it
-  reached its end. An item has works one after another, at most one going on at a time, and the item's state does not
-  repeat theirs.
+- 工作有它自己的状态：它在流程中的位置，以及它在那里做什么：运行中；等待中，以及在等什么，比如 owner 的回答、
+  另一个条目、一个槽位或一次重试；已暂停，以及被谁暂停；或已结束，以及是否走到了终点。一个条目先后有多个工作，
+  同一时间至多一个在进行，条目的状态不重复它们的状态。
 
-- An observation records only its title, what it is, why it is worth doing and what happens if not, its tags, source,
-  times reported and references, with no condition and no event. A condition is one sentence no mechanism checks, and
-  events are too few in kind to use.
+- 观察只记录它的标题、它是什么、为什么值得做以及不做会怎样、它的标签、来源、被报告的次数和引用，没有条件，也没有事件。
+  条件只是一句没有任何机制去检查的话，而事件的种类太少，派不上用场。

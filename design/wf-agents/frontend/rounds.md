@@ -1,24 +1,21 @@
-- A round is always referred to as its number with, in brackets, the cell's number and name. Two formats did not match.
+- 提到一个轮时，总是写它的编号，后面括号里是格子的编号和名字。曾经两种格式对不上。
 
-- Each round in a rounds list is one line: its cell and who ran it, the row it took or that it ended the work in plain
-  words, a badge only for what is not the usual course (sent back, failed, cut off, running), its cost beside a small
-  bar of its cost's shares, and how long it took; the round chosen comes to the middle of the list when out of sight.
-  The owner scans the rounds for what went wrong, what cost much, which really ran an agent and where a session began.
+- 轮列表里每个轮占一行：它的格子和由谁运行，用平实的话写出它走的行或它结束了工作，只有偏离常规时才加徽标（被退回、失败、
+  被打断、运行中），它的成本及旁边显示成本构成的小条，以及耗时；选中的轮不在视野内时，会被移到列表中间。
+  owner 浏览这些轮，是为了找出哪里出了错、什么花得多、哪些真的运行了 agent、session 从哪里开始。
 
-- A link to a round from anywhere opens its page with the round chosen, the rounds around it read in place of the
-  list's when it is not listed: a round's name is a link (frontend/design-system.md, "A link is in the link colour"),
-  and the rounds are a list of a fixed number of rows, read in windows (frontend/works/architect.md, "The architect's
-  rounds are one continuous list").
+- 从任何地方指向某个轮的链接，都会打开它所在的页面并选中这个轮；它不在列表里时，改为读取它周围的轮来取代列表原有的内容：
+  轮的名字是链接 (frontend/design-system.md, "链接无论出现在哪里都用链接色")，而轮是一个行数固定、按窗口读取的列表
+  (frontend/works/architect.md, "架构师的轮是一个连续的列表")。
 
-- Who ran a round in the rounds list, architect, engine or other, has the same background colour as its cell on the
-  chart, on the engineer's side too, so that the architect's rounds are found at a glance.
+- 轮列表中运行某个轮的一方，无论是架构师、引擎还是其他，背景色都与该轮的格子在图上相同，工程师那边也一样，
+  这样一眼就能找到架构师的轮。
 
-- A round left open while the engine runs nothing of its work says so, and the work shows as ready, so that its next
-  round, which closes it first, can be run.
+- 引擎没有在运行其工作的任何部分、某个轮却仍未关闭时，这个轮会如实标明，工作显示为就绪，这样它的下一轮可以运行，
+  而下一轮会先关闭它。
 
-- The round that started a session of its line is marked in the rounds lists, saying why on hovering, since the owner
-  looks for where a session began; a round of a cell on no line, which starts one every time, is not marked, its badge
-  on the chart saying so.
+- 开启了其线上一个 session 的轮，在轮列表里有标记，悬停时说明原因，因为 owner 会找 session 从哪里开始；
+  不在任何线上的格子每次都开启新 session，它的轮不加标记，由它在图上的徽标说明这一点。
 
-- Where a rounds list is narrow, the cost bar gives way first and then the duration, so that what the round came to
-  keeps room for its first words; at a phone's width no cell is squeezed to a letter a line.
+- 轮列表变窄时，先让出成本条，再让出耗时，好让这个轮的结果保有显示开头几个字的空间；在手机宽度下，
+  没有哪个单元格会被挤成一行一个字母。

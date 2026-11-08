@@ -1,17 +1,14 @@
-- The architect keeps one notebook of two parts, its understanding of the project and the plan, with each matter's
-  record following them, and no separate log or closing summary. Many places to record are odd to manage and the owner
-  sees few of them, and sections such as what is unclear and other hold much that should not be recorded and has no
-  handling. Five places, then three, then four sections were rejected for this.
+- 架构师只记一份笔记，分两部分：对项目的理解和计划，每个事项的记录跟在它们后面；没有单独的日志或收尾总结。
+  记录的地方一多，管理起来就别扭，owner 也看不到几处；“不清楚的地方”“其他”这类小节装了很多不该记、也没人处理的东西。
+  五处、后来三处、再后来四个小节的方案都因此被否决。
 
-- What the architect records must be visible to the owner. Recorded in many places, most of it was out of the owner's
-  sight.
+- 架构师记录的东西必须让 owner 看得到。记录在许多地方时，大部分都在 owner 的视线之外。
 
-- Once the base is built the notebook freezes with it: a matter handled changes nothing in it and only adds after it.
-  The notebook is in the base's context; changed without being read again, the base's forks and the current notebook
-  would differ.
+- base 一旦建好，笔记就随它冻结：处理一个事项不改动其中任何内容，只在其后追加。笔记在 base 的 context 里；
+  若改了而不重新读入，base 的各个 fork 就会与当前的笔记不一致。
 
-- While handling something the architect may add a line after the understanding or after the plan, in the same way, also
-  while talking with the owner or on finding the plan must change. What has clearly changed should stay.
+- 处理事情时，架构师也可以同样地在理解之后或计划之后加一行；与 owner 交谈时，或发现计划必须改变时，也是如此。
+  明确已经改变的东西应当留下来。
 
-- What the architect must come back to is written in the notebook, not kept in the queue, and no timer wakes it. A
-  reminder should not sit in the queue again and again, and the engine needs no table of things to look at later.
+- 架构师必须回头再看的事写在笔记里，不放在队列中，也没有定时器唤醒它。提醒不该一次又一次地待在队列里，
+  引擎也不需要一张以后再看的事项表。
