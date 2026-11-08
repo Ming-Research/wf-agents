@@ -230,7 +230,7 @@ describe('the flow as the engine stores it', () => {
         if (s === undefined) continue;
         const r = cellRadius(c, s.height);
         // Only an agent's cell is a box; the engine's, a tool's and the owner's are rounded
-        // (design/wf-agents/frontend/charts.md, "只有 agent 格子是方形").
+        // (design/wf-agents/frontend/charts.md, the entry on square agent cells).
         expect(r > 3, `${g.name} ${c.id}`).toBe(c.kind !== 'agent');
         if (c.kind !== 'agent' && s.height > 40) tall += 1;
         for (const b of textBoxes(c, s, lines.get(at) ?? [], notes.get(at))) {

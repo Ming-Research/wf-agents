@@ -60,7 +60,7 @@ import { DesignCardView } from "./Decide";
 import { DesignShown } from "./Item";
 
 /// What an agent said, word for word, in the box the design system gives what an agent handed back
-/// (design/wf-agents/frontend/design-system.md, "页面写给 owner 的内容").
+/// (design/wf-agents/frontend/design-system.md, the entry on what the page writes for the owner).
 function Said({ text }: { text: string }) {
   return (
     <div className="agent-box">

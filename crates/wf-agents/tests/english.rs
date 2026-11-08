@@ -1,10 +1,11 @@
 //! Everything in the repository is in English: no tracked text file holds a letter that is not ASCII, a character of
 //! Unicode's general category L, written as itself or as an escape that stands for one (`\uXXXX`, a pair of them for a
 //! letter beyond 16 bits, `\u{...}`, `\UXXXXXXXX`, `\x{...}`, `&#x...;` or `&#...;`), nor a path that does. Data in the
-//! owner's language lives in the data directory and the database, never here. Punctuation, symbols and emoji belong to
-//! no language and may stay. A file whose language is its point, as a document made as a translation, is exempt when
-//! `.config/english-exempt.txt` names it. A file with a NUL byte in its first 8000 bytes is binary, as git takes it,
-//! and is not read; any other file is text and must be UTF-8.
+//! owner's language lives in the data directory and the database; here only the design tree is written in it
+//! (AGENTS.md). Punctuation, symbols and emoji belong to no language and may stay. A file whose language is its point,
+//! as the design tree or a document made as a translation, is exempt when `.config/english-exempt.txt` names it. A file
+//! with a NUL byte in its first 8000 bytes is binary, as git takes it, and is not read; any other file is text and must
+//! be UTF-8.
 
 use std::path::Path;
 use std::process::Command;

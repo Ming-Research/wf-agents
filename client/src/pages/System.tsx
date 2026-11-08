@@ -54,7 +54,7 @@ export function System({ period }: { period: Period }) {
   return (
     <div className="page sys" onMouseMove={tip.move} onMouseLeave={tip.leave}>
       {/* The view's five parts are its own sections, as the design system heads a page's sections
-          (design/wf-agents/frontend/design-system.md, "页面的各节上下排列"). */}
+          (design/wf-agents/frontend/design-system.md, the entry on a page's sections). */}
       <HeadingLevel.Provider value={2}>
         <Section {...part(t('sys_now'), t('sys_now_for'))} open>
           <Now s={s} works={works.data ?? []} status={status} />
