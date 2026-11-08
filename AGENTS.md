@@ -67,7 +67,8 @@ Entries of one kind stand together, under one node and next to each other in its
 place it was applied, in that place's words, was read as so many rules: what it gave in one place was built as a rule of
 its own, and a case none of them named was missed; and entries of one kind spread through a file are not all read when
 one of them is found. Before changing something, walk down to it from `design/wf-agents.md`, reading each file on the
-way.
+way. The tree is read to know what is decided and why, not as orders: where the right solution needs a decision changed,
+the change is proposed rather than the solution bent to fit the decision.
 
 The tree goes ahead of the code: where they differ, the code is behind. Nothing records how far behind: a mark of what
 the code lacks would itself fall behind, and the tree, holding what is done or where it is going, needs none. Fix it if
