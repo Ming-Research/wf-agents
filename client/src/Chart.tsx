@@ -381,15 +381,21 @@ function SpotCell(props: {
   onPoint: () => void;
 }) {
   const { spot, cell, block, absent, chosen, pointed, onPoint } = props;
-  // The left half of the crossing carries the way back when it does, the row's line otherwise; so the right.
-  const half = (side: 'left' | 'right') =>
-    spot.back === side || spot.back === 'through'
-      ? 'back'
-      : spot.line === side || spot.line === 'through'
-        ? 'line'
-        : null;
-  const left = half('left');
-  const right = half('right');
+  // Each half of the crossing carries the row's line, the way back, or both. Where both run, each keeps to its lane,
+  // the line above the middle and the way back below it, so that neither covers the other; the mark stays in the
+  // middle.
+  const runs = (which: 'line' | 'back', side: 'left' | 'right') => spot[which] === side || spot[which] === 'through';
+  const half = (side: 'left' | 'right') => {
+    const lane = runs('line', side) && runs('back', side) ? 'lane' : '';
+    return (
+      <>
+        {runs('line', side) && <span className={`seg seg-${side} line ${lane}`} aria-hidden="true" />}
+        {runs('back', side) && <span className={`seg seg-${side} back ${lane}`} aria-hidden="true" />}
+      </>
+    );
+  };
+  // The arrow of a way back is at the right of the read it points at, in the way back's lane.
+  const arrowLane = runs('line', 'right') && runs('back', 'right') ? 'lane' : '';
   const words = markWords(cell, block, spot);
   const marked = hasMark(spot.mark) || hasMark(spot.added) || hasMark(spot.removed);
   return (
@@ -400,9 +406,9 @@ function SpotCell(props: {
       onMouseEnter={onPoint}
       title={words || undefined}
     >
-      {left && <span className={`seg seg-left ${left}`} aria-hidden="true" />}
-      {right && <span className={`seg seg-right ${right}`} aria-hidden="true" />}
-      {spot.backTo && <span className="arrow" aria-hidden="true" />}
+      {half('left')}
+      {half('right')}
+      {spot.backTo && <span className={`arrow ${arrowLane}`} aria-hidden="true" />}
       <MarkGlyph spot={spot} />
       {words && <span className="visually-hidden">{words}</span>}
     </td>

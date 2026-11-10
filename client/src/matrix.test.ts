@@ -121,6 +121,37 @@ describe('the ways back', () => {
     expect(row(m, 'plan').every((spot) => spot.back === 'none' && !spot.backTo)).toBe(true);
   });
 
+  it('leave the row\'s line out left of the first write, where the way back runs alone', () => {
+    // The opinions are read by the first cell and written by the second: nothing of them goes forward.
+    const m = matrix({ after: small() }, 'after');
+    expect(row(m, 'opinions').every((spot) => spot.line === 'none')).toBe(true);
+    // Read by a and b, written by c, read by d, written by e: the line runs from c on.
+    const flow = flowOf(
+      [
+        cell('a', { inputs: ['x'] }),
+        cell('b', { inputs: ['x'] }),
+        cell('c', { outputs: ['x'] }),
+        cell('d', { inputs: ['x'] }),
+        cell('e', { outputs: ['x'] }),
+      ],
+      { x: {} },
+    );
+    const spots = matrix({ after: flow }, 'after').spots[0];
+    expect(spots.map((spot) => spot.line)).toEqual(['none', 'none', 'right', 'through', 'left']);
+    expect(spots.map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
+  });
+
+  it('start the row\'s line at a mark left of the first write that no way back reaches, so that none stands alone', () => {
+    // A precondition of the first cell reads what people and a later cell write: no way back reaches a precondition.
+    const waits = test('ready', 'x is yes', 'all', ['x']);
+    const flow = flowOf([cell('a', { preconditions: [waits] }), cell('b', { outputs: ['x'] }), cell('c', { inputs: ['x'] })], {
+      x: { people: true, values: ['yes', 'no'] },
+    });
+    const spots = matrix({ after: flow }, 'after').spots[0];
+    expect(spots.map((spot) => spot.line)).toEqual(['right', 'through', 'left']);
+    expect(spots.every((spot) => spot.back === 'none')).toBe(true);
+  });
+
   it('count a read by a condition, and every pair of a read and a later write', () => {
     const flow = flowOf(
       [

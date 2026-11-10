@@ -151,6 +151,10 @@ What the owner reviews every work by, so that it says plainly why a work is wher
 - **Live**: the list and a work are read again on each change the interface sends, and whenever its stream of changes
   opens again, since changes may have been missed while it was lost; an answer older than the one shown is dropped.
 - **Tabs kept**: the flow, once shown, is kept as the owner left it while another tab is shown, and is not read again.
+- **The flow alone**: a server that gives only the flow (`wf-agents flow page`) has no items and no works, and the
+  console and the works would show only a read that failed. The page asks once; where the address names no view it
+  opens on the flow, and in place of the console and the works it says so in one message with two links: the flow,
+  and the same view with sample data.
 
 ## The history of a work
 
@@ -208,7 +212,12 @@ write, both where both, a diamond where its condition reads the block, directly 
 condition, and a square where a named test that is one of its preconditions reads it. The diamond and the square are
 drawn round the ring and the dot in a thinner line, so that what a cell runs on stays the mark's centre and what decides
 whether it runs, or waits, its frame. A block's marks are joined by a line along its
-row; a way back is the same line in the way back's purple with an arrow at the read it sends the work back to. The row
+row. The line starts at the first mark that no way back reaches, which is the first cell that writes the block where a
+cell does, and runs to the row's last mark: it shows the way the block goes on, and a read left of every write is
+reached by the way back alone. A way back is the same line in the way back's purple with an arrow at the read it sends
+the work back to. Where a way back runs along a stretch of the row's line, each keeps to a lane of its own, the line
+3px above the middle and the way back with its arrow 3px below it, the marks staying in the middle: drawn on the one
+middle line, the way back covered the line and the row read as if nothing went forward there. The row
 or column chosen is tinted with the accent. When comparing, what a change put in is green, what it took out red and
 dashed, what it changed orange: on a cell's head and a block's edge, and on the marks.
 

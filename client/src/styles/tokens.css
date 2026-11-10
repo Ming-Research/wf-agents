@@ -45,6 +45,7 @@
   --chart-mark-half: 8px;
   --chart-line: 1px;
   --chart-back: 2px;
+  --chart-lane: 3px;
   --chart-arrow: 4px;
   --chart-arrow-length: 6px;
   /* How far a block's row stays under the frame's top when it is brought into view: the cells' heads are over it. */
