@@ -35,7 +35,6 @@ pub const REACHED: &[&str] = &[
     UNSEEN_SAME_MEANING,
     CAUSES_CHECKED,
     CAUSES_MIXED,
-    CAUSES_LAST_BEHIND,
     LIMITS_CHECKED,
     WAYS_ROUND_BOUNDED,
     DECIDED_AGAIN,
@@ -59,7 +58,8 @@ const UNREAD_BY_CELL: &str = "another cell changes a block a run may write and d
 const UNSEEN_SAME_MEANING: &str = "a run finishes over a version it did not start from, which changed nothing";
 const CAUSES_CHECKED: &str = "a reason of a run as it starts";
 const CAUSES_MIXED: &str = "a reason changed both by a cell after the run's and by someone else";
-const CAUSES_LAST_BEHIND: &str =
+/// Reached, all but never, only in the histories of one shape (`SKIPPED_JUDGED`).
+pub const CAUSES_LAST_BEHIND: &str =
     "a reason someone other than a cell after the run's changed, such a cell changing it last";
 const LIMITS_CHECKED: &str = "a work waits at a cell's limit";
 const WAYS_ROUND_BOUNDED: &str = "a way round starts";

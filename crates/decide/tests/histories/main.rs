@@ -30,9 +30,14 @@
 //!   engine's otherwise); its third round always finishes. A run found stale as its round ends is abandoned, not
 //!   finished, as the engine does.
 //!
-//! Every situation a property is about is counted, and the test fails if no history reaches one of them.
+//! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
+//! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
+//! the first test all but never reaches.
 //!
-//! A failing case prints its seed, the properties it broke and the steps it took; `one_history(seed, ..)` replays it.
+//! Every situation a property is about is counted, and a test fails if none of its histories reaches one of them.
+//!
+//! A failing case prints its seed, the properties it broke and the steps it took; `one_history(seed, drawn, ..)`
+//! replays it, `drawn` being what its test draws from.
 
 // The histories use only part of the helper the rule tests share.
 #[allow(dead_code)]
@@ -51,8 +56,27 @@ use reading::{Reading, Writer};
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{Says, World, cell};
 
-/// How many histories are run.
-const SEEDS: u64 = 800;
+/// What the histories of a test are drawn from: the shape of the flow, or any; and the number of steps below which
+/// people stop acting.
+#[derive(Clone, Copy)]
+struct Drawn {
+    shape: Option<usize>,
+    people: usize,
+}
+
+/// Any flow, people acting in the first 0 to 39 steps.
+const ANY: Drawn = Drawn {
+    shape: None,
+    people: 40,
+};
+
+/// The sixth shape only, people acting in the first 0 to 99 steps: that a judge runs while the cell it judges is
+/// skipped, writing over what a person wrote for that cell, and the cell then runs again, takes a row of acts that
+/// histories of any shape, with people acting for a few steps, all but never reach.
+const SKIPPED_JUDGED: Drawn = Drawn {
+    shape: Some(5),
+    people: 100,
+};
 
 /// The block only people write.
 const BRIEF: &str = "brief";
@@ -115,8 +139,9 @@ fn when_flipped(mut c: Cell) -> Cell {
 
 /// The cells of a flow before its merge: a shape, cut or lengthened with cells drawn at random, each with a limit of
 /// one or two.
-fn draw_cells(rng: &mut Rng) -> Vec<Cell> {
-    let mut cells = match rng.below(6) {
+fn draw_cells(rng: &mut Rng, shape: Option<usize>) -> Vec<Cell> {
+    let shape = shape.unwrap_or_else(|| rng.below(6));
+    let mut cells = match shape {
         // A chain, each cell reading what the one before it writes.
         0 => vec![
             cell("c0", &[BRIEF], &["b0"]),
@@ -204,9 +229,9 @@ struct History {
 }
 
 impl History {
-    fn new(seed: u64) -> Self {
+    fn new(seed: u64, shape: Option<usize>) -> Self {
         let mut rng = Rng::new(seed);
-        let cells = draw_cells(&mut rng);
+        let cells = draw_cells(&mut rng, shape);
         let mut w = World::with_gate(cells);
         if rng.chance(40) {
             w.set("the merge may go", Outcome::Holds);
@@ -633,9 +658,9 @@ impl History {
 
 /// One history: people act in its first part, then the work is driven until it rests, and what must hold of the whole
 /// history is checked.
-fn one_history(seed: u64, log: &mut Vec<String>, verdict: &mut Verdict) {
-    let mut h = History::new(seed);
-    let people_until = h.rng.below(40);
+fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Verdict) {
+    let mut h = History::new(seed, drawn.shape);
+    let people_until = h.rng.below(drawn.people);
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         for _ in 0..people_until {
             h.step(true);
@@ -664,17 +689,17 @@ fn one_history(seed: u64, log: &mut Vec<String>, verdict: &mut Verdict) {
     }
 }
 
-#[test]
-fn random_works_keep_the_engines_properties_and_come_to_rest() {
+/// Runs this many histories drawn so, and fails if one breaks a property, or if none reached one of these situations.
+fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
     let hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let mut failures = Vec::new();
     let mut seen = Seen::default();
     let mut broken: BTreeMap<&str, Vec<u64>> = BTreeMap::new();
-    for seed in 0..SEEDS {
+    for seed in 0..seeds {
         let mut log = Vec::new();
         let mut verdict = Verdict::default();
-        let outcome = panic::catch_unwind(AssertUnwindSafe(|| one_history(seed, &mut log, &mut verdict)));
+        let outcome = panic::catch_unwind(AssertUnwindSafe(|| one_history(seed, drawn, &mut log, &mut verdict)));
         seen.add(&verdict.seen);
         let mut message = match outcome {
             Err(e) => (e.downcast_ref::<String>().cloned())
@@ -698,20 +723,28 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
         let by_property: Vec<_> = (broken.iter())
             .map(|(p, s)| format!("{p}: {} histories, the first {:?}", s.len(), &s[..s.len().min(5)]))
             .collect();
-        let seeds: Vec<_> = failures.iter().map(|(s, m, _)| format!("{s}: {m}")).collect();
+        let seeds_failed: Vec<_> = failures.iter().map(|(s, m, _)| format!("{s}: {m}")).collect();
         panic!(
-            "{} of {SEEDS} histories failed.\n\nproperties broken:\n{}\n\n{}\n\nthe steps of seed {seed} ({message}):\n{}",
+            "{} of {seeds} histories failed.\n\nproperties broken:\n{}\n\n{}\n\nthe steps of seed {seed} ({message}):\n{}",
             failures.len(),
             by_property.join("\n"),
-            seeds.join("\n"),
+            seeds_failed.join("\n"),
             log.join("\n")
         );
     }
-    let unreached: Vec<_> = (properties::REACHED.iter())
-        .filter(|what| seen.get(what) == 0)
-        .collect();
+    let unreached: Vec<_> = reached.iter().filter(|what| seen.get(what) == 0).collect();
     assert!(
         unreached.is_empty(),
         "no history reached these, so the properties about them check nothing: {unreached:?}"
     );
+}
+
+#[test]
+fn random_works_keep_the_engines_properties_and_come_to_rest() {
+    histories(ANY, 800, properties::REACHED);
+}
+
+#[test]
+fn a_judge_running_while_the_cell_it_judges_is_skipped_keeps_the_engines_properties() {
+    histories(SKIPPED_JUDGED, 150, &[properties::CAUSES_LAST_BEHIND]);
 }
