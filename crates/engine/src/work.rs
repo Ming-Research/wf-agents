@@ -45,7 +45,8 @@ impl Work {
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
-    /// When the entry at this place was added: the time of the thing that happened it belongs to.
+    /// When the entry at this place was added: the time of the thing that happened it belongs to. A place after the
+    /// last entry gives the time of the last thing that happened, and a place before the first gives none.
     pub fn time_of(&self, place: Seq) -> Option<Time> {
         self.moments.iter().rev().find(|m| m.from <= place).map(|m| m.at)
     }
@@ -71,7 +72,7 @@ pub struct Moment {
 }
 
 /// What a round took, as whatever ran it reports (principle `measure-speed-and-cost`). An act of the engine's own
-/// takes none of these.
+/// takes none of these: its round is reported with all of them at nothing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Spent {
     /// Its cost, in millionths of a dollar.
