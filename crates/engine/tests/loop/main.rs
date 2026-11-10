@@ -10,7 +10,9 @@ mod ending;
 mod events;
 mod given;
 mod limits;
+mod pausing;
 mod pending;
+mod rebuilt;
 mod refused;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -245,6 +247,16 @@ fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
         was,
         behind,
     }
+}
+
+/// What the run's first round was given.
+fn given_of(w: &W, run: RunId) -> Given {
+    w.work
+        .given
+        .get(&run)
+        .and_then(|g| g.first())
+        .expect("a round was given")
+        .clone()
 }
 
 /// The calls given to be made, each with its run and what it is.

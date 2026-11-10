@@ -238,6 +238,14 @@ impl History {
                 self.w.start(cell.as_str());
                 true
             }
+            // A pause holds back the next round of a run that goes on: that is the run's to say, and the engine holds
+            // it until the work is let on.
+            Decision::GoOn { .. } if decide::paused(&self.w.records) => {
+                if people {
+                    self.toggle_pause();
+                }
+                people
+            }
             Decision::GoOn { cell, .. } => {
                 self.w.go_on(cell.as_str());
                 true
@@ -283,8 +291,15 @@ impl History {
         assert!(under_way <= 1, "{under_way} runs have a round under way");
         if under_way == 1 {
             assert!(
-                // A cancel holds wherever the work is, a round under way or not.
-                matches!(decision, Decision::Busy { .. } | Decision::Ended(End::Cancelled)),
+                // A cancel holds wherever the work is, a round under way or not: the run is abandoned.
+                matches!(
+                    decision,
+                    Decision::Busy { .. }
+                        | Decision::Abandon {
+                            because: decide::Stale::Cancelled,
+                            ..
+                        }
+                ),
                 "a round is under way and the walk decides {decision:?}"
             );
         }

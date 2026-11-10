@@ -38,22 +38,22 @@ fn nothing_is_pending_once_the_work_has_merged() {
 }
 
 #[test]
-fn nothing_is_pending_once_the_work_is_cancelled() {
+fn nothing_is_pending_once_the_work_is_cancelled_and_what_was_to_be_undone_is_done() {
     let (mut w, write, _) = W::requested();
-    w.returns(write, Came::Asks(vec![question(Who::Owner)]));
+    let call = calls_of(&w.returns(write, Came::Asks(vec![question(Who::Owner)])))[0].0;
     w.on(Event::Cancelled);
+    assert_eq!(pending(&w.work), vec![Effect::Withdraw { call }]);
+    w.done(call);
     assert_eq!(pending(&w.work), vec![]);
 }
 
 #[test]
-fn nothing_of_an_abandoned_run_is_pending() {
+fn of_an_abandoned_run_only_the_withdrawing_of_its_calls_is_pending_until_it_is_done() {
     let (mut w, write, _) = W::requested();
-    w.returns(write, Came::Asks(vec![question(Who::Owner)]));
+    let call = calls_of(&w.returns(write, Came::Asks(vec![question(Who::Owner)])))[0].0;
     let effects = w.person_writes("request").0;
-    // The withdrawal is no longer to be done: only the new round is.
-    let rounds: Vec<Effect> = effects
-        .into_iter()
-        .filter(|e| matches!(e, Effect::Round { .. }))
-        .collect();
-    assert_eq!(pending(&w.work), rounds);
+    assert_eq!(pending(&w.work), effects);
+    assert_eq!(effects[0], Effect::Withdraw { call });
+    w.done(call);
+    assert_eq!(pending(&w.work), effects[1..].to_vec());
 }

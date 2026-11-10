@@ -89,3 +89,66 @@ fn a_cell_gone_round_to_its_limit_waits_for_the_owner_and_runs_once_let_go_on() 
     assert_eq!((cell.as_str(), number), ("write", 1));
     assert!(matches!(given, Given::Task { because, .. } if because.iter().all(|c| !c.forward())));
 }
+
+#[test]
+fn the_owners_call_at_a_limit_is_withdrawn_when_its_run_is_abandoned() {
+    let (mut w, write, _) = W::requested();
+    w.returns(write, wanting());
+    w.returns(write, wanting());
+    let call = calls_of(&w.returns(write, wanting()))[0].0;
+    let (effects, _) = w.person_writes("request");
+    assert_eq!(effects[0], Effect::Withdraw { call });
+    assert_eq!(effects.len(), 2);
+}
+
+#[test]
+fn both_limits_in_one_run_each_start_anew_when_the_owner_lets_the_run_go_on_at_either() {
+    let (mut w, write, _) = W::requested();
+    let first = calls_of(&w.returns(write, Came::Asks(vec![tool("a"), tool("b")])));
+    w.done(first[0].0);
+    w.done(first[1].0);
+    w.returns(write, wanting());
+    w.returns(write, wanting());
+    let call = at_limit(&w.returns(write, wanting()), write, Limit::Returns { sent_back: 2 });
+    w.done(call);
+    // Let go on at the limit of returns, the run's calls are counted anew too: two more are made.
+    let second = calls_of(&w.returns(write, Came::Asks(vec![tool("c"), tool("d")])));
+    assert_eq!(
+        second.iter().map(|(_, _, what)| what.clone()).collect::<Vec<_>>(),
+        vec![Call::Asked(tool("c")), Call::Asked(tool("d"))]
+    );
+    w.done(second[0].0);
+    w.done(second[1].0);
+    at_limit(
+        &w.returns(write, Came::Asks(vec![tool("e"), tool("f")])),
+        write,
+        Limit::Calls { made: 2 },
+    );
+}
+
+#[test]
+fn after_the_owner_lets_a_run_go_on_at_its_limit_of_calls_the_calls_made_then_start_the_count_anew() {
+    let (mut w, write, _) = W::requested();
+    let first = calls_of(&w.returns(write, Came::Asks(vec![tool("a"), tool("b")])));
+    w.done(first[0].0);
+    w.done(first[1].0);
+    let call = at_limit(
+        &w.returns(write, Came::Asks(vec![tool("c"), tool("d")])),
+        write,
+        Limit::Calls { made: 2 },
+    );
+    let second = calls_of(&w.done(call));
+    w.done(second[0].0);
+    w.done(second[1].0);
+    // The two the owner let be made are not counted again: three more may be made, and a fourth not.
+    let third = calls_of(&w.returns(write, Came::Asks(vec![tool("e"), tool("f"), tool("g")])));
+    assert_eq!(third.len(), 3);
+    for (c, ..) in &third {
+        w.done(*c);
+    }
+    at_limit(
+        &w.returns(write, Came::Asks(vec![tool("h")])),
+        write,
+        Limit::Calls { made: 3 },
+    );
+}

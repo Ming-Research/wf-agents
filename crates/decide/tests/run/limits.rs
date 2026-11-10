@@ -71,13 +71,13 @@ fn letting_the_run_go_on_at_its_limit_of_returns_sends_the_return_back_and_start
         rounds: vec![wanting(), wanting(), wanting()],
         let_go: 3,
     };
-    assert_eq!(next(&log, s.requires()), send_back(wanting_unmet()));
+    assert_eq!(next(&log, s.requires(), false), send_back(wanting_unmet()));
     log.rounds.push(wanting());
-    assert_eq!(next(&log, s.requires()), send_back(wanting_unmet()));
+    assert_eq!(next(&log, s.requires(), false), send_back(wanting_unmet()));
     log.rounds.push(wanting());
-    assert_eq!(next(&log, s.requires()), send_back(wanting_unmet()));
+    assert_eq!(next(&log, s.requires(), false), send_back(wanting_unmet()));
     log.rounds.push(wanting());
-    assert_eq!(next(&log, s.requires()), returns_limit(2));
+    assert_eq!(next(&log, s.requires(), false), returns_limit(2));
 }
 
 #[test]

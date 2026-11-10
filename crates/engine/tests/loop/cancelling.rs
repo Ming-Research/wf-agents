@@ -1,5 +1,6 @@
-//! A cancel: nothing of the work goes on. Its round under way is stopped, the calls it rests at are withdrawn, and
-//! its runs are abandoned, run by run in the order they started.
+//! A cancel: nothing of the work goes on. Each open run is abandoned, run by run in the order they started: its round
+//! under way is stopped and the calls it rests at are withdrawn, each of which is to be done until the driver says it
+//! was.
 
 use super::*;
 
@@ -11,9 +12,10 @@ fn abandoned(w: &W) -> Vec<RunId> {
 #[test]
 fn a_cancel_stops_the_round_under_way_and_abandons_its_run() {
     let (mut w, write, _) = W::requested();
-    assert_eq!(w.on(Event::Cancelled), vec![Effect::Stop { run: write }]);
+    let stop = vec![Effect::Stop { run: write }];
+    assert_eq!(w.on(Event::Cancelled), stop);
     assert_eq!(abandoned(&w), vec![write]);
-    assert_eq!(pending(&w.work), vec![]);
+    assert_eq!(pending(&w.work), stop);
 }
 
 #[test]
@@ -27,7 +29,7 @@ fn a_cancel_withdraws_the_calls_a_run_rests_at_in_the_order_they_were_made() {
     ];
     assert_eq!(w.on(Event::Cancelled), withdrawn);
     assert_eq!(abandoned(&w), vec![write]);
-    assert_eq!(pending(&w.work), vec![]);
+    assert_eq!(pending(&w.work), withdrawn);
 }
 
 /// The judge rests at a question for the owner, and the writer, before it, runs again for a new request.
@@ -43,28 +45,39 @@ fn two_open() -> (W, RunId, CallId, RunId) {
 #[test]
 fn a_cancel_ends_every_open_run_in_the_order_the_runs_started() {
     let (mut w, judge, call, again) = two_open();
-    assert_eq!(
-        w.on(Event::Cancelled),
-        vec![Effect::Withdraw { call }, Effect::Stop { run: again }]
-    );
+    let undo = vec![Effect::Withdraw { call }, Effect::Stop { run: again }];
+    assert_eq!(w.on(Event::Cancelled), undo);
     assert_eq!(abandoned(&w), vec![judge, again]);
+    assert_eq!(pending(&w.work), undo);
+}
+
+#[test]
+fn a_stop_and_a_withdrawal_are_pending_until_the_round_has_ended_and_the_call_has_its_result() {
+    let (mut w, _, call, again) = two_open();
+    w.on(Event::Cancelled);
+    assert_eq!(w.returns(again, hands_in(&[("text", None)])), vec![]);
+    assert_eq!(pending(&w.work), vec![Effect::Withdraw { call }]);
+    assert_eq!(w.done(call), vec![]);
     assert_eq!(pending(&w.work), vec![]);
 }
 
 #[test]
-fn after_a_cancel_the_stopped_rounds_return_and_the_withdrawn_calls_result_are_refused() {
+fn what_a_stopped_round_returns_and_a_withdrawn_calls_result_change_nothing_but_saying_they_were_done() {
     let (mut w, _, call, again) = two_open();
     w.on(Event::Cancelled);
-    let late = Event::Returned {
-        run: again,
-        came: hands_in(&[("text", None)]),
-    };
-    assert_eq!(w.refused(late), Refused::NoRoundUnderWay(again));
-    let late = Event::Done {
-        call,
-        result: "too late".into(),
-    };
-    assert_eq!(w.refused(late), Refused::Withdrawn(call));
+    let before = w.work.clone();
+    w.returns(again, hands_in(&[("text", None)]));
+    w.done(call);
+    let mut after = w.work.clone();
+    // What changed is the round's end and the call's result, and nothing else.
+    assert_eq!(after.records.returned.pop().map(|r| r.run), Some(again));
+    assert_eq!(after.records.done.pop().map(|d| d.call), Some(call));
+    assert!(after.results.remove(&call).is_some());
+    assert_eq!(after, before);
+    assert_eq!(
+        decide::decide(&w.flow.flow, &w.work.records, &w.tests),
+        decide::Decision::Ended(decide::End::Cancelled)
+    );
 }
 
 #[test]
@@ -74,4 +87,13 @@ fn a_second_cancel_gives_nothing_and_changes_nothing() {
     let before = w.work.clone();
     assert_eq!(w.on(Event::Cancelled), vec![]);
     assert_eq!(w.work, before);
+}
+
+#[test]
+fn a_cancel_withdraws_the_owners_call_at_a_limit() {
+    let (mut w, write, _) = W::requested();
+    w.returns(write, wanting());
+    w.returns(write, wanting());
+    let call = calls_of(&w.returns(write, wanting()))[0].0;
+    assert_eq!(w.on(Event::Cancelled), vec![Effect::Withdraw { call }]);
 }

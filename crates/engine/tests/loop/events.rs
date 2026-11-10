@@ -168,3 +168,14 @@ fn an_engine_cell_goes_through_the_same_mechanism() {
         decide::Decision::Ended(decide::End::Merged)
     );
 }
+
+#[test]
+fn a_write_from_outside_said_not_to_matter_runs_nothing() {
+    let (mut w, write, _) = W::requested();
+    let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
+    w.returns(judge, hands_in(&[]));
+    let first = w.on(wrote("main", Outsider::Outside, true, None));
+    let (again, ..) = round(&first);
+    w.returns(again, hands_in(&[]));
+    assert_eq!(w.on(wrote("main", Outsider::Outside, false, None)), vec![]);
+}

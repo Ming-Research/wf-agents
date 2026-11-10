@@ -1,8 +1,18 @@
-//! Simulated histories of whole works through `handle` only (principle simulated-histories): a driver holds what the
-//! engine gave to be done and not yet done, and at each step does one of those things, or a person or the outside
-//! acts, or the engine is stopped and the driver starts anew from `pending`. After every step what the engine must
-//! always keep is checked; once people stop, the work must come to rest within a bound its limits give; and the same
-//! history with and without stops ends with the same work.
+//! Simulated histories of whole works through `handle` only (principle simulated-histories). A driver holds what the
+//! engine gave to be done and not yet done (rounds to end, calls to answer, rounds to stop, calls to withdraw) and at
+//! each step does one of those things, or a person or the outside acts; at any step the engine may stop, and the
+//! driver then forgets what it held and takes `pending` instead.
+//!
+//! What is checked after every step:
+//! - `pending` equals, as a set, what the driver holds (entries engine-holds-no-state, a-stop-changes-nothing);
+//! - at most one round is under way, and the deciding code never says the records are faulty;
+//! - every effect held names a run and a call the records hold, and no round is given twice;
+//! - an event the loop refuses leaves the work equal to what it was.
+//!
+//! And once people stop: the work rests within the bound stated on `History::bound` (entry a-work-comes-to-rest), at
+//! rest the walk waits, is paused or has ended, and `pending` holds only calls for a person; a cancelled work ends with
+//! nothing pending, and a look at it gives nothing. The same history ends with the same work run twice, and with its
+//! stops as without them.
 //!
 //! What a step is, roughly. In the first 0 to 59 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, the driver does one of the things it holds, each with an equal chance:
@@ -12,13 +22,16 @@
 //!   for one to three calls, a tool in seven of ten and a question for the owner or the architect otherwise; in two in
 //!   ten it asks for nothing.
 //! - a call has its result: always for a tool; for a person or the owner's call at a limit only while people act.
+//! - a round given to be stopped ends, what it returns being dropped; a call given to be withdrawn is said to have its
+//!   result, that it was withdrawn.
 //!
 //! A person's act is, in about equal shares of a tenth: a write of a block people may write (a choice with one of its
 //! values); a write that must be refused (of a block people may not write, of a choice with a wrong value, of a block
 //! the flow does not have); the outside writing main, mattering or not; letting a random cell go on; pausing or
-//! resuming; the owner's word at the merge coming out the other way; a result of a call that has none, was withdrawn
-//! or has one already; and, in one act in fifty, cancelling the work, after which nothing more may be given. At any
-//! step, with a chance of one in twelve, the engine stops.
+//! resuming; the owner's word at the merge coming out the other way; a result of a call that has one already or of no
+//! call, or the return of a run that has no round under way; and, in one act in fifty, cancelling the work. The engine
+//! stops at any step with a chance of one in twelve, and with one in two at a step when the driver holds a stop or a
+//! withdrawal not yet done.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
@@ -166,6 +179,8 @@ struct Seen {
     withdrawn: usize,
     refused: usize,
     stops: usize,
+    /// Stops of the engine while the driver held a stop or a withdrawal not yet done.
+    stops_undoing: usize,
     /// Rounds stopped by a cancel.
     stopped: usize,
     /// Histories that ended cancelled.
@@ -239,16 +254,14 @@ impl History {
                                 "round {number} of {run:?} given twice"
                             );
                         }
+                        // What is withdrawn or stopped is no longer to be done as it was: it is to be undone.
                         Effect::Withdraw { call } => {
                             let at = self
                                 .held
                                 .iter()
                                 .position(|e| matches!(e, Effect::Call { call: c, .. } if c == call));
-                            let at = at.expect("a withdrawn call was held");
-                            self.held.remove(at);
-                            self.closed.push(*call);
+                            self.held.remove(at.expect("a withdrawn call was held"));
                             self.seen.withdrawn += 1;
-                            continue;
                         }
                         Effect::Stop { run } => {
                             let at = self
@@ -257,7 +270,6 @@ impl History {
                                 .position(|e| matches!(e, Effect::Round { run: r, .. } if r == run));
                             self.held.remove(at.expect("a stopped round was held"));
                             self.seen.stopped += 1;
-                            continue;
                         }
                         Effect::Call {
                             what: Call::AtLimit(_), ..
@@ -305,7 +317,10 @@ impl History {
                         "an unknown call"
                     );
                 }
-                Effect::Withdraw { .. } | Effect::Stop { .. } => panic!("a withdrawal or a stop is held"),
+                Effect::Withdraw { call } => {
+                    assert!(r.called.iter().any(|c| c.call == *call), "an unknown call withdrawn");
+                }
+                Effect::Stop { run } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run stopped"),
             }
         }
     }
@@ -422,8 +437,8 @@ impl History {
                 self.tests.0.insert("may_merge".into(), flipped);
                 Event::Look
             }
-            _ => {
-                // A result of a call that has none to be given: one closed already, or none at all.
+            74..=86 => {
+                // A result of a call that has none to be given: one that has one already, or no call at all.
                 let call = if !self.closed.is_empty() && self.rng.chance(70) {
                     self.closed[self.rng.below(self.closed.len())]
                 } else {
@@ -434,6 +449,10 @@ impl History {
                     result: "late".to_string(),
                 }
             }
+            _ => Event::Returned {
+                run: RunId(10_000),
+                came: Came::Asks(vec![]),
+            },
         };
         let cancel = event == Event::Cancelled;
         let taken = self.take(event);
@@ -453,9 +472,13 @@ impl History {
 
     /// One step. Says whether anything was done: once people stop, nothing is when the driver holds nothing it can do.
     fn step(&mut self, people: bool) -> bool {
+        let undoing = (self.held.iter()).any(|e| matches!(e, Effect::Withdraw { .. } | Effect::Stop { .. }));
         if let Some(stops) = &mut self.stops
-            && stops.chance(8)
+            && stops.chance(if undoing { 50 } else { 8 })
         {
+            if undoing {
+                self.seen.stops_undoing += 1;
+            }
             self.stop();
         }
         if people && self.rng.chance(25) {
@@ -466,7 +489,7 @@ impl History {
             .filter(|e| match e {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } | Effect::Stop { .. } => false,
+                Effect::Withdraw { .. } | Effect::Stop { .. } => true,
             })
             .cloned()
             .collect();
@@ -483,7 +506,21 @@ impl History {
         match effect {
             Effect::Round { run, cell, .. } => self.end_round(run, cell.as_str()),
             Effect::Call { call, .. } => self.give_result(call),
-            Effect::Withdraw { .. } | Effect::Stop { .. } => unreachable!(),
+            Effect::Withdraw { call } => {
+                let taken = self.take(Event::Done {
+                    call,
+                    result: "withdrawn".to_string(),
+                });
+                assert!(taken, "the result of a withdrawn call was refused");
+                self.closed.push(call);
+            }
+            Effect::Stop { run } => {
+                let came = Came::Asks(vec![]);
+                assert!(
+                    self.take(Event::Returned { run, came }),
+                    "the end of a stopped round was refused"
+                );
+            }
         }
         true
     }
@@ -498,7 +535,8 @@ impl History {
     /// Once people stop, the driver ends rounds and gives tools their results, and nothing else. A run's rounds are
     /// at most `returns + 1` that are sent back or hand in what finishes it, and `calls + 1` that ask for calls, each of
     /// which but the last makes at least one: past either limit the run waits for the owner, who no longer answers. A
-    /// run takes at most four steps a round: the round's end and the results of up to three calls. A run of a cell is a
+    /// run takes at most four steps a round, the round's end and the results of up to three calls, and four to be
+    /// undone, its round stopped and up to three calls withdrawn. A run of a cell is a
     /// way round unless one of its reasons is having no record or a change that people, the outside or a cell before
     /// it made; nobody lets a cell go on any more, so between two that are not a cell runs at most its limit `L` of
     /// ways round. Those that are not number at most one first run, one for each input (the last write of it by people
@@ -511,7 +549,7 @@ impl History {
             let s = (u64::from(c.limit) + 2).saturating_mul(3 + c.inputs.len() as u64 + before);
             before = before.saturating_add(s);
         }
-        (before + 1).saturating_mul(4 * rounds)
+        (before + 1).saturating_mul(4 * rounds + 4)
     }
 }
 
@@ -535,20 +573,8 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         for _ in 0..people {
             h.step(true);
             h.check();
-            if h.cancelled() {
-                break;
-            }
         }
         h.note("people stop".into());
-        if h.cancelled() {
-            // Nothing of a cancelled work is to be done, and nothing more is given to it.
-            assert_eq!(h.held, vec![], "a cancelled work holds something to be done");
-            h.take(Event::Look);
-            h.check();
-            assert_eq!(h.held, vec![], "a cancelled work was given more");
-            h.seen.cancels += 1;
-            return;
-        }
         let bound = h.bound();
         let mut steps = 0;
         while h.step(false) {
@@ -557,16 +583,30 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             assert!(steps <= bound, "the work has not come to rest within {bound} steps");
         }
         let decision = decide(&h.flow.flow, &h.work.records, &h.tests);
+        let paused = decide::paused(&h.work.records);
         assert!(
-            matches!(decision, Decision::Wait { .. } | Decision::Paused | Decision::Ended(_)),
+            matches!(decision, Decision::Wait { .. } | Decision::Paused | Decision::Ended(_))
+                || (paused && matches!(decision, Decision::GoOn { .. })),
             "the work rests deciding {decision:?}"
         );
         for effect in pending(&h.work) {
             let Effect::Call { call, .. } = &effect else {
-                panic!("at rest a round is pending: {effect:?}");
+                panic!("at rest something other than a call is pending: {effect:?}");
             };
             let called = h.work.records.called.iter().find(|c| c.call == *call).expect("a call");
             assert!(called.on.is_some(), "at rest a call waits for nobody: {effect:?}");
+        }
+        if h.cancelled() {
+            assert_eq!(
+                decision,
+                Decision::Ended(decide::End::Cancelled),
+                "a cancelled work goes on"
+            );
+            assert_eq!(pending(&h.work), vec![], "a cancelled work has something pending");
+            h.take(Event::Look);
+            h.check();
+            assert_eq!(h.held, vec![], "a cancelled work was given more");
+            h.seen.cancels += 1;
         }
     }));
     h.seen.abandons = h.work.records.abandoned.len();
@@ -601,6 +641,7 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.withdrawn += s.withdrawn;
                 seen.refused += s.refused;
                 seen.stops += s.stops;
+                seen.stops_undoing += s.stops_undoing;
                 seen.stopped += s.stopped;
                 seen.cancels += s.cancels;
             }
@@ -627,6 +668,7 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.withdrawn > 0
         && seen.refused > 0
         && seen.stops > 0
+        && seen.stops_undoing > 0
         && seen.stopped > 0
         && seen.cancels > 0;
     assert!(every, "a class of step never occurred: {seen:?}");
