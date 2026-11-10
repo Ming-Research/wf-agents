@@ -186,7 +186,17 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
     let read = match with {
         With::Script(script) => read_script(script, &flows, compiled_all, &mut wrong).map(Read::Script),
         With::Settings(settings) => match carry::Settings::load(settings) {
-            Ok(settings) => Some(Read::Settings(settings)),
+            Ok(settings) => {
+                // What the real acts need of a flow, checked once the flows compiled.
+                for fault in flows.iter().flat_map(carry::faults) {
+                    eprintln!("{fault}");
+                    wrong = true;
+                }
+                for warning in settings.warnings() {
+                    eprintln!("{warning}");
+                }
+                Some(Read::Settings(settings))
+            }
             Err(why) => {
                 eprintln!("{why}");
                 None

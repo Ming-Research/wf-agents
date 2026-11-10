@@ -83,3 +83,46 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
         again.stdin
     );
 }
+
+#[tokio::test]
+async fn a_session_lost_on_a_later_round_is_begun_again_with_every_earlier_call_of_the_run() {
+    let fake = Fake {
+        lose_session: true,
+        question_first: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.owners_call(work).is_some()).await;
+    let call = real.owners_call(work).unwrap();
+    let answer = "Greet them by their first name.".to_string();
+    real.act(
+        work,
+        Act::Answer {
+            call,
+            result: answer.clone(),
+        },
+    );
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    // The plan, the build's question, its check, its third round refused and begun again, the review.
+    assert_eq!(calls.len(), 6);
+    let again = &calls[4];
+    assert_eq!(again.session().0, "--session-id");
+    assert!(
+        again.stdin.starts_with("# Build (cell `build`), round 3\n"),
+        "{}",
+        again.stdin
+    );
+    for part in [
+        "## Your task",
+        "## Round 2 of this run: the results of what you asked for",
+        "### Your question: Which name?",
+        answer.as_str(),
+        "## The results of what you asked for",
+        "The check `true` passed.",
+    ] {
+        assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);
+    }
+}

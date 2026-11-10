@@ -1,6 +1,7 @@
 //! The engine's own acts, as the rounds of the cells they carry out (`CellSpec.act`): `start` makes the work's branch
 //! and worktree, `check` checks the work before its merge, and `merge` merges the commit the check passed. An act
-//! hands in the cell's outputs with what it did; where git fails, or the act cannot be done, the round fails and hands
+//! hands in the cell's outputs with what it did, and only the check writes a choice ([`faults`] says what a flow needs
+//! for them); where git fails, or the act cannot be done, the round fails and hands
 //! in nothing. A stopped act ends its round with nothing handed in. An act takes no cost and no tokens.
 //!
 //! One act at a time works in the project's repository: two at once would race over its worktrees and its main branch.
@@ -152,21 +153,52 @@ impl Inner {
                     place.reference(),
                     project.main
                 );
-                let mut handed = prose(&outputs, &content);
-                // A choice the merge writes is given its first value: the merge has one outcome.
-                for (block, values) in outputs.iter().filter_map(|(b, v)| Some((b, v.as_ref()?))) {
-                    handed.push(Handed {
-                        block: block.clone(),
-                        content: content.clone(),
-                        matters: true,
-                        value: values.first().cloned(),
-                    });
-                }
-                Ok(Done::HandsIn(handed))
+                Ok(Done::HandsIn(prose(&outputs, &content)))
             }
             other => Err(format!("the engine has no act named {other}")),
         }
     }
+}
+
+/// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among
+/// its outputs, and it offers [`PASSED`] and [`FAILED`]; the cells of `start` and `merge` have no choice among their
+/// outputs, since they have no outcome to choose. A flow with any of these is not run with the real carriers.
+pub fn faults(flow: &Compiled) -> Vec<String> {
+    let mut faults = Vec::new();
+    for cell in &flow.cells {
+        let Some(act) = cell.act.as_deref() else {
+            continue;
+        };
+        let outputs = flow
+            .flow
+            .place(&cell.id)
+            .map_or(&[][..], |p| &flow.flow.cells()[p].outputs);
+        let choices: Vec<(&BlockId, &Vec<String>)> = (outputs.iter())
+            .filter_map(|block| Some((block, flow.blocks.get(block)?.values.as_ref()?)))
+            .collect();
+        let at = format!("the flow {}, cell {} (act {act})", flow.name, cell.id);
+        match act {
+            "check" => match choices.as_slice() {
+                [(block, values)] if !(values.iter().any(|v| v == PASSED) && values.iter().any(|v| v == FAILED)) => {
+                    faults.push(format!("{at}: its choice {block} must offer {PASSED} and {FAILED}"));
+                }
+                [_] => {}
+                _ => faults.push(format!(
+                    "{at}: it must have one choice among its outputs, offering {PASSED} and {FAILED}, and has {}",
+                    choices.len()
+                )),
+            },
+            _ if !choices.is_empty() => {
+                let names: Vec<String> = choices.iter().map(|(b, _)| b.to_string()).collect();
+                faults.push(format!(
+                    "{at}: it writes no choice, and has {} among its outputs",
+                    names.join(", ")
+                ));
+            }
+            _ => {}
+        }
+    }
+    faults
 }
 
 /// The cell's outputs, each with its values where it is a choice.
@@ -306,6 +338,52 @@ mod tests {
             "{}",
             handed[1].content
         );
+    }
+
+    /// The flow of the end-to-end tests, which has every act.
+    fn acts_flow() -> Compiled {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
+        let source = flow::read(&dir).unwrap();
+        let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+        let has = flow::Has {
+            sources: names(&[]),
+            acts: names(&["start", "check", "merge"]),
+        };
+        flow::compile(&source, &has).unwrap()
+    }
+
+    #[test]
+    fn a_flow_whose_acts_have_what_they_need_has_no_fault() {
+        assert_eq!(faults(&acts_flow()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_check_whose_choice_does_not_offer_yes_and_no_is_a_fault() {
+        let mut flow = acts_flow();
+        flow.blocks.get_mut(&BlockId::from("passed")).unwrap().values = Some(vec!["pass".into(), "fail".into()]);
+        let faults = faults(&flow);
+        assert_eq!(faults.len(), 1, "{faults:?}");
+        assert!(
+            faults[0].contains("cell check (act check)") && faults[0].contains("offer yes and no"),
+            "{faults:?}"
+        );
+    }
+
+    #[test]
+    fn a_check_with_no_choice_or_two_and_a_merge_with_one_are_faults() {
+        let mut flow = acts_flow();
+        flow.blocks.get_mut(&BlockId::from("failures")).unwrap().values = Some(vec!["yes".into(), "no".into()]);
+        flow.blocks.get_mut(&BlockId::from("merged")).unwrap().values = Some(vec!["done".into()]);
+        let faults = faults(&flow);
+        assert_eq!(faults.len(), 2, "{faults:?}");
+        assert!(faults[0].contains("has 2"), "{faults:?}");
+        assert!(
+            faults[1].contains("cell merge (act merge)") && faults[1].contains("merged"),
+            "{faults:?}"
+        );
+        let mut none = acts_flow();
+        none.blocks.get_mut(&BlockId::from("passed")).unwrap().values = None;
+        assert!(self::faults(&none)[0].contains("has 0"));
     }
 
     #[test]
