@@ -371,8 +371,7 @@ impl Driver {
     /// The work as it is now: what it does next, each cell's state, every version of every block.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
         let kept = self.work(number)?;
-        let tests = kept.flow.tests(&kept.work.records);
-        Some(decide::view(&kept.flow.flow, &kept.work.records, &tests))
+        Some(decide::view(&kept.flow.flow, &kept.work.records))
     }
 
     /// What stopped the driver, once something has.
@@ -483,7 +482,7 @@ fn step(store: &mut dyn Storage, held: &mut Held, now: Time, event: Event) -> Re
 
 /// How the work stands.
 fn standing_of(flow: &Compiled, work: &Work) -> Standing {
-    match decide(&flow.flow, &work.records, &flow.tests(&work.records)) {
+    match decide(&flow.flow, &work.records) {
         Decision::Ended(end) => Standing::Ended(end),
         Decision::Fault(_) => Standing::AtFault,
         _ => Standing::Going,

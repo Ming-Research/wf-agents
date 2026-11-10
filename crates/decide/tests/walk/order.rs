@@ -18,7 +18,7 @@ fn the_cells_run_in_their_order_and_a_work_ends_when_the_merge_has_a_record() {
 fn a_merge_waits_for_its_precondition() {
     let mut w = World::with_gate(vec![]);
     assert_eq!(w.decide(), wait("merge", vec![merge_word()]));
-    w.set("the merge may go", Outcome::Holds);
+    w.says("the merge may go", true);
     assert_eq!(w.decide(), runs("merge", vec![NO_RECORD], &[]));
 }
 

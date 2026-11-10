@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { TestKind } from './api';
 import { test } from './testing';
 import { changeWords, conditionWords, faultWords, readsWords, writersBesideCells } from './words';
 
@@ -13,13 +14,17 @@ describe('the words of the page', () => {
   });
 
   it('say what a test reads by its kind, for one block and for several', () => {
-    const reads = (kind: 'all' | 'any' | 'none', blocks: string[]) => readsWords(test('t', '', kind, blocks));
+    const reads = (kind: TestKind, blocks: string[]) => readsWords(test('t', '', kind, blocks));
     expect(reads('all', ['go'])).toBe('go is yes');
     expect(reads('any', ['go'])).toBe('go is yes');
     expect(reads('none', ['go'])).toBe('go is not yes');
     expect(reads('all', ['needs_design', 'changes_tree'])).toBe('all of needs_design, changes_tree are yes');
     expect(reads('any', ['needs_design', 'changes_tree'])).toBe('any of needs_design, changes_tree is yes');
     expect(reads('none', ['needs_design', 'changes_tree'])).toBe('none of needs_design, changes_tree is yes');
+    expect(reads('noneStanding', ['verdict'])).toBe('verdict is not yes, not counting what a cell skipped now wrote');
+    expect(reads('noneStanding', ['verdict', 'deep_verdict'])).toBe(
+      'none of verdict, deep_verdict is yes, not counting what a cell skipped now wrote',
+    );
   });
 
   it('say the source outside that writes a block', () => {
@@ -110,6 +115,23 @@ describe('the words of the page', () => {
     ).toBe('The test may_merge reads ci, which neither a cell before this one, people nor the outside write.');
     expect(
       faultWords({
+        file: 'plan.toml',
+        field: 'requires[0]',
+        what: { kind: 'testWrittenAfter', test: 'may_merge', block: 'ci', cell: 'check' },
+      }),
+    ).toBe('The test may_merge reads ci, which check, a cell after this one, writes.');
+    expect(
+      faultWords({
+        file: 'flow.toml',
+        field: 'tests.approved.reads[0]',
+        what: { kind: 'standingWrittenByTwo', test: 'approved', block: 'verdict', cell: 'deep' },
+      }),
+    ).toBe(
+      "The test approved, of what stands, reads verdict, which deep writes as well as a cell before it: a skipped " +
+        "cell's write would hide the other's word.",
+    );
+    expect(
+      faultWords({
         file: 'check.toml',
         field: 'when.test',
         what: { kind: 'testOnOwnOutput', test: 'may_merge', block: 'ci' },
@@ -122,7 +144,7 @@ describe('the words of the page', () => {
       faultWords({ file: 'design.toml', field: 'when.block', what: { kind: 'conditionNotWrittenBefore', block: 'go' } }),
     ).toBe('The condition reads go, which neither a cell before this one, people nor the outside write.');
     expect(faultWords({ file: 'plan.toml', field: 'task', what: { kind: 'noTask' } })).toBe(
-      "An agent's cell has no task: its agent would be told nothing to do.",
+      "An agent's cell has no task, or one of no words: its agent would be told nothing to do.",
     );
     expect(faultWords({ file: 'check.toml', field: 'task', what: { kind: 'engineHasTask' } })).toBe(
       "An engine's cell has a task, which no agent reads.",
@@ -131,10 +153,14 @@ describe('the words of the page', () => {
       "An engine's cell names no act to carry it out.",
     );
     expect(faultWords({ file: 'plan.toml', field: 'act', what: { kind: 'agentHasAct', act: 'merge' } })).toBe(
-      'An agent carries the cell out, but it names the act merge.',
+      'An agent carries the cell out, but the cell names the act "merge".',
     );
     expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'deploy' } })).toBe(
-      'The engine has no act named deploy.',
+      'The engine has no act named "deploy".',
+    );
+    // A name padded or empty shows as it is written.
+    expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'merge ' } })).toBe(
+      'The engine has no act named "merge ".',
     );
   });
 });

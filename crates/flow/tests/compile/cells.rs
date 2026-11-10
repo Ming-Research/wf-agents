@@ -61,6 +61,32 @@ fn an_engine_cell_has_no_task() {
         "act = \"check\"\ntask = \"Check the work.\"",
     );
     assert_eq!(faults(&source), [at("check.toml", "task", EngineHasTask)]);
+
+    // A task of white space alone is still one that no agent reads.
+    let source = edit(
+        valid(),
+        "check.toml",
+        "act = \"check\"",
+        "act = \"check\"\ntask = \" \"",
+    );
+    assert_eq!(faults(&source), [at("check.toml", "task", EngineHasTask)]);
+}
+
+#[test]
+fn an_engine_cell_with_a_task_and_an_act_the_engine_lacks_has_both_faults_the_task_first() {
+    let source = edit(
+        valid(),
+        "check.toml",
+        "act = \"check\"",
+        "act = \"deploy\"\ntask = \"Check the work.\"",
+    );
+    let what = UnknownAct {
+        act: "deploy".to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [at("check.toml", "task", EngineHasTask), at("check.toml", "act", what)]
+    );
 }
 
 #[test]
@@ -89,6 +115,11 @@ fn an_engine_cell_names_an_act_the_engine_has() {
     let what = UnknownAct {
         act: "deploy".to_string(),
     };
+    assert_eq!(faults(&source), [at("check.toml", "act", what)]);
+
+    // An empty name is a name the engine has no act of, not a cell that names none.
+    let source = edit(valid(), "check.toml", "act = \"check\"", "act = \"\"");
+    let what = UnknownAct { act: String::new() };
     assert_eq!(faults(&source), [at("check.toml", "act", what)]);
 
     let no_acts = Has {

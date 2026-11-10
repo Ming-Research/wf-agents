@@ -483,12 +483,6 @@ textarea:disabled {
   font-weight: var(--weight-strong);
 }
 
-/* A cell's task as the definition writes it: its line breaks kept, a long word wrapped. */
-.panel-task {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 /* Label and value pairs. */
 .pairs {
   display: grid;
@@ -504,6 +498,14 @@ textarea:disabled {
 .change-what {
   margin-right: var(--space-8);
   color: var(--muted);
+}
+
+/* A text a change took out or put in, such as a task: on a line of its own, its line breaks kept. */
+.change-text {
+  display: block;
+  margin-top: var(--space-4);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* What a change took out and put in. */

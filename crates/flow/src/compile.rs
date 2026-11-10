@@ -6,23 +6,23 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, TestName};
+use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Test, TestKind, TestName};
 
-use crate::source::{BlockFile, CellFile, FLOW_FILE, FlowFile, Kind, Source, TestKind, When, WhenIs, WhenTest};
+use crate::source::{BlockFile, CellFile, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
 
 /// A flow's definition compiled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Compiled {
     /// The flow's name.
     pub name: String,
-    /// The cells as the deciding code walks them.
+    /// The cells as the deciding code walks them, with the named tests: what each tests.
     pub flow: Flow,
     /// What the engine needs to know of each cell beyond what the walk reads, in the order of the walk.
     pub cells: Vec<CellSpec>,
     /// Every block of a work's state, with who writes and who reads it.
     pub blocks: BTreeMap<BlockId, Block>,
-    /// The named tests the cells use, by name.
-    pub tests: BTreeMap<TestName, Test>,
+    /// The words shown for each named test the cells use, by name; what each tests is in `flow`.
+    pub tests: BTreeMap<TestName, String>,
     /// The limits of the flow as a whole.
     pub limits: Limits,
 }
@@ -102,19 +102,6 @@ pub struct Readers {
     pub shown: bool,
 }
 
-/// A named test: a test of the values of blocks of the work itself, for a cell's condition or precondition.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Test {
-    /// The words shown for it.
-    pub says: String,
-    /// How the blocks it reads make it hold.
-    pub kind: TestKind,
-    /// The blocks it reads, each a choice, in the order the definition lists them.
-    pub reads: Vec<BlockId>,
-    /// The value it looks for in each block it reads.
-    pub is: String,
-}
-
 /// Something wrong with a definition, and where.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fault {
@@ -192,6 +179,13 @@ pub enum FaultKind {
     /// A cell's condition or precondition is a test that reads a block that neither a cell before it, people nor the
     /// outside write, so that it is decided by nothing that comes before the cell.
     TestNotWrittenBefore { test: String, block: String },
+    /// A cell's condition or precondition is a test of what stands that reads a block this cell, after it in the
+    /// order, writes. Whether a version stands is whether its writer is skipped, which the walk decides from the place
+    /// of the cell asking: the versions such a test reads are to be written before that cell.
+    TestWrittenAfter { test: String, block: String, cell: String },
+    /// A test of what stands reads a block that this cell writes as well as another before it. Such a test reads the
+    /// current version alone, and a skipped cell's write would hide the other's word.
+    StandingWrittenByTwo { test: String, block: String, cell: String },
     /// The deciding code refuses the cells as a flow.
     Flow(FlowFault),
 }
@@ -231,24 +225,24 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         sort(&mut faults, Some(&def.place));
         return Err(faults);
     }
-    let flow = Flow::new(cells).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
+    let tests = (flow_file.tests.iter())
+        .map(|(name, test)| {
+            let test = Test {
+                kind: test.kind,
+                reads: test.reads.iter().map(|b| BlockId(b.clone())).collect(),
+                is: test.is.clone(),
+            };
+            (TestName(name.clone()), test)
+        })
+        .collect();
+    let flow = Flow::new(cells, tests).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
     Ok(Compiled {
         name: flow_file.name.clone(),
         flow,
         cells: specs,
         blocks: def.blocks(),
-        tests: flow_file
-            .tests
-            .iter()
-            .map(|(name, test)| {
-                let test = Test {
-                    says: test.says.clone(),
-                    kind: test.kind,
-                    reads: test.reads.iter().map(|b| BlockId(b.clone())).collect(),
-                    is: test.is.clone(),
-                };
-                (TestName(name.clone()), test)
-            })
+        tests: (flow_file.tests.iter())
+            .map(|(name, test)| (TestName(name.clone()), test.says.clone()))
             .collect(),
         limits,
     })
@@ -363,9 +357,11 @@ struct Uses<'a> {
 }
 
 /// Why a block a cell's condition or precondition reads is not decided before the cell.
-enum NotBefore {
+enum NotBefore<'a> {
     /// The cell itself writes it.
     OwnOutput,
+    /// This cell, after the cell in the order, writes it.
+    After(&'a str),
     /// Nothing before the cell writes it: only cells after it do.
     Later,
 }
@@ -503,6 +499,19 @@ impl<'a> Definition<'a> {
             }
             for (field, what) in check_list(&declared.reads, &field, |block| self.check_read(block, &declared.is)) {
                 faults.push(fault(FLOW_FILE, field, what));
+            }
+            if declared.kind == TestKind::NoneStanding {
+                for (i, block) in declared.reads.iter().enumerate() {
+                    let second = (self.uses.get(block.as_str())).and_then(|u| u.writers.get(1));
+                    if let Some(&(_, cell)) = second.filter(|_| !declared.reads[..i].contains(block)) {
+                        let what = FaultKind::StandingWrittenByTwo {
+                            test: test.clone(),
+                            block: block.clone(),
+                            cell: cell.to_string(),
+                        };
+                        faults.push(fault(FLOW_FILE, format!("{field}[{i}]"), what));
+                    }
+                }
             }
             if !self.used.contains(test.as_str()) {
                 let what = FaultKind::UnusedTest { test: test.clone() };
@@ -680,9 +689,11 @@ impl<'a> Definition<'a> {
             }
             Some(_) => {}
         }
-        match self.not_before(place, file, block, declared) {
+        match self.not_before(place, file, block, declared, true) {
             Some(NotBefore::OwnOutput) => found.push((field(), FaultKind::ConditionOnOwnOutput { block: name })),
-            Some(NotBefore::Later) => found.push((field(), FaultKind::ConditionNotWrittenBefore { block: name })),
+            Some(NotBefore::Later | NotBefore::After(_)) => {
+                found.push((field(), FaultKind::ConditionNotWrittenBefore { block: name }));
+            }
             None => {}
         }
         found
@@ -691,10 +702,21 @@ impl<'a> Definition<'a> {
     /// Why the block, which the condition or a precondition of the cell of this file at this place reads, is not
     /// decided before the cell; `None` where it is. A block the cell itself writes is not; nor is one that neither a
     /// cell before it, people nor the outside write. What people or the outside write can be written before any cell
-    /// runs.
-    fn not_before(&self, place: usize, file: &CellFile, block: &str, declared: &BlockFile) -> Option<NotBefore> {
+    /// runs. A block a cell after it writes as well is, where `later_writes_allowed`: that cell's write decides again
+    /// whether this one runs, a way back. A test of what stands allows none.
+    fn not_before(
+        &self,
+        place: usize,
+        file: &CellFile,
+        block: &str,
+        declared: &BlockFile,
+        later_writes_allowed: bool,
+    ) -> Option<NotBefore<'a>> {
+        let later = self.uses[block].writers.iter().find(|&&(p, _)| p > place);
         if file.outputs.iter().any(|o| o == block) {
             Some(NotBefore::OwnOutput)
+        } else if let Some(&(_, cell)) = later.filter(|_| !later_writes_allowed) {
+            Some(NotBefore::After(cell))
         } else if !declared.people
             && declared.outside.is_none()
             && !self.uses[block].writers.iter().any(|&(p, _)| p < place)
@@ -706,18 +728,25 @@ impl<'a> Definition<'a> {
     }
 
     /// The faults of a declared test used by the cell of this file at this place, as its condition or a precondition,
-    /// each at the field that names the test: a block the test reads that the cell writes, or that nothing before the
-    /// cell writes. A block the test reads that is not declared is the test's fault, not the cell's.
+    /// each at the field that names the test, by [`Self::not_before`]. A block the test reads that is not
+    /// declared is the test's fault, not the cell's.
     fn check_use(&self, place: usize, file: &CellFile, test: &str, field: &str) -> Vec<(String, FaultKind)> {
         let mut found = Vec::new();
-        let reads = &self.flow.tests[test].reads;
+        let declared_test = &self.flow.tests[test];
+        let later_writes_allowed = declared_test.kind != TestKind::NoneStanding;
+        let reads = &declared_test.reads;
         for (i, block) in reads.iter().enumerate() {
             let Some(declared) = self.flow.blocks.get(block).filter(|_| !reads[..i].contains(block)) else {
                 continue;
             };
             let (test, block) = (test.to_string(), block.clone());
-            let what = match self.not_before(place, file, &block, declared) {
+            let what = match self.not_before(place, file, &block, declared, later_writes_allowed) {
                 Some(NotBefore::OwnOutput) => FaultKind::TestOnOwnOutput { test, block },
+                Some(NotBefore::After(cell)) => FaultKind::TestWrittenAfter {
+                    test,
+                    block,
+                    cell: cell.to_string(),
+                },
                 Some(NotBefore::Later) => FaultKind::TestNotWrittenBefore { test, block },
                 None => continue,
             };

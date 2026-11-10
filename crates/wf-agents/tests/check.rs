@@ -57,6 +57,6 @@ fn a_cell_that_names_an_act_the_engine_does_not_have_is_a_fault() {
     assert!(!out.status.success());
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
-        "merge.toml act: the engine has no act named deploy\n"
+        "merge.toml act: the engine has no act named \"deploy\"\n"
     );
 }

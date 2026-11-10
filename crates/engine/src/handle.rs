@@ -15,8 +15,7 @@ use work::{Ask, Back, Call, Given, Moment, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine. Where the records cannot be those of a work nothing is given: the deciding code says so when
-/// asked. Each time the deciding code is asked, it is given the flow's named tests as they come out for the records as
-/// they are at that moment.
+/// asked.
 pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Result<Vec<Effect>, Refused> {
     let returned = match &event {
         Event::Returned { run, .. } => Some(*run),
@@ -28,7 +27,7 @@ pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Resu
     // not stale, the run finishes here, before the walk, so that no cell before it comes between.
     if let Some(run) = returned
         && open(work, run)
-        && stale(&flow.flow, &work.records, &flow.tests(&work.records), run).is_none()
+        && stale(&flow.flow, &work.records, run).is_none()
     {
         let choices = choices(flow);
         if let Some(requires) = requires(flow, &choices, work, run)
@@ -179,7 +178,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
 /// Asks the deciding code what follows, and does it, until the work has a round under way, waits or has ended.
 fn advance(flow: &Compiled, work: &mut Work, effects: &mut Vec<Effect>) {
     loop {
-        let decision = decide(&flow.flow, &work.records, &flow.tests(&work.records));
+        let decision = decide(&flow.flow, &work.records);
         let run = match decision {
             Decision::Run { cell, because, basis } => {
                 let run = RunId(work.name());

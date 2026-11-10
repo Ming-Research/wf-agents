@@ -3,14 +3,22 @@
 
 import type { Block, Change, Condition, Fault, Kind, LimitName, Test } from './api';
 
-/// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes".
+/// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
+/// "none of verdict, deep_verdict is no, not counting what a cell skipped now wrote".
 export function readsWords(test: Test): string {
+  const standing = test.kind === 'noneStanding' ? ', not counting what a cell skipped now wrote' : '';
   if (test.reads.length === 1) {
-    return `${test.reads[0]} is ${test.kind === 'none' ? 'not ' : ''}${test.is}`;
+    const not = test.kind === 'none' || test.kind === 'noneStanding' ? 'not ' : '';
+    return `${test.reads[0]} is ${not}${test.is}${standing}`;
   }
   const list = test.reads.join(', ');
-  const words = { all: `all of ${list} are`, any: `any of ${list} is`, none: `none of ${list} is` };
-  return `${words[test.kind]} ${test.is}`;
+  const words = {
+    all: `all of ${list} are`,
+    any: `any of ${list} is`,
+    none: `none of ${list} is`,
+    noneStanding: `none of ${list} is`,
+  };
+  return `${words[test.kind]} ${test.is}${standing}`;
 }
 
 /// A named test, wherever a cell's condition or precondition is said: its words, and what it reads.
@@ -63,15 +71,15 @@ export function faultWords(fault: Fault): string {
     case 'noSuchLine':
       return `The line ${w.line} is not declared in flow.toml.`;
     case 'noTask':
-      return "An agent's cell has no task: its agent would be told nothing to do.";
+      return "An agent's cell has no task, or one of no words: its agent would be told nothing to do.";
     case 'engineHasTask':
       return "An engine's cell has a task, which no agent reads.";
     case 'noAct':
       return "An engine's cell names no act to carry it out.";
     case 'agentHasAct':
-      return `An agent carries the cell out, but it names the act ${w.act}.`;
+      return `An agent carries the cell out, but the cell names the act "${w.act}".`;
     case 'unknownAct':
-      return `The engine has no act named ${w.act}.`;
+      return `The engine has no act named "${w.act}".`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
     case 'noSuchBlock':
@@ -102,6 +110,10 @@ export function faultWords(fault: Fault): string {
       return `The test ${w.test} reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs, or whether the work waits before it.`;
     case 'testNotWrittenBefore':
       return `The test ${w.test} reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
+    case 'testWrittenAfter':
+      return `The test ${w.test} reads ${w.block}, which ${w.cell}, a cell after this one, writes.`;
+    case 'standingWrittenByTwo':
+      return `The test ${w.test}, of what stands, reads ${w.block}, which ${w.cell} writes as well as a cell before it: a skipped cell's write would hide the other's word.`;
     case 'flowRefused': {
       const at = w.cell ? ` (${w.cell})` : '';
       const why = {
@@ -110,6 +122,7 @@ export function faultWords(fault: Fault): string {
         conditionOnOwnOutput: "A cell's condition reads a block the cell itself writes.",
         lastHasCondition: 'The last cell has a condition.',
         noLimit: "A cell's limit is zero.",
+        noSuchTest: "A cell names a test the flow does not have.",
       }[w.reason];
       return `${why}${at}`;
     }
