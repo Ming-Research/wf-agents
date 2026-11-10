@@ -1,7 +1,14 @@
 title = "Research"
 kind = "agent"
 line = "engineer"
-inputs = ["background", "supplement", "context", "opinions_research"]
+inputs = [
+  "background",
+  "supplement",
+  "context",
+  "opinions_research",
+  "plan_review_on_research",
+  "implement_on_research",
+]
 outputs = [
   "needs_design",
   "found",
@@ -10,5 +17,6 @@ outputs = [
   "questions",
   "acceptance",
   "tree_changes",
+  "changes_tree",
   "answers_research",
 ]

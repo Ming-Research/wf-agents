@@ -7,8 +7,9 @@ inputs = [
   "plan_agent",
   "questions",
   "tree_changes",
+  "related",
   "answers_research",
   "answers_design",
   "opinions_plan_review",
 ]
-outputs = ["opinions_research", "opinions_design", "plan_settled"]
+outputs = ["plan_review_on_research", "plan_review_on_design", "plan_settled"]

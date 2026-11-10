@@ -2,5 +2,25 @@ title = "Design"
 kind = "agent"
 line = "designer"
 when = { block = "needs_design", is = "yes" }
-inputs = ["found", "related", "opinions_design"]
-outputs = ["plan_owner", "plan_agent", "questions", "acceptance", "tree_changes", "answers_design"]
+inputs = [
+  "found",
+  "related",
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_changes",
+  "changes_tree",
+  "opinions_design",
+  "plan_review_on_design",
+  "implement_on_design",
+]
+outputs = [
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_changes",
+  "changes_tree",
+  "answers_design",
+]

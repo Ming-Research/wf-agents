@@ -14,20 +14,37 @@ calls = 40
 [lines.review]
 [lines.adversarial]
 
-[tests]
-may_start = "The item may start: the items it depends on are merged, and it is not held"
-plan_needs_review = "The plan changes the design tree, or went through the design"
-may_merge = "The work may merge: every question is confirmed as recommended, and every cell that judges is content"
+[tests.may_start]
+says = "The items it depends on are merged"
+kind = "all"
+reads = ["dependencies"]
+is = "merged"
+
+[tests.plan_needs_review]
+says = "The plan changes the design tree, or went through the design"
+kind = "any"
+reads = ["needs_design", "changes_tree"]
+is = "yes"
+
+[tests.checked]
+says = "The check before the merge passed"
+kind = "all"
+reads = ["checked"]
+is = "yes"
 
 # What people and the outside write.
 [blocks.background]
 people = true
+shown = true
+[blocks.dependencies]
+values = ["waiting", "merged"]
+outside = "dependencies"
 [blocks.tree]
-outside = true
+outside = "tree"
 [blocks.session]
-outside = true
+outside = "session"
 [blocks.main]
-outside = true
+outside = "main"
 
 # What the first cells make of the item.
 [blocks.place]
@@ -41,10 +58,14 @@ shown = true
 values = ["yes", "no"]
 [blocks.found]
 [blocks.plan_owner]
+shown = true
 [blocks.plan_agent]
 [blocks.questions]
+shown = true
 [blocks.acceptance]
 [blocks.tree_changes]
+[blocks.changes_tree]
+values = ["yes", "no"]
 [blocks.plan_settled]
 values = ["yes", "no"]
 shown = true
@@ -62,10 +83,12 @@ shown = true
 values = ["yes", "no"]
 shown = true
 [blocks.checked]
+values = ["yes", "no"]
+shown = true
 [blocks.merged]
 shown = true
 
-# What is said to each cell: by the owner on the page, and by the cells that judge it.
+# What the owner says to each cell on the page: blocks only people write.
 [blocks.opinions_context]
 people = true
 [blocks.opinions_research]
@@ -81,7 +104,20 @@ people = true
 [blocks.opinions_testing]
 people = true
 
-# What a cell answers to what was said to it, for the cell that judges it to read.
+# What each cell that judges says to the cell it judges: a block for each pair, which only the judging cell writes, so
+# that no one writes over what another said.
+[blocks.plan_review_on_research]
+[blocks.plan_review_on_design]
+[blocks.implement_on_research]
+[blocks.implement_on_design]
+[blocks.review_on_implement]
+[blocks.testing_on_implement]
+[blocks.check_on_implement]
+
+# What a cell answers to what was said to it, for the cell that judges it to read. The implementation answers each
+# of its judges in a block of that judge's, so that an answer to one runs no other again.
 [blocks.answers_research]
 [blocks.answers_design]
-[blocks.answers_implement]
+[blocks.answers_review]
+[blocks.answers_testing]
+[blocks.answers_check]

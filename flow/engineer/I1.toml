@@ -1,5 +1,26 @@
 title = "Implement"
 kind = "agent"
 line = "engineer"
-inputs = ["plan_agent", "questions", "acceptance", "tree_changes", "context", "opinions_implement"]
-outputs = ["code", "evidence", "acceptance", "answers_implement", "opinions_research"]
+inputs = [
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_changes",
+  "context",
+  "answers_research",
+  "answers_design",
+  "opinions_implement",
+  "review_on_implement",
+  "testing_on_implement",
+  "check_on_implement",
+]
+outputs = [
+  "code",
+  "evidence",
+  "acceptance",
+  "answers_review",
+  "answers_testing",
+  "answers_check",
+  "implement_on_research",
+  "implement_on_design",
+]

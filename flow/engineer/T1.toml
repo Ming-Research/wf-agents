@@ -1,5 +1,5 @@
 title = "Review"
 kind = "agent"
 line = "review"
-inputs = ["code", "evidence", "plan_owner", "acceptance", "answers_implement", "opinions_review"]
-outputs = ["opinions_implement", "review_settled", "more_testing"]
+inputs = ["code", "evidence", "plan_owner", "acceptance", "answers_review", "opinions_review"]
+outputs = ["review_on_implement", "review_settled", "more_testing"]
