@@ -28,3 +28,4 @@ otherwise; a line of why in the owner's language. Answer each thing the owner sa
 when = { block = "more_testing", is = "yes" }
 inputs = ["code", "acceptance", "answers_testing", "opinions_testing"]
 outputs = ["tests", "testing_on_implement", "testing_settled", "reply_testing"]
+must_write = ["testing_settled"]

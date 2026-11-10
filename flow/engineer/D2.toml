@@ -38,3 +38,4 @@ inputs = [
   "opinions_plan_review",
 ]
 outputs = ["plan_review_on_research", "plan_review_on_deep_research", "plan_settled", "reply_plan_review"]
+must_write = ["plan_settled"]

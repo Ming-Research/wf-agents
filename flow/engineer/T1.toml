@@ -39,3 +39,4 @@ inputs = [
   "opinions_review",
 ]
 outputs = ["review_on_implement", "review_settled", "more_testing", "reply_review"]
+must_write = ["review_settled", "more_testing"]

@@ -48,3 +48,4 @@ outputs = [
   "answers_research_to_implement",
   "reply_research",
 ]
+must_write = ["needs_deep_research"]

@@ -14,6 +14,8 @@
 //!    (entry a-work-comes-to-rest).
 //! 4. In that continuation, the runs of each cell beyond its first that changed no block's meaning, runs for nothing,
 //!    are counted, printed with `--nocapture`, and held to the bound `content_bound` rests on.
+//! 5. No finished run lacks a write of a block its cell must write (`must_write`), read from the records of the
+//!    finishes and the cells' definitions after every step (entry a-run-is-one-mechanism).
 //!
 //! The first two are judged as each round of the merge begins, by the histories' own reading of the records as they
 //! were then (`reading`), never by the deciding code's tests.
@@ -48,7 +50,8 @@
 //! act hands in what its cell must write to go forward and says nothing more. Each verdict is written as a value other
 //! than its refusal; each choice a precondition of kind `all` reads, as the value it looks for (the check says yes);
 //! every other choice as it last was, or no where it was never written. No opinion for a cell before it is written,
-//! and every other block it may write is written, mattering only where it was never written before. Tools answer, the
+//! unless the cell must write it each time, and every other block it may write is written, mattering only where it
+//! was never written before; so every hand-in has each block its cell must write, and none is sent back. Tools answer, the
 //! owner answers every question and lets every run go on at its limits; where nothing is to be done and the work waits,
 //! the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a precondition it waits on
 //! hold where a person or the outside can: writes a verdict whose refusal stands as a value that is not, and the
@@ -75,7 +78,7 @@ use decide::{BlockId, CellId, Decision, End, Outsider, Records, RunId, Seq, Test
 use engine::{Ask, Came, Effect, Event, Handed};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
-use support::{Driver, Part, Rng};
+use support::{Driver, Part, Rng, lacking_a_must_write};
 
 /// How many histories are run.
 const SEEDS: u64 = 400;
@@ -95,6 +98,7 @@ const MERGE_OVER_A_NO: &str = "1: no merge over a judge's standing no";
 const MERGE_ON_AN_OLD_CHECK: &str = "2: no merge on a check that is not of the current code";
 const CONTENT_MERGES: &str = "3: a work everyone is content with merges within the bound";
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
+const MUST_WRITE_WRITTEN: &str = "5: no finished run lacks a block its cell must write";
 const DRIVER: &str = "the driver";
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
@@ -187,6 +191,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             CONTENT_ON_A_REFUSAL,
             OWNER_ASKED_A_CELL,
             ENGINE_STOPPED,
+            LACKING_SENT_BACK,
         ]
         .map(String::from),
     );
@@ -223,6 +228,7 @@ const CONTENT_ON_A_FAILED_CHECK: &str = "the content continuation began as the c
 const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's own refusal stood";
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
+const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
 
 /// The place of the cell.
 fn place(flow: &Compiled, cell: &str) -> usize {
@@ -522,10 +528,14 @@ impl Content {
 impl Part for Content {
     fn returns(&mut self, d: &mut Driver, _: RunId, cell: &str) -> Came {
         let i = place(&d.flow, cell);
+        let must = &d.flow.cells[i].must_write;
         let handed_in = (d.flow.flow.cells()[i].outputs.iter())
             .filter_map(|b| {
                 if d.flow.blocks[b].values.is_some() {
                     Some(handed(b, cell, true, Some(self.choices[b].clone())))
+                } else if opinion(&d.flow, b, i) && must.contains(b) {
+                    // An opinion its cell must write each time is handed in as it stands.
+                    Some(handed(b, cell, false, None))
                 } else if opinion(&d.flow, b, i) {
                     None
                 } else {
@@ -545,7 +555,8 @@ impl Part for Content {
 ///
 /// In the continuation every round hands in what finishes its run, and nothing is written while a round is under
 /// way, so a run begun in it has one round and is never abandoned. Each block changes its meaning at most once in it:
-/// prose is written mattering only where it was never written, and a run that finishes saw what it writes over, its
+/// prose is written mattering only where it was never written (an opinion a cell must write each time is handed in,
+/// and as a change that does not matter), and a run that finishes saw what it writes over, its
 /// run being stale otherwise; every choice is written with one value, the one the owner or the outside also writes
 /// where a precondition waits on it, and the conditions, which read choices, come out the same throughout. So after
 /// one run for whatever had changed when the continuation began, a cell runs again only for a change of one of its
@@ -626,6 +637,9 @@ impl History {
 
     /// After every step: judges each round of the merge that began since, and counts what the work reached.
     fn observe(&mut self) {
+        if let Some(why) = lacking_a_must_write(&self.d.flow, &self.d.work.records) {
+            self.breach(MUST_WRITE_WRITTEN, why);
+        }
         let mut merges: Vec<Seq> = {
             let records = &self.d.work.records;
             let last = &self.d.flow.flow.cells()[self.roles.last].id;
@@ -800,6 +814,9 @@ impl History {
         }
         if self.d.seen.limits > 0 {
             reached.push(RUN_LIMIT.to_string());
+        }
+        if self.d.seen.lacking > 0 {
+            reached.push(LACKING_SENT_BACK.to_string());
         }
         if self.d.seen.stops > 0 {
             reached.push(ENGINE_STOPPED.to_string());
@@ -1058,4 +1075,5 @@ fn histories() {
 #[test]
 fn random_works_on_the_engineers_flow_keep_what_the_flow_must() {
     histories();
+    panic!("shown once in CI: the counts above");
 }
