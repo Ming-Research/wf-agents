@@ -10,31 +10,24 @@ mod ending;
 mod events;
 mod given;
 mod limits;
+mod named_tests;
 mod pausing;
 mod pending;
 mod rebuilt;
 mod refused;
 mod times;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use decide::run::{Limit, Unmet};
-use decide::{BlockId, CallId, Cause, Outcome, Outsider, RunId, Seq, TestName, Tests, Who};
+use decide::{BlockId, CallId, Cause, Outsider, RunId, Seq, Who};
 use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 
-/// The named tests: the merge waits for the owner's word until a test sets it otherwise.
-struct Named(BTreeMap<TestName, Outcome>);
-
-impl Tests for Named {
-    fn test(&self, name: &TestName) -> Outcome {
-        self.0.get(name).cloned().unwrap_or(Outcome::Holds)
-    }
-}
-
 /// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that writes opinions
-/// for it and a verdict, a choice; and a merge, the engine's own cell, that waits for the owner's word. Returns may be
-/// sent back twice, a run may make three calls, and a cell may go round three times.
+/// for it and a verdict, a choice; and a merge, the engine's own cell, that waits for the owner's word: a choice, `go`,
+/// that people write and a named test reads. Returns may be sent back twice, a run may make three calls, and a cell may
+/// go round three times.
 fn judged() -> Compiled {
     let flow = r#"
         name = "judged"
@@ -45,12 +38,18 @@ fn judged() -> Compiled {
         calls = 3
         [lines.main]
         [lines.other]
-        [tests]
-        may_merge = "The work may merge"
+        [tests.may_merge]
+        says = "The owner let the work merge"
+        kind = "all"
+        reads = ["go"]
+        is = "yes"
         [blocks.request]
         people = true
         [blocks.main]
-        outside = true
+        outside = "main"
+        [blocks.go]
+        values = ["yes", "no"]
+        people = true
         [blocks.opinions]
         people = true
         [blocks.text]
@@ -88,25 +87,22 @@ fn judged() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    let known: BTreeSet<TestName> = ["may_merge".into()].into();
-    compile(&source, &known).expect("the definition compiles")
+    compile(&source, &["main".to_string()].into()).expect("the definition compiles")
 }
 
-/// A work on the judged flow, with the named tests it is walked with.
+/// A work on the judged flow.
 struct W {
     flow: Compiled,
-    tests: Named,
     work: Work,
     /// The driver's clock: the time the next event is taken at, a second after the last.
     clock: u64,
 }
 
 impl W {
-    /// A new work whose merge waits for the owner's word.
+    /// A new work, whose merge waits for the owner's word.
     fn new() -> Self {
         Self {
             flow: judged(),
-            tests: Named([("may_merge".into(), Outcome::Waits { who: Who::Owner })].into()),
             work: Work::default(),
             clock: START,
         }
@@ -115,14 +111,28 @@ impl W {
     /// Takes the event, which the loop must take, and gives what is to be done.
     fn on(&mut self, event: Event) -> Vec<Effect> {
         let now = self.tick();
-        handle(&self.flow, &self.tests, &mut self.work, now, event).expect("the event is taken")
+        handle(&self.flow, &mut self.work, now, event).expect("the event is taken")
+    }
+
+    /// The owner gives the word that lets the work merge.
+    fn lets_merge(&mut self) -> Vec<Effect> {
+        self.on(wrote("go", Outsider::Person, true, Some("yes")))
+    }
+
+    /// What the deciding code decides for the work as it is.
+    fn decision(&self) -> decide::Decision {
+        decide::decide(
+            &self.flow.flow,
+            &self.work.records,
+            &self.flow.tests(&self.work.records),
+        )
     }
 
     /// The event, which the loop must refuse, leaving the work exactly as it was; and why.
     fn refused(&mut self, event: Event) -> Refused {
         let before = self.work.clone();
         let now = self.tick();
-        let why = handle(&self.flow, &self.tests, &mut self.work, now, event).expect_err("the event is refused");
+        let why = handle(&self.flow, &mut self.work, now, event).expect_err("the event is refused");
         assert_eq!(self.work, before, "a refused event changed the work");
         why
     }

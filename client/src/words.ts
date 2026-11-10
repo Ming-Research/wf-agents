@@ -1,12 +1,27 @@
-// The page's words for what the interface gives as data: conditions, limits, faults and changes. Each is worded here
-// once, and every part of the page that shows one takes its words from here.
+// The page's words for what the interface gives as data: conditions, named tests, limits, faults and changes. Each is
+// worded here once, and every part of the page that shows one takes its words from here.
 
-import type { Block, Change, Condition, Fault, Kind, LimitName } from './api';
+import type { Block, Change, Condition, Fault, Kind, LimitName, Test } from './api';
+
+/// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes".
+export function readsWords(test: Test): string {
+  if (test.reads.length === 1) {
+    return `${test.reads[0]} is ${test.kind === 'none' ? 'not ' : ''}${test.is}`;
+  }
+  const list = test.reads.join(', ');
+  const words = { all: `all of ${list} are`, any: `any of ${list} is`, none: `none of ${list} is` };
+  return `${words[test.kind]} ${test.is}`;
+}
+
+/// A named test, wherever a cell's condition or precondition is said: its words, and what it reads.
+export function testWords(test: Test): string {
+  return `${test.words} (${readsWords(test)})`;
+}
 
 /// A condition, as the column "Runs when" and the cell's panel show it.
 export function conditionWords(condition: Condition | null): string {
   if (!condition) return 'always';
-  return condition.on === 'block' ? `${condition.block} is ${condition.value}` : condition.words;
+  return condition.on === 'block' ? `${condition.block} is ${condition.value}` : testWords(condition.test);
 }
 
 export const LIMIT_WORDS: Record<LimitName, string> = {
@@ -19,9 +34,10 @@ export function kindWords(kind: Kind): string {
   return kind === 'agent' ? 'an agent' : 'the engine';
 }
 
-/// Who writes a block besides cells, in words; empty when only cells do.
+/// Who writes a block besides cells, in words, the outside by the source that writes it; empty when only cells do.
 export function writersBesideCells(block: Block): string[] {
-  return [...(block.writtenBy.people ? ['people'] : []), ...(block.writtenBy.outside ? ['the outside'] : [])];
+  const { people, outside } = block.writtenBy;
+  return [...(people ? ['people'] : []), ...(outside !== null ? [`the outside (${outside})`] : [])];
 }
 
 /// What is wrong, in a sentence.
@@ -53,23 +69,29 @@ export function faultWords(fault: Fault): string {
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
-      return `Nothing reads ${w.block}: no cell, no condition, and neither the page nor a test shows it.`;
+      return `Nothing reads ${w.block}: no cell, no condition, no test, and the page does not show it.`;
+    case 'unknownSource':
+      return `${w.block} is written by the source ${w.source}, which the engine does not have.`;
     case 'notAChoice':
-      return `A condition reads ${w.block}, which is not a choice.`;
+      return `A condition or a test reads ${w.block}, which is not a choice.`;
     case 'notAValue':
-      return `A condition waits for ${w.block} to be ${w.is}, which is not one of its values.`;
+      return `A condition or a test waits for ${w.block} to be ${w.is}, which is not one of its values.`;
     case 'conditionOnOwnOutput':
-      return `The condition reads ${w.block}, which the cell itself writes: the cell could never come to run.`;
+      return `The condition reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs.`;
     case 'conditionNotWrittenBefore':
-      return `The condition reads ${w.block}, which neither a cell before this one nor people write.`;
+      return `The condition reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
     case 'lastHasCondition':
       return 'The last cell has a condition, but a work ends when its last cell has a record, so it always runs.';
     case 'undeclaredTest':
       return `The test ${w.test} is not declared in flow.toml.`;
-    case 'unknownTest':
-      return `The engine has no test ${w.test}.`;
+    case 'readsEmpty':
+      return `The test ${w.test} reads no block.`;
     case 'unusedTest':
       return `No cell uses the test ${w.test}.`;
+    case 'testOnOwnOutput':
+      return `The test ${w.test} reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs, or whether the work waits before it.`;
+    case 'testNotWrittenBefore':
+      return `The test ${w.test} reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
     case 'flowRefused': {
       const at = w.cell ? ` (${w.cell})` : '';
       const why = {
@@ -94,7 +116,9 @@ export function placeOf(change: Change): Place {
       return { on: 'flow' };
     case 'testAdded':
     case 'testRemoved':
+      return { on: 'test', test: change.test.name };
     case 'testReworded':
+    case 'testChanged':
       return { on: 'test', test: change.test };
     case 'blockAdded':
     case 'blockRemoved':
@@ -128,11 +152,13 @@ export function changeWords(change: Change): ChangeWords {
     case 'flowLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'testAdded':
-      return { what: 'Declared', before: '', after: c.words };
+      return { what: 'Declared', before: '', after: testWords(c.test) };
     case 'testRemoved':
-      return { what: 'No longer declared', before: c.words, after: '' };
+      return { what: 'No longer declared', before: testWords(c.test), after: '' };
     case 'testReworded':
       return { what: 'Words', before: c.before, after: c.after };
+    case 'testChanged':
+      return { what: 'Holds when', before: readsWords(c.before), after: readsWords(c.after) };
     case 'cellAdded':
       return { what: 'Put in', before: '', after: place(c.place) };
     case 'cellRemoved':
@@ -148,9 +174,9 @@ export function changeWords(change: Change): ChangeWords {
     case 'condition':
       return { what: 'Runs when', before: conditionWords(c.before), after: conditionWords(c.after) };
     case 'preconditionAdded':
-      return { what: 'Waits until', before: '', after: c.words };
+      return { what: 'Waits until', before: '', after: testWords(c.test) };
     case 'preconditionRemoved':
-      return { what: 'Waits until', before: c.words, after: '' };
+      return { what: 'Waits until', before: testWords(c.test), after: '' };
     case 'inputAdded':
       return { what: 'Reads', before: '', after: c.block };
     case 'inputRemoved':
@@ -170,8 +196,8 @@ export function changeWords(change: Change): ChangeWords {
     case 'people':
       return { what: 'Written by people', before: yesNo(c.before), after: yesNo(c.after) };
     case 'outside':
-      return { what: 'Written by the outside', before: yesNo(c.before), after: yesNo(c.after) };
+      return { what: 'Written by the outside', before: c.before ?? 'no', after: c.after ?? 'no' };
     case 'shown':
-      return { what: 'Shown on the page or read by a test', before: yesNo(c.before), after: yesNo(c.after) };
+      return { what: 'Shown on the page', before: yesNo(c.before), after: yesNo(c.after) };
   }
 }

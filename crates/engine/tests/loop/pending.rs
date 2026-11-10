@@ -30,7 +30,7 @@ fn nothing_is_pending_once_the_work_rests() {
 #[test]
 fn nothing_is_pending_once_the_work_has_merged() {
     let (mut w, write, _) = W::requested();
-    w.tests.0.insert("may_merge".into(), Outcome::Holds);
+    w.lets_merge();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
     let merge = round(&w.returns(judge, hands_in(&[("verdict", Some("yes"))]))).0;
     w.returns(merge, hands_in(&[("merged", None)]));

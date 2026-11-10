@@ -27,15 +27,24 @@ export function Bar({ name, views, current, end }: {
   );
 }
 
-/// A button: words in a hairline box; `primary` for the one action a view exists for.
-export function Button({ primary, title, onClick, children }: {
+/// A button: words in a hairline box; `primary` for the one action a view exists for. `submit` sends the form it is
+/// in; `disabled` while it cannot be pressed yet, or while what it sent is on its way.
+export function Button({ primary, submit, disabled, title, onClick, children }: {
   primary?: boolean;
+  submit?: boolean;
+  disabled?: boolean;
   title?: string;
-  onClick: () => void;
+  onClick?: () => void;
   children: ReactNode;
 }) {
   return (
-    <button type="button" className={primary ? 'button button-primary' : 'button'} title={title} onClick={onClick}>
+    <button
+      type={submit ? 'submit' : 'button'}
+      className={primary ? 'button button-primary' : 'button'}
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+    >
       {children}
     </button>
   );
@@ -193,9 +202,13 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
   );
 }
 
+/// The colours a status line's dot takes: none; green for put in or done; red for taken out or failed; orange for
+/// changed or waiting for the owner; blue for running; the way back's purple.
+export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
+
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.
 export function StatusLine({ tone = 'quiet', word, children }: {
-  tone?: 'quiet' | 'added' | 'removed' | 'changed';
+  tone?: Tone;
   word: ReactNode;
   children?: ReactNode;
 }) {
@@ -234,7 +247,7 @@ export type SignName = 'people' | 'outside' | 'shown';
 export const SIGN_WORDS: Record<SignName, string> = {
   people: 'people write it',
   outside: 'the outside writes it',
-  shown: 'shown on the page or read by a test',
+  shown: 'shown on the page',
 };
 
 export function Sign({ name, className }: { name: SignName; className?: string }) {

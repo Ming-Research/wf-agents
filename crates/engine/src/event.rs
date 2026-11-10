@@ -8,8 +8,7 @@ use work::{Ask, Call, Given, Handed, Spent};
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-    /// Nothing new is recorded: the work is looked at again. A new work, a changed flow, or a named test that may
-    /// have come out otherwise.
+    /// Nothing new is recorded: the work is looked at again. A new work, or a changed flow.
     Look,
     /// A person or the outside wrote a block.
     Wrote {

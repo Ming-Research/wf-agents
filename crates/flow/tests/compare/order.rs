@@ -36,8 +36,8 @@ fn the_flow_s_changes_come_first_then_the_cells_in_the_new_order_then_the_blocks
     let after = edit(
         after,
         FLOW_FILE,
-        "has_comment = \"The item has a comment\"",
-        "has_comment = \"Someone commented\"",
+        "says = \"The item has a comment\"",
+        "says = \"Someone commented\"",
     );
     assert_eq!(
         from_valid(&after),
