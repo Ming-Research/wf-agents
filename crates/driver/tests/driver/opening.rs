@@ -2,6 +2,7 @@
 //! its documentation names; and a store that holds works gives exactly what was to be done and is not known as done.
 
 use rusqlite::{Connection, params};
+use store::Storage;
 
 use super::*;
 
@@ -184,4 +185,153 @@ fn a_store_that_fails_as_the_driver_opens_is_the_fault_and_opening_again_gives_w
         assert_eq!(todos, pending, "opened after the call {at} failed");
     }
     h.check();
+}
+
+/// A flow of a writer and the merge with these blocks beside the writer's text, the writer waiting on the named test
+/// `ready` where `tests` declares it, and writing these outputs.
+fn with_blocks(blocks: &str, tests: &str, requires: &str, outputs: &str) -> flow::Compiled {
+    let flow = format!(
+        r#"
+        name = "odd"
+        order = ["write", "merge"]
+        [limits]
+        runs = 2
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.text]
+        {blocks}
+        {tests}
+        "#
+    );
+    let write = format!(
+        "title = \"Write\"\nkind = \"agent\"\nline = \"main\"\nrequires = [{requires}]\ninputs = [\"deps\"]\n\
+         outputs = [{outputs}]\n"
+    );
+    let merge = "title = \"Merge\"\nkind = \"engine\"\ninputs = [\"text\"]\n";
+    compiled(&flow, &[("write", write.as_str()), ("merge", merge)])
+}
+
+const READY: &str = r#"
+        [tests.ready]
+        says = "Ready"
+        kind = "all"
+        reads = ["deps"]
+        is = "merged"
+"#;
+
+#[test]
+fn a_flow_with_two_dependencies_blocks_is_refused() {
+    let blocks = r#"
+        [blocks.deps]
+        values = ["waiting", "merged"]
+        outside = "dependencies"
+        [blocks.again]
+        values = ["waiting", "merged"]
+        outside = "dependencies"
+        shown = true
+    "#;
+    let odd = with_blocks(blocks, READY, "\"ready\"", "\"text\"");
+    let db = Db::new();
+    let opened = open_with(&db, vec![judged(), odd]);
+    assert_eq!(opened.err(), Some(Fault::DependenciesTwice { flow: "odd".into() }));
+}
+
+#[test]
+fn a_dependencies_block_people_or_a_cell_may_write_or_that_lacks_a_value_is_refused() {
+    let people = r#"
+        [blocks.deps]
+        values = ["waiting", "merged"]
+        outside = "dependencies"
+        people = true
+    "#;
+    let plain = r#"
+        [blocks.deps]
+        values = ["waiting", "merged"]
+        outside = "dependencies"
+    "#;
+    let lacking = r#"
+        [blocks.deps]
+        values = ["waiting", "done", "merged-not"]
+        outside = "dependencies"
+    "#;
+    let lacking_test = READY.replace("is = \"merged\"", "is = \"done\"");
+    let none = r#"
+        [blocks.deps]
+        outside = "dependencies"
+    "#;
+    let cases = [
+        (
+            "people may write it",
+            with_blocks(people, READY, "\"ready\"", "\"text\""),
+        ),
+        (
+            "a cell writes it",
+            // A cell's precondition may not read what the cell writes: here the cell reads the block as an input.
+            with_blocks(plain, "", "", "\"text\", \"deps\""),
+        ),
+        (
+            "it lacks the value merged",
+            with_blocks(lacking, &lacking_test, "\"ready\"", "\"text\""),
+        ),
+        ("it is no choice", with_blocks(none, "", "", "\"text\"")),
+    ];
+    for (why, odd) in cases {
+        let db = Db::new();
+        let opened = open_with(&db, vec![judged(), odd]);
+        let fault = Fault::NotDependencies {
+            flow: "odd".into(),
+            block: block("deps"),
+        };
+        assert_eq!(opened.err(), Some(fault), "{why}");
+    }
+}
+
+/// Makes the records of the work faulty behind the driver's back: an entry at the place of its first, the pause.
+fn fault_behind_the_back(db: &Db, work: WorkNumber, cell: &str) {
+    let conn = Connection::open(&db.path).expect("the database opens");
+    let changed = conn
+        .execute(
+            "INSERT INTO let_go (work, at, cell) VALUES (?1, 1, ?2)",
+            params![work.0, cell],
+        )
+        .expect("an entry is added behind the driver's back");
+    assert_eq!(changed, 1);
+}
+
+#[test]
+fn a_work_whose_records_are_at_fault_is_written_nothing_and_given_nothing_while_the_others_go_on() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    let (_, wb) = h.add(new_item("b", &[a], "short"));
+    h.let_on(wa);
+    fault_behind_the_back(&h.db, wb, "draft");
+    h.faulty.insert(wb);
+    let stored = h.reader.load(wb).expect("the work loads");
+    let todos = h.reopen();
+    // Opening wrote nothing to it and gives nothing for it; it shows that its records are at fault.
+    assert_eq!(rounds(&todos), [(wa, "write".to_string(), 1)]);
+    assert_eq!(h.reader.load(wb).expect("the work loads"), stored);
+    assert!(matches!(h.decision(wb), Decision::Fault(_)), "{:?}", h.decision(wb));
+    // The other work goes on to its merge; the item the faulty one depends on merging writes it nothing either.
+    let todos = h.through(wa);
+    assert_eq!(todos, vec![]);
+    assert_eq!(h.reader.load(wb).expect("the work loads"), stored);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(driver::WAITING));
+}
+
+#[test]
+fn a_work_at_fault_with_a_round_under_way_is_given_that_round_again_as_the_driver_opens() {
+    // What the documentation leaves open, stated as the driver does it: a work whose records are at fault is not
+    // looked at on opening, and what was to be done for it and is not known as done is still given, as it is worked
+    // out from its records.
+    let mut h = H::new();
+    let (_, wa) = h.add(new_item("a", &[], "plain"));
+    h.let_on(wa);
+    let given = h.d().pending();
+    fault_behind_the_back(&h.db, wa, "write");
+    h.faulty.insert(wa);
+    let todos = h.reopen();
+    assert!(matches!(h.decision(wa), Decision::Fault(_)));
+    assert_eq!(todos, given);
 }

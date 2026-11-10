@@ -8,10 +8,11 @@
 //! reads no clock (principle `outside-behind-interfaces`).
 //!
 //! What happens to one work reaches another only as a write of a block of the other. The driver is itself what writes
-//! one such block: a block whose source is [`DEPENDENCIES`] says whether the items the work's item depends on have
-//! merged, and the driver writes it as an item is added, when the last of those items merges, and, on opening, for
-//! every work that has not ended, wherever the block and what it stands for have come apart. A work that has ended
-//! is added to no more.
+//! one such block: the block of a flow whose source is [`DEPENDENCIES`] says whether the items the work's item
+//! depends on have merged. The driver writes it as the item is added, whenever one of those items merges or is
+//! cancelled, and, on opening, wherever the block and what it stands for have come apart; it writes no block of a
+//! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
+//! one waits for good, its block saying which: the owner cancels it or leaves it.
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
@@ -54,8 +55,27 @@ struct Held {
     item: Item,
     flow: Arc<Compiled>,
     work: Work,
-    /// How the work ended, once it has. Worked out again each time the work grows.
-    ended: Option<End>,
+    /// How the work stands. Worked out again each time the work grows.
+    standing: Standing,
+}
+
+/// How a work stands, for the driver: whether it is still to be written to and looked at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Standing {
+    /// It has not ended.
+    Going,
+    /// It has ended, so.
+    Ended(End),
+    /// Its records cannot be those of a work: nothing is decided on them, and the driver writes it nothing.
+    AtFault,
+}
+
+/// Why a step of a work did not go through.
+enum Halt {
+    /// The engine's loop refused what happened, and nothing was changed.
+    Refused(Refused),
+    /// The store failed, and the work is ahead of it in memory.
+    Store(store::Fault),
 }
 
 /// Something to be done outside the engine, for this work.
@@ -104,14 +124,17 @@ pub enum Fault {
     Store(store::Fault),
     /// Two of the flows the driver was given have this name.
     FlowTwice(String),
-    /// A block of the flow names [`DEPENDENCIES`] as its source and is no choice of [`WAITING`] and [`MERGED`].
+    /// The block of the flow that names [`DEPENDENCIES`] as its source is not what the driver writes: a choice that
+    /// has the values [`WAITING`] and [`MERGED`], which neither people nor a cell write.
     NotDependencies { flow: String, block: BlockId },
+    /// More than one block of the flow names [`DEPENDENCIES`] as its source: the driver writes one.
+    DependenciesTwice { flow: String },
     /// A work of the store runs on a flow the driver was not given.
     NoSuchFlow { work: WorkNumber, flow: String },
-    /// The store holds an item that has not exactly one work.
+    /// The store holds an item that has not exactly one work, or a work whose item it does not hold.
     NotOneWork(ItemNumber),
-    /// What the driver itself wrote for a work, a [`DEPENDENCIES`] block, was refused by the engine's loop.
-    OwnWriteRefused { work: WorkNumber, refused: Refused },
+    /// The engine's loop refused what the driver itself gave it for a work: a look, or the write of its own block.
+    Refused { work: WorkNumber, refused: Refused },
 }
 
 /// Why the driver did not do what it was asked.
@@ -138,10 +161,16 @@ impl Driver {
     pub fn open(store: Box<dyn Storage + Send>, flows: Vec<Compiled>, now: Time) -> Result<(Driver, Vec<Todo>), Fault> {
         let mut by_name = BTreeMap::new();
         for flow in flows {
-            for (block, declared) in &flow.blocks {
-                let ours = declared.writers.outside.as_deref() == Some(DEPENDENCIES);
+            let mut ours = (flow.blocks.iter()).filter(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES));
+            if let Some((block, declared)) = ours.next() {
+                if ours.next().is_some() {
+                    return Err(Fault::DependenciesTwice {
+                        flow: flow.name.clone(),
+                    });
+                }
                 let values = declared.values.as_deref().unwrap_or_default();
-                if ours && !(values.iter().any(|v| v == WAITING) && values.iter().any(|v| v == MERGED)) {
+                let both = values.iter().any(|v| v == WAITING) && values.iter().any(|v| v == MERGED);
+                if !both || declared.writers.people || !declared.writers.cells.is_empty() {
                     return Err(Fault::NotDependencies {
                         flow: flow.name.clone(),
                         block: block.clone(),
@@ -176,13 +205,13 @@ impl Driver {
                 return Err(Fault::NotOneWork(head.item));
             }
             let work = driver.store.load(head.number).map_err(Fault::Store)?;
-            let ended = end_of(&flow, &work);
+            let standing = standing_of(&flow, &work);
             let held = Held {
                 head,
                 item,
                 flow,
                 work,
-                ended,
+                standing,
             };
             driver.works.insert(held.head.number, held);
         }
@@ -191,26 +220,38 @@ impl Driver {
         }
         // What was to be done is worked out before the works are looked at: looking adds to it.
         let mut todos = driver.pending();
-        let numbers: Vec<WorkNumber> = driver.works.keys().copied().collect();
-        for number in numbers {
-            let look = (driver.agree(now, number, &mut todos))
-                .and_then(|()| driver.turn(now, number, Event::Look, &mut todos));
-            match look {
-                Ok(_) => {}
-                Err(Failed::Stopped { fault, .. }) => return Err(fault),
-                // A look records nothing that could be refused.
-                Err(Failed::Refused(refused)) => return Err(Fault::OwnWriteRefused { work: number, refused }),
-                // The number is one the driver holds.
-                Err(Failed::NoSuchWork(_) | Failed::NoSuchItem(_) | Failed::NoSuchFlow(_)) => {}
+        // What each work's block is to say is worked out of the works as the store gave them, before any is written
+        // to; then each work that has not ended has its block written where it says otherwise, and is looked at.
+        let wanted: Vec<Option<Event>> = driver.works.values().map(|held| driver.wanted(held)).collect();
+        let Driver { store, works, .. } = &mut driver;
+        for (held, write) in works.values_mut().zip(wanted) {
+            if held.standing != Standing::Going {
+                continue;
+            }
+            for event in write.into_iter().chain([Event::Look]) {
+                match step(store.as_mut(), held, now, event) {
+                    Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                    Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
+                    Err(Halt::Refused(refused)) => {
+                        return Err(Fault::Refused {
+                            work: held.head.number,
+                            refused,
+                        });
+                    }
+                }
             }
         }
         Ok((driver, todos))
     }
 
     /// Adds an item together with its one work and with what people write for it first, all of it or none (entry
-    /// `item-added-with-its-work`), and gives their numbers. The work is added paused: it begins no round until it
-    /// is let on, so nothing is to be done yet.
-    pub fn add(&mut self, now: Time, new: NewItem) -> Result<(ItemNumber, WorkNumber), Failed> {
+    /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work is added paused, so
+    /// that it begins no round until it is let on. What is kept of it from its start is, in this order, the pause,
+    /// what the driver says of the item's dependencies, and what people wrote.
+    ///
+    /// The driver keeps no key of the caller's for an add: a caller that was stopped before it had the numbers finds
+    /// the item among those the driver shows, or adds it again as another item.
+    pub fn add(&mut self, now: Time, new: NewItem) -> Result<(ItemNumber, WorkNumber, Vec<Todo>), Failed> {
         self.going()?;
         if let Some(on) = new.depends_on.iter().find(|on| !self.of_item.contains_key(*on)) {
             return Err(Failed::NoSuchItem(*on));
@@ -218,11 +259,12 @@ impl Driver {
         let Some(flow) = self.flows.get(&new.flow).cloned() else {
             return Err(Failed::NoSuchFlow(new.flow));
         };
-        // What is kept of the work from its start: the pause, what the driver says of the item's dependencies, and
-        // what people wrote, in that order. Being paused from its first entry, the work is given nothing to do.
+        let mut depends_on = new.depends_on;
+        depends_on.sort();
+        depends_on.dedup();
         let mut work = Work::default();
         let mut first = vec![Event::Paused];
-        first.extend(self.dependencies(&flow, &new.depends_on, &work));
+        first.extend(self.block(&flow, &depends_on, &work));
         first.extend(new.writes.into_iter().map(|write| Event::Wrote {
             block: write.block,
             by: Outsider::Person,
@@ -230,15 +272,13 @@ impl Driver {
             matters: true,
             value: write.value,
         }));
+        let mut effects = Vec::new();
         for event in first {
-            handle(&flow, &mut work, now, event).map_err(Failed::Refused)?;
+            effects.extend(handle(&flow, &mut work, now, event).map_err(Failed::Refused)?);
         }
         let (item, number) = (self.store)
-            .add(&new.title, &new.depends_on, &new.flow, now, &work)
+            .add(&new.title, &depends_on, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
-        let mut depends_on = new.depends_on;
-        depends_on.sort();
-        depends_on.dedup();
         let held = Held {
             head: WorkHead {
                 number,
@@ -252,58 +292,75 @@ impl Driver {
                 added: now,
                 depends_on,
             },
-            ended: end_of(&flow, &work),
+            standing: standing_of(&flow, &work),
             flow,
             work,
         };
+        let todos = effects.into_iter().map(|effect| held.todo(effect)).collect();
         self.works.insert(number, held);
         self.of_item.insert(item, number);
-        Ok((item, number))
+        Ok((item, number, todos))
     }
 
     /// Takes one thing that happened to a work, at the time the caller's clock gives, and gives what is to be done:
-    /// for that work, and, where the work merged with it, for the works whose items waited for that.
+    /// for that work, and, where the work ended with it, for the works whose items depend on its item.
     pub fn happened(&mut self, now: Time, work: WorkNumber, event: Event) -> Result<Vec<Todo>, Failed> {
         self.going()?;
+        let Some(held) = self.works.get_mut(&work) else {
+            return Err(Failed::NoSuchWork(work));
+        };
+        let was = held.standing;
+        let item = held.head.item;
         let mut todos = Vec::new();
-        let was = self.works.get(&work).and_then(|held| held.ended);
-        self.turn(now, work, event, &mut todos)?;
-        let held = self.works.get(&work);
-        if was.is_none() && held.and_then(|held| held.ended) == Some(End::Merged) {
-            // The item has merged: that is written to each work whose item depended on it and now waits for none.
-            let item = held.map(|held| held.head.item);
-            let waiting: Vec<WorkNumber> = (self.works.iter())
-                .filter(|(_, held)| item.is_some_and(|item| held.item.depends_on.contains(&item)))
-                .map(|(number, _)| *number)
-                .collect();
-            for number in waiting {
-                // The thing that happened is kept by now, whatever becomes of what follows from it.
-                self.agree(now, number, &mut todos).map_err(kept)?;
+        match step(self.store.as_mut(), held, now, event) {
+            Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+            Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
+            Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
+        }
+        if was != Standing::Going || !matches!(held.standing, Standing::Ended(_)) {
+            return Ok(todos);
+        }
+        // The item has merged or was cancelled: that is written to each work whose item depends on it. What happened
+        // is kept by now, whatever becomes of what follows from it.
+        let mut wanted: BTreeMap<WorkNumber, Event> = (self.works.iter())
+            .filter(|(_, held)| held.standing == Standing::Going && held.item.depends_on.contains(&item))
+            .filter_map(|(number, held)| self.wanted(held).map(|event| (*number, event)))
+            .collect();
+        let mut failed = None;
+        for (number, held) in &mut self.works {
+            let Some(event) = wanted.remove(number) else {
+                continue;
+            };
+            match step(self.store.as_mut(), held, now, event) {
+                Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                Err(Halt::Store(fault)) => failed = Some(Fault::Store(fault)),
+                Err(Halt::Refused(refused)) => failed = Some(Fault::Refused { work: *number, refused }),
+            }
+            if failed.is_some() {
+                break;
             }
         }
-        Ok(todos)
+        match failed {
+            Some(fault) => Err(self.stop(fault, true)),
+            None => Ok(todos),
+        }
     }
 
     /// What was to be done for the works and is not yet known as done, in the order of the works.
     pub fn pending(&self) -> Vec<Todo> {
         self.shown()
-            .flat_map(|(&work, held)| {
-                (engine::pending(&held.work).into_iter()).map(move |effect| Todo { work, effect })
-            })
+            .flat_map(|held| (engine::pending(&held.work).into_iter()).map(|effect| held.todo(effect)))
             .collect()
     }
 
     /// Every work with its item, in the order of the works' numbers.
     pub fn works(&self) -> impl Iterator<Item = Kept<'_>> {
-        self.shown().map(|(_, held)| held.kept())
+        self.shown().map(Held::kept)
     }
 
     /// The work of this number.
     pub fn work(&self, number: WorkNumber) -> Option<Kept<'_>> {
-        match self.fault {
-            None => self.works.get(&number).map(Held::kept),
-            Some(_) => None,
-        }
+        self.shown().find(|held| held.head.number == number).map(Held::kept)
     }
 
     /// The flows the driver was given, in the order of their names.
@@ -325,8 +382,8 @@ impl Driver {
 
     /// The works the driver shows: all of them, and none once it is stopped, when what it holds may be ahead of
     /// what the store holds.
-    fn shown(&self) -> impl Iterator<Item = (&WorkNumber, &Held)> {
-        self.works.iter().filter(|_| self.fault.is_none())
+    fn shown(&self) -> impl Iterator<Item = &Held> {
+        self.works.values().filter(|_| self.fault.is_none())
     }
 
     /// Refuses once the driver is stopped: nothing more is kept.
@@ -346,82 +403,50 @@ impl Driver {
         Failed::Stopped { fault, kept }
     }
 
-    /// Gives one thing that happened to the engine's loop for the work, and keeps what the loop added before giving
-    /// out what is to be done. Says whether the work grew.
-    fn turn(&mut self, now: Time, number: WorkNumber, event: Event, todos: &mut Vec<Todo>) -> Result<bool, Failed> {
-        let Some(held) = self.works.get_mut(&number) else {
-            return Err(Failed::NoSuchWork(number));
-        };
-        let before = held.work.tick();
-        let effects = handle(&held.flow, &mut held.work, now, event).map_err(Failed::Refused)?;
-        if held.work.tick() == before {
-            return Ok(false);
-        }
-        if let Err(fault) = self.store.save(number, &held.work) {
-            return Err(self.stop(Fault::Store(fault), false));
-        }
-        held.ended = end_of(&held.flow, &held.work);
-        todos.extend(effects.into_iter().map(|effect| Todo { work: number, effect }));
-        Ok(true)
+    /// The write that brings the work's [`DEPENDENCIES`] block to say what it is to say, where it says otherwise.
+    fn wanted(&self, held: &Held) -> Option<Event> {
+        self.block(&held.flow, &held.item.depends_on, &held.work)
     }
 
-    /// Brings the work's [`DEPENDENCIES`] blocks to agree with what they stand for, writing those that do not.
-    fn agree(&mut self, now: Time, number: WorkNumber, todos: &mut Vec<Todo>) -> Result<(), Failed> {
-        let Some(held) = self.works.get(&number) else {
-            return Err(Failed::NoSuchWork(number));
+    /// The write of the flow's [`DEPENDENCIES`] block, for a work whose item depends on these items, that makes it
+    /// say whether they have all merged, and which it waits for; none where the flow has no such block, or the block
+    /// says so already.
+    fn block(&self, flow: &Compiled, depends_on: &[ItemNumber], work: &Work) -> Option<Event> {
+        let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
+        let standing = |on: &ItemNumber| {
+            let work = self.of_item.get(on).and_then(|work| self.works.get(work));
+            work.map_or(Standing::Going, |held| held.standing)
         };
-        if held.ended.is_some() {
-            return Ok(());
-        }
-        for event in self.dependencies(&held.flow, &held.item.depends_on, &held.work) {
-            match self.turn(now, number, event, todos) {
-                // The driver's own write was refused: the flow and the driver disagree about the block.
-                Err(Failed::Refused(refused)) => {
-                    return Err(self.stop(Fault::OwnWriteRefused { work: number, refused }, false));
-                }
-                other => other?,
-            };
-        }
-        Ok(())
-    }
-
-    /// The writes that bring the flow's [`DEPENDENCIES`] blocks to say, for a work whose item depends on these items,
-    /// whether they have all merged: one for each such block that does not say so now.
-    fn dependencies(&self, flow: &Compiled, depends_on: &[ItemNumber], work: &Work) -> Vec<Event> {
-        let waited: Vec<ItemNumber> = (depends_on.iter().copied())
-            .filter(|on| {
-                let ended = self
-                    .of_item
-                    .get(on)
-                    .and_then(|work| self.works.get(work))
-                    .and_then(|held| held.ended);
-                ended != Some(End::Merged)
+        let waited: Vec<String> = (depends_on.iter())
+            .filter_map(|on| match standing(on) {
+                Standing::Ended(End::Merged) => None,
+                Standing::Ended(End::Cancelled) => Some(format!("{} (cancelled)", on.0)),
+                Standing::Going | Standing::AtFault => Some(on.0.to_string()),
             })
             .collect();
         let (value, content) = if waited.is_empty() {
             (MERGED, "Every item this one depends on has merged.".to_string())
         } else {
-            let numbers: Vec<String> = waited.iter().map(|on| on.0.to_string()).collect();
-            (WAITING, format!("Waits for the items {} to merge.", numbers.join(", ")))
+            (WAITING, format!("Waits for the items {} to merge.", waited.join(", ")))
         };
         let versions = decide::versions(&work.records);
-        (flow.blocks.iter())
-            .filter(|(_, declared)| declared.writers.outside.as_deref() == Some(DEPENDENCIES))
-            .filter(|(block, _)| {
-                let now = versions
-                    .get(*block)
-                    .and_then(|v| v.last())
-                    .and_then(|v| v.value.as_deref());
-                now != Some(value)
-            })
-            .map(|(block, _)| Event::Wrote {
-                block: block.clone(),
-                by: Outsider::Outside,
-                content: content.clone(),
-                matters: true,
-                value: Some(value.to_string()),
-            })
-            .collect()
+        let current = versions.get(block).and_then(|versions| versions.last());
+        let says = current.map(|version| {
+            (
+                version.value.as_deref(),
+                work.contents.get(&(block.clone(), version.at)),
+            )
+        });
+        if says == Some((Some(value), Some(&content))) {
+            return None;
+        }
+        Some(Event::Wrote {
+            block: block.clone(),
+            by: Outsider::Outside,
+            content,
+            matters: true,
+            value: Some(value.to_string()),
+        })
     }
 }
 
@@ -434,20 +459,33 @@ impl Held {
             work: &self.work,
         }
     }
-}
 
-/// How the work ended, if it has.
-fn end_of(flow: &Compiled, work: &Work) -> Option<End> {
-    match decide(&flow.flow, &work.records, &flow.tests(&work.records)) {
-        Decision::Ended(end) => Some(end),
-        _ => None,
+    /// Something to be done for this work.
+    fn todo(&self, effect: Effect) -> Todo {
+        Todo {
+            work: self.head.number,
+            effect,
+        }
     }
 }
 
-/// The failure of what follows from a thing that happened, once the thing itself is kept.
-fn kept(failed: Failed) -> Failed {
-    match failed {
-        Failed::Stopped { fault, .. } => Failed::Stopped { fault, kept: true },
-        other => other,
+/// Gives one thing that happened to the engine's loop for the work, and keeps what the loop added before giving back
+/// what is to be done.
+fn step(store: &mut dyn Storage, held: &mut Held, now: Time, event: Event) -> Result<Vec<Effect>, Halt> {
+    let before = held.work.tick();
+    let effects = handle(&held.flow, &mut held.work, now, event).map_err(Halt::Refused)?;
+    if held.work.tick() != before {
+        store.save(held.head.number, &held.work).map_err(Halt::Store)?;
+        held.standing = standing_of(&held.flow, &held.work);
+    }
+    Ok(effects)
+}
+
+/// How the work stands.
+fn standing_of(flow: &Compiled, work: &Work) -> Standing {
+    match decide(&flow.flow, &work.records, &flow.tests(&work.records)) {
+        Decision::Ended(end) => Standing::Ended(end),
+        Decision::Fault(_) => Standing::AtFault,
+        _ => Standing::Going,
     }
 }
