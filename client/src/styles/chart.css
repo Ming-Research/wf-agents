@@ -301,6 +301,17 @@ svg.changed-field {
   background: var(--violet);
 }
 
+/* Where a way back runs along the row's line, each keeps to its lane: the line above the middle, the way back and
+   its arrow below it. */
+.seg.line.lane {
+  transform: translateY(calc(-50% - var(--chart-lane)));
+}
+
+.seg.back.lane,
+.arrow.lane {
+  transform: translateY(calc(-50% + var(--chart-lane)));
+}
+
 /* The arrow of a way back, right of the read it points at. */
 .arrow {
   position: absolute;

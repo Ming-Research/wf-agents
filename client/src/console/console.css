@@ -1,0 +1,314 @@
+/* The console: the canvas of the tree, and the page's docked panel at its right with the item selected (look.md). Brought
+   over from the console of the engine on `main` (`client/src/styles/console.css`), its Primer values the page's tokens.
+   Every value is a token (styles/tokens.css), but for the console's own colours named below. */
+
+.console {
+  /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
+     no token: the page marks no other state so. It reads on the dark ground as it is. */
+  --console-waiting: #e8cc6a;
+
+  position: relative;
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) var(--panel-width, var(--panel));
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ground);
+}
+
+.console-folded {
+  grid-template-columns: minmax(0, 1fr) 0;
+}
+
+.console-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Pixi sizes the canvas to its holder; a canvas left inline would add the room under a line of text. */
+.console-canvas canvas {
+  display: block;
+}
+
+.console-message {
+  position: absolute;
+  top: var(--space-16);
+  left: var(--space-16);
+  color: var(--red-text);
+}
+
+/* The panel's own: what it says with nothing selected, and its parts. */
+.cw-empty {
+  color: var(--muted);
+}
+
+.cw-item {
+  position: relative;
+}
+
+/* The title, which brings the item into view in the tree. */
+.cw-title-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cw-title-link:hover {
+  text-decoration: underline;
+}
+
+/* A line of where the item stands or what its work does: the page's status line, its dot in the colour of a work's
+   state as its card is tinted. */
+.cw-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-12);
+  margin-top: var(--space-8);
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+.cw-strong {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
+.cw-muted {
+  color: var(--muted);
+}
+
+.cw-mono {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+}
+
+a.cw-mono {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+a.cw-mono:hover {
+  text-decoration: underline;
+}
+
+.cw-dot {
+  flex: none;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.cw-dot.dot-open,
+.cw-dot.dot-running {
+  background: var(--blue);
+}
+
+.cw-dot.dot-done {
+  background: var(--green);
+}
+
+.cw-dot.dot-owner {
+  background: var(--orange);
+}
+
+.cw-dot.dot-waiting {
+  background: var(--console-waiting);
+}
+
+.cw-dot.dot-halted {
+  background: var(--red);
+}
+
+/* How far the work has come and what it has taken, together at the line's right end. */
+.cw-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  margin-left: auto;
+}
+
+/* One narrow cell for each cell of the work's flow, as wide as the one letter in it: done in the colour of done, where
+   the work is in the tone of what it does there, the others plain. */
+.stage-bar {
+  display: inline-flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+.stage-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tag);
+  height: var(--tag);
+  border-radius: var(--corner);
+  font-size: var(--size-small);
+  font-weight: var(--weight-strong);
+  line-height: 1;
+}
+
+.stage-done {
+  background: var(--green-tint);
+  color: var(--green-text);
+}
+
+.stage-ahead {
+  background: var(--ground);
+  box-shadow: inset 0 0 0 var(--hairline) var(--line);
+  color: var(--muted);
+  font-weight: var(--weight);
+}
+
+/* Where the work is: in the tone its card is tinted with, orange only where it waits for the owner. */
+.stage-running {
+  background: var(--blue);
+  color: var(--on-colour);
+}
+
+.stage-owner {
+  background: var(--orange);
+  color: var(--on-colour);
+}
+
+.stage-waiting {
+  background: var(--console-waiting);
+  color: var(--text);
+}
+
+.stage-paused {
+  background: var(--muted);
+  color: var(--on-colour);
+}
+
+.stage-halted {
+  background: var(--red);
+  color: var(--on-colour);
+}
+
+/* What the owner does to the work. */
+.cw-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
+.cw-refused {
+  color: var(--red-text);
+  font-size: var(--size-small);
+}
+
+.cw-done {
+  margin-top: var(--space-4);
+  color: var(--green-text);
+  font-size: var(--size-small);
+}
+
+/* The two tabs: the one shown in the text colour over a line in the accent, as the bar's tabs. */
+.cw-tabs {
+  display: flex;
+  gap: var(--space-16);
+  margin: 0 0 var(--space-12);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.cw-tabs button[role='tab'] {
+  padding: var(--space-4) 0;
+  border: none;
+  border-bottom: var(--focus) solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cw-tabs button[role='tab'].on {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+/* What the work waits for: one thing a row, what the owner gives in the colour of what waits for them. */
+.cw-wait {
+  padding: var(--space-2) 0;
+}
+
+.cw-wait-owner {
+  color: var(--orange-text);
+}
+
+/* The notes: the block written in, the box, and the line of who reads it with the button that sends it. */
+.cw-notes {
+  margin-top: var(--space-16);
+  padding-top: var(--space-12);
+  border-top: var(--hairline) solid var(--line);
+}
+
+.cw-notes h3 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--size-small);
+  font-weight: var(--weight-strong);
+}
+
+.cw-compose {
+  margin-top: var(--space-8);
+}
+
+.cw-block {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin-bottom: var(--space-8);
+}
+
+.cw-select {
+  height: var(--control);
+  padding: 0 var(--space-4);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+}
+
+.cw-compose textarea {
+  display: block;
+  width: 100%;
+  padding: var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.cw-compose-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  margin-top: var(--space-4);
+  font-size: var(--size-small);
+}
+
+.cw-compose-foot .button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* What of the work the lines do not say: the page's label and value pairs. */
+.cw-facts {
+  padding-top: var(--space-4);
+}

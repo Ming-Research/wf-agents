@@ -376,22 +376,34 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// Why the run at rest is stale, if it is.
+    /// Why the run at rest is stale, if it is: its cell is skipped or no longer in the flow, or a block its cell reads
+    /// or may write has changed in meaning since the run started from it. A block the flow has given the cell since
+    /// the run started, which the run started from no version of, makes it stale once the block has a version.
     fn stale(&self, run: &RunView<'a>) -> Option<Abandoning> {
         let cell = (self.flow.place(&run.started.cell)).map(|i| &self.flow.cells()[i]);
-        if !cell.is_some_and(|c| self.applies(c)) {
+        let Some(cell) = cell.filter(|c| self.applies(c)) else {
             return Some(Abandoning::NoLongerApplies);
-        }
-        (run.started.basis.iter())
-            .find(|(block, version)| self.meaning_of(block, **version) != self.meaning_now(block))
-            .map(|(block, _)| Abandoning::Outdated { block: block.clone() })
+        };
+        let mut blocks: Vec<&BlockId> = cell.inputs.iter().chain(&cell.outputs).collect();
+        blocks.sort();
+        blocks.dedup();
+        (blocks.into_iter())
+            .find(|block| {
+                let from = run.started.basis.get(*block).copied().flatten();
+                self.meaning_of(block, from) != self.meaning_now(block)
+            })
+            .map(|block| Abandoning::Outdated { block: block.clone() })
     }
 
     /// The calls the run rests at that have no result yet.
     fn open_calls(&self, run: &RunView<'a>) -> Vec<Waited> {
         let records = self.records;
-        (records.called.iter())
+        let mut open: Vec<_> = (records.called.iter())
             .filter(|c| c.run == run.started.run && !records.done.iter().any(|d| d.call == c.call))
+            .collect();
+        // In the order the calls were made, however the records list them.
+        open.sort_by_key(|c| c.at);
+        (open.into_iter())
             .map(|c| Waited::Call {
                 call: c.call,
                 on: c.on.clone(),
@@ -424,20 +436,22 @@ impl<'a> Walk<'a> {
             .map(|(block, was)| Cause::Changed {
                 block: block.clone(),
                 was,
-                behind: self.written_behind(block, i),
+                behind: self.written_behind(block, was, i),
             })
             .collect()
     }
 
-    /// Whether the meaning the block has now was given it by a cell after the one at this place.
-    fn written_behind(&self, block: &BlockId, i: usize) -> bool {
-        let changed = self.meaning_now(block);
+    /// Whether every change of the block's meaning since the version at `was` was written by a cell after the one at
+    /// this place. One change among them by a person, the outside or a cell before it makes the reason theirs, however
+    /// many cells after it wrote since: the owner is not asked to let go on what the owner sent back.
+    fn written_behind(&self, block: &BlockId, was: Option<Seq>, i: usize) -> bool {
         (self.versions(block).iter())
-            .find(|v| Some(v.at) == changed)
-            .and_then(|v| v.by)
-            .and_then(|run| self.runs.get(&run))
-            .and_then(|r| self.flow.place(&r.started.cell))
-            .is_some_and(|j| j > i)
+            .filter(|v| v.meaning == v.at && Some(v.at) > was)
+            .all(|v| {
+                (v.by.and_then(|run| self.runs.get(&run)))
+                    .and_then(|r| self.flow.place(&r.started.cell))
+                    .is_some_and(|j| j > i)
+            })
     }
 
     /// The wait for the owner when the run these causes call for would be a way round, and so was each of the cell's
