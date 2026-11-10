@@ -6,56 +6,61 @@ use std::collections::BTreeMap;
 use decide::run::{self, Requires, Step, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Returned, Round, RunId,
-    Started, Tests, Who, Write, Written, decide,
+    Started, Tests, Who, Write, Written, decide, paused,
 };
 use flow::Compiled;
 
 use crate::event::{Came, Effect, Event, Refused};
 use crate::work::{Ask, Back, Call, Given, Work};
 
-/// Takes one thing that happened to the work, and gives what is to be done for it outside the engine.
+/// Takes one thing that happened to the work, and gives what is to be done for it outside the engine. Where the
+/// records cannot be those of a work nothing is given: the deciding code says so when asked.
 pub fn handle(flow: &Compiled, tests: &dyn Tests, work: &mut Work, event: Event) -> Result<Vec<Effect>, Refused> {
+    take(flow, work, event)?;
     let mut effects = Vec::new();
-    take(flow, work, event, &mut effects)?;
     advance(flow, tests, work, &mut effects);
     Ok(effects)
 }
 
-/// What was to be done for the work and is not yet known as done: the round under way, and the calls that have no
-/// result. A driver that starts anew asks for these again.
+/// What was to be done for the work and is not yet known as done. Of a run that goes on: its round under way, and
+/// its calls that have no result. Of a run that was abandoned: the stopping of its round under way, and the
+/// withdrawing of its calls that have no result. A driver that starts anew asks for these again.
 pub fn pending(work: &Work) -> Vec<Effect> {
     let mut effects = Vec::new();
     for started in &work.records.started {
         let run = started.run;
-        if !open(work, run) {
-            continue;
-        }
         let number = began(work, run);
-        if number > ended(work, run)
-            && let Some(given) = work.given.get(&run).and_then(|g| g.last())
-        {
-            effects.push(Effect::Round {
-                run,
-                cell: started.cell.clone(),
-                number,
-                given: given.clone(),
-            });
-        }
-        for call in open_calls(work, run) {
-            if let Some(what) = work.calls.get(&call) {
-                effects.push(Effect::Call {
-                    call,
+        let under_way = number > ended(work, run);
+        if open(work, run) {
+            if under_way && let Some(given) = work.given.get(&run).and_then(|g| g.last()) {
+                effects.push(Effect::Round {
                     run,
-                    what: what.clone(),
+                    cell: started.cell.clone(),
+                    number,
+                    given: given.clone(),
                 });
             }
+            for call in open_calls(work, run) {
+                if let Some(what) = work.calls.get(&call) {
+                    effects.push(Effect::Call {
+                        call,
+                        run,
+                        what: what.clone(),
+                    });
+                }
+            }
+        } else {
+            if under_way {
+                effects.push(Effect::Stop { run });
+            }
+            effects.extend(open_calls(work, run).into_iter().map(|call| Effect::Withdraw { call }));
         }
     }
     effects
 }
 
 /// Adds what happened to the records, or refuses what cannot have happened to this work.
-fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect>) -> Result<(), Refused> {
+fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
     match event {
         Event::Look => {}
         Event::Wrote {
@@ -109,48 +114,33 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         Event::Cancelled => {
             if work.records.cancelled.is_none() {
                 work.records.cancelled = Some(work.tick());
-                // Nothing of a cancelled work goes on: its round under way is stopped, the calls it rests at are
-                // withdrawn, and its runs are abandoned.
-                let runs: Vec<RunId> = (work.records.started.iter().map(|s| s.run))
-                    .filter(|&run| open(work, run))
-                    .collect();
-                for run in runs {
-                    if began(work, run) > ended(work, run) {
-                        effects.push(Effect::Stop { run });
-                    }
-                    for call in open_calls(work, run) {
-                        effects.push(Effect::Withdraw { call });
-                    }
-                    let at = work.tick();
-                    work.records.abandoned.push(Abandoned { run, at });
-                }
             }
         }
         Event::Returned { run, came } => {
-            if !open(work, run) || began(work, run) == ended(work, run) {
+            if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
-            let back = match came {
-                Came::HandsIn(handed) => Back::HandedIn(handed),
-                Came::Asks(asks) => Back::Asked {
-                    asks,
-                    calls: Vec::new(),
-                },
-            };
+            // The round of a run that was abandoned has ended too, and what came back from it is dropped.
+            let kept = open(work, run);
             let at = work.tick();
             work.records.returned.push(Returned { run, at });
-            work.back.entry(run).or_default().push(back);
+            if kept {
+                let back = match came {
+                    Came::HandsIn(handed) => Back::HandedIn(handed),
+                    Came::Asks(asks) => Back::Asked(asks),
+                };
+                work.back.entry(run).or_default().push(back);
+            }
         }
         Event::Done { call, result } => {
-            let Some(called) = work.records.called.iter().find(|c| c.call == call) else {
+            if !work.records.called.iter().any(|c| c.call == call) {
                 return Err(Refused::NoSuchCall(call));
-            };
-            if work.records.done.iter().any(|d| d.call == call) {
+            }
+            if done(work, call).is_some() {
                 return Err(Refused::AlreadyDone(call));
             }
-            if !open(work, called.run) {
-                return Err(Refused::Withdrawn(call));
-            }
+            // The call of a run that was abandoned has its result too: that it was withdrawn, or what came back
+            // before it could be.
             let at = work.tick();
             work.records.done.push(Done { call, at });
             work.results.insert(call, result);
@@ -177,9 +167,11 @@ fn advance(flow: &Compiled, tests: &dyn Tests, work: &mut Work, effects: &mut Ve
             }
             Decision::GoOn { run, .. } => run,
             Decision::Abandon { run, .. } => {
-                for call in open_calls(work, run) {
-                    effects.push(Effect::Withdraw { call });
+                // What the run had under way is stopped, and what it rested at is withdrawn.
+                if began(work, run) > ended(work, run) {
+                    effects.push(Effect::Stop { run });
                 }
+                effects.extend(open_calls(work, run).into_iter().map(|call| Effect::Withdraw { call }));
                 let at = work.tick();
                 work.records.abandoned.push(Abandoned { run, at });
                 continue;
@@ -198,8 +190,8 @@ fn advance(flow: &Compiled, tests: &dyn Tests, work: &mut Work, effects: &mut Ve
     }
 }
 
-/// Does what the run does next. Says whether the deciding code is to be asked again: it is not once a round of the
-/// run is under way.
+/// Does what the run does next. Says whether the deciding code is to be asked again: it is when the run finished,
+/// had its calls made or came to rest for the owner at a limit, and not when a round of it began or is held.
 fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
     let Some(requires) = requires(flow, &choices, work, run) else {
@@ -209,31 +201,23 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
         return false;
     };
     let cell = started.cell.clone();
-    let given = match run::next(&log(work, run), requires) {
+    let given = match run::next(&log(work, run), requires, paused(&work.records)) {
         Step::Begin => Given::Task {
             because: started.because.clone(),
             basis: started.basis.clone(),
         },
-        Step::Resume => match work.back.get(&run).and_then(|b| b.last()) {
-            Some(Back::Asked { calls, .. }) => Given::Results(calls.clone()),
-            _ => return false,
-        },
+        Step::Resume => Given::Results(made(work, run, ended(work, run) - 1)),
         Step::SendBack { unmet } => Given::SentBack(unmet),
         Step::Make => {
-            let Some(Back::Asked { asks, .. }) = work.back.get(&run).and_then(|b| b.last()) else {
+            let Some(Back::Asked(asks)) = work.back.get(&run).and_then(|b| b.last()) else {
                 return false;
             };
-            let made: Vec<CallId> = (asks.clone().into_iter())
-                .map(|ask| {
-                    let on = match &ask {
-                        Ask::Person { who, .. } => Some(who.clone()),
-                        Ask::Tool { .. } => None,
-                    };
-                    call(work, run, on, Call::Asked(ask), effects)
-                })
-                .collect();
-            if let Some(Back::Asked { calls, .. }) = work.back.get_mut(&run).and_then(|b| b.last_mut()) {
-                *calls = made;
+            for ask in asks.clone() {
+                let on = match &ask {
+                    Ask::Person { who, .. } => Some(who.clone()),
+                    Ask::Tool { .. } => None,
+                };
+                call(work, run, on, Call::Asked(ask), effects);
             }
             return true;
         }
@@ -251,7 +235,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
             call(work, run, Some(Who::Owner), Call::AtLimit(limit), effects);
             return true;
         }
-        Step::Rest { .. } | Step::UnderWay => return false,
+        Step::Rest { .. } | Step::UnderWay | Step::Held => return false,
     };
     let at = work.tick();
     work.records.rounds.push(Round { run, at });
@@ -266,13 +250,12 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
 }
 
 /// Records a call of the run, and gives it to be made.
-fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut Vec<Effect>) -> CallId {
+fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut Vec<Effect>) {
     let call = CallId(work.name());
     let at = work.tick();
     work.records.called.push(Called { call, run, on, at });
     work.calls.insert(call, what.clone());
     effects.push(Effect::Call { call, run, what });
-    call
 }
 
 /// The values of each block of the flow that is a choice.
@@ -303,11 +286,11 @@ fn requires<'a>(
 /// The run so far, as the deciding code reads it.
 fn log(work: &Work, run: RunId) -> run::Log {
     let back = work.back.get(&run).map(Vec::as_slice).unwrap_or_default();
-    let returned = |b: &Back| match b {
-        Back::Asked { asks, calls } => run::Return::Asked {
+    let returned = |i: usize, b: &Back| match b {
+        Back::Asked(asks) => run::Return::Asked {
             asked: asks.len(),
-            made: (calls.iter())
-                .map(|&call| run::Call {
+            made: (made(work, run, i).into_iter())
+                .map(|call| run::Call {
                     call,
                     done: done(work, call).is_some(),
                 })
@@ -325,7 +308,7 @@ fn log(work: &Work, run: RunId) -> run::Log {
     };
     let rounds = (0..began(work, run))
         .map(|i| run::Round {
-            returned: back.get(i).map(returned),
+            returned: back.get(i).map(|b| returned(i, b)),
         })
         .collect();
     // How many rounds had ended when the owner last let the run go on at a limit.
@@ -339,6 +322,22 @@ fn log(work: &Work, run: RunId) -> run::Log {
                 .count()
         });
     run::Log { rounds, let_go }
+}
+
+/// The calls made for what the run's round at this place, counted from none, asked for: those made after the round
+/// ended and before the next began.
+fn made(work: &Work, run: RunId, round: usize) -> Vec<CallId> {
+    let r = &work.records;
+    let ended = r.returned.iter().filter(|e| e.run == run).map(|e| e.at).nth(round);
+    let next = r.rounds.iter().filter(|e| e.run == run).map(|e| e.at).nth(round + 1);
+    let Some(ended) = ended else {
+        return Vec::new();
+    };
+    (r.called.iter())
+        .filter(|c| c.run == run && c.at > ended && next.is_none_or(|next| c.at < next))
+        .filter(|c| matches!(work.calls.get(&c.call), Some(Call::Asked(_))))
+        .map(|c| c.call)
+        .collect()
 }
 
 /// Whether the run has neither finished nor been abandoned.

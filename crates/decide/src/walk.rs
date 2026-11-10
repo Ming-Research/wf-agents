@@ -24,9 +24,10 @@ pub enum Decision {
     Fault(RecordFault),
     /// The work has ended.
     Ended(End),
-    /// A round of this run is under way: nothing is decided until it ends.
+    /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled.
     Busy { cell: CellId, run: RunId },
-    /// The work is paused: nothing starts until it is let on.
+    /// The work is paused, and what it would do next is run a cell: no run starts until it is let on. What does not
+    /// begin a round is decided as if the work were not paused: a run at rest finishes, rests or is abandoned.
     Paused,
     /// The cell runs: why, and the version of each block it reads or may write that the run starts from. The engine
     /// records the run as started with exactly these.
@@ -37,7 +38,8 @@ pub enum Decision {
     },
     /// The run, which is at rest and waits for nothing, has its next round.
     GoOn { cell: CellId, run: RunId },
-    /// The run, which is at rest, is stale: it is abandoned, and the walk is taken again.
+    /// The run is abandoned, and the walk is taken again: it is at rest and stale, or its work was cancelled, when
+    /// it may have a round under way, which is stopped.
     Abandon { cell: CellId, run: RunId, because: Stale },
     /// The work waits at this cell, for each of these.
     Wait { at: CellId, on: Vec<Waited> },
@@ -52,9 +54,11 @@ pub enum End {
     Cancelled,
 }
 
-/// Why a run at rest is stale.
+/// Why a run is abandoned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Stale {
+    /// Its work was cancelled.
+    Cancelled,
     /// Its cell is skipped now, or is no longer in the flow.
     NoLongerApplies,
     /// This block has changed in meaning since the run started from it.
@@ -84,7 +88,15 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         return Decision::Ended(End::Merged);
     }
     if records.cancelled.is_some() {
-        return Decision::Ended(End::Cancelled);
+        // Nothing of a cancelled work goes on: each run that is still open is abandoned, whatever it is doing.
+        return match walk.runs.values().find(|r| r.open()) {
+            Some(run) => Decision::Abandon {
+                cell: run.started.cell.clone(),
+                run: run.started.run,
+                because: Stale::Cancelled,
+            },
+            None => Decision::Ended(End::Cancelled),
+        };
     }
     // One round of a work at a time.
     if let Some(run) = walk.runs.values().find(|r| r.under_way()) {
@@ -92,9 +104,6 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
             cell: run.started.cell.clone(),
             run: run.started.run,
         };
-    }
-    if walk.paused() {
-        return Decision::Paused;
     }
     // A stale run is abandoned before anything else: its next round, or the answer to its call, would be for nothing.
     for run in walk.runs.values().filter(|r| r.at_rest()) {
@@ -140,6 +149,11 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         if !on.is_empty() {
             return wait(on);
         }
+        // A pause lets no round begin, and so no run: everything before this is decided whether or not the work is
+        // paused.
+        if paused(records) {
+            return Decision::Paused;
+        }
         return Decision::Run {
             cell: cell.id.clone(),
             because,
@@ -147,6 +161,11 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         };
     }
     unreachable!("the last cell has no condition, and with no record it runs, goes on or holds the work")
+}
+
+/// Whether the work is paused: the latest of its pauses and lettings on is a pause.
+pub fn paused(records: &Records) -> bool {
+    (records.pauses.iter()).max_by_key(|p| p.at).is_some_and(|p| p.paused)
 }
 
 /// Whether the records can be those of a work.
@@ -313,13 +332,6 @@ impl<'a> Walk<'a> {
             .filter_map(|r| r.finished.map(|f| (f.at, r)))
             .max_by_key(|(at, _)| *at)
             .map(|(_, r)| r)
-    }
-
-    /// Whether the work is paused.
-    fn paused(&self) -> bool {
-        (self.records.pauses.iter())
-            .max_by_key(|p| p.at)
-            .is_some_and(|p| p.paused)
     }
 
     fn versions(&self, block: &BlockId) -> &[Version<'a>] {

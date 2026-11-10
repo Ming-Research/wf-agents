@@ -1,4 +1,5 @@
-//! What is kept of a work: its records, and the content the records name.
+//! What is kept of a work: its records, and the content the records name. Nothing here is changed once it is
+//! written, and nothing is kept that the records already say.
 
 use std::collections::BTreeMap;
 
@@ -20,23 +21,31 @@ pub struct Work {
     pub calls: BTreeMap<CallId, Call>,
     /// The result of each call that has one.
     pub results: BTreeMap<CallId, String>,
-    /// The last place given to an entry.
-    place: u64,
-    /// The last name given to a run or a call.
-    name: u64,
 }
 
 impl Work {
-    /// The next place in the order of what happened to the work.
-    pub(crate) fn tick(&mut self) -> Seq {
-        self.place += 1;
-        Seq(self.place)
+    /// The next place in the order of what happened to the work: one after the latest entry of its records.
+    pub(crate) fn tick(&self) -> Seq {
+        let r = &self.records;
+        let places = (r.started.iter().map(|e| e.at))
+            .chain(r.rounds.iter().map(|e| e.at))
+            .chain(r.returned.iter().map(|e| e.at))
+            .chain(r.called.iter().map(|e| e.at))
+            .chain(r.done.iter().map(|e| e.at))
+            .chain(r.finished.iter().map(|e| e.at))
+            .chain(r.abandoned.iter().map(|e| e.at))
+            .chain(r.written.iter().map(|e| e.at))
+            .chain(r.let_go.iter().map(|e| e.at))
+            .chain(r.pauses.iter().map(|e| e.at))
+            .chain(r.cancelled);
+        Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
-    /// A name no run and no call of the work has yet.
-    pub(crate) fn name(&mut self) -> u64 {
-        self.name += 1;
-        self.name
+    /// A name no run and no call of the work has yet: one after the latest.
+    pub(crate) fn name(&self) -> u64 {
+        let r = &self.records;
+        let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
+        names.max().unwrap_or(0) + 1
     }
 }
 
@@ -57,8 +66,9 @@ pub enum Given {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Back {
-    /// Calls were asked for: what was asked, and the calls made for it, none until the engine makes them.
-    Asked { asks: Vec<Ask>, calls: Vec<CallId> },
+    /// Calls were asked for. The calls made for them are in the records: those of the run made after this round
+    /// ended and before its next began.
+    Asked(Vec<Ask>),
     /// These blocks were handed in.
     HandedIn(Vec<Handed>),
 }

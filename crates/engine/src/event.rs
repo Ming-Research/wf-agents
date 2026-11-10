@@ -56,10 +56,11 @@ pub enum Effect {
     },
     /// This call is made.
     Call { call: CallId, run: RunId, what: Call },
-    /// This call is withdrawn: its run was abandoned.
+    /// This call is withdrawn: its run was abandoned. It is to be done until the call is said to have its result,
+    /// which is then that it was withdrawn, or whatever came back before it could be.
     Withdraw { call: CallId },
-    /// The round of this run that is under way is stopped: the work was cancelled, and what the round would return
-    /// is no longer wanted.
+    /// The round of this run that is under way is stopped: the run was abandoned with its work cancelled. It is to
+    /// be done until the round is said to have ended; what comes back from it is dropped.
     Stop { run: RunId },
 }
 
@@ -80,6 +81,4 @@ pub enum Refused {
     NoSuchCall(CallId),
     /// The call has its result already.
     AlreadyDone(CallId),
-    /// The call's run was abandoned, and the call withdrawn with it.
-    Withdrawn(CallId),
 }
