@@ -19,21 +19,26 @@
 //! were then (`reading`), never by the deciding code's tests.
 //!
 //! What a history is. With a chance of four in five it begins with the outside making the first cell's precondition
-//! hold (the items the work depends on merged); otherwise with a look. Then, for 0 to 139 steps, the driver's random
+//! hold (the items the work depends on merged); otherwise with a look. Then, for 0 to 199 steps, the driver's random
 //! steps, people acting at a step with a chance of one in four and the engine stopping at any step:
 //! - an agent's round ends with one to three calls in a tenth of the rounds (a tool in seven of ten, a question for the
 //!   owner or the architect otherwise), asking for nothing in one in twenty-five, handing in a block its cell may not
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
-//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering;
+//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. In one history
+//!   of five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their
+//!   limit of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in seven of ten (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
-//! - a person writes a choice people write (a verdict), yes or no, in a fifth of the acts; prose people write (the
-//!   background, an opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the
-//!   value a precondition looks for in four of five, prose mattering in half, in three of twenty; the owner lets the
-//!   cell at its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; cancels in
-//!   one in fifty; looks otherwise.
+//! - a person pauses the work in half the acts while the check's round is under way, and while the pause then holds
+//!   the merge back after the check passed, writes an input of a judge that people write in half the acts and lets
+//!   the work on in three of ten, so that a judge looks again after the check passed. Otherwise a person writes a
+//!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
+//!   opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the value a
+//!   precondition looks for in four of five, prose mattering in half, in three of twenty; the owner lets the cell at
+//!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; cancels in one in a
+//!   hundred; looks otherwise.
 //!
 //! Unless the work was cancelled or merged, the content continuation follows (`Content`): every round of an agent or
 //! act hands in what its cell must write to go forward and says nothing more. Each verdict is written as a value other
@@ -61,16 +66,16 @@ use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
 use decide::{BlockId, CellId, Decision, End, Outsider, Records, RunId, Seq, TestKind, TestName, Waited, Who, decide};
-use engine::{Ask, Came, Event, Handed};
+use engine::{Ask, Came, Effect, Event, Handed};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng};
 
 /// How many histories are run.
-const SEEDS: u64 = 250;
+const SEEDS: u64 = 300;
 
 /// How many random steps, at most, a history takes before the content continuation.
-const RANDOM: usize = 140;
+const RANDOM: usize = 200;
 
 /// The most steps the content continuation takes for one run, besides what the driver held as it began: the owner
 /// letting the run's cell go on at its limit, the owner letting the run go on at a limit of its own, the up to three
@@ -99,6 +104,7 @@ fn engineer() -> Compiled {
 }
 
 /// The cells and blocks the properties are about, found in the compiled definition.
+#[derive(Clone)]
 struct Roles {
     /// The place of the merge: the last cell.
     last: usize,
@@ -273,7 +279,22 @@ fn make_hold(d: &Driver, name: &TestName) -> Option<Event> {
 
 /// The random steps of a history.
 struct Random {
-    passing: BTreeMap<BlockId, String>,
+    roles: Roles,
+    /// Whether the agents' returns are sent back half the time, so that a run reaches its limit of returns.
+    sloppy: bool,
+}
+
+/// Whether the check's record passed, and no run of the merge has started.
+fn passed_before_merge(d: &Driver, roles: &Roles) -> bool {
+    let flow = &d.flow.flow;
+    let records = &d.work.records;
+    let last = &flow.cells()[roles.last].id;
+    let reading = Reading::new(flow, records, None);
+    let passed = reading.record(&flow.cells()[roles.check].id).is_some_and(|f| {
+        (roles.check_passes(&d.flow))
+            .all(|(b, pass)| f.writes.iter().any(|w| &w.block == b && w.value.as_ref() == Some(pass)))
+    });
+    passed && !records.started.iter().any(|s| &s.cell == last)
 }
 
 impl Random {
@@ -312,7 +333,7 @@ impl Random {
             let Some(values) = d.flow.blocks[b].values.clone() else {
                 continue;
             };
-            let value = match self.passing.get(b) {
+            let value = match self.roles.passing.get(b) {
                 Some(pass) if d.rng.chance(70) => pass.clone(),
                 Some(pass) => {
                     failed = true;
@@ -336,6 +357,9 @@ impl Part for Random {
         let i = place(&d.flow, cell);
         if d.flow.cells[i].kind == Kind::Engine {
             return self.act(d, i, cell);
+        }
+        if self.sloppy && d.rng.chance(50) {
+            return Came::Asks(vec![]);
         }
         match d.rng.below(100) {
             0..=9 => {
@@ -390,9 +414,33 @@ impl Part for Random {
             .filter(|(_, b)| b.writers.outside.is_some())
             .map(|(id, _)| id)
             .collect();
+        // Around the check: a person pauses the work while the check's round is under way, and while the pause holds
+        // the merge back after the check passed, writes for a judge or lets the work on, so that a judge looks again
+        // after the check passed.
+        let paused = decide::paused(&d.work.records);
+        let check = &d.flow.flow.cells()[self.roles.check].id;
+        let checking = (d.held.iter()).any(|e| matches!(e, Effect::Round { cell, .. } if cell == check));
+        if checking && !paused && d.rng.chance(50) {
+            return Event::Paused;
+        }
+        if paused && passed_before_merge(d, &self.roles) {
+            let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
+                .flat_map(|(j, _)| &d.flow.flow.cells()[*j].inputs)
+                .filter(|b| blocks[*b].writers.people)
+                .collect();
+            match d.rng.below(10) {
+                0..=4 => {
+                    if let Some(b) = pick(&mut d.rng, for_judges) {
+                        return wrote(&b, Outsider::Person, true, None);
+                    }
+                }
+                5..=7 => return Event::Resumed,
+                _ => {}
+            }
+        }
         let event = match d.rng.below(100) {
-            0..=1 => Some(Event::Cancelled),
-            2..=21 => pick(&mut d.rng, people_choices).map(|b| {
+            0 => Some(Event::Cancelled),
+            1..=21 => pick(&mut d.rng, people_choices).map(|b| {
                 let values = blocks[&b].values.clone().expect("a choice");
                 let value = values[d.rng.below(values.len())].clone();
                 wrote(&b, Outsider::Person, true, Some(value))
@@ -400,7 +448,7 @@ impl Part for Random {
             22..=36 => pick(&mut d.rng, people_prose).map(|b| wrote(&b, Outsider::Person, true, None)),
             37..=51 => pick(&mut d.rng, outside).map(|b| match blocks[&b].values.clone() {
                 Some(values) => {
-                    let value = match self.passing.get(&b) {
+                    let value = match self.roles.passing.get(&b) {
                         Some(pass) if d.rng.chance(80) => pass.clone(),
                         _ => values[d.rng.below(values.len())].clone(),
                     };
@@ -419,11 +467,7 @@ impl Part for Random {
                 };
                 Some(Event::LetGo { cell })
             }
-            67..=76 => Some(if decide::paused(&d.work.records) {
-                Event::Resumed
-            } else {
-                Event::Paused
-            }),
+            67..=76 => Some(if paused { Event::Resumed } else { Event::Paused }),
             _ => None,
         };
         event.unwrap_or(Event::Look)
@@ -554,7 +598,6 @@ impl History {
         }
         let flow = &self.d.flow.flow;
         let records = &self.d.work.records;
-        let last = &flow.cells()[self.roles.last].id;
         let reading = Reading::new(flow, records, None);
         let mut reached = Vec::new();
         let ran_cells: BTreeSet<usize> = (reading.finished().iter())
@@ -567,17 +610,12 @@ impl History {
                 reached.push(skipped(&cell.id));
             }
         }
-        let check = &flow.cells()[self.roles.check].id;
-        let passed = reading.record(check).is_some_and(|f| {
-            (self.roles.check_passes(&self.d.flow))
-                .all(|(b, pass)| f.writes.iter().any(|w| &w.block == b && w.value.as_ref() == Some(pass)))
-        });
-        // Whether a verdict stands at its refusal, written by its judge or by a person, before any run of the merge.
-        let merging = records.started.iter().any(|s| &s.cell == last);
+        // Whether a verdict stands at its refusal, written by its judge or by a person, after the check passed and
+        // before any run of the merge.
+        let passed = passed_before_merge(&self.d, &self.roles);
         for (b, refusal) in &self.roles.refusals {
             if let Some(v) = reading.current(b)
                 && passed
-                && !merging
                 && v.value.as_ref() == Some(refusal)
                 && reading.stands(v)
             {
@@ -825,9 +863,11 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
     let mut rng = Rng::new(seed);
     let random = rng.below(RANDOM);
     let starts = rng.chance(80);
+    let sloppy = rng.chance(20);
     let roles = Roles::new(flow);
     let mut part = Random {
-        passing: roles.passing.clone(),
+        roles: roles.clone(),
+        sloppy,
     };
     let mut h = History {
         d: Driver::new(flow.clone(), rng, seed, true),
