@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use decide::run::{Limit, Unmet};
 use decide::{BlockId, CallId, Cause, Records, RunId, Seq, Who};
+use serde::{Deserialize, Serialize};
 
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -61,11 +62,11 @@ impl Work {
 
 /// A time, as whatever drives the engine reads its clock: milliseconds since the start of 1970. The engine reads no
 /// clock itself (principle `outside-behind-interfaces`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Time(pub u64);
 
 /// A thing that happened to the work was taken at this time, and its entries begin at this place.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Moment {
     pub from: Seq,
     pub at: Time,
@@ -73,7 +74,7 @@ pub struct Moment {
 
 /// What a round took, as whatever ran it reports (principle `measure-speed-and-cost`). An act of the engine's own
 /// takes none of these: its round is reported with all of them at nothing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Spent {
     /// Its cost, in millionths of a dollar.
     pub usd_micros: u64,
@@ -86,7 +87,7 @@ pub struct Spent {
 }
 
 /// What a round is given.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Given {
     /// The first round: the cell's task, with why the cell runs and the version of each block it starts from.
     Task {
@@ -100,7 +101,7 @@ pub enum Given {
 }
 
 /// What came back at the end of a round.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Back {
     /// Calls were asked for. The calls made for them are in the records: those of the run made after this round
     /// ended and before its next began.
@@ -110,7 +111,7 @@ pub enum Back {
 }
 
 /// A block as a run hands it in.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Handed {
     pub block: BlockId,
     pub content: String,
@@ -121,7 +122,7 @@ pub struct Handed {
 }
 
 /// A call of a run.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Call {
     /// What the run's agent asked for.
     Asked(Ask),
@@ -130,7 +131,7 @@ pub enum Call {
 }
 
 /// What an agent asks for at the end of a round.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ask {
     /// A tool the engine runs, with what it is run on.
     Tool { name: String, input: String },

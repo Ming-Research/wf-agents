@@ -1,0 +1,22 @@
+[package]
+name = "store"
+description = "Keeps the items and the works of the engine in SQLite, in tables that are only added to"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+decide = { path = "../decide" }
+engine = { path = "../engine" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+flow = { path = "../flow" }
+tempfile.workspace = true
+
+[lints]
+workspace = true

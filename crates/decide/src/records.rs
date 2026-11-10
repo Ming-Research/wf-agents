@@ -6,22 +6,24 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::flow::{BlockId, CellId, TestName};
 
 /// The place of an entry in the order of what happened to a work.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Seq(pub u64);
 
 /// The name of a run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RunId(pub u64);
 
 /// The name of a call.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CallId(pub u64);
 
 /// Everything recorded of one work.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Records {
     /// Each run that started.
     pub started: Vec<Started>,
@@ -48,7 +50,7 @@ pub struct Records {
 }
 
 /// A run began.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Started {
     pub run: RunId,
     pub cell: CellId,
@@ -60,21 +62,21 @@ pub struct Started {
 }
 
 /// A round of a run began.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Round {
     pub run: RunId,
     pub at: Seq,
 }
 
 /// The round of the run that was under way ended.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Returned {
     pub run: RunId,
     pub at: Seq,
 }
 
 /// A run rests at a call until the call has its result.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Called {
     pub call: CallId,
     pub run: RunId,
@@ -84,7 +86,7 @@ pub struct Called {
 }
 
 /// A call has its result.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Done {
     pub call: CallId,
     pub at: Seq,
@@ -92,7 +94,7 @@ pub struct Done {
 
 /// A run handed in its return, which passed everything the flow requires. A run writes its blocks here and nowhere
 /// else: nothing of a run that has not finished is a version of anything.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finished {
     pub run: RunId,
     pub at: Seq,
@@ -101,7 +103,7 @@ pub struct Finished {
 }
 
 /// A block a run wrote as it finished.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Write {
     pub block: BlockId,
     /// Whether the change matters to the cells that read the block, compared with the version the run started from.
@@ -113,14 +115,14 @@ pub struct Write {
 }
 
 /// A run was abandoned.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Abandoned {
     pub run: RunId,
     pub at: Seq,
 }
 
 /// A person, or something outside the work, wrote a block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Written {
     pub block: BlockId,
     pub by: Outsider,
@@ -134,35 +136,35 @@ pub struct Written {
 }
 
 /// Who writes a block without running a cell.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Outsider {
     Person,
     Outside,
 }
 
 /// A person who can give what a work waits for.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Who {
     Owner,
     Architect,
 }
 
 /// The owner let the cell go on after it reached its limit.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LetGo {
     pub cell: CellId,
     pub at: Seq,
 }
 
 /// The work was paused, or let on again.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pause {
     pub paused: bool,
     pub at: Seq,
 }
 
 /// Why a cell runs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
     /// It has no record.
     NoRecord,
