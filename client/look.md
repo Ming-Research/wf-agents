@@ -151,6 +151,9 @@ What the owner reviews every work by, so that it says plainly why a work is wher
 - **Live**: the list and a work are read again on each change the interface sends, and whenever its stream of changes
   opens again, since changes may have been missed while it was lost; an answer older than the one shown is dropped.
 - **Tabs kept**: the flow, once shown, is kept as the owner left it while another tab is shown, and is not read again.
+- **The flow alone**: a server that gives only the flow (`wf-agents flow page`) has no items and no works. The page
+  asks once, opens on the flow, and in place of the console and the works says so in one message with two links: the
+  flow, and the same view with sample data.
 
 ## The history of a work
 
