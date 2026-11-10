@@ -40,6 +40,10 @@ pub struct Agents {
     /// What is given to the program on every round after what the engine gives it.
     #[serde(default)]
     pub args: Vec<String>,
+    /// The names of the variables of the engine's environment the program is given beside those it is always given
+    /// (`PATH`, `HOME`, `USER`, `LANG` and `LC_*`, `TMPDIR`, `TERM`, `SHELL`): an API key, for one.
+    #[serde(default)]
+    pub env: Vec<String>,
     /// The program's own directory of settings and sign-in, as `CLAUDE_CONFIG_DIR`; with none, the program's own
     /// default.
     pub config_dir: Option<PathBuf>,
@@ -104,6 +108,12 @@ mod tests {
         assert_eq!(settings.agents.slots, 2);
         assert_eq!(settings.agents.config_dir, None);
         assert_eq!(settings.budget_micros(), Some(5_000_000));
+        let args = settings.agents.args.join(" ");
+        assert!(
+            args.ends_with("--setting-sources user"),
+            "a worktree's own settings are not loaded: {args}"
+        );
+        assert!(settings.agents.env.is_empty());
     }
 
     #[test]

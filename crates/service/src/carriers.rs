@@ -34,7 +34,9 @@ pub trait Rounds: Send + Sync {
     /// when the reply says what came back and what it took. Given again after the process started again, it is the
     /// same round, to be gone on with where what was done of it is known, and done again where it is not. Where the
     /// round cannot be carried out, the reply says it failed ([`RoundReply::failed`]) and the carrier forgets it, so
-    /// that the same round, given again once its work is let on, is carried out anew.
+    /// that the same round, given again once its work is let on, is carried out anew. A round that failed is ended by
+    /// the loop: a stop of it given after the failure is dropped, and one given before it means that the failure is
+    /// ended as a stop is ([`RoundReply::ended`]), not said.
     fn give(&self, round: Round, reply: RoundReply);
 
     /// Stops the round, which is under way: its work was cancelled. The round ends as it always does, by a reply
@@ -144,7 +146,8 @@ impl RoundReply {
     /// The round failed, for this reason: nothing came back, and nothing is known of what it took. The round stays
     /// under way in the records, and its work is paused; when the owner lets the work on again, the same round is
     /// given again, and a carrier that has failed a round gives it as if it were new. The carrier does not try again
-    /// itself: whatever made the round fail is for the owner to see first.
+    /// itself: whatever made the round fail is for the owner to see first. Where the round's run was abandoned
+    /// meanwhile, or is abandoned while the work is paused, the loop ends the round with nothing handed in.
     pub fn failed(self, why: String) {
         let message = Message::Failed {
             work: self.work,

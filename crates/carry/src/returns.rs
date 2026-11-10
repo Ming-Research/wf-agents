@@ -10,7 +10,7 @@ use work::{Ask, Handed};
 
 /// The form of every return, as a JSON schema. It has no `oneOf` or `anyOf` at its top, which the model's interface
 /// refuses.
-pub const SCHEMA: &str = r#"{"type":"object","properties":{"hands_in":{"type":"array","items":{"type":"object","properties":{"block":{"type":"string"},"content":{"type":"string"},"value":{"type":"string"},"matters":{"type":"boolean"}},"required":["block","content"],"additionalProperties":false}},"asks":{"type":"array","items":{"anyOf":[{"type":"object","properties":{"tool":{"type":"string"},"input":{"type":"string"}},"required":["tool","input"],"additionalProperties":false},{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}]}}},"required":["hands_in","asks"],"additionalProperties":false}"#;
+pub const SCHEMA: &str = r#"{"type":"object","properties":{"hands_in":{"type":"array","items":{"type":"object","properties":{"block":{"type":"string"},"content":{"type":"string"},"value":{"type":"string"},"matters":{"type":"boolean"}},"required":["block","content","matters"],"additionalProperties":false}},"asks":{"type":"array","items":{"anyOf":[{"type":"object","properties":{"tool":{"type":"string"},"input":{"type":"string"}},"required":["tool","input"],"additionalProperties":false},{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}]}}},"required":["hands_in","asks"],"additionalProperties":false}"#;
 
 /// A return as the agent writes it.
 #[derive(Debug, Deserialize)]
@@ -26,13 +26,9 @@ struct HandIn {
     block: String,
     content: String,
     value: Option<String>,
-    /// Whether the change matters to the cells that read the block; it does where the agent says nothing.
-    #[serde(default = "yes")]
+    /// Whether the change matters to the cells that read the block. It has no default, so that each hand-in says it on
+    /// purpose: an agent that left it out was taken to mean that it did not.
     matters: bool,
-}
-
-fn yes() -> bool {
-    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,9 +114,9 @@ mod tests {
     }
 
     #[test]
-    fn a_return_that_hands_in_hands_in_and_matters_where_it_says_nothing() {
+    fn a_return_that_hands_in_hands_in() {
         let r = json!({"hands_in": [
-            {"block": "plan", "content": "Greet by name."},
+            {"block": "plan", "content": "Greet by name.", "matters": true},
             {"block": "verdict", "content": "Fine.", "value": "yes", "matters": false},
         ], "asks": []});
         let handed = vec![
@@ -152,7 +148,8 @@ mod tests {
     fn a_malformed_return_is_none() {
         for r in [
             json!({"hands_in": []}),
-            json!({"hands_in": [{"block": "plan"}], "asks": []}),
+            json!({"hands_in": [{"block": "plan", "matters": true}], "asks": []}),
+            json!({"hands_in": [{"block": "plan", "content": "Greet by name."}], "asks": []}),
             json!({"hands_in": [], "asks": [{"tool": "check"}]}),
             json!({"hands_in": [], "asks": [], "more": 1}),
             json!("hands in nothing"),

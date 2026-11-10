@@ -1,17 +1,13 @@
-//! A work goes through the trial flow to its merge, its agents run by the command line in the work's worktree.
+//! A work goes through its flow to its merge, its agents run by the command line in the work's worktree.
 
 use service::Act;
 use work::Spent;
 
-use crate::{Fake, Real, ended, git_in};
+use crate::{Fake, On, Real, ended, git_in};
 
 #[tokio::test]
 async fn a_work_goes_to_its_merge_with_the_command_line() {
-    let fake = Fake {
-        cost: "0.01",
-        fail_first: false,
-    };
-    let mut real = Real::open(fake, None);
+    let mut real = Real::trial(Fake::default());
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.until(|real| ended(&real.decision(work))).await;
@@ -24,7 +20,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
         "{}",
         calls[0].stdin
     );
-    let worktree = real.data.join("worktrees/1");
+    let worktree = real.place(work).dir;
     assert!(
         calls.iter().all(|call| call.dir == worktree),
         "each round runs in the work's worktree"
@@ -46,6 +42,10 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
             .join(format!("rounds/1/{}-1.result.json", plan_run.0))
             .is_file()
     );
+    assert!(
+        !real.data.join(format!("rounds/1/{}-1.pgid", plan_run.0)).exists(),
+        "no program runs"
+    );
 
     // A session's first round costs what it reports; a round that goes on in it, what the session cost more.
     let spent: Vec<Spent> = kept.spent.values().copied().collect();
@@ -63,7 +63,37 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     let log = git_in(&real.repo, &["log", "main", "--format=%s"]);
     assert!(log.lines().any(|line| line == "Build the greeting"), "{log}");
     assert!(
-        log.lines().next().is_some_and(|line| line.starts_with("Merge work-1")),
+        log.lines().next().is_some_and(|line| line.starts_with("Merge work-1-")),
         "{log}"
     );
+}
+
+#[tokio::test]
+async fn a_work_is_started_checked_and_merged_at_the_commit_the_check_passed() {
+    let mut real = Real::open(On::Acts, Fake::default(), None, "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(real.finished(work), ["start", "build", "check", "merge"]);
+    let place = real.place(work);
+    assert!(place.branch.starts_with("work-1-"), "{}", place.branch);
+    let head = git_in(&real.repo, &["rev-parse", &place.reference()]);
+
+    // The check says the commit it checked first, and the merge merged that commit.
+    let kept = real.work(work);
+    let check = real.run_of(work, "check");
+    let finished = kept
+        .records
+        .finished
+        .iter()
+        .find(|f| f.run == check)
+        .expect("the check finished");
+    let passed = &kept.contents[&("passed".into(), finished.at)];
+    assert_eq!(
+        passed.lines().next(),
+        Some(format!("Checked commit {head}").as_str()),
+        "{passed}"
+    );
+    let parents = git_in(&real.repo, &["rev-list", "--parents", "-n", "1", "main"]);
+    assert_eq!(parents.split(' ').nth(2), Some(head.as_str()));
 }

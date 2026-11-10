@@ -20,11 +20,17 @@ and are given its result in your next round.
   say in it: every cell that reads a block you hand in runs again. A block you would write only to say that nothing
   changed, or that you have nothing to say, leave out; when that is every block, return an empty `hands_in`. What you
   hand in replaces the block: give its whole content as it is to stand, never a note of what changed in it. Say in
-  `matters` whether your change to a block matters to the cells that read it, compared with the version of it you
-  started from; leave it out where it does. Hand in at once everything you write in the run, and leave `asks` empty.
+  `matters`, for every block, whether your change to it matters to the cells that read it, compared with the version
+  at which its meaning last changed, which you are told; a block written for the first time always matters. Hand in at
+  once everything you write in the run, and leave `asks` empty.
 - To ask, list in `asks` what you need before you can hand in: a tool to run, as `tool` with its `input`, or a question
-  for the owner, as `question`. Ask for everything you need at once. The tools are: `check`, which runs the project's
-  check in the worktree and says whether it passed, with the end of what it said.
+  for the owner, as `question`. Ask for everything you need at once. The tools are:
+  - `read`, which gives you the blocks of the work: you are told of each block its versions, never its content. Its
+    input names what to read, each apart from the next by a space: `plan` for the block's current version, `plan@12`
+    for its version 12, `plan@12..15` for what differs from version 12 to version 15. Each comes back with its version,
+    who wrote it, its value where it is a choice, and its content. Read what you need before you work, all at once.
+  - `check`, which runs the project's check in the worktree and says whether it passed, with the end of what it said.
+    Leave its `input` empty.
 
 ## Languages
 

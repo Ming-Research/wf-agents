@@ -67,14 +67,22 @@ pub fn arguments(agents: &Agents, protocol: &str, schema: &str, session: Uuid, b
     args
 }
 
-/// The environment a round's command line is given beside what the engine's own holds: a round waits for whatever
-/// it starts, the command line asks the model again a few times for a return that does not fit its form, and its
-/// directory of settings is the installation's where the settings name one.
-pub fn environment(agents: &Agents) -> Vec<(String, String)> {
-    let mut env = vec![
-        ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS".to_string(), "1".to_string()),
-        ("MAX_STRUCTURED_OUTPUT_RETRIES".to_string(), "3".to_string()),
-    ];
+/// The variables of the engine's environment a round's command line is always given: what a program needs to find
+/// its tools, its home and its language. Nothing else of the engine's environment reaches it, unless the settings
+/// name it.
+pub const KEPT: [&str; 7] = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SHELL"];
+
+/// The environment a round's command line is given, in place of the engine's own: of the engine's variables, those
+/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own: a round waits for whatever it starts,
+/// the command line asks the model again a few times for a return that does not fit its form, and its directory of
+/// settings is the installation's where the settings name one.
+pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+    let kept =
+        |name: &str| KEPT.contains(&name) || name.starts_with("LC_") || agents.env.iter().any(|named| named == name);
+    let mut env: Vec<(String, String)> = engine.into_iter().filter(|(name, _)| kept(name)).collect();
+    env.sort();
+    env.push(("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS".to_string(), "1".to_string()));
+    env.push(("MAX_STRUCTURED_OUTPUT_RETRIES".to_string(), "3".to_string()));
     if let Some(dir) = &agents.config_dir {
         env.push(("CLAUDE_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned()));
     }
@@ -140,7 +148,10 @@ pub struct Read {
 }
 
 /// Reads what the command line printed on its standard output, for a round that began its session or went on in it
-/// with the session having cost `before`; or says why it is no result to take.
+/// with the session having cost `before`; or says why it is no result to take. A round that began its session cost
+/// the session's total; one that went on in it, that total less what the line's earlier rounds cost, or the whole
+/// total where that is less (measured: the total is the whole session's, even where two lines take turns in one
+/// worktree).
 pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, String> {
     let result: Result = serde_json::from_slice(stdout).map_err(|e| {
         let text = String::from_utf8_lossy(stdout);
@@ -154,9 +165,11 @@ pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Rea
         return Err("the command line's result holds no structured return".to_string());
     };
     let total = (result.total_cost_usd.max(0.0) * 1_000_000.0).round() as u64;
+    // The cost errs high: where the session's total is less than its earlier rounds cost, it cannot be the same
+    // session's, and is taken whole.
     let usd_micros = match begin {
-        Begin::New => total,
-        Begin::Resume => total.saturating_sub(before),
+        Begin::Resume if total >= before => total - before,
+        _ => total,
     };
     let usage = result.usage;
     let spent = Spent {
@@ -184,6 +197,7 @@ mod tests {
             model: "claude-haiku-5-5".to_string(),
             slots: 2,
             args: vec!["--strict-mcp-config".to_string()],
+            env: Vec::new(),
             config_dir: None,
             owner_language: "Chinese".to_string(),
             work_budget_usd: None,
@@ -209,6 +223,12 @@ mod tests {
     fn a_resumed_round_costs_what_the_session_cost_more() {
         let read = read(RESULT.as_bytes(), Begin::Resume, 1000).expect("the fixture reads");
         assert_eq!(read.spent.usd_micros, 15);
+    }
+
+    #[test]
+    fn a_resumed_round_whose_session_cost_less_than_before_costs_the_whole_total() {
+        let read = read(RESULT.as_bytes(), Begin::Resume, 5000).expect("the fixture reads");
+        assert_eq!(read.spent.usd_micros, 1015);
     }
 
     #[test]
@@ -259,16 +279,36 @@ mod tests {
     }
 
     #[test]
-    fn the_settings_directory_is_given_only_where_the_settings_name_one() {
+    fn the_environment_is_built_from_what_is_kept_and_named() {
+        let engine = [
+            ("PATH", "/bin"),
+            ("HOME", "/home/someone"),
+            ("LC_ALL", "C"),
+            ("SECRET_TOKEN", "x"),
+            ("ANTHROPIC_API_KEY", "k"),
+        ]
+        .map(|(n, v)| (n.to_string(), v.to_string()));
         let names = |agents: &Agents| {
-            environment(agents)
-                .into_iter()
+            (environment(agents, engine.clone()).into_iter())
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>()
         };
-        assert!(!names(&agents()).contains(&"CLAUDE_CONFIG_DIR".to_string()));
+        assert_eq!(
+            names(&agents()),
+            [
+                "HOME",
+                "LC_ALL",
+                "PATH",
+                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+                "MAX_STRUCTURED_OUTPUT_RETRIES"
+            ]
+        );
         let mut configured = agents();
+        configured.env = vec!["ANTHROPIC_API_KEY".to_string()];
         configured.config_dir = Some(PathBuf::from("config"));
-        assert!(names(&configured).contains(&"CLAUDE_CONFIG_DIR".to_string()));
+        let named = names(&configured);
+        assert!(named.contains(&"ANTHROPIC_API_KEY".to_string()));
+        assert!(named.contains(&"CLAUDE_CONFIG_DIR".to_string()));
+        assert!(!named.contains(&"SECRET_TOKEN".to_string()));
     }
 }

@@ -104,16 +104,16 @@ fn flow() -> Compiled {
 }
 
 /// A work of the small flow, taken one thing at a time through its loop.
-struct Small {
-    flow: Compiled,
-    work: Work,
+pub(crate) struct Small {
+    pub(crate) flow: Compiled,
+    pub(crate) work: Work,
     /// What the last thing taken gave to be done.
     effects: Vec<Effect>,
 }
 
 impl Small {
     /// A work whose request a person wrote.
-    fn new() -> Small {
+    pub(crate) fn new() -> Small {
         let mut small = Small {
             flow: flow(),
             work: Work::default(),
@@ -129,12 +129,12 @@ impl Small {
         small
     }
 
-    fn take(&mut self, event: Event) {
+    pub(crate) fn take(&mut self, event: Event) {
         self.effects = handle(&self.flow, &mut self.work, Time(0), event).expect("the loop takes it");
     }
 
     /// The round given to be carried out.
-    fn round(&self) -> (RunId, CellId, usize, Given) {
+    pub(crate) fn round(&self) -> (RunId, CellId, usize, Given) {
         (self.effects.iter())
             .find_map(|effect| match effect {
                 Effect::Round {
@@ -148,15 +148,20 @@ impl Small {
             .expect("a round is given")
     }
 
-    /// What the round given is told.
-    fn told(&self) -> String {
+    /// What the round given is told, in a session that goes on.
+    pub(crate) fn told(&self) -> String {
+        self.told_as(false)
+    }
+
+    /// What the round given is told, in a session it begins or one that goes on.
+    pub(crate) fn told_as(&self, begins: bool) -> String {
         let (run, cell, number, given) = self.round();
         let spec = self.flow.cells.iter().find(|spec| spec.id == cell).expect("the cell");
-        message(&self.flow, &self.work, spec, run, number, &given)
+        message(&self.flow, &self.work, spec, run, number, &given, begins)
     }
 
     /// The round given hands these blocks in, each with its value where it has one.
-    fn hands_in(&mut self, blocks: &[(&str, &str, Option<&str>)]) {
+    pub(crate) fn hands_in(&mut self, blocks: &[(&str, &str, Option<&str>)]) {
         let came = Came::HandsIn(
             (blocks.iter())
                 .map(|(block, content, value)| Handed {
@@ -170,7 +175,7 @@ impl Small {
         self.back(came);
     }
 
-    fn back(&mut self, came: Came) {
+    pub(crate) fn back(&mut self, came: Came) {
         let (run, ..) = self.round();
         self.take(Event::Returned {
             run,
@@ -180,7 +185,7 @@ impl Small {
     }
 
     /// The version the run of this cell that finished last wrote.
-    fn wrote(&self, cell: &str) -> u64 {
+    pub(crate) fn wrote(&self, cell: &str) -> u64 {
         let runs: Vec<RunId> = (self.work.records.started.iter())
             .filter(|s| s.cell.as_str() == cell)
             .map(|s| s.run)
@@ -190,13 +195,13 @@ impl Small {
     }
 
     /// The version of the request.
-    fn request(&self) -> u64 {
+    pub(crate) fn request(&self) -> u64 {
         self.work.records.written[0].at.0
     }
 }
 
 #[test]
-fn a_first_round_is_given_the_task_and_every_input() {
+fn a_first_round_is_given_the_task_and_the_list_of_its_blocks_with_no_content() {
     let small = Small::new();
     let request = small.request();
     let expected = format!(
@@ -206,26 +211,25 @@ fn a_first_round_is_given_the_task_and_every_input() {
 
 Write a plan for the request.
 
-## Why it runs now
+## What it reads
 
 This is the cell's first run in this work.
 
-## What it reads
+- `request`: version {request}, written by a person.
 
-### `request`, version {request}, written by a person
+## What it may write
 
-Greet the user.
+- `plan`: not written yet.
 
-## What it may hand in
-
-- `plan`
+To read all of it at once, ask for the tool `read` with the input `request`.
 "
     );
     assert_eq!(small.told(), expected);
+    assert!(!small.told().contains("Greet the user."), "no content is sent");
 }
 
 #[test]
-fn a_later_cell_of_the_line_is_not_sent_again_what_the_line_read_or_wrote() {
+fn a_cell_of_the_line_is_told_every_block_whoever_wrote_it() {
     let mut small = Small::new();
     small.hands_in(&[("plan", "Greet by name.", None)]);
     let (request, plan) = (small.request(), small.wrote("plan"));
@@ -236,28 +240,26 @@ fn a_later_cell_of_the_line_is_not_sent_again_what_the_line_read_or_wrote() {
 
 Build what the plan says.
 
-## Why it runs now
+## What it reads
 
 This is the cell's first run in this work.
 
-## What it reads
+- `request`: version {request}, written by a person.
+- `plan`: version {plan}, written by the cell `plan`.
+- `opinions`: not written yet.
 
-### `request`, version {request}, written by a person: unchanged since you read it.
+## What it may write
 
-### `plan`, version {plan}, written by the cell `plan`: as you wrote it.
+- `code`: not written yet.
 
-### `opinions`: not written yet.
-
-## What it may hand in
-
-- `code`
+To read all of it at once, ask for the tool `read` with the input `request plan`.
 "
     );
     assert_eq!(small.told(), expected);
 }
 
 /// The small work with its review objecting to the first build: the build runs a second time.
-fn objected() -> Small {
+pub(crate) fn objected() -> Small {
     let mut small = Small::new();
     small.hands_in(&[("plan", "Greet by name.", None)]);
     small.hands_in(&[("code", "A greeting.", None)]);
@@ -269,9 +271,14 @@ fn objected() -> Small {
 }
 
 #[test]
-fn a_second_run_is_sent_what_changed_and_not_what_did_not() {
+fn a_second_run_is_told_what_changed_since_it_last_worked() {
     let small = objected();
-    let (request, plan, opinions) = (small.request(), small.wrote("plan"), small.wrote("review"));
+    let (request, plan, code, opinions) = (
+        small.request(),
+        small.wrote("plan"),
+        small.wrote("build"),
+        small.wrote("review"),
+    );
     let expected = format!(
         "# Build (cell `build`), round 1
 
@@ -279,30 +286,108 @@ fn a_second_run_is_sent_what_changed_and_not_what_did_not() {
 
 Build what the plan says.
 
-## Why it runs now
+## What it reads
 
-- `opinions` changed: it was not written when you last worked, and it is now version {opinions}. A cell after this one changed it.
+- `request`: version {request}, written by a person; you last worked from this version.
+- `plan`: version {plan}, written by the cell `plan`; you last worked from this version.
+- `opinions`: version {opinions}, written by the cell `review`; changed since you last worked, when it was not written.
+
+## What it may write
+
+- `code`: version {code}; its meaning last changed at this version.
+
+To read all of it at once, ask for the tool `read` with the input `request plan opinions code`.
+"
+    );
+    assert_eq!(small.told(), expected);
+}
+
+/// The small work with the review run a second time, on the second build; gives the work with the versions of the first code, the first opinions and the second code.
+pub(crate) fn objected_twice() -> (Small, u64, u64, u64) {
+    let mut small = objected();
+    let (code, opinions) = (small.wrote("build"), small.wrote("review"));
+    small.hands_in(&[("code", "A greeting by name.", None)]);
+    let later = small.wrote("build");
+    (small, code, opinions, later)
+}
+
+#[test]
+fn a_choice_is_told_with_its_value_and_a_change_with_what_reads_it() {
+    let (small, code, opinions, later) = objected_twice();
+    let expected = format!(
+        "# Review (cell `review`), round 1
+
+## Your task
+
+Review the code.
 
 ## What it reads
 
-### `request`, version {request}, written by a person: unchanged since you read it.
+- `code`: version {later}, written by the cell `build`; changed since you last worked from version {code}.
 
-### `plan`, version {plan}, written by the cell `plan`: as you wrote it.
+## What it may write
 
-### `opinions`, version {opinions}, written by the cell `review`
+- `opinions`: version {opinions}; its meaning last changed at this version.
+- `verdict`, a choice, one of `yes`, `no`: version {opinions}, with the value `no`; its meaning last changed at this version.
 
-Name the error.
-
-## What it may hand in
-
-- `code`
+To read all of it at once, ask for the tool `read` with the input `code code@{code}..{later} opinions verdict`.
 "
     );
     assert_eq!(small.told(), expected);
 }
 
 #[test]
+fn a_changed_input_with_a_version_before_is_read_as_a_difference() {
+    let (mut small, _, first, _) = objected_twice();
+    small.hands_in(&[
+        ("opinions", "Name the error, and say it.", None),
+        ("verdict", "Not yet.", Some("no")),
+    ]);
+    let second = small.wrote("review");
+    let told = small.told();
+    assert!(
+        told.contains(&format!(
+            "- `opinions`: version {second}, written by the cell `review`; changed since you last worked from version \
+             {first}."
+        )),
+        "{told}"
+    );
+    assert!(
+        told.contains(&format!("`request plan opinions opinions@{first}..{second} code`")),
+        "{told}"
+    );
+}
+
+#[test]
 fn a_round_after_calls_is_given_their_results() {
+    let small = asked();
+    let expected = "# Build (cell `build`), round 2
+
+## The results of what you asked for
+
+### The tool `check`, on: the branch
+
+The check passed.
+
+Go on with the task.
+";
+    assert_eq!(small.told(), expected);
+}
+
+#[test]
+fn a_round_that_begins_a_session_is_given_the_task_and_the_list_before_the_results() {
+    let small = asked();
+    let told = small.told_as(true);
+    let task = told.find("## Your task").expect("the task");
+    let list = told.find("## What it reads").expect("the list");
+    let results = told.find("## The results of what you asked for").expect("the results");
+    assert!(task < list && list < results, "{told}");
+    assert!(told.starts_with("# Build (cell `build`), round 2\n"), "{told}");
+    assert!(told.ends_with("The check passed.\n\nGo on with the task.\n"), "{told}");
+}
+
+/// The build's second run asks for the check, which passes.
+fn asked() -> Small {
     let mut small = objected();
     small.back(Came::Asks(vec![Ask::Tool {
         name: "check".to_string(),
@@ -318,17 +403,20 @@ fn a_round_after_calls_is_given_their_results() {
         call,
         result: "The check passed.".to_string(),
     });
-    let expected = "# Build (cell `build`), round 2
+    small
+}
 
-## The results of what you asked for
-
-### The tool `check`, on: the branch
-
-The check passed.
-
-Go on with the task.
-";
-    assert_eq!(small.told(), expected);
+#[test]
+fn a_call_the_work_does_not_hold_is_said_so() {
+    let small = objected();
+    let (run, cell, ..) = small.round();
+    let spec = small.flow.cells.iter().find(|spec| spec.id == cell).unwrap();
+    let given = Given::Results(vec![decide::CallId(99)]);
+    let told = message(&small.flow, &small.work, spec, run, 2, &given, false);
+    assert!(
+        told.contains("### Call 99, which the work does not hold\n\n(It has no result.)"),
+        "{told}"
+    );
 }
 
 #[test]
@@ -350,4 +438,5 @@ Hand in again: everything the cell hands in, in one return.
 fn a_message_built_again_is_the_same() {
     let small = objected();
     assert_eq!(small.told(), small.told());
+    assert_eq!(small.told_as(true), small.told_as(true));
 }

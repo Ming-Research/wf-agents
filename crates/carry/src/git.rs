@@ -6,20 +6,31 @@ use std::path::{Path, PathBuf};
 
 use store::WorkNumber;
 use tokio::process::Command;
+use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use crate::held::Stop;
 use crate::process::{self, Ran};
 use crate::settings::Project;
 
-/// The directory in the data directory that holds the works' worktrees, one for each work, named by its number.
+/// The directory in the data directory that holds the works' worktrees.
 pub const WORKTREES: &str = "worktrees";
 
-/// Where a work is done.
+/// Where a work is done: its branch and its worktree, both named by the work's number and by the installation, so
+/// that an installation with a new data directory never takes up a branch another left.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
+    /// The branch's name, as `git worktree add` takes it to check it out.
     pub branch: String,
     /// The work's worktree.
     pub dir: PathBuf,
+}
+
+impl Place {
+    /// The branch's full reference, by which every other command names it.
+    pub fn reference(&self) -> String {
+        format!("refs/heads/{}", self.branch)
+    }
 }
 
 /// Where the work is done, and the commit of the main branch it started from.
@@ -40,11 +51,17 @@ pub struct Checked {
     pub failed: Option<String>,
 }
 
-/// The work's place, by its number, in the data directory given.
-pub fn place(data: &Path, work: WorkNumber) -> Place {
+/// The installation's part of the names of its branches and worktrees: the first eight characters of its id.
+pub fn tag(installation: &Uuid) -> String {
+    installation.simple().to_string()[..8].to_string()
+}
+
+/// The work's place, by its number and the installation's tag, in the data directory given.
+pub fn place(data: &Path, tag: &str, work: WorkNumber) -> Place {
+    let name = format!("{}-{tag}", work.0);
     Place {
-        branch: format!("work-{}", work.0),
-        dir: data.join(WORKTREES).join(work.0.to_string()),
+        branch: format!("work-{name}"),
+        dir: data.join(WORKTREES).join(name),
     }
 }
 
@@ -92,18 +109,15 @@ fn text(path: &Path) -> String {
 }
 
 /// Makes the work's branch from the main branch's head and its worktree, keeping both where they are made already.
-pub async fn start(project: &Project, data: &Path, work: WorkNumber) -> Result<Started, String> {
-    let place = place(data, work);
+pub async fn start(project: &Project, place: &Place) -> Result<Started, String> {
     let repo = &project.repo;
-    let branch = format!("refs/heads/{}", place.branch);
-    let main = format!("refs/heads/{}", project.main);
+    let (branch, main) = (place.reference(), format!("refs/heads/{}", project.main));
     if place.dir.exists() {
-        let on = git(&place.dir, &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
-        if on != place.branch {
+        let on = git(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?;
+        if on != branch {
             return Err(format!(
-                "{} is there already, and is not the worktree of the branch {}: it is on {on}",
+                "{} is there already, and is not the worktree of the branch {branch}: it is on {on}",
                 place.dir.display(),
-                place.branch
             ));
         }
     } else {
@@ -116,6 +130,7 @@ pub async fn start(project: &Project, data: &Path, work: WorkNumber) -> Result<S
         git(repo, &["worktree", "prune"]).await?;
         let dir = text(&place.dir);
         let exists = said(repo, &["rev-parse", "--verify", "--quiet", &branch]).await?.ok;
+        // `worktree add` checks a branch out by its short name; given the full reference it would detach HEAD.
         if exists {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
@@ -123,14 +138,16 @@ pub async fn start(project: &Project, data: &Path, work: WorkNumber) -> Result<S
         }
     }
     let from = git(repo, &["merge-base", &main, &branch]).await?;
-    Ok(Started { place, from })
+    Ok(Started {
+        place: place.clone(),
+        from,
+    })
 }
 
 /// The work's worktree, or why there is none: a round of the work is done in it, and `start` makes it.
-pub fn worktree(data: &Path, work: WorkNumber) -> Result<PathBuf, String> {
-    let place = place(data, work);
+pub fn worktree(place: &Place) -> Result<PathBuf, String> {
     if place.dir.is_dir() {
-        Ok(place.dir)
+        Ok(place.dir.clone())
     } else {
         Err(format!(
             "the work has no worktree at {}: the cell that starts the work makes it",
@@ -141,59 +158,66 @@ pub fn worktree(data: &Path, work: WorkNumber) -> Result<PathBuf, String> {
 
 /// Checks the work before its merge: that its worktree holds nothing uncommitted, that its branch merges into the
 /// main branch's head with no conflict (worked out without changing anything), and that the project's check passes
-/// in the worktree. Says why where it could not check; what failed is what was found, not a reason to fail.
+/// in the worktree. What is done in the repository is done holding `repository`, and the check's command is run
+/// without it. Says why where it could not check, and gives none where it was stopped; what failed is what was found,
+/// not a reason to fail.
 pub(crate) async fn check(
     project: &Project,
-    data: &Path,
-    work: WorkNumber,
+    place: &Place,
+    repository: &Mutex<()>,
     stop: &mut Stop,
-) -> Result<Checked, String> {
-    let dir = worktree(data, work)?;
-    let commit = git(&dir, &["rev-parse", "HEAD"]).await?;
-    let main = git(&project.repo, &["rev-parse", &format!("refs/heads/{}", project.main)]).await?;
+) -> Result<Option<Checked>, String> {
+    let dir = worktree(place)?;
+    let (commit, main, merged) = {
+        let _held = repository.lock().await;
+        let commit = git(&project.repo, &["rev-parse", &place.reference()]).await?;
+        let main = git(&project.repo, &["rev-parse", &format!("refs/heads/{}", project.main)]).await?;
+        let changes = git(&dir, &["status", "--porcelain"]).await?;
+        if !changes.is_empty() {
+            let failed = format!("The worktree has changes that are not committed:\n{changes}");
+            return Ok(Some(Checked {
+                commit,
+                main,
+                failed: Some(failed),
+            }));
+        }
+        let args = ["merge-tree", "--write-tree", "--name-only", &main, &commit];
+        let merged = said(&project.repo, &args).await?;
+        (commit, main, merged)
+    };
     let checked = |failed| Checked {
         commit: commit.clone(),
         main: main.clone(),
         failed,
     };
-    let changes = git(&dir, &["status", "--porcelain"]).await?;
-    if !changes.is_empty() {
-        return Ok(checked(Some(format!(
-            "The worktree has changes that are not committed:\n{changes}"
-        ))));
-    }
-    let merged = said(
-        &project.repo,
-        &["merge-tree", "--write-tree", "--name-only", &main, &commit],
-    )
-    .await?;
     match merged.code {
         Some(0) => {}
         Some(1) => {
-            return Ok(checked(Some(format!(
+            return Ok(Some(checked(Some(format!(
                 "The branch does not merge into {} at {main} without a conflict:\n{}",
                 project.main, merged.out
-            ))));
+            )))));
         }
         _ => return Err(format!("git merge-tree failed: {}", merged.err)),
     }
-    match process::run(process::shell(&project.check, &dir), None, stop).await? {
-        Ran::Ended { status, stdout, .. } if !status.success() => Ok(checked(Some(format!(
+    match process::run(process::shell(&project.check, &dir), None, None, stop).await? {
+        Ran::Ended { status, stdout, .. } if !status.success() => Ok(Some(checked(Some(format!(
             "The check `{}` failed ({status}). The end of what it said:\n{}",
             project.check,
             process::tail(&stdout)
-        )))),
-        Ran::Ended { .. } => Ok(checked(None)),
-        Ran::Stopped => Err("the check was stopped".to_string()),
+        ))))),
+        Ran::Ended { .. } => Ok(Some(checked(None))),
+        Ran::Stopped => Ok(None),
     }
 }
 
-/// Merges the work's branch into the main branch in the repository's own checkout, which must be on the main branch
-/// and hold no uncommitted change, and gives the head of the main branch after it: the merge commit, or, where the
-/// branch holds nothing the main branch does not, the head as it was.
-pub async fn merge(project: &Project, data: &Path, work: WorkNumber) -> Result<String, String> {
+/// Merges the work's branch into the main branch in the repository's own checkout, which must be on the main branch,
+/// hold no uncommitted change and no merge under way, and gives the head of the main branch after it: the merge
+/// commit, or, where the branch holds nothing the main branch does not, the head as it was. Where `checked` names the
+/// commit the check passed, the branch's head must be that commit, and it is what is merged. The merge runs with no
+/// hook of the repository's; where it fails, the merge it began is taken back.
+pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> Result<String, String> {
     let repo = &project.repo;
-    let place = place(data, work);
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
         return Err(format!(
@@ -209,7 +233,27 @@ pub async fn merge(project: &Project, data: &Path, work: WorkNumber) -> Result<S
             repo.display()
         ));
     }
-    let head = git(repo, &["rev-parse", &format!("refs/heads/{}", place.branch)]).await?;
+    let merging = || async {
+        said(repo, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"])
+            .await
+            .map(|s| s.ok)
+    };
+    if merging().await? {
+        return Err(format!(
+            "a merge is under way in the repository's checkout {}",
+            repo.display()
+        ));
+    }
+    let head = git(repo, &["rev-parse", &place.reference()]).await?;
+    if let Some(checked) = checked
+        && head != checked
+    {
+        return Err(format!(
+            "the branch {} is at {head}, not at {checked}, the commit the check passed: the work is checked again \
+             before it merges",
+            place.reference()
+        ));
+    }
     if said(repo, &["merge-base", "--is-ancestor", &head, "HEAD"]).await?.ok {
         // Merged already, before the process stopped, or nothing to merge: the merge commit is the newest commit of
         // the main branch with the branch's head among its later parents.
@@ -224,8 +268,19 @@ pub async fn merge(project: &Project, data: &Path, work: WorkNumber) -> Result<S
         };
     }
     let message = format!("Merge {}", place.branch);
-    if let Err(why) = git(repo, &["merge", "--no-ff", "-m", &message, &place.branch]).await {
-        let _ = git(repo, &["merge", "--abort"]).await;
+    let args = [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "merge",
+        "--no-ff",
+        "-m",
+        &message,
+        &head,
+    ];
+    if let Err(why) = git(repo, &args).await {
+        if merging().await? {
+            let _ = git(repo, &["merge", "--abort"]).await;
+        }
         return Err(why);
     }
     git(repo, &["rev-parse", "HEAD"]).await

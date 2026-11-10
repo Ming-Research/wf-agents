@@ -20,7 +20,11 @@ model = "claude-haiku-5-5"
 # How many agents' rounds run at once; the others wait their turn.
 slots = 2
 # What the program is given on every round after what the engine gives it.
-args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
+# `--setting-sources user` keeps the program from loading a settings file the worktree holds.
+args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "user"]
+# The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
+# and SHELL, and those named here, such as an API key.
+# env = ["ANTHROPIC_API_KEY"]
 # The program's own directory of settings and sign-in, given as CLAUDE_CONFIG_DIR. Left out, the program uses its own
 # default.
 # config_dir = "/path/to/a/config/dir"

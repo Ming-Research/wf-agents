@@ -6,10 +6,17 @@
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
 //! an error or prints a result that is one, or what it prints is no result with a structured return. It is not tried
 //! again here: the work is paused for the owner to see why. Stopped, the program's process group is sent TERM, and
-//! KILL after three seconds, and the round ends with nothing handed in and nothing spent.
+//! KILL after three seconds, and the round ends with nothing handed in; what it spent is not known, and is recorded
+//! as nothing.
+//!
+//! The program is given an environment of its own, not the engine's (`cli::environment`). What a round is told depends
+//! on whether it begins its line's session, and is built again where the program is tried the other way.
 //!
 //! What each round was told and what the program printed are kept for reading, in `rounds/<work>/<run>-<round>` in
-//! the data directory, `.message.md` and `.result.json`.
+//! the data directory: `.message.md` and `.result.json` for its first try, `.message.2.md` and `.result.2.json` for
+//! the next, and so on. While the program runs, its process group is written in `.pgid` there; a group left named
+//! there by a process of the engine that ended is stopped before the round is run again, so that a session has one
+//! program at a time.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,10 +31,10 @@ use uuid::Uuid;
 use work::Spent;
 
 use crate::cli::{self, Begin};
-use crate::held::{Held, Stop};
+use crate::held::{Failing, Held, Stop};
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{git, message, returns, session};
+use crate::{acts, git, message, returns, session};
 
 /// The system prompt every round is given, before the owner's language is put in.
 pub const PROTOCOL: &str = include_str!("protocol.md");
@@ -76,6 +83,7 @@ impl Agents {
 
 impl Rounds for Agents {
     fn give(&self, round: Round, reply: RoundReply) {
+        acts::prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
         let Some(mut stop) = self.inner.held.hold(key, reply) else {
             return;
@@ -106,16 +114,17 @@ impl Rounds for Agents {
                         reply.ended(Came::HandsIn(Vec::new()), Spent::default());
                     }
                 }
-                Err(why) => {
-                    if let Some(reply) = inner.held.forget(key) {
-                        reply.failed(why);
-                    }
-                }
+                Err(why) => match inner.held.fail(key) {
+                    Some(Failing::Fail(reply)) => reply.failed(why),
+                    Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), Spent::default()),
+                    None => {}
+                },
             }
         });
     }
 
     fn stop(&self, round: Round, reply: RoundReply) {
+        acts::prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
         if let Some(reply) = self.inner.held.stop(key, reply) {
             reply.ended(Came::HandsIn(Vec::new()), Spent::default());
@@ -128,24 +137,31 @@ impl Inner {
     async fn carry(&self, round: &Round, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
-        let dir = git::worktree(&self.data, round.work)?;
-        let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given);
-        let kept = self.kept(round);
-        write(&kept.with_extension("message.md"), told.as_bytes()).await?;
+        let place = git::place(&self.data, &git::tag(&self.installation), round.work);
+        let dir = git::worktree(&place)?;
+        let base = self.kept(round);
+        if let Some(parent) = base.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        let group = base.with_extension("pgid");
+        process::stop_left(&group, &self.settings.agents.command).await;
         let session = session::session(self.installation, round.work, line);
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);
         let mut tried = false;
         let (status, stdout, stderr) = loop {
-            let ran = process::run(
-                self.command(&dir, session, begin),
-                Some(told.clone().into_bytes()),
-                stop,
-            )
-            .await?;
+            let begins = begin == Begin::New;
+            let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
+            let (told_at, result_at) = attempt(&base).await;
+            write(&told_at, told.as_bytes()).await?;
+            let command = self.command(&dir, session, begin);
+            let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
             };
+            write(&result_at, &stdout).await?;
             let stderr = String::from_utf8_lossy(&stderr).into_owned();
             // A session begun before its first round was cut off, or one the program no longer has, is tried the
             // other way, once.
@@ -156,7 +172,6 @@ impl Inner {
             }
             break (status, stdout, stderr);
         };
-        write(&kept.with_extension("result.json"), &stdout).await?;
         let read = cli::read(&stdout, begin, before);
         if !status.success() {
             let why = match read {
@@ -176,7 +191,8 @@ impl Inner {
         let mut command = Command::new(&agents.command);
         command
             .args(cli::arguments(agents, &self.protocol, returns::SCHEMA, session, begin))
-            .envs(cli::environment(agents))
+            .env_clear()
+            .envs(cli::environment(agents, std::env::vars()))
             .current_dir(dir);
         command
     }
@@ -203,6 +219,22 @@ impl Inner {
             )
         })
     }
+}
+
+/// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.
+async fn attempt(base: &Path) -> (PathBuf, PathBuf) {
+    let at = |n: usize| match n {
+        1 => (base.with_extension("message.md"), base.with_extension("result.json")),
+        n => (
+            base.with_extension(format!("message.{n}.md")),
+            base.with_extension(format!("result.{n}.json")),
+        ),
+    };
+    let mut n = 1;
+    while tokio::fs::try_exists(&at(n).0).await.unwrap_or(false) {
+        n += 1;
+    }
+    at(n)
 }
 
 /// Writes the file, making its directory where there is none.

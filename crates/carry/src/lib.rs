@@ -7,10 +7,11 @@
 //! - [`git`]: a work's branch and worktree, the check before its merge, and the merge.
 //! - `acts`: the engine's acts, as the rounds of the cells they carry out.
 //! - [`message`]: what an agent is told at the start of a round, a function of the records alone.
+//! - [`read`]: the tool `read`, the blocks of a work as an agent reads them.
 //! - [`returns`]: the one form of every agent's return, and what came back read from it.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
-//! - `tools`: the tools, of which there is one, `check`.
+//! - `tools`: the tools, `read` and `check`.
 //! - [`session`]: the session of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
 
@@ -21,6 +22,7 @@ pub mod git;
 mod held;
 pub mod message;
 mod process;
+pub mod read;
 pub mod returns;
 pub mod session;
 pub mod settings;
@@ -31,7 +33,7 @@ use std::sync::Arc;
 
 use service::Carriers;
 
-pub use acts::Acts;
+pub use acts::{Acts, FAILED, PASSED};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
@@ -45,9 +47,10 @@ pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
     let data = std::path::absolute(data).map_err(|e| format!("{}: {e}", data.display()))?;
     let installation = session::installation(&data)?;
     let project = settings.project.clone();
+    let tag = git::tag(&installation);
     Ok(Carriers {
         agents: Arc::new(Agents::new(settings, data.clone(), installation)),
-        acts: Arc::new(Acts::new(project.clone(), data.clone())),
-        tools: Arc::new(Tools::new(project, data)),
+        acts: Arc::new(Acts::new(project.clone(), data.clone(), tag.clone())),
+        tools: Arc::new(Tools::new(project, data, tag)),
     })
 }

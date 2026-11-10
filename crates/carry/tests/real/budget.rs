@@ -3,16 +3,16 @@
 use decide::Decision;
 use service::Act;
 
-use crate::{Fake, Real};
+use crate::{Fake, On, Real};
 
 #[tokio::test]
 async fn a_work_over_its_budget_is_paused_after_each_round_that_ends_over_it() {
     // Each call says the session has cost four dollars so far; the budget is three.
     let fake = Fake {
         cost: "4.0",
-        fail_first: false,
+        ..Fake::default()
     };
-    let mut real = Real::open(fake, Some(3.0));
+    let mut real = Real::open(On::Trial, fake, Some(3.0), "true");
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.until(|real| real.finished(work) == ["plan"] && real.decision(work) == Decision::Paused)

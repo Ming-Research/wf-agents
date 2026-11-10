@@ -73,7 +73,8 @@ pub enum Message {
     /// Something happened to a work: what came of a round or a call, said by what carried it out.
     Happened { work: WorkNumber, event: Event },
     /// The round of this number of the run could not be carried out, for this reason, said by what carried it out:
-    /// the work is paused, and the round is given again when the owner lets the work on.
+    /// the work is paused, and the round is given again when the owner lets the work on. Where the run was abandoned
+    /// meanwhile, the round ends with nothing handed in, as a stopped round does.
     Failed {
         work: WorkNumber,
         run: RunId,
@@ -252,14 +253,29 @@ impl Service {
                 self.hand(now, todos)?;
             }
             Message::Failed { work, run, number, why } => {
-                if self.under_way(work, run, number) {
-                    let cell = self.cell_of(work, run).unwrap_or_default();
-                    eprintln!(
-                        "Work {} is paused: round {number} of run {} of the cell {cell} failed: {why}",
-                        work.0, run.0
-                    );
-                    self.failed.insert((work, run, number));
-                    self.pause(work)?;
+                match self.under_way(work, run, number) {
+                    // A round of a run that was abandoned meanwhile is not to be given again: it ends with nothing,
+                    // as a stopped round does. Its carrier holds it as failed, and has dropped the stop.
+                    Some(false) => {
+                        let now = self.now()?;
+                        let event = Event::Returned {
+                            run,
+                            came: engine::Came::HandsIn(Vec::new()),
+                            spent: work::Spent::default(),
+                        };
+                        let todos = (self.driver.happened(now, work, event)).map_err(|failed| answer(work, failed))?;
+                        self.hand(now, todos)?;
+                    }
+                    Some(true) => {
+                        let cell = self.cell_of(work, run).unwrap_or_default();
+                        eprintln!(
+                            "Work {} is paused: round {number} of run {} of the cell {cell} failed: {why}",
+                            work.0, run.0
+                        );
+                        self.failed.insert((work, run, number));
+                        self.pause(work)?;
+                    }
+                    None => {}
                 }
             }
             Message::Hold { work, why } => {
@@ -332,16 +348,30 @@ impl Service {
         self.hand(now, todos)
     }
 
-    /// Whether the round of this number of the run is under way: it began, it has not ended, and its run is open.
-    fn under_way(&self, work: WorkNumber, run: RunId, number: usize) -> bool {
-        let Some(kept) = self.driver.work(work) else {
-            return false;
-        };
+    /// Whether the round of this number of the run is under way, its run open or not: it began and has not ended. Gives
+    /// whether its run is open, or none where the round is not under way.
+    fn under_way(&self, work: WorkNumber, run: RunId, number: usize) -> Option<bool> {
+        let kept = self.driver.work(work)?;
         let r = &kept.work.records;
         let began = r.rounds.iter().filter(|e| e.run == run).count();
         let ended = r.returned.iter().filter(|e| e.run == run).count();
         let closed = r.finished.iter().any(|f| f.run == run) || r.abandoned.iter().any(|a| a.run == run);
-        began == number && ended < number && !closed
+        (began == number && ended < number).then_some(!closed)
+    }
+
+    /// The end the loop gives a round that failed and is now to be stopped, its run abandoned: no carrier holds it,
+    /// so the loop ends it, with nothing handed in. None for any other todo.
+    fn failed_stop(&mut self, todo: &Todo) -> Option<Event> {
+        let Effect::Stop { run } = &todo.effect else {
+            return None;
+        };
+        let kept = self.driver.work(todo.work)?;
+        let number = kept.work.records.rounds.iter().filter(|r| r.run == *run).count();
+        self.failed.remove(&(todo.work, *run, number)).then(|| Event::Returned {
+            run: *run,
+            came: engine::Came::HandsIn(Vec::new()),
+            spent: work::Spent::default(),
+        })
     }
 
     /// The cell of the run.
@@ -407,7 +437,11 @@ impl Service {
     fn hand(&mut self, now: Time, todos: Vec<Todo>) -> Result<(), Fault> {
         let mut queue = VecDeque::from(todos);
         while let Some(todo) = queue.pop_front() {
-            if let Some(event) = self.give(&todo)? {
+            let answered = match self.failed_stop(&todo) {
+                Some(event) => Some(event),
+                None => self.give(&todo)?,
+            };
+            if let Some(event) = answered {
                 let more = (self.driver.happened(now, todo.work, event)).map_err(|failed| answer(todo.work, failed))?;
                 queue.extend(more);
             }
