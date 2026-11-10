@@ -8,10 +8,11 @@
 //!
 //! The history: six items are added (one with a first write), five let on and one later; the work of one is cancelled
 //! with its round under way; one rests at a question for the owner when a person writes what its run started from, so
-//! that the question is withdrawn; a person writes an opinion for a writer while its round is under way. Every other
-//! step answers one of the things given to be done, chosen by the step's number among them in a fixed order: a round
-//! hands in what its cell may write, or, in its first round at some steps, asks for a tool or hands in what it may not
-//! write; a call has its result; a call withdrawn is said to be; a round stopped ends.
+//! that the question is withdrawn, and its writer, run again, hands in what it may not write; a person writes an
+//! opinion for a writer while its round is under way. Every other step answers one of the things given to be done,
+//! chosen by the step's number among them in a fixed order: a round hands in what its cell may write, or, in its
+//! first round at some steps, asks for a tool or hands in what it may not write; a call has its result; a call
+//! withdrawn is said to be; a round stopped ends.
 
 use std::collections::BTreeSet;
 
@@ -64,6 +65,19 @@ fn act(h: &H, s: usize) -> Option<Act> {
         }
         13 => Act::On(w(6), wrote("request", Outsider::Person, None)),
         14 => Act::On(w(1), wrote("opinions", Outsider::Person, None)),
+        // The writer of the sixth, run again, hands in what it may not write.
+        15 => {
+            let (run, ..) = h.round(w(6));
+            let came = hands_in(&[("request", None)]);
+            Act::On(
+                w(6),
+                Event::Returned {
+                    run,
+                    came,
+                    spent: spent(s as u64),
+                },
+            )
+        }
         20 => Act::On(w(3), Event::Resumed),
         _ => return answer(h, s),
     };
