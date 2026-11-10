@@ -35,7 +35,7 @@
 //!   when a choice did not have that value (the check failing says why);
 //! - a person who acts while the check's round is under way pauses the work, and while the pause then holds
 //!   the merge back after the check passed, writes an input of a judge that people write in two of five acts, writes
-//!   a verdict as its refusal in one of ten and lets the work on in three of ten, so that a judge looks again, or a
+//!   a verdict as its refusal in one of five and lets the work on in three of ten, so that a judge looks again, or a
 //!   person refuses, after the check passed. Otherwise a person writes a
 //!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
 //!   opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the value a
@@ -43,8 +43,8 @@
 //!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; cancels in one in a
 //!   hundred; looks otherwise.
 //!
-//! In half the histories the random steps end early: in a quarter at the first step after which the check's record
-//! failed, in a quarter at the first after which it failed or a judge's own refusal stands. The content continuation
+//! In a third of the histories the random steps end early: in a sixth at the first step after which the check's record
+//! failed, in a sixth at the first after which it failed or a judge's own refusal stands. The content continuation
 //! is then tried from where the work must go back.
 //!
 //! Unless the work was cancelled or merged, the content continuation follows (`Content`): every round of an agent or
@@ -82,7 +82,7 @@ use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
 /// How many histories are run.
-const SEEDS: u64 = 400;
+const SEEDS: u64 = 500;
 
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
@@ -454,13 +454,13 @@ impl Part for Random {
                         return wrote(&b, Outsider::Person, true, None);
                     }
                 }
-                4 => {
+                4..=5 => {
                     if let Some(b) = pick(&mut d.rng, verdicts) {
                         let refusal = self.roles.refusals[&b].clone();
                         return wrote(&b, Outsider::Person, true, Some(refusal));
                     }
                 }
-                5..=7 => return Event::Resumed,
+                6..=8 => return Event::Resumed,
                 _ => {}
             }
         }
@@ -959,9 +959,9 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
     let random = rng.below(RANDOM);
     let starts = rng.chance(80);
     let sloppy = rng.chance(20);
-    // Whether the random steps end at a turn: none in half the histories, a failed check in a quarter, a failed check
-    // or a judge's refusal in a quarter.
-    let early = rng.below(4);
+    // Whether the random steps end at a turn: none in two histories of three, a failed check in a sixth, a failed check
+    // or a judge's refusal in a sixth.
+    let early = rng.below(6);
     let roles = Roles::new(flow);
     let mut part = Random {
         roles: roles.clone(),
@@ -987,8 +987,8 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
             }
             h.d.step(&mut part, true);
             h.observe();
-            if early >= 2
-                && let Some(turn) = h.turning(early == 3)
+            if early >= 4
+                && let Some(turn) = h.turning(early == 5)
             {
                 h.reach(turn.to_string());
                 break;
