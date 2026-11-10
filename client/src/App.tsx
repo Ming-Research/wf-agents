@@ -82,28 +82,28 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
   }
 
   const shownFlow = shownVersion === 'before' && before ? before : after;
-  const row = chosen && 'cell' in chosen ? drawn.rows.find((r) => r.id === chosen.cell) : undefined;
-  const column = chosen && 'block' in chosen ? drawn.columns.find((c) => c.name === chosen.block) : undefined;
+  const column = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
+  const row = chosen && 'block' in chosen ? drawn.blocks.find((b) => b.name === chosen.block) : undefined;
   const flowOf = (inShown: boolean) => (inShown ? shownFlow : shownFlow === after ? (before ?? after) : after);
 
   let side = null;
-  if (row) {
+  if (column) {
     side = (
       <CellPanel
-        row={row}
+        column={column}
         matrix={drawn}
-        flow={flowOf(row.cell !== undefined)}
-        changes={(changes ?? []).filter((c) => changeCell(c) === row.id)}
+        flow={flowOf(column.cell !== undefined)}
+        changes={(changes ?? []).filter((c) => changeCell(c) === column.id)}
         onChoose={setChosen}
       />
     );
-  } else if (column) {
+  } else if (row) {
     side = (
       <BlockPanel
-        column={column}
+        row={row}
         matrix={drawn}
-        flow={flowOf(column.block !== undefined)}
-        changes={(changes ?? []).filter((c) => changeBlock(c) === column.name)}
+        flow={flowOf(row.block !== undefined)}
+        changes={(changes ?? []).filter((c) => changeBlock(c) === row.name)}
         onChoose={setChosen}
       />
     );
@@ -140,7 +140,7 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
           </SegmentedControl>
         )}
         <FlowLimits flow={shownFlow} />
-        <Legend waysBack={drawn.waysBack} />
+        <Legend waysBack={drawn.waysBack} comparing={comparing} />
       </header>
       <main className={side ? 'with-side' : ''}>
         <Chart matrix={drawn} chosen={chosen} onChoose={setChosen} />

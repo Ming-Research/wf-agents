@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 
 import type { Block, Cell, Change, Fault, Flow } from './api';
 import { type Chosen, RunBy, StatusLabel } from './Chart';
-import { type Column, type Matrix, type Row, markOf, where } from './matrix';
+import { type BlockRow, type CellColumn, type Matrix, type Status, markOf, where } from './matrix';
 import {
   type Place,
   LIMIT_WORDS,
@@ -131,7 +131,7 @@ export function Faults({ faults }: { faults: Fault[] }) {
   );
 }
 
-function PanelHead(props: { kind: string; name: string; title?: string; status: Row['status']; onClose: () => void }) {
+function PanelHead(props: { kind: string; name: string; title?: string; status: Status; onClose: () => void }) {
   return (
     <header className="panel-head">
       <div>
@@ -184,21 +184,21 @@ function ChangesHere({ changes }: { changes: Change[] }) {
 /// Everything about a cell: what it reads and who writes each, what it may write and who reads each, when it runs,
 /// what it waits for, its limits and the cells it shares a session with.
 export function CellPanel(props: {
-  row: Row;
+  column: CellColumn;
   matrix: Matrix;
   flow: Flow;
   changes: Change[];
   onChoose: (c: Chosen) => void;
 }) {
-  const { row, flow, changes, onChoose } = props;
-  const cell = (row.cell ?? row.other) as Cell;
+  const { column, flow, changes, onChoose } = props;
+  const cell = (column.cell ?? column.other) as Cell;
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const sharing = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []).filter((c) => c !== cell.id) : [];
   const later = (ids: string[]) => ids.filter((id) => where(flow, cell.id, id) === 'below');
   return (
     <section className="panel" aria-label={`Cell ${cell.id}`}>
-      <PanelHead kind="Cell" name={cell.id} title={cell.title} status={row.status} onClose={() => onChoose(null)} />
-      {!row.cell && <p className="quiet">Not in the version shown: this is the cell as the other version has it.</p>}
+      <PanelHead kind="Cell" name={cell.id} title={cell.title} status={column.status} onClose={() => onChoose(null)} />
+      {!column.cell && <p className="quiet">Not in the version shown: this is the cell as the other version has it.</p>}
       <dl className="facts">
         <dt>Run by</dt>
         <dd>
@@ -328,14 +328,14 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
 
 /// Everything about a block: its values, who writes it, who reads it, and the ways back through it.
 export function BlockPanel(props: {
-  column: Column;
+  row: BlockRow;
   matrix: Matrix;
   flow: Flow;
   changes: Change[];
   onChoose: (c: Chosen) => void;
 }) {
-  const { column, flow, changes, onChoose } = props;
-  const block = (column.block ?? column.other) as Block;
+  const { row, flow, changes, onChoose } = props;
+  const block = (row.block ?? row.other) as Block;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
     const mark = markOf(reader, block.name);
@@ -345,8 +345,8 @@ export function BlockPanel(props: {
   });
   return (
     <section className="panel" aria-label={`Block ${block.name}`}>
-      <PanelHead kind="Block" name={block.name} status={column.status} onClose={() => onChoose(null)} />
-      {!column.block && <p className="quiet">Not in the version shown: this is the block as the other version has it.</p>}
+      <PanelHead kind="Block" name={block.name} status={row.status} onClose={() => onChoose(null)} />
+      {!row.block && <p className="quiet">Not in the version shown: this is the block as the other version has it.</p>}
       <dl className="facts">
         <dt>Values</dt>
         <dd>{block.values ? `a choice of ${block.values.join(', ')}` : <span className="quiet">not a choice</span>}</dd>
