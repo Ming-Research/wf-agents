@@ -12,7 +12,7 @@ import { LazyConsolePage } from './console/lazy';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
 import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
-import { type Serves, useServes } from './serves';
+import { type Serves, opensOnFlow, useServes } from './serves';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
 import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
 import { type Theme, useTheme } from './theme';
@@ -21,12 +21,15 @@ import { WorksList } from './works/WorksList';
 import { LIMIT_WORDS } from './words';
 
 export function App() {
-  const route = useRoute();
+  const named = useRoute();
   const serves = useServes();
-  // A server that gives the flow alone opens on the flow.
+  // A server that gives the flow alone opens on the flow where the address names no view: the flow is shown at once,
+  // and the address is brought to say so.
+  const onFlow = opensOnFlow(serves, window.location.hash);
   useEffect(() => {
-    if (serves === 'flow' && window.location.hash === '') window.location.replace('#/flow');
-  }, [serves]);
+    if (onFlow) window.location.replace('#/flow');
+  }, [onFlow]);
+  const route: Route = onFlow ? { view: 'flow' } : named;
   return (
     <Shell route={route}>
       <Views route={route} serves={serves} />
