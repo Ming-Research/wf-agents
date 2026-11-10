@@ -25,7 +25,11 @@ fn after_the_merge_finishes_nothing_more_is_given() {
 fn after_a_cancel_nothing_more_is_given() {
     let (mut w, write, _) = W::requested();
     w.on(Event::Cancelled);
-    assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![]);
+    let late = Event::Returned {
+        run: write,
+        came: hands_in(&[("text", None)]),
+    };
+    assert_eq!(w.refused(late), Refused::NoRoundUnderWay(write));
     assert_eq!(w.on(wrote("request", Outsider::Person, true, None)), vec![]);
     assert_eq!(w.on(Event::Look), vec![]);
 }

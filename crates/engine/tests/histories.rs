@@ -166,6 +166,10 @@ struct Seen {
     withdrawn: usize,
     refused: usize,
     stops: usize,
+    /// Rounds stopped by a cancel.
+    stopped: usize,
+    /// Histories that ended cancelled.
+    cancels: usize,
 }
 
 /// A history: the work, what the driver holds to be done, and what it saw.
@@ -246,6 +250,15 @@ impl History {
                             self.seen.withdrawn += 1;
                             continue;
                         }
+                        Effect::Stop { run } => {
+                            let at = self
+                                .held
+                                .iter()
+                                .position(|e| matches!(e, Effect::Round { run: r, .. } if r == run));
+                            self.held.remove(at.expect("a stopped round was held"));
+                            self.seen.stopped += 1;
+                            continue;
+                        }
                         Effect::Call {
                             what: Call::AtLimit(_), ..
                         } => self.seen.limits += 1,
@@ -292,7 +305,7 @@ impl History {
                         "an unknown call"
                     );
                 }
-                Effect::Withdraw { .. } => panic!("a withdrawal is held"),
+                Effect::Withdraw { .. } | Effect::Stop { .. } => panic!("a withdrawal or a stop is held"),
             }
         }
     }
@@ -453,7 +466,7 @@ impl History {
             .filter(|e| match e {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } => false,
+                Effect::Withdraw { .. } | Effect::Stop { .. } => false,
             })
             .cloned()
             .collect();
@@ -470,7 +483,7 @@ impl History {
         match effect {
             Effect::Round { run, cell, .. } => self.end_round(run, cell.as_str()),
             Effect::Call { call, .. } => self.give_result(call),
-            Effect::Withdraw { .. } => unreachable!(),
+            Effect::Withdraw { .. } | Effect::Stop { .. } => unreachable!(),
         }
         true
     }
@@ -521,17 +534,19 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         let people = h.rng.below(PEOPLE);
         for _ in 0..people {
             h.step(true);
+            h.check();
             if h.cancelled() {
                 break;
             }
-            h.check();
         }
         h.note("people stop".into());
         if h.cancelled() {
-            // Nothing more is given to a cancelled work.
-            let before = h.held.clone();
+            // Nothing of a cancelled work is to be done, and nothing more is given to it.
+            assert_eq!(h.held, vec![], "a cancelled work holds something to be done");
             h.take(Event::Look);
-            assert_eq!(h.held, before, "a cancelled work was given more");
+            h.check();
+            assert_eq!(h.held, vec![], "a cancelled work was given more");
+            h.seen.cancels += 1;
             return;
         }
         let bound = h.bound();
@@ -586,6 +601,8 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.withdrawn += s.withdrawn;
                 seen.refused += s.refused;
                 seen.stops += s.stops;
+                seen.stopped += s.stopped;
+                seen.cancels += s.cancels;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -605,6 +622,12 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
             log.join("\n")
         );
     }
-    let every = seen.limits > 0 && seen.abandons > 0 && seen.withdrawn > 0 && seen.refused > 0 && seen.stops > 0;
+    let every = seen.limits > 0
+        && seen.abandons > 0
+        && seen.withdrawn > 0
+        && seen.refused > 0
+        && seen.stops > 0
+        && seen.stopped > 0
+        && seen.cancels > 0;
     assert!(every, "a class of step never occurred: {seen:?}");
 }

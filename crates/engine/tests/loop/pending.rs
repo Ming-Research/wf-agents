@@ -38,7 +38,6 @@ fn nothing_is_pending_once_the_work_has_merged() {
 }
 
 #[test]
-#[ignore = "pending still gives the open calls of a cancelled work, and a cancel withdraws none of them"]
 fn nothing_is_pending_once_the_work_is_cancelled() {
     let (mut w, write, _) = W::requested();
     w.returns(write, Came::Asks(vec![question(Who::Owner)]));
