@@ -65,50 +65,44 @@ impl Rng {
     }
 }
 
-/// The flow's file, the same for every shape but for its order: the blocks every shape may use.
-fn flow_file(order: &[&str]) -> String {
+/// The flow's file for a shape: its order, and the blocks its cells use, each declared with who else may write it.
+fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
     let order = order.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ");
+    let declared: String = (blocks.iter())
+        .map(|b| {
+            let who = match *b {
+                "request" | "opinions" => "people = true\n",
+                "choice" => "values = [\"yes\", \"no\"]\npeople = true\n",
+                "main" => "outside = true\n",
+                _ => "",
+            };
+            format!("[blocks.{b}]\n{who}shown = true\n")
+        })
+        .collect();
     format!(
-        r#"
-        name = "shape"
-        order = [{order}]
-        [limits]
-        runs = 2
-        returns = 2
-        calls = 3
-        [lines.main]
-        [tests]
-        may_merge = "The work may merge"
-        [blocks.request]
-        people = true
-        [blocks.main]
-        outside = true
-        shown = true
-        [blocks.opinions]
-        people = true
-        shown = true
-        [blocks.plan]
-        shown = true
-        [blocks.notes]
-        shown = true
-        [blocks.choice]
-        values = ["yes", "no"]
-        people = true
-        shown = true
-        [blocks.merged]
-        shown = true
-        "#
+        "name = \"shape\"\norder = [{order}]\n[limits]\nruns = 2\nreturns = 2\ncalls = 3\n[lines.main]\n\
+         [tests]\nmay_merge = \"The work may merge\"\n{declared}"
     )
 }
 
-fn agent(inputs: &[&str], outputs: &[&str], when: Option<&str>) -> String {
+fn agent(inputs: &[&str], outputs: &[&str], when: Option<&str>) -> (String, Vec<&'static str>) {
     let list = |l: &[&str]| l.iter().map(|b| format!("\"{b}\"")).collect::<Vec<_>>().join(", ");
     let when = when.map_or(String::new(), |w| format!("when = {w}\n"));
-    format!(
+    let file = format!(
         "title = \"A cell\"\nkind = \"agent\"\nline = \"main\"\n{when}inputs = [{}]\noutputs = [{}]\n",
         list(inputs),
         list(outputs)
-    )
+    );
+    let used = inputs.iter().chain(outputs).map(|b| block_name(b)).collect();
+    (file, used)
+}
+
+/// The block's name as a constant, so that the blocks a shape uses can be gathered.
+fn block_name(b: &str) -> &'static str {
+    ["request", "main", "opinions", "plan", "notes", "choice", "merged"]
+        .into_iter()
+        .find(|n| *n == b)
+        .expect("a block of the histories")
 }
 
 /// The merge, the engine's own cell, after the cell that last writes the plan.
@@ -120,7 +114,7 @@ fn merge() -> String {
 /// One of the shapes of flow, each ending in the merge.
 fn shape(n: usize) -> Compiled {
     let choice = Some(r#"{ block = "choice", is = "yes" }"#);
-    let cells: Vec<(&str, String)> = match n {
+    let cells: Vec<(&str, (String, Vec<&'static str>))> = match n {
         // A chain.
         0 => vec![
             ("draft", agent(&["request", "main"], &["notes"], None)),
@@ -144,10 +138,12 @@ fn shape(n: usize) -> Compiled {
     };
     let mut order: Vec<&str> = cells.iter().map(|(id, _)| *id).collect();
     order.push("merge");
-    let mut files: BTreeMap<String, String> = cells.iter().map(|(id, f)| (id.to_string(), f.clone())).collect();
+    let mut blocks: BTreeSet<&str> = cells.iter().flat_map(|(_, (_, used))| used.iter().copied()).collect();
+    blocks.extend(["plan", "merged"]);
+    let mut files: BTreeMap<String, String> = cells.iter().map(|(id, (f, _))| (id.to_string(), f.clone())).collect();
     files.insert("merge".to_string(), merge());
     let source = Source {
-        flow: flow_file(&order),
+        flow: flow_file(&order, &blocks),
         cells: files,
     };
     let known: BTreeSet<TestName> = ["may_merge".into()].into();
