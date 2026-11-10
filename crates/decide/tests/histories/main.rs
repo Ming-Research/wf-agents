@@ -35,8 +35,8 @@
 //!   nothing in a quarter, and resting at a call in a quarter (the owner's in two of ten, the architect's in one, the
 //!   engine's otherwise); its third round always finishes. A run found stale as its round ends is abandoned, not
 //!   finished, as the engine does. In half the histories of the first test, drawn apart from the rest, a round before
-//!   the third fails in one in twelve: it ends with nothing come back and the engine pauses the work with the reason,
-//!   as the engine's loop does; people let the work on as from any pause.
+//!   the third of a cell other than the merge fails in eight in a hundred: it ends with nothing come back and the
+//!   engine pauses the work with the reason, as the engine's loop does; people let the work on as from any pause.
 //! - once people stop, the owner lets the work on if it is paused, whoever paused it.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
@@ -473,7 +473,9 @@ impl History {
             .clone();
         let is_merge = self.w.flow.cells().last().is_some_and(|c| c.id == cell);
         let rounds = self.w.records.rounds.iter().filter(|r| r.run == run).count();
-        if rounds < ROUNDS
+        // The merge finishes in its first round, as the engine's act does here: it fails no round.
+        if !is_merge
+            && rounds < ROUNDS
             && let Some(failing) = &mut self.failing
             && failing.chance(8)
         {
