@@ -194,6 +194,7 @@ dependencies = [
  "decide",
  "engine",
  "flow",
+ "rusqlite",
  "store",
  "tempfile",
  "work",
