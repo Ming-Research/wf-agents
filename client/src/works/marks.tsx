@@ -5,12 +5,21 @@
 import { type ReactNode, useState } from 'react';
 
 import type { CellNow, CellState, Now } from '../works-api';
+import { markStyle, stripStyle } from './state-marks';
 import { STATE_WORDS, nowTone, nowWords } from './words';
 
 /// A cell's state as a square: filled green when done, filled blue while running, a blue ring at rest, an orange ring
-/// when it runs again, a hairline ring before its first run, a dash when skipped.
+/// when it runs again, a hairline ring before its first run, a dash when skipped. Its look is `state-marks.ts`'s, which
+/// the console's cards draw too.
 export function StateMark({ state, title }: { state: CellState; title?: string }) {
-  return <span className={`state-mark state-${state}`} title={title ?? STATE_WORDS[state]} aria-hidden="true" />;
+  return (
+    <span
+      className={`state-mark state-${state}`}
+      style={markStyle(state)}
+      title={title ?? STATE_WORDS[state]}
+      aria-hidden="true"
+    />
+  );
 }
 
 /// What a cell's mark says on the pointer's tip: `plan: done, 2 runs finished`.
@@ -21,7 +30,7 @@ export function cellNowWords(c: CellNow): string {
 /// One mark per cell of a work's flow, in the order of the walk.
 export function Strip({ cells }: { cells: CellNow[] }) {
   return (
-    <span className="strip" role="img" aria-label={cells.map(cellNowWords).join('; ')}>
+    <span className="strip" style={stripStyle()} role="img" aria-label={cells.map(cellNowWords).join('; ')}>
       {cells.map((c) => (
         <StateMark key={c.cell} state={c.state} title={cellNowWords(c)} />
       ))}

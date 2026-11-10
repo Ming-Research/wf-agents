@@ -13,16 +13,14 @@ import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
 /// What the item is to deliver: not yet, delivered, or given up.
 export type ItemStanding = 'open' | 'done' | 'cancelled';
 
-/// The work going on on an item, as its node shows it: what it does now, how each cell of its flow stands, the cell it
-/// is at, when it was added, what it has taken, and when something last happened to it.
+/// The work going on on an item, as its node shows it: what it does now, how each cell of its flow stands, when it was
+/// added, what it has taken, and when something last happened to it.
 export type ShownWork = {
   number: number;
   now: Now;
   /// No round of it begins; a round under way goes on.
   paused: boolean;
   cells: CellNow[];
-  /// The cell it is at: where a round is under way, where it waits, or what it does next; none where nothing says.
-  here: string | null;
   from: number;
   usdMicros: number;
   last: number | null;
@@ -62,16 +60,6 @@ export function whoGives(w: Waited): 'owner' | 'architect' | null {
 /// How many of the things a work waits for the owner gives.
 export const asksOf = (now: Now): number =>
   now.kind === 'waits' ? now.on.filter((w) => whoGives(w) === 'owner').length : 0;
-
-/// The cell a work is at: where its round is under way, where it waits, or what it does next; else, as the walk would
-/// find it, the first cell in the flow's order that is running, at rest, to run again or not yet run.
-export function hereOf(w: Pick<Summary, 'now' | 'cells'>): string | null {
-  const now = w.now;
-  if (now.kind === 'round' || now.kind === 'next') return now.cell;
-  if (now.kind === 'waits') return now.at;
-  if (now.kind === 'merged' || now.kind === 'cancelled') return null;
-  return w.cells.find((c) => c.state !== 'done' && c.state !== 'skipped')?.cell ?? null;
-}
 
 /// Whether a work has begun: a round is under way, or a cell of it has run.
 export const started = (w: Summary): boolean =>
@@ -137,7 +125,6 @@ export function shownTree(data: Items): Shown[] {
               now: w.now,
               paused: w.paused,
               cells: w.cells,
-              here: hereOf(w),
               from: w.added,
               usdMicros: w.spent.usdMicros,
               last: w.last,

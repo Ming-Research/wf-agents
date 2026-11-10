@@ -5,6 +5,7 @@ import { act } from 'react';
 import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { cellNowWords } from '../works/marks';
 import type { Act, Item, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -111,23 +112,27 @@ describe('the panel of the item selected', () => {
     expect(el.querySelector('a.cw-mono')?.getAttribute('href')).toBe('#/works/12');
   });
 
-  it('marks each cell of the flow: done, where the work is in the tone of its card, and the others', () => {
+  it("shows the work's cells in the works page's strip, one mark per cell in the flow's order, each by its state", () => {
+    for (const n of [12, 6, 4, 9, 2]) {
+      const el = draw(n, answered([]));
+      const cells = itemOf(n).work.cells;
+      const strip = el.querySelectorAll('.cw-line .cw-progress .strip');
+      expect(strip).toHaveLength(1);
+      expect([...strip[0].querySelectorAll('.state-mark')].map((m) => m.className)).toEqual(
+        cells.map((c) => `state-mark state-${c.state}`),
+      );
+      // The strip's own words, cell by cell.
+      expect(strip[0].getAttribute('aria-label')).toBe(cells.map(cellNowWords).join('; '));
+    }
+  });
+
+  it("explains the strip's marks by the works page's legend, on the work's tab", () => {
     const el = draw(12, answered([]));
-    const marks = () => [...el.querySelectorAll('.stage-cell')].map((m) => m.className.replace('stage-cell stage-', ''));
-    expect([...el.querySelectorAll('.stage-cell')].map((m) => m.textContent).join('')).toBe('RDRITRCM');
-    // Waiting for the owner: orange.
-    expect(marks()).toEqual(['done', 'done', 'owner', 'ahead', 'ahead', 'ahead', 'ahead', 'ahead']);
-    expect(el.querySelector('.stage-owner')?.getAttribute('title')).toBe('Review the design: waits for you here');
-    // Waiting for the engine: the card's pale yellow, not the owner's orange.
-    draw(6, answered([]));
-    expect(marks()).toContain('waiting');
-    expect(marks()).not.toContain('owner');
-    draw(4, answered([]));
-    expect(marks()).toContain('paused');
-    draw(9, answered([]));
-    expect(marks()).toContain('halted');
-    draw(2, answered([]));
-    expect(marks()).toContain('running');
+    expect(el.querySelector('.legend')).toBeNull();
+    act(() => button(el, 'Work').click());
+    const legend = el.querySelector('.panel-part .legend');
+    expect(legend?.getAttribute('aria-label')).toBe("What the marks of a cell's state mean");
+    expect(text(el, '.legend li')).toEqual(['done', 'running', 'at rest', 'runs again', 'not run yet', 'skipped']);
   });
 
   it('says each thing the work waits for, and who gives it', () => {
