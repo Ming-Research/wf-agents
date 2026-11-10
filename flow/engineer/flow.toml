@@ -143,11 +143,14 @@ shown = true
 [blocks.review_on_implement]
 [blocks.testing_on_implement]
 [blocks.check_on_implement]
+shown = true
 
-# What a cell answers to what was said to it, for the cell that judges it to read. The implementation answers each
-# of its judges in a block of that judge's, so that an answer to one runs no other again.
-[blocks.answers_research]
-[blocks.answers_deep_research]
+# What a cell answers to what was said to it, for the cell that judges it to read. A cell answers each of its judges
+# in a block of that judge's, so that an answer to one runs no other again.
+[blocks.answers_research_to_plan_review]
+[blocks.answers_research_to_implement]
+[blocks.answers_deep_research_to_plan_review]
+[blocks.answers_deep_research_to_implement]
 [blocks.answers_review]
 [blocks.answers_testing]
 [blocks.answers_check]

@@ -27,5 +27,15 @@ for adversarial testing says where it gives one. Having said yes, keep it while 
 say so is still there. Answer each thing the owner says in `opinions_review` in `reply_review`, in the language the
 installation sets for its owner: what you changed for it, or why not.
 '''
-inputs = ["code", "decisions", "evidence", "plan_owner", "acceptance", "answers_review", "opinions_review"]
+inputs = [
+  "code",
+  "decisions",
+  "evidence",
+  "plan_owner",
+  "plan_agent",
+  "acceptance",
+  "tree_changes",
+  "answers_review",
+  "opinions_review",
+]
 outputs = ["review_on_implement", "review_settled", "more_testing", "reply_review"]

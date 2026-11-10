@@ -23,8 +23,9 @@ settle. With no, write the plan:
   solution; a principle or the constitution, ask the owner in your return.
 
 Take each point of `plan_review_on_research`, `implement_on_research` and `opinions_research`: change the plan where
-it touches, only there, or say why not. Answer the cells' points in `answers_research`, and the owner's in
-`reply_research`, in the language the installation sets for its owner.
+it touches, only there, or say why not. Answer the points of the plan's review in `answers_research_to_plan_review`,
+those of the implementation in `answers_research_to_implement`, and the owner's in `reply_research`, in the language
+the installation sets for its owner.
 '''
 inputs = [
   "background",
@@ -43,6 +44,7 @@ outputs = [
   "acceptance",
   "tree_changes",
   "changes_tree",
-  "answers_research",
+  "answers_research_to_plan_review",
+  "answers_research_to_implement",
   "reply_research",
 ]

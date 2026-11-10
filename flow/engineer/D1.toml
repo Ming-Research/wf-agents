@@ -2,11 +2,11 @@ title = "Deep research"
 kind = "agent"
 line = "deep_research"
 task = '''
-Research what `found` left open, and work out how to solve the problem. This session has not read the tree: read the
-constitution, `design/principles/`, the decisions `related` names and the code yourself. Take `found` as a hypothesis
-to verify, and use what the research left in `research/` rather than run it again. Find out a fact left open, try the
-ways to try, analyse a fault of the design itself as a design; verify a fact that would change the direction before
-using it, and weigh the upkeep the solution adds.
+Research what `found` left open, and work out how to solve the problem in `background` and `supplement`. This session
+has not read the tree: read the constitution, `design/principles/`, the decisions `related` names and the code
+yourself. Take `found` as a hypothesis to verify, and use what the research left in `research/` rather than run it
+again. Find out a fact left open, try the ways to try, analyse a fault of the design itself as a design; verify a fact
+that would change the direction before using it, and weigh the upkeep the solution adds.
 
 Write the plan in the research's blocks:
 - `plan_owner`, read by the owner on the page, in the language the installation sets for its owner: what will be done,
@@ -25,11 +25,14 @@ If the solution falls into parts each mergeable on its own, too large for one wo
 naming them in order.
 
 Take each point of `plan_review_on_deep_research`, `implement_on_deep_research` and `opinions_deep_research`: change
-the plan where it touches, only there, or say why not. Answer the cells' points in `answers_deep_research`, and the
+the plan where it touches, only there, or say why not. Answer the points of the plan's review in
+`answers_deep_research_to_plan_review`, those of the implementation in `answers_deep_research_to_implement`, and the
 owner's in `reply_deep_research`, in the language the installation sets for its owner.
 '''
 when = { block = "needs_deep_research", is = "yes" }
 inputs = [
+  "background",
+  "supplement",
   "found",
   "related",
   "plan_owner",
@@ -49,6 +52,7 @@ outputs = [
   "acceptance",
   "tree_changes",
   "changes_tree",
-  "answers_deep_research",
+  "answers_deep_research_to_plan_review",
+  "answers_deep_research_to_implement",
   "reply_deep_research",
 ]
