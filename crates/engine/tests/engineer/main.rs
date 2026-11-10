@@ -40,6 +40,9 @@
 //!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; cancels in one in a
 //!   hundred; looks otherwise.
 //!
+//! In one history of four the random steps end early, at the first step after which the check's record failed or a
+//! judge's own refusal stands: the content continuation is then tried from where the work must go back.
+//!
 //! Unless the work was cancelled or merged, the content continuation follows (`Content`): every round of an agent or
 //! act hands in what its cell must write to go forward and says nothing more. Each verdict is written as a value other
 //! than its refusal; each choice a precondition of kind `all` reads, as the value it looks for (the check says yes);
@@ -177,6 +180,8 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             NO_BY_A_PERSON,
             MERGE_BEGAN,
             CONTENT_MERGED,
+            CONTENT_ON_A_FAILED_CHECK,
+            CONTENT_ON_A_REFUSAL,
             ENGINE_STOPPED,
         ]
         .map(String::from),
@@ -210,6 +215,8 @@ const NO_BY_A_JUDGE: &str = "a judge's refusal stood while the check's record pa
 const NO_BY_A_PERSON: &str = "a person's refusal stood while the check's record passed, before any run of the merge";
 const MERGE_BEGAN: &str = "a round of the merge began";
 const CONTENT_MERGED: &str = "the content continuation merged";
+const CONTENT_ON_A_FAILED_CHECK: &str = "the content continuation began as the check's record failed";
+const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's own refusal stood";
 const ENGINE_STOPPED: &str = "the engine stopped";
 
 /// The place of the cell.
@@ -783,6 +790,27 @@ impl History {
         })
     }
 
+    /// Whether the work is at a turn the content continuation must be tried from: the check's record failed, or a
+    /// judge's own refusal stands; which, where it is.
+    fn turning(&self) -> Option<&'static str> {
+        let flow = &self.d.flow.flow;
+        let reading = Reading::new(flow, &self.d.work.records, None);
+        let check = &flow.cells()[self.roles.check].id;
+        let failed = reading.record(check).is_some_and(|f| {
+            (self.roles.check_passes(&self.d.flow))
+                .any(|(b, pass)| f.writes.iter().any(|w| &w.block == b && w.value.as_ref() != Some(pass)))
+        });
+        if failed {
+            return Some(CONTENT_ON_A_FAILED_CHECK);
+        }
+        let refused = (self.roles.refusals.iter()).any(|(b, refusal)| {
+            (reading.current(b)).is_some_and(|v| {
+                matches!(v.by, Writer::Run(_)) && v.value.as_ref() == Some(refusal) && reading.stands(v)
+            })
+        });
+        refused.then_some(CONTENT_ON_A_REFUSAL)
+    }
+
     /// Property 3, and the counts of property 4: the content continuation from the work as it is.
     fn content(&mut self) {
         self.d.note("the content continuation begins".into());
@@ -864,6 +892,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
     let random = rng.below(RANDOM);
     let starts = rng.chance(80);
     let sloppy = rng.chance(20);
+    let early = rng.chance(25);
     let roles = Roles::new(flow);
     let mut part = Random {
         roles: roles.clone(),
@@ -889,6 +918,10 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
             }
             h.d.step(&mut part, true);
             h.observe();
+            if early && let Some(turn) = h.turning() {
+                h.reach(turn.to_string());
+                break;
+            }
         }
         if h.d.work.records.cancelled.is_none() {
             h.content();
@@ -978,6 +1011,7 @@ fn histories(known: &[&str]) {
         unreached.is_empty(),
         "no history reached these, so the properties about them check nothing: {unreached:?}"
     );
+    panic!("shown once in CI: the counts above");
 }
 
 #[test]
