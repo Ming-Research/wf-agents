@@ -178,7 +178,7 @@ pub fn stale(flow: &Flow, records: &Records, tests: &dyn Tests, run: RunId) -> O
 
 /// Whether the work is paused: the latest of its pauses and lettings on is a pause.
 pub fn paused(records: &Records) -> bool {
-    (records.pauses.iter()).max_by_key(|p| p.at).is_some_and(|p| p.paused)
+    records.pauses.last().is_some_and(|p| p.paused)
 }
 
 /// Whether the records can be those of a work.
