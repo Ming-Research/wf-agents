@@ -52,7 +52,7 @@ Why: The engine runs with the owner's credentials and the page can start works a
 
 ### principle the-past-as-it-ran
 What ran is kept whole, with the flow and configuration it ran on, and the past is read by those, never by today's flow or configuration.
-Why: A work goes on from what earlier works on its item left, and the page draws each work on the flow it ran on. A later flow may lack the cells a work ran on and a later configuration may name other models, so reading the past by today's rewrites it; a return kept only to its first 2,048 characters hid the real cause. (Article 4)
+Why: The page draws each work on the flow it ran on. A later flow may lack the cells a work ran on and a later configuration may name other models, so reading the past by today's rewrites it; a return kept only to its first 2,048 characters hid the real cause. (Article 4)
 
 ### principle keep-what-was-paid-for
 What was already paid for (a round's work, a branch, a session's cache) is kept and carried on from; a stop, a restart, a fault or a new flow redoes only what must be redone.
