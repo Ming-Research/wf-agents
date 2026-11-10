@@ -246,6 +246,19 @@ impl World {
         self.outsider_writes(block, Outsider::Outside, None)
     }
 
+    /// A person writes prose into the block, and the entry says the change does not matter.
+    pub fn person_writes_not_mattering(&mut self, block: &str) -> Seq {
+        let at = self.tick();
+        self.records.written.push(Written {
+            block: block.into(),
+            by: Outsider::Person,
+            matters: false,
+            value: None,
+            at,
+        });
+        at
+    }
+
     /// Something outside the work writes the block, and the owner says the change does not matter to the works under
     /// way: a changed specification of a cell, for one.
     pub fn outside_writes_not_mattering(&mut self, block: &str) -> Seq {
