@@ -41,7 +41,11 @@ pub enum Decision {
     GoOn { cell: CellId, run: RunId },
     /// The run is abandoned, and the walk is taken again: it is at rest and stale, or its work was cancelled, when
     /// it may have a round under way, which is stopped.
-    Abandon { cell: CellId, run: RunId, because: Abandoning },
+    Abandon {
+        cell: CellId,
+        run: RunId,
+        because: Abandoning,
+    },
     /// The work waits at this cell, for each of these.
     Wait { at: CellId, on: Vec<Waited> },
 }

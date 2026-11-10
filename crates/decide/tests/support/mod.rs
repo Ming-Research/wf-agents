@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, CallId, Called, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Outcome, Outsider, Pause, Records,
-    Returned, Round, RunId, Seq, Abandoning, Started, TestName, Tests, Waited, Who, Write, Written, decide,
+    Abandoned, Abandoning, CallId, Called, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Outcome, Outsider,
+    Pause, Records, Returned, Round, RunId, Seq, Started, TestName, Tests, Waited, Who, Write, Written, decide,
 };
 
 /// The named tests, each holding unless the test of the walk set it otherwise.

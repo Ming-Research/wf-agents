@@ -23,8 +23,8 @@ mod stale;
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Outcome, RecordFault,
-    Returned, Round, RunId, Seq, Abandoning, Waited, Who, Write, Written,
+    Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Outcome,
+    RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
 };
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{World, cell, gate, merge_word, resting};
