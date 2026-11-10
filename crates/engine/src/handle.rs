@@ -16,7 +16,7 @@ use crate::work::{Ask, Back, Call, Given, Work};
 /// Takes one thing that happened to the work, and gives what is to be done for it outside the engine.
 pub fn handle(flow: &Compiled, tests: &dyn Tests, work: &mut Work, event: Event) -> Result<Vec<Effect>, Refused> {
     let mut effects = Vec::new();
-    take(flow, work, event)?;
+    take(flow, work, event, &mut effects)?;
     advance(flow, tests, work, &mut effects);
     Ok(effects)
 }
@@ -55,7 +55,7 @@ pub fn pending(work: &Work) -> Vec<Effect> {
 }
 
 /// Adds what happened to the records, or refuses what cannot have happened to this work.
-fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
+fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     match event {
         Event::Look => {}
         Event::Wrote {
@@ -109,6 +109,21 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
         Event::Cancelled => {
             if work.records.cancelled.is_none() {
                 work.records.cancelled = Some(work.tick());
+                // Nothing of a cancelled work goes on: its round under way is stopped, the calls it rests at are
+                // withdrawn, and its runs are abandoned.
+                let runs: Vec<RunId> = (work.records.started.iter().map(|s| s.run))
+                    .filter(|&run| open(work, run))
+                    .collect();
+                for run in runs {
+                    if began(work, run) > ended(work, run) {
+                        effects.push(Effect::Stop { run });
+                    }
+                    for call in open_calls(work, run) {
+                        effects.push(Effect::Withdraw { call });
+                    }
+                    let at = work.tick();
+                    work.records.abandoned.push(Abandoned { run, at });
+                }
             }
         }
         Event::Returned { run, came } => {
