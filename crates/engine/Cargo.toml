@@ -1,0 +1,15 @@
+[package]
+name = "engine"
+description = "Takes what happens to a work, adds it to the work's records, and says what is to be done next"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+decide = { path = "../decide" }
+flow = { path = "../flow" }
+
+[lints]
+workspace = true
