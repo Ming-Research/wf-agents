@@ -4,11 +4,11 @@
 // the owner chose or what changed. The owner reviews every change to the flow here, so when there is a definition to
 // compare against, what changed is marked on the chart and listed in the panel.
 
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { type Comparison, type Definition, type Flow, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
-import { ConsolePage } from './console';
+import { LazyConsolePage } from './console/lazy';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
 import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
 import { type Route, tabOf, useRoute } from './route';
@@ -39,7 +39,12 @@ export function Views({ route, loadFlow = load }: { route: Route; loadFlow?: () 
     <>
       {route.view !== 'flow' && (
         <div className="view">
-          {route.view === 'console' && <ConsolePage />}
+          {route.view === 'console' && (
+            // The console's drawing library is large: it is read only once the console is first shown.
+            <Suspense fallback={<p className="message muted">Reading the console</p>}>
+              <LazyConsolePage />
+            </Suspense>
+          )}
           {route.view === 'works' && <WorksList />}
           {route.view === 'work' && <WorkView key={route.work} work={route.work} />}
         </div>

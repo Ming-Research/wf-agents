@@ -67,7 +67,8 @@ describe('the views', () => {
     await settle();
     expect(shown(container).querySelector('table.works')).not.toBeNull();
     go({ view: 'console' });
-    expect(shown(container).textContent).toBe('The console is not built yet');
+    // The console is read when it is first shown.
+    expect(shown(container).textContent).toBe('Reading the console');
     go({ view: 'work', work: 43 });
     await settle();
     expect(shown(container).querySelector('.view-name')?.textContent).toBe('List every work');
