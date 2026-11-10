@@ -11,19 +11,20 @@ The words these entries use, each with one meaning:
 - A work's **state** is its **blocks**: the named parts of its item, which cells, people and the outside write and
   cells read. A **version** of a block is one write of it, and its **current** version is the latest.
 - A version's **meaning** is the version at which what the block says last changed for those who read it: the version
-  itself, unless its writer said the change does not matter and had seen the version it wrote over, when it is that
-  version's meaning.
+  itself, unless it changes nothing of what the block says (decision meaning-told-by-the-writer), when it is the
+  meaning of the version before it.
 - A cell's **inputs** are the blocks it reads, and its **outputs** the blocks it may write.
 - A **run** is one execution of a cell for a work. It is made of **rounds**: in a round an agent is given something and
-  returns, or the engine does an act of its own. Between rounds a run is **at rest**. A run **finishes** when its
-  return has passed everything the flow requires of it, and writes its outputs then and not before; a run is
+  returns, or the engine does an act of its own. Between rounds a run is **at rest**. A run **starts from** the current version
+  of each block its cell reads or may write. A run **finishes** when its return has met everything the flow requires of
+  it, and writes its outputs then and not before; a run is
   **abandoned** when the engine gives it up before that. A cell's **record** is its latest finished run. A record
   **knows**, of each input, the version its run started from, or the version it wrote itself.
 - An **opinion** is what someone has to say to a cell about what it did. A cell that can be told something has a block
   of opinions among its inputs.
 - A cell is **skipped** when its condition is not met.
 - A run at rest is **stale** when its cell is skipped, or when a block it started from has changed in meaning.
-- A run is a **way round** when each of its reasons is a block whose current version a cell after it wrote.
+- A run is a **way round** when each of its reasons is a block whose meaning a cell after it last changed.
 - A work's **records** are all that is recorded of it: its runs, their rounds and calls, and every write of every
   block. They are only added to.
 - The **walk** is the engine going through the cells in their order to find what a work does next.
@@ -36,7 +37,7 @@ Why: One rule then covers going on and going back: a first run, a rerun because 
 From: the owner, 2026-11-09
 
 ### decision opinions-are-inputs
-What someone has to say to a cell about what it did is written into that cell's block of opinions, which is one of its inputs: a review's findings for the implementation, the owner's objection to a plan, a remark the owner writes for that cell on the page. A new opinion is a new version of the block, so the cell runs again, is given what was said, and replies. The flow has no cell that takes the owner's remarks: the owner knows whether a remark is about the design, the implementation or the tests, and writes it for that cell. A cell that judges writes an opinion only when it has one: a review that finds nothing more writes nothing, and the cell it judged is not run again. The flow has no cell for fixing and none for checking a fix: what was objected to is fixed by its cell running again, and the fix is looked at by the judging cell running again because what it judged changed. The answer to a question of a cell is written where the question came from: an answer other than the one recommended, or an objection, as an opinion for that cell; a confirmation changes no meaning and only meets the precondition that waits for it. Whether a judging cell is content is a block it writes, and the merge waits on it.
+What someone has to say to a cell about what it did is written into that cell's block of opinions, which is one of its inputs: a review's findings for the implementation, the owner's objection to a plan, a remark the owner writes for that cell on the page. A new opinion is a new version of the block, so the cell runs again, is given what was said, and replies. What it answers to an opinion is a block the judging cell reads, so that an answer which changes nothing else still brings the judge to look again. The flow has no cell that takes the owner's remarks: the owner knows whether a remark is about the design, the implementation or the tests, and writes it for that cell. A cell that judges writes an opinion only when it has one: a review that finds nothing more writes nothing, and the cell it judged is not run again. The flow has no cell for fixing and none for checking a fix: what was objected to is fixed by its cell running again, and the fix is looked at by the judging cell running again because what it judged changed. The answer to a question of a cell is written where the question came from: an answer other than the one recommended, or an objection, as an opinion for that cell; a confirmation changes no meaning and only meets the precondition that waits for it. Whether a judging cell is content is a block it writes, and the merge waits on it.
 Why: Going back is then the same thing as going on: an input changed. A fix is the work of the first writing done as an increment, and a second look the work of the first on what changed; cells of their own for the two needed their own rules for who fixes what a red CI before the merge found and who checks that fix. An opinion emptied when it is settled would be one more change to run a cell for; only a new one is. A cell that took every remark and handed it on would be a round to do what the owner does by choosing where to write, and what it handed on to a cell before it would count as that cell being sent round. With one way for a remark to change a work's course, an approval on a question and a "no" said elsewhere cannot remain side by side unresolved. (principle reviews-can-be-disputed)
 From: the owner, 2026-11-09
 
@@ -53,7 +54,7 @@ Not: Every cell reading main, which would run a whole work again at each merge o
 From: the owner, 2026-11-09
 
 ### decision meaning-told-by-the-writer
-A block that is a choice or a list of names changes its meaning when its value does, whoever writes it: the owner confirming what was recommended changes none. Prose changes its meaning when its writer says so: with each write the cell says, with a line of why, whether the change matters to the cells that read the block, compared with the version at which the meaning last changed, which it is given. Prose written by a person always changes the meaning, and so does what the outside writes, unless whoever approved that write said it does not, as the owner may of a cell's changed specification. A cell that says a change does not matter without having seen the version it wrote over, because someone wrote the block while its round was under way, is not taken at its word. The answer and its reason are kept where the owner sees them, and the page marks where what the owner was last shown differs from the current version.
+A block that is a choice or a list of names changes its meaning when its value does, whoever writes it: the owner confirming what was recommended changes none. Prose changes its meaning when its writer says so: with each write the cell says, with a line of why, whether the change matters to the cells that read the block, compared with the version at which the meaning last changed, which it is given. Prose written by a person always changes the meaning, and so does what the outside writes, unless whoever approved that write said it does not, as the owner may of a cell's changed specification. A cell that says a change does not matter without having seen the version it wrote over, because someone wrote the block after its run started, is not taken at its word. The answer and its reason are kept where the owner sees them, and the page marks where what the owner was last shown differs from the current version.
 Why: An agent never writes the same text twice, so judging prose by its text would run every later cell again after every rerun: when an item's title is reworded and the research adjusts a few words of its plan, nothing after it should run. Comparing with the version at which the meaning last changed keeps a row of small changes, each said not to matter, from adding up unseen. The owner reads the designs where this arises, and the page's mark shows exactly the cases where a change was said not to matter. (Article 3)
 Not: A second agent to check the answer, at a round for every change. Nor a count that goes up at each change of meaning: which version a write is compared with would then be left to whoever does the counting.
 From: the owner, 2026-11-09
@@ -64,7 +65,7 @@ Why: A fork drawn as rows and a gate drawn as a cell each needed a record of wha
 From: the owner, 2026-11-09
 
 ### decision calls-inside-a-run
-What a cell asks for while it runs (a tool, a pause, a ruling from whoever can decide when it cannot go on), and what the flow requires its return to pass (the engine's checks, a review that only advises), are calls of that run: the run rests at the call, the result comes back into its next round, and the run finishes when its return has passed. A call holds no place in the order of cells and writes no block; the flow declares it on the cell, and the chart draws it beside the cell. A call the flow requires is made by the engine, never left to the agent to ask for.
+What a cell asks for while it runs (a tool, a pause, a ruling from whoever can decide when it cannot go on), and what the flow requires its return to meet (the engine's checks, a review that only advises), are calls of that run: the run rests at the call, the result comes back into its next round, and the run finishes when its return has met them. A call holds no place in the order of cells and writes no block; the flow declares it on the cell, and the chart draws it beside the cell. A call the flow requires is made by the engine, never left to the agent to ask for.
 Why: Drawn as cells, three kinds of call took some thirty-seven of an engineer graph's ninety-four rows, the same three on every agent cell, and the engine kept a stack of who had called whom; where a work was then had two answers, the tool's cell and the cell the tool ran for. What a task only asks of an agent, the agent may leave undone, so a required call is the flow's.
 From: the owner, 2026-11-09
 
@@ -79,7 +80,7 @@ Why: A new session is then the same kind of event as a changed answer, and needs
 From: the owner, 2026-11-09
 
 ### decision every-way-round-has-a-limit
-Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often a return is sent back within a run, how many calls a run makes. A run is a way round when each of its reasons is a block whose current version a cell after it wrote: an opinion on what it did, for one. Once a cell's last runs, as many in a row as its limit, were each a way round and the next would be one, the work waits for the owner, who lets the cell go on, the count starting anew, or cancels the work. A run with a reason that a person, the outside or a cell before it wrote starts the count anew. The reasons of every run are recorded as it starts, and the counts are worked out from the records. The compiler refuses a flow in which something that repeats has no limit, or a limit of none.
+Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often a return is sent back within a run, how many calls a run makes. A run is a way round when each of its reasons is a block whose meaning a cell after it last changed: an opinion on what it did, for one. Once a cell's last finished runs, as many in a row as its limit, were each a way round and the next would be one, the work waits for the owner, who lets the cell go on, the count starting anew, or cancels the work. A run with a reason that a person, the outside or a cell before it wrote starts the count anew. The reasons of every run are recorded as it starts, and the counts are worked out from the records. The compiler refuses a flow in which something that repeats has no limit, or a limit of none.
 Why: Something that repeats without a limit spends without end and unseen. In any circle of cells that send each other round, the first of them in the order runs only for what the later ones wrote, so its count grows whatever the others' reasons are, and one count bounds them all. A person's opinion is the owner steering and no circle, so it starts the count anew, and the owner is not asked to let go on what the owner sent back. (principle no-unseen-spending-loop)
 From: the owner, 2026-11-09
 
@@ -106,7 +107,7 @@ Why: Decisions taken one after another are the same every time the same things h
 From: the owner, 2026-11-09
 
 ### decision a-run-is-one-mechanism
-Running a cell is one mechanism, the same for every cell: take the session of the cell's line, starting one where there is none and forking the loaded context where the cell reads it; give the task; wait for the return; make the calls it asks for and the calls the flow requires; and, when its return has passed, record in one entry the blocks it wrote, and for each whether the change matters. A run writes no block before it finishes, and a run that is stale when its last round ends is abandoned, not finished. A run interrupted by a stop of the engine goes on from what its rounds recorded. Each kind of call says how it starts, when it is complete, and by what it is recognised as already made.
+Running a cell is one mechanism, the same for every cell: take the session of the cell's line, starting one where there is none and forking the loaded context where the cell reads it; give the task; wait for the return; make the calls it asks for and the calls the flow requires; and, when its return has met what the flow requires, record in one entry the blocks it wrote, and for each whether the change matters. A run writes no block before it finishes, and a run that is stale when its last round ends is abandoned, not finished. A run interrupted by a stop of the engine goes on from what its rounds recorded. Each kind of call says how it starts, when it is complete, and by what it is recognised as already made.
 Why: Written once, it is tested once, and a new kind of call touches no cell. A block half written by a run that is then abandoned would have to be told apart, at every reading, from one that counts; and a run finished on what had changed under it would write over what it never saw. (principle effects-known-as-done)
 From: the owner, 2026-11-09
 
@@ -135,7 +136,7 @@ Why: A merge cannot be taken back, and each of these is someone's "not yet". (pr
 From: the owner, 2026-11-09
 
 ### decision merge-only-on-what-is-current
-At a merge, the record of every cell that is not skipped knows the current meaning of each of its inputs.
+As the merge's last round starts, the record of every cell that is not skipped knows the current meaning of each of its inputs.
 Why: A merge rests on every record before it, and one that knows a version no longer current carries a decision someone has since changed.
 From: the owner, 2026-11-09
 
