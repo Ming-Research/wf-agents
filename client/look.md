@@ -212,7 +212,12 @@ write, both where both, a diamond where its condition reads the block, directly 
 condition, and a square where a named test that is one of its preconditions reads it. The diamond and the square are
 drawn round the ring and the dot in a thinner line, so that what a cell runs on stays the mark's centre and what decides
 whether it runs, or waits, its frame. A block's marks are joined by a line along its
-row; a way back is the same line in the way back's purple with an arrow at the read it sends the work back to. The row
+row. The line starts at the first mark that no way back reaches, which is the first cell that writes the block where a
+cell does, and runs to the row's last mark: it shows the way the block goes on, and a read left of every write is
+reached by the way back alone. A way back is the same line in the way back's purple with an arrow at the read it sends
+the work back to. Where a way back runs along a stretch of the row's line, each keeps to a lane of its own, the line
+3px above the middle and the way back with its arrow 3px below it, the marks staying in the middle: drawn on the one
+middle line, the way back covered the line and the row read as if nothing went forward there. The row
 or column chosen is tinted with the accent. When comparing, what a change put in is green, what it took out red and
 dashed, what it changed orange: on a cell's head and a block's edge, and on the marks.
 
