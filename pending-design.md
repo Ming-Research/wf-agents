@@ -16,10 +16,12 @@ The words these entries use, each with one meaning:
 - A **product** is a thing with a name and versions that cells depend on: a block of the item, an output of a cell, or
   something outside the work, such as main. A **version** is one write of it. A run writes its products as it finishes
   and not before; people and the outside write at any time. A product's **current** version is the latest written by a
-  person, from outside, or by a finished run of a cell on the path.
+  person, from outside, or by a finished run of a cell on the path. A cell **sees**, of a product it depends on, only
+  what a person, the outside or a cell before it wrote.
 - A version's **meaning** is the version at which what the product says last changed for the cells that depend on it:
   the version itself, unless its writer said the change does not matter, when it is the meaning of the version the
-  writer's run started from.
+  writer's run wrote over: the latest written by a person, from outside, by a cell before the writer or by the writer's
+  own cell.
 - A cell **depends on** the products it declares it depends on, and **may write** those it declares it writes.
 - A cell is **on the path** of a work when its condition is met by the records as they are. A cell off the path counts
   as having no record: what it handed in is absent to every cell, and a refusal by it, or of a version it wrote, has no
@@ -31,8 +33,8 @@ The words these entries use, each with one meaning:
   force against a product its cell may write. The cell that **answers** a refusal is the first cell on the path that
   may write the product and either has no record or wrote the product in its record. No refusal is ever taken out of
   the records.
-- A run at rest is **stale** when its cell is no longer on the path, when something it started from has changed in
-  meaning, or when a refusal its cell answers is in force and was not given to it.
+- A run at rest is **stale** when its cell is no longer on the path, when something it started from, or
+  is to write over, has changed in meaning, or when a refusal its cell answers is in force and was not given to it.
 - A run is a **way round** when none of its reasons came from before its cell or from a person.
 - The **walk** is the engine going through the cells in their order to find what a work does next.
 - A **call** is something a run rests at until it has its result: a tool the engine runs, a ruling or a start a person
@@ -45,12 +47,12 @@ Not: Hierarchical state machines, which end the repeated rows but keep a positio
 From: the owner, 2026-11-09
 
 ### decision cell-runs-when
-A cell needs to run when it has no record, or when one of these is true of its record: a product it wrote was lost; something it depends on has a meaning other than the one the record was built on; a refusal it made no longer stands; or it is the cell that answers a refusal in force. What a record was built on is, for a product the record itself wrote, the meaning as it wrote it, and otherwise the meaning of the version its run started from: a cell never needs to run for its own write, and does for another's write that matters.
-Why: These are all there is to going on and going back: a first run, a rerun because what it was built on changed or was lost, a rerun to judge again, a rerun because its product was judged wanting. Were a record's own write compared with what the run started from, a cell would need to run again after every run. Running again every cell after one that ran again was refused as the rule: a design redone need not mean an implementation redone when what the implementation depends on did not change. (Article 3)
+A cell needs to run when it has no record, or when one of these is true of its record: a product it wrote was lost; something it depends on, as the cell sees it, has a meaning other than that of the version the record's run started from; a refusal it made no longer stands; or it is the cell that answers a refusal in force. A cell sees only what was written before it, so it never needs to run for its own write, nor for the write of a cell after it: the only way back is a refusal.
+Why: These are all there is to going on and going back: a first run, a rerun because what it was built on changed or was lost, a rerun to judge again, a rerun because its product was judged wanting. Were a later cell's write of a block a change for the cells before it, a cell that judges a plan would run again each time a cell after it rewrote a part of the plan, and the two would send each other round to their limits though neither refused the other; and a circle closed through a condition, a later cell's answer taking off the path what an earlier one depends on, would never come to rest. Running again every cell after one that ran again was refused as the rule: a design redone need not mean an implementation redone when what the implementation depends on did not change. (Article 3)
 From: the owner, 2026-11-09
 
 ### decision dependencies-declared
-Each cell declares what its result depends on: an output of another cell, blocks of the item, or something outside the work such as main or the project's settings. What a cell reads without declaring it never makes it need to run. A dependency names a cell's output, not the branch as it is, where that output is what the cell judged. A work is not held to the main it started from: a cell that changes the code takes the latest main into the work's branch as its run starts, and main itself is depended on only by the cell right before the merge, which checks that the work passes the full CI with the latest main taken in and refuses the implementation's output when it does not. The merge only merges.
+Each cell declares what its result depends on: an output of a cell before it, blocks of the item, or something outside the work such as main or the project's settings. Of a block that several cells write, a cell depends on what people, the outside and the cells before it wrote. What a cell reads without declaring it never makes it need to run. A dependency names a cell's output, not the branch as it is, where that output is what the cell judged. A work is not held to the main it started from: a cell that changes the code takes the latest main into the work's branch as its run starts, and main itself is depended on only by the cell right before the merge, which checks that the work passes the full CI with the latest main taken in and refuses the implementation's output when it does not. The merge only merges.
 Why: Whether a cell must run again is then worked out from what it was built on, by one rule and one kind of dependency. A review that depends on what the implementation handed in is not started over by every commit after it. A work held to one main from its start to its merge meets what others merged meanwhile only in the merge queue, where a conflict costs the most; taking main in at every run that changes the code shows it while the work is still being done. The check is a cell of its own because a work ends when the merge has a record: a refusal by the merge could never have force.
 Not: Every cell depending on main, which would run a whole work again at each merge of another.
 From: the owner, 2026-11-09
@@ -103,7 +105,7 @@ Why: A new session is then the same kind of event as a changed answer, and needs
 From: the owner, 2026-11-09
 
 ### decision every-way-round-has-a-limit
-Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often a return is sent back within a run, how many calls a run makes. A run is a way round when none of its reasons came from before its cell or from a person: each is a cell's refusal, an answer to a refusal of its own, a lost product, or the write of a cell after it. Once a cell's last runs, as many in a row as its limit, were each a way round and the next would be one, the work waits for the owner, who lets the cell go on, the count starting anew, or cancels the work. A run with a reason from before its cell or from a person starts the count anew. The reasons of every run are recorded as it starts, and the counts are worked out from the records. The compiler refuses a flow in which something that repeats has no limit, or a limit of none.
+Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often a return is sent back within a run, how many calls a run makes. A run is a way round when none of its reasons came from before its cell or from a person: each is a cell's refusal, an answer to a refusal of its own, or a lost product. Once a cell's last runs, as many in a row as its limit, were each a way round and the next would be one, the work waits for the owner, who lets the cell go on, the count starting anew, or cancels the work. A run with a reason from before its cell or from a person starts the count anew. The reasons of every run are recorded as it starts, and the counts are worked out from the records. The compiler refuses a flow in which something that repeats has no limit, or a limit of none.
 Why: Something that repeats without a limit spends without end and unseen. In any circle of cells that send each other back, the first of them in the order runs only for what the later ones did, so its count grows whatever the others' reasons are: one count bounds two cells that answer each other with a new version every time, and a cell that keeps rebuilding what is lost. A person's refusal is the owner steering and no circle, so it starts the count anew, and the owner is not asked to let go on what the owner sent back. (principle no-unseen-spending-loop)
 Not: Counting a cell's runs since anything before it last changed: that needed a rule for which writes are a change and another for the run the change itself calls for, and it asked the owner to let go on a cell the owner had refused.
 From: the owner, 2026-11-09
@@ -121,7 +123,7 @@ From: the owner, 2026-11-09
 ## Backend
 
 ### decision engine-knows-no-cell
-The engine's code names no particular cell: it carries out whatever cells the flow's definition holds. The definition holds each cell's specification (its task, its output, its checks, its line) and how the cells are joined (order, dependencies, conditions, preconditions, what each may write and may refuse, calls, limits, and who rules a dispute). A named test, for a condition or a precondition, is a function in code that declares what it reads; a new kind is a new function. The compiler checks that a dependency names an output of a cell of the flow, a block of the item or something outside the work; that a cell may refuse only a product some cell may write; that everything that repeats has a limit; that a condition reads only what cells before it, people or the outside wrote; that every named test is one the engine has; and that the merge has no condition.
+The engine's code names no particular cell: it carries out whatever cells the flow's definition holds. The definition holds each cell's specification (its task, its output, its checks, its line) and how the cells are joined (order, dependencies, conditions, preconditions, what each may write and may refuse, calls, limits, and who rules a dispute). A named test, for a condition or a precondition, is a function in code that declares what it reads; a new kind is a new function. The compiler checks that a dependency names an output of a cell before it, a block of the item or something outside the work; that a cell may refuse only a product some cell may write; that everything that repeats has a limit; that a condition reads only what cells before it, people or the outside wrote; that every named test is one the engine has; and that the merge has no condition.
 Why: What is in the definition the owner can read on the chart and the compiler can check before anything runs. (Article 7; principle compile-before-run)
 From: the owner, 2026-11-09
 
